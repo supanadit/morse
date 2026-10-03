@@ -42,12 +42,16 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "560kB",
+                  // ~600 kB raw (~153 kB over the wire) today: markdown, highlight.js,
+                  // DOMPurify, anime.js and Angular are all in the initial bundle. The
+                  // ceiling stays at 1 MB, so this warns about growth, not about size.
+                  "maximumWarning": "700kB",
                   "maximumError": "1MB"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "8kB",
+                  // The transcript's own stylesheet is the largest at ~10.6 kB.
+                  "maximumWarning": "12kB",
                   "maximumError": "16kB"
                 }
               ],

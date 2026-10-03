@@ -12,7 +12,6 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { EnterDirective } from '../../shared/enter.directive';
 
 /** One project as the filter needs it: what to show, and how much is inside. */
 export interface ProjectOption {
@@ -69,7 +68,6 @@ export function projectRows(
  */
 @Component({
   selector: 'morse-project-filter',
-  imports: [EnterDirective],
   templateUrl: './project-filter.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
