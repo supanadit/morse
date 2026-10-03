@@ -211,5 +211,5 @@ The extension test needs a graphical session (or `xvfb-run`); it downloads VS Co
 
 Session listing reads pi's JSONL files directly (`~/.pi/agent/sessions/--<cwd>--/*.jsonl`) because the RPC
 surface has no "list sessions" command; `switch_session` takes a session *path*, so `SessionSummary.id` is the
-file path. Branch/fork management, compaction controls and tool approval policies are the next natural
-additions and belong in `core` modules plus new wire messages.
+file path. Branch/fork management and compaction controls are done; session rename, a diff/review surface and
+tool approval policies are the next natural additions and belong in `core` modules plus new wire messages.
