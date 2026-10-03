@@ -14,7 +14,15 @@ import {
 import { createMorseClient, type MorseActions, type MorseClient } from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from './transport.token';
 
-const FRONTEND = { name: '@morse/ui-angular', version: '0.1.0' };
+/**
+ * What this bundle calls itself in the handshake. The version a *host* reports
+ * back (`view.frontend`) comes from `webview.manifest.json`, which is generated
+ * from this package's manifest at build time — that is the authoritative one, and
+ * the About dialog renders it. This literal only exists because the client has no
+ * manifest to read at runtime, and `core/frontend-identity.spec.ts` fails when it
+ * drifts from `package.json`.
+ */
+export const FRONTEND_IDENTITY = { name: '@morse/ui-angular', version: '0.2.1' };
 const SLOW_CONNECTION_MS = 6_000;
 
 /**
@@ -82,7 +90,7 @@ export class MorseService {
   );
 
   constructor() {
-    this.client = createMorseClient({ transport: this.transport, frontend: FRONTEND });
+    this.client = createMorseClient({ transport: this.transport, frontend: FRONTEND_IDENTITY });
     this.actions = this.client.actions;
     const initial = this.client.getView();
     this.view.set(initial);

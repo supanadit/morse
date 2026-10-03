@@ -139,6 +139,9 @@ export class MemoryHostTransport extends BaseHostTransport {
             protocolVersion: PROTOCOL_VERSION,
             capabilities: CAPABILITIES,
             state: this.state,
+            // Echo what the client said it is, so the UI developed against this
+            // host sees the same identity a real host reports (its manifest).
+            ...(message.payload.frontend ? { frontend: message.payload.frontend } : {}),
           },
         });
         return;

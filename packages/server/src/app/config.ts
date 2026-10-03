@@ -2,6 +2,8 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { WorkspaceRef } from '@morse/core';
+import { FRONTEND_MANIFEST_FILE, frontendIdentity, parseFrontendManifest } from '@morse/protocol';
+import type { FrontendIdentity } from '@morse/protocol';
 import { DEFAULT_UPLOAD_DIR } from '../internal/uploads/upload-store.js';
 
 export interface MorseServerConfig {
@@ -21,6 +23,13 @@ export interface MorseServerConfig {
   projects: string[];
   /** Where browser uploads land: relative to a session cwd, or absolute. */
   uploadDir: string;
+  /**
+   * The bundle this host serves, as its own manifest declares it. Relayed to
+   * clients in `host/ready`, so a frontend can name itself (the About dialog) and
+   * the host log says which build is talking. Undefined when the directory has no
+   * usable manifest — a bare dev directory, say.
+   */
+  frontend?: FrontendIdentity;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerConfig {
@@ -37,15 +46,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     ? bundledUiDir
     : monorepoUiDir;
   const defaultHost = '127.0.0.1';
+  const uiDir = configuredUiDir
+    ? isAbsolute(configuredUiDir)
+      ? configuredUiDir
+      : join(process.cwd(), configuredUiDir)
+    : defaultUiDir;
 
   return {
     host: env.MORSE_HOST ?? defaultHost,
     port: parsePositiveInt(env.MORSE_PORT, 4399),
-    uiDir: configuredUiDir
-      ? isAbsolute(configuredUiDir)
-        ? configuredUiDir
-        : join(process.cwd(), configuredUiDir)
-      : defaultUiDir,
+    uiDir,
+    frontend: readFrontendIdentity(uiDir),
     workspace: { cwd: workspacePath, name: basename(workspacePath) || workspacePath },
     piPath: env.MORSE_PI_PATH,
     nodeEntryPath: env.MORSE_PI_ENTRY,
@@ -56,6 +67,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     projects: parseList(env.MORSE_PROJECTS),
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
   };
+}
+
+/**
+ * Which frontend this host is serving, read from the directory it will serve. The
+ * manifest is the frontend's own statement about itself; the host only relays it,
+ * exactly like the VS Code host relays the same file.
+ */
+function readFrontendIdentity(uiDir: string): FrontendIdentity | undefined {
+  try {
+    return frontendIdentity(
+      parseFrontendManifest(readFileSync(join(uiDir, FRONTEND_MANIFEST_FILE), 'utf8')),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

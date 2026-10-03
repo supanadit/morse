@@ -47,8 +47,9 @@ describe('AboutDialog', () => {
   it('says which build and which wire the reader is looking at', async () => {
     const host = await render();
 
-    // The memory host reports no frontend identity, but it does report the wire
-    // version and the host kind: both must be visible, not guessed.
+    // The memory host echoes the identity the client announced (a real host reads
+    // it from the served manifest), so a frontend always shows a version here.
+    expect(host.textContent).toContain('@morse/ui-angular');
     expect(host.textContent).toContain(String(PROTOCOL_VERSION));
     expect(host.textContent).toContain('server');
   });

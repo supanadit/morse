@@ -81,6 +81,8 @@ export class MorseSessionFactory {
       transcripts: this.transcripts,
       policy: this.policy,
       scope: { kind: 'global' },
+      // The bundle this host serves, so the panel can name its own version.
+      ...(this.config.frontend ? { frontend: this.config.frontend } : {}),
       // The registry outlives this connection on purpose.
       ownsRegistry: false,
       // A page load must not create a session; the first prompt opens one.

@@ -22,7 +22,10 @@ Hosts read `webview.manifest.json`, compare `protocolVersion` with their own and
   (the host then injects a CSP nonce and rewrites `<base>` to the webview resource root).
 - NestJS host: serves the same directory (`MORSE_UI_DIR`, default `packages/ui-angular/dist`).
 
-Because the manifest carries the protocol version, a stale bundle fails loudly instead of half-working.
+Because the manifest carries the protocol version, a stale bundle fails loudly instead of half-working. Hosts also
+report the bundle's `{ name, version }` back in `host/ready` (`payload.frontend`), which is the only way a frontend
+can learn its own version at runtime — the About dialog shows it verbatim, so both hosts must read the manifest from
+the directory they actually serve (`frontendIdentity()` in `@morse/protocol`).
 
 ## Reusable pieces (write these once, per framework write only views)
 

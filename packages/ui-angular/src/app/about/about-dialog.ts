@@ -217,10 +217,10 @@ export class AboutDialog {
   protected readonly groups = CREDITS;
   protected readonly protocolVersion = this.morse.protocolVersion;
 
-  /** `name@version` as the host read it from the frontend manifest. */
+  /** `name version` as the host read it from the frontend manifest. */
   protected readonly frontend = computed(() => {
     const identity = this.morse.frontend();
-    return identity ? `${identity.name} ${identity.version}` : 'not reported yet';
+    return identity ? `${identity.name} ${identity.version}` : 'not reported by this host';
   });
 
   protected readonly host = computed(() => {
