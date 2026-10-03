@@ -24,6 +24,13 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Every workspace resolves `@morse/*` through the libraries' built `dist/`
+      # (the `main`/`types` fields point there), so the libraries must exist
+      # before any type-check. This is why the order matches the repo's
+      # "Done = build + check-types + test:fast".
+      - name: Build
+        run: npm run build
+
       - name: Type-check
         run: npm run check-types
 
@@ -32,9 +39,6 @@ jobs:
 
       - name: Unit tests
         run: npm run test:fast
-
-      - name: Build
-        run: npm run build
 
       - name: Dry-run the npm artifact
         run: npm pack -w @supanadit/morse-web --dry-run

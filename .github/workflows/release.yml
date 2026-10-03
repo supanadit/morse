@@ -65,14 +65,16 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Every workspace resolves `@morse/*` through the libraries' built `dist/`,
+      # so the build must come before anything that type-checks.
+      - name: Build the extension, the server and the frontend
+        run: npm run build
+
       - name: Type-check
         run: npm run check-types
 
       - name: Unit tests
         run: npm run test:fast
-
-      - name: Build the extension, the server and the frontend
-        run: npm run build
 
       - name: Build the npm artifact
         run: npm run build -w @supanadit/morse-web
