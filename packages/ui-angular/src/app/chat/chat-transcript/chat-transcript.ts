@@ -736,6 +736,14 @@ export class ChatTranscript {
 
   /** The empty-state wordmark, split so the reveal can stagger if we want it to. */
   protected readonly heroLetters = ['M', 'o', 'r', 's', 'e'];
+  /**
+   * The ⧉ pin button only exists where the host can read an editor selection
+   * (the VS Code host). The browser has no editor, so the empty-state hint must
+   * not promise a button that is not under the composer there.
+   */
+  protected readonly canPinSelection = computed(
+    () => this.morse.capabilities()?.editorContext === true,
+  );
 
   protected readonly copiedId = signal<string | null>(null);
   /** The image opened full-size from its chip, if any. */
