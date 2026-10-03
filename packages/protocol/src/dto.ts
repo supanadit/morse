@@ -33,6 +33,8 @@ export interface CommandOption {
   name: string;
   description?: string;
   source: CommandSource;
+  /** Raw prompt-template Markdown, for `source: 'prompt'` only (see `AgentCommand`). */
+  template?: string;
 }
 
 export interface WorkspaceInfo {

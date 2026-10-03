@@ -58,7 +58,7 @@
       [query]="paletteFilter()"
       [active]="paletteActive()"
       (activeChange)="paletteActive.set($event)"
-      (pick)="activatePalette($event, 'insert')"
+      (pick)="activatePalette($event, 'run')"
       (close)="onPaletteClose()"
     />
   }
@@ -252,4 +252,12 @@
     </div>
   </div>
   </div>
+
+  @if (templateRequest(); as request) {
+    <morse-prompt-template-dialog
+      [request]="request"
+      (submitted)="onTemplateSubmit($event)"
+      (cancelled)="closeTemplate()"
+    />
+  }
 </footer>

@@ -235,6 +235,11 @@ export class MorseService {
     this.actions.requestSessions();
   }
 
+  /** Re-reads the prompt templates and other commands the palette lists. */
+  refreshCommands(): void {
+    this.actions.refreshCommands();
+  }
+
   setModel(provider: string, id: string): void {
     this.actions.setModel(provider, id);
   }

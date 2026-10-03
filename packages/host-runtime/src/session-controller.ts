@@ -276,6 +276,9 @@ export class HostSessionController {
       case 'session/list':
         await this.publishSessions();
         return;
+      case 'commands/refresh':
+        await this.refreshCommands();
+        return;
       case 'project/list':
         await this.publishProjects();
         return;
@@ -829,6 +832,19 @@ export class HostSessionController {
       return;
     }
     await this.guard(() => gateway.respondToInteraction(response));
+  }
+
+  /**
+   * The palette asked for a fresh command list. The agent re-reads the template
+   * files and reports back through `agent/state`, so the composer sees a template
+   * added, changed or deleted since the session started — without a pi reload.
+   */
+  private async refreshCommands(): Promise<void> {
+    const gateway = this.options.services.registry.active();
+    if (gateway?.refreshCommands === undefined) {
+      return;
+    }
+    await this.guard(() => gateway.refreshCommands!());
   }
 
   private async runHostCommand(

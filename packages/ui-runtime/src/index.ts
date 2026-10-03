@@ -1,4 +1,5 @@
 export * from './client.js';
+export * from './prompt-template.js';
 export * from './transport/host-transport.js';
 export * from './transport/vscode-transport.js';
 export * from './transport/websocket-transport.js';

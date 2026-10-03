@@ -1,3 +1,6 @@
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, join, resolve } from 'node:path';
 import {
   THINKING_LEVELS,
   type AgentEvent,
@@ -310,12 +313,36 @@ export class PiRpcAgent implements AgentGateway {
       availableModels,
       availableThinkingLevels:
         availableThinkingLevels.length > 0 ? availableThinkingLevels : [...THINKING_LEVELS],
-      availableCommands: toCommands(commands?.commands),
+      availableCommands: await buildCommandList(commands?.commands, this.commandContext()),
       streaming: state.isStreaming === true,
     };
     this.ready = true;
     await this.refreshStats();
     this.emit({ type: 'agent/ready', at: this.now(), state: this.snapshotState() });
+  }
+
+  /**
+   * Re-reads the resources behind `get_commands` and reports the result the same
+   * way a fresh spawn would. The palette calls it the moment it opens, so a new
+   * or edited template is there by the time the reader finishes typing.
+   */
+  async refreshCommands(): Promise<void> {
+    if (this.disposed || !this.ready) {
+      return;
+    }
+    const commands = await this.client
+      .request<{ commands?: RpcCommandInfo[] }>({ type: 'get_commands' })
+      .catch(() => undefined);
+    this.sessionState = {
+      ...this.sessionState,
+      availableCommands: await buildCommandList(commands?.commands, this.commandContext()),
+    };
+    this.emit({ type: 'agent/state', at: this.now(), state: this.snapshotState() });
+  }
+
+  /** Where a command list is rebuilt from: the session's workspace and env. */
+  private commandContext(): CommandContext {
+    return { cwd: this.options.workspace.cwd, env: this.options.env };
   }
 
   /**
@@ -487,16 +514,204 @@ function toCommandSource(value: string | undefined): AgentCommandSource {
   return value === 'prompt' || value === 'skill' ? value : 'extension';
 }
 
-function toCommands(items: RpcCommandInfo[] | undefined): AgentCommand[] {
-  return (items ?? [])
-    .filter((item): item is RpcCommandInfo & { name: string } => {
-      return typeof item.name === 'string' && item.name.trim().length > 0;
-    })
-    .map((item) => ({
+/**
+ * pi lists a prompt template in `get_commands` but does not send its body over
+ * RPC, and it does not notice a file added after spawn. Read the file directly —
+ * both for the templates pi named and for the ones Morse finds on disk. Best
+ * effort: an unreadable file is left out rather than offered as a dead command.
+ */
+async function readTemplateFile(path: string | undefined): Promise<string | undefined> {
+  if (path === undefined || path.length === 0) {
+    return undefined;
+  }
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a command list is rebuilt from: the workspace and the pi environment. */
+export interface CommandContext {
+  cwd: string;
+  env: NodeJS.ProcessEnv | undefined;
+}
+
+/** The subset of a `get_commands` entry the command list cares about. */
+export interface CommandListInput {
+  name?: string;
+  description?: string;
+  source?: string;
+  sourceInfo?: { path?: string; scope?: string };
+}
+
+/**
+ * The palette's command list, rebuilt from disk. pi only exposes the templates
+ * it loaded at spawn (`get_commands` is a cache), so this also re-reads every
+ * template file and scans the conventional prompt directories — that is what
+ * makes a template added, changed or deleted since spawn show up without a pi
+ * reload.
+ *
+ * pi's own list stays the source for extension and skill commands, and for
+ * prompt templates that live outside the conventional directories (packages,
+ * explicit paths); a listed template whose file is gone is dropped.
+ */
+export async function buildCommandList(
+  items: CommandListInput[] | undefined,
+  context: CommandContext,
+): Promise<AgentCommand[]> {
+  const commands: AgentCommand[] = [];
+  const seen = new Set<string>();
+  let projectTrusted = false;
+
+  for (const item of items ?? []) {
+    if (typeof item.name !== 'string' || item.name.trim().length === 0) {
+      continue;
+    }
+    const source = toCommandSource(item.source);
+    if (source !== 'prompt') {
+      commands.push({ name: item.name, description: item.description, source });
+      seen.add(item.name);
+      continue;
+    }
+    if (item.sourceInfo?.scope === 'project') {
+      projectTrusted = true;
+    }
+    const template = await readTemplateFile(item.sourceInfo?.path);
+    if (template === undefined) {
+      // The file pi listed is gone: hide it rather than offer a dead command.
+      continue;
+    }
+    commands.push({
       name: item.name,
-      description: item.description,
-      source: toCommandSource(item.source),
-    }));
+      // Prefer the freshly parsed description so an edited frontmatter reflects
+      // too; pi's cached description is the fallback.
+      description: promptDescription(template) ?? item.description,
+      source,
+      template,
+    });
+    seen.add(item.name);
+  }
+
+  for (const dir of await promptDirs(projectTrusted, context)) {
+    for (const file of await listPromptFiles(dir)) {
+      if (seen.has(file.name)) {
+        continue;
+      }
+      const template = await readTemplateFile(file.path);
+      if (template === undefined) {
+        continue;
+      }
+      commands.push({
+        name: file.name,
+        description: promptDescription(template),
+        source: 'prompt',
+        template,
+      });
+      seen.add(file.name);
+    }
+  }
+  return commands;
+}
+
+/**
+ * Directories Morse re-scans for prompt templates: the user's global prompts,
+ * and the project's — the latter only once that project is trusted, exactly as
+ * pi gates project resources.
+ */
+async function promptDirs(projectTrusted: boolean, context: CommandContext): Promise<string[]> {
+  const dirs = [join(agentDir(context.env), 'prompts')];
+  if (projectTrusted || (await isProjectTrusted(context.cwd, context.env))) {
+    dirs.push(resolve(context.cwd, '.pi', 'prompts'));
+  }
+  return dirs;
+}
+
+/** pi's agent config directory (`PI_CODING_AGENT_DIR`, else `~/.pi/agent`). */
+function agentDir(env: NodeJS.ProcessEnv | undefined): string {
+  const configured = env?.PI_CODING_AGENT_DIR?.trim();
+  return configured && configured.length > 0
+    ? expandHome(configured)
+    : join(homedir(), '.pi', 'agent');
+}
+
+function expandHome(path: string): string {
+  if (path === '~') {
+    return homedir();
+  }
+  if (path.startsWith('~/') || path.startsWith('~\\')) {
+    return join(homedir(), path.slice(2));
+  }
+  return path;
+}
+
+/**
+ * pi records project trust in `<agentDir>/trust.json` as `{ "<cwd>": true }`.
+ * The project prompt directory is only scanned when that says yes, so an
+ * untrusted checkout cannot inject a template into the palette.
+ */
+async function isProjectTrusted(cwd: string, env: NodeJS.ProcessEnv | undefined): Promise<boolean> {
+  try {
+    const raw = await readFile(join(agentDir(env), 'trust.json'), 'utf8');
+    const decisions = JSON.parse(raw) as Record<string, unknown>;
+    return decisions[cwd] === true || decisions[resolve(cwd)] === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Direct `.md` children of a prompt directory — pi loads direct children only. */
+async function listPromptFiles(dir: string): Promise<{ name: string; path: string }[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const files: { name: string; path: string }[] = [];
+  for (const entry of entries) {
+    if (!entry.name.endsWith('.md')) {
+      continue;
+    }
+    const path = join(dir, entry.name);
+    let isFile = entry.isFile();
+    if (entry.isSymbolicLink()) {
+      try {
+        isFile = (await stat(path)).isFile();
+      } catch {
+        continue;
+      }
+    }
+    if (isFile) {
+      files.push({ name: basename(entry.name, '.md'), path });
+    }
+  }
+  return files;
+}
+
+/**
+ * What the palette prints for a scanned template: pi's `description` frontmatter,
+ * or the first non-empty body line, truncated the way pi truncates it.
+ */
+function promptDescription(raw: string): string | undefined {
+  let body = raw;
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
+  if (frontmatter !== null) {
+    const described = /^description:[ \t]*(.*)$/m.exec(frontmatter[1]);
+    if (described !== null) {
+      const value = unquote(described[1].trim());
+      if (value.length > 0) {
+        return value;
+      }
+    }
+    body = raw.slice(frontmatter[0].length);
+  }
+  const firstLine = body.split('\n').find((line) => line.trim().length > 0);
+  if (firstLine === undefined) {
+    return undefined;
+  }
+  const trimmed = firstLine.trim();
+  return trimmed.length > 60 ? `${trimmed.slice(0, 60)}...` : trimmed;
+}
+
+function unquote(value: string): string {
+  const match = /^(['"])([\s\S]*)\1$/.exec(value);
+  return match === null ? value : match[2];
 }
 
 function toNoticeLevel(value: string | undefined): NoticeLevel {

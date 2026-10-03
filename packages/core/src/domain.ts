@@ -33,6 +33,12 @@ export interface AgentCommand {
   name: string;
   description?: string;
   source: AgentCommandSource;
+  /**
+   * Raw Markdown of a prompt template, for `source: 'prompt'` only. pi does not
+   * send the body over RPC, so the adapter reads the file `get_commands` named
+   * and the modal expands it here. Absent when the file could not be read.
+   */
+  template?: string;
 }
 
 /** An image attached to a prompt: base64 payload plus its media type. */

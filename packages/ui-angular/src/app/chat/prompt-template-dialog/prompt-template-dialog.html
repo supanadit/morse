@@ -1,0 +1,73 @@
+<div class="modal-layer" (click)="cancelled.emit()">
+  <div
+    #card
+    class="modal-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="template-title"
+    (click)="$event.stopPropagation()"
+  >
+    <header class="head">
+      <h2 id="template-title">/{{ request().name }}</h2>
+      @if (request().description; as description) {
+        <p class="description">{{ description }}</p>
+      }
+    </header>
+
+    <div class="fields">
+      @for (argument of request().form.arguments; track argument.id) {
+        <label class="field">
+          <span class="field-label">
+            {{ argument.label }}
+            @if (argument.required) {
+              <span class="required">required</span>
+            }
+          </span>
+          @if (argument.index === undefined) {
+            <textarea
+              rows="2"
+              [value]="value(argument.id)"
+              [attr.aria-label]="argument.label"
+              placeholder="Shell-quoted arguments, e.g. &quot;api tests&quot; lint"
+              (input)="setValue(argument.id, $event)"
+              (keydown)="onSubmitKey($event)"
+            ></textarea>
+          } @else {
+            <input
+              type="text"
+              [value]="value(argument.id)"
+              [attr.aria-label]="argument.label"
+              (input)="setValue(argument.id, $event)"
+              (keydown.enter)="submit($event)"
+            />
+          }
+        </label>
+      }
+
+      <label class="field">
+        <span class="field-label">
+          Additional instructions
+          <span class="optional">optional · appended below the template</span>
+        </span>
+        <textarea
+          rows="3"
+          aria-label="Additional instructions"
+          [value]="extra()"
+          placeholder="Anything the template does not cover"
+          (input)="setExtra($event)"
+          (keydown)="onSubmitKey($event)"
+        ></textarea>
+      </label>
+
+      <div class="preview">
+        <span class="field-label">Preview</span>
+        <pre aria-label="Prompt preview">{{ preview() }}</pre>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="secondary" (click)="cancelled.emit()">Cancel</button>
+        <button type="button" [disabled]="!ready()" (click)="submit()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -59,6 +59,8 @@ export interface RpcCommandInfo {
   name?: string;
   description?: string;
   source?: string;
+  /** Where pi loaded the resource from; a prompt template's `.md` lives at `path`. */
+  sourceInfo?: { path?: string; scope?: string; origin?: string };
 }
 
 export interface RpcSessionStateData {

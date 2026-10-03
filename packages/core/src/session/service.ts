@@ -55,6 +55,12 @@ export interface AgentGateway {
    */
   fork(entryId: string): Promise<{ text: string; cancelled: boolean }>;
   abort(): Promise<void>;
+  /**
+   * Re-reads the commands the agent exposes — prompt templates especially, which
+   * pi caches at spawn. Optional: an adapter that cannot re-read resources simply
+   * omits it and the palette keeps what the last `state()` reported.
+   */
+  refreshCommands?(): Promise<void>;
   setModel(model: ModelRef): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   compact(customInstructions?: string): Promise<void>;

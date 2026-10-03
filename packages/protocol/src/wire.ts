@@ -116,6 +116,12 @@ export type ClientToHostMessage =
   | { type: 'session/compact'; payload: { instructions?: string } }
   | { type: 'history/load'; payload: Record<string, never> }
   | { type: 'session/list'; payload: Record<string, never> }
+  /**
+   * Re-reads the resources the composer's palette lists. pi caches its prompt
+   * templates at spawn, so a newly added template is invisible until this — the
+   * host re-reads the template files and answers with a fresh `session/state`.
+   */
+  | { type: 'commands/refresh'; payload: Record<string, never> }
   | { type: 'project/list'; payload: Record<string, never> }
   | { type: 'project/open'; payload: { path: string } }
   | { type: 'model/set'; payload: { provider: string; id: string } }
@@ -163,6 +169,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'session/compact',
   'history/load',
   'session/list',
+  'commands/refresh',
   'project/list',
   'project/open',
   'model/set',

@@ -97,6 +97,17 @@ describe('createMorseClient', () => {
     client.dispose();
   });
 
+  it('asks the host to re-read commands with `commands/refresh`', () => {
+    const transport = stubTransport();
+    const client = createMorseClient({ transport });
+
+    client.actions.refreshCommands();
+
+    expect(transport.sent.at(-1)).toEqual({ type: 'commands/refresh', payload: {} });
+
+    client.dispose();
+  });
+
   it('routes a forked prompt (`composer/seed`) to listeners', () => {
     const transport = stubTransport();
     const client = createMorseClient({ transport });

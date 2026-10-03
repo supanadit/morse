@@ -129,6 +129,7 @@ function toCommandOption(command: AgentCommand): CommandOption {
     name: command.name,
     description: command.description,
     source: command.source,
+    template: command.template,
   };
 }
 

@@ -61,6 +61,8 @@ function fakeGateway(
     forkMessages?: AgentForkMessage[];
     /** A committed fork: the prompt it re-opened and the new session id. */
     fork?: { text: string; sessionId: string };
+    /** Counts palette-driven command re-reads; omitted means the adapter can't. */
+    refreshCommands?: () => Promise<void>;
   } = {},
 ): AgentGateway {
   let sessionId = options.sessionId;
@@ -100,6 +102,7 @@ function fakeGateway(
           })
         : Promise.reject(options.compactError ?? new Error('compact failed')),
     respondToInteraction: () => Promise.resolve(),
+    ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     dispose: () => Promise.resolve(),
   };
 }
@@ -153,6 +156,7 @@ function harness(options: {
   /** The factory refuses instead of returning a gateway: "pi is not installed". */
   spawnError?: Error;
   agentHint?: string;
+  refreshCommands?: () => Promise<void>;
 } = {}): Harness {
   const messages: HostToClientMessage[] = [];
   const gateway = fakeGateway({
@@ -162,6 +166,7 @@ function harness(options: {
     ...(options.historyEntries ? { historyEntries: options.historyEntries } : {}),
     ...(options.forkMessages ? { forkMessages: options.forkMessages } : {}),
     ...(options.fork ? { fork: options.fork } : {}),
+    ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
   });
   const spawns = { count: 0 };
   const factory: AgentGatewayFactory = {
@@ -563,6 +568,31 @@ describe('HostSessionController project list', () => {
       .at(-1)
       ?.payload.projects.map((project) => project.path);
     expect(paths).toContain('/work/other');
+  });
+
+  it('re-reads commands when the palette asks, and skips a host that cannot', async () => {
+    const refreshed: number[] = [];
+    const h = harness({
+      refreshCommands: () => {
+        refreshed.push(1);
+        return Promise.resolve();
+      },
+    });
+    await h.controller.start();
+    // A draft has no gateway yet; the first prompt spawns the active one.
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hi' } });
+
+    await h.controller.handleClientMessage({ type: 'commands/refresh', payload: {} });
+
+    expect(refreshed).toHaveLength(1);
+
+    // A gateway without the optional method: the message is a no-op, not an error.
+    const plain = harness();
+    await plain.controller.start();
+    await plain.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hi' } });
+    await expect(
+      plain.controller.handleClientMessage({ type: 'commands/refresh', payload: {} }),
+    ).resolves.toBeUndefined();
   });
 
   it('tells host commands which workspace the client is viewing, not the registry\'s active session', async () => {

@@ -73,6 +73,14 @@ export class ShellState {
   readonly projectFilterOpen = this.projectFilter.asReadonly();
 
   /**
+   * The prompt-template form. The composer owns the request (it needs the
+   * attachments and the prompt action), but the flag lives here like the other
+   * overlays so `modalOpen` can tell the shortcuts a dialog is up.
+   */
+  private readonly promptTemplate = signal(false);
+  readonly promptTemplateOpen = this.promptTemplate.asReadonly();
+
+  /**
    * The compaction gate. Compaction spends a model call and replaces what the agent
    * remembers, so it always asks first: two places request it (the header button and
    * `/compact`), and one stray click used to be enough to start it.
@@ -92,6 +100,7 @@ export class ShellState {
       this.shortcuts() ||
       this.projectPicker() ||
       this.projectFilter() ||
+      this.promptTemplate() ||
       this.compactPrompt() !== undefined,
   );
 
@@ -153,6 +162,11 @@ export class ShellState {
 
   closeProjectFilter(): void {
     this.projectFilter.set(false);
+  }
+
+  /** Set by the composer when its prompt-template form opens and closes. */
+  setPromptTemplateOpen(open: boolean): void {
+    this.promptTemplate.set(open);
   }
 
   openProjectPicker(): void {

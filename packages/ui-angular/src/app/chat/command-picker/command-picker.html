@@ -13,6 +13,7 @@
             type="button"
             [class.active]="index === active()"
             (mouseenter)="activeChange.emit(index)"
+            (pointerdown)="$event.preventDefault()"
             (click)="pick.emit(item.id)"
           >
             @if (item.icon) {

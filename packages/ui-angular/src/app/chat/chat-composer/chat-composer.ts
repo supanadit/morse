@@ -11,6 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
+import { promptTemplateForm, readPromptTemplate } from '@morse/ui-runtime';
 import { AttachmentStore, type PendingImage } from '../../core/attachments';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
@@ -21,6 +22,10 @@ import { PopoverFit } from '../../core/popover-fit.directive';
 import { EnterDirective } from '../../shared/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
 import { CommandPicker, rankPalette, type PaletteItem } from '../command-picker/command-picker';
+import {
+  PromptTemplateDialog,
+  type PromptTemplateRequest,
+} from '../prompt-template-dialog/prompt-template-dialog';
 import { ModelPicker } from '../model-picker/model-picker';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
@@ -35,6 +40,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     CommandPicker,
     ModelPicker,
     ThinkingPicker,
+    PromptTemplateDialog,
     PopoverFit,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -543,6 +549,11 @@ export class ChatComposer {
   protected readonly paletteOpen = signal(false);
   protected readonly paletteFilter = signal('');
   protected readonly paletteActive = signal(0);
+  /**
+   * The argument form for a prompt template, when the palette picked one that
+   * declares arguments. Undefined means no form is open.
+   */
+  protected readonly templateRequest = signal<PromptTemplateRequest | undefined>(undefined);
   protected readonly availableCommands = this.morse.availableCommands;
   /** Rows for the open palette, already ranked; the composer owns the keyboard. */
   protected readonly paletteItems = computed<PaletteItem[]>(() => {
@@ -1005,6 +1016,12 @@ export class ChatComposer {
       this.paletteActive.set(0);
     }
     this.paletteFilter.set(match[1] ?? '');
+    if (!this.paletteOpen()) {
+      // pi caches prompt templates at spawn, so ask the host to re-read them the
+      // moment the palette opens: a template added or edited since then is there
+      // by the time the reader finishes typing.
+      this.morse.refreshCommands();
+    }
     this.paletteOpen.set(true);
   }
 
@@ -1026,8 +1043,30 @@ export class ChatComposer {
     if (id.startsWith('command:')) {
       const name = id.slice('command:'.length);
       if (intent === 'run') {
-        // pi expands skills and templates server-side, so the bare `/name` is
-        // the whole prompt; pending attachments belong to the user's next one.
+        const command = this.availableCommands().find((candidate) => candidate.name === name);
+        if (command?.template !== undefined) {
+          const form = promptTemplateForm(command.template);
+          if (form !== undefined) {
+            // The template declares arguments: a bare `/name` would leave them
+            // empty, so collect them — and any extra — in the form first.
+            this.stripSlashToken();
+            this.text.set('');
+            this.closePalette();
+            this.openTemplate({ name, description: command.description, form });
+            return;
+          }
+          // No arguments to collect. Expand here as well instead of handing pi
+          // `/name`: a template added after spawn is not in pi's cache, and an
+          // edited body must reach the agent without a pi reload.
+          this.stripSlashToken();
+          this.text.set('');
+          this.closePalette();
+          this.sendTemplate(readPromptTemplate(command.template).body);
+          return;
+        }
+        // No body to expand (the file could not be read): pi expands skills and
+        // templates server-side, so the bare `/name` is the whole prompt; pending
+        // attachments belong to the user's next one.
         this.stripSlashToken();
         this.text.set('');
         this.closePalette();
@@ -1037,6 +1076,39 @@ export class ChatComposer {
       this.replaceSlashToken(`/${name} `);
       this.closePalette();
     }
+  }
+
+  /** Opens the argument form for a prompt template; the dialog owns the fields. */
+  private openTemplate(request: PromptTemplateRequest): void {
+    this.templateRequest.set(request);
+    this.shell.setPromptTemplateOpen(true);
+  }
+
+  private closeTemplate(): void {
+    this.templateRequest.set(undefined);
+    this.shell.setPromptTemplateOpen(false);
+    this.promptInput()?.nativeElement.focus();
+  }
+
+  /**
+   * Sends a prompt template's expanded text with whatever was already attached.
+   * Unlike `sendWith`, a body that starts with `/compact` is not mistaken for a
+   * built-in — the text is the whole prompt, whatever it begins with.
+   */
+  private sendTemplate(text: string): void {
+    this.morse.prompt(
+      text,
+      this.streaming() ? 'steer' : 'new',
+      this.attachments.takeImages(),
+      this.attachments.takePins(),
+    );
+    this.attachments.setLivePreview(null);
+  }
+
+  protected onTemplateSubmit(text: string): void {
+    this.templateRequest.set(undefined);
+    this.shell.setPromptTemplateOpen(false);
+    this.sendTemplate(text);
   }
 
   /** Closing returns the keyboard to the prompt. */
