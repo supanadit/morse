@@ -73,6 +73,8 @@ export class MorseService {
   readonly agentReady = computed(() => this.view().state.agentReady);
   readonly agentStarting = computed(() => this.view().state.agentStarting);
   readonly agentError = computed(() => this.view().state.agentError);
+  /** What `agentError` means and what to do about it (see `AgentFailure`). */
+  readonly agentFailure = computed(() => this.view().state.agentFailure);
   readonly running = computed(() => this.view().state.streaming || this.view().state.busy);
   readonly workspace = computed(() => this.view().state.workspace);
   readonly model = computed(() => this.view().state.model);

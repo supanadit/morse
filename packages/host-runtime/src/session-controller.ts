@@ -1,3 +1,4 @@
+import { AgentUnavailableError, MorseError } from '@morse/core';
 import type {
   AgentEvent,
   AgentForkMessage,
@@ -18,6 +19,8 @@ import type {
 } from '@morse/core';
 import {
   PROTOCOL_VERSION,
+  type AgentErrorCode,
+  type AgentFailure,
   type ChatPin,
   type ClientToHostMessage,
   type FrontendIdentity,
@@ -115,6 +118,8 @@ export class HostSessionController {
   private agentReady = false;
   private agentStarting = false;
   private agentError: string | undefined;
+  /** The machine-readable half of `agentError` (see `AgentFailure`). */
+  private agentFailure: AgentFailure | undefined;
   private busy = false;
   private disposed = false;
   private hasOpenedOnce = false;
@@ -339,7 +344,17 @@ export class HostSessionController {
     this.loadingOlderHistory = false;
     this.agentReady = false;
     this.agentStarting = false;
+    this.clearAgentFailure();
+  }
+
+  /**
+   * Forgets the agent failure, message and all. Called wherever the agent comes
+   * back (a ready event, an adopted session), so a stale screen never outlives
+   * the problem it described.
+   */
+  private clearAgentFailure(): void {
     this.agentError = undefined;
+    this.agentFailure = undefined;
   }
 
   /** Fills the draft pickers from the registry's session-less probe. */
@@ -421,7 +436,7 @@ export class HostSessionController {
     this.hasOlderHistory = false;
     this.loadingOlderHistory = false;
     this.agentReady = false;
-    this.agentError = undefined;
+    this.clearAgentFailure();
     const next = this.options.services.registry.hotKeys().at(-1);
     if (next) {
       await this.runSessionChange(() => this.options.services.registry.activate(next));
@@ -451,6 +466,7 @@ export class HostSessionController {
     } catch (error: unknown) {
       this.agentReady = false;
       this.agentError = describeError(error);
+      this.agentFailure = describeAgentFailure(error, this.options.agentHint);
       this.options.logger.warn('Could not start the Morse agent', error);
       this.fail(
         `Could not start the Morse agent: ${this.agentError}`,
@@ -482,7 +498,7 @@ export class HostSessionController {
     this.hasOlderHistory = false;
     this.loadingOlderHistory = false;
     this.agentReady = true;
-    this.agentError = undefined;
+    this.clearAgentFailure();
     this.emitTranscript(opened.key);
     this.emitState();
     // A new/activated session must show up in the list immediately; otherwise
@@ -877,7 +893,7 @@ export class HostSessionController {
     switch (event.type) {
       case 'agent/ready':
         this.agentReady = true;
-        this.agentError = undefined;
+        this.clearAgentFailure();
         this.emitState();
         return;
       case 'agent/state':
@@ -896,6 +912,9 @@ export class HostSessionController {
       case 'agent/fatal':
         this.agentReady = false;
         this.agentError = event.message;
+        // A process that died carries no code the frontend could act on, but the
+        // host still knows where to look: keep the hint, drop any stale code.
+        this.agentFailure = hintOnly(this.options.agentHint);
         this.options.transcripts.error(sessionKey, event.message, event.detail);
         this.emitState();
         return;
@@ -1079,6 +1098,7 @@ export class HostSessionController {
       agentReady: this.agentReady,
       agentStarting: this.agentStarting,
       agentError: this.agentError,
+      agentFailure: this.agentFailure,
       busy: this.busy,
       hasOlderHistory: this.hasOlderHistory,
       loadingOlderHistory: this.loadingOlderHistory,
@@ -1233,4 +1253,38 @@ function describeError(error: unknown): string {
     return error.message;
   }
   return typeof error === 'string' ? error : JSON.stringify(error);
+}
+
+/**
+ * The machine-readable half of a failed start. Only the codes a frontend has help
+ * for cross the wire; everything else keeps its message and the host's hint — a
+ * frontend that guessed would offer the wrong remedy.
+ */
+function describeAgentFailure(
+  error: unknown,
+  hint: string | undefined,
+): AgentFailure | undefined {
+  const code = agentErrorCode(error);
+  const install = error instanceof AgentUnavailableError ? error.remedy?.install : undefined;
+  const failure: AgentFailure = {
+    ...(code ? { code } : {}),
+    ...(install ? { install } : {}),
+    ...(hint ? { hint } : {}),
+  };
+  return Object.keys(failure).length > 0 ? failure : undefined;
+}
+
+function agentErrorCode(error: unknown): AgentErrorCode | undefined {
+  if (!(error instanceof MorseError)) {
+    return undefined;
+  }
+  // `MorseError.code` is a plain string; only the two the UI can help with pass.
+  return error.code === 'agent-unavailable' || error.code === 'agent-protocol'
+    ? error.code
+    : undefined;
+}
+
+/** The host's next step without a code: a dead process, not a resolution failure. */
+function hintOnly(hint: string | undefined): AgentFailure | undefined {
+  return hint ? { hint } : undefined;
 }

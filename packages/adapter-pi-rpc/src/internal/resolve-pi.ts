@@ -20,6 +20,12 @@ export interface ResolvePiOptions {
 
 export type PiSpawnSource = 'configured' | 'path' | 'node-entry';
 
+/**
+ * How to install the agent. The error message and the `remedy` both spell it out
+ * from here, so what the setup screen offers and what the log says cannot drift.
+ */
+export const PI_INSTALL_COMMAND = 'npm install -g @earendil-works/pi-coding-agent';
+
 export interface PiSpawn {
   command: string;
   args: string[];
@@ -67,10 +73,11 @@ export function resolvePi(options: ResolvePiOptions = {}): PiSpawn {
   throw new AgentUnavailableError(
     [
       'The pi coding agent was not found.',
-      'Install it (`npm install -g @earendil-works/pi-coding-agent`) or point Morse at it:',
+      `Install it (\`${PI_INSTALL_COMMAND}\`) or point Morse at it:`,
       '- VS Code: setting "morse.pi.path"',
       '- NestJS host: env MORSE_PI_PATH (or MORSE_PI_ENTRY for a bundled rpc-entry.js)',
     ].join('\n'),
+    { remedy: { install: PI_INSTALL_COMMAND } },
   );
 }
 

@@ -1,0 +1,64 @@
+<section class="card" role="alert" aria-labelledby="agent-title">
+  <p class="eyebrow">
+    <span class="pip" aria-hidden="true"></span>
+    {{ missing() ? 'Setup' : 'Agent unavailable' }}
+  </p>
+
+  <h1 id="agent-title">
+    {{
+      missing()
+        ? 'The pi coding agent is not installed'
+        : 'The pi coding agent could not start'
+    }}
+  </h1>
+
+  <p class="body">
+    Morse is only the interface — every answer comes from the pi CLI on this machine, with your own
+    models, tools and sessions. @if (missing()) { Install it once and this panel is ready. }
+  </p>
+
+  @if (install(); as command) {
+    <div class="command">
+      <code>{{ command }}</code>
+      <button type="button" class="secondary" (click)="copyInstall()">
+        {{ copied() ? 'Copied' : 'Copy' }}
+      </button>
+    </div>
+  }
+
+  @if (hint(); as line) {
+    <p class="hint">{{ line }}</p>
+  }
+
+  <div class="actions">
+    <button type="button" (click)="retry()">Retry</button>
+    @if (hasEditor()) {
+      <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
+      <button type="button" class="secondary" (click)="showLog()">Show log</button>
+    }
+  </div>
+
+  @if (hasEditor()) {
+    <!--
+      The extension resolves pi when it activates, so a setting changed now only
+      takes effect after the window reloads. Saying so beats a Retry button that
+      silently fails again.
+    -->
+    <p class="foot">
+      Changed “morse.pi.path”? Reload the window — Morse picks the pi path when it starts. To use a
+      pi that is already installed, point the setting at it instead of installing a second copy.
+    </p>
+  } @else {
+    <p class="foot">
+      The host reads <code>MORSE_PI_PATH</code> at startup, so restart it after changing that (or
+      install pi) — <code>morse restart</code> for the daemon.
+    </p>
+  }
+
+  @if (message(); as text) {
+    <details>
+      <summary>What the host reported</summary>
+      <pre>{{ text }}</pre>
+    </details>
+  }
+</section>

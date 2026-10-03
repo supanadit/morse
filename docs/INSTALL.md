@@ -15,6 +15,10 @@ through `@morse/adapter-pi-rpc`; only the delivery differs. Their requirements a
   (VS Code) / `MORSE_PI_PATH` (CLI). Morse reuses your existing pi config: models, credentials, tools and
   sessions under `~/.pi`.
 
+Without pi, Morse does not pretend: the panel shows a **setup screen** naming the missing agent, with the
+install command to copy, the setting or environment variable this host reads (`agentFailure` on the wire),
+and a Retry button. Nothing else needs to be configured first — Morse is only the interface, and it says so.
+
 ---
 
 ## 1. VS Code extension

@@ -70,6 +70,10 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    already knows (VS Code), `editMessage` whether editing a past prompt (a fork) is possible,
    `forkMessage` whether a fork can branch a new session and hand the prompt back instead, and
    `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering.
+   Same rule for a dead backend: render `state.agentFailure` (`code`, `install`, `hint`) instead of paraphrasing
+   `agentError` — the adapter knows pi's package name, the host knows which setting it reads, and a frontend
+   that guessed would offer the wrong remedy. A host that could not classify the failure sends no `code`,
+   which is the signal to fall back to generic wording.
 
 ### Attachments, by host
 

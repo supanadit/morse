@@ -164,6 +164,26 @@ export interface HostCapabilities {
   forkMessage?: boolean;
 }
 
+/**
+ * Machine-readable reason the agent backend is not running. Hosts only name what
+ * they can name, so a frontend must still render `agentError` itself — the code is
+ * there to pick the right *help*, not to replace the message.
+ */
+export type AgentErrorCode =
+  /** `pi` could not be resolved: not installed, or the configured path is wrong. */
+  | 'agent-unavailable'
+  /** `pi` answered with something the adapter could not understand. */
+  | 'agent-protocol';
+
+/** The half of an agent failure a frontend can act on (`SessionViewState.agentFailure`). */
+export interface AgentFailure {
+  code?: AgentErrorCode;
+  /** Shell command that installs what is missing, when the adapter knows it. */
+  install?: string;
+  /** Host-specific next step: which setting or environment variable to look at. */
+  hint?: string;
+}
+
 export interface SessionViewState {
   sessionId?: string;
   sessionTitle?: string;
@@ -190,6 +210,12 @@ export interface SessionViewState {
    * show an error during a normal (slow) start. */
   agentStarting: boolean;
   agentError?: string;
+  /**
+   * What `agentError` means and what to do about it. Optional: a host that could
+   * not classify the failure (a process that exited, say) sends the message only,
+   * and the frontend falls back to generic wording.
+   */
+  agentFailure?: AgentFailure;
   /** True when older transcript entries can still be loaded from the session. */
   hasOlderHistory?: boolean;
   /** True while the host is fetching the previous history page. */

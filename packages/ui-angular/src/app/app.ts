@@ -14,6 +14,7 @@ import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
 import { AboutDialog } from './about/about-dialog';
+import { AgentScreen } from './agent/agent-screen';
 
 /**
  * `?boot=1` keeps the cold-start screen up long enough to watch it, so the
@@ -32,6 +33,7 @@ function previewBoot(): boolean {
     SessionNav,
     ProjectPicker,
     AboutDialog,
+    AgentScreen,
     ChatHeader,
     ChatTranscript,
     InteractionPanel,
@@ -82,6 +84,28 @@ export class App {
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
   protected readonly agentError = this.morse.agentError;
+  /**
+   * The agent is down (spawn failure, not a slow start) — the one situation the
+   * panel cannot recover from on its own. Nothing is running, so nothing will
+   * arrive from the agent to fix it: the UI has to explain it.
+   */
+  private readonly agentBlocked = computed(
+    () =>
+      this.connection() === 'ready' &&
+      !this.agentReady() &&
+      !this.agentStarting() &&
+      this.agentError() !== undefined,
+  );
+  /**
+   * With an empty panel there is nothing to show but the problem, so the setup
+   * screen takes the whole column. With a transcript there is something worth
+   * reading (yesterday's answers do not need a running agent), so the failure
+   * shrinks to a bar above it.
+   */
+  protected readonly agentScreen = computed(
+    () => this.agentBlocked() && this.morse.items().length === 0,
+  );
+  protected readonly agentBanner = computed(() => this.agentBlocked() && !this.agentScreen());
   protected readonly lastError = this.morse.lastError;
   /** Highlight while files are dragged over the chat. */
   protected readonly dragging = this.dropZone.active;

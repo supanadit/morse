@@ -80,6 +80,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | A banner flashes on every load | it must not: banners render only for a refused handshake, `error`/`closed`, or a handshake stalled > 6 s (`slowConnection`). The first such state after the cold start is the friendly `ConnectionScreen`, not a banner |
 | Transcript lost on every refresh | the session was evicted — raise `MORSE_HOT_SESSIONS` (default 4) or `morse.sessions.hotLimit` |
 | Agent runs in the wrong project | sessions carry their own cwd; check `project/open`/`session/activate` payloads and the `ProjectPolicy` |
+| A setup screen instead of the chat | `pi` is not on the host's `PATH`; the screen names the command to install and the setting/env var that host reads (`state.agentFailure`) |
 | Agent gets `packages/server` as its project | `MORSE_WORKSPACE` was unset inside a monorepo package; the host now defaults to the workspace root |
 | VSIX contains unminified `main.js` and no manifest | a dev webview was packaged; `verify-webview.mjs` blocks it |
 | Webview blank after a UI change | run `npm run sync-webview` |
@@ -100,6 +101,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | NestJS wiring and env | `packages/server/src/app.module.ts`, `packages/server/src/app/config.ts` |
 | protocol version | `packages/protocol/src/version.ts` |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
+| pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |
 | installing (VSIX + CLI) | `docs/INSTALL.md` |
 | releasing (VSIX + npm) | `docs/RELEASING.md`, `.github/workflows/release.yml` |

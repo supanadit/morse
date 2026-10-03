@@ -9,10 +9,25 @@ export class MorseError extends Error {
   }
 }
 
+/** What the user can do about a failure, when the layer that failed knows. */
+export interface AgentRemedy {
+  /** Shell command that installs what is missing, e.g. the pi CLI. */
+  install?: string;
+}
+
 /** The agent backend could not be started (missing `pi` binary, spawn failure, ...). */
 export class AgentUnavailableError extends MorseError {
-  constructor(message: string, options?: { cause?: unknown }) {
+  /**
+   * The next step, in a form a frontend can render (see `SessionViewState
+   * .agentFailure`). The message stays human-readable on its own; this is the
+   * machine-readable half, and only the layer that knows pi's package name can
+   * fill it in.
+   */
+  readonly remedy: AgentRemedy | undefined;
+
+  constructor(message: string, options?: { cause?: unknown; remedy?: AgentRemedy }) {
     super(message, 'agent-unavailable', options);
+    this.remedy = options?.remedy;
   }
 }
 

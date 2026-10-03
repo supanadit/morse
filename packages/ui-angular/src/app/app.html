@@ -83,12 +83,10 @@
           </button>
         </div>
       </section>
-    } @else if (
-      connection() === 'ready' && !agentReady() && !agentStarting() && agentError() !== undefined
-    ) {
-      <!-- A spawn failure is the only thing this banner may report; a window
-           with no session yet (lazy open) is a normal empty state, and the
-           transcript hero explains that instead. -->
+    } @else if (agentBanner()) {
+      <!-- A spawn failure with a transcript to read above it. An empty panel gets
+           `morse-agent-screen` instead, which can say a great deal more; a window
+           with no session yet (lazy open) is a normal empty state and gets neither. -->
       <section class="alert" role="alert">
         <strong>Pi agent unavailable</strong>
         <p>{{ agentError() || 'Morse could not start the pi coding agent.' }}</p>
@@ -100,9 +98,13 @@
       </section>
     }
 
-    <morse-chat-transcript />
-    <morse-interaction-panel />
-    <morse-chat-composer />
+    @if (agentScreen()) {
+      <morse-agent-screen />
+    } @else {
+      <morse-chat-transcript />
+      <morse-interaction-panel />
+      <morse-chat-composer />
+    }
 
     @if (toast(); as notice) {
       <div class="toast" [class]="notice.level" role="status">

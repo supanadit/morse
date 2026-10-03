@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  AgentUnavailableError,
   ChatService,
   SessionRegistry,
   silentLogger,
@@ -128,6 +129,7 @@ function connect(
   transcripts: SessionTranscriptStore,
   sink: HostToClientMessage[],
   scope?: HostScopeOptions,
+  agentHint?: string,
 ): HostSessionController {
   return new HostSessionController({
     services: { registry, chat },
@@ -138,6 +140,8 @@ function connect(
     // Both shipping hosts pass this: a load must not create a session.
     autoOpen: false,
     ...(scope ? { scope } : {}),
+    // Both shipping hosts pass this too: the one line a user can act on.
+    ...(agentHint ? { agentHint } : {}),
   });
 }
 
@@ -146,6 +150,9 @@ function harness(options: {
   hold?: CompactHold;
   forkMessages?: AgentForkMessage[];
   fork?: { text: string; sessionId: string };
+  /** The factory refuses instead of returning a gateway: "pi is not installed". */
+  spawnError?: Error;
+  agentHint?: string;
 } = {}): Harness {
   const messages: HostToClientMessage[] = [];
   const gateway = fakeGateway({
@@ -160,7 +167,9 @@ function harness(options: {
   const factory: AgentGatewayFactory = {
     create: () => {
       spawns.count += 1;
-      return Promise.resolve(gateway);
+      return options.spawnError
+        ? Promise.reject(options.spawnError)
+        : Promise.resolve(gateway);
     },
   };
   const removed: string[] = [];
@@ -179,7 +188,7 @@ function harness(options: {
   const chat = new ChatService({ agent: registry, logger: silentLogger });
   const transcripts = new SessionTranscriptStore();
   const scope: HostScopeOptions = { kind: 'workspace', roots: [WORKSPACE.cwd] };
-  const controller = connect(registry, chat, transcripts, messages, scope);
+  const controller = connect(registry, chat, transcripts, messages, scope, options.agentHint);
   return {
     messages,
     registry,
@@ -198,7 +207,7 @@ function harness(options: {
     reload() {
       const reloaded: HostToClientMessage[] = [];
       return {
-        controller: connect(registry, chat, transcripts, reloaded, scope),
+        controller: connect(registry, chat, transcripts, reloaded, scope, options.agentHint),
         messages: reloaded,
       };
     },
@@ -348,6 +357,38 @@ describe('HostSessionController seeding', () => {
 });
 
 describe('HostSessionController failures', () => {
+  it('classifies a missing agent so the frontend can offer the install command', async () => {
+    const error = new AgentUnavailableError('The pi coding agent was not found.', {
+      remedy: { install: 'npm install -g @earendil-works/pi-coding-agent' },
+    });
+    const h = harness({ spawnError: error, agentHint: 'Set "morse.pi.path" or install the pi CLI.' });
+    await h.controller.start();
+
+    // The draft's first prompt is what makes the host spawn pi — and fail.
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
+
+    const state = h.lastState();
+    expect(state?.agentReady).toBe(false);
+    expect(state?.agentError).toBe('The pi coding agent was not found.');
+    // The frontend renders `agentFailure` as a screen (install command, host hint);
+    // the message alone would leave it guessing which help to show.
+    expect(state?.agentFailure).toEqual({
+      code: 'agent-unavailable',
+      install: 'npm install -g @earendil-works/pi-coding-agent',
+      hint: 'Set "morse.pi.path" or install the pi CLI.',
+    });
+  });
+
+  it('keeps the host hint but invents no code for a failure it cannot classify', async () => {
+    const h = harness({ spawnError: new Error('EACCES'), agentHint: 'Check the pi path.' });
+    await h.controller.start();
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
+
+    // An unknown failure must not be dressed up as "not installed": the frontend
+    // would offer the wrong remedy.
+    expect(h.lastState()?.agentFailure).toEqual({ hint: 'Check the pi path.' });
+  });
+
   it('a rejected compact lands in the transcript — never on the wire error channel', async () => {
     const h = harness({ compactError: new Error('pi rejected "compact": Already compacted') });
     await withOpenSession(h);

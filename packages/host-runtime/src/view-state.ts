@@ -8,6 +8,7 @@ import type {
   WorkspaceRef,
 } from '@morse/core';
 import type {
+  AgentFailure,
   CommandOption,
   InteractionRequest,
   ModelOption,
@@ -19,6 +20,8 @@ export interface SessionStateMeta {
   agentReady: boolean;
   agentStarting: boolean;
   agentError?: string;
+  /** What `agentError` means and what to do about it (see `AgentFailure`). */
+  agentFailure?: AgentFailure;
   busy: boolean;
   /** True when older transcript entries can still be loaded from the session. */
   hasOlderHistory?: boolean;
@@ -41,6 +44,7 @@ export function emptySessionViewState(
     agentReady: meta.agentReady,
     agentStarting: meta.agentStarting,
     agentError: meta.agentError,
+    agentFailure: meta.agentFailure,
     hasOlderHistory: meta.hasOlderHistory,
     loadingOlderHistory: meta.loadingOlderHistory,
   };
@@ -97,6 +101,7 @@ export function toSessionViewState(
     agentReady: meta.agentReady,
     agentStarting: meta.agentStarting,
     agentError: meta.agentError,
+    agentFailure: meta.agentFailure,
     hasOlderHistory: meta.hasOlderHistory,
     loadingOlderHistory: meta.loadingOlderHistory,
   };
