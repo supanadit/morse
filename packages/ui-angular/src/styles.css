@@ -6,11 +6,74 @@
  * apply, and they follow the OS light/dark preference. No CSS framework needed.
  */
 
+/*
+ * JetBrains Mono is self-hosted so a browser host looks the same with nothing installed.
+ * `unicode-range` keeps one subset file per style, loaded lazily. The URL is absolute because
+ * Angular only leaves `/...` alone and the browser host serves the bundle at the origin root;
+ * VS Code never resolves it, since there the `--vscode-*` fonts win and this family is never
+ * requested. Licence (SIL OFL 1.1) ships with the bundle: public/fonts/LICENSE.txt.
+ */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('/fonts/jetbrains-mono-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('/fonts/jetbrains-mono-latin-wght-italic.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('/fonts/jetbrains-mono-latin-ext-wght-italic.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   color-scheme: light dark;
 
-  --morse-font: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-  --morse-font-mono: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  /*
+   * VS Code defines both `--vscode-*` variables, so the panel there follows whatever the user set
+   * (or the editor default) and the bundled JetBrains Mono above is never fetched. A browser host
+   * defines neither, so it gets the bundled font, then an installed Nerd Font build (which is the
+   * only source for the icon glyphs), then the platform stack.
+   */
+  --morse-font: var(
+    --vscode-font-family,
+    'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono Nerd Font Mono', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif
+  );
+  --morse-font-mono: var(
+    --vscode-editor-font-family,
+    'JetBrains Mono', 'JetBrainsMono Nerd Font Mono', 'JetBrainsMono Nerd Font', ui-monospace,
+    SFMono-Regular, Menlo, monospace
+  );
   --morse-font-size: var(--vscode-font-size, 13px);
 
   --morse-fg: var(--vscode-foreground, #d4d4d4);
