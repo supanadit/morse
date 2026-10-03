@@ -17,14 +17,23 @@ import { ShellState } from '../../core/shell-state';
         display: block;
         flex: none;
         background: var(--morse-bg);
-        border-bottom: 1px solid var(--morse-border);
       }
       .head {
         display: flex;
         align-items: center;
         gap: 6px;
-        min-height: 40px;
-        padding: 6px 8px;
+        /*
+         * Shares --morse-head-height with the sidebar: the two headers sit side
+         * by side, so a hairline that lands at two different heights reads as a
+         * broken layout, not as a design choice.
+         *
+         * The hairline belongs to *this* element, not to :host: with
+         * box-sizing: border-box a 1px border on the host would be added on top
+         * of the shared height and land 1px below the sidebar's.
+         */
+        min-height: var(--morse-head-height);
+        padding: 0 8px;
+        border-bottom: 1px solid var(--morse-border);
       }
       /* Borderless icon buttons, the way an editor toolbar behaves. */
       .icon {
@@ -136,10 +145,6 @@ import { ShellState } from '../../core/shell-state';
 export class ChatHeader {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
-  /** The browser host asks which folder a new session belongs to. */
-  private readonly directoryPicker = computed(
-    () => this.morse.capabilities()?.directoryPicker === true,
-  );
 
   protected readonly state = this.morse.state;
   protected readonly connection = this.morse.connection;

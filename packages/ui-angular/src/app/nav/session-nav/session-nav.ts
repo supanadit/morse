@@ -48,10 +48,12 @@ interface SessionMenu {
         border-right: 1px solid var(--morse-border);
       }
       .head {
+        flex: none;
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 10px;
+        min-height: var(--morse-head-height);
+        padding: 0 10px;
         border-bottom: 1px solid var(--morse-border);
       }
       .head button.primary {

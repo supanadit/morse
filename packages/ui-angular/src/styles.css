@@ -75,6 +75,13 @@
     SFMono-Regular, Menlo, monospace
   );
   --morse-font-size: var(--vscode-font-size, 13px);
+  /*
+   * The navigation column and the chat pane sit side by side, so their headers
+   * have to land on the same line: both read this, and neither keeps its own
+   * padding, which is exactly how they drifted apart before. The value includes
+   * the bottom hairline (`border-box`), so it is also the header's full height.
+   */
+  --morse-head-height: 44px;
 
   --morse-fg: var(--vscode-foreground, #d4d4d4);
   --morse-fg-muted: var(--vscode-descriptionForeground, #9d9d9d);
