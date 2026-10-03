@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0 — 3 October 2026
+
+Prompt templates become first-class in the composer.
+
+### New
+
+- **Prompt templates run from a form.** A template that declares `argument-hint` now opens a modal
+  with one field per argument, an *Additional instructions* box appended below the expanded template,
+  and a live preview of the exact prompt. Templates with no arguments are sent straight through.
+- **Templates stay in sync with the files.** The command palette re-reads `~/.pi/agent/prompts`
+  (and a trusted project's `.pi/prompts`) as it opens, so a template added, edited or deleted since
+  the session started shows up without restarting pi.
+
+### Fixed
+
+- Clicking a row in the command palette now runs it, exactly like Enter. It used to insert the
+  command text and leave it in the composer.
+
 ## 0.3.1 — 3 October 2026
 
 ### Fixed
