@@ -50,9 +50,29 @@ import { ChangeDetectionStrategy, Component, input, output, signal } from '@angu
 
         @if (isBrowser) {
           <div class="help">
-            <p class="help-title">Start a local host</p>
-            <code class="help-cmd">npm run dev:server</code>
-            <p class="help-or">or point this window at an existing one</p>
+            <p class="help-title">Start a Morse host</p>
+            <!--
+              Two audiences, one screen. A production user who installed the CLI
+              must not be told to run a monorepo script, and a contributor must not
+              be told to install a package they are already developing — so both
+              commands are named, and the install path with them.
+            -->
+            <div class="help-cmd">
+              <span class="help-label">installed CLI</span>
+              <code>morse start</code>
+            </div>
+            <div class="help-cmd">
+              <span class="help-label">from the repo</span>
+              <code>npm run dev:server</code>
+            </div>
+            <p class="help-or">
+              Not installed? <code>npm install -g @supanadit/morse-web</code>.
+            </p>
+            <p class="help-or">
+              Stopped it with <code>morse stop</code>? <code>morse start</code> brings it back —
+              <code>morse logs</code> says what happened.
+            </p>
+            <p class="help-or">or point this window at a host that is already running</p>
             <form class="server" (submit)="submit($event)">
               <input
                 type="text"
@@ -301,6 +321,26 @@ import { ChangeDetectionStrategy, Component, input, output, signal } from '@angu
         color: var(--morse-fg-muted);
       }
       .help-cmd {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+      }
+      /* Labels line up, so the two commands read as one choice, not two lists. */
+      .help-label {
+        flex: none;
+        width: 86px;
+        text-align: right;
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--morse-fg-muted);
+      }
+      .help-cmd code {
+        flex: 1;
+        min-width: 0;
+        overflow-x: auto;
+        white-space: nowrap;
         font-family: var(--morse-font-mono);
         font-size: 12px;
         padding: 3px 10px;
@@ -311,7 +351,15 @@ import { ChangeDetectionStrategy, Component, input, output, signal } from '@angu
       .help-or {
         margin: 2px 0 0;
         font-size: 11px;
+        line-height: 1.5;
         color: var(--morse-fg-muted);
+      }
+      .help-or code {
+        font-family: var(--morse-font-mono);
+        font-size: 10.5px;
+        padding: 0 3px;
+        border-radius: var(--morse-radius-sm);
+        background: var(--morse-code-bg);
       }
       .server {
         display: flex;

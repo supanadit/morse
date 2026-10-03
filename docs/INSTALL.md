@@ -243,6 +243,8 @@ or the package.
 | Webview blank after a UI change | `npm run sync-webview` |
 | `morse: command not found` after install | the global npm bin dir (`<prefix>/bin`) is not on `PATH`; check `npm config get prefix` |
 | `morse start` prints "failed to start" | `morse logs`; most often `pi` is not on the daemon's `PATH` (set `MORSE_PI_PATH`) |
+| Panel says “The pi coding agent is not installed” | the setup screen: `npm install -g @earendil-works/pi-coding-agent`, or point the host at an existing pi (`morse.pi.path`, needs a window reload / `MORSE_PI_PATH`, needs `morse restart`) |
+| Browser shows “Morse is waiting for a host” after `morse stop` | the page is the frontend the browser is still holding, not the host; start it again (`morse start`) — that screen names both the CLI and the repo command. Nothing was lost: sessions live with the host and in pi’s session files |
 | Browser UI stuck on `connecting` / blank page | open `http://127.0.0.1:<port>/api/health`; if it fails the server is not up — `morse logs` |
 | Port busy after an unclean exit | `morse status`; state is `~/.morse/server.json`, then `morse restart` |
 | Old favicon still shown | browser cache — hard-refresh (Ctrl+Shift+R) or an incognito window |

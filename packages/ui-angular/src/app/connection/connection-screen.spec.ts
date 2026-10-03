@@ -28,8 +28,28 @@ describe('ConnectionScreen', () => {
     expect(explore).toHaveBeenCalledTimes(1);
   });
 
-  it('emits the typed server url when the form is submitted', () => {
+  it('names the command a production user has, not only the repo script', () => {
     const fixture = TestBed.createComponent(ConnectionScreen);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const rows = [...element.querySelectorAll('.help-cmd')];
+    // Someone who installed the CLI must not be told to run a monorepo script.
+    expect(rows.map((row) => row.querySelector('code')?.textContent?.trim())).toEqual([
+      'morse start',
+      'npm run dev:server',
+    ]);
+    expect(rows.map((row) => row.querySelector('.help-label')?.textContent?.trim())).toEqual([
+      'installed CLI',
+      'from the repo',
+    ]);
+    // Stopping the host is how most people end up on this screen, and the install
+    // path matters for the case where there is no CLI yet.
+    expect(element.textContent).toContain('morse stop');
+    expect(element.textContent).toContain('npm install -g @supanadit/morse-web');
+  });
+
+  it('emits the typed server url when the form is submitted', () => {    const fixture = TestBed.createComponent(ConnectionScreen);
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;

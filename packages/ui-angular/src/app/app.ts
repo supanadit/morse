@@ -263,7 +263,9 @@ export class App {
     return {
       eyebrow: 'Offline · reconnecting',
       title: 'Morse is waiting for a host',
-      body: 'This window is only the frontend. The pi coding agent runs behind a Morse host — start one and this screen will clear itself.',
+      // The page is a copy the browser is holding, and that is exactly what
+      // confuses someone who just stopped the host: say so, and say what survived.
+      body: 'This window is only the frontend, and it keeps working while the host is away. Nothing is lost — your sessions live with the host and in pi’s session files — so start the host again and this screen will clear itself.',
       detail: this.morse.connectionDetail() ?? '',
     };
   });
