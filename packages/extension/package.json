@@ -4,6 +4,7 @@
   "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
   "version": "0.2.1",
   "publisher": "supanadit",
+  "author": "Supan Adit Pratama",
   "repository": {
     "type": "git",
     "url": "https://github.com/supanadit/morse.git"

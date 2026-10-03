@@ -89,4 +89,4 @@ tarballs, `npm link`, settings and troubleshooting — is in [`docs/INSTALL.md`]
 
 ## License
 
-[MIT](LICENSE) © supanadit
+[MIT](LICENSE) © 2026 Supan Adit Pratama

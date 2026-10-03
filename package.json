@@ -4,6 +4,7 @@
   "private": true,
   "description": "Comfortable Pi Interface — the Pi coding agent in VS Code or in your browser.",
   "license": "MIT",
+  "author": "Supan Adit Pratama",
   "workspaces": [
     "packages/*"
   ],
