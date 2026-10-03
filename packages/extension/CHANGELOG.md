@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — 3 October 2026
+
+### Fixed
+
+- **A sidebar shortcut now reveals the sidebar.** `/` (session search) and `Ctrl+Alt+P` (`⌘⌥P`, project filter)
+  opened their field or panel without opening the sidebar that holds it, so on a narrow host they stayed off
+  screen until the sidebar was opened by hand.
+- **The empty state only promises the ⧉ pin button where it exists.** The pin button needs an editor selection,
+  which the browser host does not have, so the startup hint no longer mentions it there.
+
 ## 0.3.0 — 3 October 2026
 
 Shortcuts, project filtering, an update notice, and a lighter host. The wire protocol moved to 17, so update both
