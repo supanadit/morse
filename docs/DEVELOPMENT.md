@@ -57,6 +57,6 @@ What keeps them cheap:
 
 Idle is genuinely idle: no polling anywhere (no `setInterval` in the host, no heartbeat), and the whole tree
 sits at 0.000% CPU with a live session. Memory is dominated by `pi`, not by Morse: one hot session measured
-**275–450 MB** (a 147–157 MB `pi` plus the MCP servers *pi* starts — 285 MB of that was `npm exec firecrawl-mcp`
-and its child), against **108 MB** for the server with no session. `MORSE_HOT_SESSIONS` (default 4) multiplies
-the first number.
+**275–450 MB** on the machine we tested — a ~150 MB `pi` process plus whatever that machine's own pi
+configuration loads beside it — against **108 MB** for the server with no session. `MORSE_HOT_SESSIONS`
+(default 4) multiplies the first number.

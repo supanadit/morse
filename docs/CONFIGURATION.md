@@ -37,8 +37,8 @@ The NestJS host and the `morse` CLI are configured through the environment:
 any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for one you expose.
 
 `MORSE_HOT_SESSIONS` is the memory dial, and `pi` is what it multiplies: a hot session is a `pi` process plus
-whatever MCP servers *your* pi configuration starts (measured on a machine with two of them: 275–450 MB per
-session, against ~110 MB for the host itself). On a small box, set it to 1 or 2.
+whatever else your own pi configuration loads beside it (measured: 275–450 MB per session on the machine we
+tested, against ~110 MB for the host itself). On a small box, set it to 1 or 2.
 
 `MORSE_UPDATE_CHECK` controls the only request Morse makes to the internet: reading
 `registry.npmjs.org/@supanadit/morse-web/latest` once per page load, so the sidebar can say when a newer release

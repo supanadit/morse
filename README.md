@@ -55,10 +55,10 @@ pi's problem, not Morse's). What is left is small, and measured rather than clai
 | Refreshing the session list | **2 ms** warm (it was 624 ms of CPU before it was cached) |
 | A live session | **275–450 MB** |
 
-That last row is the honest one: a live session is a `pi` process (147–157 MB) plus the MCP servers *your* pi
-configuration starts — in our measurement, `firecrawl-mcp` alone accounted for 285 MB of it. Morse caps how many
-stay alive (`MORSE_HOT_SESSIONS`, default 4) and retires the idle ones, so the number to size a box by is this
-one, not the 110 MB above.
+That last row is the honest one: a live session is a `pi` process (about 150 MB) plus whatever your own pi
+configuration loads beside it — on the machine we measured, that reached 450 MB before a single prompt was sent.
+Morse caps how many stay alive (`MORSE_HOT_SESSIONS`, default 4) and retires the idle ones, so the number to size
+a box by is this one, not the 110 MB above.
 
 Both numbers were measured against a real `pi` with the host built for production; the method and the before/after
 are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), so you can reproduce them — or watch them not be true.
