@@ -29,6 +29,7 @@
     "onView:morse.chat"
   ],
   "main": "./dist/extension.js",
+  "icon": "media/icon.png",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
