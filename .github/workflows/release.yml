@@ -87,9 +87,38 @@ jobs:
         run: npm run vsix -w morse
 
       - name: Publish the npm package
-        run: npm publish -w @supanadit/morse-web
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -o pipefail
+          version="${{ steps.version.outputs.version }}"
+          # A publish that reports success without publishing is the one failure an
+          # exit code cannot be trusted for: say who we are, publish with the output
+          # kept, and check that npm said it published. A `(dry-run)` publish — the
+          # mode that once made this step green without anything leaving the runner —
+          # fails here.
+          echo "registry: $(npm config get registry)"
+          npm whoami
+          npm publish -w @supanadit/morse-web 2>&1 | tee publish.log
+          if grep -q '(dry-run)' publish.log || ! grep -q "+ @supanadit/morse-web@${version}" publish.log; then
+            echo "::error::npm did not report publishing @supanadit/morse-web@${version} — see the log above."
+            exit 1
+          fi
+          # Reading it back from the registry is a *warning*, never a failure: npm
+          # holds a new version back while its automated review runs, so a version
+          # that is not listed yet is usually just not validated yet.
+          for attempt in 1 2 3 4 5 6; do
+            published="$(npm view "@supanadit/morse-web@${version}" version 2>/dev/null || true)"
+            if [ "$published" = "$version" ]; then
+              break
+            fi
+            sleep 20
+          done
+          if [ "$published" = "$version" ]; then
+            echo "published @supanadit/morse-web@${version}"
+          else
+            echo "::warning::npm accepted @supanadit/morse-web@${version}, but the registry does not list it yet — npm validates a new version before it becomes installable (see the package page for its status)."
+          fi
 
       - name: Extract this version's release notes
         env:
@@ -130,4 +159,25 @@ jobs:
 
       - name: Publish the VSIX to the VS Code Marketplace
         if: vars.PUBLISH_MARKETPLACE == 'true' && env.VSCE_PAT != ''
-        run: ./node_modules/.bin/vsce publish --packagePath dist/morse.vsix -p "$VSCE_PAT"
+        run: |
+          ./node_modules/.bin/vsce publish --packagePath dist/morse.vsix -p "$VSCE_PAT"
+          # Ask the Marketplace what it has, and warn when the version is not there
+          # yet: like npm, it reviews a new version before it becomes installable, so
+          # a missing version right after a successful publish is not a failure.
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const pkg = JSON.parse(readFileSync("packages/extension/package.json", "utf8"));
+            const id = `${pkg.publisher}.${pkg.name}`;
+            const response = await fetch("https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json;api-version=7.2-preview.1" },
+              body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: id }] }], flags: 914 }),
+            });
+            const body = await response.json();
+            const versions = body.results?.[0]?.extensions?.[0]?.versions?.map((entry) => entry.version) ?? [];
+            if (versions.includes(pkg.version)) {
+              console.log(`published ${id}@${pkg.version}`);
+            } else {
+              console.log(`::warning::The Marketplace does not list ${id}@${pkg.version} yet (it lists ${versions.slice(0, 3).join(", ") || "nothing"}) — it may still be validating it.`);
+            }
+          '
