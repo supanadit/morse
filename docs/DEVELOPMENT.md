@@ -32,3 +32,31 @@ node packages/server/scripts/ws-lease-check.mjs                    # refresh reu
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the layout and layering rules, and
 [`PACKAGING.md`](PACKAGING.md) for how the browser host becomes one npm package.
+
+## Performance notes
+
+Measured on a Linux box against a real `pi` (Node 24, 155 session files / 199 MB) with the host running from
+`packages/server/dist`. Useful as a baseline: two paths dominated everything, and both are load-bearing in the
+code, so changing them without measuring is how this gets slow again.
+
+| Path | Before | After |
+|---|---|---|
+| `session/list` (50 session files rescanned) | **624 ms CPU**, ~200 ms+ latency per call | **280 ms** cold, **2 ms** when nothing changed |
+| `session/list` while the active 18 MB session grows | 65 ms per call | **0.3–0.6 ms** (tail read) |
+| Server CPU for one prompt in a warm session | **49%** of one core (1.53 CPU-s) | **2.3%** (0.07 CPU-s) |
+| Client render of a streamed 1 kB answer (77 deltas) | **156 ms** (jsdom) | **34 ms**, one render per 90 ms |
+
+What keeps them cheap:
+
+- `packages/adapter-pi-rpc/src/pi-rpc-session-catalog.ts` caches a summary per file, keyed by size + mtime, shares
+  one build between concurrent callers, reads a line's `type` with a string search instead of `JSON.parse` on
+  every one of tens of thousands of lines, and resumes a file that only grew from the byte offset the last scan
+  stopped at. Re-reading files per list, or parsing every line again, brings the 600 ms back.
+- `packages/ui-angular/src/app/shared/markdown/markdown.ts` re-renders streamed prose at most every 90 ms. Every
+  delta used to mean a full `marked` + DOMPurify + highlight.js pass over the whole growing answer.
+
+Idle is genuinely idle: no polling anywhere (no `setInterval` in the host, no heartbeat), and the whole tree
+sits at 0.000% CPU with a live session. Memory is dominated by `pi`, not by Morse: one hot session measured
+**275–450 MB** (a 147–157 MB `pi` plus the MCP servers *pi* starts — 285 MB of that was `npm exec firecrawl-mcp`
+and its child), against **108 MB** for the server with no session. `MORSE_HOT_SESSIONS` (default 4) multiplies
+the first number.

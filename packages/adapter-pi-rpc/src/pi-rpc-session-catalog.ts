@@ -1,5 +1,5 @@
-import { readdir, readFile, stat, unlink } from 'node:fs/promises';
-import { basename, join, resolve, sep } from 'node:path';
+import { open, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
 import type { SessionCatalog, SessionSummary } from '@morse/core';
 import { asRecord, asString } from './internal/rpc-types.js';
 import { resolveSessionDir } from './internal/resolve-pi.js';
@@ -14,6 +14,53 @@ export interface PiRpcSessionCatalogOptions {
    * OS trash and the call works in remote windows too).
    */
   removeFile?: (path: string) => Promise<void>;
+  /**
+   * How a session file is summarised. Defaults to reading it; a test injects its
+   * own to see *when* a file is read at all (the cache below is the point).
+   */
+  readSummary?: (
+    path: string,
+    updatedAt: number,
+    previous?: CachedSummary,
+  ) => Promise<SessionScan | undefined>;
+}
+
+/** What reading one session file produced, plus where to resume next time. */
+export interface SessionScan {
+  summary: SessionSummary;
+  scanned: number;
+  name?: string;
+  firstUserText?: string;
+}
+
+/** A summary plus everything needed to continue reading the file where it stopped. */
+interface CachedSummary {
+  size: number;
+  updatedAt: number;
+  summary: SessionSummary;
+  /** Byte offset already scanned, always just past a newline. */
+  scanned: number;
+  /** Title sources found so far, kept apart from the rendered title. */
+  name?: string;
+  firstUserText?: string;
+}
+
+/**
+ * pi writes one compact JSON object per line with `type` first. Reading a line's
+ * type is therefore a couple of string searches, with no object to allocate and
+ * no parse: reading a project's sessions means scanning tens of megabytes, and
+ * `JSON.parse` on every line whose only contribution was bumping `messageCount`
+ * cost ~0.6 s of CPU per `session/list` on a real catalog. A line that is *not*
+ * in that shape is parsed the slow way, so nothing is silently missed.
+ */
+const TYPE_PREFIX = '{"type":"';
+
+function typeAt(raw: string, start: number, end: number): string | undefined {
+  if (!raw.startsWith(TYPE_PREFIX, start)) {
+    return undefined;
+  }
+  const close = raw.indexOf('"', start + TYPE_PREFIX.length);
+  return close === -1 || close > end ? undefined : raw.slice(start + TYPE_PREFIX.length, close);
 }
 
 /**
@@ -26,24 +73,68 @@ export class PiRpcSessionCatalog implements SessionCatalog {
   private readonly directory: string;
   private readonly maxSessions: number;
   private readonly removeFile: (path: string) => Promise<void>;
+  private readonly readSummary: (
+    path: string,
+    updatedAt: number,
+    previous?: CachedSummary,
+  ) => Promise<SessionScan | undefined>;
+  /**
+   * Summaries survive between calls, keyed by path and validated by size + mtime.
+   * The list is asked for far more often than sessions change — every reconnect,
+   * every new session, every rename — and re-reading 50 transcripts each time was
+   * the single most expensive thing the host did.
+   */
+  private readonly cache = new Map<string, CachedSummary>();
 
   constructor(options: PiRpcSessionCatalogOptions = {}) {
     this.directory = resolveSessionDir(options.sessionDir, options.env);
     this.maxSessions = options.maxSessions ?? 50;
     this.removeFile = options.removeFile ?? unlink;
+    this.readSummary = options.readSummary ?? readSessionSummary;
   }
 
   get sessionDirectory(): string {
     return this.directory;
   }
 
+  /**
+   * A list already being built is handed to every caller instead of being started
+   * again: two frontends connecting at the same moment, or a refresh landing while
+   * a push is in flight, used to mean two full scans of the whole catalog.
+   */
+  private inFlight: Promise<SessionSummary[]> | undefined;
+
   async list(): Promise<SessionSummary[]> {
+    this.inFlight ??= this.buildList().finally(() => {
+      this.inFlight = undefined;
+    });
+    return this.inFlight;
+  }
+
+  private async buildList(): Promise<SessionSummary[]> {
     const files = await this.collectSessionFiles();
     const summaries: SessionSummary[] = [];
+    const seen = new Set<string>();
     for (const file of files.slice(0, this.maxSessions)) {
-      const summary = await readSessionSummary(file.path, file.updatedAt);
-      if (summary) {
-        summaries.push(summary);
+      seen.add(file.path);
+      const cached = this.cache.get(file.path);
+      if (cached !== undefined && cached.size === file.size && cached.updatedAt === file.updatedAt) {
+        summaries.push(cached.summary);
+        continue;
+      }
+      const scan = await this.readSummary(file.path, file.updatedAt, cached);
+      if (scan === undefined) {
+        this.cache.delete(file.path);
+        continue;
+      }
+      this.cache.set(file.path, { size: file.size, updatedAt: file.updatedAt, ...scan });
+      summaries.push(scan.summary);
+    }
+    // A deleted session (or one that fell out of `maxSessions`) must not keep its
+    // text alive here.
+    for (const path of [...this.cache.keys()]) {
+      if (!seen.has(path)) {
+        this.cache.delete(path);
       }
     }
     return summaries;
@@ -64,9 +155,11 @@ export class PiRpcSessionCatalog implements SessionCatalog {
     await this.removeFile(path);
   }
 
-  private async collectSessionFiles(): Promise<{ path: string; updatedAt: number }[]> {
+  private async collectSessionFiles(): Promise<
+    { path: string; size: number; updatedAt: number }[]
+  > {
     const buckets = await safeReadDir(this.directory);
-    const files: { path: string; updatedAt: number }[] = [];
+    const files: { path: string; size: number; updatedAt: number }[] = [];
     for (const bucket of buckets) {
       if (!bucket.isDirectory()) {
         continue;
@@ -78,7 +171,7 @@ export class PiRpcSessionCatalog implements SessionCatalog {
         }
         const path = join(bucketPath, entry.name);
         const info = await stat(path).catch(() => undefined);
-        files.push({ path, updatedAt: info?.mtimeMs ?? 0 });
+        files.push({ path, size: info?.size ?? 0, updatedAt: info?.mtimeMs ?? 0 });
       }
     }
     files.sort((left, right) => right.updatedAt - left.updatedAt);
@@ -86,59 +179,142 @@ export class PiRpcSessionCatalog implements SessionCatalog {
   }
 }
 
+/**
+ * Reads one session file into a summary.
+ *
+ * A file that only *grew* since the last scan is read from where that scan
+ * stopped: a long session appends a message at a time, and re-reading all 18 MB of
+ * it for every `session/list` cost ~65 ms against ~1 ms for the tail. Anything else
+ * — a shorter file, an older mtime, no previous scan — is read whole, so the
+ * summary can never drift from the file.
+ */
 async function readSessionSummary(
   path: string,
   updatedAt: number,
-): Promise<SessionSummary | undefined> {
-  const raw = await readFile(path, 'utf8').catch(() => undefined);
+  previous?: CachedSummary,
+): Promise<SessionScan | undefined> {
+  let resumable =
+    previous !== undefined && previous.scanned > 0 && updatedAt >= previous.updatedAt;
+  if (resumable && previous !== undefined) {
+    const info = await stat(path).catch(() => undefined);
+    // Only an append can be read from the tail. A shorter file (or one of the same
+    // length) was rewritten, and the prefix we scanned is not the prefix on disk.
+    resumable = info !== undefined && info.size > previous.scanned;
+  }
+  const from = resumable && previous !== undefined ? previous.scanned : 0;
+  const raw = resumable
+    ? await readFrom(path, from).catch(() => undefined)
+    : await readFile(path, 'utf8').catch(() => undefined);
   if (raw === undefined) {
     return undefined;
   }
 
-  let id = basename(path, '.jsonl');
-  let cwd = '';
-  let name: string | undefined;
-  let firstUserText: string | undefined;
-  let messageCount = 0;
+  let cwd = resumable && previous !== undefined ? previous.summary.cwd : '';
+  let name = resumable && previous !== undefined ? previous.name : undefined;
+  let firstUserText = resumable && previous !== undefined ? previous.firstUserText : undefined;
+  let messageCount = resumable && previous !== undefined ? previous.summary.messageCount : 0;
+  let scanned = from;
+  /** Characters consumed up to the last complete line, in this read. */
+  let consumed = 0;
 
-  for (const line of raw.split('\n')) {
-    if (!line.startsWith('{')) {
-      continue;
-    }
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const type = entry['type'];
-    if (type === 'session' && cwd.length === 0) {
-      id = asString(entry['id']) ?? id;
-      cwd = asString(entry['cwd']) ?? '';
-      continue;
-    }
-    if (type === 'message') {
-      messageCount += 1;
-      if (!firstUserText) {
-        const message = asRecord(entry['message']);
-        if (message?.['role'] === 'user') {
-          firstUserText = textOf(message['content']);
+  const parseAt = (start: number, end: number) => parseLine(raw.slice(start, end));
+
+  for (let start = 0; start < raw.length; ) {
+    const newline = raw.indexOf('\n', start);
+    const end = newline === -1 ? raw.length : newline;
+    // Walk the buffer by offset: slicing every line (or `split`ting the whole file
+    // into 2000 strings) allocated tens of megabytes per scan, for lines that
+    // mostly only needed counting.
+    //
+    // The last chunk may be a line still being written, and a half-flushed entry
+    // must not be read as a (broken) line: it only counts once it parses, which is
+    // what the scan did before this shortcut existed.
+    const complete = newline !== -1;
+    let type: string | undefined;
+    if (raw.charCodeAt(start) === 123 /* '{' */) {
+      type = complete
+        ? (typeAt(raw, start, end) ?? asString(parseAt(start, end)?.['type']))
+        : asString(parseAt(start, end)?.['type']);
+      if (type === 'message') {
+        messageCount += 1;
+        if (firstUserText === undefined) {
+          const message = asRecord(parseAt(start, end)?.['message']);
+          if (message?.['role'] === 'user') {
+            firstUserText = textOf(message['content']);
+          }
         }
+      } else if (type === 'session') {
+        if (cwd.length === 0) {
+          cwd = asString(parseAt(start, end)?.['cwd']) ?? '';
+        }
+      } else if ((type === 'session_info' || type === 'session_name') && !name) {
+        name = asString(parseAt(start, end)?.['name']);
       }
-      continue;
     }
-    if ((type === 'session_info' || type === 'session_name') && !name) {
-      name = asString(entry['name']);
+    if (!complete) {
+      // The tail is either a whole entry whose newline has not landed yet — it
+      // counted above, so the next scan must start after it — or a half-written
+      // line, which is left in place to be read again whole.
+      if (type !== undefined) {
+        consumed = raw.length;
+      }
+      break;
     }
+    consumed = newline + 1;
+    start = newline + 1;
+  }
+
+  // Byte offsets are what the next scan resumes from, and they have to sit on a
+  // character boundary: measured once from the text, not per line.
+  if (consumed > 0) {
+    scanned = from + Buffer.byteLength(raw.slice(0, consumed));
   }
 
   return {
-    id: path,
-    title: name ?? titleFromText(firstUserText) ?? 'Untitled session',
-    cwd,
-    updatedAt,
-    messageCount,
+    summary: {
+      id: path,
+      title: name ?? titleFromText(firstUserText) ?? 'Untitled session',
+      cwd,
+      updatedAt,
+      messageCount,
+    },
+    scanned,
+    name,
+    firstUserText,
   };
+}
+
+/** The tail of a file, from a byte offset that sits on a character boundary. */
+async function readFrom(path: string, from: number): Promise<string> {
+  const handle = await open(path, 'r');
+  try {
+    const info = await handle.stat();
+    if (info.size <= from) {
+      return '';
+    }
+    const length = info.size - from;
+    const buffer = Buffer.alloc(length);
+    let filled = 0;
+    while (filled < length) {
+      const { bytesRead } = await handle.read(buffer, filled, length - filled, from + filled);
+      if (bytesRead === 0) {
+        break;
+      }
+      filled += bytesRead;
+    }
+    return buffer.subarray(0, filled).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Only reached for a line that is not in pi's canonical shape. */
+function parseLine(line: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

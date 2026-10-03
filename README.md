@@ -41,6 +41,28 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
   "update available" with the version and the command that installs it. One request, public data, and a host
   can turn it off with `MORSE_UPDATE_CHECK=0`.
 
+## Light, and honest about what is not
+
+Morse is an interface, not another agent: it spawns `pi --mode rpc` and never imports it (~408 MB on disk stays
+pi's problem, not Morse's). What is left is small, and measured rather than claimed:
+
+| Piece | Measured |
+|---|---|
+| Frontend, over the wire | **156 kB** compressed (590 kB raw), 10.8 kB CSS |
+| Host bundle (`@morse/server`, the NestJS app) | **68 kB** of JS |
+| Host, nothing happening | **0.000% CPU**, ~110 MB RSS — no polling, no heartbeat, nothing to wake up for |
+| One prompt in a warm session | **2.3%** of one core of *host* CPU |
+| Refreshing the session list | **2 ms** warm (it was 624 ms of CPU before it was cached) |
+| A live session | **275–450 MB** |
+
+That last row is the honest one: a live session is a `pi` process (147–157 MB) plus the MCP servers *your* pi
+configuration starts — in our measurement, `firecrawl-mcp` alone accounted for 285 MB of it. Morse caps how many
+stay alive (`MORSE_HOT_SESSIONS`, default 4) and retires the idle ones, so the number to size a box by is this
+one, not the 110 MB above.
+
+Both numbers were measured against a real `pi` with the host built for production; the method and the before/after
+are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), so you can reproduce them — or watch them not be true.
+
 ## Requirements
 
 - Node.js 20+ (developed on 24) and npm 10+.

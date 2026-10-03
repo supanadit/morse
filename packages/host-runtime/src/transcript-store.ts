@@ -5,7 +5,12 @@ import { TranscriptProjector } from './transcript-projector.js';
 export interface TranscriptUpdate {
   sessionKey: string;
   message: HostToClientMessage;
-  items: TranscriptItem[];
+  /**
+   * The transcript after this update, copied only when it is read. The controller
+   * forwards `message` and never looks at the items, so copying every item on
+   * every delta was garbage for nothing.
+   */
+  readonly items: TranscriptItem[];
 }
 
 /** How far back a session's transcript has been paged. */
@@ -126,7 +131,9 @@ export class SessionTranscriptStore {
           this.emit({
             sessionKey,
             message,
-            items: projector?.snapshot() ?? [],
+            get items(): TranscriptItem[] {
+              return projector?.snapshot() ?? [];
+            },
           });
         },
       });
