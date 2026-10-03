@@ -2,6 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
 import { vi } from 'vitest';
+import { FRONTEND_IDENTITY } from '../../core/morse.service';
 import { MORSE_TRANSPORT } from '../../core/transport.token';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
@@ -296,8 +297,9 @@ describe('SessionNav', () => {
     expect(notice.href).toBe('https://github.com/supanadit/morse/releases/tag/v9.9.9');
     expect(notice.target).toBe('_blank');
     expect(notice.title).toContain('npm install -g @supanadit/morse-web@9.9.9');
-    // The version it is newer than is still on the row below it.
-    expect(footButton(host, 'About').textContent).toContain('v0.2.1');
+    // The version it is newer than is still on the row below it — read from the
+    // identity, so a release bump does not break this test.
+    expect(footButton(host, 'About').textContent).toContain(`v${FRONTEND_IDENTITY.version}`);
   });
 
   it('reviews the notice with ?newer, which asks no host and fetches nothing', async () => {

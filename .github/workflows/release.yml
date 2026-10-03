@@ -91,13 +91,42 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Extract this version's release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            const version = process.env.VERSION;
+            const lines = readFileSync("packages/extension/CHANGELOG.md", "utf8").split("\n");
+            const start = lines.findIndex((line) => line === `## ${version}` || line.startsWith(`## ${version} `));
+            const notes = [];
+            for (let index = start + 1; start !== -1 && index < lines.length; index += 1) {
+              if (lines[index].startsWith("## ")) break;
+              notes.push(lines[index]);
+            }
+            // Empty when this version has no section: the release step then falls
+            // back to the notes GitHub generates from commits.
+            writeFileSync("RELEASE_NOTES.md", notes.join("\n").trim().length > 0 ? `${notes.join("\n").trim()}\n` : "");
+            console.log(`release notes for ${version}: ${notes.join("\n").trim().length} characters`);
+          '
+
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" dist/morse.vsix \
-            --title "Morse ${{ steps.version.outputs.tag }}" \
-            --generate-notes
+          tag="${{ steps.version.outputs.tag }}"
+          # The body is this version's changelog section, so the release page reads
+          # like the project's own notes instead of a list of commit subjects.
+          if [ -s RELEASE_NOTES.md ]; then
+            gh release create "$tag" dist/morse.vsix \
+              --title "Morse $tag" \
+              --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$tag" dist/morse.vsix \
+              --title "Morse $tag" \
+              --generate-notes
+          fi
 
       - name: Publish the VSIX to the VS Code Marketplace
         if: vars.PUBLISH_MARKETPLACE == 'true' && env.VSCE_PAT != ''

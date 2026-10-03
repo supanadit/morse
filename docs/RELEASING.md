@@ -22,10 +22,17 @@ manifest disagrees with it, so the version in the tag, the VSIX and the npm pack
    explicit version — a `patch`/`minor` bump would update each package relative to its *own* current version
    and leave them out of sync.
 
-2. Update [`CHANGELOG.md`](../packages/extension/CHANGELOG.md) if there is anything worth saying beyond the
-   generated commit list.
+2. Bump the version the frontend announces, in `packages/ui-angular/src/app/core/morse.service.ts`
+   (`FRONTEND_IDENTITY`). The panel cannot read its own manifest at runtime, so the number is a literal — and
+   `core/frontend-identity.spec.ts` compares it with `packages/ui-angular/package.json`, which means a forgotten
+   bump fails `test:fast` before the tag is pushed.
 
-3. Commit, tag, and push:
+3. Write the `## <version>` section of [`CHANGELOG.md`](../packages/extension/CHANGELOG.md). It is two things at
+   once: what a VS Code user reads in the extension's changelog, and the body of the GitHub Release — the
+   workflow extracts that section, and only falls back to the notes GitHub generates from commit subjects when a
+   version has no section. Keep it about what a user gets: bold lead-in, one sentence, no commit hashes.
+
+4. Commit, tag, and push:
 
    ```bash
    git add -A
@@ -44,7 +51,8 @@ Pushing the tag starts [`.github/workflows/release.yml`](../.github/workflows/re
 4. `npm run build -w @supanadit/morse-web` → the single-file npm artifact.
 5. `npm run vsix -w morse` → `dist/morse.vsix` (verifies the webview bundle first).
 6. `npm publish -w @supanadit/morse-web` with `NPM_TOKEN`.
-7. `gh release create` with the VSIX attached and generated release notes.
+7. `gh release create` with the VSIX attached and this version's changelog section as the release body (the
+   generated commit notes only when there is no section).
 8. `vsce publish --packagePath dist/morse.vsix -p "$VSCE_PAT"` — only when `PUBLISH_MARKETPLACE` is `true` and
    the `VSCE_PAT` secret is present (see below).
 
