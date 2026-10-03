@@ -59,6 +59,10 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
   projects → sessions) vs `workspace` (VS Code: one group). The controller filters
   projects and sessions to the workspace roots and refuses agents outside them.
 - **pi framing**: split on LF only, strip CR, no `readline`, `StringDecoder`, stderr is logs only.
+- **Keyboard**: a shortcut is one entry in `core/shortcuts.ts` plus a `bind()` by whoever owns the state it
+  acts on (the composer binds the model chooser, the thinking picker its own panel), so the `?` help dialog
+  prints the same list the service matches, and an owner that is not mounted is shown as unavailable rather
+  than promised. Never a second key handler per component.
 - **Where new code goes**: use case -> `core/src/<module>/service.ts`; port -> the consumer; pi command ->
   `adapter-pi-rpc`; new UI data -> protocol + `host-runtime/src/session-controller.ts`; new frontend/host ->
   see `docs/FRONTENDS.md`.
@@ -90,6 +94,10 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | Typing a project name in the sidebar finds no sessions | that box searches session titles only — the project button above it opens the searchable filter; the empty state offers the matching project as a jump |
 | Sidebar and chat headers out of line | both rows read `--morse-head-height`; giving one of them its own padding/`min-height` is how they drift apart |
 | `--frontend=x` silently ignored | npm drops flags on nested `npm run`; use `npm run sync-webview -- --frontend=x` |
+| A shortcut does nothing | no owner bound it: the action is registered by the component that owns the state (the composer, the sidebar), so a `?` list row marked "not in this host" is the honest answer — bind it there, not in `App` |
+| `/` or `?` fires while typing a prompt | characters belong to the field: only specs marked `whileTyping` may run with the caret in an input/textarea |
+| A character typed with AltGr triggers an action | Windows reports AltGr as Ctrl+Alt; `ShortcutService` skips `getModifierState('AltGraph')` |
+| An overlay opens behind a dialog | specs marked `overlay` stand down while `ShellState.modalOpen()`; mark the new one or it will stack |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
 
 ## Pointers
@@ -104,6 +112,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | VS Code wiring, commands, settings | `packages/extension/src/app/main.ts`, `packages/extension/src/internal/vscode/` |
 | NestJS wiring and env | `packages/server/src/app.module.ts`, `packages/server/src/app/config.ts` |
 | protocol version | `packages/protocol/src/version.ts` |
+| keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/core/shortcuts.ts` ← `shortcuts/shortcuts-dialog.ts` |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
 | pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |

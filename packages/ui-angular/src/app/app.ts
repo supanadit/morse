@@ -14,6 +14,8 @@ import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
 import { AboutDialog } from './about/about-dialog';
+import { ShortcutsDialog } from './shortcuts/shortcuts-dialog';
+import { ShortcutService } from './core/shortcuts';
 import { ConfirmDialog } from './shared/confirm-dialog';
 import { AgentScreen } from './agent/agent-screen';
 
@@ -34,6 +36,7 @@ function previewBoot(): boolean {
     SessionNav,
     ProjectPicker,
     AboutDialog,
+    ShortcutsDialog,
     AgentScreen,
     ConfirmDialog,
     ChatHeader,
@@ -51,6 +54,7 @@ function previewBoot(): boolean {
 export class App {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly shortcuts = inject(ShortcutService);
   private readonly dropZone = inject(DropZone);
   private readonly animation = inject(AnimationService);
   private readonly attachments = inject(AttachmentStore);
@@ -82,6 +86,7 @@ export class App {
   protected readonly navigationOpen = this.shell.navigationOpen;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
+  protected readonly shortcutsOpen = this.shell.shortcutsOpen;
   protected readonly navigationCollapsed = this.shell.navigationCollapsed;
   protected readonly compactConfirmOpen = this.shell.compactConfirmOpen;
   /**
@@ -151,6 +156,19 @@ export class App {
   });
 
   constructor() {
+    // The two shortcuts whose action belongs to the shell itself. The rest are
+    // bound where their state lives: the sidebar owns the search field and the
+    // project filter, the composer owns the model chooser, the thinking picker
+    // its own panel — so a missing owner shows up as an unavailable row.
+    const unbind = [
+      this.shortcuts.bind('context.compact', () => this.shell.requestCompact(), () => this.morse.state().agentReady),
+      this.shortcuts.bind('help.shortcuts', () => this.shell.toggleShortcuts()),
+    ];
+    this.destroyRef.onDestroy(() => {
+      for (const off of unbind) {
+        off();
+      }
+    });
     if (this.bootPending) {
       // A hard cap so a decorative screen never becomes a hostage situation;
       // the overlay also releases itself once the intro has had its moment.

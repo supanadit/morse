@@ -1,14 +1,18 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
+  ElementRef,
   HostListener,
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import type { SessionSummary } from '@morse/protocol';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
+import { ShortcutService } from '../../core/shortcuts';
 import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
 interface SessionGroup {
@@ -375,13 +379,20 @@ interface SessionMenu {
 export class SessionNav {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly shortcuts = inject(ShortcutService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
 
   protected readonly query = signal('');
   protected readonly collapsed = signal<Record<string, boolean>>({});
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
   /** Which project the list is narrowed to; `''` shows every one of them. */
   protected readonly projectFilter = signal('');
-  protected readonly filterOpen = signal(false);
+  /**
+   * The filter panel's open flag lives in `ShellState`: the shortcut opens it from
+   * outside this component, and the shell watches it to know a dialog is up.
+   */
+  protected readonly filterOpen = this.shell.projectFilterOpen;
   private readonly nativeDialogs = computed(
     () => this.morse.capabilities()?.nativeDialogs === true,
   );
@@ -483,6 +494,23 @@ export class SessionNav {
     );
   });
 
+  constructor() {
+    // Three shortcuts belong to the sidebar, because it owns what they act on:
+    // the search field, the project filter, and "New session" — the last one
+    // because the button's meaning depends on the host (a global host asks which
+    // folder first), and the key has to mean exactly what the button means.
+    const unbind = [
+      this.shortcuts.bind('session.new', () => this.startSession()),
+      this.shortcuts.bind('session.search', () => this.focusSearch()),
+      this.shortcuts.bind('project.filter', () => this.shell.openProjectFilter(), () => this.filterable()),
+    ];
+    this.destroyRef.onDestroy(() => {
+      for (const off of unbind) {
+        off();
+      }
+    });
+  }
+
   protected isCollapsed(path: string): boolean {
     // The project you asked for is never folded: filtering to it and then seeing a
     // collapsed header is the same empty-list confusion this control removed.
@@ -581,11 +609,11 @@ export class SessionNav {
   }
 
   protected openFilter(): void {
-    this.filterOpen.set(true);
+    this.shell.openProjectFilter();
   }
 
   protected closeFilter(): void {
-    this.filterOpen.set(false);
+    this.shell.closeProjectFilter();
   }
 
   protected onProjectSelect(path: string): void {
@@ -608,11 +636,23 @@ export class SessionNav {
     this.shell.openAbout();
   }
 
+  /** Opens the keyboard help, which lives at the app level for the same reason. */
+  protected openShortcuts(): void {
+    this.shell.openShortcuts();
+  }
+
   protected newSession(event: Event, path?: string): void {
     event.stopPropagation();
-    // The top-left button is a bare "New session": on a global host there is no
-    // current project to inherit, so it asks for a folder first. The per-project
-    // "+" passes a path and creates the draft directly.
+    this.startSession(path);
+  }
+
+  /**
+   * The sidebar's "New session", and the shortcut for it — one implementation, so
+   * the key cannot drift from the button. On a global host there is no current
+   * project to inherit, so it asks for a folder first; the per-project "+" passes
+   * a path and creates the draft directly.
+   */
+  private startSession(path?: string): void {
     if (path === undefined && this.directoryPicker()) {
       this.shell.openProjectPicker();
       this.shell.closeNavigation();
@@ -620,6 +660,31 @@ export class SessionNav {
     }
     this.morse.newSession(path ?? this.morse.workspace().cwd);
     this.shell.closeNavigation();
+  }
+
+  /**
+   * `/` from outside a text field. The field can be off screen in two ways — the
+   * wide-layout column folded away, or the narrow drawer closed — and a field
+   * nobody can see cannot take focus. CSS owns that breakpoint, so this asks the
+   * fold flag and the DOM instead of repeating 760px here.
+   */
+  private focusSearch(): void {
+    const field = this.searchInput()?.nativeElement;
+    if (field === undefined) {
+      return;
+    }
+    this.shell.unfoldNavigation();
+    if (field.offsetParent === null) {
+      this.shell.openNavigation();
+    }
+    // Both of those are class changes, so the field only takes focus once the
+    // layout has settled — and `select()` makes the next word replace the old
+    // query instead of extending it.
+    setTimeout(() => {
+      const open = this.searchInput()?.nativeElement;
+      open?.focus();
+      open?.select();
+    }, 0);
   }
 
   protected refresh(): void {

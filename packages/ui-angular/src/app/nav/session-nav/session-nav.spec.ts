@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from '../../core/transport.token';
 import { ShellState } from '../../core/shell-state';
+import { ShortcutService } from '../../core/shortcuts';
 import { SessionNav } from './session-nav';
 
 /**
@@ -127,6 +128,28 @@ async function render(
   return { host: fixture.nativeElement as HTMLElement, transport, fixture };
 }
 
+/** Presses a shortcut the way the shell sees it: on the document, capture included. */
+function press(key: string, { ctrl = false, alt = false } = {}): void {
+  document.dispatchEvent(
+    new KeyboardEvent('keydown', { key, ctrlKey: ctrl, altKey: alt, bubbles: true, cancelable: true }),
+  );
+}
+
+/** jsdom has no layout, so every element reports itself as hidden; say otherwise. */
+function show(element: HTMLElement): void {
+  Object.defineProperty(element, 'offsetParent', { value: document.body, configurable: true });
+}
+
+function footButton(host: HTMLElement, label: string): HTMLElement {
+  const button = [...host.querySelectorAll('.foot button')].find((candidate) =>
+    (candidate.textContent ?? '').includes(label),
+  );
+  if (button === undefined) {
+    throw new Error(`no footer button labelled ${label}`);
+  }
+  return button as HTMLElement;
+}
+
 describe('SessionNav', () => {
   it('groups sessions by project for a global host', async () => {
     const { host } = await render('global');
@@ -211,11 +234,109 @@ describe('SessionNav', () => {
     const shell = TestBed.inject(ShellState);
     expect(shell.aboutOpen()).toBe(false);
 
-    ((host.querySelector('.foot button') as HTMLElement) ?? null)?.click();
+    footButton(host, 'About').click();
     fixture.detectChanges();
 
     // One signal, one overlay: the dialog itself is mounted by `app.html`.
     expect(shell.aboutOpen()).toBe(true);
+  });
+
+  it('opens the keyboard help from the colophon, next to About', async () => {
+    const { host, fixture } = await render('workspace');
+    const shell = TestBed.inject(ShellState);
+
+    footButton(host, 'Keyboard shortcuts').click();
+    fixture.detectChanges();
+
+    expect(shell.shortcutsOpen()).toBe(true);
+    expect(shell.modalOpen()).toBe(true);
+  });
+
+  it('creates a session from the keyboard, the way the button does', async () => {
+    // A workspace host already knows the folder, so the key is the button.
+    const { transport, fixture } = await render('workspace');
+    press('n', { ctrl: true, alt: true });
+    fixture.detectChanges();
+
+    const created = transport.sent.filter((message) => message.type === 'session/new');
+    expect(created).toHaveLength(1);
+    expect(created[0].payload).toEqual({ cwd: '/work/morse' });
+
+    // A browser host has no current project: the key asks for a folder too.
+    const global = await render('global', true);
+    press('n', { ctrl: true, alt: true });
+    global.fixture.detectChanges();
+
+    expect(TestBed.inject(ShellState).projectPickerOpen()).toBe(true);
+    expect(global.transport.sent.some((message) => message.type === 'session/new')).toBe(false);
+  });
+
+  it('filters projects from the keyboard, but not on a host with one project', async () => {
+    const { fixture } = await render('global');
+    const shell = TestBed.inject(ShellState);
+
+    press('p', { ctrl: true, alt: true });
+    fixture.detectChanges();
+    expect(shell.projectFilterOpen()).toBe(true);
+    expect(shell.modalOpen()).toBe(true);
+
+    // VS Code's scope has one project, so there is nothing to filter: the action
+    // is unbound, which is what the help dialog reads as "not in this host".
+    const workspace = await render('workspace');
+    workspace.fixture.detectChanges();
+    expect(TestBed.inject(ShortcutService).available().get('project.filter')).toBe(false);
+
+    press('p', { ctrl: true, alt: true });
+    workspace.fixture.detectChanges();
+    expect(TestBed.inject(ShellState).projectFilterOpen()).toBe(false);
+  });
+
+  it('puts the caret in the session search with `/`, opening the drawer if needed', async () => {
+    const { host, fixture } = await render('global');
+    const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
+    show(search);
+
+    press('/');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(search);
+    expect(TestBed.inject(ShellState).navigationOpen()).toBe(false);
+
+    // A closed drawer is hidden, and a hidden field cannot take focus: the
+    // shortcut opens it, then lands the caret.
+    await render('global');
+    press('/');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(TestBed.inject(ShellState).navigationOpen()).toBe(true);
+  });
+
+  it('unfolds the sidebar column before focusing the search', async () => {
+    const { host, fixture } = await render('global');
+    const shell = TestBed.inject(ShellState);
+    shell.toggleNavigationCollapsed();
+    const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
+    // The folded column hides the field with `visibility`, so it still has layout
+    // and `offsetParent` is not null — the fold flag is the only thing saying so.
+    show(search);
+
+    press('/');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(shell.navigationCollapsed()).toBe(false);
+    expect(document.activeElement).toBe(search);
+  });
+
+  it('leaves `/` to a text field the caret is already in', async () => {
+    const { host } = await render('global');
+    const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
+
+    // Typing the character must not be hijacked by the shell.
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TestBed.inject(ShellState).navigationOpen()).toBe(false);
   });
 
   it('filters to one project from the chip, and back to all of them', async () => {

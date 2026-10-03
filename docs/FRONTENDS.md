@@ -113,6 +113,10 @@ directly.
    fails when one is missing, stale, or changes its licence), and the bundled font licence ships beside the
    bundle (`public/fonts/LICENSE.txt`). A replacement frontend reuses both instead of dropping them — no host
    work, no protocol change.
+9. **Keys are the frontend's own.** No host message carries a shortcut: `packages/ui-angular/src/app/core/shortcuts.ts`
+   is the catalog (matching, matching display, and the help dialog all read the one list), and owners bind the
+   action they own through `ShortcutService`. A replacement frontend binds the same keys — the key a user learns
+   is part of the product, not of the wire — and keeps the help honest about which ones this host can run.
 
 ## Adding `ui-react` (the same recipe for Svelte, Vue, Solid, ...)
 

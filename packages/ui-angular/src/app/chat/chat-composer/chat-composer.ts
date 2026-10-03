@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   ElementRef,
@@ -13,6 +14,7 @@ import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { AttachmentStore, type PendingImage } from '../../core/attachments';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
+import { ShortcutService } from '../../core/shortcuts';
 import { Uploader } from '../../core/uploads';
 import { WorkspaceFiles } from '../../core/workspace-files';
 import { PopoverFit } from '../../core/popover-fit.directive';
@@ -439,6 +441,8 @@ import { UsageIndicator } from '../usage/usage-indicator';
 export class ChatComposer {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly shortcuts = inject(ShortcutService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly attachments = inject(AttachmentStore);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly uploads = inject(Uploader);
@@ -603,6 +607,16 @@ export class ChatComposer {
   private readonly tick = signal(0);
 
   constructor() {
+    // The model chooser is this component's state, so this is where its shortcut
+    // is bound. Nothing to choose means nothing to open, and the help dialog
+    // says so instead of offering a key that does nothing.
+    const unbind = this.shortcuts.bind(
+      'model.pick',
+      () => this.toggleModelPicker(),
+      () => this.models().length > 0,
+    );
+    this.destroyRef.onDestroy(unbind);
+
     // A dropped file becomes an `@mention` in the text, so the user can still
     // edit what is about to be sent instead of it being sent behind their back.
     effect(() => {
@@ -1078,6 +1092,9 @@ export class ChatComposer {
       case 'about':
         this.shell.openAbout();
         break;
+      case 'keys':
+        this.shell.openShortcuts();
+        break;
     }
   }
 
@@ -1200,6 +1217,7 @@ const BUILTIN_COMMANDS = [
   { name: 'compact', description: 'Compact the current context (asks first)' },
   { name: 'settings', description: 'Open Morse settings' },
   { name: 'about', description: 'Credits and licences' },
+  { name: 'keys', description: 'Keyboard shortcuts' },
 ] as const;
 
 /** A prompt that is exactly one built-in command, e.g. `/compact`. */

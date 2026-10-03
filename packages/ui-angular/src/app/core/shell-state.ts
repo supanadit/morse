@@ -58,6 +58,21 @@ export class ShellState {
   readonly aboutOpen = this.about.asReadonly();
 
   /**
+   * The keyboard help. Shell state like About: the sidebar footer and `?` both
+   * open it, and it renders over the whole app from one place.
+   */
+  private readonly shortcuts = signal(false);
+  readonly shortcutsOpen = this.shortcuts.asReadonly();
+
+  /**
+   * The project filter. The list narrowed to one project is `SessionNav`'s to
+   * keep, but the flag lives here: two places open it (the sidebar button and
+   * the shortcut), and `modalOpen` has to be honest about what is on screen.
+   */
+  private readonly projectFilter = signal(false);
+  readonly projectFilterOpen = this.projectFilter.asReadonly();
+
+  /**
    * The compaction gate. Compaction spends a model call and replaces what the agent
    * remembers, so it always asks first: two places request it (the header button and
    * `/compact`), and one stray click used to be enough to start it.
@@ -67,8 +82,26 @@ export class ShellState {
   /** Whatever the user typed after `/compact`, handed to pi on confirmation. */
   readonly compactInstructions = computed(() => this.compactPrompt()?.instructions);
 
+  /**
+   * True while a dialog owns the screen. Overlay shortcuts stand down on this:
+   * opening a picker behind a modal reads as a bug, not as a feature.
+   */
+  readonly modalOpen = computed(
+    () =>
+      this.about() ||
+      this.shortcuts() ||
+      this.projectPicker() ||
+      this.projectFilter() ||
+      this.compactPrompt() !== undefined,
+  );
+
   toggleNavigation(): void {
     this.navigationVisible.update((open) => !open);
+  }
+
+  /** Used by the focus-search shortcut: a hidden drawer cannot take focus. */
+  openNavigation(): void {
+    this.navigationVisible.set(true);
   }
 
   closeNavigation(): void {
@@ -77,10 +110,20 @@ export class ShellState {
 
   /** Folds the navigation column away (wide layouts) or brings it back. */
   toggleNavigationCollapsed(): void {
-    this.collapsed.update((collapsed) => {
-      storeNavCollapsed(!collapsed);
-      return !collapsed;
-    });
+    this.setCollapsed(!this.collapsed());
+  }
+
+  /**
+   * Used by the focus-search shortcut: a folded column is `visibility: hidden`,
+   * and a field nobody can see cannot take focus either.
+   */
+  unfoldNavigation(): void {
+    this.setCollapsed(false);
+  }
+
+  private setCollapsed(collapsed: boolean): void {
+    this.collapsed.set(collapsed);
+    storeNavCollapsed(collapsed);
   }
 
   openAbout(): void {
@@ -89,6 +132,27 @@ export class ShellState {
 
   closeAbout(): void {
     this.about.set(false);
+  }
+
+  openShortcuts(): void {
+    this.shortcuts.set(true);
+  }
+
+  closeShortcuts(): void {
+    this.shortcuts.set(false);
+  }
+
+  /** `?` means the same key opens and closes the list, so it is a toggle. */
+  toggleShortcuts(): void {
+    this.shortcuts.update((open) => !open);
+  }
+
+  openProjectFilter(): void {
+    this.projectFilter.set(true);
+  }
+
+  closeProjectFilter(): void {
+    this.projectFilter.set(false);
   }
 
   openProjectPicker(): void {

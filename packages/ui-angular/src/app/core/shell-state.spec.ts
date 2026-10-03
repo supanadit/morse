@@ -47,4 +47,31 @@ describe('ShellState', () => {
     expect(shell.navigationOpen()).toBe(true);
     expect(shell.navigationCollapsed()).toBe(true);
   });
+
+  /**
+   * `modalOpen` is what lets overlay shortcuts stand down, so it has to include
+   * every dialog that can cover the app — including the help itself.
+   */
+  it('knows when a dialog owns the screen', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.modalOpen()).toBe(false);
+
+    shell.openProjectFilter();
+    expect(shell.projectFilterOpen()).toBe(true);
+    expect(shell.modalOpen()).toBe(true);
+    shell.closeProjectFilter();
+    expect(shell.modalOpen()).toBe(false);
+
+    shell.toggleShortcuts();
+    expect(shell.shortcutsOpen()).toBe(true);
+    expect(shell.modalOpen()).toBe(true);
+    shell.toggleShortcuts();
+    expect(shell.shortcutsOpen()).toBe(false);
+    expect(shell.modalOpen()).toBe(false);
+
+    shell.requestCompact('keep the schema');
+    expect(shell.modalOpen()).toBe(true);
+    shell.closeCompactPrompt();
+    expect(shell.modalOpen()).toBe(false);
+  });
 });

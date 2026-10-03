@@ -182,6 +182,88 @@ async function renderApp(): Promise<{
 const compactions = (sent: ClientToHostMessage[]): ClientToHostMessage[] =>
   sent.filter((message) => message.type === 'session/compact');
 
+/** Presses a shortcut on the document, which is where the shell listens. */
+function press(key: string, { ctrl = false, alt = false } = {}): void {
+  document.dispatchEvent(
+    new KeyboardEvent('keydown', { key, ctrlKey: ctrl, altKey: alt, bubbles: true, cancelable: true }),
+  );
+}
+
+/**
+ * The shortcuts the shell itself owns, through a real App: compaction asks the
+ * same question whichever way it was asked for, and the help list is one dialog
+ * with three ways in (`?`, the sidebar footer, `/keys`). The keys the sidebar and
+ * the composer own are bound and tested next to them.
+ */
+describe('App · keyboard shortcuts', () => {
+  it('asks the compaction question from the keyboard, not straight from the key', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    press('c', { ctrl: true, alt: true });
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-confirm-dialog')).not.toBeNull();
+    expect(compactions(sent)).toHaveLength(0);
+  });
+
+  it('opens and closes the help list with `?`', async () => {
+    const { host, fixture } = await renderApp();
+    expect(host.querySelector('morse-shortcuts-dialog')).toBeNull();
+
+    press('?');
+    fixture.detectChanges();
+    const dialog = host.querySelector('morse-shortcuts-dialog') as HTMLElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('Focus the session search');
+    // The mock host is a global one with models loaded, so every key this panel
+    // offers really has an owner behind it.
+    expect(dialog.querySelectorAll('li.unavailable')).toHaveLength(0);
+
+    // The same key closes it again.
+    press('?');
+    fixture.detectChanges();
+    expect(host.querySelector('morse-shortcuts-dialog')).toBeNull();
+
+    // Escape is the other way out, and it leaves nothing behind.
+    press('?');
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(host.querySelector('morse-shortcuts-dialog')).toBeNull();
+  });
+
+  it('opens the keyboard help from `/keys` in the prompt', async () => {
+    const { host, fixture } = await renderApp();
+
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = '/keys';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-shortcuts-dialog')).not.toBeNull();
+  });
+
+  it('opens the model and the thinking choosers without reaching for the footer', async () => {
+    const { host, fixture } = await renderApp();
+    expect(host.querySelector('morse-model-picker')).toBeNull();
+    expect(host.querySelector('morse-thinking-picker .panel')).toBeNull();
+
+    // Both are modified combinations, so they work with the caret in the prompt.
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'm', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(host.querySelector('morse-model-picker')).not.toBeNull();
+
+    press('t', { ctrl: true, alt: true });
+    fixture.detectChanges();
+    expect(host.querySelector('morse-thinking-picker .panel')).not.toBeNull();
+  });
+});
+
 /**
  * Compaction is the one action here that spends a model call and rewrites what the
  * agent remembers, so both of its triggers have to stop at a question — a stray

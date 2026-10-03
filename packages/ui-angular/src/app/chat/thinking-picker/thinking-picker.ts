@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   effect,
   ElementRef,
   HostListener,
@@ -11,6 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ThinkingLevel } from '@morse/protocol';
+import { ShortcutService } from '../../core/shortcuts';
 import { EnterDirective } from '../../shared/enter.directive';
 import { ThinkingBrain } from './thinking-brain';
 
@@ -127,12 +129,19 @@ export class ThinkingPicker {
   readonly pick = output<ThinkingLevel>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly shortcuts = inject(ShortcutService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
   protected readonly open = signal(false);
   protected readonly active = signal(0);
   protected readonly bumped = signal(false);
 
   constructor() {
+    // The panel is this component's own state, so the shortcut is bound here and
+    // not at the app level. No levels to choose from means the row is dead.
+    const unbind = this.shortcuts.bind('thinking.pick', () => this.toggle(), () => this.levels().length > 0);
+    this.destroyRef.onDestroy(unbind);
+
     effect(() => {
       if (!this.open()) {
         return;

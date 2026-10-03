@@ -29,6 +29,7 @@
     </button>
   }
   <input
+    #search
     type="search"
     [value]="query()"
     placeholder="Search sessions…"
@@ -133,6 +134,10 @@
 
 <!-- Colophon: who made this, and who it stands on — one click from either host. -->
 <div class="foot">
+  <button type="button" (click)="openShortcuts()" title="Every key Morse understands">
+    Keyboard shortcuts
+    <span class="stamp">?</span>
+  </button>
   <button type="button" (click)="openAbout()" title="About Morse and the technologies it uses">
     About Morse
     @if (version(); as stamp) {

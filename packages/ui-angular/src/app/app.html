@@ -29,6 +29,10 @@
     <morse-about-dialog />
   }
 
+  @if (shortcutsOpen()) {
+    <morse-shortcuts-dialog />
+  }
+
   @if (compactConfirmOpen()) {
     <morse-confirm-dialog
       title="Compact the conversation?"

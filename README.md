@@ -34,6 +34,9 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
   with `+` or by typing `@`, with markdown formatting in your own prompts too.
 - **Native interactions in VS Code** — pi's interaction requests become QuickPick/InputBox there, and are
   rendered inline in the browser.
+- **Keyboard first** — `Ctrl+Alt+…` (`⌘⌥…` on macOS) starts a session, narrows the sidebar to a project,
+  changes the model or the thinking level, and opens the compaction question; `/` jumps to the session
+  search and `?` prints the whole list — the same keys in both hosts.
 
 ## Requirements
 
