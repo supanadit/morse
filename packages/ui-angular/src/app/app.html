@@ -1,4 +1,4 @@
-<div class="shell">
+<div class="shell" [class.collapsed]="navigationCollapsed()">
   @if (bootVisible()) {
     <morse-boot-splash
       [ready]="bootReady()"

@@ -11,7 +11,7 @@
 .shell {
   position: relative;
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -20,6 +20,40 @@
 
 .nav {
   min-width: 0;
+}
+
+/*
+ * Wide layouts (the browser host, a wide VS Code window): the column folds away
+ * on its own, without the drawer machinery below. The nav keeps its intrinsic
+ * width while the grid track animates to zero, so the sidebar slides out of the
+ * shell instead of squishing its contents — the shell already clips the overflow.
+ */
+@media (min-width: 760px) {
+  .nav {
+    width: var(--morse-nav-width);
+  }
+
+  .shell {
+    transition: grid-template-columns 160ms ease;
+  }
+
+  .shell.collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  /*
+   * Clipped is not the same as gone: without this the folded column would still
+   * take focus, and Tab would disappear into a sidebar nobody can see.
+   */
+  .shell.collapsed .nav {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition: none;
+  }
 }
 
 .chat {

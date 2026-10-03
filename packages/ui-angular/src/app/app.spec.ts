@@ -12,6 +12,8 @@ describe('App', () => {
   });
 
   beforeEach(async () => {
+    // The shell remembers the folded sidebar; tests must not inherit that.
+    localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [App],
       // The mock host answers `client/ready` synchronously, so the view is
@@ -109,8 +111,7 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('morse-about-dialog')).toBeTruthy();
   });
 
-  it('keeps "New session" in the sidebar, not repeated in the chat header', () => {
-    const fixture = TestBed.createComponent(App);
+  it('keeps "New session" in the sidebar, not repeated in the chat header', () => {    const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
     // The header carried a second "+" next to the sidebar's button, and VS Code
@@ -126,5 +127,26 @@ describe('App', () => {
     expect(
       fixture.nativeElement.querySelector('morse-session-nav .head button.primary'),
     ).toBeTruthy();
+  });
+
+  it('folds the sidebar from the chat header and brings it back', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const shell = fixture.nativeElement.querySelector('.shell') as HTMLElement;
+    expect(shell.classList.contains('collapsed')).toBe(false);
+
+    const fold = fixture.nativeElement.querySelector(
+      'morse-chat-header .collapse',
+    ) as HTMLButtonElement;
+    fold.click();
+    fixture.detectChanges();
+
+    expect(shell.classList.contains('collapsed')).toBe(true);
+    // The same button is the way back, and its label says so rather than lying.
+    expect(fold.getAttribute('aria-label')).toBe('Show the sidebar');
+
+    fold.click();
+    fixture.detectChanges();
+    expect(shell.classList.contains('collapsed')).toBe(false);
   });
 });

@@ -629,7 +629,7 @@ function mockConversation(): TranscriptItem[] {
     'Plan:',
     '',
     '1. **Navigation** — projects → sessions, collapsible, with a search box.',
-    '2. **Header** — session title, scope, status badge, `Compact`.',
+    '2. **Header** — session title, scope, status badge, `Compact`, and the sidebar fold.',
     '3. **Composer** — model + thinking + send in one control row.',
     '',
     'Two shapes, because the hosts differ: the browser host is *global* (many projects), VS Code is scoped to the folders it has open.',

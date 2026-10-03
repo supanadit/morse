@@ -2,7 +2,8 @@
 
 ## Implemented
 
-The responsive two-pane shell (drawer on narrow surfaces), markdown transcripts with a process timeline that
+The responsive two-pane shell (drawer on narrow surfaces, foldable column on wide ones), markdown transcripts with a
+process timeline that
 interleaves tool calls and thinking, resumed history (paged for long sessions), steering / follow-up / abort,
 model and thinking-level pickers, context compaction, **multiple sessions across multiple projects** (project
 browser, activate/close, LRU-hot `pi` processes), native interaction handling in VS Code and inline handling in

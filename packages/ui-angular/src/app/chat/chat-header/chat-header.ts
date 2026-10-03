@@ -71,8 +71,22 @@ import { ShellState } from '../../core/shell-state';
       .menu {
         display: none;
       }
+      /*
+       * Two ways to hide the navigation, one visible at a time: the drawer toggle
+       * below 760px (the navigation overlays the chat there) and the fold toggle
+       * above it (the navigation is a column, and folding it widens the chat).
+       * CSS decides, so the breakpoint stays in one place.
+       */
+      .collapse {
+        display: none;
+      }
       @media (max-width: 759px) {
         .menu {
+          display: inline-flex;
+        }
+      }
+      @media (min-width: 760px) {
+        .collapse {
           display: inline-flex;
         }
       }
@@ -151,6 +165,8 @@ export class ChatHeader {
   protected readonly connectionDetail = this.morse.connectionDetail;
   protected readonly workspace = this.morse.workspace;
   protected readonly navigationOpen = this.shell.navigationOpen;
+  /** Wide layouts: the sidebar is folded away and this button brings it back. */
+  protected readonly collapsed = this.shell.navigationCollapsed;
 
   /** The happy path lives in the dot: no banner needed while it is healthy. */
   protected readonly status = computed(() => {
@@ -215,6 +231,11 @@ export class ChatHeader {
 
   protected toggleNavigation(): void {
     this.shell.toggleNavigation();
+  }
+
+  /** The wide-layout twin of `toggleNavigation`: fold the column, not the drawer. */
+  protected toggleSidebar(): void {
+    this.shell.toggleNavigationCollapsed();
   }
 
   protected compact(): void {

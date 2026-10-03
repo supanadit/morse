@@ -85,6 +85,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | VSIX contains unminified `main.js` and no manifest | a dev webview was packaged; `verify-webview.mjs` blocks it |
 | Webview blank after a UI change | run `npm run sync-webview` |
 | Panel has ~20px left/right margin in VS Code only | VS Code injects `@layer vscode-default { body { padding: 0 20px } }` into every webview; Morse must declare an unlayered `body { padding: 0 }` in `styles.css` to win |
+| Sidebar comes back folded after a reload | intended: `ShellState` keeps the wide-layout fold in `localStorage` (`morse.navigation.collapsed`); clear that key to reset it |
 | Sidebar and chat headers out of line | both rows read `--morse-head-height`; giving one of them its own padding/`min-height` is how they drift apart |
 | `--frontend=x` silently ignored | npm drops flags on nested `npm run`; use `npm run sync-webview -- --frontend=x` |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |

@@ -80,6 +80,7 @@ export class App {
   protected readonly navigationOpen = this.shell.navigationOpen;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
+  protected readonly navigationCollapsed = this.shell.navigationCollapsed;
   protected readonly connection = this.morse.connection;
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
