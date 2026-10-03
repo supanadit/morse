@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: write
+  # Trusted publishing to Open VSX: the registry issues a few-minute token in
+  # exchange for this workflow's OIDC ID token, so no long-lived secret is needed.
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -27,9 +30,6 @@ jobs:
       # `vsce publish --oidc` is not usable yet: vsce 4.0.0 calls the token
       # exchange without an api-version and the Marketplace answers 400.
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      # Open VSX token, the registry VSCodium, Cursor, Windsurf, code-server and
-      # Theia install from. The same VSIX goes to both registries.
-      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -186,13 +186,24 @@ jobs:
           '
 
       - name: Publish the VSIX to Open VSX
-        if: vars.PUBLISH_OPENVSX == 'true' && env.OVSX_PAT != ''
+        if: vars.PUBLISH_OPENVSX == 'true'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: |
           # Open VSX serves the editors that cannot use the Microsoft Marketplace:
           # VSCodium, Cursor, Windsurf, code-server, Theia. Same VSIX, other registry.
+          #
+          # Two ways in, and the token wins when both are configured: a personal access
+          # token from the secret, or — with nothing configured — trusted publishing,
+          # where the registry trades this workflow's OIDC ID token (the `id-token:
+          # write` permission above) for a token valid for minutes.
           publisher="$(node -p "require('./packages/extension/package.json').publisher")"
-          npx --yes ovsx@1.2.0 verify-pat "$publisher" -p "$OVSX_PAT"
-          npx --yes ovsx@1.2.0 publish --packagePath dist/morse.vsix -p "$OVSX_PAT"
+          if [ -n "$OVSX_PAT" ]; then
+            npx --yes ovsx@1.2.0 verify-pat "$publisher" -p "$OVSX_PAT"
+            npx --yes ovsx@1.2.0 publish --packagePath dist/morse.vsix -p "$OVSX_PAT"
+          else
+            npx --yes ovsx@1.2.0 publish --packagePath dist/morse.vsix --trusted-publishing
+          fi
           # Like the two steps above: ask the registry, and warn instead of failing,
           # because Open VSX scans a new version before it serves it.
           node --input-type=module -e '

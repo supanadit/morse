@@ -121,10 +121,11 @@ Windsurf, code-server, Theia**, and anything else built on the VS Code API. The 
 5. Create an **Access Token** (Settings → Access Tokens) and add it to the `Morse` environment as the secret
    `OVSX_PAT`, then set the environment variable `PUBLISH_OPENVSX` to `true`.
 
-Open VSX also supports **trusted publishing** (a short-lived OIDC token instead of a long-lived secret): register
-this repository, workflow and environment on the extension's manage page, add `id-token: write` to the job, and use
-`ovsx publish --trusted-publishing` instead of `-p "$OVSX_PAT"`. That removes the `OVSX_PAT` secret the way the
-Marketplace eventually will.
+Open VSX also supports **trusted publishing**, and the workflow already prefers it when no token is configured: register
+this repository, the workflow file (`release.yml`) and the `Morse` environment on the extension's manage page
+(*Trusted Publishers*), and then delete the `OVSX_PAT` secret — the step exchanges the workflow's OIDC ID token
+(`id-token: write`, already in the job) for a token valid for minutes. A `-p "$OVSX_PAT"` always takes precedence
+over that exchange, so keeping the secret while you try it out changes nothing.
 
 The workflow then runs `ovsx verify-pat` before publishing — a missing namespace or a token that does not own it
 fails with a nameable error instead of a half-published release — and asks `open-vsx.org/api/...` afterwards, with
@@ -153,7 +154,8 @@ under `xvfb-run`. To rehearse the release locally, follow
 | `npm publish` 403 | `NPM_TOKEN` is missing, expired, or not allowed to publish `@supanadit/morse-web` |
 | Marketplace step skipped | `PUBLISH_MARKETPLACE` is not `true`, or the `VSCE_PAT` secret is empty |
 | `vsce publish` 401/403 | `VSCE_PAT` is missing, expired, or not scoped to **Marketplace → Manage** |
-| Open VSX step skipped | `PUBLISH_OPENVSX` is not `true`, or the `OVSX_PAT` secret is empty |
+| Open VSX step skipped | `PUBLISH_OPENVSX` is not `true` |
+| Open VSX step fails with a token/ID-token error | neither `OVSX_PAT` nor a trusted-publisher registration matches this repository, workflow (`release.yml`) and environment (`Morse`) |
 | `ovsx` namespace error | the namespace in `publisher` is not claimed by the token's account (see above) |
 | A brand-new extension on Open VSX shows *Under review* (an earlier label was *Deactivated*) and its API answers *Extension not found* | Open VSX runs pre-publish security checks, so a new version is quarantined until they pass — normally minutes, longer when the automated checks flag something. Nothing to fix, and the workflow's warning is the expected state; still hidden after a day → `openvsx@eclipse-foundation.org` |
 | `ovsx` refuses to publish at all | no Eclipse account or Publisher Agreement for the namespace's owner (both are required on top of GitHub) |
