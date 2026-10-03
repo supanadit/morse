@@ -1,0 +1,227 @@
+<div #scroll class="transcript" (scroll)="onScroll($event)">
+  <div #inner class="inner" [class.blank]="rows().length === 0">
+    @if (hasOlderHistory() || loadingOlderHistory()) {
+      <div class="older">
+        @if (loadingOlderHistory()) {
+          <span class="older-label">Loading older messages…</span>
+        } @else {
+          <button type="button" class="older-button" (click)="loadOlder()">
+            Load older messages
+          </button>
+        }
+      </div>
+    } @else if (rows().length > 0) {
+      <div class="start"><span>Start of conversation</span></div>
+    }
+    @for (row of rows(); track row.key) {
+      @switch (row.kind) {
+        @case ('user') {
+          <div class="user" [morseEnter]="0" [attr.data-prompt-id]="row.item.id">
+            @if (pinsOf(row.item) !== undefined || row.item.images !== undefined) {
+              <ul class="user-attachments">
+                @for (pin of row.item.pins ?? []; track pin.path + (pin.startLine ?? '')) {
+                  <li class="mention-pin" [title]="pin.path">
+                    <span class="pin-icon" aria-hidden="true">⧉</span>
+                    <span class="name">{{ basename(pin.path) }}</span>
+                    @if (pin.startLine !== undefined) {
+                      <span class="lines">L{{ pin.startLine }}-{{ pin.endLine }}</span>
+                    }
+                  </li>
+                }
+                @for (image of row.item.images ?? []; track $index) {
+                  <li class="image-chip">
+                    <button
+                      type="button"
+                      class="image-chip-button"
+                      [title]="imageName(image, $index)"
+                      [attr.aria-label]="'View ' + imageName(image, $index)"
+                      (click)="openImage(image, $index)"
+                    >
+                      <img [src]="thumb(image)" [alt]="imageName(image, $index)" />
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+            @if (editingId() === row.item.id) {
+              <div class="user-edit">
+                <textarea
+                  class="edit-input"
+                  rows="3"
+                  [value]="editingText()"
+                  (input)="onEditInput($event)"
+                  (keydown)="onEditKeydown($event, row.item)"
+                ></textarea>
+                <div class="edit-actions">
+                  <span class="edit-hint">Enter sends · Shift+Enter for a new line</span>
+                  <button type="button" class="edit-cancel" (click)="cancelEdit()">Cancel</button>
+                  <button
+                    type="button"
+                    class="edit-send"
+                    [disabled]="editingText().trim().length === 0"
+                    (click)="submitEdit(row.item)"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <div class="user-text">
+                <morse-markdown
+                  [text]="userMarkdown(row.item)"
+                  variant="user"
+                  (mention)="openMention($event)"
+                />
+              </div>
+            }
+            <div class="user-head">
+              <span class="stamp">{{ stamp(row.item.at) }}</span>
+              @if (canEdit()) {
+                <button
+                  type="button"
+                  class="copy-msg"
+                  title="Edit message"
+                  (click)="startEdit(row.item)"
+                >
+                  ✎
+                </button>
+              }
+              @if (canFork()) {
+                <button
+                  type="button"
+                  class="copy-msg"
+                  title="Fork from here"
+                  (click)="fork(row.item)"
+                >
+                  <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"
+                    />
+                  </svg>
+                </button>
+              }
+              <button
+                type="button"
+                class="copy-msg"
+                [title]="copiedId() === row.item.id ? 'Copied' : 'Copy message'"
+                (click)="copy(row.item)"
+              >
+                {{ copiedId() === row.item.id ? '✓' : '⧉' }}
+              </button>
+            </div>
+          </div>
+        }
+        @case ('assistant') {
+          <div class="assistant" [morseEnter]="0">
+            @if (row.item.text) {
+              <morse-markdown [text]="row.item.text" />
+              <div class="assistant-actions">
+                <button
+                  type="button"
+                  class="copy-msg"
+                  [class.revealed]="copiedId() === row.item.id"
+                  [title]="copiedId() === row.item.id ? 'Copied' : 'Copy response'"
+                  (click)="copyAssistant(row.item)"
+                >
+                  {{ copiedId() === row.item.id ? '✓ Copied' : '⧉ Copy' }}
+                </button>
+              </div>
+            } @else if (row.item.streaming) {
+              <span class="cursor">&nbsp;</span>
+            }
+          </div>
+        }
+        @case ('process') {
+          <morse-tool-group
+            [morseEnter]="0"
+            [steps]="row.steps"
+            [working]="working() && row.key === activeProcess()"
+          />
+        }
+        @case ('notice') {
+          <div class="notice" [class]="row.item.level" [morseEnter]="0">
+            <pre>{{ row.item.text }}</pre>
+          </div>
+        }
+        @case ('compaction') {
+          <div class="compaction" [morseEnter]="0">
+            <button
+              type="button"
+              class="compaction-sep"
+              [title]="
+                row.item.summary
+                  ? expandedCompaction() === row.key
+                    ? 'Hide the summary'
+                    : 'Show the summary'
+                  : 'Everything before this point was summarized into the running context'
+              "
+              (click)="toggleCompaction(row.key)"
+            >
+              <span class="sep-line" aria-hidden="true"></span>
+              <span class="sep-label">⚡ Compacted</span>
+              @if (row.item.tokensBefore) {
+                <span class="sep-tokens">~{{ formatTokens(row.item.tokensBefore) }} tokens folded</span>
+              }
+              <span class="sep-line" aria-hidden="true"></span>
+            </button>
+            @if (expandedCompaction() === row.key && row.item.summary) {
+              <div class="compaction-summary" [morseEnter]="0">
+                <morse-markdown [text]="row.item.summary" />
+              </div>
+            }
+          </div>
+        }
+      }
+    } @empty {
+      <div class="hero">
+        <div class="hero-stage">
+          <span class="hero-glow" aria-hidden="true"></span>
+          <span #heroMark class="hero-mark" aria-hidden="true">
+            <span class="hero-dot"></span>
+            <span class="hero-dot"></span>
+            <span class="hero-dash"></span>
+          </span>
+        </div>
+
+        <div class="hero-wordmark" aria-label="Morse">
+          @for (letter of heroLetters; track $index) {
+            <span class="hero-letter" aria-hidden="true">{{ letter }}</span>
+          }
+        </div>
+        <div class="hero-tagline">the pi coding agent</div>
+
+        <p class="hero-hint">
+          It runs the same pi coding agent you use in the terminal, with your models, tools, skills
+          and sessions.
+        </p>
+        <p class="hero-tips">
+          Try <em>“explain this repository”</em>, <em>“why is this failing?”</em>, or select code and
+          pin it with the <span class="hero-key">⧉</span> button under the chat.
+        </p>
+      </div>
+    }
+  </div>
+</div>
+
+<morse-prompt-rail
+  [prompts]="railPrompts()"
+  [activeId]="activePromptId()"
+  (pick)="scrollToPrompt($event)"
+/>
+
+@if (!pinned() && rows().length > 0) {
+  <button type="button" class="latest" (click)="jumpToLatest()">↓ Latest</button>
+}
+
+@if (preview(); as shown) {
+  <div class="image-overlay" (click)="closeImage()">
+    <button type="button" class="image-close" aria-label="Close image" (click)="closeImage()">
+      ×
+    </button>
+    <figure class="image-frame" (click)="$event.stopPropagation()">
+      <img [src]="shown.src" [alt]="shown.label" />
+      <figcaption>{{ shown.label }}</figcaption>
+    </figure>
+  </div>
+}

@@ -1,0 +1,1236 @@
+import type {
+  AgentEvent,
+  AgentForkMessage,
+  AgentHistoryEntry,
+  AgentInteractionRequest,
+  AgentInteractionResponse,
+  AgentSessionState,
+  ChatService,
+  ModelRef,
+  MorseLogger,
+  OpenedSession,
+  PromptImage,
+  PromptMode,
+  SessionRegistry,
+  SessionSummary,
+  ThinkingLevel,
+  WorkspaceRef,
+} from '@morse/core';
+import {
+  PROTOCOL_VERSION,
+  type ChatPin,
+  type ClientToHostMessage,
+  type FrontendIdentity,
+  type HostCapabilities,
+  type HostToClientMessage,
+  type InteractionResponse,
+  type SessionActivity,
+  type SessionViewState,
+  type TranscriptItem,
+  type UserTranscriptItem,
+} from '@morse/protocol';
+import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
+import { SessionTranscriptStore } from './transcript-store.js';
+import {
+  draftSessionViewState,
+  noticeMessage,
+  toInteractionRequest,
+  toSessionViewState,
+} from './view-state.js';
+
+export interface HostSessionServices {
+  registry: SessionRegistry;
+  chat: ChatService;
+}
+
+/**
+ * Driven port (R2) declared by this glue: which directories the host lets the
+ * agent work in. The server enforces an allow-list; a local VS Code window
+ * allows anything the user can already open.
+ */
+export interface ProjectPolicy {
+  canOpen(path: string): boolean;
+}
+
+/** The directories a host is allowed to show and work in. */
+export type HostScopeOptions =
+  | { kind: 'global' }
+  | { kind: 'workspace'; roots: string[] };
+
+export interface HostSessionControllerOptions {
+  services: HostSessionServices;
+  capabilities: HostCapabilities;
+  emit: (message: HostToClientMessage) => void;
+  logger: MorseLogger;
+  /**
+   * Which sessions/projects this host may show and open. `workspace` restricts
+   * everything to the given roots (VS Code); `global` shows them all.
+   */
+  scope?: HostScopeOptions;
+  /** Present when the host can render interactions natively; omitted otherwise. */
+  dialogs?: NativeDialogs;
+  /** Transcript storage shared by every client of this host. */
+  transcripts: SessionTranscriptStore;
+  frontend?: FrontendIdentity;
+  onHostCommand?: HostCommandHandler;
+  autoOpen?: boolean;
+  /**
+   * Dispose the shared session registry together with this controller.
+   * Defaults to false: registries outlive a client so a refresh reattaches.
+   */
+  ownsRegistry?: boolean;
+  /** Shown to the user when the agent backend cannot be started. */
+  agentHint?: string;
+  policy?: ProjectPolicy;
+}
+
+type Guarded<T> = { ok: true; value: T } | { ok: false };
+
+/** How many history entries one page carries when a resumed session is seeded. */
+const HISTORY_PAGE_SIZE = 50;
+
+/**
+ * The application service both hosts share: it owns the wire conversation for
+ * one client, routes client messages into the core use cases, and projects agent
+ * events back onto the wire.
+ *
+ * Multiple sessions and projects run at once: every session gets its own
+ * transcript projector, and only the active one is streamed to the client (the
+ * others stay warm and are replayed in full when the client switches to them).
+ */
+export class HostSessionController {
+  private summaries = new Map<string, SessionSummary>();
+  private detachRegistry: (() => void) | undefined;
+  private detachTranscripts: (() => void) | undefined;
+  private activeKey: string | undefined;
+  /** True while the panel shows the intentional no-session draft state. */
+  private isDraft = false;
+  /** Project a draft opens its first session in (browser "New session here"). */
+  private draftWorkspace: WorkspaceRef | undefined;
+  /** Catalog of a never-recording probe — fills the draft pickers. */
+  private draftCatalog: AgentSessionState | undefined;
+  /** Picks made in the draft, applied to the session the first prompt opens. */
+  private draftModel: ModelRef | undefined;
+  private draftThinking: ThinkingLevel | undefined;
+  private agentReady = false;
+  private agentStarting = false;
+  private agentError: string | undefined;
+  private busy = false;
+  private disposed = false;
+  private hasOpenedOnce = false;
+  private hostReadyEmitted = false;
+  private readonly pendingInteractions = new Set<string>();
+  /** Cursor of the oldest history page loaded for the active session. */
+  private historyBefore: string | undefined;
+  private hasOlderHistory = false;
+  private loadingOlderHistory = false;
+  /** Discriminates history item ids across pages (see `historyItems`). */
+  private historyPageSeq = 0;
+
+  constructor(private readonly options: HostSessionControllerOptions) {}
+
+  async start(): Promise<void> {
+    this.detachRegistry = this.options.services.registry.subscribe((tagged) => {
+      void this.onTaggedEvent(tagged.sessionKey, tagged.event);
+    });
+    // The transcript lives with the session, not with this connection: forward
+    // the updates of whichever session this client is showing.
+    this.detachTranscripts = this.options.transcripts.subscribe((update) => {
+      if (update.sessionKey === this.activeKey) {
+        this.options.emit(update.message);
+      }
+    });
+    if (this.options.autoOpen !== false) {
+      // Answer the handshake immediately with a truthful state: the agent is
+      // starting. Otherwise the client renders its defaults for the whole spawn.
+      this.agentStarting = true;
+    }
+    this.emitReady();
+    if (this.options.autoOpen !== false) {
+      await this.openDefaultSession();
+    } else {
+      // A reconnecting client (webview reload, browser refresh) must reattach
+      // the session the host was already showing: the warm transcript replays
+      // and the Reload button keeps the conversation instead of landing on an
+      // empty panel. Activating a hot session spawns nothing; only a host with
+      // no active session stays on the empty draft, which is what keeps a fresh
+      // window from spawning a throwaway "New session" — the panel stays empty
+      // until the user actually says something.
+      const existingKey = this.options.services.registry.activeKeyOf();
+      if (existingKey === undefined) {
+        this.isDraft = true;
+        void this.warmDraft();
+      } else {
+        await this.runSessionChange(() => this.options.services.registry.activate(existingKey));
+      }
+    }
+    void this.publishLists();
+  }
+
+  /**
+   * Points this controller at a new client. Hosts that reattach a still-warm
+   * session to a reconnecting client use this so the same agent process keeps
+   * serving without being respawned.
+   */
+  setEmitter(emit: (message: HostToClientMessage) => void): void {
+    this.options.emit = emit;
+  }
+
+  async dispose(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.detachRegistry?.();
+    this.detachRegistry = undefined;
+    this.detachTranscripts?.();
+    this.detachTranscripts = undefined;
+    if (this.options.ownsRegistry === true) {
+      await this.options.services.registry.dispose();
+    }
+  }
+
+  async handleClientMessage(message: ClientToHostMessage): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    switch (message.type) {
+      case 'client/ready':
+        if (message.payload.protocolVersion !== PROTOCOL_VERSION) {
+          // A refused handshake is a banner, not a conversation entry: only the
+          // transient error is sent, so no transcript is polluted.
+          this.emitWireError(
+            'Frontend and host speak different protocol versions.',
+            `frontend=${message.payload.protocolVersion} host=${PROTOCOL_VERSION}`,
+          );
+          return;
+        }
+        if (message.payload.frontend) {
+          this.options.logger.info(
+            `Frontend ${message.payload.frontend.name}@${message.payload.frontend.version} connected`,
+          );
+        }
+        // While the first session is still starting, `start()` owns the single
+        // `host/ready` we send. Answering here would flash "agent unavailable".
+        if (!this.hostReadyEmitted) {
+          return;
+        }
+        this.emitReady();
+        void this.publishLists();
+        return;
+      case 'chat/prompt':
+        await this.prompt(
+          message.payload.text,
+          message.payload.mode,
+          message.payload.images,
+          message.payload.pins,
+        );
+        return;
+      case 'chat/edit':
+        await this.editPrompt(message.payload.itemId, message.payload.text);
+        return;
+      case 'chat/fork':
+        await this.forkPrompt(message.payload.itemId);
+        return;
+      case 'chat/abort':
+        await this.guard(() => this.options.services.chat.abort());
+        return;
+      case 'session/new':
+        // "New session" is an empty draft, not a spawn: no agent process, no
+        // session file, no navigator entry. The first prompt opens the actual
+        // session (see `prompt`). The optional cwd targets it — the browser
+        // nav's "New session here" picks a project this way.
+        await this.enterDraft(message.payload.cwd ? workspaceOf(message.payload.cwd) : undefined);
+        return;
+      case 'session/activate':
+      case 'session/load':
+        await this.activateSession(message.payload.sessionId, message.payload.cwd);
+        return;
+      case 'session/close':
+        await this.closeSession(message.payload.sessionId);
+        return;
+      case 'session/delete':
+        await this.deleteSession(message.payload.sessionId);
+        return;
+      case 'session/compact':
+        // Compaction is part of the process, not a side note: like a run, the
+        // same `busy` flag lights the composer's Working indicator (spinner,
+        // elapsed chip, Stop button) and pulses the session in the navigator
+        // while the agent summarizes the context. Reset in `finally` — a failed
+        // compaction must hand the composer back, not wedge it on "Working".
+        this.setBusy(true);
+        try {
+          await this.guard(() => this.options.services.chat.compact(message.payload.instructions));
+        } finally {
+          this.setBusy(false);
+        }
+        return;
+      case 'history/load':
+        await this.loadOlderHistory();
+        return;
+      case 'session/list':
+        await this.publishSessions();
+        return;
+      case 'project/list':
+        await this.publishProjects();
+        return;
+      case 'project/open':
+        // Target the draft at that project (browser navigation): still no
+        // spawn — the first prompt opens the session there.
+        await this.enterDraft(workspaceOf(message.payload.path));
+        return;
+      case 'model/set':
+        await this.setModel(message.payload.provider, message.payload.id);
+        return;
+      case 'thinking/set':
+        await this.setThinkingLevel(message.payload.level);
+        return;
+      case 'interaction/respond':
+        await this.respondToInteraction(message.payload);
+        return;
+      case 'host/command':
+        await this.runHostCommand(
+          message.payload.command,
+          message.payload.args,
+          message.payload.requestId,
+        );
+        return;
+      default:
+        return;
+    }
+  }
+
+  private async openDefaultSession(): Promise<void> {
+    const existingKey = this.options.services.registry.activeKeyOf();
+    if (existingKey) {
+      await this.runSessionChange(() => this.options.services.registry.activate(existingKey));
+      return;
+    }
+    await this.runSessionChange(() => this.options.services.registry.open());
+  }
+
+  /**
+   * The empty panel is an intentional draft: no agent process, no session
+   * file, no navigator entry — "New session" becomes real only once the first
+   * prompt runs. A pending project and pending picks (model, thinking) wait
+   * here until that first prompt opens the session they belong to.
+   */
+  private async enterDraft(workspace?: WorkspaceRef): Promise<void> {
+    if (workspace && !this.canOpen(workspace.cwd)) {
+      this.fail(
+        `Morse is not allowed to run an agent in ${workspace.cwd}.`,
+        'Add it to MORSE_PROJECTS first.',
+      );
+      return;
+    }
+    this.activeKey = undefined;
+    this.isDraft = true;
+    this.draftWorkspace = workspace;
+    this.resetViewState();
+    this.options.emit({ type: 'transcript/replace', payload: { items: [] } });
+    this.emitState();
+    await this.warmDraft();
+  }
+
+  /** Clears everything the previous session had left on the view state. */
+  private resetViewState(): void {
+    this.historyBefore = undefined;
+    this.hasOlderHistory = false;
+    this.loadingOlderHistory = false;
+    this.agentReady = false;
+    this.agentStarting = false;
+    this.agentError = undefined;
+  }
+
+  /** Fills the draft pickers from the registry's session-less probe. */
+  private async warmDraft(): Promise<void> {
+    this.draftCatalog = await this.options.services.registry.draftDefaults();
+    // The catalog lands a moment after the handshake; this refresh is what
+    // turns the disabled "no model" pickers on while the reader is looking.
+    if (this.activeKey === undefined && !this.disposed) {
+      this.emitState();
+    }
+  }
+
+  private async activateSession(sessionId: string, cwd?: string): Promise<void> {
+    const known = this.summaries.get(sessionId);
+    const path = cwd ?? known?.cwd;
+    if (path && !this.canOpen(path)) {
+      this.fail(`Morse is not allowed to run an agent in ${path}.`, 'Add it to MORSE_PROJECTS first.');
+      return;
+    }
+    // Activating a session ends any draft, and its pending picks belonged to
+    // a session that was never created — drop them here, not on the resumed
+    // conversation.
+    this.isDraft = false;
+    this.draftWorkspace = undefined;
+    this.draftModel = undefined;
+    this.draftThinking = undefined;
+    await this.runSessionChange(() =>
+      this.options.services.registry.activate(
+        sessionId,
+        path ? workspaceOf(path) : undefined,
+      ),
+    );
+  }
+
+  private async closeSession(sessionId: string): Promise<void> {
+    await this.guard(() => this.options.services.registry.close(sessionId));
+    this.options.transcripts.clear(sessionId);
+    await this.fallBackAfterSessionGone(sessionId);
+  }
+
+  /**
+   * Deletes a session for good: the registry disposes its process and the
+   * catalog drops the stored conversation. Which directories an agent may
+   * touch is the host's rule (`ProjectPolicy`), so one use case is safe behind
+   * a server allow-list and inside a VS Code window — the wiring differs, the
+   * decision does not.
+   */
+  private async deleteSession(sessionId: string): Promise<void> {
+    const path = this.summaries.get(sessionId)?.cwd;
+    if (path !== undefined && path.length > 0 && !this.canOpen(path)) {
+      this.fail(
+        `Morse is not allowed to delete sessions in ${path}.`,
+        'Add it to MORSE_PROJECTS first.',
+      );
+      return;
+    }
+    const result = await this.guard(() => this.options.services.registry.remove(sessionId));
+    if (!result.ok) {
+      return;
+    }
+    this.options.transcripts.clear(sessionId);
+    await this.fallBackAfterSessionGone(sessionId);
+    this.options.emit(noticeMessage('info', 'Session deleted.', Date.now()));
+  }
+
+  /** The panel must stay usable once the session it showed is gone. */
+  private async fallBackAfterSessionGone(sessionId: string): Promise<void> {
+    if (this.activeKey !== sessionId) {
+      this.publishActivity();
+      await this.publishSessions();
+      return;
+    }
+
+    // Keep the client usable: adopt another hot session, or return to the
+    // empty panel. Spawning a replacement nobody asked for would recreate the
+    // throwaway-session problem — the next prompt lazily opens one instead.
+    this.activeKey = undefined;
+    this.historyBefore = undefined;
+    this.hasOlderHistory = false;
+    this.loadingOlderHistory = false;
+    this.agentReady = false;
+    this.agentError = undefined;
+    const next = this.options.services.registry.hotKeys().at(-1);
+    if (next) {
+      await this.runSessionChange(() => this.options.services.registry.activate(next));
+    } else {
+      // Return to the draft the way session/new made it: no replacement
+      // session nobody asked for; the next prompt opens one.
+      await this.enterDraft();
+    }
+    await this.publishSessions();
+  }
+
+  /** Opens/activates a session while reporting progress and failures. */
+  private async runSessionChange(
+    change: () => Promise<OpenedSession>,
+  ): Promise<void> {
+    const announce = this.hasOpenedOnce;
+    if (announce) {
+      this.setBusy(true);
+    }
+    this.agentStarting = true;
+    if (announce) {
+      this.emitState();
+    }
+    try {
+      const opened = await change();
+      this.adopt(opened);
+    } catch (error: unknown) {
+      this.agentReady = false;
+      this.agentError = describeError(error);
+      this.options.logger.warn('Could not start the Morse agent', error);
+      this.fail(
+        `Could not start the Morse agent: ${this.agentError}`,
+        this.options.agentHint,
+      );
+    } finally {
+      this.agentStarting = false;
+      this.hasOpenedOnce = true;
+      if (announce) {
+        this.setBusy(false);
+      } else {
+        this.emitState();
+      }
+    }
+  }
+
+  private adopt(opened: OpenedSession): void {
+    this.activeKey = opened.key;
+    // A real session is showing from now on; the draft target is consumed by
+    // the open that just happened.
+    this.isDraft = false;
+    this.draftWorkspace = undefined;
+    if (!opened.reused) {
+      // A brand new process for this key: drop any stale transcript.
+      this.options.transcripts.reset(opened.key);
+    }
+    // Paging state belongs to the session being adopted, never to the previous one.
+    this.historyBefore = undefined;
+    this.hasOlderHistory = false;
+    this.loadingOlderHistory = false;
+    this.agentReady = true;
+    this.agentError = undefined;
+    this.emitTranscript(opened.key);
+    this.emitState();
+    // A new/activated session must show up in the list immediately; otherwise
+    // the user picks "New session" and it is nowhere to be seen.
+    void this.publishSessions();
+    void this.seedHistory(opened.key);
+  }
+
+  /**
+   * A resumed session has its messages on disk but streams nothing on attach, so
+   * the transcript would look empty. Fill it from the *newest* page of history:
+   * a session with thousands of messages must open without rendering them all,
+   * and older pages are fetched on demand (see `loadOlderHistory`).
+   */
+  private async seedHistory(key: string): Promise<void> {
+    if (this.options.transcripts.items(key).length > 0) {
+      // A reattach (refresh, second window) already has the transcript; restore
+      // how far back it was paged instead of forgetting older pages exist.
+      const cursor = this.options.transcripts.historyCursor(key);
+      this.historyBefore = cursor.before;
+      this.hasOlderHistory = cursor.hasOlder;
+      this.emitState();
+      return;
+    }
+    if (this.activeKey !== key) {
+      return;
+    }
+    const gateway = this.options.services.registry.active();
+    if (!gateway) {
+      return;
+    }
+    // A resumed session is seeded from history, so until the page lands we do
+    // not yet know that it reaches the beginning: show "Loading older…" rather
+    // than claiming "Start of conversation".
+    this.loadingOlderHistory = true;
+    this.emitState();
+    const result = await this.guard(() => gateway.history({ limit: HISTORY_PAGE_SIZE }));
+    this.loadingOlderHistory = false;
+    if (!result.ok || this.options.transcripts.items(key).length > 0 || this.activeKey !== key) {
+      this.emitState();
+      return;
+    }
+    this.historyBefore = result.value.before;
+    this.hasOlderHistory = result.value.hasOlder;
+    this.options.transcripts.setHistoryCursor(key, {
+      before: result.value.before,
+      hasOlder: result.value.hasOlder,
+    });
+    this.options.transcripts.seed(
+      key,
+      historyItems(key, result.value.entries, this.historyPageSeq++),
+    );
+    this.emitState();
+  }
+
+  /** Prepends the previous page of history when the reader reaches the top. */
+  private async loadOlderHistory(): Promise<void> {
+    if (!this.hasOlderHistory || this.loadingOlderHistory) {
+      return;
+    }
+    const key = this.activeKey;
+    const gateway = this.options.services.registry.active();
+    if (key === undefined || !gateway) {
+      return;
+    }
+    this.loadingOlderHistory = true;
+    this.emitState();
+    const result = await this.guard(() =>
+      gateway.history({ limit: HISTORY_PAGE_SIZE, before: this.historyBefore }),
+    );
+    this.loadingOlderHistory = false;
+    if (!result.ok || this.activeKey !== key) {
+      this.emitState();
+      return;
+    }
+    this.historyBefore = result.value.before;
+    this.hasOlderHistory = result.value.hasOlder;
+    this.options.transcripts.setHistoryCursor(key, {
+      before: result.value.before,
+      hasOlder: result.value.hasOlder,
+    });
+    this.options.transcripts.prepend(
+      key,
+      historyItems(key, result.value.entries, this.historyPageSeq++),
+    );
+    this.emitState();
+  }
+
+  private canOpen(path: string): boolean {
+    const scope = this.options.scope ?? { kind: 'global' };
+    if (scope.kind === 'workspace' && !insideRoots(path, scope.roots)) {
+      return false;
+    }
+    return this.options.policy?.canOpen(path) ?? true;
+  }
+
+  private withinScope(path: string): boolean {
+    const scope = this.options.scope ?? { kind: 'global' };
+    return scope.kind === 'global' || insideRoots(path, scope.roots);
+  }
+
+  private async prompt(
+    text: string,
+    mode: PromptMode | undefined,
+    images: PromptImage[] | undefined,
+    pins: ChatPin[] | undefined,
+  ): Promise<void> {
+    if (!this.agentReady) {
+      if (this.isDraft) {
+        // The draft becomes the session it was waiting for: a fresh, recorded
+        // one in the pending workspace — never a re-activation of whatever
+        // session another connection happens to have active.
+        await this.runSessionChange(() =>
+          this.options.services.registry.open({ workspace: this.draftWorkspace }),
+        );
+        this.draftWorkspace = undefined;
+      } else {
+        await this.openDefaultSession();
+      }
+      if (!this.agentReady) {
+        return;
+      }
+    }
+    this.isDraft = false;
+    // Picks made in the draft become the fresh session's settings, applied
+    // before the first prompt so the answer already answers to them.
+    const pendingModel = this.draftModel;
+    const pendingThinking = this.draftThinking;
+    this.draftModel = undefined;
+    this.draftThinking = undefined;
+    if (pendingModel) {
+      await this.guard(() =>
+        this.options.services.chat.setModel({
+          provider: pendingModel.provider,
+          id: pendingModel.id,
+          name: pendingModel.name,
+        }),
+      );
+    }
+    if (pendingThinking) {
+      await this.guard(() => this.options.services.chat.setThinkingLevel(pendingThinking));
+    }
+    const result = await this.guard(() =>
+      this.options.services.chat.prompt(text, mode ?? 'new', images, pins),
+    );
+    if (!result.ok || !result.value.accepted) {
+      return;
+    }
+    const key = this.activeKey;
+    if (key) {
+      // The transcript shows the message with its attachments: the pins and
+      // images stay chips on the user item, whatever a later reload replays.
+      this.options.transcripts.userPrompt(key, text, images, pins);
+      // A nameless session takes its title from the first message (pi's name, or
+      // the text the catalog derives), so refresh the navigator right away
+      // instead of leaving it on "New session" until the next list request.
+      void this.publishSessions();
+    }
+  }
+
+  /**
+   * Edits a past user message: fork the conversation before it (which discards
+   * that turn and everything after), truncate the transcript to match, then send
+   * the edited text as a fresh prompt. Attachments on the original message ride
+   * along, so an image or pin is not silently dropped by the edit.
+   */
+  private async editPrompt(itemId: string, text: string): Promise<void> {
+    const target = await this.forkBefore(itemId, 'edit');
+    if (!target) {
+      return;
+    }
+    await this.prompt(text, 'new', target.images, target.pins);
+  }
+
+  /**
+   * Branches the conversation before a past user message without sending
+   * anything. pi's fork writes a new session file while the old branch stays
+   * resumable; the transcript re-homes onto the new, shorter branch and the
+   * forked prompt goes back to the composer, so the user continues from the
+   * fork point instead of retyping it.
+   */
+  private async forkPrompt(itemId: string): Promise<void> {
+    const target = await this.forkBefore(itemId, 'fork');
+    if (!target) {
+      return;
+    }
+    // Only a committed fork seeds the composer; a cancelled one leaves it alone.
+    this.options.emit({
+      type: 'composer/seed',
+      payload: {
+        text: target.text,
+        ...(target.images ? { images: target.images } : {}),
+        ...(target.pins ? { pins: target.pins } : {}),
+      },
+    });
+    // The fork is a new session (pi wrote a new file): surface it in the
+    // navigator now instead of waiting for a prompt to refresh the list.
+    void this.publishSessions();
+  }
+
+  /**
+   * Forks the active session before a past user message and re-homes the
+   * transcript onto the new branch. Shared by edit (which then sends) and fork
+   * (which seeds the composer). Returns the forked message, or `undefined` when
+   * the fork was refused — a notice has already been emitted in that case.
+   */
+  private async forkBefore(
+    itemId: string,
+    action: 'edit' | 'fork',
+  ): Promise<UserTranscriptItem | undefined> {
+    const gerund = action === 'edit' ? 'editing' : 'forking';
+    const past = action === 'edit' ? 'edited' : 'forked';
+    if (this.isDraft) {
+      // No session exists in a draft, so there is nothing to fork: do not spawn
+      // one just to fail the lookup (or re-activate another session).
+      this.options.emit(
+        noticeMessage('warn', `Nothing to ${action} yet — this session has no messages.`, Date.now()),
+      );
+      return undefined;
+    }
+    if (!this.agentReady) {
+      await this.openDefaultSession();
+      if (!this.agentReady) {
+        return undefined;
+      }
+    }
+    const key = this.activeKey;
+    const gateway = this.options.services.registry.active();
+    if (key === undefined || !gateway) {
+      this.options.emit(noticeMessage('warn', `No session to ${action}.`, Date.now()));
+      return undefined;
+    }
+    const items = this.options.transcripts.items(key);
+    const target = items.find((item) => item.id === itemId);
+    if (!target || target.kind !== 'user') {
+      this.options.emit(
+        noticeMessage('warn', `That message is no longer available to ${action}.`, Date.now()),
+      );
+      return undefined;
+    }
+    if (this.options.services.registry.stateOf(key)?.streaming === true) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          `Wait for the agent to finish before ${gerund} a message.`,
+          Date.now(),
+        ),
+      );
+      return undefined;
+    }
+
+    const messages = await this.guard(() => gateway.forkMessages());
+    if (!messages.ok) {
+      return undefined;
+    }
+    const entryId = entryIdForEdit(items, itemId, messages.value);
+    if (entryId === undefined) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          `This message cannot be ${past} — the agent has no fork point for it.`,
+          Date.now(),
+        ),
+      );
+      return undefined;
+    }
+
+    const forked = await this.guard(() => this.options.services.registry.forkActive(entryId));
+    if (!forked.ok) {
+      return undefined;
+    }
+    if (forked.value.cancelled) {
+      this.options.emit(noticeMessage('warn', 'The fork was cancelled.', Date.now()));
+      return undefined;
+    }
+
+    // The forked branch ends right before the chosen message: drop that row and
+    // everything after it, then re-home the transcript under the new session id.
+    const index = items.findIndex((item) => item.id === itemId);
+    const kept = items.slice(0, index);
+    this.activeKey = forked.value.key;
+    this.options.transcripts.move(key, forked.value.key, kept);
+    this.historyBefore = undefined;
+    this.hasOlderHistory = false;
+    this.loadingOlderHistory = false;
+    this.emitState();
+
+    return target;
+  }
+
+  private async setModel(provider: string, id: string): Promise<void> {
+    if (this.activeKey === undefined) {
+      // Draft pick: shown as the pending model, applied to the session the
+      // first prompt opens. Without a probe-cached catalog the name falls back
+      // to the id the client sent.
+      const match = this.draftCatalog?.availableModels.find(
+        (model) => model.provider === provider && model.id === id,
+      );
+      this.draftModel = match ?? { provider, id, name: id };
+      this.emitState();
+      return;
+    }
+    const result = await this.guard(() =>
+      this.options.services.chat.setModel({ provider, id, name: id }),
+    );
+    if (result.ok) {
+      this.emitState();
+    }
+  }
+
+  private async setThinkingLevel(level: SessionViewState['thinkingLevel']): Promise<void> {
+    if (this.activeKey === undefined) {
+      this.draftThinking = level;
+      this.emitState();
+      return;
+    }
+    const result = await this.guard(() => this.options.services.chat.setThinkingLevel(level));
+    if (result.ok) {
+      this.emitState();
+    }
+  }
+
+  private async respondToInteraction(response: InteractionResponse): Promise<void> {
+    this.pendingInteractions.delete(response.requestId);
+    this.options.emit({ type: 'interaction/dismiss', payload: { requestId: response.requestId } });
+    const gateway = this.options.services.registry.active();
+    if (!gateway) {
+      return;
+    }
+    await this.guard(() => gateway.respondToInteraction(response));
+  }
+
+  private async runHostCommand(
+    command: string,
+    args: Record<string, unknown> | undefined,
+    requestId?: string,
+  ): Promise<void> {
+    const handler = this.options.onHostCommand;
+    if (!handler) {
+      this.options.emit(
+        noticeMessage('warn', `This host does not support "${command}".`, Date.now()),
+      );
+      this.answerHostCommand(requestId, false, undefined, `This host does not support "${command}".`);
+      return;
+    }
+    const result = await this.guard(() =>
+      Promise.resolve(
+        handler(command, args, { cwd: this.currentState().workspace.cwd }),
+      ),
+    );
+    if (!requestId) {
+      return;
+    }
+    // The failure detail is already surfaced by `guard` (notice + log), so the
+    // caller only needs to know that it failed.
+    if (result.ok) {
+      this.answerHostCommand(requestId, true, result.value);
+      return;
+    }
+    this.answerHostCommand(requestId, false, undefined, `"${command}" failed`);
+  }
+
+  /** Replies to a host command the frontend asked a value for. */
+  private answerHostCommand(
+    requestId: string | undefined,
+    ok: boolean,
+    data?: unknown,
+    error?: string,
+  ): void {
+    if (!requestId) {
+      return;
+    }
+    this.options.emit({ type: 'host/command/result', payload: { requestId, ok, data, error } });
+  }
+
+  private async onTaggedEvent(sessionKey: string, event: AgentEvent): Promise<void> {
+    if (sessionKey !== this.activeKey) {
+      // Keep inactive sessions' transcripts warm without streaming them, and
+      // still report their activity: that is what makes several sessions show
+      // as working at once in the navigator.
+      if (event.type !== 'agent/ready' && event.type !== 'agent/state') {
+        this.options.transcripts.apply(sessionKey, event);
+        if (event.type === 'agent/run-end') {
+          void this.publishSessions();
+        }
+      } else {
+        this.publishActivity();
+      }
+      return;
+    }
+
+    switch (event.type) {
+      case 'agent/ready':
+        this.agentReady = true;
+        this.agentError = undefined;
+        this.emitState();
+        return;
+      case 'agent/state':
+        this.emitState();
+        return;
+      case 'agent/run-end':
+        this.options.transcripts.apply(sessionKey, event);
+        // pi writes the session file at the first user message and the catalog
+        // derives its title from that text, so a finished run is the moment to
+        // replace the placeholder "New session" in the navigator.
+        void this.publishSessions();
+        return;
+      case 'agent/interaction':
+        await this.handleInteraction(event.request);
+        return;
+      case 'agent/fatal':
+        this.agentReady = false;
+        this.agentError = event.message;
+        this.options.transcripts.error(sessionKey, event.message, event.detail);
+        this.emitState();
+        return;
+      default:
+        this.options.transcripts.apply(sessionKey, event);
+    }
+  }
+
+  private async handleInteraction(request: AgentInteractionRequest): Promise<void> {
+    const dialogs = this.options.dialogs;
+    if (!dialogs) {
+      this.pendingInteractions.add(request.requestId);
+      this.options.emit({ type: 'interaction/request', payload: toInteractionRequest(request) });
+      return;
+    }
+    const response = await this.askNatively(dialogs, request);
+    const gateway = this.options.services.registry.active();
+    if (!gateway) {
+      return;
+    }
+    await this.guard(() => gateway.respondToInteraction(response));
+  }
+
+  private async askNatively(
+    dialogs: NativeDialogs,
+    request: AgentInteractionRequest,
+  ): Promise<AgentInteractionResponse> {
+    switch (request.kind) {
+      case 'select': {
+        const value = await dialogs.select(request);
+        return value === undefined
+          ? { requestId: request.requestId, cancelled: true }
+          : { requestId: request.requestId, value };
+      }
+      case 'confirm':
+        return { requestId: request.requestId, confirmed: await dialogs.confirm(request) };
+      case 'input': {
+        const value = await dialogs.input(request);
+        return value === undefined
+          ? { requestId: request.requestId, cancelled: true }
+          : { requestId: request.requestId, value };
+      }
+      case 'editor': {
+        const value = await dialogs.editor(request);
+        return value === undefined
+          ? { requestId: request.requestId, cancelled: true }
+          : { requestId: request.requestId, value };
+      }
+    }
+  }
+
+  private async publishLists(): Promise<void> {
+    // `publishSessions` also refreshes the project list: both are derived from
+    // the same catalog, and the navigator needs both to place a session in a
+    // group.
+    await this.publishSessions();
+  }
+
+  /**
+   * Projects are derived from sessions, so the caller can hand in the list it
+   * just built instead of making the registry read the catalog again. That also
+   * lets a brand-new project show up before pi has persisted its first session.
+   */
+  private async publishProjects(sessions?: readonly SessionSummary[]): Promise<void> {
+    const result = await this.guard(() => this.options.services.registry.listProjects(sessions));
+    if (result.ok) {
+      // A workspace-scoped host only ever shows the folders it has open.
+      const projects = result.value.filter((project) => this.withinScope(project.path));
+      this.options.emit({ type: 'project/list', payload: { projects } });
+    }
+  }
+
+  private async publishSessions(): Promise<void> {
+    const result = await this.guard(() => this.options.services.registry.listSessions());
+    if (result.ok) {
+      const sessions = result.value.filter((session) => this.withinScope(session.cwd));
+      const known = new Set(sessions.map((session) => session.id));
+      // A session pi has not persisted yet is invisible in the catalog, so the
+      // list would be missing the very session the user just created. Fold the
+      // live ones in (id = registry key) so the list always matches reality.
+      for (const key of this.options.services.registry.hotKeys()) {
+        if (known.has(key)) {
+          continue;
+        }
+        const state = this.options.services.registry.stateOf(key);
+        const cwd = state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
+        if (!this.withinScope(cwd)) {
+          continue;
+        }
+        sessions.push({
+          id: key,
+          title: state?.sessionTitle ?? this.derivedTitle(key) ?? 'New session',
+          cwd,
+          updatedAt: Date.now(),
+          messageCount: 0,
+        });
+      }
+      this.summaries = new Map(sessions.map((session) => [session.id, session]));
+      this.options.emit({ type: 'session/list', payload: { sessions } });
+      // A session change is a project change (cwd, count, last-used), and the
+      // navigator builds its groups from `project/list`. Without this the group
+      // for a new project — and every session inside a project missing from the
+      // last list — stayed invisible until a manual refresh.
+      await this.publishProjects(sessions);
+    }
+  }
+
+  /**
+   * Title for a session pi has not persisted yet. pi names a session only when
+   * something calls `set_session_name`, and until the file exists the catalog
+   * cannot derive a title from the file either — so derive it from the first
+   * user message here, the same way the catalog does. A session must not stay
+   * "New session" once the user has said something.
+   */
+  private derivedTitle(key: string): string | undefined {
+    for (const item of this.options.transcripts.items(key)) {
+      if (item.kind !== 'user' || item.text.trim().length === 0) {
+        continue;
+      }
+      const single = item.text.replace(/\s+/g, ' ').trim();
+      return single.length > 72 ? `${single.slice(0, 72)}…` : single;
+    }
+    return undefined;
+  }
+
+  private emitReady(): void {
+    this.hostReadyEmitted = true;
+    this.options.emit({
+      type: 'transcript/replace',
+      payload: { items: this.activeKey ? this.options.transcripts.items(this.activeKey) : [] },
+    });
+    this.options.emit({
+      type: 'host/ready',
+      payload: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: this.options.capabilities,
+        state: this.currentState(),
+        frontend: this.options.frontend,
+      },
+    });
+    this.publishActivity();
+  }
+
+  private emitTranscript(key: string): void {
+    this.options.emit({
+      type: 'transcript/replace',
+      payload: { items: this.options.transcripts.items(key) },
+    });
+  }
+
+  private emitState(): void {
+    this.options.emit({ type: 'session/state', payload: this.currentState() });
+    this.publishActivity();
+  }
+
+  /**
+   * Reports every live session (hot process), not only the selected one. The
+   * navigator marks the ones the agent is actively working in, so two parallel
+   * conversations both read as running instead of one silently taking over.
+   */
+  private publishActivity(): void {
+    const sessions: SessionActivity[] = this.options.services.registry
+      .hotKeys()
+      .map((key) => {
+        const state = this.options.services.registry.stateOf(key);
+        const isActive = key === this.activeKey;
+        return {
+          sessionKey: key,
+          streaming: state?.streaming ?? false,
+          busy: isActive ? this.busy : false,
+          agentReady: isActive ? this.agentReady : state !== undefined,
+          agentStarting: isActive ? this.agentStarting : false,
+          ...(isActive && this.agentError !== undefined ? { agentError: this.agentError } : {}),
+        };
+      });
+    this.options.emit({ type: 'session/activity', payload: { sessions } });
+  }
+
+  private currentState(): SessionViewState {
+    const meta = {
+      agentReady: this.agentReady,
+      agentStarting: this.agentStarting,
+      agentError: this.agentError,
+      busy: this.busy,
+      hasOlderHistory: this.hasOlderHistory,
+      loadingOlderHistory: this.loadingOlderHistory,
+    };
+    const state = this.activeKey === undefined
+      ? undefined
+      : this.options.services.registry.stateOf(this.activeKey);
+    if (state) {
+      return toSessionViewState(state, meta);
+    }
+    // The autoOpen:false draft: a truthful workspace line, and — once the
+    // session-less probe lands — pickers that work before any session exists.
+    return draftSessionViewState(
+      this.draftWorkspace ?? this.options.services.registry.defaultWorkspace,
+      meta,
+      this.draftCatalog,
+      this.draftModel,
+      this.draftThinking,
+    );
+  }
+
+  private setBusy(busy: boolean): void {
+    if (this.busy === busy) {
+      return;
+    }
+    this.busy = busy;
+    this.emitState();
+  }
+
+  private fail(message: string, detail?: string): void {
+    const key = this.activeKey;
+    if (key !== undefined) {
+      this.options.transcripts.error(key, message, detail);
+      return;
+    }
+    // No transcript to attach to (draft): say it as a notice. The wire `error`
+    // stays reserved for a refusing handshake — reusing it here raised the
+    // frontend's "Offline — the host wouldn't take this frontend" banner, whose
+    // Reload button then wiped the panel for an error that never touched the
+    // connection. A spawn failure additionally sets `agentError`, which shows
+    // the banner that actually fits.
+    this.options.emit(noticeMessage('error', detail ? `${message}\n${detail}` : message, Date.now()));
+  }
+
+  /** Transient error for the client (banner), never a transcript item. */
+  private emitWireError(message: string, detail?: string): void {
+    this.options.emit({ type: 'error', payload: { message, detail, at: Date.now() } });
+    this.options.emit(
+      noticeMessage('error', detail ? `${message}\n${detail}` : message, Date.now()),
+    );
+  }
+
+  private async guard<T>(action: () => Promise<T>): Promise<Guarded<T>> {
+    try {
+      return { ok: true, value: await action() };
+    } catch (error: unknown) {
+      const message = describeError(error);
+      this.options.logger.error(`Morse command failed: ${message}`, error);
+      this.fail(message);
+      return { ok: false };
+    }
+  }
+}
+
+function workspaceOf(path: string): WorkspaceRef {
+  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
+  return { cwd: path, name: parts.at(-1) ?? path };
+}
+
+function insideRoots(path: string, roots: string[]): boolean {
+  return roots.some((root) => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`));
+}
+
+/** Domain history -> transcript items (presentation mapping stays in this layer). */
+function historyItems(key: string, entries: AgentHistoryEntry[], page: number): TranscriptItem[] {
+  return entries.map((entry, index): TranscriptItem => {
+    const id = `${key}#history-${page}-${index}`;
+    const at = entry.at ?? 0;
+    if (entry.role === 'user') {
+      return {
+        kind: 'user',
+        id,
+        at,
+        text: entry.text,
+        ...(entry.images ? { images: entry.images } : {}),
+        ...(entry.pins ? { pins: entry.pins } : {}),
+      };
+    }
+    if (entry.role === 'tool') {
+      return {
+        kind: 'tool',
+        id,
+        at,
+        name: entry.name,
+        title: entry.title,
+        status: entry.status,
+        input: entry.input,
+        output: entry.output,
+      };
+    }
+    if (entry.role === 'compaction') {
+      // A marker row, not a message: the transcript keeps every folded entry —
+      // the divider says where the agent's context was reset, not where history
+      // ends ("Start of conversation" belongs to the real beginning again).
+      return {
+        kind: 'compaction',
+        id,
+        at,
+        summary: entry.summary,
+        ...(entry.tokensBefore !== undefined ? { tokensBefore: entry.tokensBefore } : {}),
+      };
+    }
+    return {
+      kind: 'assistant',
+      id,
+      at,
+      text: entry.text,
+      thinking: entry.thinking ?? '',
+      streaming: false,
+      model: entry.model,
+    };
+  });
+}
+
+/**
+ * Maps a transcript item to the fork entry pi knows.
+ *
+ * pi's `get_fork_messages` lists every user message with non-empty text — the
+ * same messages the transcript shows as text or pins (an image-only message has
+ * no text and is not forkable). Matching the same distance from the end keeps
+ * the two lists aligned even when an older history page is still unloaded.
+ */
+function entryIdForEdit(
+  items: TranscriptItem[],
+  itemId: string,
+  forkMessages: AgentForkMessage[],
+): string | undefined {
+  const forkable = items.filter(
+    (item): item is UserTranscriptItem =>
+      item.kind === 'user' && (item.text.trim().length > 0 || (item.pins?.length ?? 0) > 0),
+  );
+  const index = forkable.findIndex((item) => item.id === itemId);
+  if (index === -1) {
+    return undefined;
+  }
+  const position = forkMessages.length - 1 - (forkable.length - 1 - index);
+  return position >= 0 ? forkMessages[position]?.entryId : undefined;
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : JSON.stringify(error);
+}

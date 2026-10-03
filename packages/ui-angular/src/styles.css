@@ -1,0 +1,494 @@
+/*
+ * One stylesheet for both hosts.
+ *
+ * Inside VS Code every `--vscode-*` variable exists, so the panel follows the
+ * user's theme automatically. In a plain browser (NestJS host) the fallbacks
+ * apply, and they follow the OS light/dark preference. No CSS framework needed.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --morse-font: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  --morse-font-mono: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --morse-font-size: var(--vscode-font-size, 13px);
+
+  --morse-fg: var(--vscode-foreground, #d4d4d4);
+  --morse-fg-muted: var(--vscode-descriptionForeground, #9d9d9d);
+  --morse-bg: var(--vscode-sideBar-background, #1c1c1c);
+  --morse-nav-bg: var(--vscode-sideBar-background, #1a1a1a);
+  --morse-panel: var(--vscode-editor-background, #1f1f1f);
+  --morse-hover: var(--vscode-list-hoverBackground, rgb(255 255 255 / 6%));
+  --morse-active: var(--vscode-list-activeSelectionBackground, rgb(255 255 255 / 12%));
+  --morse-bubble: var(--vscode-editorWidget-background, rgb(255 255 255 / 7%));
+  --morse-radius-sm: 4px;
+  --morse-radius-md: 8px;
+  --morse-radius-lg: 12px;
+  --morse-code-bg: var(--vscode-editor-background, #171717);
+  --morse-code-head: var(--vscode-editorWidget-background, rgb(255 255 255 / 5%));
+  --morse-keyword: var(--vscode-charts-blue, #4aa3ff);
+  --morse-string: var(--vscode-charts-green, #6fdc8c);
+  --morse-number: var(--vscode-charts-orange, #e4a464);
+  --morse-typename: var(--vscode-charts-purple, #b58fff);
+  --morse-attr: var(--morse-typename);
+  --morse-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  --morse-accent: var(--vscode-button-background, #0e639c);
+  --morse-accent-fg: var(--vscode-button-foreground, #ffffff);
+  --morse-accent-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --morse-button-secondary: var(--vscode-button-secondaryBackground, rgba(255, 255, 255, 0.08));
+  --morse-button-secondary-fg: var(--vscode-button-secondaryForeground, #d4d4d4);
+  --morse-input-bg: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  --morse-input-fg: var(--vscode-input-foreground, #d4d4d4);
+  --morse-input-border: var(--vscode-input-border, rgba(128, 128, 128, 0.4));
+  --morse-badge-bg: var(--vscode-badge-background, #4d4d4d);
+  --morse-badge-fg: var(--vscode-badge-foreground, #ffffff);
+  --morse-focus: var(--vscode-focusBorder, #007fd4);
+  --morse-link: var(--vscode-textLink-foreground, #3794ff);
+  --morse-blockquote: var(--vscode-textBlockQuote-background, rgba(255, 255, 255, 0.05));
+  --morse-error: var(--vscode-errorForeground, #f48771);
+  --morse-warn: var(--vscode-editorWarning-foreground, #cca700);
+  --morse-success: var(--vscode-testing-iconPassed, #73c991);
+  --morse-info: var(--vscode-editorInfo-foreground, #3794ff);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --morse-fg: var(--vscode-foreground, #1f1f1f);
+    --morse-fg-muted: var(--vscode-descriptionForeground, #6b6b6b);
+    --morse-bg: var(--vscode-sideBar-background, #f6f6f6);
+    --morse-nav-bg: var(--vscode-sideBar-background, #f0f0f0);
+    --morse-panel: var(--vscode-editor-background, #ffffff);
+    --morse-hover: var(--vscode-list-hoverBackground, rgb(0 0 0 / 5%));
+    --morse-active: var(--vscode-list-activeSelectionBackground, rgb(0 0 0 / 9%));
+    --morse-bubble: var(--vscode-editorWidget-background, rgb(0 0 0 / 5%));
+    --morse-code-bg: var(--vscode-editor-background, #fbfbfb);
+    --morse-code-head: var(--vscode-editorWidget-background, rgb(0 0 0 / 4%));
+    --morse-keyword: var(--vscode-charts-blue, #0451a5);
+    --morse-string: var(--vscode-charts-green, #1b7f3b);
+    --morse-number: var(--vscode-charts-orange, #a3591a);
+    --morse-typename: var(--vscode-charts-purple, #6f42c1);
+    --morse-attr: var(--morse-typename);
+    --morse-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+    --morse-button-secondary: var(--vscode-button-secondaryBackground, rgba(0, 0, 0, 0.06));
+    --morse-button-secondary-fg: var(--vscode-button-secondaryForeground, #1f1f1f);
+    --morse-input-bg: var(--vscode-input-background, #ffffff);
+    --morse-input-fg: var(--vscode-input-foreground, #1f1f1f);
+    --morse-input-border: var(--vscode-input-border, rgba(0, 0, 0, 0.25));
+    --morse-badge-bg: var(--vscode-badge-background, #e0e0e0);
+    --morse-badge-fg: var(--vscode-badge-foreground, #1f1f1f);
+    --morse-error: var(--vscode-errorForeground, #b5200d);
+    --morse-warn: var(--vscode-editorWarning-foreground, #8a6d00);
+    --morse-success: var(--vscode-testing-iconPassed, #1b7f3b);
+    --morse-info: var(--vscode-editorInfo-foreground, #0451a5);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  /*
+   * VS Code injects `body { padding: 0 20px }` via `@layer vscode-default` into
+   * every webview. Unlayered rules beat layered ones, so declaring padding here
+   * is what keeps the panel edge-to-edge in the sidebar instead of inset ~20px.
+   */
+  padding: 0;
+}
+
+body {
+  font-family: var(--morse-font);
+  font-size: var(--morse-font-size);
+  color: var(--morse-fg);
+  background: var(--morse-bg);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Compact, themed scrollbars so long transcripts feel calm. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--morse-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--morse-border);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--morse-fg-muted);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+button {
+  font: inherit;
+  color: var(--morse-accent-fg);
+  background: var(--morse-accent);
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+button.secondary {
+  color: var(--morse-button-secondary-fg);
+  background: var(--morse-button-secondary);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: var(--morse-hover);
+  border-color: var(--morse-border);
+}
+
+button.icon {
+  padding: 4px 8px;
+}
+
+button:hover:not(:disabled) {
+  background: var(--morse-accent-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 1px solid var(--morse-focus);
+  outline-offset: 1px;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--morse-input-fg);
+  background: var(--morse-input-bg);
+  border: 1px solid var(--morse-input-border);
+  border-radius: var(--morse-radius-sm);
+  padding: 4px 8px;
+  transition: border-color 120ms ease;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--morse-fg-muted);
+}
+
+a {
+  color: var(--morse-link);
+}
+
+pre,
+code {
+  font-family: var(--morse-font-mono);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--morse-badge-fg);
+  background: var(--morse-badge-bg);
+}
+
+.muted {
+  color: var(--morse-fg-muted);
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Formatted agent output. The HTML is produced by renderMarkdown() (sanitised),
+ * so these styles are global: component style scoping cannot reach innerHTML.
+ * ------------------------------------------------------------------------- */
+
+.md {
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 0 0 0.85em;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 1.2em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.md h1 {
+  font-size: 1.35em;
+}
+
+.md h2 {
+  font-size: 1.2em;
+}
+
+.md h3 {
+  font-size: 1.08em;
+}
+
+.md h4 {
+  font-size: 1em;
+}
+
+.md ul,
+.md ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.4em;
+}
+
+.md li {
+  margin: 0.25em 0;
+}
+
+.md li::marker {
+  color: var(--morse-fg-muted);
+}
+
+.md blockquote {
+  margin: 0 0 0.85em;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--morse-border);
+  color: var(--morse-fg-muted);
+}
+
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--morse-border);
+  margin: 1.2em 0;
+}
+
+.md a {
+  color: var(--morse-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 0 0 0.9em;
+  font-size: 0.95em;
+  display: block;
+  overflow-x: auto;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--morse-border);
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.md th {
+  background: var(--morse-hover);
+  font-weight: 600;
+}
+
+.md code:not(pre code) {
+  font-family: var(--morse-font-mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  border: 1px solid var(--morse-border);
+}
+
+.md .code {
+  margin: 0 0 0.9em;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  overflow: hidden;
+  background: var(--morse-code-bg);
+}
+
+.md .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--morse-code-head);
+  border-bottom: 1px solid var(--morse-border);
+  font-size: 11px;
+}
+
+.md .code-lang {
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+}
+
+.md .copy {
+  padding: 1px 8px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+}
+
+.md .copy:hover {
+  color: var(--morse-fg);
+  background: var(--morse-hover);
+}
+
+.md pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+}
+
+.md pre code {
+  font-family: var(--morse-font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--morse-fg);
+}
+
+/* Token colours follow the host theme instead of shipping a stylesheet. */
+.hljs-comment,
+.hljs-quote {
+  color: var(--morse-fg-muted);
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta,
+.hljs-doctag {
+  color: var(--morse-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: var(--morse-string);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-deletion,
+.hljs-literal {
+  color: var(--morse-number);
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name {
+  color: var(--morse-info);
+}
+
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title {
+  color: var(--morse-typename);
+}
+
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--morse-attr);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * The ghost that flies from a drop into the composer, and the chip that pops in
+ * where it lands. Created imperatively by DropFlight, so these styles are global.
+ * ------------------------------------------------------------------------- */
+
+.drop-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Centred on the drop point: the animation only moves it with `translate`. */
+  margin: -14px 0 0 -46px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--morse-accent);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg);
+  font-size: 11.5px;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 35%);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.drop-ghost img {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: var(--morse-radius-sm);
+}
+
+.drop-ghost-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  color: var(--morse-accent);
+}
+
+.drop-ghost-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

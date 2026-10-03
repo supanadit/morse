@@ -1,0 +1,44 @@
+<button
+  type="button"
+  class="trigger"
+  [attr.aria-expanded]="open()"
+  aria-haspopup="listbox"
+  [title]="'Thinking level: ' + current()"
+  (click)="toggle()"
+>
+  <morse-brain [level]="current()" />
+  <span class="level">{{ current() }}</span>
+  <span class="caret" aria-hidden="true">▾</span>
+</button>
+
+@if (open()) {
+  <div
+    #panel
+    class="panel"
+    role="listbox"
+    aria-label="Thinking level"
+    tabindex="-1"
+    [morseEnter]="0"
+    [morseEnterY]="6"
+    (keydown)="onKeydown($event)"
+  >
+    @for (level of levels(); track level; let index = $index) {
+      <button
+        type="button"
+        class="row"
+        role="option"
+        [class.active]="index === active()"
+        [class.selected]="level === current()"
+        [attr.aria-selected]="level === current()"
+        (mouseenter)="active.set(index)"
+        (click)="choose(level)"
+      >
+        <morse-brain [level]="level" />
+        <span class="name">{{ level }}</span>
+        @if (level === current()) {
+          <span class="check" aria-hidden="true">✓</span>
+        }
+      </button>
+    }
+  </div>
+}

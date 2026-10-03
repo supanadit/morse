@@ -1,0 +1,73 @@
+@if (prompts().length >= 2) {
+  <nav class="rail" aria-label="Prompt navigator" (mouseenter)="onEnter()">
+    <button
+      type="button"
+      class="step"
+      title="Earlier prompts"
+      aria-label="Earlier prompts"
+      [disabled]="!hasMoreAbove()"
+      (click)="stepWindow(-1)"
+    >
+      ⌃
+    </button>
+    <div
+      #track
+      class="track"
+      role="listbox"
+      tabindex="0"
+      aria-label="Prompts in this conversation"
+      [style.height.px]="visibleCount() * tickPitch"
+      [style.maskImage]="mask()"
+      (mousemove)="onMove($event)"
+      (mouseleave)="onLeave()"
+      (click)="onTrackClick($event)"
+      (keydown)="onKeydown($event)"
+    >
+      <div
+        class="ticks"
+        [style.transform]="'translateY(-' + clampedWindowStart() * tickPitch + 'px)'"
+      >
+        @for (prompt of prompts(); track prompt.id; let i = $index) {
+          <span
+            class="tick"
+            role="option"
+            [class.active]="prompt.id === activeId()"
+            [attr.aria-selected]="i === hovered()"
+            [attr.aria-label]="prompt.preview || 'Prompt'"
+            [style.top.px]="i * tickPitch"
+            [style.width.px]="tickWidth(i)"
+          ></span>
+        }
+      </div>
+    </div>
+    <button
+      type="button"
+      class="step"
+      title="Later prompts"
+      aria-label="Later prompts"
+      [disabled]="!hasMoreBelow()"
+      (click)="stepWindow(1)"
+    >
+      ⌄
+    </button>
+
+    @if (hovered() !== null) {
+      <div class="panel" (mouseenter)="onEnter()" (mouseleave)="onLeave()">
+        <div #previewList class="panel-list">
+          @for (prompt of prompts(); track prompt.id; let i = $index) {
+            <button
+              type="button"
+              class="row"
+              [class.active]="prompt.id === activeId()"
+              [class.hovered]="i === hovered()"
+              (mouseenter)="hovered.set(i)"
+              (click)="choose(i)"
+            >
+              <span class="row-text">{{ prompt.preview || 'No text' }}</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
+  </nav>
+}

@@ -1,0 +1,42 @@
+{
+  "name": "morse-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Comfortable Pi Interface — the Pi coding agent in VS Code or in your browser.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:libs && npm run build:ui && npm run sync-webview && npm run build:hosts",
+    "build:libs": "npm run build -w @morse/protocol && npm run build -w @morse/core && npm run build -w @morse/host-runtime && npm run build -w @morse/adapter-pi-rpc && npm run build -w @morse/ui-runtime",
+    "build:ui": "npm run build -w @morse/ui-angular",
+    "build:extension": "npm run build -w morse",
+    "build:server": "npm run build -w @morse/server",
+    "build:hosts": "npm run build:extension && npm run build:server",
+    "build:web": "npm run build:libs && npm run build:ui && npm run build -w @supanadit/morse-web",
+    "publish:web": "npm run build:web && npm publish -w @supanadit/morse-web",
+    "sync-webview": "node packages/extension/scripts/sync-webview.mjs",
+    "watch:libs": "npm run build:libs && npm run watch -w @morse/ui-runtime",
+    "watch:ui": "npm run watch -w @morse/ui-angular",
+    "watch:webview": "node packages/extension/scripts/watch-webview.mjs",
+    "watch:extension": "npm run watch:esbuild -w morse",
+    "dev:extension": "npm run build:libs && npm run build:ui && npm run sync-webview && npm-run-all -p watch:extension watch:ui watch:webview",
+    "dev:server": "npm run dev -w @morse/server",
+    "start:server": "npm run start -w @morse/server",
+    "dev:ui": "npm run start -w @morse/ui-angular",
+    "check-types": "npm run check-types --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:fast": "npm run test -w @morse/ui-runtime && npm run test -w @morse/ui-angular",
+    "package": "npm run build && npm run vsix -w morse",
+    "clean": "rm -rf packages/*/dist packages/*/out node_modules/.cache"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Morse</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="favicon.ico">
+</head>
+<body>
+  <app-root></app-root>
+  <!--
+    A webview has no visible console, so any failure before the app renders would
+    otherwise be a blank panel with no way to tell why. This records the first
+    boot error as plain text; Angular replaces it as soon as it renders, so it
+    only ever appears when the app really did not start.
+  -->
+  <script>
+    (function () {
+      var shown = false;
+      function show(text) {
+        if (shown) return;
+        shown = true;
+        var root = document.querySelector('app-root') || document.body;
+        var box = document.createElement('pre');
+        box.id = 'boot-error';
+        box.style.cssText =
+          'margin:0;padding:10px;white-space:pre-wrap;font:12px/1.5 ui-monospace,monospace;color:#f48771';
+        box.textContent = 'Morse failed to start.\n\n' + text;
+        root.appendChild(box);
+      }
+      window.addEventListener('error', function (event) {
+        show((event.message || 'script error') + '\n' + (event.filename || '') + ':' + (event.lineno || 0));
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason;
+        show('unhandled rejection: ' + ((reason && reason.message) || String(reason)));
+      });
+    })();
+  </script>
+</body>
+</html>

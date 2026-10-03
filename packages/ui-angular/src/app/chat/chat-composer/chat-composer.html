@@ -1,0 +1,255 @@
+<footer class="host">
+  <div class="box">
+  <div class="toolbar">
+    <button
+      type="button"
+      class="icon"
+      [disabled]="!canAddFiles()"
+      [title]="addFilesLabel()"
+      [attr.aria-label]="addFilesLabel()"
+      [attr.aria-expanded]="pickerOpen()"
+      (click)="onAddFiles()"
+    >
+      +
+    </button>
+    <input #fileInput type="file" multiple hidden (change)="onFilesChosen($event)" />
+    @if (canAttachSelection()) {
+      <button
+        type="button"
+        class="icon pin-selection"
+        title="Pin the editor selection to this message"
+        aria-label="Pin the editor selection to this message"
+        (click)="attachSelection()"
+      >
+        ⧉
+      </button>
+    }
+    <span class="hint muted">
+      @if (canPickFiles()) {
+        add files · @ to mention · / for commands
+      } @else if (canUpload()) {
+        upload or drop files · / for commands
+      } @else {
+        drop files here · / for commands
+      }
+    </span>
+  </div>
+
+  @if (pickerOpen()) {
+    <morse-file-picker
+      class="picker-host"
+      [morsePopoverFit]="300"
+      [files]="pickerMatches()"
+      [busy]="loadingFiles()"
+      [query]="pickerFilter()"
+      [active]="mentionActive()"
+      (activeChange)="mentionActive.set($event)"
+      (pick)="onPickFile($event)"
+      (reload)="reloadFiles()"
+      (close)="onPickerClose()"
+    />
+  }
+
+  @if (paletteOpen()) {
+    <morse-command-picker
+      class="palette-host"
+      [morsePopoverFit]="320"
+      [items]="paletteItems()"
+      [query]="paletteFilter()"
+      [active]="paletteActive()"
+      (activeChange)="paletteActive.set($event)"
+      (pick)="activatePalette($event, 'insert')"
+      (close)="onPaletteClose()"
+    />
+  }
+
+  @if (images().length > 0 || pins().length > 0 || livePreview() !== null) {
+    <ul class="attachments">
+      @if (livePreview(); as live) {
+        <li class="chip live" [morseEnter]="0" [morseEnterY]="6" [morseEnterScale]="0.55" [morseEnterDuration]="320">
+          <button
+            type="button"
+            class="chip-body"
+            [title]="lockLiveLabel()"
+            [attr.aria-label]="'Lock the ' + live.path + ' selection as a pin'"
+            (click)="lockLive()"
+          >
+            <span class="pin-icon" aria-hidden="true">⧉</span>
+            <span class="chip-name" [title]="live.path">{{ live.path }}</span>
+            <span class="chip-lines">L{{ live.startLine }}-{{ live.endLine }}</span>
+          </button>
+          <button
+            type="button"
+            class="chip-remove"
+            [attr.aria-label]="'Dismiss the ' + live.path + ' selection preview'"
+            title="Dismiss this preview (locked chips stay)"
+            (click)="dismissLive()"
+          >
+            ×
+          </button>
+        </li>
+      }
+      @for (image of images(); track image.id; let index = $index) {
+        <li
+          class="chip"
+          [morseEnter]="chipOffset() + index"
+          [morseEnterY]="6"
+          [morseEnterScale]="0.55"
+          [morseEnterDuration]="320"
+        >
+          <img [src]="preview(image)" [alt]="image.name" />
+          <span class="chip-name" [title]="image.name">{{ image.name }}</span>
+          <button
+            type="button"
+            class="chip-remove"
+            [attr.aria-label]="'Remove ' + image.name"
+            (click)="removeImage(image.id)"
+          >
+            ×
+          </button>
+        </li>
+      }
+      @for (pin of pins(); track pin.id; let index = $index) {
+        <li
+          class="chip"
+          [morseEnter]="chipOffset() + images().length + index"
+          [morseEnterY]="6"
+          [morseEnterScale]="0.55"
+          [morseEnterDuration]="320"
+        >
+          <span class="pin-icon" aria-hidden="true">⧉</span>
+          <span class="chip-name" [title]="pin.path">{{ pin.path }}</span>
+          @if (pin.startLine !== undefined) {
+            <span class="chip-lines">L{{ pin.startLine }}-{{ pin.endLine }}</span>
+          }
+          <button
+            type="button"
+            class="chip-remove"
+            [attr.aria-label]="'Unpin ' + pin.path"
+            (click)="removePin(pin.id)"
+          >
+            ×
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  <textarea
+    #promptInput
+    rows="2"
+    aria-label="Prompt"
+    [value]="text()"
+    [disabled]="!canSend()"
+    [placeholder]="
+      !connected()
+        ? 'Waiting for a Morse host…'
+        : agentStarting()
+          ? 'Starting the Pi agent…'
+          : agentError()
+            ? 'The pi agent is unavailable.'
+            : agentReady()
+              ? 'Ask Morse… (Enter to send, Shift+Enter for a new line)'
+              : 'Type to start a session… (Enter to send, Shift+Enter for a new line)'
+    "
+    (input)="onInput($event)"
+    (keydown)="onKeydown($event)"
+    (paste)="onPaste($event)"
+  ></textarea>
+
+  @if (showStatusRow()) {
+    <div class="status-row">
+      <div class="status-live">
+        @if (running()) {
+          <span
+            class="hint throughput"
+            title="Live output rate: text and thinking, estimated from the character stream"
+          >
+            ↓{{ streamedTokens() }} · {{ tokensPerSecond() ?? 0 }} t/s
+          </span>
+        }
+      </div>
+
+      <div class="status-end">
+        @if (running()) {
+          <span class="working" role="status">
+            <span class="spinner"></span>
+            <span>Working {{ elapsed() }}</span>
+            <span class="dots"><i></i><i></i><i></i></span>
+          </span>
+        }
+
+        @if (showUsage()) {
+          <morse-usage-indicator
+            class="usage-host"
+            [usage]="usageState().usage"
+            [lastUsage]="usageState().lastUsage"
+            [costUsd]="usageState().costUsd"
+            [contextUsage]="usageState().contextUsage"
+            [counts]="usageState().counts"
+            [model]="usageState().model"
+            [sessionTitle]="usageState().sessionTitle"
+          />
+        }
+      </div>
+    </div>
+  }
+
+  <div class="controls">
+    <div class="controls-metrics">
+      <button
+        type="button"
+        class="model-button"
+        [disabled]="models().length === 0"
+        [title]="modelLabel()"
+        [attr.aria-expanded]="modelPickerOpen()"
+        (pointerdown)="$event.stopPropagation()"
+        (click)="toggleModelPicker()"
+      >
+        @if (currentProvider(); as provider) {
+          <span class="provider" [title]="provider">{{ provider }}</span>
+        }
+        <span class="label">{{ currentModel()?.name || 'no model' }}</span>
+        <span class="caret" aria-hidden="true">▾</span>
+      </button>
+
+      @if (modelPickerOpen()) {
+        <morse-model-picker
+          class="model-picker-host"
+          [morsePopoverFit]="340"
+          [models]="models()"
+          [current]="modelKey()"
+          (pick)="onModelPick($event)"
+          (close)="closeModelPicker()"
+        />
+      }
+
+      <morse-thinking-picker
+        class="thinking-host"
+        [levels]="levels()"
+        [current]="thinkingLevel()"
+        (pick)="onThinkingPick($event)"
+      />
+    </div>
+
+    <div class="controls-actions">
+      @if (streaming()) {
+        <button type="button" class="secondary" (click)="sendWith('steer')">Steer</button>
+        <button type="button" class="secondary" (click)="sendWith('followUp')">Follow up</button>
+        <button type="button" class="icon stop" title="Stop" aria-label="Stop" (click)="abort()">■</button>
+      } @else {
+        <button
+          type="button"
+          class="icon send"
+          title="Send (Enter)"
+          aria-label="Send"
+          [disabled]="!canSend()"
+          (click)="sendWith('new')"
+        >
+          ↑
+        </button>
+      }
+    </div>
+  </div>
+  </div>
+</footer>

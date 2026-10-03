@@ -1,0 +1,112 @@
+<div class="shell">
+  @if (bootVisible()) {
+    <morse-boot-splash
+      [ready]="bootReady()"
+      [status]="bootStatus()"
+      (dismissed)="onBootDismissed()"
+    />
+  }
+
+  @if (connectionScreen(); as screen) {
+    <morse-connection-screen
+      [eyebrow]="screen.eyebrow"
+      [title]="screen.title"
+      [body]="screen.body"
+      [detail]="screen.detail"
+      (retry)="retryConnection()"
+      (explore)="onConnectionExplore()"
+      (connect)="onConnectionConnect($event)"
+    />
+  }
+
+  <morse-session-nav class="nav" [class.open]="navigationOpen()" />
+
+  @if (projectPickerOpen()) {
+    <morse-project-picker />
+  }
+
+  @if (navigationOpen()) {
+    <button
+      type="button"
+      class="scrim"
+      aria-label="Close navigation"
+      (click)="closeNavigation()"
+    ></button>
+  }
+
+  <main
+    class="chat"
+    [class.dropping]="dragging()"
+    (dragenter)="onDragEnter($event)"
+    (dragover)="onDragOver($event)"
+    (dragleave)="onDragLeave()"
+    (drop)="onDrop($event)"
+  >
+    @if (dragging()) {
+      <div class="dropzone" aria-hidden="true">
+        <span class="dropzone-ring"></span>
+        <div class="dropzone-card" [morseEnter]="0" [morseEnterY]="-6">
+          <span class="dropzone-icon">⤓</span>
+          <strong>Drop to attach</strong>
+          <span>Images ride with the prompt · other files become <code>@mentions</code></span>
+        </div>
+      </div>
+    }
+
+    <morse-chat-header />
+
+    @if (lastError(); as error) {
+      <section class="alert offline" role="status">
+        <strong>Offline — the host wouldn't take this frontend</strong>
+        <p>{{ error.message }}<br />{{ error.detail }}</p>
+        <div class="actions">
+          <button type="button" (click)="reload()">Reload</button>
+          <button type="button" class="secondary" (click)="retryConnection()">Retry</button>
+          <button type="button" class="secondary" (click)="showLog()">Show log</button>
+        </div>
+      </section>
+    } @else if (offline()) {
+      <section class="alert offline" role="status">
+        <strong>Offline — reconnecting</strong>
+        <p>
+          Morse keeps retrying in the background; the rest of the interface stays available while
+          it does.
+        </p>
+        <div class="actions">
+          <button type="button" (click)="retryConnection()">Retry now</button>
+          <button type="button" class="secondary" (click)="showConnectionHelp()">
+            Connection help
+          </button>
+        </div>
+      </section>
+    } @else if (
+      connection() === 'ready' && !agentReady() && !agentStarting() && agentError() !== undefined
+    ) {
+      <!-- A spawn failure is the only thing this banner may report; a window
+           with no session yet (lazy open) is a normal empty state, and the
+           transcript hero explains that instead. -->
+      <section class="alert" role="alert">
+        <strong>Pi agent unavailable</strong>
+        <p>{{ agentError() || 'Morse could not start the pi coding agent.' }}</p>
+        <div class="actions">
+          <button type="button" (click)="retryAgent()">Retry</button>
+          <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
+          <button type="button" class="secondary" (click)="showLog()">Show log</button>
+        </div>
+      </section>
+    }
+
+    <morse-chat-transcript />
+    <morse-interaction-panel />
+    <morse-chat-composer />
+
+    @if (toast(); as notice) {
+      <div class="toast" [class]="notice.level" role="status">
+        <span class="toast-text">{{ notice.text }}</span>
+        <button type="button" class="toast-close" aria-label="Dismiss" (click)="dismissToast()">
+          ×
+        </button>
+      </div>
+    }
+  </main>
+</div>

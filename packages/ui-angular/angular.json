@@ -1,0 +1,91 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": {
+    "packageManager": "npm",
+    "analytics": "6e61a357-7c33-4757-a9ec-f0fcfc7df619"
+  },
+  "newProjectRoot": "projects",
+  "projects": {
+    "ui-angular": {
+      "projectType": "application",
+      "schematics": {},
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "morse",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "outputPath": {
+              "base": "dist",
+              "browser": ""
+            },
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public"
+              }
+            ],
+            "styles": [
+              "src/styles.css"
+            ],
+            "allowedCommonJsDependencies": [
+              "@morse/protocol",
+              "@morse/ui-runtime"
+            ]
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "560kB",
+                  "maximumError": "1MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "8kB",
+                  "maximumError": "16kB"
+                }
+              ],
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.mjs",
+            // Workspace libraries are linked packages: prebundling them makes a
+            // long-running dev server (and the browser) serve a stale copy after
+            // they are rebuilt. Excluding them keeps every reload authoritative.
+            "prebundle": {
+              "exclude": ["@morse/protocol", "@morse/ui-runtime"]
+            }
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "ui-angular:build:production"
+            },
+            "development": {
+              "buildTarget": "ui-angular:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test"
+        }
+      }
+    }
+  }
+}

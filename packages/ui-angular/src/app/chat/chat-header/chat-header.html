@@ -1,0 +1,58 @@
+<header class="head">
+  <button
+    type="button"
+    class="icon menu"
+    title="Sessions and projects"
+    aria-label="Toggle navigation"
+    [attr.aria-expanded]="navigationOpen()"
+    (click)="toggleNavigation()"
+  >
+    ☰
+  </button>
+
+  <div class="titles">
+    <div class="title" [title]="state().sessionId ?? workspace().cwd">{{ title() }}</div>
+    @if (meta(); as line) {
+      <div class="meta" [title]="workspace().cwd">{{ line }}</div>
+    }
+  </div>
+
+  <div class="actions">
+    <span
+      class="status"
+      [class.online]="status() === 'ready'"
+      [class.busy]="status() === 'starting'"
+      [class.failed]="status() === 'error' || status() === 'closed'"
+      [title]="statusTitle()"
+    >
+      <span class="dot" aria-hidden="true"></span>
+      @if (status() !== 'ready') {
+        <span class="status-text">{{ statusLabel() }}</span>
+      }
+    </span>
+
+    <button
+      type="button"
+      class="icon"
+      title="Shrink the conversation context (/compact)"
+      aria-label="Shrink the conversation context"
+      [disabled]="!state().agentReady"
+      (click)="compact()"
+    >
+      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4 3 8 6.6l4-3.6" />
+        <path d="M4 13 8 9.4l4 3.6" />
+      </svg>
+    </button>
+
+    <button
+      type="button"
+      class="icon"
+      title="New session"
+      aria-label="New session"
+      (click)="newSession()"
+    >
+      +
+    </button>
+  </div>
+</header>

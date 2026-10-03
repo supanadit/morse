@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Morse">
+  <title>Morse</title>
+  <rect width="32" height="32" rx="7" fill="#0e639c" />
+  <g fill="#ffffff">
+    <circle cx="7.85" cy="16" r="2.7" />
+    <circle cx="14.05" cy="16" r="2.7" />
+    <rect x="19.25" y="13.3" width="7.6" height="5.4" rx="2.7" />
+  </g>
+</svg>

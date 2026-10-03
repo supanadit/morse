@@ -1,0 +1,332 @@
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { BootSplash } from './boot/boot-splash';
+import { ConnectionScreen } from './connection/connection-screen';
+import { ChatComposer } from './chat/chat-composer/chat-composer';
+import { ChatHeader } from './chat/chat-header/chat-header';
+import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
+import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
+import { AnimationService } from './core/animation.service';
+import { AttachmentStore } from './core/attachments';
+import { DropZone } from './core/drop-zone';
+import { MorseService } from './core/morse.service';
+import { ShellState } from './core/shell-state';
+import { EnterDirective } from './shared/enter.directive';
+import { SessionNav } from './nav/session-nav/session-nav';
+import { ProjectPicker } from './nav/project-picker/project-picker';
+
+/**
+ * `?boot=1` keeps the cold-start screen up long enough to watch it, so the
+ * animation can be reviewed against the in-memory mock host.
+ */
+function previewBoot(): boolean {
+  if (typeof location === 'undefined') {
+    return false;
+  }
+  return new URL(location.href, 'http://localhost/').searchParams.get('boot') === '1';
+}
+
+@Component({
+  selector: 'app-root',
+  imports: [
+    SessionNav,
+    ProjectPicker,
+    ChatHeader,
+    ChatTranscript,
+    InteractionPanel,
+    ChatComposer,
+    EnterDirective,
+    BootSplash,
+    ConnectionScreen,
+  ],
+  templateUrl: './app.html',
+  styleUrl: './app.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class App {
+  private readonly morse = inject(MorseService);
+  private readonly shell = inject(ShellState);
+  private readonly dropZone = inject(DropZone);
+  private readonly animation = inject(AnimationService);
+  private readonly attachments = inject(AttachmentStore);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly dismissedNoticeAt = signal<number | null>(null);
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * The cold-start overlay is only for a handshake that is still pending when
+   * the app boots. If the host already answered (the in-memory mock, a warm
+   * webview) there is nothing to cover, so it never mounts.
+   */
+  private readonly bootPreview = previewBoot();
+  private readonly bootPending =
+    this.animation.isEnabled && (this.bootPreview || this.morse.connection() === 'connecting');
+  private bootForceTimer: ReturnType<typeof setTimeout> | undefined;
+  protected readonly bootVisible = signal(this.bootPending);
+  private readonly bootForced = signal(false);
+
+  /** Once the reader chooses to look around, the full-screen state steps aside. */
+  private readonly connectionDismissed = signal(false);
+  /**
+   * Sticky "no host": set on the first failure and cleared only when the
+   * handshake really succeeds. The transport re-announces `connecting` on every
+   * retry, so keying the screen off the momentary status made it bounce between
+   * the app and the error page every few seconds.
+   */
+  protected readonly offline = signal(false);
+
+  protected readonly navigationOpen = this.shell.navigationOpen;
+  protected readonly projectPickerOpen = this.shell.projectPickerOpen;
+  protected readonly connection = this.morse.connection;
+  protected readonly agentReady = this.morse.agentReady;
+  protected readonly agentStarting = this.morse.agentStarting;
+  protected readonly agentError = this.morse.agentError;
+  protected readonly lastError = this.morse.lastError;
+  /** Highlight while files are dragged over the chat. */
+  protected readonly dragging = this.dropZone.active;
+  protected readonly toast = computed(() => {
+    // Host notices and local attachment feedback share one slot; the newest wins.
+    const host = this.morse.lastNotice();
+    const local = this.attachments.notice();
+    const notice = local && (!host || local.at >= host.at) ? local : host;
+    if (!notice || notice.at === this.dismissedNoticeAt()) {
+      return null;
+    }
+    return notice;
+  });
+
+  /**
+   * A toast is transient, so it dismisses itself: an info note goes quickly, a
+   * warning lingers a little. The manual close stays for "I read it, go away".
+   */
+  private readonly autoDismiss = effect(() => {
+    const notice = this.toast();
+    this.clearNoticeTimer();
+    if (!notice) {
+      return;
+    }
+    const ttl = notice.level === 'warn' || notice.level === 'error' ? 6_000 : 3_200;
+    this.noticeTimer = setTimeout(() => this.dismissedNoticeAt.set(notice.at), ttl);
+  });
+
+  constructor() {
+    if (this.bootPending) {
+      // A hard cap so a decorative screen never becomes a hostage situation;
+      // the overlay also releases itself once the intro has had its moment.
+      this.bootForceTimer = setTimeout(() => this.bootForced.set(true), 7_000);
+    }
+    // A reconnection arms the full-screen state again, so a mid-session drop
+    // still explains itself even after the reader once dismissed it. A retry
+    // that flips back to `connecting` must not clear it: only `ready` does.
+    effect(() => {
+      const connection = this.morse.connection();
+      if (connection === 'ready') {
+        this.offline.set(false);
+        this.connectionDismissed.set(false);
+        return;
+      }
+      if (connection === 'error' || connection === 'closed' || this.morse.slowConnection()) {
+        this.offline.set(true);
+      }
+    });
+    this.destroyRef.onDestroy(() => {
+      this.clearNoticeTimer();
+      this.clearBootTimer();
+    });
+  }
+
+  protected onBootDismissed(): void {
+    this.bootVisible.set(false);
+    this.clearBootTimer();
+  }
+
+  protected onConnectionExplore(): void {
+    this.connectionDismissed.set(true);
+  }
+
+  /** Bring the full-screen connection help back after it was dismissed. */
+  protected showConnectionHelp(): void {
+    this.connectionDismissed.set(false);
+  }
+
+  /** Point the browser host at another server (`?server=…`) and reload into it. */
+  protected onConnectionConnect(url: string): void {
+    if (typeof location === 'undefined') {
+      return;
+    }
+    const next = new URL(location.href);
+    next.searchParams.set('server', url);
+    location.href = next.toString();
+  }
+
+  private clearBootTimer(): void {
+    if (this.bootForceTimer !== undefined) {
+      clearTimeout(this.bootForceTimer);
+      this.bootForceTimer = undefined;
+    }
+  }
+
+  private clearNoticeTimer(): void {
+    if (this.noticeTimer !== undefined) {
+      clearTimeout(this.noticeTimer);
+      this.noticeTimer = undefined;
+    }
+  }
+
+  /**
+   * Reveal the app once the host has answered with its state. A session is
+   * created lazily (on the first prompt), so a fresh window has no agent to wait
+   * for — only the handshake matters. A failure or the slow-handshake watchdog
+   * also reveals the app, so the error state can explain itself.
+   */
+  protected readonly bootReady = computed(() => {
+    if (this.bootForced()) {
+      return true;
+    }
+    const connection = this.morse.connection();
+    if (connection === 'error' || connection === 'closed' || this.morse.slowConnection()) {
+      return true;
+    }
+    return connection === 'ready';
+  });
+
+  /** What the overlay is waiting for, in the user's words. */
+  protected readonly bootStatus = computed(() => {
+    if (this.morse.connection() !== 'ready') {
+      return 'Connecting to the host…';
+    }
+    if (this.morse.agentStarting()) {
+      return 'Starting the pi agent…';
+    }
+    if (this.morse.agentError() !== undefined) {
+      return 'The agent could not start';
+    }
+    return 'Ready';
+  });
+
+  /**
+   * The friendly full-screen state for "there is no host to talk to". It only
+   * appears once the cold start has finished, and steps aside for good the
+   * moment the user asks to look around (the compact bar stays behind).
+   */
+  protected readonly connectionScreen = computed<{
+    eyebrow: string;
+    title: string;
+    body: string;
+    detail: string;
+  } | null>(() => {
+    if (this.bootVisible() || this.connectionDismissed() || !this.offline()) {
+      return null;
+    }
+    const refused = this.lastError();
+    if (refused) {
+      return {
+        eyebrow: 'Handshake refused',
+        title: 'The host turned this frontend away',
+        body: 'The socket is up, but the handshake was rejected. That usually means the frontend and the host disagree on the wire protocol — rebuild both together.',
+        detail: refused.detail ? `${refused.message} — ${refused.detail}` : refused.message,
+      };
+    }
+    if (this.morse.slowConnection() && this.morse.connection() === 'connecting') {
+      return {
+        eyebrow: 'No answer yet',
+        title: 'The host is not answering',
+        body: 'A socket opened but the handshake never came back. The host may still be starting, or this address is not a Morse host.',
+        detail: this.morse.connectionDetail() ?? '',
+      };
+    }
+    return {
+      eyebrow: 'Offline · reconnecting',
+      title: 'Morse is waiting for a host',
+      body: 'This window is only the frontend. The pi coding agent runs behind a Morse host — start one and this screen will clear itself.',
+      detail: this.morse.connectionDetail() ?? '',
+    };
+  });
+
+  protected closeNavigation(): void {
+    this.shell.closeNavigation();
+  }
+
+  protected retryConnection(): void {
+    // Re-sends the handshake; transports queue it until they are connected.
+    this.morse.ready();
+  }
+
+  protected reload(): void {
+    if (typeof location !== 'undefined') {
+      location.reload();
+    }
+  }
+
+  protected retryAgent(): void {
+    this.morse.newSession();
+  }
+
+  protected openSettings(): void {
+    this.morse.hostCommand('openSettings');
+  }
+
+  protected showLog(): void {
+    this.morse.hostCommand('showOutput');
+  }
+
+  protected dismissToast(): void {
+    this.dismissedNoticeAt.set(this.toast()?.at ?? this.morse.lastNotice()?.at ?? null);
+  }
+
+  /**
+   * While files hover the chat, the target is alive: the ring pings outwards, the
+   * card breathes and the icon bobs. Stopped as soon as the drag ends, so nothing
+   * animates off screen.
+   */
+  private readonly liveDropzone = effect(() => {
+    const dragging = this.dragging();
+    this.stopDropzoneLoops();
+    if (!dragging) {
+      return;
+    }
+    // The overlay is created by this change, so it is measured after the DOM
+    // settles.
+    setTimeout(() => {
+      if (!this.dragging()) {
+        return;
+      }
+      const host: HTMLElement | undefined =
+        (globalThis as { document?: Document }).document?.querySelector('.dropzone') ?? undefined;
+      if (!host) {
+        return;
+      }
+      const card = host.querySelector('.dropzone-card');
+      const icon = host.querySelector('.dropzone-icon');
+      const ring = host.querySelector('.dropzone-ring');
+      this.dropzoneStops = [
+        this.animation.loop(ring, { scale: [1, 1.035], opacity: [0.9, 0.25] }, { duration: 1100 }),
+        this.animation.loop(card, { scale: [1, 1.03] }, { duration: 700 }),
+        this.animation.loop(icon, { translateY: [1.5, -3] }, { duration: 520 }),
+      ];
+    }, 0);
+  });
+
+  private dropzoneStops: Array<() => void> = [];
+
+  private stopDropzoneLoops(): void {
+    for (const stop of this.dropzoneStops) {
+      stop();
+    }
+    this.dropzoneStops = [];
+  }
+
+  protected onDragEnter(event: DragEvent): void {
+    this.dropZone.onDragEnter(event);
+  }
+
+  protected onDragOver(event: DragEvent): void {
+    this.dropZone.onDragOver(event);
+  }
+
+  protected onDragLeave(): void {
+    this.dropZone.onDragLeave();
+  }
+
+  protected onDrop(event: DragEvent): void {
+    void this.dropZone.onDrop(event, this.morse.state().workspace.cwd);
+  }
+}

@@ -1,0 +1,40 @@
+<div class="picker" [morseEnter]="0" [morseEnterY]="6">
+  @if (items().length === 0) {
+    @if (query().length > 0) {
+      <div class="empty">No command matches “{{ query() }}”.</div>
+    } @else {
+      <div class="empty">No commands available in this session.</div>
+    }
+  } @else {
+    <ul #list>
+      @for (item of items(); track item.id; let index = $index) {
+        <li>
+          <button
+            type="button"
+            [class.active]="index === active()"
+            (mouseenter)="activeChange.emit(index)"
+            (click)="pick.emit(item.id)"
+          >
+            @if (item.icon) {
+              <span class="icon">{{ item.icon }}</span>
+            }
+            <span class="text">
+              <span class="label">{{ item.label }}</span>
+              @if (item.description) {
+                <span class="description">{{ item.description }}</span>
+              }
+            </span>
+            @if (item.badge) {
+              <span class="badge">{{ item.badge }}</span>
+            }
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  <div class="hint">
+    <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> run · <kbd>Tab</kbd> insert ·
+    <kbd>Esc</kbd> close
+  </div>
+</div>

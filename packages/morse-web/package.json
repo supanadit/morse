@@ -1,0 +1,56 @@
+{
+  "name": "@supanadit/morse-web",
+  "version": "0.1.0",
+  "description": "Comfortable Pi Interface in your browser: the Morse host (Angular + NestJS) as one installable package. `npm i -g @supanadit/morse-web` then `morse start`.",
+  "type": "module",
+  "bin": {
+    "morse": "./dist/cli.mjs"
+  },
+  "main": "./dist/server.mjs",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi",
+    "morse",
+    "agent",
+    "chat",
+    "ai",
+    "nest",
+    "angular"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:server": "node build.mjs --server --cli",
+    "build:ui": "node build.mjs --ui",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "prepack": "node build.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-express": "^12.1.2",
+    "@nestjs/platform-ws": "^12.1.2",
+    "@nestjs/websockets": "^12.1.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@morse/adapter-pi-rpc": "*",
+    "@morse/core": "*",
+    "@morse/host-runtime": "*",
+    "@morse/protocol": "*",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^6.0.3"
+  }
+}

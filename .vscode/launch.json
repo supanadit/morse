@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Builds the shared libraries once, then runs the webview + extension
+      // watchers, and only then launches the Extension Development Host.
+      "name": "Morse: run extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/packages/extension"],
+      "outFiles": ["${workspaceFolder}/packages/extension/dist/**/*.js"],
+      "preLaunchTask": "morse: dev (build + watch)"
+    },
+    {
+      "name": "Morse: run extension (skip prelaunch)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/packages/extension"],
+      "outFiles": ["${workspaceFolder}/packages/extension/dist/**/*.js"]
+    },
+    {
+      "name": "Morse: attach to extension host",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "outFiles": ["${workspaceFolder}/packages/extension/dist/**/*.js"]
+    },
+    {
+      "name": "Morse: debug NestJS host",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/packages/server/dist/main.js",
+      "preLaunchTask": "morse: build server",
+      "env": {
+        "MORSE_PORT": "4399",
+        "MORSE_WORKSPACE": "${workspaceFolder}"
+      },
+      "console": "integratedTerminal"
+    }
+  ]
+}

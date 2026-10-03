@@ -1,0 +1,112 @@
+<div class="head">
+  <button type="button" class="primary" (click)="newSession($event)">
+    New session
+  </button>
+  <button type="button" class="secondary icon" title="Refresh" (click)="refresh()">⟳</button>
+</div>
+
+<div class="search">
+  <input
+    type="search"
+    [value]="query()"
+    [placeholder]="scope() === 'global' ? 'Search projects and sessions…' : 'Search sessions…'"
+    aria-label="Search sessions"
+    (input)="onQuery($event)"
+  />
+</div>
+
+<div class="list">
+  @for (group of visibleGroups(); track group.path) {
+    <section class="group">
+      @if (scope() === 'global') {
+        <div class="group-head">
+          <button
+            type="button"
+            class="group-title"
+            [attr.aria-expanded]="!isCollapsed(group.path)"
+            [title]="group.path"
+            (click)="toggleGroup(group.path)"
+          >
+            <span class="name">{{ group.name }}</span>
+            <span class="count">{{ group.sessions.length }}</span>
+            <span class="chevron" [class.open]="!isCollapsed(group.path)">›</span>
+          </button>
+          <button
+            type="button"
+            class="group-new"
+            title="New session in this project"
+            [attr.aria-label]="'New session in ' + group.name"
+            (click)="newSession($event, group.path)"
+          >
+            +
+          </button>
+        </div>
+      }
+
+      <!-- VS Code is workspace-scoped: one project, so no accordion to fold. -->
+      @if (scope() === 'workspace' || !isCollapsed(group.path)) {
+        <ul>
+          @for (session of group.sessions; track session.id) {
+            <li>
+              <button
+                type="button"
+                class="session"
+                [class.active]="session.id === activeSessionId()"
+                [class.running]="isRunning(session)"
+                [title]="session.id"
+                (click)="activate(session)"
+                (contextmenu)="openMenu($event, session)"
+              >
+                @if (isRunning(session)) {
+                  <span class="pulse" aria-hidden="true"></span>
+                }
+                <span class="title">{{ session.title }}</span>
+                <span class="meta">{{ session.messageCount }} · {{ age(session.updatedAt) }}</span>
+              </button>
+            </li>
+          } @empty {
+            <li class="empty">No sessions yet.</li>
+          }
+        </ul>
+      }
+    </section>
+  } @empty {
+    <p class="empty">Nothing found.</p>
+  }
+</div>
+
+<!--
+  A session's actions live behind a right-click menu. The old "✕" sat inside
+  the row's own button, where the click read as "open this session" and was easy
+  to miss. Delete is destructive, so it asks first — natively where the host has
+  dialogs, in the menu itself where it does not.
+-->
+@if (menu(); as open) {
+  <div
+    class="context-menu-layer"
+    (click)="closeMenu()"
+    (contextmenu)="$event.preventDefault(); closeMenu()"
+  ></div>
+  <div
+    class="context-menu"
+    role="menu"
+    [style.left.px]="open.x"
+    [style.top.px]="open.y"
+  >
+    @if (open.confirming) {
+      <p class="context-menu-question">Delete this session?</p>
+      <p class="context-menu-title">{{ open.session.title }}</p>
+      <button type="button" class="context-menu-item" (click)="closeMenu()">Cancel</button>
+      <button type="button" class="context-menu-item danger" (click)="deleteNow(open.session)">
+        Delete
+      </button>
+    } @else {
+      <button type="button" class="context-menu-item" (click)="closeNow(open.session)">
+        Close session
+      </button>
+      <button type="button" class="context-menu-item danger" (click)="askDelete(open)">
+        Delete session…
+      </button>
+    }
+  </div>
+}

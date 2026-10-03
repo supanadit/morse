@@ -1,0 +1,252 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+/*
+ * Two panes on a wide surface (the browser host): navigation column + chat.
+ * One column on a narrow one (the VS Code sidebar, or a small window), where the
+ * navigation becomes a drawer behind the ☰ button.
+ */
+.shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--morse-bg);
+}
+
+.nav {
+  min-width: 0;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+/*
+ * Drop target highlight. It sits above the transcript but below the composer, and
+ * `pointer-events: none` keeps the underlying drag events (and clicks) intact.
+ */
+.dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+  border: 2px dashed color-mix(in srgb, var(--morse-accent) 70%, transparent);
+  border-radius: var(--morse-radius-md);
+  animation: dropzone-in 140ms ease-out;
+}
+
+.dropzone-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 320px;
+  padding: 14px 18px;
+  border: 1px solid var(--morse-accent);
+  border-radius: var(--morse-radius-lg);
+  /* Opaque on purpose: the badge colours are translucent and vanish on a light
+     theme, which made this card unreadable. */
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+  text-align: center;
+  font-size: 12px;
+}
+
+.dropzone-card strong {
+  font-size: 13px;
+}
+
+.dropzone-card code {
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+}
+
+.dropzone-icon {
+  font-size: 18px;
+  color: var(--morse-accent);
+}
+
+/* Pings outwards while files hover the chat (animated with anime.js). */
+.dropzone-ring {
+  position: absolute;
+  inset: 6px;
+  border: 2px dashed color-mix(in srgb, var(--morse-accent) 45%, transparent);
+  border-radius: var(--morse-radius-md);
+  pointer-events: none;
+}
+
+@keyframes dropzone-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.scrim {
+  display: none;
+}
+
+.alert {
+  margin: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--morse-error);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-hover);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alert p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--morse-fg-muted);
+}
+
+/*
+ * Offline is a normal state, not a crash: a calm amber hairline instead of the
+ * red error border. The full-screen state carries the explanation; this is the
+ * compact bar that stays when the reader asks to look around.
+ */
+.alert.offline {
+  border-color: color-mix(in srgb, var(--morse-warn) 55%, var(--morse-border));
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/*
+ * Toast: floats in the top-right corner and hides itself, so a notice never
+ * covers the composer or the transcript for long. A soft left border carries the
+ * level colour (info/warn/error/success).
+ */
+.toast {
+  position: absolute;
+  z-index: 30;
+  top: 10px;
+  right: 10px;
+  max-width: min(420px, calc(100% - 20px));
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+  border-radius: var(--morse-radius-md);
+  border-left: 3px solid var(--morse-info);
+  background: var(--morse-panel, var(--morse-badge-bg));
+  color: var(--morse-fg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+  animation: toast-in 160ms ease-out;
+}
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.toast-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.toast.warn {
+  border-color: var(--morse-warn);
+}
+
+.toast.error {
+  border-color: var(--morse-error);
+}
+
+.toast.success {
+  border-color: var(--morse-success);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (max-width: 759px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .nav {
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(86%, 320px);
+    transform: translateX(-102%);
+    transition: transform 160ms ease;
+    box-shadow: 0 0 24px rgb(0 0 0 / 35%);
+  }
+
+  .nav.open {
+    transform: none;
+  }
+
+  .scrim {
+    display: block;
+    position: absolute;
+    z-index: 10;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    background: rgb(0 0 0 / 35%);
+  }
+
+  /*
+   * The scrim is a button so it can be clicked and focused, but it must never
+   * take a button's hover colour: VS Code injects `button:hover` rules into the
+   * webview, and the global one in styles.css would paint the whole overlay in
+   * the theme's accent colour (green in some themes) whenever the pointer is near
+   * the drawer. An explicit hover rule wins that fight.
+   */
+  .scrim:hover,
+  .scrim:active {
+    background: rgb(0 0 0 / 35%);
+  }
+}

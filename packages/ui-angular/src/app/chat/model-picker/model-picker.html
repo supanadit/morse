@@ -1,0 +1,46 @@
+<div class="panel" [morseEnter]="0" [morseEnterY]="6">
+  <div class="search">
+    <span class="search-icon" aria-hidden="true">⌕</span>
+    <input
+      #search
+      type="text"
+      placeholder="Search models"
+      aria-label="Search models"
+      [value]="filter()"
+      (input)="onFilter($event)"
+      (keydown)="onKeydown($event)"
+    />
+  </div>
+
+  <div class="list" #list>
+    @if (visible().length === 0) {
+      <div class="empty">No model matches “{{ filter() }}”.</div>
+    } @else {
+      @for (group of groups(); track group.provider) {
+        @if (group.rows.length > 0) {
+          <div class="group">{{ group.provider }}</div>
+          @for (row of group.rows; track row.index) {
+            <button
+              type="button"
+              class="row"
+              [class.active]="row.index === active()"
+              [class.selected]="keyOf(row.model) === current()"
+              [attr.aria-current]="keyOf(row.model) === current() ? 'true' : null"
+              [title]="keyOf(row.model)"
+              (mouseenter)="active.set(row.index)"
+              (click)="pick.emit(row.model)"
+            >
+              <span class="name">{{ row.model.name }}</span>
+              @if (context(row.model); as meta) {
+                <span class="meta">{{ meta }}</span>
+              }
+              @if (keyOf(row.model) === current()) {
+                <span class="check">✓</span>
+              }
+            </button>
+          }
+        }
+      }
+    }
+  </div>
+</div>

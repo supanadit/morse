@@ -1,0 +1,54 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // One command for the VS Code development loop: build the shared
+      // libraries + the webview bundle, sync them into media/webview, then keep
+      // everything watching. F5 launches once esbuild reports its first build.
+      "label": "morse: dev (build + watch)",
+      "type": "shell",
+      "command": "npm run dev:extension",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "esbuild",
+        "pattern": {
+          "regexp": "^✘ \\[ERROR\\] (.*)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[watch\\] build started",
+          "endsPattern": "^\\[watch\\] build finished"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "morse" }
+    },
+    {
+      "label": "morse: build libraries",
+      "type": "shell",
+      "command": "npm run build:libs",
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "never", "group": "morse" }
+    },
+    {
+      "label": "morse: build ui",
+      "type": "shell",
+      "command": "npm run build:ui && npm run sync-webview",
+      "problemMatcher": [],
+      "presentation": { "reveal": "never", "group": "morse" }
+    },
+    {
+      "label": "morse: build server",
+      "type": "shell",
+      "command": "npm run build:server",
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "never", "group": "morse" }
+    },
+    {
+      "label": "morse: package vsix",
+      "type": "shell",
+      "command": "npm run package",
+      "problemMatcher": []
+    }
+  ]
+}

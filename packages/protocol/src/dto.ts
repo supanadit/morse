@@ -1,0 +1,316 @@
+/**
+ * Serializable view DTOs. These are the ONLY shapes crossing the host <-> frontend
+ * boundary, which is what keeps the frontend swappable (Angular today, React or
+ * Svelte tomorrow) and lets the same frontend render inside a VS Code webview or
+ * a plain browser talking to the NestJS host.
+ */
+
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export type NoticeLevel = 'info' | 'success' | 'warn' | 'error';
+
+export type HostKind = 'vscode' | 'server';
+
+export type ToolStatus = 'running' | 'ok' | 'error';
+
+export interface ModelOption {
+  provider: string;
+  id: string;
+  name: string;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+export type CommandSource = 'extension' | 'prompt' | 'skill';
+
+/**
+ * A command the agent session offers in the composer: an extension command, a
+ * prompt template or a skill (`/skill:name`). Run by sending `/name` as a
+ * prompt. Morse's own built-ins (`/new`, `/compact`, ...) are merged in by the
+ * frontend because pi keeps them in the TUI only.
+ */
+export interface CommandOption {
+  name: string;
+  description?: string;
+  source: CommandSource;
+}
+
+export interface WorkspaceInfo {
+  cwd: string;
+  name: string;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** Prompt tokens served from the provider's prompt cache. */
+  cacheReadTokens?: number;
+  /** Prompt tokens written into the provider's prompt cache. */
+  cacheWriteTokens?: number;
+  /** Reasoning tokens; a subset of `outputTokens`. */
+  reasoningTokens?: number;
+}
+
+/** How full the model's context window is. */
+export interface ContextUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+}
+
+/** Message/step counts for the session, for the usage panel. */
+export interface SessionCounts {
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  totalMessages: number;
+}
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  cwd: string;
+  updatedAt: number;
+  messageCount: number;
+}
+
+/**
+ * Live state of one session the host is running right now (a hot agent
+ * process). `session/list` is the persisted catalog; this is the subset that is
+ * actually alive, so a frontend can show several sessions working at once
+ * instead of pretending only the selected one exists.
+ */
+export interface SessionActivity {
+  /** Registry key: the session id, or a synthetic key before a new session is persisted. */
+  sessionKey: string;
+  /** The agent is producing a response (thinking, tools or text). */
+  streaming: boolean;
+  /** The host is switching to/starting this session. */
+  busy: boolean;
+  agentReady: boolean;
+  agentStarting: boolean;
+  agentError?: string;
+}
+
+/** A project is a directory the agent has worked in (one pi session bucket). */
+export interface ProjectSummary {
+  path: string;
+  name: string;
+  sessionCount: number;
+  lastUsedAt: number;
+}
+
+/**
+ * How much of the machine this host exposes.
+ *
+ * `global` is the browser host: every project pi knows about.
+ * `workspace` is VS Code, which is scoped to the folders the window has open
+ * — no project switcher, only sessions inside those folders.
+ */
+export type HostScope = 'global' | 'workspace';
+
+/** What the host can do; the frontend adapts instead of guessing. */
+export interface HostCapabilities {
+  hostKind: HostKind;
+  scope: HostScope;
+  /** Host can read the active editor selection / open files. */
+  editorContext: boolean;
+  /**
+   * Host streams the active editor selection as it changes (`context/selectionLive`),
+   * so the frontend can show a live chip whose line numbers follow the user's
+   * drag until they click it to lock. Optional: hosts without an editor leave
+   * it off.
+   */
+  selectionLive?: boolean;
+  /** Host renders interaction requests natively (QuickPick, InputBox, ...). */
+  nativeDialogs: boolean;
+  /** Host can insert text into an editor. */
+  insertIntoEditor: boolean;
+  /** Host can reveal a file in the editor. */
+  revealFile: boolean;
+  /**
+   * Host can list workspace files, so the frontend can offer a file picker.
+   * Optional: hosts without it simply do not show the picker.
+   */
+  filePicker?: boolean;
+  /**
+   * Host can receive a file the browser read (base64) and store it on its own
+   * disk, returning a path the frontend can `@mention`. Browsers cannot hand a
+   * dragged file's path to the agent, so this is how a browser host attaches a
+   * real file. Optional: hosts that cannot write files leave it off.
+   */
+  fileUpload?: boolean;
+  /**
+   * Host can list directories on its own filesystem, so the frontend can offer
+   * a folder browser when the user has to choose which project a new session
+   * belongs to. VS Code already has a workspace folder and leaves it off; the
+   * browser host, where any directory is fair game, turns it on.
+   */
+  directoryPicker?: boolean;
+  /**
+   * Host can fork the conversation before a past user message, which is how a
+   * user edits a prompt the agent already answered. Optional: an agent backend
+   * without fork support leaves it off and the frontend hides the affordance.
+   */
+  editMessage?: boolean;
+  /**
+   * Host can branch a new session before a past user message (`chat/fork`) and
+   * hand that prompt back to the composer. The same pi primitive as
+   * `editMessage`, only without sending anything. Optional: an agent backend
+   * without fork support leaves it off and the frontend hides the affordance.
+   */
+  forkMessage?: boolean;
+}
+
+export interface SessionViewState {
+  sessionId?: string;
+  sessionTitle?: string;
+  workspace: WorkspaceInfo;
+  model?: ModelOption;
+  thinkingLevel: ThinkingLevel;
+  availableModels: ModelOption[];
+  availableThinkingLevels: ThinkingLevel[];
+  /** Commands pi exposes (`get_commands`): extensions, templates, skills. */
+  availableCommands: CommandOption[];
+  streaming: boolean;
+  busy: boolean;
+  /** Cumulative session tokens (input/output/cache) reported by the agent. */
+  usage?: TokenUsage;
+  /** Tokens of the most recent assistant message. */
+  lastUsage?: TokenUsage;
+  /** Cumulative session cost in USD, when the provider reports it. */
+  costUsd?: number;
+  contextUsage?: ContextUsage;
+  counts?: SessionCounts;
+  /** False when the agent backend (the `pi` binary) could not be started. */
+  agentReady: boolean;
+  /** True while the host is spawning/attaching the agent, so the UI does not
+   * show an error during a normal (slow) start. */
+  agentStarting: boolean;
+  agentError?: string;
+  /** True when older transcript entries can still be loaded from the session. */
+  hasOlderHistory?: boolean;
+  /** True while the host is fetching the previous history page. */
+  loadingOlderHistory?: boolean;
+}
+
+export interface BaseTranscriptItem {
+  id: string;
+  at: number;
+}
+
+/**
+ * An image attached to a prompt. Base64, without a `data:` prefix — pi accepts
+ * it verbatim as `{type: 'image', data, mimeType}`. Stored on the user message
+ * so the data survives in the chat, exactly like it does in pi sessions.
+ */
+export interface PromptImage {
+  data: string;
+  mimeType: string;
+}
+
+/**
+ * A file (or an editor selection) pinned to a message as an attachment chip.
+ * The agent is meant to read it — the wire mentions `@path[:start-end]`, never
+ * the inlined content, so the prompt keeps the words the user actually typed.
+ */
+export interface ChatPin {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+/**
+ * A prompt handed back to the composer after a fork: the message the branch
+ * re-opened, plus its attachments, so the user continues the new branch from
+ * where they forked instead of retyping it. Sent as `composer/seed`.
+ */
+export interface ComposerSeed {
+  text: string;
+  images?: PromptImage[];
+  pins?: ChatPin[];
+}
+
+export interface UserTranscriptItem extends BaseTranscriptItem {
+  kind: 'user';
+  text: string;
+  /** Image attachments pinned to this message, rendered as thumbnails. */
+  images?: PromptImage[];
+  /** File/selection pins pinned to this message, rendered as chips. */
+  pins?: ChatPin[];
+}
+
+export interface AssistantTranscriptItem extends BaseTranscriptItem {
+  kind: 'assistant';
+  text: string;
+  thinking: string;
+  streaming: boolean;
+  model?: string;
+}
+
+export interface ToolTranscriptItem extends BaseTranscriptItem {
+  kind: 'tool';
+  name: string;
+  title: string;
+  status: ToolStatus;
+  input?: string;
+  output?: string;
+  durationMs?: number;
+}
+
+export interface NoticeTranscriptItem extends BaseTranscriptItem {
+  kind: 'notice';
+  level: NoticeLevel;
+  text: string;
+}
+
+/**
+ * A compaction boundary. Everything before it was summarized into `summary`
+ * (what the agent now carries as context); the transcript keeps the full
+ * conversation and marks the point instead — like pi's own TUI — so a resumed
+ * session does not silently shrink to the post-compaction tail.
+ */
+export interface CompactionTranscriptItem extends BaseTranscriptItem {
+  kind: 'compaction';
+  summary?: string;
+  /** Approximate tokens that the summary folded away, when the agent reports it. */
+  tokensBefore?: number;
+}
+
+export type TranscriptItem =
+  | UserTranscriptItem
+  | AssistantTranscriptItem
+  | ToolTranscriptItem
+  | NoticeTranscriptItem
+  | CompactionTranscriptItem;
+
+export interface SelectOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * Mirrors the agent's interaction requests (pi `extension_ui_request`). Hosts with
+ * native dialogs answer them without involving the frontend; hosts without (the
+ * browser server host) forward them and the frontend renders a form.
+ */
+export type InteractionRequest =
+  | { requestId: string; kind: 'select'; title: string; message?: string; options: SelectOption[] }
+  | { requestId: string; kind: 'confirm'; title: string; message: string; danger?: boolean }
+  | { requestId: string; kind: 'input'; title: string; placeholder?: string; value?: string }
+  | { requestId: string; kind: 'editor'; title: string; value?: string; language?: string };
+
+export interface InteractionResponse {
+  requestId: string;
+  value?: string;
+  confirmed?: boolean;
+  cancelled?: boolean;
+}
+
+export interface FrontendIdentity {
+  name: string;
+  version: string;
+}

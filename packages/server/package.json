@@ -1,0 +1,36 @@
+{
+  "name": "@morse/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Morse without VS Code: a NestJS host that serves the same Angular frontend and drives the same pi agent over WebSocket.",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && npm-run-all -p watch:tsc start:watch",
+    "watch:tsc": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "start:watch": "node --watch --enable-source-maps dist/main.js",
+    "start": "node dist/main.js",
+    "check-types": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@morse/adapter-pi-rpc": "*",
+    "@morse/core": "*",
+    "@morse/host-runtime": "*",
+    "@morse/protocol": "*",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-express": "^12.1.2",
+    "@nestjs/platform-ws": "^12.1.2",
+    "@nestjs/websockets": "^12.1.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "name": "morse",
+  "displayName": "Morse",
+  "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
+  "version": "0.1.6",
+  "publisher": "supanadit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supanadit/morse.git"
+  },
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.138.0"
+  },
+  "categories": [
+    "Other",
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "pi",
+    "agent",
+    "chat",
+    "ai",
+    "copilot-alternative"
+  ],
+  "activationEvents": [
+    "onView:morse.chat"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "morse",
+          "title": "Morse",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "morse": [
+        {
+          "id": "morse.chat",
+          "name": "Chat",
+          "type": "webview",
+          "contextualTitle": "Morse"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "morse.openChat",
+        "title": "Morse: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "morse.newSession",
+        "title": "Morse: New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "morse.attachSelection",
+        "title": "Morse: Attach Selection to Next Prompt",
+        "icon": "$(selection)"
+      },
+      {
+        "command": "morse.showOutput",
+        "title": "Morse: Show Log"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "morse.newSession",
+          "when": "view == morse.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "morse.attachSelection",
+          "when": "view == morse.chat",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Morse",
+      "properties": {
+        "morse.pi.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `pi` executable. Empty means: use `pi` from `PATH` (or `MORSE_PI_PATH`)."
+        },
+        "morse.pi.entry": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to a pi RPC entry (`dist/bundle/rpc-entry.js`) to run with node instead of the `pi` binary."
+        },
+        "morse.pi.sessionDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Override the session directory (`pi --session-dir`). Empty uses your pi default."
+        },
+        "morse.pi.noSession": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Run without persisting a pi session (`pi --no-session`)."
+        },
+        "morse.pi.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra arguments passed to the pi process."
+        },
+        "morse.pi.requestTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "markdownDescription": "How long to wait for a single pi RPC response."
+        },
+        "morse.sessions.hotLimit": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "markdownDescription": "How many pi sessions (one process each) stay alive at once. When the limit is reached the least recently used session is retired; it can still be resumed from its session file."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "sync-webview": "node scripts/sync-webview.mjs",
+    "build": "node esbuild.js",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "verify-webview": "node scripts/verify-webview.mjs",
+    "vsix": "npm run package && node scripts/verify-webview.mjs && node -e \"require('node:fs').mkdirSync('../../dist', { recursive: true })\" && vsce package --no-dependencies --out ../../dist/morse.vsix",
+    "compile-tests": "tsc -p tsconfig.test.json",
+    "pretest": "npm run compile-tests && npm run compile",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@morse/adapter-pi-rpc": "*",
+    "@morse/core": "*",
+    "@morse/host-runtime": "*",
+    "@morse/protocol": "*",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.138.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
+  }
+}

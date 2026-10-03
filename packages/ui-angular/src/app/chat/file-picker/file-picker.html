@@ -1,0 +1,36 @@
+<div class="picker" [morseEnter]="0" [morseEnterY]="6">
+  @if (busy() && files().length === 0) {
+    <div class="busy">Reading the workspace…</div>
+  } @else if (files().length === 0) {
+    @if (query().length > 0) {
+      <div class="empty">No match for “{{ query() }}”.</div>
+    } @else {
+      <div class="empty">
+        The host returned no workspace files.
+        <button type="button" class="reload" (click)="reload.emit()">Load again</button>
+      </div>
+    }
+  } @else {
+    <ul #list>
+      @for (file of files(); track file; let index = $index) {
+        <li>
+          <button
+            type="button"
+            [class.active]="index === active()"
+            (mouseenter)="activeChange.emit(index)"
+            (click)="pick.emit(file)"
+          >
+            <span class="icon">{{ isDirectory(file) ? '▸' : '▤' }}</span>
+            <span class="path">
+              <span class="dir">{{ split(file).dir }}</span>{{ split(file).base }}
+            </span>
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  <div class="hint">
+    <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> attach/open · <kbd>Esc</kbd> close
+  </div>
+</div>

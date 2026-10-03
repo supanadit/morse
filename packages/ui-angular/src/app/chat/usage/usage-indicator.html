@@ -1,0 +1,106 @@
+<button
+  class="mini"
+  type="button"
+  aria-label="Context usage"
+  [title]="tooltip()"
+  [attr.aria-expanded]="open()"
+  (click)="toggle()"
+>
+  <svg
+    class="ring"
+    [class.warn]="level() === 'warn'"
+    [class.danger]="level() === 'danger'"
+    viewBox="0 0 36 36"
+    aria-hidden="true"
+  >
+    <circle class="track" cx="18" cy="18" r="15.5" />
+    <circle
+      class="value"
+      cx="18"
+      cy="18"
+      r="15.5"
+      [attr.stroke-dasharray]="circumference"
+      [attr.stroke-dashoffset]="dashOffset()"
+    />
+  </svg>
+  <span class="pct">{{ percentLabel() }}</span>
+</button>
+
+@if (open()) {
+  <button class="scrim" type="button" aria-label="Close usage" (click)="close()"></button>
+  <div class="panel" role="dialog" aria-label="Context usage">
+    <header>
+      <h3>Context</h3>
+      <button class="close" type="button" aria-label="Close" (click)="close()">×</button>
+    </header>
+    <div class="subtitle">
+      {{ modelLabel() }}@if (sessionTitle(); as title) {<span> · {{ title }}</span>}
+    </div>
+
+    <div class="bar-head">
+      <span>Context</span>
+      <span>{{ usedLabel() }} / {{ limitLabel() }}</span>
+    </div>
+    <div class="bar">
+      <span
+        class="fill"
+        [class.warn]="level() === 'warn'"
+        [class.danger]="level() === 'danger'"
+        [style.width.%]="fillPercent()"
+      ></span>
+    </div>
+    <div class="bar-foot">
+      <span>{{ percentLabel() }} used</span>
+    </div>
+
+    <div class="grid">
+      <div class="cell">
+        <span class="k">Messages</span><span class="v">{{ counts()?.totalMessages ?? '—' }}</span>
+      </div>
+      <div class="cell">
+        <span class="k">User</span><span class="v">{{ counts()?.userMessages ?? '—' }}</span>
+      </div>
+      <div class="cell">
+        <span class="k">Assistant</span><span class="v">{{ counts()?.assistantMessages ?? '—' }}</span>
+      </div>
+      <div class="cell">
+        <span class="k">Tool calls</span><span class="v">{{ counts()?.toolCalls ?? '—' }}</span>
+      </div>
+      <div class="cell"><span class="k">Cost</span><span class="v">{{ costLabel() }}</span></div>
+      <div class="cell">
+        <span class="k">Output limit</span><span class="v">{{ outputLimitLabel() }}</span>
+      </div>
+    </div>
+
+    @if (lastUsage()) {
+      <section>
+        <h4>Last assistant message</h4>
+        <div class="grid">
+          <div class="cell">
+            <span class="k">Input</span><span class="v">{{ lastValue('inputTokens') }}</span>
+          </div>
+          <div class="cell">
+            <span class="k">Output</span><span class="v">{{ lastValue('outputTokens') }}</span>
+          </div>
+          <div class="cell">
+            <span class="k">Reasoning</span><span class="v">{{ lastValue('reasoningTokens') }}</span>
+          </div>
+          <div class="cell">
+            <span class="k">Cache read</span><span class="v">{{ lastValue('cacheReadTokens') }}</span>
+          </div>
+          <div class="cell">
+            <span class="k">Cache write</span><span class="v">{{ lastValue('cacheWriteTokens') }}</span>
+          </div>
+          <div class="cell">
+            <span class="k">Cache hit</span><span class="v">{{ cacheHitLabel() }}</span>
+          </div>
+        </div>
+      </section>
+    }
+
+    <section>
+      <h4>Session totals</h4>
+      <div class="totals">{{ sessionLine() || 'No usage yet.' }}</div>
+    </section>
+  </div>
+}

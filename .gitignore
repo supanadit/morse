@@ -1,0 +1,18 @@
+node_modules/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Generated webview bundles (Angular/React/Svelte frontends emit here)
+packages/extension/media/webview/
+
+# Packaging output
+*.vsix
+
+# Editors / OS
+.DS_Store
+*.log
+coverage/
+.vscode-test/
+.morse
