@@ -99,7 +99,7 @@ export class ShellState {
     this.navigationVisible.update((open) => !open);
   }
 
-  /** Used by the focus-search shortcut: a hidden drawer cannot take focus. */
+  /** Used by the sidebar's shortcuts: a closed drawer is off canvas, so nothing inside it can be seen. */
   openNavigation(): void {
     this.navigationVisible.set(true);
   }
@@ -114,7 +114,7 @@ export class ShellState {
   }
 
   /**
-   * Used by the focus-search shortcut: a folded column is `visibility: hidden`,
+   * Used by the sidebar's shortcuts: a folded column is `visibility: hidden`,
    * and a field nobody can see cannot take focus either.
    */
   unfoldNavigation(): void {

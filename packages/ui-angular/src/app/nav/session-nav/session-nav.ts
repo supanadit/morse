@@ -523,7 +523,7 @@ export class SessionNav {
     const unbind = [
       this.shortcuts.bind('session.new', () => this.startSession()),
       this.shortcuts.bind('session.search', () => this.focusSearch()),
-      this.shortcuts.bind('project.filter', () => this.shell.openProjectFilter(), () => this.filterable()),
+      this.shortcuts.bind('project.filter', () => this.openFilterFromKeyboard(), () => this.filterable()),
     ];
     this.destroyRef.onDestroy(() => {
       for (const off of unbind) {
@@ -684,21 +684,29 @@ export class SessionNav {
   }
 
   /**
-   * `/` from outside a text field. The field can be off screen in two ways — the
-   * wide-layout column folded away, or the narrow drawer closed — and a field
-   * nobody can see cannot take focus. CSS owns that breakpoint, so this asks the
-   * fold flag and the DOM instead of repeating 760px here.
+   * Brings the sidebar on screen whichever way it is hidden. The wide-layout
+   * column folds with `visibility: hidden`, the narrow drawer slides off canvas
+   * with a transform — and neither makes `offsetParent` null, so this measures
+   * the search field's box instead of trusting the DOM flag. CSS owns the
+   * breakpoint, so no width is repeated here either.
    */
-  private focusSearch(): void {
-    const field = this.searchInput()?.nativeElement;
-    if (field === undefined) {
-      return;
-    }
+  private revealNavigation(): void {
     this.shell.unfoldNavigation();
-    if (field.offsetParent === null) {
+    const rect = this.searchInput()?.nativeElement.getBoundingClientRect();
+    // A box with no width, or one parked at/beyond the left edge, is the closed
+    // drawer (or a field that never rendered).
+    if (rect === undefined || rect.width === 0 || rect.right <= 0) {
       this.shell.openNavigation();
     }
-    // Both of those are class changes, so the field only takes focus once the
+  }
+
+  /**
+   * `/` from outside a text field. A field nobody can see cannot take focus, so
+   * the sidebar is revealed first, then the caret lands.
+   */
+  private focusSearch(): void {
+    this.revealNavigation();
+    // Both reveals are class changes, so the field only takes focus once the
     // layout has settled — and `select()` makes the next word replace the old
     // query instead of extending it.
     setTimeout(() => {
@@ -706,6 +714,15 @@ export class SessionNav {
       open?.focus();
       open?.select();
     }, 0);
+  }
+
+  /**
+   * The project filter panel lives inside this sidebar, so the shortcut has to
+   * reveal the sidebar before the panel is worth opening — same reason `/` does.
+   */
+  private openFilterFromKeyboard(): void {
+    this.revealNavigation();
+    this.shell.openProjectFilter();
   }
 
   protected refresh(): void {

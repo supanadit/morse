@@ -151,9 +151,13 @@ function press(key: string, { ctrl = false, alt = false } = {}): void {
   );
 }
 
-/** jsdom has no layout, so every element reports itself as hidden; say otherwise. */
+/** jsdom has no layout, so every box is 0×0 — which reads as off canvas; say otherwise. */
 function show(element: HTMLElement): void {
-  Object.defineProperty(element, 'offsetParent', { value: document.body, configurable: true });
+  const rect = { x: 0, y: 0, top: 0, left: 0, right: 120, bottom: 20, width: 120, height: 20 };
+  Object.defineProperty(element, 'getBoundingClientRect', {
+    value: () => ({ ...rect, toJSON: () => rect }),
+    configurable: true,
+  });
 }
 
 function footButton(host: HTMLElement, label: string): HTMLElement {
@@ -343,8 +347,12 @@ describe('SessionNav', () => {
     const { fixture } = await render('global');
     const shell = TestBed.inject(ShellState);
 
+    // The panel lives in the sidebar, which a narrow host keeps as a closed
+    // drawer: the shortcut has to open it or the panel would be off canvas.
+    expect(shell.navigationOpen()).toBe(false);
     press('p', { ctrl: true, alt: true });
     fixture.detectChanges();
+    expect(shell.navigationOpen()).toBe(true);
     expect(shell.projectFilterOpen()).toBe(true);
     expect(shell.modalOpen()).toBe(true);
 
@@ -385,7 +393,7 @@ describe('SessionNav', () => {
     shell.toggleNavigationCollapsed();
     const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
     // The folded column hides the field with `visibility`, so it still has layout
-    // and `offsetParent` is not null — the fold flag is the only thing saying so.
+    // and a real box — only the fold flag says it is hidden.
     show(search);
 
     press('/');
