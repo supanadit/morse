@@ -275,6 +275,44 @@ interface SessionMenu {
         font-size: 12px;
         color: var(--morse-fg-muted);
       }
+      /*
+       * Credits sit at the bottom of the sidebar: the one surface both hosts
+       * always render, and quiet enough to read as a colophon rather than a
+       * button begging to be pressed.
+       */
+      .foot {
+        flex: none;
+        padding: 4px 6px 6px;
+        border-top: 1px solid var(--morse-border);
+      }
+      .foot button {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 5px 8px;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .foot button:hover {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+      }
+      .foot .stamp {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: right;
+        font-family: var(--morse-font-mono);
+        font-size: 10px;
+      }
     `,
   ],
 })
@@ -289,6 +327,8 @@ export class SessionNav {
     () => this.morse.capabilities()?.nativeDialogs === true,
   );
   protected readonly activeSessionId = computed(() => this.morse.state().sessionId);
+  /** The bundle's own version, as the host read it from the frontend manifest. */
+  protected readonly version = computed(() => this.morse.frontend()?.version ?? '');
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
   /** The browser host opens a folder modal for "New session" (see ProjectPicker). */
@@ -429,6 +469,11 @@ export class SessionNav {
     if (this.menu() !== undefined) {
       this.closeMenu();
     }
+  }
+
+  /** Opens the About/credits overlay; it lives at the app level, not in here. */
+  protected openAbout(): void {
+    this.shell.openAbout();
   }
 
   protected newSession(event: Event, path?: string): void {

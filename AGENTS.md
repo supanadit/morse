@@ -99,6 +99,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | VS Code wiring, commands, settings | `packages/extension/src/app/main.ts`, `packages/extension/src/internal/vscode/` |
 | NestJS wiring and env | `packages/server/src/app.module.ts`, `packages/server/src/app/config.ts` |
 | protocol version | `packages/protocol/src/version.ts` |
+| who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |
 | installing (VSIX + CLI) | `docs/INSTALL.md` |
 | releasing (VSIX + npm) | `docs/RELEASING.md`, `.github/workflows/release.yml` |

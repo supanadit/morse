@@ -13,6 +13,7 @@ import { ShellState } from './core/shell-state';
 import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
+import { AboutDialog } from './about/about-dialog';
 
 /**
  * `?boot=1` keeps the cold-start screen up long enough to watch it, so the
@@ -30,6 +31,7 @@ function previewBoot(): boolean {
   imports: [
     SessionNav,
     ProjectPicker,
+    AboutDialog,
     ChatHeader,
     ChatTranscript,
     InteractionPanel,
@@ -75,6 +77,7 @@ export class App {
 
   protected readonly navigationOpen = this.shell.navigationOpen;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
+  protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly connection = this.morse.connection;
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;

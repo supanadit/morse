@@ -35,6 +35,13 @@ export class MorseService {
 
   readonly connection = computed(() => this.view().connection);
   readonly connectionDetail = computed(() => this.view().connectionDetail);
+  /** The wire version the host and this bundle agreed on. */
+  readonly protocolVersion = computed(() => this.view().protocolVersion);
+  /**
+   * Which frontend bundle this is, as the host read it from
+   * `webview.manifest.json` — the only place that knows the real version.
+   */
+  readonly frontend = computed(() => this.view().frontend);
   /** True only once a connect attempt has been pending long enough to matter. */
   readonly slowConnection = signal(false);
   readonly capabilities = computed(() => this.view().capabilities);

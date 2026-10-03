@@ -12,6 +12,7 @@ import {
 import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { AttachmentStore, type PendingImage } from '../../core/attachments';
 import { MorseService } from '../../core/morse.service';
+import { ShellState } from '../../core/shell-state';
 import { Uploader } from '../../core/uploads';
 import { WorkspaceFiles } from '../../core/workspace-files';
 import { PopoverFit } from '../../core/popover-fit.directive';
@@ -437,6 +438,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
 })
 export class ChatComposer {
   private readonly morse = inject(MorseService);
+  private readonly shell = inject(ShellState);
   private readonly attachments = inject(AttachmentStore);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly uploads = inject(Uploader);
@@ -1061,6 +1063,9 @@ export class ChatComposer {
       case 'model':
         this.openModelPicker();
         break;
+      case 'about':
+        this.shell.openAbout();
+        break;
     }
   }
 
@@ -1182,6 +1187,7 @@ const BUILTIN_COMMANDS = [
   { name: 'new', description: 'Start a new session' },
   { name: 'compact', description: 'Compact the current context' },
   { name: 'settings', description: 'Open Morse settings' },
+  { name: 'about', description: 'Credits and licences' },
 ] as const;
 
 /** A prompt that is exactly one built-in command, e.g. `/compact`. */

@@ -75,6 +75,16 @@
   }
 </div>
 
+<!-- Colophon: who made this, and who it stands on — one click from either host. -->
+<div class="foot">
+  <button type="button" (click)="openAbout()" title="About Morse and the technologies it uses">
+    About Morse
+    @if (version(); as stamp) {
+      <span class="stamp">v{{ stamp }}</span>
+    }
+  </button>
+</div>
+
 <!--
   A session's actions live behind a right-click menu. The old "✕" sat inside
   the row's own button, where the click read as "open this session" and was easy

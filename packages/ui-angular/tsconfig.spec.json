@@ -4,7 +4,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": [
-      "vitest/globals"
+      // `vitest/globals` for the suites, `node` for the specs that read the
+      // repo's manifests (`credits.spec.ts`); the app build keeps `types: []`.
+      "vitest/globals",
+      "node"
     ]
   },
   "include": [

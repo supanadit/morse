@@ -87,6 +87,7 @@ describe('builtinName', () => {
   it('recognises a bare built-in', () => {
     expect(builtinName('/compact')).toBe('compact');
     expect(builtinName('/model')).toBe('model');
+    expect(builtinName('/about')).toBe('about');
   });
 
   it('leaves pi commands to pi', () => {

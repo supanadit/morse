@@ -18,12 +18,28 @@ export class ShellState {
   private readonly projectPicker = signal(false);
   readonly projectPickerOpen = this.projectPicker.asReadonly();
 
+  /**
+   * The About/credits dialog. Shell state for the same reason as the picker:
+   * several places open it (the sidebar footer, `/about`) and it overlays the
+   * whole app from one place (see `app.html`).
+   */
+  private readonly about = signal(false);
+  readonly aboutOpen = this.about.asReadonly();
+
   toggleNavigation(): void {
     this.navigationVisible.update((open) => !open);
   }
 
   closeNavigation(): void {
     this.navigationVisible.set(false);
+  }
+
+  openAbout(): void {
+    this.about.set(true);
+  }
+
+  closeAbout(): void {
+    this.about.set(false);
   }
 
   openProjectPicker(): void {

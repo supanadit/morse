@@ -25,6 +25,10 @@
     <morse-project-picker />
   }
 
+  @if (aboutOpen()) {
+    <morse-about-dialog />
+  }
+
   @if (navigationOpen()) {
     <button
       type="button"

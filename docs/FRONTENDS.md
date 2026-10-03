@@ -95,9 +95,17 @@ the host still applies `ProjectPolicy` — `canOpen: false` disables "New sessio
 `MORSE_PROJECTS` as the fix. The per-project "+" in the sidebar skips the modal and targets that project
 directly.
 6. **Theme** — inside VS Code use the `--vscode-*` variables, with fallbacks so the same bundle looks right in
-   a browser. See `packages/ui-angular/src/styles.css`.
+   a browser. See `packages/ui-angular/src/styles.css`. Fonts follow the same rule: VS Code supplies
+   `--vscode-font-family` / `--vscode-editor-font-family`, so the panel inherits the user's editor font; a
+   browser has neither and gets the self-hosted JetBrains Mono bundled in `public/fonts` (SIL OFL 1.1, which
+   ships with it), with an installed Nerd Font build and then the platform stack behind it.
 7. **CSP** — inside a webview there is no `eval`/`new Function` and scripts only run with the host-provided
    nonce. Keep the bundle relative (`<base href>` is rewritten) and avoid inline event handlers.
+8. **Attribution travels with the frontend.** The About dialog is frontend data, not a host message:
+   `packages/ui-angular/src/app/about/credits.ts` lists every technology the workspace depends on (its spec
+   fails when one is missing, stale, or changes its licence), and the bundled font licence ships beside the
+   bundle (`public/fonts/LICENSE.txt`). A replacement frontend reuses both instead of dropping them — no host
+   work, no protocol change.
 
 ## Adding `ui-react` (the same recipe for Svelte, Vue, Solid, ...)
 

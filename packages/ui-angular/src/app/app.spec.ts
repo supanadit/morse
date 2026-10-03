@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { App } from './app';
 import { AttachmentStore } from './core/attachments';
+import { ShellState } from './core/shell-state';
 import { MORSE_TRANSPORT } from './core/transport.token';
 
 describe('App', () => {
@@ -95,5 +96,16 @@ describe('App', () => {
     ) as HTMLElement | null;
     expect(selected?.textContent).toContain('Mock Model (pro)');
     expect(selected?.classList.contains('active')).toBe(true);
+  });
+
+  it('overlays the About dialog when the shell asks for it', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('morse-about-dialog')).toBeNull();
+
+    // The sidebar footer and `/about` both go through this one signal.
+    TestBed.inject(ShellState).openAbout();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('morse-about-dialog')).toBeTruthy();
   });
 });

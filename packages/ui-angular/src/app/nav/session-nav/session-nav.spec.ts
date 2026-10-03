@@ -205,4 +205,16 @@ describe('SessionNav', () => {
     expect(TestBed.inject(ShellState).projectPickerOpen()).toBe(true);
     expect(transport.sent.some((message) => message.type === 'session/new')).toBe(false);
   });
+
+  it('opens the About dialog from the colophon at the foot of the sidebar', async () => {
+    const { host, fixture } = await render('workspace');
+    const shell = TestBed.inject(ShellState);
+    expect(shell.aboutOpen()).toBe(false);
+
+    ((host.querySelector('.foot button') as HTMLElement) ?? null)?.click();
+    fixture.detectChanges();
+
+    // One signal, one overlay: the dialog itself is mounted by `app.html`.
+    expect(shell.aboutOpen()).toBe(true);
+  });
 });
