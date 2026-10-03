@@ -751,6 +751,15 @@ export class ChatComposer {
 
   protected sendWith(mode: PromptMode): void {
     const value = this.text().trim();
+    // `/compact <instructions>` is the same destructive action as the bare built-in,
+    // only with the user's words attached — it must not slip past the confirmation by
+    // riding along as a prompt.
+    const instructions = compactInstructions(value);
+    if (instructions !== undefined) {
+      this.text.set('');
+      this.shell.requestCompact(instructions);
+      return;
+    }
     // A bare built-in (`/new`, `/compact`, `/settings`, `/model`) is an action,
     // not a prompt pi can run — the TUI keeps those commands out of the wire.
     const builtin = builtinName(value);
@@ -1055,7 +1064,10 @@ export class ChatComposer {
         this.morse.newSession(this.morse.workspace().cwd);
         break;
       case 'compact':
-        this.morse.compactSession();
+        // Asked for, not done: `/compact` opens the same confirmation as the
+        // header button, because a typo in the prompt should not summarize a
+        // conversation on its own.
+        this.shell.requestCompact();
         break;
       case 'settings':
         this.morse.hostCommand('openSettings');
@@ -1185,7 +1197,7 @@ export class ChatComposer {
 const BUILTIN_COMMANDS = [
   { name: 'model', description: 'Select a model' },
   { name: 'new', description: 'Start a new session' },
-  { name: 'compact', description: 'Compact the current context' },
+  { name: 'compact', description: 'Compact the current context (asks first)' },
   { name: 'settings', description: 'Open Morse settings' },
   { name: 'about', description: 'Credits and licences' },
 ] as const;
@@ -1197,6 +1209,16 @@ export function builtinName(value: string): string | undefined {
     return undefined;
   }
   return BUILTIN_COMMANDS.some((command) => command.name === match[1]) ? match[1] : undefined;
+}
+
+/**
+ * `/compact <instructions>`: the command plus what to keep. The instructions are
+ * forwarded to pi, so the user's words are not lost — only the *execution* waits
+ * for the confirmation dialog, which is the same gate the bare command uses.
+ */
+export function compactInstructions(value: string): string | undefined {
+  const match = /^\/compact\s+([\s\S]+)$/.exec(value);
+  return match?.[1]?.trim() || undefined;
 }
 
 function formatDuration(ms: number): string {

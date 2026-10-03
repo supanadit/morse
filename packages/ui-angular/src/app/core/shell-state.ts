@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
 
 /**
  * Where the wide-layout preference is remembered. A webview or a browser with
@@ -57,6 +57,16 @@ export class ShellState {
   private readonly about = signal(false);
   readonly aboutOpen = this.about.asReadonly();
 
+  /**
+   * The compaction gate. Compaction spends a model call and replaces what the agent
+   * remembers, so it always asks first: two places request it (the header button and
+   * `/compact`), and one stray click used to be enough to start it.
+   */
+  private readonly compactPrompt = signal<CompactPrompt | undefined>(undefined);
+  readonly compactConfirmOpen = computed(() => this.compactPrompt() !== undefined);
+  /** Whatever the user typed after `/compact`, handed to pi on confirmation. */
+  readonly compactInstructions = computed(() => this.compactPrompt()?.instructions);
+
   toggleNavigation(): void {
     this.navigationVisible.update((open) => !open);
   }
@@ -88,4 +98,19 @@ export class ShellState {
   closeProjectPicker(): void {
     this.projectPicker.set(false);
   }
+
+  /** Asks before compacting; the caller runs the action on confirmation. */
+  requestCompact(instructions?: string): void {
+    this.compactPrompt.set(instructions ? { instructions } : {});
+  }
+
+  closeCompactPrompt(): void {
+    this.compactPrompt.set(undefined);
+  }
+}
+
+/** The pending compaction: confirmed, then run with whatever it carried. */
+interface CompactPrompt {
+  /** `/compact keep the decisions` — the words after the command, if any. */
+  instructions?: string;
 }

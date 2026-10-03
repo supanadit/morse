@@ -14,6 +14,7 @@ import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
 import { AboutDialog } from './about/about-dialog';
+import { ConfirmDialog } from './shared/confirm-dialog';
 import { AgentScreen } from './agent/agent-screen';
 
 /**
@@ -34,6 +35,7 @@ function previewBoot(): boolean {
     ProjectPicker,
     AboutDialog,
     AgentScreen,
+    ConfirmDialog,
     ChatHeader,
     ChatTranscript,
     InteractionPanel,
@@ -81,6 +83,19 @@ export class App {
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly navigationCollapsed = this.shell.navigationCollapsed;
+  protected readonly compactConfirmOpen = this.shell.compactConfirmOpen;
+  /**
+   * The question, with the user's own instructions echoed back when they typed
+   * `/compact <instructions>` — the dialog is the last place to catch a mistake.
+   */
+  protected readonly compactBody = computed(() => {
+    const base =
+      'pi replaces the conversation it is holding with a summary, so the next turn starts from less context. The transcript in this window is untouched.';
+    const instructions = this.shell.compactInstructions();
+    return instructions
+      ? `${base} Your instructions: “${instructions}”.`
+      : base;
+  });
   protected readonly connection = this.morse.connection;
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
@@ -270,6 +285,20 @@ export class App {
       detail: this.morse.connectionDetail() ?? '',
     };
   });
+
+  /**
+   * The user said yes: the dialog steps aside, then the host asks pi to compact.
+   * Closing first keeps a slow request from leaving a stale question on screen.
+   */
+  protected confirmCompact(): void {
+    const instructions = this.shell.compactInstructions();
+    this.shell.closeCompactPrompt();
+    this.morse.compactSession(instructions);
+  }
+
+  protected cancelCompact(): void {
+    this.shell.closeCompactPrompt();
+  }
 
   protected closeNavigation(): void {
     this.shell.closeNavigation();

@@ -29,6 +29,17 @@
     <morse-about-dialog />
   }
 
+  @if (compactConfirmOpen()) {
+    <morse-confirm-dialog
+      title="Compact the conversation?"
+      [body]="compactBody()"
+      note="It costs a model call, and the summary is what pi remembers from then on — this cannot be undone."
+      confirmLabel="Compact context"
+      (confirmed)="confirmCompact()"
+      (cancelled)="cancelCompact()"
+    />
+  }
+
   @if (navigationOpen()) {
     <button
       type="button"

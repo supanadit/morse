@@ -1,5 +1,6 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ClientToHostMessage } from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { App } from './app';
 import { AttachmentStore } from './core/attachments';
@@ -148,5 +149,134 @@ describe('App', () => {
     fold.click();
     fixture.detectChanges();
     expect(shell.classList.contains('collapsed')).toBe(false);
+  });
+});
+
+/** The mock host, plus everything the frontend asked it to do. */
+class RecordingHost extends MemoryHostTransport {
+  readonly sent: ClientToHostMessage[] = [];
+
+  override send(message: ClientToHostMessage): void {
+    this.sent.push(message);
+    super.send(message);
+  }
+}
+
+async function renderApp(): Promise<{
+  host: HTMLElement;
+  fixture: ComponentFixture<App>;
+  sent: ClientToHostMessage[];
+}> {
+  TestBed.resetTestingModule();
+  localStorage.clear();
+  const transport = new RecordingHost();
+  await TestBed.configureTestingModule({
+    imports: [App],
+    providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(App);
+  fixture.detectChanges();
+  return { host: fixture.nativeElement as HTMLElement, fixture, sent: transport.sent };
+}
+
+const compactions = (sent: ClientToHostMessage[]): ClientToHostMessage[] =>
+  sent.filter((message) => message.type === 'session/compact');
+
+/**
+ * Compaction is the one action here that spends a model call and rewrites what the
+ * agent remembers, so both of its triggers have to stop at a question — a stray
+ * click on the header, or a `/compact` typed by accident, must not summarize a
+ * conversation on its own.
+ */
+describe('App · compaction asks first', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens the question from the header instead of compacting', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    const compact = host.querySelector(
+      'morse-chat-header button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement;
+    compact.click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-confirm-dialog')).not.toBeNull();
+    expect(compactions(sent)).toHaveLength(0);
+  });
+
+  it('asks for the same confirmation after `/compact` in the composer', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = '/compact';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-confirm-dialog')).not.toBeNull();
+    expect(compactions(sent)).toHaveLength(0);
+  });
+
+  it('compacts once, and only when the dialog is confirmed', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    (host.querySelector(
+      'morse-chat-header button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    (host.querySelector(
+      'morse-confirm-dialog .actions button:not(.secondary)',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(compactions(sent)).toHaveLength(1);
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+  });
+
+  it('gates `/compact <instructions>` too, and hands the words to pi', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = '/compact keep the decisions about the schema';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    // The command is destructive wherever it came from: nothing is sent yet, and the
+    // question repeats the instructions so a typo can still be caught.
+    expect(compactions(sent)).toHaveLength(0);
+    expect(host.querySelector('morse-confirm-dialog .body')?.textContent).toContain(
+      'keep the decisions about the schema',
+    );
+
+    (host.querySelector(
+      'morse-confirm-dialog .actions button:not(.secondary)',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const compacted = compactions(sent);
+    expect(compacted).toHaveLength(1);
+    expect(compacted[0]).toMatchObject({
+      payload: { instructions: 'keep the decisions about the schema' },
+    });
+  });
+
+  it('cancels quietly: Escape sends nothing and closes the question', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    (host.querySelector(
+      'morse-chat-header button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    expect(compactions(sent)).toHaveLength(0);
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cacheHitRate, formatTokens, formatUsage } from '../../core/usage-format';
-import { outputChars, builtinName } from './chat-composer';
+import { outputChars, builtinName, compactInstructions } from './chat-composer';
 
 describe('formatTokens', () => {
   it('compacts like pi: 1.2k, 56k, 2.8M', () => {
@@ -98,5 +98,24 @@ describe('builtinName', () => {
 
   it('is not a command when there are arguments', () => {
     expect(builtinName('/compact keep the decisions')).toBeUndefined();
+  });
+});
+
+/**
+ * `/compact …` with arguments is not a *built-in*, but it is the same compaction —
+ * so the composer gates it too, with the words attached.
+ */
+describe('compactInstructions', () => {
+  it('takes the words that followed the command', () => {
+    expect(compactInstructions('/compact keep the decisions')).toBe('keep the decisions');
+    expect(compactInstructions('/compact  keep   the schema ')).toBe('keep   the schema');
+    expect(compactInstructions('/compact\nkeep the decisions')).toBe('keep the decisions');
+  });
+
+  it('leaves the bare command and everything else alone', () => {
+    expect(compactInstructions('/compact')).toBeUndefined();
+    expect(compactInstructions('/compactable')).toBeUndefined();
+    expect(compactInstructions('/fix-tests compact it')).toBeUndefined();
+    expect(compactInstructions('please /compact this')).toBeUndefined();
   });
 });

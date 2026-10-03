@@ -239,6 +239,7 @@ export class ChatHeader {
   }
 
   protected compact(): void {
-    this.morse.compactSession();
+    // Never straight to the agent: the dialog owns the question (see ShellState).
+    this.shell.requestCompact();
   }
 }
