@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: write
-  # `vsce publish --oidc` exchanges a GitHub OIDC token; no PAT is stored.
-  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -23,6 +21,12 @@ jobs:
     # NPM_TOKEN (secret) and PUBLISH_MARKETPLACE (variable). It is also where an
     # approval gate would go, and where a Marketplace publishing policy is scoped.
     environment: Morse
+    env:
+      # Marketplace PAT (Settings → Environments → Morse → Secrets). Empty while
+      # Marketplace publishing is off, in which case the step below is skipped.
+      # `vsce publish --oidc` is not usable yet: vsce 4.0.0 calls the token
+      # exchange without an api-version and the Marketplace answers 400.
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -95,8 +99,6 @@ jobs:
             --title "Morse ${{ steps.version.outputs.tag }}" \
             --generate-notes
 
-      # Last, because Marketplace trusted publishing is still rolling out: a
-      # failure here never hides the npm release or the VSIX asset.
       - name: Publish the VSIX to the VS Code Marketplace
-        if: vars.PUBLISH_MARKETPLACE == 'true'
-        run: ./node_modules/.bin/vsce publish --packagePath dist/morse.vsix --oidc
+        if: vars.PUBLISH_MARKETPLACE == 'true' && env.VSCE_PAT != ''
+        run: ./node_modules/.bin/vsce publish --packagePath dist/morse.vsix -p "$VSCE_PAT"

@@ -45,49 +45,53 @@ Pushing the tag starts [`.github/workflows/release.yml`](../.github/workflows/re
 5. `npm run vsix -w morse` → `dist/morse.vsix` (verifies the webview bundle first).
 6. `npm publish -w @supanadit/morse-web` with `NPM_TOKEN`.
 7. `gh release create` with the VSIX attached and generated release notes.
-8. `vsce publish --packagePath dist/morse.vsix --oidc` — only when the `PUBLISH_MARKETPLACE` environment
-   variable is `true` (see below).
+8. `vsce publish --packagePath dist/morse.vsix -p "$VSCE_PAT"` — only when `PUBLISH_MARKETPLACE` is `true` and
+   the `VSCE_PAT` secret is present (see below).
 
 The GitHub Release is created **after** npm and **before** the Marketplace publish, so a Marketplace failure
-(trusted publishing not configured yet) never hides the npm release or the VSIX asset.
+never hides the npm release or the VSIX asset.
 
 ## Secrets and variables
 
 | Name | Kind | Where it comes from | Used for |
 |---|---|---|---|
 | `NPM_TOKEN` | secret | npm → Access Tokens → *Generate New Token* → **Automation** (or Granular with publish rights for `@supanadit/morse-web`) | `npm publish` |
+| `VSCE_PAT` | secret (optional) | Azure DevOps → PAT scoped to **Marketplace → Manage** | `vsce publish -p` |
 | `GITHUB_TOKEN` | automatic | Provided by GitHub Actions | Creating the GitHub Release |
-| `PUBLISH_MARKETPLACE` | variable (optional) | You set it to `true` once trusted publishing is configured | Enabling the Marketplace step |
+| `PUBLISH_MARKETPLACE` | variable (optional) | Set to `true` to enable the Marketplace step | Enabling the Marketplace step |
 
-So the only secret you store by hand is **`NPM_TOKEN`**. The Marketplace step uses OIDC — no PAT, no secret.
+`NPM_TOKEN` is always needed. `VSCE_PAT` is only needed when `PUBLISH_MARKETPLACE` is `true`.
 
 The release job targets the **`Morse` environment**, so both live there: **Settings → Environments → Morse**.
 Add `NPM_TOKEN` under **Environment secrets** and `PUBLISH_MARKETPLACE` under **Environment variables**. An approval
 rule on that environment (Required reviewers) then gates every publish. Repository-scope secrets/variables work too,
 but the environment is what the workflow reads from first.
 
-## Publishing to the VS Code Marketplace (OIDC)
+## Publishing to the VS Code Marketplace
 
-Personal Access Tokens for Marketplace publishing are being retired: **global PATs in Azure DevOps stop working
-on December 1, 2026**. The workflow therefore publishes with trusted publishing instead:
+The workflow publishes with a Personal Access Token (`VSCE_PAT`). `vsce publish --oidc` is **not usable yet**:
+vsce 4.0.0 calls the Marketplace token exchange without an `api-version` and the endpoint answers
+`400 Bad Request`.
 
-1. Configure a **trusted publishing policy for this repository and workflow** on the VS Code Marketplace
-   publisher. The `vsce` documentation and the tracking issue describe the exact policy:
-   - <https://github.com/microsoft/vscode-vsce#trusted-publishing>
-   - <https://github.com/microsoft/vsmarketplace/issues/1422>
-   - <https://code.visualstudio.com/api/working-with-extensions/publishing-extension>
-2. Set the `PUBLISH_MARKETPLACE` environment variable (Settings → Environments → Morse → Environment variables)
-   to `true`.
+1. Create a PAT in Azure DevOps:
+   - **Organization**: pick a single organization. Do **not** use *All accessible organizations* — those
+     "global" PATs are retired on December 1, 2026.
+   - **Scopes**: *Custom defined* → **Show all scopes** → **Marketplace** → **Manage**. Nothing else is needed.
+   - Copy it immediately (it is shown once).
+2. Add it to the `Morse` environment as a secret named `VSCE_PAT`
+   (Settings → Environments → Morse → Environment secrets).
+3. Set the `PUBLISH_MARKETPLACE` environment variable to `true`.
 
-The workflow already grants the OIDC token permission (`permissions: id-token: write`) and runs
-`vsce publish --oidc`. OIDC has **no fallback**: if the policy is missing or the exchange fails, the step fails
-loudly instead of silently skipping. While the variable is unset, the step is skipped and the VSIX still ships
-as a GitHub Release asset, so a release never blocks on Marketplace setup.
+The step is skipped unless `PUBLISH_MARKETPLACE` is `true` **and** `VSCE_PAT` is non-empty, so a release never
+blocks on Marketplace setup.
 
-If your publisher cannot use trusted publishing yet, the documented Entra ID route uses a user-assigned managed
-identity plus a federated credential and `vsce publish --azure-credential`; issue #1422 walks through it. A PAT
-(`VSCE_PAT` + `vsce publish -p`) also still works until December 1, 2026 as a stopgap, but it is not wired into
-the workflow.
+Notes:
+
+- PATs expire (up to a year) — rotate before it lapses and update the secret, or the step fails with 401/403.
+- `vsce publish --oidc` (trusted publishing) and the Entra ID route (`vsce publish --azure-credential` plus a
+  user-assigned managed identity with a federated credential; see `microsoft/vsmarketplace#1422`) remove the
+  long-lived secret. Switch when OIDC is fixed or the Entra ID identity is set up.
+- You can also skip CI entirely and upload the `.vsix` by hand: **New extension → Upload** on the publisher page.
 
 ## Verifying a release without publishing
 
@@ -103,6 +107,6 @@ under `xvfb-run`. To rehearse the release locally, follow
 |---|---|
 | "a manifest disagrees with the tag" | The tag does not match the versions; run the `npm version` line above and re-tag |
 | `npm publish` 403 | `NPM_TOKEN` is missing, expired, or not allowed to publish `@supanadit/morse-web` |
-| Marketplace step skipped | `PUBLISH_MARKETPLACE` is not `true` |
-| `vsce publish` OIDC error | The trusted publishing policy is missing or does not match this repo/workflow; see issue #1422 |
+| Marketplace step skipped | `PUBLISH_MARKETPLACE` is not `true`, or the `VSCE_PAT` secret is empty |
+| `vsce publish` 401/403 | `VSCE_PAT` is missing, expired, or not scoped to **Marketplace → Manage** |
 | Tag pushed but no run | The tag must match `v*`; delete and re-push it (`git push origin :v0.2.0 && git push origin v0.2.0`) |
