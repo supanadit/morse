@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { MemoryHostTransport } from '@morse/ui-runtime';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MORSE_TRANSPORT } from './transport.token';
 import {
   UPDATE_LOADER,
@@ -19,21 +19,42 @@ function loader(document: unknown): VersionLoader & { mock: { calls: unknown[] }
   };
 }
 
-function service(): UpdateCheck {
+function service(load?: VersionLoader): UpdateCheck {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       // The mock host reports `updateCheck: false`, so the constructor's own check
       // never runs: what is under test here is `check()` and the comparison.
       { provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() },
+      // The default loader is a network call, and a test must not be able to reach it
+      // by accident: an explicit `undefined` argument to `check()` falls back to this,
+      // which is also what a host without a loader looks like in production.
+      { provide: UPDATE_LOADER, useValue: load },
     ],
   });
   return TestBed.inject(UpdateCheck);
 }
 
+/**
+ * Nothing in this file may touch the network. `check()` falls back to the injected
+ * loader when a test passes `undefined`, so the injected loader is what keeps that
+ * honest — and this spy is what proves it (it caught a real registry call once).
+ */
+let requests: ReturnType<typeof vi.spyOn> | undefined;
+
+beforeEach(() => {
+  requests = vi.spyOn(globalThis, 'fetch');
+});
+
 afterEach(() => {
   window.history.replaceState({}, '', '/');
   TestBed.resetTestingModule();
+  const calls = requests?.mock.calls.length ?? 0;
+  requests?.mockRestore();
+  requests = undefined;
+  if (calls > 0) {
+    throw new Error(`a test in update.spec.ts made ${calls} real network request(s)`);
+  }
 });
 
 describe('isNewerRelease', () => {

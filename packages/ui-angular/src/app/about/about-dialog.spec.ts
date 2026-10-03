@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { AboutDialog } from './about-dialog';
 import { CREDITS } from './credits';
 import { ShellState } from '../core/shell-state';
-import { UpdateCheck } from '../core/update';
+import { UPDATE_LOADER, UpdateCheck } from '../core/update';
 import { MORSE_TRANSPORT } from '../core/transport.token';
 
 async function render(): Promise<{ host: HTMLElement; fixture: ReturnType<typeof TestBed.createComponent<AboutDialog>> }> {
@@ -14,7 +14,11 @@ async function render(): Promise<{ host: HTMLElement; fixture: ReturnType<typeof
     imports: [AboutDialog],
     // The in-memory host answers the handshake, so the identity strip is filled
     // without VS Code or the NestJS server.
-    providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() }],
+    providers: [
+      { provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() },
+      // No spec may reach the registry: the default loader is a network call.
+      { provide: UPDATE_LOADER, useValue: undefined },
+    ],
   }).compileComponents();
   const fixture = TestBed.createComponent(AboutDialog);
   fixture.detectChanges();
