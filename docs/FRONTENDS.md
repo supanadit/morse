@@ -94,8 +94,8 @@ picks the branch from capabilities:
 ### Choosing a project (browser host only)
 
 VS Code opens a folder, so "New session" already knows the cwd. The browser host serves a machine with no
-workspace folder: `directoryPicker: true` makes the sidebar's and header's "New session" open
-`morse-project-picker`, an overlay that asks which project the session belongs to. It browses with the
+workspace folder: `directoryPicker: true` makes the sidebar's "New session" open `morse-project-picker`, an
+overlay that asks which project the session belongs to. It browses with the
 `listDirectories` host command (`{ path? }` → `{ path, parent, directories, isGitRepo, roots, canOpen }`) and
 creates the session as a normal draft in the chosen folder (`session/new` with `cwd`). Browsing is read-only;
 the host still applies `ProjectPolicy` — `canOpen: false` disables "New session here" and names

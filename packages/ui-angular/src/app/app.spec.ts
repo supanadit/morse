@@ -108,4 +108,23 @@ describe('App', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('morse-about-dialog')).toBeTruthy();
   });
+
+  it('keeps "New session" in the sidebar, not repeated in the chat header', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    // The header carried a second "+" next to the sidebar's button, and VS Code
+    // contributes its own `morse.newSession` to the view title bar — so the panel
+    // header must not offer a third one.
+    const header = fixture.nativeElement.querySelector('morse-chat-header') as HTMLElement;
+    const labels = [...header.querySelectorAll('button')].map((button) =>
+      button.getAttribute('aria-label'),
+    );
+    expect(labels).not.toContain('New session');
+
+    // The one entry point that both hosts share stays.
+    expect(
+      fixture.nativeElement.querySelector('morse-session-nav .head button.primary'),
+    ).toBeTruthy();
+  });
 });

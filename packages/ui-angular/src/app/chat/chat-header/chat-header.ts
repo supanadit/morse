@@ -217,15 +217,6 @@ export class ChatHeader {
     this.shell.toggleNavigation();
   }
 
-  protected newSession(): void {
-    // No workspace folder here (browser host): ask which project, do not guess.
-    if (this.directoryPicker()) {
-      this.shell.openProjectPicker();
-      return;
-    }
-    this.morse.newSession(this.workspace().cwd);
-  }
-
   protected compact(): void {
     this.morse.compactSession();
   }
