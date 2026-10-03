@@ -65,10 +65,13 @@ never hides the npm release or the VSIX asset.
 |---|---|---|---|
 | `NPM_TOKEN` | secret | npm → Access Tokens → *Generate New Token* → **Automation** (or Granular with publish rights for `@supanadit/morse-web`) | `npm publish` |
 | `VSCE_PAT` | secret (optional) | Azure DevOps → PAT scoped to **Marketplace → Manage** | `vsce publish -p` |
+| `OVSX_PAT` | secret (optional) | open-vsx.org → Settings → Access Tokens | `ovsx publish -p` |
 | `GITHUB_TOKEN` | automatic | Provided by GitHub Actions | Creating the GitHub Release |
 | `PUBLISH_MARKETPLACE` | variable (optional) | Set to `true` to enable the Marketplace step | Enabling the Marketplace step |
+| `PUBLISH_OPENVSX` | variable (optional) | Set to `true` to enable the Open VSX step | Enabling the Open VSX step |
 
-`NPM_TOKEN` is always needed. `VSCE_PAT` is only needed when `PUBLISH_MARKETPLACE` is `true`.
+`NPM_TOKEN` is always needed. `VSCE_PAT` is only needed when `PUBLISH_MARKETPLACE` is `true`, and `OVSX_PAT` only
+when `PUBLISH_OPENVSX` is `true`.
 
 The release job targets the **`Morse` environment**, so both live there: **Settings → Environments → Morse**.
 Add `NPM_TOKEN` under **Environment secrets** and `PUBLISH_MARKETPLACE` under **Environment variables**. An approval
@@ -101,6 +104,39 @@ Notes:
   long-lived secret. Switch when OIDC is fixed or the Entra ID identity is set up.
 - You can also skip CI entirely and upload the `.vsix` by hand: **New extension → Upload** on the publisher page.
 
+## Publishing to Open VSX
+
+Open VSX is the registry the editors that cannot use the Microsoft Marketplace install from: **VSCodium, Cursor,
+Windsurf, code-server, Theia**, and anything else built on the VS Code API. The artifact is identical — the same
+`dist/morse.vsix` — so there is nothing extra to build, only a namespace and a token to set up once:
+
+1. Sign in at [open-vsx.org](https://open-vsx.org) — a GitHub account works.
+2. **Log in with Eclipse** (Profile → *Log in with Eclipse*) and link or create an Eclipse Foundation account.
+   Open VSX wants both accounts, and this is the step that is easy to miss.
+3. **Sign the Publisher Agreement**: Profile → *Show Publisher Agreement* → read to the end → **Agree**. Publishing is
+   refused without it (it is required on top of the GitHub login).
+4. Claim the namespace **`supanadit`**, so it matches the `publisher` field in
+   `packages/extension/package.json`. A namespace that matches a GitHub account can be verified from that account,
+   which also earns the verified badge.
+5. Create an **Access Token** (Settings → Access Tokens) and add it to the `Morse` environment as the secret
+   `OVSX_PAT`, then set the environment variable `PUBLISH_OPENVSX` to `true`.
+
+Open VSX also supports **trusted publishing** (a short-lived OIDC token instead of a long-lived secret): register
+this repository, workflow and environment on the extension's manage page, add `id-token: write` to the job, and use
+`ovsx publish --trusted-publishing` instead of `-p "$OVSX_PAT"`. That removes the `OVSX_PAT` secret the way the
+Marketplace eventually will.
+
+The workflow then runs `ovsx verify-pat` before publishing — a missing namespace or a token that does not own it
+fails with a nameable error instead of a half-published release — and asks `open-vsx.org/api/...` afterwards, with
+a warning rather than a failure: Open VSX scans a new version before it serves it.
+
+By hand, from the repository root:
+
+```bash
+npx ovsx verify-pat supanadit -p <token>
+npx ovsx publish --packagePath dist/morse.vsix -p <token>
+```
+
 ## Verifying a release without publishing
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push and pull request: `check-types`,
@@ -117,4 +153,9 @@ under `xvfb-run`. To rehearse the release locally, follow
 | `npm publish` 403 | `NPM_TOKEN` is missing, expired, or not allowed to publish `@supanadit/morse-web` |
 | Marketplace step skipped | `PUBLISH_MARKETPLACE` is not `true`, or the `VSCE_PAT` secret is empty |
 | `vsce publish` 401/403 | `VSCE_PAT` is missing, expired, or not scoped to **Marketplace → Manage** |
+| Open VSX step skipped | `PUBLISH_OPENVSX` is not `true`, or the `OVSX_PAT` secret is empty |
+| `ovsx` namespace error | the namespace in `publisher` is not claimed by the token's account (see above) |
+| A brand-new extension on Open VSX shows *Under review* (an earlier label was *Deactivated*) and its API answers *Extension not found* | Open VSX runs pre-publish security checks, so a new version is quarantined until they pass — normally minutes, longer when the automated checks flag something. Nothing to fix, and the workflow's warning is the expected state; still hidden after a day → `openvsx@eclipse-foundation.org` |
+| `ovsx` refuses to publish at all | no Eclipse account or Publisher Agreement for the namespace's owner (both are required on top of GitHub) |
+| A registry shows the old version right after a release | it holds a new version while it validates it — the publish steps warn instead of failing |
 | Tag pushed but no run | The tag must match `v*`; delete and re-push it (`git push origin :v0.2.0 && git push origin v0.2.0`) |

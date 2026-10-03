@@ -93,6 +93,10 @@ to bind `0.0.0.0` (the UI has no auth — trusted networks only, or put an authe
 
 ### VS Code extension
 
+Install it from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=supanadit.morse) or
+from [Open VSX](https://open-vsx.org/extension/supanadit/morse) — the registry VSCodium, Cursor, Windsurf,
+code-server and Theia install from — or build the VSIX yourself:
+
 ```bash
 npm install
 npm run package
@@ -106,7 +110,7 @@ tarballs, `npm link`, settings and troubleshooting — is in [`docs/INSTALL.md`]
 
 | Document | Contents |
 |---|---|
-| [`docs/INSTALL.md`](docs/INSTALL.md) | Installing both hosts: VSIX, npm/tarball, `npm link`, troubleshooting |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Installing both hosts: marketplaces (VS Code + Open VSX), VSIX, npm/tarball, `npm link`, troubleshooting |
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | VS Code settings and the browser host's environment variables |
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build/dev commands, F5, `?mock=1`, and the pipeline checks |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | The two hosts, packages, ports and the layering rules |

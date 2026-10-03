@@ -117,18 +117,39 @@ All settings live under `morse.*` (see the extension manifest / README):
 | `morse.pi.requestTimeoutMs` | Per-request RPC timeout |
 | `morse.sessions.hotLimit` | How many `pi` processes stay warm (LRU, default 4) |
 
-### 1.6 Publish to the Marketplace (later)
-
-`vsce publish` needs a Personal Access Token from the publisher (`supanadit`) and `publisher` already set in
-`packages/extension/package.json`:
+### 1.6 Install from a marketplace
 
 ```bash
-npx @vscode/vsce publish --packagePath dist/morse.vsix -p <PAT>
+code --install-extension supanadit.morse        # VS Code (Microsoft Marketplace)
+codium --install-extension supanadit.morse      # VSCodium
+cursor --install-extension supanadit.morse      # Cursor
+```
+
+Or search for **Morse** in the Extensions view, which lists it for any editor built on the VS Code API:
+
+| Registry | Editors | Where |
+|---|---|---|
+| VS Code Marketplace | VS Code, and editors that opt into it | <https://marketplace.visualstudio.com/items?itemName=supanadit.morse> |
+| Open VSX | VSCodium, Cursor, Windsurf, code-server, Theia | <https://open-vsx.org/extension/supanadit/morse> |
+
+Both serve the same extension; only the registry differs. `--force` replaces a VSIX you installed by hand, and a
+manual install has to be removed first if the marketplace one should take over (`code --uninstall-extension
+supanadit.morse`).
+
+### 1.7 Publish to the marketplaces
+
+`vsce publish` needs a Personal Access Token from the publisher (`supanadit`) and `publisher` already set in
+`packages/extension/package.json`; Open VSX uses the same VSIX with an `ovsx` token:
+
+```bash
+npx @vscode/vsce publish --packagePath dist/morse.vsix -p <PAT>   # VS Code Marketplace
+npx ovsx publish --packagePath dist/morse.vsix -p <OVSX_PAT>       # Open VSX
 # or, inside packages/extension:
 npm run vsix && npx @vscode/vsce publish
 ```
 
-`vscode:prepublish` is wired to `npm run package`, so `vsce publish` rebuilds before shipping.
+`vscode:prepublish` is wired to `npm run package`, so `vsce publish` rebuilds before shipping. Releases normally go
+through the tag workflow instead — see [`RELEASING.md`](RELEASING.md).
 
 ---
 
