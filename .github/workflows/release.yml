@@ -1,0 +1,100 @@
+name: Release
+
+# One semver tag drives both artifacts: the VS Code extension (VSIX) and the
+# npm package (@supanadit/morse-web). Push `v<major>.<minor>.<patch>`.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  # `vsce publish --oidc` exchanges a GitHub OIDC token; no PAT is stored.
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    # Secrets and variables live on this environment (Settings → Environments):
+    # NPM_TOKEN (secret) and PUBLISH_MARKETPLACE (variable). It is also where an
+    # approval gate would go, and where a Marketplace publishing policy is scoped.
+    environment: Morse
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Resolve the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to publish when a manifest disagrees with the tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const want = process.env.VERSION;
+            const files = [
+              "package.json",
+              "packages/extension/package.json",
+              "packages/morse-web/package.json",
+            ];
+            for (const file of files) {
+              const got = JSON.parse(readFileSync(file, "utf8")).version;
+              if (got !== want) {
+                console.error(`${file} is ${got}, but the tag is ${want}.`);
+                console.error(`Run: npm version ${want} --workspaces --include-workspace-root --no-git-tag-version`);
+                process.exit(1);
+              }
+            }
+            console.log(`All manifests are ${want}.`);
+          '
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check-types
+
+      - name: Unit tests
+        run: npm run test:fast
+
+      - name: Build the extension, the server and the frontend
+        run: npm run build
+
+      - name: Build the npm artifact
+        run: npm run build -w @supanadit/morse-web
+
+      - name: Package the VSIX
+        run: npm run vsix -w morse
+
+      - name: Publish the npm package
+        run: npm publish -w @supanadit/morse-web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" dist/morse.vsix \
+            --title "Morse ${{ steps.version.outputs.tag }}" \
+            --generate-notes
+
+      # Last, because Marketplace trusted publishing is still rolling out: a
+      # failure here never hides the npm release or the VSIX asset.
+      - name: Publish the VSIX to the VS Code Marketplace
+        if: vars.PUBLISH_MARKETPLACE == 'true'
+        run: ./node_modules/.bin/vsce publish --packagePath dist/morse.vsix --oidc

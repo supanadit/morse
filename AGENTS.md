@@ -101,5 +101,6 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | protocol version | `packages/protocol/src/version.ts` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |
 | installing (VSIX + CLI) | `docs/INSTALL.md` |
+| releasing (VSIX + npm) | `docs/RELEASING.md`, `.github/workflows/release.yml` |
 | cold-start splash → empty-state handoff | `packages/ui-angular/src/app/boot/boot-splash.ts`, `packages/ui-angular/src/app/core/boot-handoff.ts` |
 | offline / no-host screen | `packages/ui-angular/src/app/connection/connection-screen.ts` |

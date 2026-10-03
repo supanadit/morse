@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Type-check, lint, test and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:fast
+
+      - name: Build
+        run: npm run build
+
+      - name: Dry-run the npm artifact
+        run: npm pack -w @supanadit/morse-web --dry-run
+
+  vscode:
+    name: VS Code integration test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (the test needs media/webview)
+        run: npm run build
+
+      - name: Run the extension test
+        run: xvfb-run -a npm test -w morse

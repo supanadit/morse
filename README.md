@@ -1,6 +1,7 @@
 # Morse
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/supanadit/morse/actions/workflows/ci.yml/badge.svg)](https://github.com/supanadit/morse/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](package.json)
 
 **A comfortable GUI for the [Pi](https://github.com/earendil-works/pi) coding agent** — a chat panel inside
@@ -83,6 +84,7 @@ tarballs, `npm link`, settings and troubleshooting — is in [`docs/INSTALL.md`]
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | The two hosts, packages, ports and the layering rules |
 | [`docs/FRONTENDS.md`](docs/FRONTENDS.md) | The frontend contract and how to add a React/Svelte/Vue one |
 | [`docs/PACKAGING.md`](docs/PACKAGING.md) | How the browser host becomes one npm package, and how to publish it |
+| [`docs/RELEASING.md`](docs/RELEASING.md) | Cutting a semver release: bump, tag, CI publish of the VSIX and npm package |
 | [`docs/STATUS.md`](docs/STATUS.md) | What is implemented, and what is not built yet |
 
 ## License
