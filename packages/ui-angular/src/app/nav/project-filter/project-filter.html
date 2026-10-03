@@ -1,0 +1,60 @@
+<div class="modal-layer" (click)="close.emit()">
+  <div
+    class="modal-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="project-filter-title"
+    (click)="$event.stopPropagation()"
+  >
+    <div class="modal-head">
+      <strong id="project-filter-title">Filter by project</strong>
+      <button type="button" class="close" aria-label="Close" (click)="close.emit()">×</button>
+    </div>
+
+    <div class="search">
+      <!-- An SVG rather than the font's ⌕: the glyph rendered a size too small and
+           depended on whatever font the host supplied. -->
+      <span class="search-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16">
+          <circle cx="7" cy="7" r="4.2" />
+          <path d="M10.2 10.2 14 14" />
+        </svg>
+      </span>
+      <input
+        #search
+        type="text"
+        placeholder="Search projects"
+        aria-label="Search projects"
+        [value]="query()"
+        (input)="onQuery($event)"
+        (keydown)="onKeydown($event)"
+      />
+    </div>
+
+    <div class="list" role="listbox" #list>
+      @for (row of rows(); track row.path || 'all') {
+        <button
+          type="button"
+          class="row"
+          role="option"
+          [class.all]="row.all"
+          [class.active]="row.path === rows()[active()].path"
+          [class.selected]="row.path === selected()"
+          [attr.aria-selected]="row.path === selected()"
+          [title]="row.path || 'Every project pi knows about'"
+          (mouseenter)="active.set($index)"
+          (click)="pick(row)"
+        >
+          <span class="name">{{ row.name }}</span>
+          @if (!row.all) {
+            <span class="path">{{ row.path }}</span>
+          }
+          <span class="count">{{ row.sessionCount }}</span>
+          @if (row.path === selected()) {
+            <span class="check" aria-hidden="true">✓</span>
+          }
+        </button>
+      }
+    </div>
+  </div>
+</div>

@@ -1,6 +1,13 @@
 <div class="panel" [morseEnter]="0" [morseEnterY]="6">
   <div class="search">
-    <span class="search-icon" aria-hidden="true">⌕</span>
+    <!-- An SVG rather than the font's glyph: the same field in the project filter,
+         and one size rule for both. -->
+    <span class="search-icon" aria-hidden="true">
+      <svg viewBox="0 0 16 16">
+        <circle cx="7" cy="7" r="4.2" />
+        <path d="M10.2 10.2 14 14" />
+      </svg>
+    </span>
     <input
       #search
       type="text"

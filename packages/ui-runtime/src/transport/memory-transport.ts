@@ -628,7 +628,7 @@ function mockConversation(): TranscriptItem[] {
   const plan = [
     'Plan:',
     '',
-    '1. **Navigation** — projects → sessions, collapsible, with a search box.',
+    '1. **Navigation** — projects → sessions, collapsible, with a session search and a project filter.',
     '2. **Header** — session title, scope, status badge, `Compact`, and the sidebar fold.',
     '3. **Composer** — model + thinking + send in one control row.',
     '',

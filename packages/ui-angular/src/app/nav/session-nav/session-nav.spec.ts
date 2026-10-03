@@ -217,4 +217,59 @@ describe('SessionNav', () => {
     // One signal, one overlay: the dialog itself is mounted by `app.html`.
     expect(shell.aboutOpen()).toBe(true);
   });
+
+  it('filters to one project from the chip, and back to all of them', async () => {
+    const { host, fixture } = await render('global');
+    expect(host.querySelectorAll('.group-title')).toHaveLength(2);
+    expect(host.querySelector('.scope')?.textContent).toContain('All projects');
+
+    (host.querySelector('.scope') as HTMLElement).click();
+    fixture.detectChanges();
+    const rows = [...host.querySelectorAll('morse-project-filter .row')] as HTMLElement[];
+    expect(rows.map((row) => row.querySelector('.name')?.textContent?.trim())).toEqual([
+      'All projects',
+      'morse',
+      'other',
+    ]);
+
+    rows[2].click();
+    fixture.detectChanges();
+
+    // One project, its sessions, and the chip saying which one.
+    expect(host.querySelector('.scope')?.textContent).toContain('other');
+    expect(host.querySelectorAll('.group-title')).toHaveLength(1);
+    expect(host.textContent).toContain('Other work');
+    expect(host.textContent).not.toContain('Morse work');
+    expect(host.querySelector('morse-project-filter')).toBeNull();
+
+    // …and the way back.
+    (host.querySelector('.scope') as HTMLElement).click();
+    fixture.detectChanges();
+    ([...host.querySelectorAll('morse-project-filter .row')][0] as HTMLElement).click();
+    fixture.detectChanges();
+    expect(host.querySelectorAll('.group-title')).toHaveLength(2);
+  });
+
+  it('keeps the session box about session titles, then offers the project it matched', async () => {
+    const { host, fixture } = await render('global');
+    const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
+
+    // A path is not a session title: no group is shown for it any more.
+    search.value = 'work/';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(host.querySelectorAll('.group-title')).toHaveLength(0);
+    expect(host.textContent).toContain('Looking for a project?');
+
+    // But each project it does match is one click from its full session list.
+    const jumps = [...host.querySelectorAll('.empty-action')] as HTMLElement[];
+    expect(jumps).toHaveLength(2);
+    jumps[1].click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.scope')?.textContent).toContain('other');
+    expect(host.textContent).toContain('Other work');
+    // The jumped-to project shows all of its sessions, so the query is dropped.
+    expect((host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement).value).toBe('');
+  });
 });

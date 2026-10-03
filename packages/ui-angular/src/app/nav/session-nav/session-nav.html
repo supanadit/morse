@@ -5,15 +5,47 @@
   <button type="button" class="secondary icon" title="Refresh" (click)="refresh()">⟳</button>
 </div>
 
-<div class="search">
+<div class="filters">
+  <!--
+    Two rows, each full width: the sidebar is ~270px, and a project button
+    squeezed next to a search field left neither enough room to be readable.
+
+    The button filters *projects*, the field below it searches *session titles*.
+    Typing `buku` in the field used to match the project and then show “No
+    sessions yet” underneath it, which read as an empty project.
+  -->
+  @if (filterable()) {
+    <button
+      type="button"
+      class="secondary scope"
+      [class.filtered]="selectedProject() !== undefined"
+      aria-haspopup="dialog"
+      [attr.aria-expanded]="filterOpen()"
+      [title]="selectedProject()?.path ?? 'Every project pi knows about'"
+      (click)="openFilter()"
+    >
+      <span class="scope-glyph" aria-hidden="true">▤</span>
+      <span class="scope-name">{{ selectedProject()?.name ?? 'All projects' }}</span>
+    </button>
+  }
   <input
     type="search"
     [value]="query()"
-    [placeholder]="scope() === 'global' ? 'Search projects and sessions…' : 'Search sessions…'"
+    placeholder="Search sessions…"
     aria-label="Search sessions"
     (input)="onQuery($event)"
   />
 </div>
+
+@if (filterOpen()) {
+  <morse-project-filter
+    [projects]="projectOptions()"
+    [selected]="projectFilter()"
+    [totalSessions]="totalSessions()"
+    (select)="onProjectSelect($event)"
+    (close)="closeFilter()"
+  />
+}
 
 <div class="list">
   @for (group of visibleGroups(); track group.path) {
@@ -29,7 +61,9 @@
           >
             <span class="name">{{ group.name }}</span>
             <span class="count">{{ group.sessions.length }}</span>
-            <span class="chevron" [class.open]="!isCollapsed(group.path)">›</span>
+            @if (projectFilter() !== group.path) {
+              <span class="chevron" [class.open]="!isCollapsed(group.path)">›</span>
+            }
           </button>
           <button
             type="button"
@@ -65,13 +99,35 @@
               </button>
             </li>
           } @empty {
-            <li class="empty">No sessions yet.</li>
+            <li class="empty">
+              @if (query().length > 0) {
+                No session matches “{{ query() }}”.
+              } @else {
+                No sessions yet.
+              }
+            </li>
           }
         </ul>
       }
     </section>
   } @empty {
-    <p class="empty">Nothing found.</p>
+    <p class="empty">
+      @if (query().length > 0) {
+        No session matches “{{ query() }}”.
+        @if (projectMatches().length > 0) {
+          Looking for a project?
+        }
+      } @else {
+        Nothing found.
+      }
+    </p>
+    <!-- The session box is the wrong place for a project name, so the answer is one
+         click away instead of a dead end. -->
+    @for (project of projectMatches(); track project.path) {
+      <button type="button" class="empty-action" (click)="filterToProject(project)">
+        Show all {{ project.sessionCount }} sessions in {{ project.name }}
+      </button>
+    }
   }
 </div>
 

@@ -9,6 +9,7 @@ import {
 import type { SessionSummary } from '@morse/protocol';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
+import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
 interface SessionGroup {
   path: string;
@@ -35,6 +36,7 @@ interface SessionMenu {
  */
 @Component({
   selector: 'morse-session-nav',
+  imports: [ProjectFilter],
   templateUrl: './session-nav.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -60,11 +62,63 @@ interface SessionMenu {
         flex: 1;
         padding: 5px 10px;
       }
-      .search {
+      .filters {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 10px 4px;
+      }
+      /*
+       * The project button. It replaces the old promise that one search box could
+       * find both projects and sessions: that box filtered sessions by title and
+       * kept a project whose *name* matched, so the group showed up empty.
+       *
+       * A normal secondary button, full width — same height as the field under it,
+       * same look as Refresh — with the label left-aligned like a chooser rather
+       * than centred like an action.
+       */
+      .scope {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 8px 10px 4px;
+        justify-content: flex-start;
+        width: 100%;
+      }
+      /* An active filter changes what the list means, so it is worth noticing. */
+      .scope.filtered {
+        border-color: var(--morse-accent);
+      }
+      .scope-glyph {
+        flex: none;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+      }
+      .scope-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+      }
+      input {
+        width: 100%;
+      }
+      .empty-action {
+        display: block;
+        width: calc(100% - 16px);
+        margin: 0 8px 6px;
+        padding: 4px 8px;
+        border: 1px solid var(--morse-border);
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-link);
+        font-size: 11.5px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .empty-action:hover {
+        background: var(--morse-hover);
       }
       input {
         width: 100%;
@@ -325,6 +379,9 @@ export class SessionNav {
   protected readonly query = signal('');
   protected readonly collapsed = signal<Record<string, boolean>>({});
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
+  /** Which project the list is narrowed to; `''` shows every one of them. */
+  protected readonly projectFilter = signal('');
+  protected readonly filterOpen = signal(false);
   private readonly nativeDialogs = computed(
     () => this.morse.capabilities()?.nativeDialogs === true,
   );
@@ -374,27 +431,72 @@ export class SessionNav {
 
   protected readonly visibleGroups = computed<SessionGroup[]>(() => {
     const query = this.query().trim().toLowerCase();
-    if (query.length === 0) {
-      return this.groups();
-    }
-    return this.groups()
+    const filter = this.projectFilter();
+    // The session box asks about session titles only. Project names used to match
+    // here too, which showed the project with an empty list under it — `buku` was
+    // there, so it looked empty. Finding a project is the chip's job.
+    const scoped = filter.length === 0
+      ? this.groups()
+      : this.groups().filter((group) => group.path === filter);
+    return scoped
       .map((group) => ({
         ...group,
-        sessions: group.sessions.filter((session) => session.title.toLowerCase().includes(query)),
+        sessions:
+          query.length === 0
+            ? group.sessions
+            : group.sessions.filter((session) => session.title.toLowerCase().includes(query)),
       }))
-      .filter(
-        (group) =>
-          group.name.toLowerCase().includes(query) ||
-          group.path.toLowerCase().includes(query) ||
-          group.sessions.length > 0,
-      );
+      // A project with no matching session is not a result of a session search…
+      .filter((group) => filter.length > 0 || query.length === 0 || group.sessions.length > 0);
+  });
+
+  /** The chip sits next to the search box; only a host with many projects needs it. */
+  protected readonly filterable = computed(() => this.scope() === 'global');
+
+  /** The projects as the chip's panel lists them, counted the way the list shows. */
+  protected readonly projectOptions = computed<ProjectOption[]>(() =>
+    this.groups().map((group) => ({
+      path: group.path,
+      name: group.name,
+      sessionCount: group.sessions.length,
+    })),
+  );
+
+  protected readonly selectedProject = computed(() =>
+    this.projectOptions().find((project) => project.path === this.projectFilter()),
+  );
+
+  protected readonly totalSessions = computed(() => this.morse.sessions().length);
+
+  /**
+   * Projects whose name or path the session query matches. The empty state offers
+   * them as a jump, because typing a project name here is a natural mistake and
+   * the answer is one click away.
+   */
+  protected readonly projectMatches = computed<ProjectOption[]>(() => {
+    const needle = this.query().trim().toLowerCase();
+    if (needle.length === 0 || this.projectFilter().length > 0) {
+      return [];
+    }
+    return this.projectOptions().filter((project) =>
+      `${project.name} ${project.path}`.toLowerCase().includes(needle),
+    );
   });
 
   protected isCollapsed(path: string): boolean {
+    // The project you asked for is never folded: filtering to it and then seeing a
+    // collapsed header is the same empty-list confusion this control removed.
+    if (this.projectFilter() === path) {
+      return false;
+    }
     return this.collapsed()[path] === true;
   }
 
   protected toggleGroup(path: string): void {
+    // The filtered list is one project, always open: nothing to fold.
+    if (this.projectFilter() === path) {
+      return;
+    }
     this.collapsed.update((state) => ({ ...state, [path]: state[path] !== true }));
   }
 
@@ -468,9 +570,37 @@ export class SessionNav {
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
+    // Innermost thing first: the panel, then the menu.
+    if (this.filterOpen()) {
+      this.closeFilter();
+      return;
+    }
     if (this.menu() !== undefined) {
       this.closeMenu();
     }
+  }
+
+  protected openFilter(): void {
+    this.filterOpen.set(true);
+  }
+
+  protected closeFilter(): void {
+    this.filterOpen.set(false);
+  }
+
+  protected onProjectSelect(path: string): void {
+    this.projectFilter.set(path);
+    this.closeFilter();
+  }
+
+  /** The empty state's way out: jump to the project whose name the reader typed. */
+  protected filterToProject(project: ProjectOption): void {
+    this.projectFilter.set(project.path);
+    // The reader asked for that project, not for those characters in a session
+    // title — keeping the query would land them in a filtered project with an
+    // empty list, which is the confusion this jump exists to fix.
+    this.query.set('');
+    this.closeFilter();
   }
 
   /** Opens the About/credits overlay; it lives at the app level, not in here. */

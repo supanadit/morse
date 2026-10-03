@@ -6,7 +6,7 @@ The responsive two-pane shell (drawer on narrow surfaces, foldable column on wid
 process timeline that
 interleaves tool calls and thinking, resumed history (paged for long sessions), steering / follow-up / abort,
 model and thinking-level pickers, context compaction (never without a confirmation), **multiple sessions across multiple projects** (project
-browser, activate/close, LRU-hot `pi` processes), native interaction handling in VS Code and inline handling in
+browser, activate/close, LRU-hot `pi` processes, a searchable project filter next to the session search), native interaction handling in VS Code and inline handling in
 the browser, editor selection as prompt context (live chips), drag/drop/paste attachments, the `@mention`
 picker for files **and** directories, protocol version handshake, and a **setup screen** when `pi` is missing
 (the host classifies the failure — `agentFailure` on the wire — so the panel names the install command and the

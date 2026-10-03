@@ -82,21 +82,33 @@ interface ModelRow {
         overflow: hidden;
       }
       .search {
+        position: relative;
         display: flex;
         align-items: center;
-        gap: 6px;
         padding: 8px 10px;
         border-bottom: 1px solid var(--morse-border);
       }
+      /* Inside the field, where a search icon belongs. */
       .search-icon {
+        position: absolute;
+        left: 19px;
+        display: inline-flex;
         color: var(--morse-fg-muted);
-        font-size: 13px;
+        pointer-events: none;
       }
+      .search-icon svg {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.4;
+        stroke-linecap: round;
+      }
+      /* Room for the icon, so the text never starts underneath it. */
       .search input {
         flex: 1;
         min-width: 0;
-        border: 0;
-        background: transparent;
+        padding-left: 28px;
         font-size: 12.5px;
       }
       .search input:focus-visible {
