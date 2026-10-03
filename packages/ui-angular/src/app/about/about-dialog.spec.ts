@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { AboutDialog } from './about-dialog';
 import { CREDITS } from './credits';
 import { ShellState } from '../core/shell-state';
+import { UpdateCheck } from '../core/update';
 import { MORSE_TRANSPORT } from '../core/transport.token';
 
-async function render(): Promise<HTMLElement> {
+async function render(): Promise<{ host: HTMLElement; fixture: ReturnType<typeof TestBed.createComponent<AboutDialog>> }> {
   TestBed.resetTestingModule();
   await TestBed.configureTestingModule({
     imports: [AboutDialog],
@@ -17,12 +18,12 @@ async function render(): Promise<HTMLElement> {
   }).compileComponents();
   const fixture = TestBed.createComponent(AboutDialog);
   fixture.detectChanges();
-  return fixture.nativeElement as HTMLElement;
+  return { host: fixture.nativeElement as HTMLElement, fixture };
 }
 
 describe('AboutDialog', () => {
   it('lists every credited group, one licence badge per row', async () => {
-    const host = await render();
+    const { host } = await render();
     const text = host.textContent ?? '';
     const rows = CREDITS.flatMap((group) => group.entries);
 
@@ -34,7 +35,7 @@ describe('AboutDialog', () => {
   });
 
   it('links every row out of the panel instead of navigating it away', async () => {
-    const host = await render();
+    const { host } = await render();
     const rows = CREDITS.flatMap((group) => group.entries);
     const links = [...host.querySelectorAll<HTMLAnchorElement>('a.name')];
 
@@ -45,7 +46,7 @@ describe('AboutDialog', () => {
   });
 
   it('says which build and which wire the reader is looking at', async () => {
-    const host = await render();
+    const { host } = await render();
 
     // The memory host echoes the identity the client announced (a real host reads
     // it from the served manifest), so a frontend always shows a version here.
@@ -55,7 +56,7 @@ describe('AboutDialog', () => {
   });
 
   it('closes on Escape and on the backdrop, leaving the card alone', async () => {
-    const host = await render();
+    const { host } = await render();
     const shell = TestBed.inject(ShellState);
 
     shell.openAbout();
@@ -69,5 +70,21 @@ describe('AboutDialog', () => {
 
     (host.querySelector('.modal-layer') as HTMLElement).click();
     expect(shell.aboutOpen()).toBe(false);
+  });
+
+  it('names a newer release in the identity strip, next to the version it beats', async () => {
+    const { host, fixture } = await render();
+    expect(host.querySelector('dl.identity')?.textContent).not.toContain('update');
+
+    // The dialog only renders what the check found; the check itself is covered in
+    // `core/update.spec.ts`.
+    await TestBed.inject(UpdateCheck).check('0.2.1', 'server', async () => ({ version: '0.3.0' }));
+    fixture.detectChanges();
+
+    const row = host.querySelector('dl.identity dd a') as HTMLAnchorElement;
+    expect(row.textContent).toContain('v0.3.0 available');
+    // A link to the notes, with the host's own update command in the tooltip.
+    expect(row.href).toBe('https://github.com/supanadit/morse/releases/tag/v0.3.0');
+    expect(row.title).toContain('npm install -g @supanadit/morse-web@0.3.0');
   });
 });

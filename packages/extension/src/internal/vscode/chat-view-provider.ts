@@ -57,6 +57,11 @@ const CAPABILITIES: HostCapabilities = {
   editMessage: true,
   // The same fork can branch a new session and hand the prompt back instead.
   forkMessage: true,
+  // The panel may ask the registry for the latest release, so a reader of a VSIX
+  // installed by hand still hears about a newer one. VS Code itself only does
+  // that for a Marketplace install. The webview's CSP names the registry origin
+  // for exactly this request (see `webview-html.ts`).
+  updateCheck: true,
 };
 
 /**

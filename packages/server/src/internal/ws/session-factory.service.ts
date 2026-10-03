@@ -64,6 +64,10 @@ export class MorseSessionFactory {
       editMessage: true,
       // The same fork can branch a new session and hand the prompt back instead.
       forkMessage: true,
+      // A page served by this host may ask the registry for the latest release, so
+      // the sidebar can say when a newer Morse is out. A host without it stays
+      // quiet; this one is on unless `MORSE_UPDATE_CHECK=0` says otherwise.
+      updateCheck: this.config.updateCheck,
     };
   }
 

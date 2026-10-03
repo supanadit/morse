@@ -162,6 +162,14 @@ export interface HostCapabilities {
    * without fork support leaves it off and the frontend hides the affordance.
    */
   forkMessage?: boolean;
+  /**
+   * Host allows the frontend to ask the registry whether a newer Morse has been
+   * published, so the sidebar can say so instead of letting a reader run a stale
+   * build forever. Optional and explicit because it is the only thing a frontend
+   * ever does over the internet: a locked-down deployment (or a webview whose CSP
+   * forbids it) leaves it off and the frontend stays quiet.
+   */
+  updateCheck?: boolean;
 }
 
 /**

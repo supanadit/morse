@@ -37,6 +37,9 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
 - **Keyboard first** — `Ctrl+Alt+…` (`⌘⌥…` on macOS) starts a session, narrows the sidebar to a project,
   changes the model or the thinking level, and opens the compaction question; `/` jumps to the session
   search and `?` prints the whole list — the same keys in both hosts.
+- **Never silently stale** — the panel reads the published version once per load, so the sidebar can say
+  "update available" with the version and the command that installs it. One request, public data, and a host
+  can turn it off with `MORSE_UPDATE_CHECK=0`.
 
 ## Requirements
 

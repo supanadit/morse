@@ -31,9 +31,15 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_REQUEST_TIMEOUT_MS` | `30000` | Per-request RPC timeout |
 | `MORSE_UI_DIR` | bundled frontend | Override the served frontend directory |
 | `MORSE_UPLOAD_DIR` | `.morse/uploads` | Where browser uploads land (relative to a session cwd, or absolute) |
+| `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published version from the npm registry (`0`/`false`/`off` disables it) |
 
 `MORSE_PROJECTS` is the security boundary: when set, the agent may only work inside those roots. When unset,
 any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for one you expose.
+
+`MORSE_UPDATE_CHECK` controls the only request Morse makes to the internet: reading
+`registry.npmjs.org/@supanadit/morse-web/latest` once per page load, so the sidebar can say when a newer release
+is out. It carries nothing about you or your sessions, and an air-gapped host can turn it off — the panel then
+simply never mentions updates.
 
 Files the browser uploads (drag-and-drop, paste, or the `+` button) land in `<session-cwd>/.morse/uploads/` and
 ride as `@mentions`; `MORSE_UPLOAD_DIR` moves that inbox. Consider adding it to the project's `.gitignore`.

@@ -69,7 +69,10 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    `directoryPicker` whether "New session" has to ask which folder the agent runs in (browser host) or
    already knows (VS Code), `editMessage` whether editing a past prompt (a fork) is possible,
    `forkMessage` whether a fork can branch a new session and hand the prompt back instead, and
-   `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering.
+   `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering, and `updateCheck`
+   whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
+   makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
+   shows an update notice).
    Same rule for a dead backend: render `state.agentFailure` (`code`, `install`, `hint`) instead of paraphrasing
    `agentError` — the adapter knows pi's package name, the host knows which setting it reads, and a frontend
    that guessed would offer the wrong remedy. A host that could not classify the failure sends no `code`,
@@ -142,6 +145,8 @@ npm run dev:ui                 # ng serve (or the framework's dev server)
 # http://localhost:4200/?mock=1     in-memory mock host: scripted streaming answer + tool card
 # http://localhost:4200/?mock=1&boot=1   hold the cold-start splash to review its animation
 # http://localhost:4200/?mock=1&boot=1&empty=1   blank transcript: the empty-state hero + handoff
+# http://localhost:4200/?mock=1&newer=0.3.0   the update notice, offline and without a release
+# http://localhost:4200/?mock=1&update=1     the notice the way it really runs: one request to the npm registry
 # http://localhost:4200/            /ws + /api are proxied to 127.0.0.1:4399 by default
 # http://localhost:4200/?server=ws://host:port   one-off override
 # MORSE_SERVER_URL=http://host:port npm run dev:ui   change the proxy target

@@ -27,7 +27,19 @@ const CAPABILITIES: HostCapabilities = {
   // Same for the "New session" folder browser: the mock answers a tiny tree so
   // the modal can be developed with no server.
   directoryPicker: true,
+  // Off by default: a dev page must not reach the internet unless it was asked
+  // for. `?mock=1&update=1` turns it on, and `?newer=<version>` (frontend side)
+  // fakes the published version, so the notice is reviewable before a release.
+  updateCheck: isUpdateCheckWanted(),
 };
+
+/** `?mock=1&update=1`: let the release check run against the real registry. */
+function isUpdateCheckWanted(): boolean {
+  if (typeof location === 'undefined') {
+    return false;
+  }
+  return new URL(location.href, 'http://localhost/').searchParams.get('update') === '1';
+}
 
 /**
  * Scripted host used when there is no backend at all (`ng serve --mock`, tests).

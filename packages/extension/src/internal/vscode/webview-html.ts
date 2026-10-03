@@ -32,7 +32,11 @@ export async function renderWebviewHtml(
     // Angular injects component styles at runtime, so inline styles are required.
     `style-src ${cspSource} 'unsafe-inline'`,
     `script-src 'nonce-${nonce}'`,
-    `connect-src ${cspSource}`,
+    // The only request the frontend makes off-machine: reading the published
+    // version so the sidebar can name a newer release (see
+    // `ui-angular/src/app/core/update.ts`). Read-only, public data, and the
+    // frontend asks only when the host advertises `updateCheck`.
+    `connect-src ${cspSource} https://registry.npmjs.org`,
   ].join('; ');
 
   const withBase = /<base\s+href=/i.test(raw)

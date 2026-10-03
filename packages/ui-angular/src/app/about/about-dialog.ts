@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
 import { MorseService } from '../core/morse.service';
 import { ShellState } from '../core/shell-state';
+import { UpdateCheck } from '../core/update';
 import { CREDITS } from './credits';
 
 /**
@@ -114,6 +115,12 @@ import { CREDITS } from './credits';
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      dl.identity dd a {
+        color: var(--morse-link);
+      }
+      dl.identity dd a:hover {
+        text-decoration: underline;
+      }
       .scroll {
         flex: 1;
         min-height: 0;
@@ -213,9 +220,12 @@ import { CREDITS } from './credits';
 export class AboutDialog {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly update = inject(UpdateCheck);
 
   protected readonly groups = CREDITS;
   protected readonly protocolVersion = this.morse.protocolVersion;
+  /** The newer release, when there is one: this is where a reader looks for versions. */
+  protected readonly updateNotice = this.update.available;
 
   /** `name version` as the host read it from the frontend manifest. */
   protected readonly frontend = computed(() => {

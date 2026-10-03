@@ -13,6 +13,7 @@ import type { SessionSummary } from '@morse/protocol';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
+import { UpdateCheck } from '../../core/update';
 import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
 interface SessionGroup {
@@ -345,7 +346,8 @@ interface SessionMenu {
         padding: 4px 6px 6px;
         border-top: 1px solid var(--morse-border);
       }
-      .foot button {
+      .foot button,
+      .foot .notice {
         display: flex;
         align-items: center;
         gap: 6px;
@@ -362,6 +364,22 @@ interface SessionMenu {
       .foot button:hover {
         background: var(--morse-hover);
         color: var(--morse-fg);
+      }
+      /*
+       * A newer release, next to the version it is newer than. A link rather than
+       * a command: nothing here updates itself, and the hint says what would.
+       */
+      .foot .notice {
+        color: var(--morse-accent);
+        text-decoration: none;
+      }
+      .foot .notice:hover {
+        background: var(--morse-hover);
+        color: var(--morse-accent);
+      }
+      .foot .notice .notice-glyph {
+        flex: none;
+        font-size: 11px;
       }
       .foot .stamp {
         flex: 1;
@@ -380,6 +398,7 @@ export class SessionNav {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
   private readonly shortcuts = inject(ShortcutService);
+  private readonly update = inject(UpdateCheck);
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
 
@@ -397,8 +416,10 @@ export class SessionNav {
     () => this.morse.capabilities()?.nativeDialogs === true,
   );
   protected readonly activeSessionId = computed(() => this.morse.state().sessionId);
-  /** The bundle's own version, as the host read it from the frontend manifest. */
-  protected readonly version = computed(() => this.morse.frontend()?.version ?? '');
+  /** The build this host is serving, printed beside the notice it explains. */
+  protected readonly version = this.morse.version;
+  /** A newer release, when the host allowed the check and the registry confirmed one. */
+  protected readonly updateNotice = this.update.available;
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
   /** The browser host opens a folder modal for "New session" (see ProjectPicker). */

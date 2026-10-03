@@ -134,6 +134,22 @@
 
 <!-- Colophon: who made this, and who it stands on — one click from either host. -->
 <div class="foot">
+  <!-- A newer release, in the one row both hosts always render. It says the
+       version, links to its notes, and the hint (in the tooltip) says how this
+       host gets it. -->
+  @if (updateNotice(); as notice) {
+    <a
+      class="notice"
+      [href]="notice.url"
+      target="_blank"
+      rel="noreferrer noopener"
+      [title]="notice.hint + ' You are on v' + notice.current + '.'"
+    >
+      <span class="notice-glyph" aria-hidden="true">↑</span>
+      <span>Update available</span>
+      <span class="stamp">v{{ notice.latest }}</span>
+    </a>
+  }
   <button type="button" (click)="openShortcuts()" title="Every key Morse understands">
     Keyboard shortcuts
     <span class="stamp">?</span>

@@ -98,6 +98,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | `/` or `?` fires while typing a prompt | characters belong to the field: only specs marked `whileTyping` may run with the caret in an input/textarea |
 | A character typed with AltGr triggers an action | Windows reports AltGr as Ctrl+Alt; `ShortcutService` skips `getModifierState('AltGraph')` |
 | An overlay opens behind a dialog | specs marked `overlay` stand down while `ShellState.modalOpen()`; mark the new one or it will stack |
+| The update notice never appears | the host must advertise `capabilities.updateCheck` (`MORSE_UPDATE_CHECK=0` disables it, and the VS Code webview CSP must list `https://registry.npmjs.org`); review it offline with `?mock=1&newer=0.3.0` |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
 
 ## Pointers
@@ -113,6 +114,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | NestJS wiring and env | `packages/server/src/app.module.ts`, `packages/server/src/app/config.ts` |
 | protocol version | `packages/protocol/src/version.ts` |
 | keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/core/shortcuts.ts` ← `shortcuts/shortcuts-dialog.ts` |
+| "a newer release is out" notice | `packages/ui-angular/src/app/core/update.ts` ← `capabilities.updateCheck`, `docs/CONFIGURATION.md` |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
 | pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |

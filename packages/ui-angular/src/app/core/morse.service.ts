@@ -50,6 +50,12 @@ export class MorseService {
    * `webview.manifest.json` — the only place that knows the real version.
    */
   readonly frontend = computed(() => this.view().frontend);
+  /**
+   * The build that is talking. The host's manifest is the authority, and a host
+   * with no manifest to read (a bare dev directory) still gets an answer from the
+   * constant compiled into this bundle — a version the UI can print either way.
+   */
+  readonly version = computed(() => this.frontend()?.version ?? FRONTEND_IDENTITY.version);
   /** True only once a connect attempt has been pending long enough to matter. */
   readonly slowConnection = signal(false);
   readonly capabilities = computed(() => this.view().capabilities);

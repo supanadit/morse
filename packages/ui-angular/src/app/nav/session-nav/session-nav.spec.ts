@@ -1,9 +1,11 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
+import { vi } from 'vitest';
 import { MORSE_TRANSPORT } from '../../core/transport.token';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
+import { UPDATE_LOADER, type VersionLoader } from '../../core/update';
 import { SessionNav } from './session-nav';
 
 /**
@@ -21,6 +23,7 @@ class ScopedHostTransport extends BaseHostTransport {
   constructor(
     private readonly scope: 'global' | 'workspace',
     private readonly directoryPicker = false,
+    private readonly updateCheck = false,
   ) {
     super();
   }
@@ -47,6 +50,7 @@ class ScopedHostTransport extends BaseHostTransport {
           insertIntoEditor: false,
           revealFile: false,
           directoryPicker: this.directoryPicker,
+          updateCheck: this.updateCheck,
         },
         state: {
           workspace: { cwd: '/work/morse', name: 'morse' },
@@ -112,15 +116,26 @@ class ScopedHostTransport extends BaseHostTransport {
   }
 }
 
+/** What a test needs beyond the scope: whether the host allows the release check. */
+interface RenderOptions {
+  updateCheck?: boolean;
+  loader?: VersionLoader;
+}
+
 async function render(
   scope: 'global' | 'workspace',
   directoryPicker = false,
+  options: RenderOptions = {},
 ): Promise<{ host: HTMLElement; transport: ScopedHostTransport; fixture: ComponentFixture<SessionNav> }> {
   TestBed.resetTestingModule();
-  const transport = new ScopedHostTransport(scope, directoryPicker);
+  const transport = new ScopedHostTransport(scope, directoryPicker, options.updateCheck === true);
   await TestBed.configureTestingModule({
     imports: [SessionNav],
-    providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    providers: [
+      { provide: MORSE_TRANSPORT, useFactory: () => transport },
+      // Never the real loader: a test must not be able to reach the registry.
+      { provide: UPDATE_LOADER, useValue: options.loader },
+    ],
   }).compileComponents();
 
   const fixture = TestBed.createComponent(SessionNav);
@@ -250,6 +265,57 @@ describe('SessionNav', () => {
 
     expect(shell.shortcutsOpen()).toBe(true);
     expect(shell.modalOpen()).toBe(true);
+  });
+
+  it('tells the reader a newer release is out, and stays quiet when the host refuses', async () => {
+    // A host that does not advertise `updateCheck` never causes a request at all,
+    // so a locked-down deployment sees the footer exactly as it was.
+    const quiet = vi.fn<VersionLoader>();
+    const refused = await render('global', false, { loader: quiet });
+    // Effects run with change detection, and a standalone fixture does not drive
+    // the application on its own — `tick()` is what flushes them here.
+    TestBed.tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    refused.fixture.detectChanges();
+
+    expect(refused.host.querySelector('.foot .notice')).toBeNull();
+    expect(quiet).not.toHaveBeenCalled();
+
+    const asked = vi.fn<VersionLoader>(async () => ({ version: '9.9.9' }));
+    const { host, fixture } = await render('global', false, { updateCheck: true, loader: asked });
+    TestBed.tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(asked).toHaveBeenCalledTimes(1);
+    const notice = host.querySelector('.foot .notice') as HTMLAnchorElement;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain('Update available');
+    expect(notice.textContent).toContain('v9.9.9');
+    // A link, not a command: the hint says what the reader has to run.
+    expect(notice.href).toBe('https://github.com/supanadit/morse/releases/tag/v9.9.9');
+    expect(notice.target).toBe('_blank');
+    expect(notice.title).toContain('npm install -g @supanadit/morse-web@9.9.9');
+    // The version it is newer than is still on the row below it.
+    expect(footButton(host, 'About').textContent).toContain('v0.2.1');
+  });
+
+  it('reviews the notice with ?newer, which asks no host and fetches nothing', async () => {
+    const request = vi.fn<VersionLoader>();
+    window.history.replaceState({}, '', '/?newer=9.9.9');
+    try {
+      const { host, fixture } = await render('global', false, { loader: request });
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+
+      // The badge has to be reviewable before a release exists, and this path
+      // needs no permission because it never reaches the registry.
+      expect(host.querySelector('.foot .notice')?.textContent).toContain('v9.9.9');
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
   });
 
   it('creates a session from the keyboard, the way the button does', async () => {

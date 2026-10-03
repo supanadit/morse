@@ -24,6 +24,12 @@ export interface MorseServerConfig {
   /** Where browser uploads land: relative to a session cwd, or absolute. */
   uploadDir: string;
   /**
+   * Whether the frontend may ask the registry for the latest release. On unless
+   * `MORSE_UPDATE_CHECK=0`; an air-gapped host turns it off rather than letting
+   * the panel try and fail.
+   */
+  updateCheck: boolean;
+  /**
    * The bundle this host serves, as its own manifest declares it. Relayed to
    * clients in `host/ready`, so a frontend can name itself (the About dialog) and
    * the host log says which build is talking. Undefined when the directory has no
@@ -66,6 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     hotSessions: parsePositiveInt(env.MORSE_HOT_SESSIONS, 4),
     projects: parseList(env.MORSE_PROJECTS),
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
+    updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
   };
 }
 
@@ -90,6 +97,12 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/** `MORSE_UPDATE_CHECK=0` (or `false`/`off`) turns the release check off. */
+function isOff(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '0' || normalized === 'false' || normalized === 'off';
 }
 
 /** `MORSE_PROJECTS=/a:/b` or `MORSE_PROJECTS=/a,/b` -> ['/a', '/b']. */
