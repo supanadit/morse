@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.8.0 — 4 October 2026
+
+A git panel and diffs arrive in the browser host, and thinking is readable while it happens.
+
+### New
+
+- **A git panel (browser host).** A right-hand panel — or the full width from its expand button — with the
+  uncommitted changes on top and the commit graph below. Scroll the graph to keep loading older commits, back to
+  the first one; drag the divider to resize the two sections, and fold either of them from its header.
+- **Diff in the file preview.** A changed file opens with a **File / Unified / Split** switch: the unified diff,
+  or an old-and-new side by side, syntax-highlighted like the file itself and totalled as *+N −M*. A changed file
+  is badged in the Explorer, and the folder that holds one gets a dot.
+- **The Explorer keeps up.** It re-reads the working tree on a timer, so a file added or deleted on disk appears
+  without a server restart.
+- **Thinking is readable while it streams.** A thinking note opens itself and follows its own text, then folds
+  back when the answer starts; its star breathes while the note is live.
+
+### Changed
+
+- **Quoted files belong to their session.** A file opened from the `@` picker keeps its own row and shows only
+  while that session is in front, read as small coloured chips rather than a second tab bar.
+
+### Fixed
+
+- No stray caret appears below a thinking note while the model reasons.
+
 ## 0.7.0 — 4 October 2026
 
 The browser host gets an Explorer, editor tabs and quotable line ranges — the surfaces VS Code already had.
