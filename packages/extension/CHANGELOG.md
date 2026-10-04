@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.2 — 4 October 2026
+
+The git panel bends to the window, and a crowded commit reads clearly.
+
+### New
+
+- **Resize the git panel.** Drag its left edge to widen it toward the conversation, so the graph gets the room
+  instead of only the full-screen toggle. The width is remembered, and a double-click on the edge goes back to
+  the default.
+
+### Fixed
+
+- **A commit several branches point at no longer crowds its row.** It shows one branch chip and a `+N` (three
+  in the expanded view); hovering the `+N` names the rest, and a long branch is ellipsised instead of pushing
+  the hash and the age out.
+
 ## 0.8.1 — 4 October 2026
 
 Motion, so a busy graph and a running session read at a glance.
