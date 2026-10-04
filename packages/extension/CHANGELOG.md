@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0 — 4 October 2026
+
+The browser host gets an Explorer, editor tabs and quotable line ranges — the surfaces VS Code already had.
+
+### New
+
+- **Explorer and tabs (browser host).** The sidebar grows a file Explorer, and the chat a tab strip where
+  sessions and files sit side by side. Drag the Explorer's top edge to resize it.
+- **File preview.** A file opens read-only, line-numbered and highlighted. Drag across the line numbers to pin
+  a range (`path:start-end`) to your next message; a range's top and bottom edges are handles you can pull,
+  and ranges that touch or overlap coalesce into one chip.
+- **A merge is visible.** When two highlights become one, the band throws colourful confetti from the seam and
+  a rainbow border spins once around it.
+- **Quoted files get their own tab row,** so opening a mentioned file never pushes a session tab aside.
+
+### Changed
+
+- Picking a file in the `@` picker opens it in the preview; clicking a pinned chip re-opens it there, where
+  its range can be dragged.
+
 ## 0.6.0 — 4 October 2026
 
 The sidebar shows what the agent is working on right now, and looks calmer doing it.
