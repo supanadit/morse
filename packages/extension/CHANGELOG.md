@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 — 4 October 2026
+
+The sidebar shows what the agent is working on right now, and looks calmer doing it.
+
+### New
+
+- **An "In progress" section.** Sessions the agent is working in right now are lifted to the top of
+  the sidebar — across every project — with a spinner and a line naming the step (*Reading
+  about-acme.md*, *Running npm test*). A project filter narrows the section too, and a running
+  session is not listed twice.
+- **A cleaner sidebar.** Session rows are two lines (title, and time or status), section headings are
+  quiet and uppercase, and the spacing is roomier.
+
+### Fixed
+
+- **A session no longer flickers into "In progress" when you open it.** Spawning the agent flipped
+  `agentStarting`/`busy` for a beat, which the sidebar read as work; only an actually running turn
+  counts now.
+
 ## 0.5.0 — 4 October 2026
 
 Tool calls get a calmer default view, with every detail still one click away.
