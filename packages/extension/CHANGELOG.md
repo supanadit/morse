@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1 — 4 October 2026
+
+A mention is a reference again, not an editor tab.
+
+### Fixed
+
+- **Choosing a file with `@` no longer forces its preview open.** Pressing Enter on a picker row now just inserts
+  the `@path` mention, so tagging a file for the agent never steals the view from the conversation. To mention a
+  file **and** quote a line range, press **Shift+Enter** or click the row's **`⧉`** — the file opens so a range can
+  be dragged into the prompt.
+
 ## 0.9.0 — 4 October 2026
 
 Follow-ups you can see, and changes you can quote straight from the diff.
