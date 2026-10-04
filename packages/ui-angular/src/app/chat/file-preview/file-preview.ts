@@ -14,8 +14,20 @@ import {
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { AnimationService } from '../../core/animation.service';
 import { AttachmentStore } from '../../core/attachments';
+import { DisplayPrefs, type DiffView } from '../../core/display-prefs';
+import { statusByPath } from '../../core/git-status';
 import { highlightCode } from '../../core/highlight';
+import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
+import {
+  addedFileDiff,
+  parseUnifiedDiff,
+  splitRows,
+  unifiedRows,
+  type DiffRow,
+  type SplitRow,
+  type UnifiedRow,
+} from './git-diff';
 
 /** One highlighted range in the preview: a pinned chip, or the drag in progress. */
 interface Highlight {
@@ -119,6 +131,106 @@ const DEFAULT_LINE_HEIGHT = 19.2;
       .icon:hover:not(:disabled) {
         background: var(--morse-hover);
         color: var(--morse-fg);
+      }
+      /* The File / Unified / Split switch, shown only for a changed file. */
+      .modes {
+        display: inline-flex;
+        flex: none;
+        border: 1px solid var(--morse-border);
+        border-radius: var(--morse-radius-sm);
+        overflow: hidden;
+      }
+      .modes button {
+        padding: 2px 8px;
+        border: 0;
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .modes button + button {
+        border-left: 1px solid var(--morse-border);
+      }
+      .modes button:hover:not(:disabled) {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+      }
+      .modes button.on {
+        background: color-mix(in srgb, var(--morse-accent) 24%, transparent);
+        color: var(--morse-fg);
+      }
+      /* The two diff layouts share the code surface and its metrics. */
+      .diff {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 6px 0;
+        background: var(--morse-code-bg, var(--morse-bg));
+        font-family: var(--morse-font-mono);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .drow,
+      .srow {
+        display: flex;
+        align-items: stretch;
+        min-height: 1.6em;
+      }
+      .dtext {
+        flex: 1;
+        min-width: 0;
+        padding: 0 16px 0 6px;
+        white-space: pre;
+      }
+      .dnum {
+        flex: none;
+        min-width: 44px;
+        padding: 0 8px 0 10px;
+        color: var(--morse-fg-muted);
+        text-align: right;
+        user-select: none;
+        font-variant-numeric: tabular-nums;
+        opacity: 0.7;
+      }
+      .dsign {
+        flex: none;
+        width: 14px;
+        text-align: center;
+        color: var(--morse-fg-muted);
+        user-select: none;
+      }
+      .drow.add,
+      .side.add {
+        background: color-mix(in srgb, var(--morse-success) 14%, transparent);
+      }
+      .drow.del,
+      .side.del {
+        background: color-mix(in srgb, var(--morse-error) 14%, transparent);
+      }
+      .drow.add .dsign,
+      .side.add .dsign {
+        color: var(--morse-success);
+      }
+      .drow.del .dsign,
+      .side.del .dsign {
+        color: var(--morse-error);
+      }
+      .drow.hunk {
+        margin: 6px 0 2px;
+        padding: 2px 12px;
+        background: var(--morse-code-head, var(--morse-hover));
+        color: var(--morse-fg-muted);
+      }
+      .srow .side {
+        flex: 1 1 50%;
+        min-width: 0;
+        display: flex;
+        align-items: stretch;
+        border-left: 1px solid var(--morse-border);
+      }
+      .srow .side:first-child {
+        border-left: 0;
       }
       .code {
         display: flex;
@@ -279,6 +391,8 @@ export class FilePreview {
   private readonly attachments = inject(AttachmentStore);
   private readonly animation = inject(AnimationService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly display = inject(DisplayPrefs);
+  private readonly workspace = inject(WorkspaceFiles);
   private readonly sourceElement = viewChild<ElementRef<HTMLElement>>('source');
   private readonly gutterElement = viewChild<ElementRef<HTMLElement>>('gutter');
 
@@ -304,6 +418,65 @@ export class FilePreview {
 
   protected readonly language = computed(() => this.tab().language ?? 'text');
   protected readonly size = computed(() => formatBytes(this.tab().size ?? 0));
+
+  /** The file's git status letter, when the working tree reports one. */
+  protected readonly changed = computed(() =>
+    statusByPath(this.workspace.status()).get(this.tab().path),
+  );
+  /** File / unified / split. A file with no change has no diff to offer. */
+  protected readonly mode = computed<DiffView>(() =>
+    this.changed() === undefined ? 'file' : this.display.diffView(),
+  );
+  /** The diff to parse: the host's, or the whole content of an untracked file. */
+  private readonly diffText = computed(() => {
+    const tab = this.tab();
+    if (tab.diff !== undefined && tab.diff.trim().length > 0) {
+      return tab.diff;
+    }
+    if (this.changed() === 'U' && tab.content !== undefined && !tab.binary) {
+      return addedFileDiff(tab.content);
+    }
+    return tab.diff ?? '';
+  });
+  protected readonly parsed = computed(() => parseUnifiedDiff(this.diffText()));
+  protected readonly unified = computed<UnifiedRow[]>(() => unifiedRows(this.parsed()));
+  protected readonly split = computed<SplitRow[]>(() => splitRows(this.parsed()));
+  /**
+   * The diff rows with their syntax colouring. Highlighted line by line: a diff
+   * is a slice of a file, so a multi-line construct can read imperfectly, but the
+   * alternative — no colour at all — loses far more.
+   */
+  protected readonly unifiedView = computed(() => {
+    const language = this.language();
+    return this.unified().map((row) => ({
+      ...row,
+      html:
+        row.kind === 'hunk'
+          ? ''
+          : this.sanitizer.bypassSecurityTrustHtml(highlightCode(row.text, language).html),
+    }));
+  });
+  protected readonly splitView = computed(() => {
+    const language = this.language();
+    const line = (row: DiffRow | undefined) =>
+      row === undefined
+        ? undefined
+        : {
+            ...row,
+            html: this.sanitizer.bypassSecurityTrustHtml(
+              highlightCode(row.text, language).html,
+            ),
+          };
+    return this.split().map((pair) => ({
+      hunk: pair.hunk,
+      left: line(pair.left),
+      right: line(pair.right),
+    }));
+  });
+  protected readonly diffStats = computed(() => {
+    const parsed = this.parsed();
+    return `+${parsed.additions} −${parsed.deletions}`;
+  });
 
   private readonly lineHeight = signal(DEFAULT_LINE_HEIGHT);
   private readonly selected = signal<{ start: number; end: number } | undefined>(undefined);
@@ -359,6 +532,35 @@ export class FilePreview {
       this.tab();
       untracked(() => this.selected.set(undefined));
     });
+    // A diff view pulls the file's diff the first time it is shown.
+    effect(() => {
+      if (this.mode() === 'file' || this.changed() === undefined) {
+        return;
+      }
+      const id = this.tab().id;
+      untracked(() => this.tabs.loadDiff(id));
+    });
+  }
+
+  /** Switches the preview between the file and the two diff layouts. */
+  protected setMode(view: DiffView): void {
+    this.display.setDiffView(view);
+  }
+
+  protected diffSign(row: UnifiedRow | DiffRow | undefined): string {
+    if (row === undefined) {
+      return '';
+    }
+    switch (row.kind) {
+      case 'add':
+        return '+';
+      case 'del':
+        return '−';
+      case 'context':
+        return ' ';
+      default:
+        return '';
+    }
   }
 
   protected isSelected(line: number): boolean {

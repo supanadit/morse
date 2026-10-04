@@ -45,6 +45,25 @@
       }
     </span>
 
+    @if (gitEnabled()) {
+      <button
+        type="button"
+        class="icon"
+        [title]="gitOpen() ? 'Hide the git panel' : 'Show the git panel'"
+        [attr.aria-label]="gitOpen() ? 'Hide the git panel' : 'Show the git panel'"
+        [attr.aria-pressed]="gitOpen()"
+        (click)="toggleGit()"
+      >
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="4.5" cy="3.5" r="1.6" />
+          <circle cx="4.5" cy="12.5" r="1.6" />
+          <circle cx="11.5" cy="6.5" r="1.6" />
+          <path d="M4.5 5.1v5.8" />
+          <path d="M4.5 5.1c0 2.4 7 1 7 3" />
+        </svg>
+      </button>
+    }
+
     <button
       type="button"
       class="icon"

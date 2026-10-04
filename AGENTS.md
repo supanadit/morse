@@ -104,7 +104,9 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
 | `morse start`/`status` claims a daemon is running that is gone | stale `~/.morse/server.json` after a force-kill and a recycled pid; the pid alone is not proof, so `/api/health` must echo the state's `instance` token (`packages/morse-web/src/cli.ts` → `isServerRunning`) |
 | No Explorer in VS Code | intended: the Explorer and tab strip exist only where `capabilities.filePreview` is set (the browser host); VS Code keeps its native explorer, editor and tabs |
+| No git panel in VS Code | intended: `capabilities.gitPanel` is the browser host's; VS Code has its own Source Control view |
 | A preview refuses a file, or opens nothing | `readFile` resolves the path against the viewing session's cwd and rejects an absolute or `..` path (`packages/server/src/internal/workspace/file-store.ts`); the Explorer only offers paths from `listFiles` |
+| A new file is missing from the Explorer | it polls `listFiles` (`fresh: true`) every 4 s plus `gitStatus`; a hidden tab pauses the poll. No host push — the tree changes on disk |
 | File/session tabs vanish on reload | intended: open tabs are frontend state (`core/workspace-tabs.ts`), not wire state; the active session's tab returns with `session/state`, and a file is re-read on demand |
 | A custom button paints the theme accent on hover | the global `button:hover:not(:disabled)` (specificity 0,2,1) beats a plain `.row:hover` (0,2,0); write the override as `.row:hover:not(:disabled)` (same for `.group-title`, `.context-menu-item`, …) |
 | The Explorer cannot be resized | it can: drag its top edge (`.resize`); the height persists in `morse.explorer.height` via `ShellState` |
@@ -124,6 +126,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/core/shortcuts.ts` ← `shortcuts/shortcuts-dialog.ts` |
 | "a newer release is out" notice | `packages/ui-angular/src/app/core/update.ts` ← `capabilities.updateCheck`, `docs/CONFIGURATION.md` |
 | measured performance baseline | `docs/DEVELOPMENT.md` ← session catalog cache, markdown render cadence |
+| git history + graph panel (browser host) | `packages/ui-angular/src/app/git/git-panel.ts` ← `core/git-graph.ts`, `packages/server/src/internal/workspace/git-log.ts` |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
 | pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |

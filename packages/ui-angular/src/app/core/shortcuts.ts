@@ -6,6 +6,7 @@ export type ActionId =
   | 'session.new'
   | 'session.search'
   | 'project.filter'
+  | 'view.git'
   | 'model.pick'
   | 'thinking.pick'
   | 'context.compact'
@@ -102,6 +103,15 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     detail: 'Narrows the sidebar to one project. Only a host with several projects has this.',
     binding: { key: 'p', mod: true, alt: true },
     overlay: true,
+  },
+  {
+    id: 'view.git',
+    group: 'Navigate',
+    label: 'Toggle the git panel',
+    detail: 'Shows or hides the history and graph for the active project. The browser host only — VS Code has its own Source Control view.',
+    binding: { key: 'g', mod: true, alt: true },
+    overlay: true,
+    whileTyping: true,
   },
   {
     id: 'model.pick',

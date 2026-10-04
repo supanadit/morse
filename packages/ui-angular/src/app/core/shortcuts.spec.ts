@@ -51,6 +51,7 @@ describe('shortcut catalog', () => {
       'session.new',
       'session.search',
       'thinking.pick',
+      'view.git',
     ]);
     // Local rows (Enter, `/` in the prompt) are reference only, so ids are unique
     // across the whole list and none of them can be bound by accident.

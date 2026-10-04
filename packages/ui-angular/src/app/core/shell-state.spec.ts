@@ -72,6 +72,29 @@ describe('ShellState', () => {
     expect(TestBed.inject(ShellState).explorerHeight()).toBe(280);
   });
 
+  it('clamps and remembers the git Changes height', () => {
+    const shell = TestBed.inject(ShellState);
+    shell.setGitChangesHeight(260);
+    expect(shell.gitChangesHeight()).toBe(260);
+    shell.setGitChangesHeight(10);
+    expect(shell.gitChangesHeight()).toBe(48);
+    shell.setGitChangesHeight(10_000);
+    expect(shell.gitChangesHeight()).toBe(1200);
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).gitChangesHeight()).toBe(1200);
+  });
+
+  it('folds the git sections independently', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.gitChangesCollapsed()).toBe(false);
+    shell.toggleGitChanges();
+    expect(shell.gitChangesCollapsed()).toBe(true);
+    expect(shell.gitHistoryCollapsed()).toBe(false);
+    shell.toggleGitHistory();
+    expect(shell.gitHistoryCollapsed()).toBe(true);
+  });
+
   it('knows when a dialog owns the screen', () => {
     const shell = TestBed.inject(ShellState);
     expect(shell.modalOpen()).toBe(false);

@@ -1,4 +1,4 @@
-<div class="shell" [class.collapsed]="navigationCollapsed()">
+<div class="shell" [class.collapsed]="navigationCollapsed()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()">
   @if (bootVisible()) {
     <morse-boot-splash
       [ready]="bootReady()"
@@ -141,4 +141,10 @@
       </div>
     }
   </main>
+
+  <!-- The browser host's git panel: a right column on the shell, or an overlay
+       on a narrow window. VS Code never mounts it (`capabilities.gitPanel`). -->
+  @if (gitOpen()) {
+    <morse-git-panel class="git-panel" [expanded]="gitExpanded()" />
+  }
 </div>

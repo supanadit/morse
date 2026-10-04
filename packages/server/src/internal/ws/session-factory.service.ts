@@ -18,6 +18,7 @@ import {
 import { saveUpload } from '../uploads/upload-store.js';
 import { browseDirectory } from '../workspace/directory-browser.js';
 import { readWorkspaceFile } from '../workspace/file-store.js';
+import { readGitDiff, readGitLog, readGitStatus } from '../workspace/git-log.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 
@@ -56,6 +57,9 @@ export class MorseSessionFactory {
       // A browser has no editor of its own, so this host reads files for the
       // frontend's Explorer and preview tabs. VS Code keeps its native ones.
       filePreview: true,
+      // The same reasoning for history: VS Code has Source Control, so the
+      // browser host is the one that answers `gitLog` for its own git panel.
+      gitPanel: true,
       // A browser cannot hand a dragged file's path to pi, so the host takes the
       // bytes and writes them next to the session; the frontend then `@mentions`
       // the path it gets back.
@@ -132,8 +136,9 @@ export class MorseSessionFactory {
         const cwd = this.requireWritableCwd(context);
         // There is no workspace folder here, so the list is the directory the
         // client is viewing (its session, or the draft it is about to open) —
-        // exactly what pi resolves a mention against.
-        const files = await workspaceFiles(cwd, this.logger);
+        // exactly what pi resolves a mention against. `fresh` skips the index
+        // cache: the Explorer polls, so a file added on disk has to appear.
+        const files = await workspaceFiles(cwd, this.logger, { fresh: args?.fresh === true });
         return { files };
       }
       case 'readFile': {
@@ -151,6 +156,31 @@ export class MorseSessionFactory {
         const saved = await saveUpload(cwd, args ?? {}, this.config.uploadDir);
         this.logger.info(`Upload stored: ${saved.path} (${saved.bytes} bytes)`);
         return saved;
+      }
+      case 'gitLog': {
+        // The git panel's history and graph. Like `readFile`, the repository is
+        // the viewing session's directory, never a path the client names. `skip`
+        // pages towards the root commit as the panel scrolls.
+        const cwd = this.requireWritableCwd(context);
+        const max = typeof args?.max === 'number' ? args.max : undefined;
+        const skip = typeof args?.skip === 'number' ? args.skip : undefined;
+        return readGitLog(cwd, max, skip);
+      }
+      case 'gitStatus': {
+        // The working tree's changes, for the Explorer's per-file badges. Polled
+        // alongside `listFiles`, so the two always describe the same moment.
+        const cwd = this.requireWritableCwd(context);
+        return readGitStatus(cwd);
+      }
+      case 'gitDiff': {
+        // One file's unified diff for the preview's diff modes. The path is
+        // resolved inside the session's directory, exactly like `readFile`.
+        const cwd = this.requireWritableCwd(context);
+        const path = typeof args?.path === 'string' ? args.path : '';
+        if (path.length === 0) {
+          throw new UnsupportedByHostError('gitDiff needs a "path" argument.');
+        }
+        return readGitDiff(cwd, path);
       }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);

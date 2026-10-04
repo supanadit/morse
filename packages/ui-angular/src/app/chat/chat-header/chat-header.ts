@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
 import { DisplayPrefs } from '../../core/display-prefs';
 import { ShellState } from '../../core/shell-state';
+import { ShortcutService } from '../../core/shortcuts';
 
 @Component({
   selector: 'morse-chat-header',
@@ -161,6 +162,8 @@ export class ChatHeader {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
   private readonly display = inject(DisplayPrefs);
+  private readonly shortcuts = inject(ShortcutService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly state = this.morse.state;
   protected readonly connection = this.morse.connection;
@@ -171,6 +174,21 @@ export class ChatHeader {
   protected readonly collapsed = this.shell.navigationCollapsed;
   /** The reader's chosen tool-call density, toggled from the toolbar. */
   protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
+  /** The git panel's button only exists where the host can answer `gitLog`. */
+  protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
+  protected readonly gitOpen = this.shell.gitPanelOpen;
+
+  constructor() {
+    // The header owns the git toggle's button, so it owns the key too: an
+    // unavailable row (a host without `gitPanel`) is shown as unavailable rather
+    // than promised.
+    const unbind = this.shortcuts.bind(
+      'view.git',
+      () => this.shell.toggleGitPanel(),
+      () => this.gitEnabled(),
+    );
+    this.destroyRef.onDestroy(unbind);
+  }
 
   /** The happy path lives in the dot: no banner needed while it is healthy. */
   protected readonly status = computed(() => {
@@ -250,5 +268,10 @@ export class ChatHeader {
   /** Flips between the detailed timeline and the compact summary, and remembers it. */
   protected toggleToolDisplay(): void {
     this.display.toggleToolDisplay();
+  }
+
+  /** Shows or hides the browser host's git panel. */
+  protected toggleGit(): void {
+    this.shell.toggleGitPanel();
   }
 }

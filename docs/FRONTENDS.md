@@ -71,7 +71,9 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    frontend's own Explorer and preview tabs (the browser host; VS Code keeps its native explorer and editor
    and leaves it off), `editMessage` whether editing a past prompt (a fork) is possible,
    `forkMessage` whether a fork can branch a new session and hand the prompt back instead, and
-   `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering, and `updateCheck`
+   `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering, `gitPanel`
+   whether the host can read the active project's git history (`gitLog`) for the frontend's own
+   git panel (the browser host; VS Code keeps its Source Control view and leaves it off), and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
    shows an update notice).
@@ -115,6 +117,10 @@ strip above the conversation, where sessions and files open side by side.
 
 - The Explorer is built from the same flat `listFiles` listing the `@mention` picker uses (git-aware, the
   active session's directory), turned into a tree in `core/file-tree.ts`. Clicking a file opens a tab.
+  `WorkspaceFiles` holds that listing for both surfaces and re-reads it on a timer (`fresh: true` bypasses
+  the host's index cache), so a file added or deleted on disk appears without a restart. The same poll asks
+  `gitStatus` (`{ isRepo, files: [{ path, status }] }`, porcelain codes), and a changed file shows the
+  one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the folder that holds it.
 - A file tab is filled by the `readFile` host command (`{ path }` → `{ path, content, size, truncated,
   binary }`). `path` is relative to the viewing session's cwd: `readWorkspaceFile` resolves it against that
   directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the
@@ -122,11 +128,42 @@ strip above the conversation, where sessions and files open side by side.
   as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
   prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat"; picking a
   file in the `@` picker opens it so that drag is one step away.
+- A file the working tree reports as changed (the same `gitStatus` map) also gets a **File / Unified /
+  Split** switch in the preview: `gitDiff` (`{ path }` → `{ path, diff }`) supplies the unified diff,
+  `core/git-diff.ts` parses it into hunks and pairs the two sides for split view, and an untracked file
+  has its content rendered as all-added. The chosen mode is remembered (`DisplayPrefs.diffView`).
 - A session tab is navigation, not a second transcript: selecting it sends `session/activate` and the host
   replays that session, exactly as the sidebar does. Nothing is cached frontend-side, so there is still one
   source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens
   the tab itself and promotes it to the real session on the first prompt; tabs can be closed to an empty
   strip, and a closed tab is never reopened by the host's state.
+
+### Git history and graph (browser host only)
+
+VS Code has a Source Control view, so its host leaves `gitPanel` off and none of this renders. The
+browser host has none, so `gitPanel: true` gives the frontend a right-hand panel with the active
+project's recent commits and their branch graph, toggled from the chat toolbar (`Ctrl+Alt+G`).
+
+- The panel follows the viewing session's directory, exactly like the Explorer: it calls the
+  `gitLog` host command (`{ max? }` → `{ isRepo, root?, branch?, commits }`) when it opens and
+  whenever the active project changes. A directory that is not a repository is a normal answer
+  (`isRepo: false`), not an error.
+- A commit carries `hash`, `shortHash`, `parents`, `refs` (already split decorations), `author`,
+  `date` and `subject`. `parents` is all the graph needs: `core/git-graph.ts` is a pure function
+  that assigns each commit a lane and the edges across its row, and the panel turns that into one
+  SVG per row. No graph algorithm lives in the host.
+- The panel is two sections: an **uncommitted changes** list on top (the same `gitStatus` poll the
+  Explorer uses, so it stays live; a click opens the file in a preview tab) and the **graph** below,
+  which pages towards the root commit as it scrolls. Each section folds from its own header, and a
+  drag handle between them sets the changes height (persisted in `ShellState`, like the Explorer's).
+- The history is read with `git log --all --date-order` and capped (250 by default, 500 hard), so a
+  long repository stays readable. VS Code never loads this — the capability, the shortcut row and
+  the panel are all gated on `capabilities.gitPanel`.
+- The panel has an expanded mode: its header button moves it out of the sidebar so it spans the
+  conversation area (the chat steps aside), which is where a many-lane graph gets the room it needs.
+  The layout is fluid either way — one line per commit, refs capped at two chips with a `+N`, and the
+  lane transitions drawn as smooth cubic curves rather than right-angled segments.
+
 6. **Theme** — inside VS Code use the `--vscode-*` variables, with fallbacks so the same bundle looks right in
    a browser. See `packages/ui-angular/src/styles.css`. Fonts follow the same rule: VS Code supplies
    `--vscode-font-family` / `--vscode-editor-font-family`, so the panel inherits the user's editor font; a

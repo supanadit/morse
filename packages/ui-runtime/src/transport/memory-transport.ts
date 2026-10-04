@@ -1,6 +1,7 @@
 import {
   PROTOCOL_VERSION,
   type ClientToHostMessage,
+  type GitCommit,
   type HostCapabilities,
   type HostToClientMessage,
   type ProjectSummary,
@@ -21,6 +22,9 @@ const CAPABILITIES: HostCapabilities = {
   insertIntoEditor: false,
   revealFile: false,
   filePicker: true,
+  // The mock can draw the browser-only git panel from a scripted history, so
+  // the panel and its graph are reviewable without a server or a real repo.
+  gitPanel: true,
   // The mock host fakes an upload inbox so the browser-only flow is exercisable
   // without running the NestJS server.
   fileUpload: true,
@@ -248,6 +252,31 @@ export class MemoryHostTransport extends BaseHostTransport {
               requestId: message.payload.requestId,
               ok: true,
               data: { path: `.morse/uploads/${name}`, name, bytes: 0 },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitLog' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: MOCK_GIT_LOG },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitStatus' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: MOCK_GIT_STATUS },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitDiff' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: { path: String(message.payload.args?.path ?? ''), diff: MOCK_GIT_DIFF },
             },
           });
           return;
@@ -489,6 +518,70 @@ export class MemoryHostTransport extends BaseHostTransport {
     this.emitMessage(message);
   }
 }
+
+/**
+ * A scripted git history with a branch and a merge, so the panel's list and the
+ * lane graph are both exercisable under `?mock=1`. Synthetic hashes; nothing is
+ * read from disk.
+ */
+const MOCK_GIT_LOG = {
+  isRepo: true,
+  root: '/mock/workspace',
+  branch: 'main',
+  commits: [
+    mockCommit('f1a2b3c4', 'Add the git panel to the browser host', ['e2f3a4b5'], ['HEAD -> main'], 2),
+    mockCommit('e2f3a4b5', 'Merge branch feature/graph', ['d3e4f5a6', 'c4d5e6f7'], ['origin/main'], 5),
+    mockCommit('d3e4f5a6', 'Wire the graph lanes', ['b5c6d7e8'], [], 8),
+    mockCommit('c4d5e6f7', 'Fix the lane colours in light mode', ['b5c6d7e8'], [], 11),
+    mockCommit('b5c6d7e8', 'Bump the protocol version', ['a6b7c8d9'], ['tag: v0.8.0'], 26),
+    mockCommit('a6b7c8d9', 'Initial commit', [], [], 52),
+  ],
+};
+
+function mockCommit(
+  hash: string,
+  subject: string,
+  parents: string[],
+  refs: string[],
+  ageHours: number,
+): GitCommit {
+  return {
+    hash,
+    shortHash: hash.slice(0, 7),
+    parents,
+    refs,
+    author: 'Morse Dev',
+    date: new Date(Date.now() - ageHours * 3_600_000).toISOString(),
+    subject,
+  };
+}
+
+/** A scripted working-tree status, so the Explorer's git badges are reviewable. */
+const MOCK_GIT_STATUS = {
+  isRepo: true,
+  files: [
+    { path: 'README.md', status: ' M' },
+    { path: 'package.json', status: ' M' },
+    { path: 'packages/protocol/src/wire.ts', status: 'A ' },
+    { path: 'packages/ui-angular/src/app/core/markdown.ts', status: '??' },
+  ],
+};
+
+/** A scripted unified diff, so the preview's diff modes are reviewable. */
+const MOCK_GIT_DIFF = [
+  'diff --git a/README.md b/README.md',
+  'index 1111111..2222222 100644',
+  '--- a/README.md',
+  '+++ b/README.md',
+  '@@ -1,4 +1,5 @@',
+  ' # Morse',
+  ' ',
+  '-An old line',
+  '+A new line',
+  '+A line that was added',
+  ' A line that stayed',
+  '',
+].join('\n');
 
 /** A small stand-in workspace, so the file picker can be exercised without a host. */
 const MOCK_FILES = [

@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../core/morse.service';
@@ -6,11 +6,17 @@ import { ShellState } from '../../core/shell-state';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { FileExplorer } from './file-explorer';
 
-function setup(files: string[]) {
+function setup(files: string[], status?: unknown) {
   const state = signal({ workspace: { cwd: '/work/morse', name: 'morse' } });
   const morse = {
     state,
-    requestHostCommand: vi.fn(() => Promise.resolve({ files })),
+    // The real service derives `workspace` from `state`; mirror that so a project
+    // switch reaches both the Explorer and the shared listing.
+    workspace: computed(() => state().workspace),
+    capabilities: signal({ hostKind: 'server', filePicker: true, filePreview: true }),
+    requestHostCommand: vi.fn((command: string) =>
+      Promise.resolve(command === 'gitStatus' ? status : { files }),
+    ),
   };
   const tabs = { openFile: vi.fn() };
   TestBed.configureTestingModule({
@@ -32,6 +38,12 @@ function flush(): Promise<void> {
 function rows(fixture: ComponentFixture<FileExplorer>): string[] {
   return [...fixture.nativeElement.querySelectorAll('.row .name')].map(
     (node: Element) => node.textContent ?? '',
+  );
+}
+
+function badges(fixture: ComponentFixture<FileExplorer>): string[] {
+  return [...fixture.nativeElement.querySelectorAll('.row .badge')].map((node: Element) =>
+    (node.textContent ?? '').trim(),
   );
 }
 
@@ -69,18 +81,37 @@ describe('FileExplorer', () => {
   it('does not walk the project again when only the transcript changed', async () => {
     const { fixture, morse, state } = setup(['a.ts']);
     await flush();
-    expect(morse.requestHostCommand).toHaveBeenCalledTimes(1);
+    const listCalls = (): number =>
+      morse.requestHostCommand.mock.calls.filter(([command]) => command === 'listFiles').length;
+    expect(listCalls()).toBe(1);
 
     // `session/state` re-emits on every streamed token; that is not a new project.
     state.set({ workspace: { cwd: '/work/morse', name: 'morse' } });
     fixture.detectChanges();
     await flush();
-    expect(morse.requestHostCommand).toHaveBeenCalledTimes(1);
+    expect(listCalls()).toBe(1);
 
     state.set({ workspace: { cwd: '/work/other', name: 'other' } });
     fixture.detectChanges();
     await flush();
-    expect(morse.requestHostCommand).toHaveBeenCalledTimes(2);
+    expect(listCalls()).toBe(2);
+  });
+
+  it('badges the files git reports as changed, and dots their folder', async () => {
+    const { fixture } = setup(['README.md', 'package.json', 'src/main.ts'], {
+      isRepo: true,
+      files: [
+        { path: 'README.md', status: ' M' },
+        { path: 'package.json', status: '??' },
+        { path: 'src/main.ts', status: 'A ' },
+      ],
+    });
+    await flush();
+    fixture.detectChanges();
+
+    expect(rows(fixture)).toEqual(['src', 'package.json', 'README.md']);
+    expect(badges(fixture)).toEqual(['U', 'M']);
+    expect(fixture.nativeElement.querySelector('.row.dir .dot')).not.toBeNull();
   });
 
   it('offers a resize handle only while the pane is open', async () => {

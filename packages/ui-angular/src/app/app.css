@@ -12,6 +12,11 @@
   position: relative;
   display: grid;
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
+  /*
+   * One definite row: every pane (nav, chat, git) gets the shell's height instead
+   * of sizing to its own content, which is what lets their inner lists scroll.
+   */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -20,6 +25,31 @@
 
 .nav {
   min-width: 0;
+}
+
+/*
+ * The browser host's git panel is a third column. The track only exists while
+ * the panel is mounted, so the conversation keeps the full width when it is
+ * closed and the fold toggle still folds only the navigation.
+ */
+.shell.with-git {
+  grid-template-columns: var(--morse-nav-width) minmax(0, 1fr) var(--morse-git-width);
+}
+
+.git-panel {
+  min-width: 0;
+}
+
+/*
+ * Expanded: the git view gives up the sidebar and spans the conversation area,
+ * so a wide graph has room. The chat steps aside instead of sharing the width.
+ */
+.shell.git-expanded {
+  grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
+}
+
+.shell.git-expanded .chat {
+  display: none;
 }
 
 /*
@@ -38,6 +68,14 @@
   }
 
   .shell.collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .shell.collapsed.with-git {
+    grid-template-columns: 0 minmax(0, 1fr) var(--morse-git-width);
+  }
+
+  .shell.collapsed.git-expanded {
     grid-template-columns: 0 minmax(0, 1fr);
   }
 
@@ -244,6 +282,40 @@
 @media (max-width: 759px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /*
+   * Narrow: there is no room for a third column, so the git panel overlays the
+   * conversation from the right. It has its own close button; the layout below
+   * stays one column regardless of the panel.
+   */
+  .shell.with-git {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Expanded on a narrow window: the graph fills the screen, the chat is gone. */
+  .shell.git-expanded {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.git-expanded .git-panel {
+    position: static;
+    width: auto;
+    box-shadow: none;
+  }
+
+  /*
+   * Specific enough to beat the component's own `:host { position: relative }`,
+   * which the absolutely-positioned header/list rely on in every other mode.
+   */
+  .shell > .git-panel {
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: min(86%, 340px);
+    box-shadow: 0 0 24px rgb(0 0 0 / 35%);
   }
 
   .nav {

@@ -1,0 +1,227 @@
+<aside class="panel" aria-label="Git history" [class.full]="expanded()">
+  <header class="head">
+    <span class="brand" [title]="root() ?? ''">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="4.5" cy="3.5" r="1.8" />
+        <circle cx="4.5" cy="12.5" r="1.8" />
+        <circle cx="11.5" cy="6.5" r="1.8" />
+        <path d="M4.5 5.3v5.4" />
+        <path d="M4.5 5.3c0 2.4 7 1 7 3" />
+      </svg>
+      Git
+    </span>
+    @if (branch(); as name) {
+      <span class="branch">{{ name }}</span>
+    }
+    @if (expanded() && commits().length > 0) {
+      <span class="count">{{ commits().length }} commits</span>
+    }
+    <span class="grow"></span>
+
+    <button
+      type="button"
+      class="icon"
+      [title]="expanded() ? 'Fit the git panel back into the sidebar' : 'Expand the git graph'"
+      [attr.aria-label]="expanded() ? 'Collapse the git panel' : 'Expand the git panel'"
+      [attr.aria-pressed]="expanded()"
+      (click)="toggleExpanded()"
+    >
+      @if (expanded()) {
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3.5 6.5h3v-3" />
+          <path d="M12.5 9.5h-3v3" />
+          <path d="M6.5 6.5 3 3" />
+          <path d="M9.5 9.5 13 13" />
+        </svg>
+      } @else {
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6.5 3.5h-3v3" />
+          <path d="M9.5 12.5h3v-3" />
+          <path d="M3.5 3.5 8 8" />
+          <path d="M12.5 12.5 8 8" />
+        </svg>
+      }
+    </button>
+
+    <button
+      type="button"
+      class="icon"
+      title="Refresh history"
+      aria-label="Refresh history"
+      [disabled]="loading()"
+      (click)="refresh()"
+    >
+      ⟳
+    </button>
+    <button
+      type="button"
+      class="icon"
+      title="Hide the git panel"
+      aria-label="Hide the git panel"
+      (click)="close()"
+    >
+      ✕
+    </button>
+  </header>
+
+  <div
+    class="body"
+    [class.changes-collapsed]="changesCollapsed()"
+    [class.history-collapsed]="historyCollapsed()"
+  >
+    @if (isRepo()) {
+      <section
+        class="changes"
+        [style.height.px]="changesHeightPx()"
+        aria-label="Uncommitted changes"
+      >
+        <div class="section-head">
+          <button
+            type="button"
+            class="section-toggle"
+            [attr.aria-expanded]="!changesCollapsed()"
+            (click)="toggleChanges()"
+          >
+            <span class="chevron" [class.open]="!changesCollapsed()">›</span>
+            <span class="section-title">Changes</span>
+            @if (changes().length > 0) {
+              <span class="section-count">{{ changes().length }}</span>
+            }
+          </button>
+        </div>
+        @if (!changesCollapsed()) {
+          @if (changes().length === 0) {
+            <p class="change-empty">No uncommitted changes</p>
+          } @else {
+            <ul class="change-list">
+              @for (change of changes(); track change.path) {
+                <li>
+                  <button
+                    type="button"
+                    class="change"
+                    [title]="change.path"
+                    (click)="openChange(change.path)"
+                  >
+                    <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
+                    <span class="change-dir">{{ dirOf(change.path) }}</span
+                    ><span class="change-name">{{ baseOf(change.path) }}</span>
+                    <span class="grow"></span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </section>
+      <div
+        class="divider"
+        [class.gone]="changesCollapsed() || historyCollapsed()"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize the git sections"
+        title="Drag to resize"
+        (pointerdown)="startResize($event)"
+      ></div>
+    }
+
+    <section class="history">
+      <div class="section-head">
+        <button
+          type="button"
+          class="section-toggle"
+          [attr.aria-expanded]="!historyCollapsed()"
+          (click)="toggleHistory()"
+        >
+          <span class="chevron" [class.open]="!historyCollapsed()">›</span>
+          <span class="section-title">History</span>
+        </button>
+      </div>
+      @if (!historyCollapsed()) {
+    @if (loading() && !loaded()) {
+      <p class="hint">Reading git history…</p>
+    } @else if (error(); as message) {
+    <p class="hint error">{{ message }}</p>
+  } @else if (!isRepo()) {
+    <p class="hint">This project is not a git repository.</p>
+  } @else if (commits().length === 0) {
+    <p class="hint">No commits yet.</p>
+  } @else {
+    <ul class="list" (scroll)="onScroll($event)">
+      @for (entry of entries().rows; track entry.commit.hash) {
+        <li
+          class="commit"
+          [class.expanded]="expanded()"
+        >
+          <svg
+            class="graph"
+            [attr.width]="graphWidth()"
+            [attr.height]="rowHeight"
+            [attr.viewBox]="'0 0 ' + graphWidth() + ' ' + rowHeight"
+            aria-hidden="true"
+          >
+            @for (edge of entry.row.edges; track $index) {
+              <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
+            }
+            <circle
+              [attr.cx]="x(entry.row.lane)"
+              [attr.cy]="rowHeight / 2"
+              r="3.4"
+              [style.fill]="rowColor(entry.row)"
+            />
+          </svg>
+
+          <span class="subject">{{ entry.commit.subject }}</span>
+
+          @if (entry.refs.length > 0) {
+            <span class="refs">
+              @for (ref of entry.refs; track ref) {
+                <span
+                  class="ref"
+                  [class.kind-head]="refKind(ref) === 'head'"
+                  [class.kind-local]="refKind(ref) === 'local'"
+                  [class.kind-tag]="refKind(ref) === 'tag'"
+                  >{{ refLabel(ref) }}</span
+                >
+              }
+              @if (entry.moreRefs > 0) {
+                <span class="ref">+{{ entry.moreRefs }}</span>
+              }
+            </span>
+          }
+
+          <span class="grow"></span>
+
+          <span class="meta">
+            <span class="hash" [title]="entry.commit.hash">{{ entry.commit.shortHash }}</span>
+            <span class="sep" aria-hidden="true">·</span>
+            <span class="when">{{ when(entry.commit.date) }}</span>
+            @if (expanded()) {
+              <span class="sep" aria-hidden="true">·</span>
+              <span class="author">{{ entry.commit.author }}</span>
+            }
+          </span>
+
+          <button
+            type="button"
+            class="copy"
+            [title]="copied() === entry.commit.hash ? 'Copied' : 'Copy commit hash'"
+            [attr.aria-label]="'Copy commit hash ' + entry.commit.shortHash"
+            (click)="copy(entry.commit)"
+          >
+            {{ copied() === entry.commit.hash ? '✓' : '⧉' }}
+          </button>
+        </li>
+      }
+      <li class="more">
+        @if (hasMore()) {
+          {{ loading() ? 'Loading older commits…' : 'Scroll for older commits' }}
+        } @else {
+          Beginning of history
+        }
+      </li>
+    </ul>
+  }
+      }
+    </section>
+  </div>
+</aside>

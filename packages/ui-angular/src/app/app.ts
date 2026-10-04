@@ -7,6 +7,7 @@ import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
 import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
 import { TabStrip } from './chat/tab-strip/tab-strip';
+import { GitPanel } from './git/git-panel';
 import { AnimationService } from './core/animation.service';
 import { AttachmentStore } from './core/attachments';
 import { DropZone } from './core/drop-zone';
@@ -48,6 +49,7 @@ function previewBoot(): boolean {
     ChatComposer,
     TabStrip,
     FilePreview,
+    GitPanel,
     EnterDirective,
     BootSplash,
     ConnectionScreen,
@@ -95,6 +97,17 @@ export class App {
    * own capability, so VS Code — which has an editor already — stays as it was.
    */
   protected readonly tabsEnabled = computed(() => this.morse.capabilities()?.filePreview === true);
+  /**
+   * The browser host's git panel: history and graph for the active project. VS
+   * Code advertises no `gitPanel` and keeps its own Source Control view.
+   */
+  protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
+  /** The panel is a layout column, so it is only mounted (and refreshed) when shown. */
+  protected readonly gitOpen = computed(() => this.gitEnabled() && this.shell.gitPanelOpen());
+  /** Expanded: the git view spans the conversation area instead of the sidebar. */
+  protected readonly gitExpanded = computed(
+    () => this.gitOpen() && this.shell.gitPanelExpanded(),
+  );
   /** The file the strip is showing, or `undefined` when a session tab is in front. */
   protected readonly activeFile = computed(() => {
     const tab = this.tabs.activeTab();

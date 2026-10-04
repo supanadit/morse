@@ -9,8 +9,10 @@ import {
   untracked,
 } from '@angular/core';
 import { buildFileTree, fileGlyph, type FileNode } from '../../core/file-tree';
+import { statusByPath, type ChangeKind } from '../../core/git-status';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
+import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
 
 const MIN_EXPLORER_HEIGHT = 140;
@@ -25,9 +27,10 @@ interface ExplorerRow {
  * from a preview tab. VS Code never renders this — it has its own Explorer, and
  * the host advertises `filePreview: false`.
  *
- * The tree is built from the same flat, `git`-aware listing the composer's
- * `@mention` picker uses, so both surfaces offer the same files for the same
- * project and nothing is indexed twice.
+ * The tree comes from the shared `WorkspaceFiles` listing (the same one the
+ * composer's `@mention` picker uses, and the same one that polls the working
+ * tree), so a file added or deleted on disk appears here without a restart. A
+ * changed file also carries the git badge its working-tree status earns.
  */
 @Component({
   selector: 'morse-file-explorer',
@@ -176,6 +179,38 @@ interface ExplorerRow {
       .row.dir .name {
         font-weight: 600;
       }
+      /* The git badge: one letter, coloured by the kind of change, VS Code's way. */
+      .badge {
+        flex: none;
+        padding: 0 4px;
+        border-radius: 4px;
+        font-family: var(--morse-font-mono);
+        font-size: 9.5px;
+        line-height: 15px;
+        color: var(--morse-fg-muted);
+      }
+      .badge.M {
+        color: var(--morse-warn);
+      }
+      .badge.A,
+      .badge.U {
+        color: var(--morse-success);
+      }
+      .badge.D,
+      .badge.C {
+        color: var(--morse-error);
+      }
+      .badge.R {
+        color: var(--morse-info);
+      }
+      /* A folder that holds a change gets a dot, so a collapsed tree still shows it. */
+      .dot {
+        flex: none;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--morse-warn);
+      }
       .hint {
         padding: 4px 12px 10px;
         font-size: 11.5px;
@@ -191,18 +226,14 @@ export class FileExplorer {
   private readonly morse = inject(MorseService);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly shell = inject(ShellState);
+  private readonly workspace = inject(WorkspaceFiles);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** The persisted pane height, `undefined` while the CSS default applies. */
   protected readonly height = this.shell.explorerHeight;
 
-  private readonly entries = signal<readonly string[]>([]);
   private readonly expanded = signal<ReadonlySet<string>>(new Set());
-  private readonly loading = signal(false);
-  private readonly error = signal<string | undefined>(undefined);
   private readonly folded = signal(false);
-  /** The project the last request was for, so a streamed token does not re-list. */
-  private requestedCwd = '';
   /** The project the expanded set belongs to, so switching projects folds it. */
   private expandedFor = '';
 
@@ -213,21 +244,35 @@ export class FileExplorer {
       name: workspace.name || basename(workspace.cwd),
     };
   });
-  private readonly tree = computed(() => buildFileTree(this.entries()));
+  private readonly tree = computed(() => buildFileTree(this.workspace.files()));
   protected readonly rows = computed(() => flatten(this.tree(), this.expanded()));
   protected readonly fileCount = computed(() => countFiles(this.tree()));
   protected readonly collapsed = this.folded.asReadonly();
-  protected readonly isLoading = this.loading.asReadonly();
-  protected readonly errorMessage = this.error.asReadonly();
+  protected readonly isLoading = this.workspace.busy;
+  protected readonly errorMessage = this.workspace.error;
+
+  /** The changed paths by letter, and the folders that contain one. */
+  private readonly changes = computed(() => statusByPath(this.workspace.status()));
+  private readonly changedDirs = computed(() => {
+    const dirs = new Set<string>();
+    for (const path of this.changes().keys()) {
+      const segments = path.split('/');
+      for (let depth = 1; depth < segments.length; depth += 1) {
+        dirs.add(segments.slice(0, depth).join('/'));
+      }
+    }
+    return dirs;
+  });
 
   constructor() {
     effect(() => {
       const cwd = this.morse.state().workspace.cwd;
       untracked(() => {
-        // `state()` re-emits on every transcript update; only a new project deserves
-        // another walk. A manual refresh calls `load` directly and skips this guard.
-        if (cwd.length > 0 && cwd !== this.requestedCwd) {
-          void this.load(cwd);
+        // `state()` re-emits on every transcript update; only a new project
+        // deserves a fresh expanded set.
+        if (cwd.length > 0 && cwd !== this.expandedFor) {
+          this.expanded.set(new Set());
+          this.expandedFor = cwd;
         }
       });
     });
@@ -244,12 +289,38 @@ export class FileExplorer {
     return this.expanded().has(path);
   }
 
+  /** The git badge letter for a file, or `undefined` when it is unchanged. */
+  protected changeOf(path: string): ChangeKind | undefined {
+    return this.changes().get(path);
+  }
+
+  protected badgeTitle(change: ChangeKind): string {
+    switch (change) {
+      case 'M':
+        return 'Modified';
+      case 'A':
+        return 'Added';
+      case 'D':
+        return 'Deleted';
+      case 'R':
+        return 'Renamed';
+      case 'U':
+        return 'Untracked';
+      case 'C':
+        return 'Conflict';
+    }
+  }
+
+  protected dirChanged(path: string): boolean {
+    return this.changedDirs().has(path);
+  }
+
   protected toggleFold(): void {
     this.folded.update((value) => !value);
   }
 
   protected refresh(): void {
-    void this.load(this.root().cwd);
+    this.workspace.refresh();
   }
 
   protected onRow(node: FileNode): void {
@@ -292,33 +363,6 @@ export class FileExplorer {
     handle.addEventListener('pointerup', stop);
     handle.addEventListener('pointercancel', stop);
   }
-
-  private async load(cwd: string): Promise<void> {
-    this.requestedCwd = cwd;
-    this.loading.set(true);
-    this.error.set(undefined);
-    try {
-      const data = await this.morse.requestHostCommand('listFiles');
-      if (this.root().cwd !== cwd) {
-        return;
-      }
-      const files = asFileList(data);
-      if (files === undefined) {
-        this.entries.set([]);
-        this.error.set('Could not list this project.');
-        return;
-      }
-      if (this.expandedFor !== cwd) {
-        this.expanded.set(new Set());
-        this.expandedFor = cwd;
-      }
-      this.entries.set(files);
-    } finally {
-      if (this.root().cwd === cwd) {
-        this.loading.set(false);
-      }
-    }
-  }
 }
 
 function flatten(nodes: readonly FileNode[], expanded: ReadonlySet<string>): ExplorerRow[] {
@@ -341,17 +385,6 @@ function countFiles(nodes: readonly FileNode[]): number {
     count += node.kind === 'file' ? 1 : countFiles(node.children);
   }
   return count;
-}
-
-function asFileList(value: unknown): string[] | undefined {
-  if (typeof value !== 'object' || value === null) {
-    return undefined;
-  }
-  const files = (value as { files?: unknown }).files;
-  if (!Array.isArray(files)) {
-    return undefined;
-  }
-  return files.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function basename(path: string): string {

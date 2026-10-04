@@ -50,16 +50,20 @@ const inFlight = new Map<string, Promise<FileIndex>>();
  * resolves a mention against. Git first (`ls-files` honours `.gitignore` and is
  * far faster than a walk), then a capped walk with an explicit skip list.
  */
-export async function workspaceFiles(cwd: string, logger: MorseLogger): Promise<string[]> {
-  const { files, source } = await cachedIndex(cwd);
+export async function workspaceFiles(
+  cwd: string,
+  logger: MorseLogger,
+  options: { fresh?: boolean } = {},
+): Promise<string[]> {
+  const { files, source } = await cachedIndex(cwd, options.fresh === true);
   logger.info(`File picker: ${files.length} entries via ${source} in ${cwd}`);
   return files;
 }
 
-async function cachedIndex(cwd: string): Promise<FileIndex> {
+async function cachedIndex(cwd: string, fresh: boolean): Promise<FileIndex> {
   const now = Date.now();
   const cached = indexes.get(cwd);
-  if (cached && now - cached.at < INDEX_TTL_MS) {
+  if (!fresh && cached && now - cached.at < INDEX_TTL_MS) {
     return cached;
   }
   const pending = inFlight.get(cwd);

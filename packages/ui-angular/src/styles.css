@@ -84,6 +84,8 @@
   --morse-head-height: 44px;
   /* The navigation column's width; the shell's grid and the column itself agree on it. */
   --morse-nav-width: 272px;
+  /* The browser host's git panel width (the shell's third column). */
+  --morse-git-width: 340px;
 
   --morse-fg: var(--vscode-foreground, #d4d4d4);
   --morse-fg-muted: var(--vscode-descriptionForeground, #9d9d9d);

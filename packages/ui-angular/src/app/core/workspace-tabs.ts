@@ -33,6 +33,10 @@ export interface FileTab {
   binary?: boolean;
   loading: boolean;
   error?: string;
+  /** Unified diff text for a changed file, read on demand by the preview. */
+  diff?: string;
+  diffLoading?: boolean;
+  diffError?: string;
 }
 
 export type WorkspaceTab = SessionTab | FileTab;
@@ -462,7 +466,37 @@ export class WorkspaceTabs {
 
   /** Re-reads a file tab from disk (the preview's refresh affordance). */
   reload(id: string): void {
+    // A refresh re-reads both the content and the diff: the file changed on disk.
+    this.patch(id, { diff: undefined, diffError: undefined });
     void this.load(id);
+  }
+
+  /**
+   * Reads the file's unified diff the first time a diff view needs it. Kept on
+   * the tab beside its content, so revealing the same tab again is free.
+   */
+  loadDiff(id: string): void {
+    const tab = this.items().find((candidate) => candidate.id === id);
+    if (
+      tab === undefined ||
+      tab.kind !== 'file' ||
+      tab.diff !== undefined ||
+      tab.diffLoading === true
+    ) {
+      return;
+    }
+    this.patch(id, { diffLoading: true, diffError: undefined });
+    void this.morse.requestHostCommand('gitDiff', { path: tab.path }).then((data) => {
+      const diff = asDiff(data);
+      if (diff === undefined) {
+        this.patch(id, {
+          diffLoading: false,
+          diffError: 'Could not read this file’s changes.',
+        });
+        return;
+      }
+      this.patch(id, { diffLoading: false, diff });
+    });
   }
 
   private findSession(id: string): SessionTab | undefined {
@@ -561,6 +595,14 @@ function asPreview(value: unknown): FilePreviewPayload | undefined {
     truncated: candidate['truncated'] === true,
     binary: candidate['binary'] === true,
   };
+}
+
+function asDiff(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const diff = (value as { diff?: unknown }).diff;
+  return typeof diff === 'string' ? diff : undefined;
 }
 
 function basename(path: string): string {

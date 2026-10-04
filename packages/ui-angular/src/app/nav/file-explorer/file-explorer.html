@@ -45,6 +45,13 @@
         >
           <span class="glyph" aria-hidden="true">{{ glyph(row.node) }}</span>
           <span class="name">{{ row.node.name }}</span>
+          @if (row.node.kind === 'file') {
+            @if (changeOf(row.node.path); as change) {
+              <span [class]="'badge ' + change" [title]="badgeTitle(change)">{{ change }}</span>
+            }
+          } @else if (dirChanged(row.node.path)) {
+            <span class="dot" title="Contains changes" aria-hidden="true"></span>
+          }
         </button>
       }
     }

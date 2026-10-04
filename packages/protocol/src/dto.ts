@@ -179,6 +179,63 @@ export interface HostCapabilities {
    * forbids it) leaves it off and the frontend stays quiet.
    */
   updateCheck?: boolean;
+  /**
+   * Host can read the active project's git history (`gitLog`), so the frontend
+   * can offer a git panel: a commit list and its branch graph. The browser host
+   * serves a machine with no editor and turns it on; VS Code keeps its own
+   * Source Control view and leaves it off.
+   */
+  gitPanel?: boolean;
+}
+
+/**
+ * One commit of the browser host's git panel. The panel draws both the history
+ * list and the lane graph from this shape: `parents` gives the graph its edges,
+ * and `refs` the branch and tag chips.
+ */
+export interface GitCommit {
+  hash: string;
+  shortHash: string;
+  /** Parent hashes, newest-first order; empty on a root commit. */
+  parents: string[];
+  /** Decorations (`%D`), already split: `HEAD -> main`, `tag: v1.0`, `origin/main`. */
+  refs: string[];
+  author: string;
+  /** ISO 8601 author date, so the frontend can render a relative time. */
+  date: string;
+  subject: string;
+}
+
+/** What the `gitLog` host command answers: the active project's recent commits. */
+export interface GitLog {
+  /** False when the directory is not inside a git repository. */
+  isRepo: boolean;
+  /** Repository root, when `isRepo`. */
+  root?: string;
+  /** Current branch (`HEAD` short name), when `isRepo`. */
+  branch?: string;
+  commits: GitCommit[];
+}
+
+/** One changed path in the working tree, for the Explorer's git badges. */
+export interface GitFileStatus {
+  /** Path relative to the viewing session's directory, like `listFiles`. */
+  path: string;
+  /** Two-letter porcelain code: ` M`, `??`, `A `, `D `, `R `, `UU`, … */
+  status: string;
+}
+
+/** What the `gitStatus` host command answers: the working tree's changes. */
+export interface GitStatus {
+  isRepo: boolean;
+  files: GitFileStatus[];
+}
+
+/** What the `gitDiff` host command answers: one file's unified diff. */
+export interface GitDiff {
+  path: string;
+  /** Unified diff text (`git diff HEAD -- <path>`); empty when there is none. */
+  diff: string;
 }
 
 /**

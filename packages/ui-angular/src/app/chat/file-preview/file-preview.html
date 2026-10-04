@@ -1,6 +1,37 @@
 <header class="head">
   <span class="path" [title]="tab().path">{{ tab().path }}</span>
   <div class="meta">
+    @if (changed()) {
+      <div class="modes" role="group" aria-label="Preview mode">
+        <button
+          type="button"
+          [class.on]="mode() === 'file'"
+          title="The file's content"
+          (click)="setMode('file')"
+        >
+          File
+        </button>
+        <button
+          type="button"
+          [class.on]="mode() === 'unified'"
+          title="Unified diff"
+          (click)="setMode('unified')"
+        >
+          Unified
+        </button>
+        <button
+          type="button"
+          [class.on]="mode() === 'split'"
+          title="Side-by-side diff"
+          (click)="setMode('split')"
+        >
+          Split
+        </button>
+      </div>
+      @if (mode() !== 'file') {
+        <span class="stat">{{ diffStats() }}</span>
+      }
+    }
     @if (rangeLabel(); as range) {
       <span class="range" [title]="'Pinned to the next prompt'">{{ range }}</span>
     } @else if (pinnedCount() > 0) {
@@ -16,7 +47,53 @@
   </div>
 </header>
 
-@if (tab().loading) {
+@if (mode() !== 'file') {
+  @if (tab().diffLoading && diffText().length === 0) {
+    <p class="hint">Reading the changes…</p>
+  } @else if (tab().diffError; as message) {
+    <p class="hint error">{{ message }}</p>
+  } @else if (parsed().binary) {
+    <p class="hint">Binary file · {{ size() }} · no textual diff.</p>
+  } @else if (parsed().hunks.length === 0) {
+    <p class="hint">No changes against HEAD.</p>
+  } @else if (mode() === 'split') {
+    <div class="diff split">
+      @for (pair of splitView(); track $index) {
+        @if (pair.hunk; as header) {
+          <div class="drow hunk"><span class="dtext">{{ header }}</span></div>
+        } @else {
+          <div class="srow">
+            <div class="side" [class.del]="pair.left?.kind === 'del'">
+              <span class="dnum">{{ pair.left?.oldLine ?? '' }}</span>
+              <span class="dsign">{{ diffSign(pair.left) }}</span>
+              <span class="dtext" [innerHTML]="pair.left?.html"></span>
+            </div>
+            <div class="side" [class.add]="pair.right?.kind === 'add'">
+              <span class="dnum">{{ pair.right?.newLine ?? '' }}</span>
+              <span class="dsign">{{ diffSign(pair.right) }}</span>
+              <span class="dtext" [innerHTML]="pair.right?.html"></span>
+            </div>
+          </div>
+        }
+      }
+    </div>
+  } @else {
+    <div class="diff">
+      @for (row of unifiedView(); track $index) {
+        @if (row.kind === 'hunk') {
+          <div class="drow hunk"><span class="dtext">{{ row.text }}</span></div>
+        } @else {
+          <div class="drow" [class.add]="row.kind === 'add'" [class.del]="row.kind === 'del'">
+            <span class="dnum">{{ row.oldLine ?? '' }}</span>
+            <span class="dnum">{{ row.newLine ?? '' }}</span>
+            <span class="dsign">{{ diffSign(row) }}</span>
+            <span class="dtext" [innerHTML]="row.html"></span>
+          </div>
+        }
+      }
+    </div>
+  }
+} @else if (tab().loading) {
   <p class="hint">Reading {{ tab().title }}…</p>
 } @else if (tab().error; as error) {
   <p class="hint error">{{ error }}</p>

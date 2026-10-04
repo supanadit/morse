@@ -3,10 +3,14 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentStore, type PendingPin } from '../../core/attachments';
 import { AnimationService } from '../../core/animation.service';
+import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
 import { FilePreview } from './file-preview';
 
-function render(tab: Partial<FileTab>): {
+function render(
+  tab: Partial<FileTab>,
+  status?: unknown,
+): {
   fixture: ComponentFixture<FilePreview>;
   attachments: {
     pin: ReturnType<typeof vi.fn>;
@@ -55,9 +59,19 @@ function render(tab: Partial<FileTab>): {
   TestBed.configureTestingModule({
     imports: [FilePreview],
     providers: [
-      { provide: WorkspaceTabs, useValue: { reload: vi.fn() } },
+      { provide: WorkspaceTabs, useValue: { reload: vi.fn(), loadDiff: vi.fn() } },
       { provide: AttachmentStore, useValue: attachments },
       { provide: AnimationService, useValue: animation },
+      {
+        provide: WorkspaceFiles,
+        useValue: {
+          status: signal(status),
+          files: signal([]),
+          busy: signal(false),
+          error: signal(undefined),
+          refresh: vi.fn(),
+        },
+      },
     ],
   });
   const fixture = TestBed.createComponent(FilePreview);
@@ -96,6 +110,29 @@ describe('FilePreview', () => {
     // The registered language actually highlighted it, rather than falling back.
     expect(source?.querySelector('.hljs-keyword')).not.toBeNull();
     expect(numbers(fixture)).toEqual(['1', '2']);
+  });
+
+  it('shows a unified diff for a changed file, and a split one on request', () => {
+    const { fixture } = render(
+      {
+        content: 'const a = 2;\n',
+        diff:
+          'diff --git a/a b/a\nindex 111..222 100644\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n const b = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    const host = fixture.nativeElement as HTMLElement;
+
+    // The default view is the unified diff: one removed, one added line, both
+    // syntax-highlighted like the file view.
+    expect(host.querySelectorAll('.diff .drow.add')).toHaveLength(1);
+    expect(host.querySelectorAll('.diff .drow.del')).toHaveLength(1);
+    expect(host.querySelector('.diff .drow.add .hljs-keyword')).not.toBeNull();
+
+    host.querySelector<HTMLButtonElement>('.modes button[title="Side-by-side diff"]')?.click();
+    fixture.detectChanges();
+    // One change pair (del/add) plus one context pair.
+    expect(host.querySelectorAll('.diff.split .srow')).toHaveLength(2);
   });
 
   it('says a truncated file was cut short', () => {
