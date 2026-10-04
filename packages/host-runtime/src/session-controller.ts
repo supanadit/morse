@@ -946,7 +946,10 @@ export class HostSessionController {
         // A process that died carries no code the frontend could act on, but the
         // host still knows where to look: keep the hint, drop any stale code.
         this.agentFailure = hintOnly(this.options.agentHint);
-        this.options.transcripts.error(sessionKey, event.message, event.detail);
+        // Through the projector (not `transcripts.error`) so the error row is
+        // guarded by the store's per-event identity: every connection reacts to
+        // the same fatal event, and only the first must write it.
+        this.options.transcripts.apply(sessionKey, event);
         this.emitState();
         return;
       default:

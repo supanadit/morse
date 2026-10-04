@@ -32,6 +32,11 @@ export class SessionTranscriptStore {
   private readonly projectors = new Map<string, TranscriptProjector>();
   private readonly cursors = new Map<string, HistoryCursor>();
   private readonly listeners = new Set<(update: TranscriptUpdate) => void>();
+  /**
+   * Agent events already projected, by instance (see `apply`). A weak set, so
+   * a projected record never keeps itself alive after it has been fanned out.
+   */
+  private readonly applied = new WeakSet<AgentEvent>();
 
   subscribe(listener: (update: TranscriptUpdate) => void): () => void {
     this.listeners.add(listener);
@@ -56,7 +61,25 @@ export class SessionTranscriptStore {
     this.cursors.set(sessionKey, cursor);
   }
 
+  /**
+   * Feeds one agent event in. Idempotent per event *instance*: the registry
+   * fans a single tagged event out to every subscribed controller, and each of
+   * them writes it here, so a host with more than one connected client would
+   * otherwise project the same stream once per connection. The symptoms are
+   * unmistakable — a delta doubled into "therethere", a second `message_end`
+   * creating a duplicate prose row, and a second `tool-start` re-binding the
+   * call id so the first tool item never receives its `tool-end` and stays
+   * `running` forever ("Working for …" never settling).
+   *
+   * Identity is the right key because `SessionRegistry.emit` passes the same
+   * event object to every listener: the first writer projects it, the rest are
+   * no-ops, whatever the connection count.
+   */
   apply(sessionKey: string, event: AgentEvent): void {
+    if (this.applied.has(event)) {
+      return;
+    }
+    this.applied.add(event);
     this.projectorFor(sessionKey).apply(event);
   }
 
@@ -104,6 +127,8 @@ export class SessionTranscriptStore {
 
   /** Drops a transcript (used when a session is closed or restarted). */
   reset(sessionKey: string): void {
+    // A replayed transcript may be fed the same records again on a cold resume;
+    // those are fresh instances, so the identity guard needs no clearing here.
     this.cursors.delete(sessionKey);
     const projector = this.projectors.get(sessionKey);
     if (!projector) {

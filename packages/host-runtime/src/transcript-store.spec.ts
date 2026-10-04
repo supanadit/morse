@@ -40,6 +40,34 @@ describe('SessionTranscriptStore', () => {
     expect(store.items('s2')).toHaveLength(1);
   });
 
+  /**
+   * One store serves every connection, and every controller feeds the registry
+   * events into it. Without the identity guard, two open clients projected the
+   * same stream twice: doubled deltas, a duplicate `message_end` row, and a
+   * `tool-start` whose first copy never saw `tool-end` (stuck on `running`).
+   */
+  it('applies an agent event once however many controllers write it', () => {
+    const store = new SessionTranscriptStore();
+    const events = [
+      { type: 'agent/delta', at: 1, channel: 'thinking', delta: 'there' },
+      { type: 'agent/message', at: 2, text: 'hi', thinking: 'there' },
+      { type: 'agent/tool-start', at: 3, toolCallId: 'c1', name: 'read', title: 'read: a.ts' },
+      { type: 'agent/tool-end', at: 4, toolCallId: 'c1', status: 'ok', output: 'done' },
+    ] as const;
+
+    // Two connections: each controller applies the same event instance.
+    for (const event of events) {
+      store.apply('s1', event);
+      store.apply('s1', event);
+    }
+
+    const items = store.items('s1');
+    expect(items.filter((item) => item.kind === 'assistant')).toHaveLength(1);
+    const tools = items.filter((item) => item.kind === 'tool');
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ status: 'ok' });
+  });
+
   it('replays the snapshot it was asked for while a session is warm', () => {
     const store = new SessionTranscriptStore();
     store.seed('s1', [
