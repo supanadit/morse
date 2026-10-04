@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.4 — 4 October 2026
+
+The file picker stops waving a badge at you every few seconds.
+
+### Fixed
+
+- **The “File picker: N workspace files.” toast no longer reappears forever.** The chat re-reads the workspace
+  file list on a timer, and the VS Code host raised a notification for every one of those answers — so the toast
+  flashed back about every four seconds. The count is still written to the **Morse** output log, where it is there
+  when a picker looks empty; the browser host was already this quiet.
+
 ## 0.9.3 — 4 October 2026
 
 The VS Code chat stops repeating a host error it cannot fix.

@@ -1,6 +1,6 @@
 {
   "name": "@morse/core",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "type": "module",
   "description": "Morse domain + use cases + ports. Pure TypeScript: no vscode, no NestJS, no child_process, no I/O.",
