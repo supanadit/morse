@@ -170,21 +170,22 @@ export class AttachmentStore {
    * than grown, so a highlight can be made smaller as well as bigger. A
    * whole-file pin (no lines) is a separate kind of chip and never merges.
    */
-  pin(pin: Omit<PendingPin, 'id'>, replaceId?: string): void {
+  pin(pin: Omit<PendingPin, 'id'>, replaceId?: string): string {
     if (pin.path.length === 0) {
-      return;
+      return '';
     }
 
     if (pin.startLine === undefined) {
-      const duplicate = this.pinned().some(
+      const duplicate = this.pinned().find(
         (item) => item.path === pin.path && item.startLine === undefined,
       );
-      if (duplicate) {
-        return;
+      if (duplicate !== undefined) {
+        return duplicate.id;
       }
       this.counter += 1;
-      this.pinned.update((list) => [...list, { ...pin, id: `pin-${this.counter}` }]);
-      return;
+      const id = `pin-${this.counter}`;
+      this.pinned.update((list) => [...list, { ...pin, id }]);
+      return id;
     }
 
     const list = this.pinned();
@@ -243,6 +244,7 @@ export class AttachmentStore {
       next.push(merged);
     }
     this.pinned.set(next);
+    return merged.id;
   }
 
   removePin(id: string): void {

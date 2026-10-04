@@ -12,6 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { AnimationService } from '../../core/animation.service';
 import { AttachmentStore } from '../../core/attachments';
 import { highlightCode } from '../../core/highlight';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
@@ -181,6 +182,65 @@ const DEFAULT_LINE_HEIGHT = 19.2;
         background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
         border-left: 2px solid color-mix(in srgb, var(--morse-accent) 70%, transparent);
       }
+      /* A merge flashes the band, so the union is seen even if the particles are. */
+      .selection.merged {
+        animation: selection-merged 620ms ease-out;
+      }
+      @keyframes selection-merged {
+        0% {
+          background: color-mix(in srgb, var(--morse-accent) 60%, transparent);
+          box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--morse-accent) 80%, transparent);
+        }
+        100% {
+          background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
+          box-shadow: inset 0 0 0 0 transparent;
+        }
+      }
+      /*
+       * A rainbow ring that spins once around the merged band — border only, so
+       * the text underneath stays readable. The angle is a registered custom
+       * property, which is what lets a conic gradient animate at all.
+       */
+      @property --morse-rainbow {
+        syntax: '<angle>';
+        initial-value: 0deg;
+        inherits: false;
+      }
+      .selection.merged::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 3px;
+        padding: 2px;
+        background: conic-gradient(
+          from var(--morse-rainbow),
+          #f43f5e,
+          #fb923c,
+          #facc15,
+          #4ade80,
+          #38bdf8,
+          #a78bfa,
+          #f43f5e
+        );
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        pointer-events: none;
+        animation: morse-rainbow-spin 700ms linear;
+      }
+      @keyframes morse-rainbow-spin {
+        from {
+          --morse-rainbow: 0deg;
+        }
+        to {
+          --morse-rainbow: 360deg;
+        }
+      }
       /* The band's top and bottom edges are drag handles, like the Explorer pane's
          top edge: pull one to move that boundary. */
       .edge {
@@ -217,6 +277,7 @@ export class FilePreview {
 
   private readonly tabs = inject(WorkspaceTabs);
   private readonly attachments = inject(AttachmentStore);
+  private readonly animation = inject(AnimationService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly sourceElement = viewChild<ElementRef<HTMLElement>>('source');
   private readonly gutterElement = viewChild<ElementRef<HTMLElement>>('gutter');
@@ -248,6 +309,8 @@ export class FilePreview {
   private readonly selected = signal<{ start: number; end: number } | undefined>(undefined);
   /** The pin a drag started inside, so releasing edits it instead of adding. */
   private readonly editingId = signal<string | undefined>(undefined);
+  /** The just-merged band, flashed briefly so the merge is visible. */
+  protected readonly mergedId = signal<string | undefined>(undefined);
   private anchor = 1;
 
   /** The live drag's label (`L14–23`), shown in the header while dragging. */
@@ -402,10 +465,15 @@ export class FilePreview {
       // and the union keeps the full length of both.
       const current = this.attachments.pins().find((pin) => pin.id === highlight.id);
       if (current?.startLine !== undefined) {
-        this.attachments.pin(
+        const before = this.attachments.pins().length;
+        const id = this.attachments.pin(
           { path: this.tab().path, startLine: current.startLine, endLine: current.endLine },
           highlight.id,
         );
+        if (this.attachments.pins().length < before) {
+          // The boundary met a neighbour and swallowed it: show the union.
+          this.celebrate(id, { start: current.startLine, end: current.endLine ?? current.startLine });
+        }
       }
     };
     handle.addEventListener('pointermove', move);
@@ -441,14 +509,52 @@ export class FilePreview {
       return;
     }
     const endLine = selection.end > selection.start ? selection.end : undefined;
-    this.attachments.pin(
+    const before = this.attachments.pins().length;
+    const id = this.attachments.pin(
       { path: this.tab().path, startLine: selection.start, endLine },
       this.editingId(),
     );
+    if (this.attachments.pins().length < before) {
+      this.celebrate(id, { start: selection.start, end: selection.end });
+    }
     this.attachments.say('info', `Pinned ${this.tab().title} ${this.rangeLabel()} to this message.`);
     // The chip now owns this highlight; keeping the live range would draw it twice.
     this.selected.set(undefined);
     this.editingId.set(undefined);
+  }
+
+  /**
+   * Two ranges became one: flash the merged band and throw confetti from the
+   * seam, so the merge is something the user sees rather than a chip that
+   * silently disappeared.
+   */
+  private celebrate(id: string, range: { start: number; end: number }): void {
+    if (id.length === 0) {
+      return;
+    }
+    this.mergedId.set(id);
+    setTimeout(() => {
+      if (this.mergedId() === id) {
+        this.mergedId.set(undefined);
+      }
+    }, 720);
+
+    const merged = this.attachments.pins().find((pin) => pin.id === id);
+    const wrap = this.sourceElement()?.nativeElement.closest('.source-wrap');
+    if (merged?.startLine === undefined || !(wrap instanceof HTMLElement)) {
+      return;
+    }
+    const mergedStart = merged.startLine;
+    const mergedEnd = merged.endLine ?? mergedStart;
+    const lineHeight = this.lineHeight();
+    // Burst from the seam the neighbour sat on: the side the range grew toward.
+    const seamY =
+      mergedEnd > range.end
+        ? range.end * lineHeight
+        : mergedStart < range.start
+          ? (range.start - 1) * lineHeight
+          : ((range.start + range.end) / 2 - 0.5) * lineHeight;
+    this.animation.confetti(wrap, { x: wrap.clientWidth / 2, y: seamY });
   }
 }
 

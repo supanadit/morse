@@ -164,6 +164,86 @@ export class AnimationService {
     animate(target, { scale: [scale, 1], duration, ease });
   }
 
+  /** Confetti colours, picked per piece so a burst reads as multi-coloured. */
+  private static readonly CONFETTI_COLORS = [
+    '#f43f5e',
+    '#fb923c',
+    '#facc15',
+    '#4ade80',
+    '#38bdf8',
+    '#a78bfa',
+    '#f472b6',
+  ];
+
+  /**
+   * A confetti explosion — the "these two ranges became one" cue. Colourful
+   * pieces burst up and out from `(x, y)`, spin, fall and fade; fixed to the
+   * viewport so they never grow a scroll container, and a timer clears them even
+   * if the engine never ticks.
+   */
+  confetti(
+    container: Element | null | undefined,
+    options: { x: number; y: number; count?: number; duration?: number },
+  ): void {
+    if (!container || !this.enabled) {
+      return;
+    }
+    const { x, y, count = 30, duration = 900 } = options;
+    const document = container.ownerDocument;
+    const rect = container.getBoundingClientRect();
+    const cx = rect.left + x;
+    const cy = rect.top + y;
+
+    const pieces: HTMLElement[] = [];
+    const seeds: Array<{ dx: number; dy: number; fall: number; rotate: number }> = [];
+    for (let index = 0; index < count; index += 1) {
+      // Upwards fan, so it reads as a party-popper rather than a ring.
+      const angle = utils.random(-Math.PI * 0.85, -Math.PI * 0.15);
+      const distance = utils.random(55, 140);
+      seeds.push({
+        dx: Math.cos(angle) * distance,
+        dy: Math.sin(angle) * distance,
+        fall: utils.random(90, 180),
+        rotate: utils.random(-420, 420),
+      });
+      const piece = document.createElement('span');
+      piece.setAttribute('aria-hidden', 'true');
+      const color = AnimationService.CONFETTI_COLORS[index % AnimationService.CONFETTI_COLORS.length];
+      piece.style.cssText =
+        `position:fixed;left:${cx}px;top:${cy}px;` +
+        `width:${utils.random(5, 8)}px;height:${utils.random(8, 13)}px;` +
+        `margin:-5px 0 0 -3px;border-radius:1.5px;background:${color};` +
+        'pointer-events:none;z-index:60;opacity:0;';
+      document.body.appendChild(piece);
+      pieces.push(piece);
+    }
+
+    let cleared = false;
+    const clear = (): void => {
+      if (cleared) {
+        return;
+      }
+      cleared = true;
+      for (const piece of pieces) {
+        piece.remove();
+      }
+    };
+    setTimeout(clear, duration + 420);
+
+    pieces.forEach((piece, index) => {
+      const { dx, dy, fall, rotate } = seeds[index]!;
+      animate(piece, {
+        translateX: [0, dx],
+        translateY: [0, dy, dy + fall],
+        rotate: [0, rotate],
+        opacity: [0, 1, 1, 0],
+        duration,
+        ease: 'out(2)',
+        onComplete: () => piece.remove(),
+      });
+    });
+  }
+
   /**
    * A repeating animation (idle breathing, a bobbing icon, a ping ring).
    *

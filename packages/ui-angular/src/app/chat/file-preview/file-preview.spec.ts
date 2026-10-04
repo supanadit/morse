@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentStore, type PendingPin } from '../../core/attachments';
+import { AnimationService } from '../../core/animation.service';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
 import { FilePreview } from './file-preview';
 
@@ -12,23 +13,37 @@ function render(tab: Partial<FileTab>): {
     setPinRange: ReturnType<typeof vi.fn>;
     say: ReturnType<typeof vi.fn>;
   };
+  animation: { confetti: ReturnType<typeof vi.fn> };
   pins: ReturnType<typeof signal<PendingPin[]>>;
 } {
   const pins = signal<PendingPin[]>([]);
+  const animation = { confetti: vi.fn() };
   let counter = 0;
   const attachments = {
     pins: pins.asReadonly(),
-    // Mirrors the real store closely enough for the preview: a pin shows up, and
-    // `replaceId` edits in place.
+    // Mirrors the real store closely enough for the preview: a pin shows up,
+    // `replaceId` edits in place, and a touching range is absorbed (a merge).
     pin: vi.fn((next: Omit<PendingPin, 'id'>, replaceId?: string) => {
-      if (replaceId !== undefined) {
-        pins.update((list) =>
-          list.map((item) => (item.id === replaceId ? { ...next, id: replaceId } : item)),
-        );
-        return;
-      }
-      counter += 1;
-      pins.update((list) => [...list, { ...next, id: `pin-${counter}` }]);
+      const newId = replaceId ?? `pin-${(counter += 1)}`;
+      pins.update((list) => {
+        const base =
+          replaceId === undefined
+            ? [...list, { ...next, id: newId }]
+            : list.map((item) =>
+                item.id === replaceId ? { ...next, id: replaceId } : item,
+              );
+        const start = next.startLine ?? 0;
+        const end = next.endLine ?? start;
+        return base.filter((item) => {
+          if (item.id === newId || item.startLine === undefined) {
+            return true;
+          }
+          const itemStart = item.startLine;
+          const itemEnd = item.endLine ?? itemStart;
+          return !(itemStart <= end + 1 && itemEnd + 1 >= start);
+        });
+      });
+      return newId;
     }),
     setPinRange: vi.fn((id: string, range: { startLine: number; endLine?: number }) => {
       pins.update((list) =>
@@ -42,6 +57,7 @@ function render(tab: Partial<FileTab>): {
     providers: [
       { provide: WorkspaceTabs, useValue: { reload: vi.fn() } },
       { provide: AttachmentStore, useValue: attachments },
+      { provide: AnimationService, useValue: animation },
     ],
   });
   const fixture = TestBed.createComponent(FilePreview);
@@ -55,7 +71,7 @@ function render(tab: Partial<FileTab>): {
     ...tab,
   } satisfies FileTab);
   fixture.detectChanges();
-  return { fixture, attachments, pins };
+  return { fixture, attachments, animation, pins };
 }
 
 /** The gutter's line numbers, in order. */
@@ -186,6 +202,26 @@ describe('FilePreview', () => {
       expect.objectContaining({ startLine: 1 }),
       'p1',
     );
+  });
+
+  it('bursts a celebration when a merge collapses two ranges', () => {
+    const { fixture, animation, pins } = render({ content: 'a\nb\nc\nd\ne\nf\n' });
+    pins.set([
+      { id: 'p1', path: 'src/main.ts', startLine: 1, endLine: 2 },
+      { id: 'p2', path: 'src/main.ts', startLine: 4, endLine: 5 },
+    ]);
+    fixture.detectChanges();
+
+    const bottom = fixture.nativeElement.querySelectorAll('.selection .edge.bottom')[0] as Element;
+    press(bottom, 'pointerdown');
+    press(bottom, 'pointermove', 60);
+    press(bottom, 'pointerup');
+    fixture.detectChanges();
+
+    // Two chips became one: the burst is the visual cue.
+    expect(pins()).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('.selection.merged')).not.toBeNull();
+    expect(animation.confetti).toHaveBeenCalled();
   });
 
   it('draws every range pinned to this file, and only this file', () => {

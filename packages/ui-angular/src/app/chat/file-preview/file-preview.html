@@ -47,6 +47,7 @@
       @for (highlight of highlights(); track highlight.id) {
         <span
           class="selection"
+          [class.merged]="highlight.id === mergedId()"
           [style.top.px]="topOf(highlight)"
           [style.height.px]="heightOf(highlight)"
         >
