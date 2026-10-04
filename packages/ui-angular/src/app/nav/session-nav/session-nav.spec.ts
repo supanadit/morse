@@ -112,6 +112,34 @@ class ScopedHostTransport extends BaseHostTransport {
     });
   }
 
+  /**
+   * The host spawned `sessionKey`'s agent because the session was just opened:
+   * no turn is running, only `agentStarting` flips for a beat.
+   */
+  openSession(sessionKey: string): void {
+    this.emitMessage({
+      type: 'session/activity',
+      payload: {
+        sessions: [
+          {
+            sessionKey: 's1',
+            streaming: true,
+            busy: false,
+            agentReady: true,
+            agentStarting: false,
+          },
+          {
+            sessionKey,
+            streaming: false,
+            busy: false,
+            agentReady: false,
+            agentStarting: true,
+          },
+        ],
+      },
+    });
+  }
+
   dispose(): void {
     this.emitStatus('closed');
   }
@@ -197,17 +225,40 @@ describe('SessionNav', () => {
     expect(host.querySelector('.group-new')).toBeNull();
   });
 
-  it('pulses only the sessions the agent is actually running in', async () => {
+  it('lifts a running session into In progress, and only that one', async () => {
     const { host: global } = await render('global');
-    // `s1` streams, so it pulses; the idle-but-live `s2` stays still.
-    expect(global.querySelectorAll('.session.running')).toHaveLength(1);
-    expect(global.querySelectorAll('.session .pulse')).toHaveLength(1);
-    expect(global.querySelector('.session.running .title')?.textContent).toContain('Morse work');
+    // `s1` streams, so it moves to the top section under a spinning mark…
+    expect(global.querySelector('.pane-title')?.textContent).toContain('In progress');
+    const live = [...global.querySelectorAll('.session.live')];
+    expect(live).toHaveLength(1);
+    expect(live[0]?.querySelector('.mark.running')).not.toBeNull();
+    expect(live[0]?.querySelector('.title')?.textContent).toContain('Morse work');
+    // …and does not repeat inside its project, while the idle-but-live `s2` stays.
+    const listed = [...global.querySelectorAll('.session:not(.live) .title')].map(
+      (node) => node.textContent,
+    );
+    expect(listed).toEqual(['Other work']);
 
     const { host: workspace } = await render('workspace');
-    // VS Code's scope filters the list, so only the running `s1` survives.
-    expect(workspace.querySelectorAll('.session.running')).toHaveLength(1);
-    expect(workspace.querySelectorAll('.session .pulse')).toHaveLength(1);
+    expect(workspace.querySelectorAll('.session.live')).toHaveLength(1);
+    expect(workspace.querySelectorAll('.session.live .mark.running')).toHaveLength(1);
+  });
+
+  it('names what a live session is doing in In progress', async () => {
+    const { host } = await render('global');
+    // A background run has no transcript in this frontend, so it stays generic.
+    expect(host.querySelector('.session.live .subtitle')?.textContent).toBe('Working…');
+  });
+
+  it('does not flicker a session into In progress while its agent starts', async () => {
+    const { host, transport, fixture } = await render('global');
+    // Opening another session makes the host spawn its agent; that beat of
+    // `agentStarting` is not work, so the row must not jump into In progress.
+    transport.openSession('s2');
+    fixture.detectChanges();
+    expect([...host.querySelectorAll('.session.live .title')].map((node) => node.textContent)).toEqual([
+      'Morse work',
+    ]);
   });
 
   it('moves a session\'s actions into a right-click menu', async () => {

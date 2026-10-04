@@ -49,8 +49,42 @@
 }
 
 <div class="list">
+  <!--
+    What the agent is working in right now, across every project, lifted to the
+    top so a long catalog cannot bury a live run. These sessions are removed
+    from their project list below, so nothing is listed twice.
+  -->
+  @if (inProgress().length > 0) {
+    <section class="pane">
+      <div class="pane-head">
+        <span class="pane-title">In progress</span>
+        <span class="pane-count">{{ inProgress().length }}</span>
+      </div>
+      <ul>
+        @for (session of inProgress(); track session.id) {
+          <li>
+            <button
+              type="button"
+              class="session live"
+              [class.active]="session.id === activeSessionId()"
+              [title]="session.id"
+              (click)="activate(session)"
+              (contextmenu)="openMenu($event, session)"
+            >
+              <span class="mark running" aria-hidden="true"></span>
+              <span class="body">
+                <span class="title">{{ session.title }}</span>
+                <span class="subtitle">{{ activityLabel(session) }}</span>
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
   @for (group of visibleGroups(); track group.path) {
-    <section class="group">
+    <section class="pane">
       @if (scope() === 'global') {
         <div class="group-head">
           <button
@@ -76,6 +110,11 @@
             +
           </button>
         </div>
+      } @else if (group.sessions.length > 0) {
+        <div class="pane-head">
+          <span class="pane-title">Sessions</span>
+          <span class="pane-count">{{ group.sessions.length }}</span>
+        </div>
       }
 
       <!-- VS Code is workspace-scoped: one project, so no accordion to fold. -->
@@ -87,26 +126,27 @@
                 type="button"
                 class="session"
                 [class.active]="session.id === activeSessionId()"
-                [class.running]="isRunning(session)"
                 [title]="session.id"
                 (click)="activate(session)"
                 (contextmenu)="openMenu($event, session)"
               >
-                @if (isRunning(session)) {
-                  <span class="pulse" aria-hidden="true"></span>
-                }
-                <span class="title">{{ session.title }}</span>
-                <span class="meta">{{ session.messageCount }} · {{ age(session.updatedAt) }}</span>
+                <span class="body">
+                  <span class="title">{{ session.title }}</span>
+                </span>
+                <span class="meta">{{ age(session.updatedAt) }}</span>
               </button>
             </li>
           } @empty {
-            <li class="empty">
-              @if (query().length > 0) {
-                No session matches “{{ query() }}”.
-              } @else {
-                No sessions yet.
-              }
-            </li>
+            <!-- A project whose only sessions are in progress is not empty. -->
+            @if (group.hiddenRunning === 0) {
+              <li class="empty">
+                @if (query().length > 0) {
+                  No session matches “{{ query() }}”.
+                } @else {
+                  No sessions yet.
+                }
+              </li>
+            }
           }
         </ul>
       }

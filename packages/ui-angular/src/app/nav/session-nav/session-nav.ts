@@ -9,10 +9,11 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { SessionSummary } from '@morse/protocol';
+import type { SessionSummary, TranscriptItem } from '@morse/protocol';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
+import { toolFileName, toolGerund, toolKind, toolTitle } from '../../core/tool-describe';
 import { UpdateCheck } from '../../core/update';
 import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
@@ -20,6 +21,8 @@ interface SessionGroup {
   path: string;
   name: string;
   sessions: SessionSummary[];
+  /** How many of this project's sessions are shown in "In progress" instead. */
+  hiddenRunning: number;
 }
 
 /** An open session context menu, anchored at the pointer. */
@@ -65,13 +68,16 @@ interface SessionMenu {
       }
       .head button.primary {
         flex: 1;
-        padding: 5px 10px;
+        padding: 6px 10px;
       }
       .filters {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        padding: 8px 10px 4px;
+        padding: 10px 10px 6px;
+      }
+      .filters input {
+        padding: 6px 9px;
       }
       /*
        * The project button. It replaces the old promise that one search box could
@@ -132,10 +138,38 @@ interface SessionMenu {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        padding: 4px 6px 10px;
+        padding: 6px 8px 12px;
       }
-      .group + .group {
-        margin-top: 6px;
+      .pane + .pane {
+        margin-top: 12px;
+      }
+      /*
+       * A section heading — "In progress", a project, "Sessions". Uppercase
+       * and quiet, with the count trailing: structure without a second toolbar.
+       */
+      .pane-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 7px 5px;
+      }
+      .pane-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--morse-fg-muted);
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+      .pane-count {
+        flex: none;
+        color: var(--morse-fg-muted);
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
       }
       /*
        * A project header: the fold affordance owns the row (name, session
@@ -218,65 +252,80 @@ interface SessionMenu {
       .session {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
         width: 100%;
-        padding: 5px 8px;
+        padding: 6px 8px;
         border: 0;
-        border-radius: var(--morse-radius-sm);
+        border-radius: var(--morse-radius-md);
         background: transparent;
         color: var(--morse-fg);
         text-align: left;
         cursor: pointer;
+        transition: background 120ms ease;
       }
       .session:hover {
         background: var(--morse-hover);
       }
       .session.active {
         background: var(--morse-active);
-        font-weight: 500;
         box-shadow: inset 2px 0 0 var(--morse-accent);
       }
-      /*
-       * A session whose agent is running right now. A CSS pulse (not an anime.js
-       * loop) so it keeps beating in a hidden webview, where frames are paused.
-       */
-      .session .pulse {
-        flex: none;
-        position: relative;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--morse-accent);
-      }
-      .session .pulse::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        border-radius: 50%;
-        background: var(--morse-accent);
-        animation: morse-pulse 1.5s ease-out infinite;
-      }
-      @keyframes morse-pulse {
-        0% {
-          transform: scale(1);
-          opacity: 0.6;
-        }
-        100% {
-          transform: scale(2.6);
-          opacity: 0;
-        }
+      /* Two lines: the title, and — for a live session — what it is doing now. */
+      .session .body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
       }
       .session .title {
-        flex: 1;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      .session.active .title {
+        font-weight: 600;
+      }
+      .session .subtitle {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
       }
       .session .meta {
-        font-size: 11px;
+        flex: none;
+        font-size: 10.5px;
         white-space: nowrap;
-        opacity: 0.8;
+        color: var(--morse-fg-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      /*
+       * The live mark in "In progress": a spinning ring while the agent works,
+       * a plain amber dot while a session is still starting or switching. A CSS
+       * loop (not anime.js) so it keeps beating in a hidden webview.
+       */
+      .session .mark {
+        flex: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--morse-fg-muted);
+      }
+      .session .mark.running {
+        background: transparent;
+        border: 1.6px solid color-mix(in srgb, var(--morse-accent) 30%, transparent);
+        border-top-color: var(--morse-accent);
+        animation: nav-spin 0.8s linear infinite;
+      }
+      @keyframes nav-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       /*
        * The session context menu. Named context-menu, not menu: the shell
@@ -428,18 +477,61 @@ export class SessionNav {
   );
 
   /**
-   * True only while the agent is producing something in that session. A session
-   * that is merely open/hot is *not* animated: the rotating border means "an
-   * agent is running here right now", and it dies when the run settles.
+   * What the agent is doing in that session right now. `busy` (a session switch
+   * or start in progress) and `starting` are transient but worth showing; an
+   * `error` session is not "in progress", it failed and stays in its project.
+   */
+  /**
+   * True only when the agent is producing a turn in that session.
+   *
+   * Opening a session makes the host spawn its agent, which flips
+   * `agentStarting` (and `busy` while it switches) for a beat — but nothing is
+   * being worked on, so those must not put a row in "In progress". Only
+   * `streaming` means the agent is actually running; a session that is merely
+   * open or warm is not.
    */
   protected isRunning(session: SessionSummary): boolean {
     const activity = this.sessionActivity().get(session.id);
     if (activity !== undefined) {
-      return activity.streaming || activity.busy;
+      return activity.streaming;
     }
     // A session opened before its id is known cannot match the activity key yet.
-    return session.id === this.activeSessionId() && this.morse.running();
+    return session.id === this.activeSessionId() && this.morse.state().streaming;
   }
+
+  /** The "what is happening now" line, for the rows in the In progress section. */
+  protected activityLabel(session: SessionSummary): string {
+    // The active session's transcript is the only one this frontend holds, so
+    // only it can name the exact step; a background run stays generic.
+    if (session.id === this.activeSessionId()) {
+      return this.activeStep() ?? 'Working…';
+    }
+    return 'Working…';
+  }
+
+  /** The newest step of the active session, phrased as a status line. */
+  private readonly activeStep = computed<string | undefined>(() => {
+    const items = this.morse.items();
+    const last = items.at(-1);
+    return last === undefined ? undefined : actionLabel(last);
+  });
+
+  /**
+   * Sessions the agent is working in right now, newest first. They move to the
+   * top of the sidebar and out of their project, so a long list cannot bury a
+   * live run. A project filter narrows this section too — narrowing the sidebar
+   * must not leave another project's run pinned at the top.
+   */
+  protected readonly inProgress = computed<SessionSummary[]>(() => {
+    const filter = this.projectFilter();
+    return this.morse
+      .sessions()
+      .filter(
+        (session) =>
+          (filter.length === 0 || session.cwd === filter) && this.isRunning(session),
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  });
 
   protected readonly groups = computed<SessionGroup[]>(() => {
     const sessions = this.morse.sessions();
@@ -451,6 +543,7 @@ export class SessionNav {
           path: project?.path ?? workspace.cwd,
           name: workspace.name || project?.name || 'workspace',
           sessions,
+          hiddenRunning: 0,
         },
       ];
     }
@@ -458,12 +551,16 @@ export class SessionNav {
       path: project.path,
       name: project.name,
       sessions: sessions.filter((session) => session.cwd === project.path),
+      hiddenRunning: 0,
     }));
   });
 
   protected readonly visibleGroups = computed<SessionGroup[]>(() => {
     const query = this.query().trim().toLowerCase();
     const filter = this.projectFilter();
+    // A session already shown at the top does not repeat inside its project —
+    // a live run you can see twice is a list you have to read twice.
+    const inProgress = new Set(this.inProgress().map((session) => session.id));
     // The session box asks about session titles only. Project names used to match
     // here too, which showed the project with an empty list under it — `buku` was
     // there, so it looked empty. Finding a project is the chip's job.
@@ -471,13 +568,14 @@ export class SessionNav {
       ? this.groups()
       : this.groups().filter((group) => group.path === filter);
     return scoped
-      .map((group) => ({
-        ...group,
-        sessions:
+      .map((group) => {
+        const matched =
           query.length === 0
             ? group.sessions
-            : group.sessions.filter((session) => session.title.toLowerCase().includes(query)),
-      }))
+            : group.sessions.filter((session) => session.title.toLowerCase().includes(query));
+        const sessions = matched.filter((session) => !inProgress.has(session.id));
+        return { ...group, sessions, hiddenRunning: matched.length - sessions.length };
+      })
       // A project with no matching session is not a result of a session search…
       .filter((group) => filter.length > 0 || query.length === 0 || group.sessions.length > 0);
   });
@@ -752,4 +850,36 @@ export class SessionNav {
     }
     return `${Math.round(hours / 24)}d`;
   }
+}
+
+/**
+ * One line naming what the newest transcript item is doing. The transcript is
+ * the active session's alone, so this is only ever asked about that one.
+ */
+function actionLabel(item: TranscriptItem): string | undefined {
+  if (item.kind === 'tool') {
+    const kind = toolKind(item.name);
+    const verb = toolGerund(item);
+    const raw = toolTitle(item);
+    if (kind === 'shell') {
+      return `${verb} ${clip(raw.replace(/\s+/g, ' ').trim(), 40)}`;
+    }
+    if (kind === 'search') {
+      return `${verb} ${clip(raw, 40)}`;
+    }
+    return `${verb} ${toolFileName(raw)}`;
+  }
+  if (item.kind === 'assistant') {
+    if (item.thinking.trim().length > 0 && item.text.trim().length === 0) {
+      return 'Thinking…';
+    }
+    if (item.text.trim().length > 0 || item.streaming) {
+      return 'Writing…';
+    }
+  }
+  return undefined;
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }

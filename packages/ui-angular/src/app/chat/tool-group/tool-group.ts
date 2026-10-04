@@ -12,6 +12,14 @@ import {
 import type { ToolTranscriptItem } from '@morse/protocol';
 import { AnimationService } from '../../core/animation.service';
 import { DisplayPrefs } from '../../core/display-prefs';
+import {
+  toolChangedFile,
+  toolFileName,
+  toolGlyph,
+  toolKind,
+  toolTitle,
+  toolVerb,
+} from '../../core/tool-describe';
 import { EnterDirective } from '../../shared/enter.directive';
 import type { ProcessStep } from '../transcript-rows';
 
@@ -564,7 +572,7 @@ export class ToolGroup {
   }
 
   protected target(item: ToolTranscriptItem): ToolTarget {
-    const raw = rawTitle(item);
+    const raw = toolTitle(item);
     const cut = raw.lastIndexOf('/');
     return cut === -1
       ? { dir: '', base: raw }
@@ -590,37 +598,15 @@ export class ToolGroup {
     return { added: Number(additions ?? 0), removed: Number(deletions ?? 0) };
   }
 
+  /** The timeline's glyph colour class; an unknown tool reads as a plain row. */
   protected glyphClass(item: ToolTranscriptItem): string {
-    const name = item.name.toLowerCase();
-    if (name.includes('edit') || name.includes('write') || name.includes('patch')) {
-      return 'edit';
-    }
-    if (name.includes('bash') || name.includes('shell') || name.includes('exec')) {
-      return 'shell';
-    }
-    if (name.includes('search') || name.includes('grep') || name.includes('find')) {
-      return 'search';
-    }
-    return 'read';
+    const kind = toolKind(item.name);
+    return kind === 'other' ? 'read' : kind;
   }
 
   /** One word for the compact summary line: "Edit notes.md", "Run npm test". */
   protected verb(item: ToolTranscriptItem): string {
-    const name = item.name.toLowerCase();
-    if (name.includes('edit') || name.includes('write') || name.includes('patch')) {
-      return 'Edit';
-    }
-    if (name.includes('read')) {
-      return 'Read';
-    }
-    if (name.includes('search') || name.includes('grep') || name.includes('find')) {
-      return 'Search';
-    }
-    if (name.includes('bash') || name.includes('shell') || name.includes('exec')) {
-      return 'Run';
-    }
-    // An unknown tool keeps its own name rather than a wrong verb.
-    return item.name;
+    return toolVerb(item);
   }
 
   /**
@@ -630,48 +616,25 @@ export class ToolGroup {
    * cannot push the diff off the row.
    */
   protected compactTarget(item: ToolTranscriptItem): string {
-    if (this.glyphClass(item) !== 'shell') {
+    if (toolKind(item.name) !== 'shell') {
       return this.target(item).base;
     }
-    const flat = rawTitle(item).replace(/\s+/g, ' ').trim();
+    const flat = toolTitle(item).replace(/\s+/g, ' ').trim();
     return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat;
   }
 
-  /**
-   * The file a step changed, for the child row under it, or `null` when the step
-   * is not a file edit (a shell command, a search, a read). Only edits grow a
-   * child: the file is what the action produced, and repeating it under a read
-   * would just echo the parent row.
-   */
+  /** The file a step changed, for the child row under it (see `toolChangedFile`). */
   protected fileOf(item: ToolTranscriptItem): string | null {
-    const name = item.name.toLowerCase();
-    const editsFile =
-      name.includes('edit') || name.includes('write') || name.includes('patch');
-    if (!editsFile) {
-      return null;
-    }
-    const raw = rawTitle(item);
-    return raw.length > 0 && raw !== item.name ? raw : null;
+    return toolChangedFile(item);
   }
 
   /** The file name alone, so a long path does not push the row out of view. */
   protected basename(path: string): string {
-    const clean = path.replace(/[\\/]+$/, '');
-    const cut = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
-    return cut === -1 ? clean : clean.slice(cut + 1);
+    return toolFileName(path);
   }
 
   protected glyph(item: ToolTranscriptItem): string {
-    switch (this.glyphClass(item)) {
-      case 'edit':
-        return '✎';
-      case 'shell':
-        return '❯';
-      case 'search':
-        return '⌕';
-      default:
-        return '☰';
-    }
+    return toolGlyph(item);
   }
 
   private totalMs(): number {
@@ -683,13 +646,6 @@ export class ToolGroup {
       return sum + (step.item.durationMs ?? 0);
     }, 0);
   }
-}
-
-/** The tool title without the `name: ` prefix pi prefixes it with. */
-function rawTitle(item: ToolTranscriptItem): string {
-  return item.title.startsWith(`${item.name}: `)
-    ? item.title.slice(item.name.length + 2)
-    : item.title;
 }
 
 function formatDuration(ms: number): string {
