@@ -25,6 +25,10 @@ export type HostCommand =
   | 'gitLog'
   | 'gitStatus'
   | 'gitDiff'
+  /** Stage the named paths in the viewing session's repository. */
+  | 'gitStage'
+  /** Unstage the named paths (keep the working-tree change). */
+  | 'gitUnstage'
   | 'openSettings'
   | 'showOutput'
   | 'copyToClipboard'

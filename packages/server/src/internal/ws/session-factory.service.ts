@@ -18,7 +18,13 @@ import {
 import { saveUpload } from '../uploads/upload-store.js';
 import { browseDirectory } from '../workspace/directory-browser.js';
 import { readWorkspaceFile } from '../workspace/file-store.js';
-import { readGitDiff, readGitLog, readGitStatus } from '../workspace/git-log.js';
+import {
+  readGitDiff,
+  readGitLog,
+  readGitStatus,
+  stageGitPaths,
+  unstageGitPaths,
+} from '../workspace/git-log.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 
@@ -182,6 +188,17 @@ export class MorseSessionFactory {
         }
         return readGitDiff(cwd, path);
       }
+      case 'gitStage': {
+        // Staging writes the index of the viewing session's repository. Paths are
+        // resolved inside it, exactly like `readFile`, and the answer is the
+        // fresh working tree so the panel updates in one round trip.
+        const cwd = this.requireWritableCwd(context);
+        return stageGitPaths(cwd, gitPaths(args));
+      }
+      case 'gitUnstage': {
+        const cwd = this.requireWritableCwd(context);
+        return unstageGitPaths(cwd, gitPaths(args));
+      }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);
     }
@@ -209,4 +226,13 @@ export class MorseSessionFactory {
     const workspace = key === undefined ? undefined : this.registry.stateOf(key)?.workspace;
     return workspace?.cwd ?? this.registry.defaultWorkspace.cwd;
   }
+}
+
+/** The `paths` argument of a `gitStage`/`gitUnstage` command, with bad entries dropped. */
+function gitPaths(args: Record<string, unknown> | undefined): string[] {
+  const paths = args?.paths;
+  if (!Array.isArray(paths)) {
+    return [];
+  }
+  return paths.filter((path): path is string => typeof path === 'string' && path.length > 0);
 }

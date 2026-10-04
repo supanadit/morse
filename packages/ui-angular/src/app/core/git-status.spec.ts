@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { asGitStatus, changeKind, statusByPath } from './git-status';
+import {
+  asGitStatus,
+  changeKind,
+  isStaged,
+  isUnstaged,
+  stagedKind,
+  statusByPath,
+  unstagedKind,
+} from './git-status';
 
 describe('changeKind', () => {
   it('reads a porcelain code as the badge letter', () => {
@@ -15,6 +23,35 @@ describe('changeKind', () => {
 
   it('ignores a clean entry', () => {
     expect(changeKind('  ')).toBeUndefined();
+  });
+});
+
+describe('staged and unstaged sides', () => {
+  it('splits the two letters of the code', () => {
+    // `X` is the index, `Y` the working tree.
+    expect([isStaged(' M'), isUnstaged(' M')]).toEqual([false, true]);
+    expect([isStaged('M '), isUnstaged('M ')]).toEqual([true, false]);
+    expect([isStaged('A '), isUnstaged('A ')]).toEqual([true, false]);
+    expect([isStaged('??'), isUnstaged('??')]).toEqual([false, true]);
+  });
+
+  it('puts a path edited on both sides in both lists', () => {
+    expect([isStaged('MM'), isUnstaged('MM')]).toEqual([true, true]);
+  });
+
+  it('leaves a conflict unstaged until it is resolved', () => {
+    expect([isStaged('UU'), isUnstaged('UU')]).toEqual([false, true]);
+    expect([isStaged('AA'), isUnstaged('AA')]).toEqual([false, true]);
+  });
+
+  it('reads each side\u2019s own badge', () => {
+    // An added-then-modified file: `A` in the index, `M` in the working tree.
+    expect(stagedKind('AM')).toBe('A');
+    expect(unstagedKind('AM')).toBe('M');
+    expect(stagedKind(' D')).toBeUndefined();
+    expect(unstagedKind(' D')).toBe('D');
+    expect(unstagedKind('??')).toBe('U');
+    expect(unstagedKind('UU')).toBe('C');
   });
 });
 

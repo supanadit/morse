@@ -127,6 +127,37 @@ export async function readGitDiff(cwd: string, requested: string): Promise<GitDi
   return { path: rel, diff: diff ?? '' };
 }
 
+/**
+ * Stages the named paths in the viewing session's repository (`git add`). Paths
+ * are resolved inside `cwd` exactly like `readFile`, so a client cannot stage
+ * anything outside its project. The fresh working tree comes back as the answer,
+ * so the panel updates without a second `gitStatus` round trip.
+ */
+export async function stageGitPaths(cwd: string, requested: readonly string[]): Promise<GitStatus> {
+  const paths = resolvePaths(cwd, requested);
+  if (paths.length > 0) {
+    await gitRun(['add', '--', ...paths], cwd);
+  }
+  return readGitStatus(cwd);
+}
+
+/**
+ * Unstages the named paths (`git reset HEAD`), keeping the working-tree change:
+ * a staged edit becomes an unstaged one, and an added file becomes untracked
+ * again. An unborn `HEAD` (a repository with no commits) cannot be reset, so the
+ * entry is removed from the index directly instead.
+ */
+export async function unstageGitPaths(cwd: string, requested: readonly string[]): Promise<GitStatus> {
+  const paths = resolvePaths(cwd, requested);
+  if (paths.length > 0) {
+    const reset = await gitRun(['reset', '--quiet', 'HEAD', '--', ...paths], cwd);
+    if (!reset) {
+      await gitRun(['rm', '--cached', '--quiet', '--', ...paths], cwd);
+    }
+  }
+  return readGitStatus(cwd);
+}
+
 /** Paths read with `/` on every platform, the way pi prints them. */
 function toPosix(path: string): string {
   return path.split('\\').join('/');
@@ -185,6 +216,25 @@ function gitText(args: string[], cwd: string): Promise<string | undefined> {
       args,
       { cwd, timeout: 5_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
       (error, stdout) => resolve(error ? undefined : stdout),
+    );
+  });
+}
+
+/** Resolves client paths inside `cwd` and normalises them to `/` separators. */
+function resolvePaths(cwd: string, requested: readonly string[]): string[] {
+  return requested
+    .filter((path): path is string => typeof path === 'string' && path.length > 0)
+    .map((path) => toPosix(relative(cwd, resolveWithin(cwd, path))));
+}
+
+/** A mutation: true when git accepted it, false when it failed (e.g. unborn HEAD). */
+function gitRun(args: string[], cwd: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      args,
+      { cwd, timeout: 5_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+      (error) => resolve(error === null),
     );
   });
 }

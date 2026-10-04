@@ -12,7 +12,7 @@ import { MorseService } from '../core/morse.service';
 import { ShellState } from '../core/shell-state';
 import { GitPanelState } from '../core/git-panel-state';
 import { layoutGraph, type GraphEdge, type GraphRow } from '../core/git-graph';
-import { changeKind, type ChangeKind } from '../core/git-status';
+import { isStaged, isUnstaged, stagedKind, unstagedKind, type ChangeKind } from '../core/git-status';
 import { WorkspaceFiles } from '../core/workspace-files';
 import { WorkspaceTabs } from '../core/workspace-tabs';
 
@@ -306,17 +306,71 @@ const GIT_RESIZE_MIN_CHAT = 180;
         font-size: 10.5px;
         color: var(--morse-fg-muted);
       }
+      .change-group {
+        display: flex;
+        flex-direction: column;
+      }
+      .change-group + .change-group {
+        border-top: 1px solid var(--morse-border);
+      }
+      /* A quiet sub-heading naming which side of the porcelain code the rows are. */
+      .change-group-head {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px 3px;
+        color: var(--morse-fg-muted);
+        font-size: 10.5px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .change-group-count {
+        font-size: 10.5px;
+        color: var(--morse-fg-muted);
+      }
+      /* Fold/unfold all of a group's paths at once. */
+      .group-action,
+      .change-action {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font: inherit;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .group-action {
+        width: 18px;
+        height: 18px;
+        font-size: 14px;
+        text-transform: none;
+      }
+      .group-action:hover:not(:disabled) {
+        background: var(--morse-border);
+        color: var(--morse-fg);
+      }
       .change-list {
         margin: 0;
         padding: 0 0 6px;
         list-style: none;
       }
+      .change-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
       .change {
         display: flex;
         align-items: center;
         gap: 6px;
-        width: 100%;
-        padding: 2px 10px;
+        flex: 1;
+        min-width: 0;
+        padding: 2px 2px 2px 10px;
         border: 0;
         background: none;
         color: var(--morse-fg);
@@ -326,6 +380,27 @@ const GIT_RESIZE_MIN_CHAT = 180;
       }
       .change:hover:not(:disabled) {
         background: var(--morse-hover);
+      }
+      /* The stage/unstage affordance is quiet until the row is under the pointer. */
+      .change-action {
+        width: 20px;
+        height: 20px;
+        margin-right: 6px;
+        font-size: 13px;
+        opacity: 0;
+      }
+      .change-row:hover .change-action,
+      .change-action:focus-visible {
+        opacity: 1;
+      }
+      .change-action:hover:not(:disabled) {
+        background: var(--morse-border);
+        color: var(--morse-fg);
+      }
+      .change-action:disabled,
+      .group-action:disabled {
+        opacity: 0.35;
+        cursor: default;
       }
       .change-dir {
         min-width: 0;
@@ -658,21 +733,39 @@ export class GitPanel {
   protected readonly changesCollapsed = this.shell.gitChangesCollapsed;
   protected readonly historyCollapsed = this.shell.gitHistoryCollapsed;
   private readonly changesHeight = this.shell.gitChangesHeight;
-  /** The uncommitted changes, from the shared working-tree poll. */
-  protected readonly changes = computed<ChangeView[]>(() => {
+  /** True while a stage/unstage round trip is in flight, so the rows stay quiet. */
+  protected readonly staging = signal(false);
+  /**
+   * The uncommitted changes, from the shared working-tree poll, split the way
+   * `git status` does: the index (`X`) is Staged Changes, the working tree (`Y`)
+   * is Changes. A path edited in both sides (`MM`) appears in both lists.
+   */
+  protected readonly staged = computed<ChangeView[]>(() => this.changesFor('staged'));
+  protected readonly unstaged = computed<ChangeView[]>(() => this.changesFor('unstaged'));
+  /** Distinct changed paths, so a file edited on both sides counts once. */
+  protected readonly changedCount = computed(() => {
+    const status = this.workspace.status();
+    return status?.isRepo ? status.files.length : 0;
+  });
+
+  private changesFor(side: 'staged' | 'unstaged'): ChangeView[] {
     const status = this.workspace.status();
     if (status === undefined || !status.isRepo) {
       return [];
     }
     const changes: ChangeView[] = [];
     for (const file of status.files) {
-      const kind = changeKind(file.status);
+      const wanted = side === 'staged' ? isStaged(file.status) : isUnstaged(file.status);
+      if (!wanted) {
+        continue;
+      }
+      const kind = side === 'staged' ? stagedKind(file.status) : unstagedKind(file.status);
       if (kind !== undefined) {
         changes.push({ path: file.path, kind });
       }
     }
     return changes.sort((a, b) => a.path.localeCompare(b.path));
-  });
+  }
   protected readonly rowHeight = ROW_HEIGHT;
   protected readonly copied = signal<string | undefined>(undefined);
 
@@ -741,6 +834,50 @@ export class GitPanel {
   /** Opens a changed file in a preview tab, the way the Explorer does. */
   protected openChange(path: string): void {
     this.tabs.openFile(path);
+  }
+
+  /** Moves one path into the index (`git add`). */
+  protected stage(path: string): void {
+    void this.runStage([path]);
+  }
+
+  /** Takes one path back out of the index, keeping the working-tree change. */
+  protected unstage(path: string): void {
+    void this.runUnstage([path]);
+  }
+
+  /** Every unstaged path into the index at once. */
+  protected stageAll(): void {
+    void this.runStage(this.unstaged().map((change) => change.path));
+  }
+
+  /** Every staged path back out of the index at once. */
+  protected unstageAll(): void {
+    void this.runUnstage(this.staged().map((change) => change.path));
+  }
+
+  private async runStage(paths: string[]): Promise<void> {
+    if (paths.length === 0 || this.staging()) {
+      return;
+    }
+    this.staging.set(true);
+    try {
+      await this.workspace.stage(paths);
+    } finally {
+      this.staging.set(false);
+    }
+  }
+
+  private async runUnstage(paths: string[]): Promise<void> {
+    if (paths.length === 0 || this.staging()) {
+      return;
+    }
+    this.staging.set(true);
+    try {
+      await this.workspace.unstage(paths);
+    } finally {
+      this.staging.set(false);
+    }
   }
 
   /** The directory part of a path, with its trailing slash, for the muted label. */

@@ -78,6 +78,39 @@ export class WorkspaceFiles {
   }
 
   /**
+   * Stages the named paths in the viewing session's repository. The host answers
+   * with the fresh working tree, so the panel updates without a second poll; a
+   * host that cannot answer leaves the status to resync instead.
+   */
+  async stage(paths: readonly string[]): Promise<boolean> {
+    return this.mutate('gitStage', paths);
+  }
+
+  /** Unstages the named paths, keeping the working-tree change. */
+  async unstage(paths: readonly string[]): Promise<boolean> {
+    return this.mutate('gitUnstage', paths);
+  }
+
+  private async mutate(
+    command: 'gitStage' | 'gitUnstage',
+    paths: readonly string[],
+  ): Promise<boolean> {
+    if (paths.length === 0) {
+      return true;
+    }
+    const result = await this.morse.requestHostCommand(command, { paths: [...paths] });
+    const status = asGitStatus(result);
+    if (status === undefined) {
+      // No usable answer (an older host): fall back to a full resync so the
+      // panel is not left showing a state that is no longer true.
+      this.refresh();
+      return false;
+    }
+    this.statuses.set(status);
+    return true;
+  }
+
+  /**
    * Loads the list if it is missing or stale; safe to call repeatedly. A
    * background poll does not raise `busy`, so neither surface flashes a spinner
    * every few seconds while nothing the reader asked for is pending.

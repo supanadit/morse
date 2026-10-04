@@ -166,6 +166,12 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   Explorer uses, so it stays live; a click opens the file in a preview tab) and the **graph** below,
   which pages towards the root commit as it scrolls. Each section folds from its own header, and a
   drag handle between them sets the changes height (persisted in `ShellState`, like the Explorer's).
+- The changes list is split the way `git status` reads: the index (`X`) is **Staged** and the
+  working tree (`Y`) is **Unstaged**, so a path edited on both sides (`MM`) appears in both. Each row
+  has a `+`/`−` action and each group header stages or unstages the whole group through `gitStage` /
+  `gitUnstage` (`{ paths }` → the fresh `gitStatus`; `core/git-status.ts` owns the `X`/`Y` split). The
+  host resolves every path inside the viewing session's directory, like `readFile`, and answers with
+  the new working tree so the list updates in one round trip.
 - The history is read with `git log --all --date-order` and capped (250 by default, 500 hard), so a
   long repository stays readable. VS Code never loads this — the capability, the shortcut row and
   the panel are all gated on `capabilities.gitPanel`.

@@ -55,6 +55,8 @@ export class MemoryHostTransport extends BaseHostTransport {
 
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private items: TranscriptItem[] = isBlankSession() ? [] : mockConversation();
+  /** Scripted working tree the mock stages/unstages against. */
+  private gitFiles = MOCK_GIT_STATUS.files.map((file) => ({ ...file }));
   /** Persisted-looking catalog; `session/new` prepends to it like a real host. */
   private sessions: SessionSummary[] = mockSessions();
   /** Registry keys of live agent processes, so several can animate at once. */
@@ -266,7 +268,26 @@ export class MemoryHostTransport extends BaseHostTransport {
         if (message.payload.command === 'gitStatus' && message.payload.requestId) {
           this.emit({
             type: 'host/command/result',
-            payload: { requestId: message.payload.requestId, ok: true, data: MOCK_GIT_STATUS },
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: { isRepo: true, files: this.gitFiles },
+            },
+          });
+          return;
+        }
+        if (
+          (message.payload.command === 'gitStage' || message.payload.command === 'gitUnstage') &&
+          message.payload.requestId
+        ) {
+          this.applyGitMutation(message.payload.command, message.payload.args?.paths);
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: { isRepo: true, files: this.gitFiles },
+            },
           });
           return;
         }
@@ -303,6 +324,35 @@ export class MemoryHostTransport extends BaseHostTransport {
     this.disposed = true;
     this.abortRun();
     this.emitStatus('closed');
+  }
+
+  /**
+   * Moves mock paths between the index and the working tree, so the panel's
+   * stage/unstage round trip is reviewable without a real repository. The
+   * two-letter code is rewritten the way `git status` would print it.
+   */
+  private applyGitMutation(command: 'gitStage' | 'gitUnstage', paths: unknown): void {
+    if (!Array.isArray(paths)) {
+      return;
+    }
+    const wanted = new Set(paths.filter((path): path is string => typeof path === 'string'));
+    this.gitFiles = this.gitFiles.map((file) => {
+      if (!wanted.has(file.path)) {
+        return file;
+      }
+      const index = file.status[0] ?? ' ';
+      const worktree = file.status[1] ?? ' ';
+      if (command === 'gitStage') {
+        const staged = worktree === '?' ? 'A' : worktree === ' ' ? index : worktree;
+        return { ...file, status: `${staged} ` };
+      }
+      // Unstage: a newly added file becomes untracked again; anything else keeps
+      // its change but moves it to the working-tree side.
+      if (index === 'A') {
+        return { ...file, status: '??' };
+      }
+      return { ...file, status: ` ${worktree === ' ' ? index : worktree}` };
+    });
   }
 
   /**

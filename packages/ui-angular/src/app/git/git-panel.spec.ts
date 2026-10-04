@@ -33,7 +33,17 @@ const LOG = {
   ],
 };
 
-function setup(result: unknown, options: { status?: unknown; files?: string[] } = {}) {
+function setup(
+  result: unknown,
+  options: {
+    status?: unknown;
+    files?: string[];
+    /** Read the mock working tree each time (a staging test mutates it). */
+    getStatus?: () => unknown;
+    /** Answer `gitStage`/`gitUnstage`; return the fresh working tree. */
+    onGitMutation?: (command: string, paths: string[]) => unknown;
+  } = {},
+) {
   const fake = {
     workspace: signal({ cwd: '/mock/workspace', name: 'morse' }),
     capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
@@ -41,12 +51,20 @@ function setup(result: unknown, options: { status?: unknown; files?: string[] } 
       sessionId: undefined,
       workspace: { cwd: '/mock/workspace', name: 'morse' },
     }),
-    requestHostCommand: vi.fn((command: string) => {
+    requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) => {
       if (command === 'listFiles') {
         return Promise.resolve({ files: options.files ?? [] });
       }
       if (command === 'gitStatus') {
-        return Promise.resolve(options.status);
+        return Promise.resolve(options.getStatus ? options.getStatus() : options.status);
+      }
+      if (command === 'gitStage' || command === 'gitUnstage') {
+        const paths = Array.isArray(args?.['paths'])
+          ? (args!['paths'] as string[]).filter((path) => typeof path === 'string')
+          : [];
+        return Promise.resolve(
+          options.onGitMutation ? options.onGitMutation(command, paths) : options.status,
+        );
       }
       return Promise.resolve(result);
     }),
@@ -163,6 +181,117 @@ describe('GitPanel', () => {
 
     host.querySelector<HTMLButtonElement>('.change')?.click();
     expect(TestBed.inject(WorkspaceTabs).tabs().map((tab) => tab.id)).toEqual(['file:a.ts']);
+  });
+
+  it('splits the working tree into staged and unstaged groups', async () => {
+    const status = {
+      isRepo: true,
+      files: [
+        { path: 'staged.ts', status: 'M ' },
+        { path: 'unstaged.ts', status: ' M' },
+        { path: 'untracked.ts', status: '??' },
+        { path: 'both.ts', status: 'MM' },
+      ],
+    };
+    const { fixture } = setup(LOG, { files: [], getStatus: () => status });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const groups = [...host.querySelectorAll('.change-group')];
+    const names = (group: Element) =>
+      [...group.querySelectorAll('.change-name')].map((node) => node.textContent?.trim());
+    expect(groups).toHaveLength(2);
+    expect(names(groups[0]!)).toEqual(['both.ts', 'staged.ts']);
+    expect(names(groups[1]!)).toEqual(['both.ts', 'unstaged.ts', 'untracked.ts']);
+    expect(host.querySelector('.change-group-title')?.textContent?.trim()).toBe('Staged');
+  });
+
+  it('stages an unstaged path from its row', async () => {
+    let status: unknown = { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] };
+    const calls: Array<{ command: string; paths: string[] }> = [];
+    const { fixture } = setup(LOG, {
+      files: [],
+      getStatus: () => status,
+      onGitMutation: (command, paths) => {
+        calls.push({ command, paths });
+        status = { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] };
+        return status;
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const unstaged = [...host.querySelectorAll('.change-group')][0]!;
+    unstaged.querySelector<HTMLButtonElement>('.change-action')?.click();
+    await settle(fixture);
+
+    expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts'] }]);
+    const staged = [...host.querySelectorAll('.change-group')][0]!;
+    expect([...staged.querySelectorAll('.change-name')].map((node) => node.textContent?.trim())).toEqual([
+      'a.ts',
+    ]);
+  });
+
+  it('unstages a staged path from its row', async () => {
+    let status: unknown = { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] };
+    const calls: Array<{ command: string; paths: string[] }> = [];
+    const { fixture } = setup(LOG, {
+      files: [],
+      getStatus: () => status,
+      onGitMutation: (command, paths) => {
+        calls.push({ command, paths });
+        status = { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] };
+        return status;
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const staged = [...host.querySelectorAll('.change-group')][0]!;
+    staged.querySelector<HTMLButtonElement>('.change-action')?.click();
+    await settle(fixture);
+
+    expect(calls).toEqual([{ command: 'gitUnstage', paths: ['a.ts'] }]);
+    const unstaged = [...host.querySelectorAll('.change-group')][0]!;
+    expect([...unstaged.querySelectorAll('.change-name')].map((node) => node.textContent?.trim())).toEqual([
+      'a.ts',
+    ]);
+  });
+
+  it('stages every unstaged path from the group header', async () => {
+    let status: unknown = {
+      isRepo: true,
+      files: [
+        { path: 'a.ts', status: ' M' },
+        { path: 'b.ts', status: '??' },
+        { path: 'c.ts', status: 'M ' },
+      ],
+    };
+    const calls: Array<{ command: string; paths: string[] }> = [];
+    const { fixture } = setup(LOG, {
+      files: [],
+      getStatus: () => status,
+      onGitMutation: (command, paths) => {
+        calls.push({ command, paths });
+        status = {
+          isRepo: true,
+          files: [
+            { path: 'a.ts', status: 'M ' },
+            { path: 'b.ts', status: 'A ' },
+            { path: 'c.ts', status: 'M ' },
+          ],
+        };
+        return status;
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const unstaged = [...host.querySelectorAll('.change-group')][1]!;
+    unstaged.querySelector<HTMLButtonElement>('.group-action')?.click();
+    await settle(fixture);
+
+    expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts', 'b.ts'] }]);
   });
 
   it('folds the changes section away from its header', async () => {

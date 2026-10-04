@@ -29,6 +29,68 @@ export function changeKind(code: string): ChangeKind | undefined {
   return undefined;
 }
 
+/**
+ * An unmerged/conflicted entry. `git status` prints these as `UU`, `AA`, `DD`
+ * and friends: none of them is a staged change, so the panel leaves them in the
+ * unstaged list until `git add` marks them resolved.
+ */
+function isConflict(code: string): boolean {
+  return code.includes('U') || code === 'AA' || code === 'DD';
+}
+
+/** True when the index holds a change for this path (the `X` letter). */
+export function isStaged(code: string): boolean {
+  if (isConflict(code)) {
+    return false;
+  }
+  const index = code[0];
+  return index !== undefined && index !== ' ' && index !== '?';
+}
+
+/** True when the working tree holds a change for this path (the `Y` letter). */
+export function isUnstaged(code: string): boolean {
+  if (isConflict(code) || code === '??') {
+    return true;
+  }
+  const worktree = code[1];
+  return worktree !== undefined && worktree !== ' ' && worktree !== '?';
+}
+
+/** The badge for a path's staged side: the `X` letter alone. */
+export function stagedKind(code: string): ChangeKind | undefined {
+  return letterKind(code[0]);
+}
+
+/** The badge for a path's unstaged side: the `Y` letter alone. */
+export function unstagedKind(code: string): ChangeKind | undefined {
+  if (code === '??') {
+    return 'U';
+  }
+  if (isConflict(code)) {
+    return 'C';
+  }
+  return letterKind(code[1]);
+}
+
+function letterKind(letter: string | undefined): ChangeKind | undefined {
+  switch (letter) {
+    case '?':
+      return 'U';
+    case 'M':
+    case 'T':
+      return 'M';
+    case 'A':
+      return 'A';
+    case 'D':
+      return 'D';
+    case 'R':
+    case 'C':
+      return 'R';
+    default:
+      return undefined;
+  }
+}
+
 /** Validates the host's answer: a host command reply is `unknown` on the wire. */
 export function asGitStatus(value: unknown): GitStatus | undefined {
   if (typeof value !== 'object' || value === null) {
