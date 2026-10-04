@@ -5,6 +5,7 @@ import {
   formatCost,
   formatTokens,
   formatUsage,
+  formatUsageValue,
 } from '../../core/usage-format';
 
 const RADIUS = 15.5;
@@ -300,11 +301,7 @@ export class UsageIndicator {
   });
 
   protected lastValue(key: keyof TokenUsage): string {
-    const usage = this.lastUsage();
-    if (!usage) {
-      return '—';
-    }
-    return formatTokens((usage[key] as number | undefined) ?? 0);
+    return formatUsageValue(this.lastUsage(), key);
   }
 
   protected toggle(): void {

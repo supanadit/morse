@@ -18,6 +18,17 @@ export function formatTokens(count: number): string {
 }
 
 /**
+ * One cell of the "last assistant message" grid. A field the provider did not
+ * report reads as `—`, not `0`: pi coerces a missing reasoning breakdown to 0,
+ * so `0` would claim the model did not think when the truth is that nobody
+ * counted it. Same honesty rule as `cacheHitRate`.
+ */
+export function formatUsageValue(usage: TokenUsage | undefined, key: keyof TokenUsage): string {
+  const value = usage?.[key];
+  return typeof value === 'number' ? formatTokens(value) : '—';
+}
+
+/**
  * Prompt-cache efficiency: the share of the prompt served from cache. `undefined`
  * when the provider reports no caching at all, so the UI can stay quiet instead
  * of showing a misleading `0%`.
