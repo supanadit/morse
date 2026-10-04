@@ -120,6 +120,8 @@ interface Harness extends FreshClient {
   removed: string[];
   /** Spawns over the whole harness: a warm reattach never adds one. */
   spawns(): number;
+  /** Session-less draft probes: how often the draft asked pi for its catalog. */
+  probes(): number;
   replaces(): TranscriptItem[][];
   lastState(): SessionViewState | undefined;
   /** A reconnecting client: same registry and transcripts, a fresh sink. */
@@ -155,6 +157,8 @@ function harness(options: {
   fork?: { text: string; sessionId: string };
   /** The factory refuses instead of returning a gateway: "pi is not installed". */
   spawnError?: Error;
+  /** The draft probe refuses too: the same missing pi, seen before any prompt. */
+  probeError?: Error;
   agentHint?: string;
   refreshCommands?: () => Promise<void>;
 } = {}): Harness {
@@ -169,6 +173,7 @@ function harness(options: {
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
   });
   const spawns = { count: 0 };
+  const probes = { count: 0 };
   const factory: AgentGatewayFactory = {
     create: () => {
       spawns.count += 1;
@@ -176,6 +181,14 @@ function harness(options: {
         ? Promise.reject(options.spawnError)
         : Promise.resolve(gateway);
     },
+    ...(options.probeError
+      ? {
+          probeDefaults: () => {
+            probes.count += 1;
+            return Promise.reject(options.probeError);
+          },
+        }
+      : {}),
   };
   const removed: string[] = [];
   const registry = new SessionRegistry({
@@ -202,6 +215,7 @@ function harness(options: {
     controller,
     removed,
     spawns: () => spawns.count,
+    probes: () => probes.count,
     replaces: () => messages
       .filter(
         (message): message is Extract<HostToClientMessage, { type: 'transcript/replace' }> =>
@@ -392,6 +406,57 @@ describe('HostSessionController failures', () => {
     // An unknown failure must not be dressed up as "not installed": the frontend
     // would offer the wrong remedy.
     expect(h.lastState()?.agentFailure).toEqual({ hint: 'Check the pi path.' });
+  });
+
+  it('reports a missing pi on load, before any prompt is sent', async () => {
+    const error = new AgentUnavailableError('The pi coding agent was not found.', {
+      remedy: { install: 'npm install -g @earendil-works/pi-coding-agent' },
+    });
+    const h = harness({ probeError: error, agentHint: 'Install the pi CLI.' });
+    await h.controller.start();
+
+    // The probe is fired without blocking the handshake, so the state lands a
+    // beat after the handshake — exactly like the model pickers do.
+    const state = await vi.waitFor(() => {
+      const current = h.lastState();
+      expect(current?.agentFailure).toBeDefined();
+      return current as SessionViewState;
+    });
+    expect(state.agentReady).toBe(false);
+    expect(state.agentFailure).toEqual({
+      code: 'agent-unavailable',
+      install: 'npm install -g @earendil-works/pi-coding-agent',
+      hint: 'Install the pi CLI.',
+    });
+    // The empty draft carried the truth to the reader; nothing was recorded and
+    // no prompt was needed to discover the agent is gone.
+    expect(h.spawns()).toBe(0);
+  });
+
+  it('keeps a transient draft-probe failure out of the panel', async () => {
+    const h = harness({ probeError: new Error('probe timed out'), agentHint: 'Install the pi CLI.' });
+    await h.controller.start();
+    await vi.waitFor(() => expect(h.probes()).toBe(1));
+
+    // Only "the agent is not there" is the reader's problem. A timeout or a
+    // protocol slip leaves the pickers empty and waits for a real spawn to say so.
+    expect(h.lastState()?.agentFailure).toBeUndefined();
+    expect(h.lastState()?.agentError).toBeUndefined();
+  });
+
+  it('re-probes the draft on the next attempt, so Retry can reach a freshly installed pi', async () => {
+    const h = harness({
+      probeError: new AgentUnavailableError('The pi coding agent was not found.'),
+      agentHint: 'Install the pi CLI.',
+    });
+    await h.controller.start();
+    await vi.waitFor(() => expect(h.lastState()?.agentFailure).toBeDefined());
+    expect(h.probes()).toBe(1);
+
+    // "New session" (the setup screen's Retry) rebuilds the draft; the failed
+    // probe must not be cached, or Retry could never succeed after installing pi.
+    await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
+    expect(h.probes()).toBe(2);
   });
 
   it('a rejected compact lands in the transcript — never on the wire error channel', async () => {

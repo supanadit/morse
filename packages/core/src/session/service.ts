@@ -216,7 +216,14 @@ export class SessionRegistry {
     if (this.draftCache) {
       return this.draftCache;
     }
-    this.draftProbe ??= this.probeDraft();
+    if (!this.draftProbe) {
+      // A rejected probe must not be memoized: the setup screen's Retry (or the
+      // next draft) has to be able to reach pi once the user installed it.
+      this.draftProbe = this.probeDraft().catch((error: unknown) => {
+        this.draftProbe = undefined;
+        throw error;
+      });
+    }
     return this.draftProbe;
   }
 
@@ -469,9 +476,13 @@ export class SessionRegistry {
       await gateway.dispose();
       return state;
     } catch (error: unknown) {
-      // The draft state stays valid without a catalog: the pickers simply stay
-      // empty, and the real (recorded) spawn surfaces any backend problem with
-      // its actionable hint.
+      // A missing (or un-spawnable) pi is not "no catalog": the empty panel has
+      // to say so on load, not only once the first prompt fails. Every other
+      // probe failure — a timeout, a protocol slip — keeps the pickers empty and
+      // lets the real (recorded) spawn surface it with its actionable hint.
+      if (error instanceof AgentUnavailableError) {
+        throw error;
+      }
       this.deps.logger.warn('Could not probe the draft model catalog', error);
       return undefined;
     }

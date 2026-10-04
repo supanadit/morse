@@ -362,7 +362,19 @@ export class HostSessionController {
 
   /** Fills the draft pickers from the registry's session-less probe. */
   private async warmDraft(): Promise<void> {
-    this.draftCatalog = await this.options.services.registry.draftDefaults();
+    try {
+      this.draftCatalog = await this.options.services.registry.draftDefaults();
+    } catch (error: unknown) {
+      // The session-less probe is where a missing pi shows up on load. Without
+      // this the draft looked healthy (empty pickers) until the first prompt
+      // failed to spawn, and a reader with a restored ~/.pi — sessions in the
+      // sidebar, no binary on PATH — had no way to know the agent was gone.
+      this.agentError = describeError(error);
+      this.agentFailure = describeAgentFailure(error, this.options.agentHint);
+      this.options.logger.warn('Could not probe the draft model catalog', error);
+      this.emitState();
+      return;
+    }
     // The catalog lands a moment after the handshake; this refresh is what
     // turns the disabled "no model" pickers on while the reader is looking.
     if (this.activeKey === undefined && !this.disposed) {
