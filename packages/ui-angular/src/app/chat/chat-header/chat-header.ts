@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
+import { DisplayPrefs } from '../../core/display-prefs';
 import { ShellState } from '../../core/shell-state';
 
 @Component({
@@ -159,6 +160,7 @@ import { ShellState } from '../../core/shell-state';
 export class ChatHeader {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly display = inject(DisplayPrefs);
 
   protected readonly state = this.morse.state;
   protected readonly connection = this.morse.connection;
@@ -167,6 +169,8 @@ export class ChatHeader {
   protected readonly navigationOpen = this.shell.navigationOpen;
   /** Wide layouts: the sidebar is folded away and this button brings it back. */
   protected readonly collapsed = this.shell.navigationCollapsed;
+  /** The reader's chosen tool-call density, toggled from the toolbar. */
+  protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
 
   /** The happy path lives in the dot: no banner needed while it is healthy. */
   protected readonly status = computed(() => {
@@ -241,5 +245,10 @@ export class ChatHeader {
   protected compact(): void {
     // Never straight to the agent: the dialog owns the question (see ShellState).
     this.shell.requestCompact();
+  }
+
+  /** Flips between the detailed timeline and the compact summary, and remembers it. */
+  protected toggleToolDisplay(): void {
+    this.display.toggleToolDisplay();
   }
 }

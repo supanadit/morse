@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import type { ToolTranscriptItem } from '@morse/protocol';
 import { AnimationService } from '../../core/animation.service';
+import { DisplayPrefs } from '../../core/display-prefs';
 import { EnterDirective } from '../../shared/enter.directive';
 import type { ProcessStep } from '../transcript-rows';
 
@@ -35,6 +36,11 @@ interface ToolDiff {
  * Every step is a card that opens its own detail (input/output, full thinking
  * text), and cards animate in one after another so a long turn reads as
  * progress instead of a wall of text.
+ *
+ * The reader can also choose the `compact` display (see `DisplayPrefs`): then
+ * the live turn stays folded, the header is followed by a single line naming the
+ * newest action, thinking notes are dropped, and the steps lose their card
+ * chrome. Same data, two densities.
  */
 @Component({
   selector: 'morse-tool-group',
@@ -132,6 +138,126 @@ interface ToolDiff {
         padding: 0;
         list-style: none;
         overflow: hidden;
+      }
+      /*
+       * Compact turns are a tree, not a stack of cards. The guide line is what
+       * makes a step read as a child of the turn summary instead of a sibling
+       * at the same level, and each node hangs a file child off it.
+       */
+      .tree {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 6px 0 2px 6px;
+        padding: 0 0 0 14px;
+        border-left: 1px solid var(--morse-guide);
+        list-style: none;
+      }
+      .node {
+        position: relative;
+        min-width: 0;
+      }
+      /* The horizontal tick that joins a node to the guide line above it. */
+      .node::before {
+        content: '';
+        position: absolute;
+        left: -14px;
+        top: 11px;
+        width: 8px;
+        height: 1px;
+        background: var(--morse-guide);
+      }
+      .node-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        width: 100%;
+        min-width: 0;
+        padding: 2px 6px 2px 0;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .node-row:hover {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+      }
+      /* A tree body is a nested detail fold under its node, not a card body. */
+      .node .body {
+        margin: 2px 0;
+        padding: 2px 6px 6px 14px;
+        border-left: 1px solid var(--morse-guide);
+      }
+      .node-row .verb {
+        flex: none;
+        color: var(--morse-fg);
+      }
+      .node-row .target {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--morse-font-mono);
+        font-size: 11.5px;
+      }
+      /* A thinking preview is prose, not a command or a path. */
+      .node-row .target.thought {
+        font-family: var(--morse-font);
+        font-size: 12px;
+      }
+      .glyph.thinking {
+        color: var(--morse-typename);
+      }
+      /* The files a step touched, indented under it behind a second guide line. */
+      .children {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 2px 0;
+        padding: 0 0 0 14px;
+        border-left: 1px solid var(--morse-guide);
+        list-style: none;
+      }
+      .child {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        /* 14px from the guide line plus this 6px lands the icon exactly under
+           the parent row's glyph, not under its status tick. */
+        padding: 1px 0 1px 6px;
+        color: var(--morse-fg-muted);
+        font-size: 11.5px;
+      }
+      .child::before {
+        content: '';
+        position: absolute;
+        left: -14px;
+        top: 50%;
+        width: 14px;
+        height: 1px;
+        background: var(--morse-guide);
+      }
+      .child .file-icon {
+        flex: none;
+        width: 11px;
+        height: 11px;
+        fill: none;
+        stroke: var(--morse-number);
+        stroke-width: 1.2;
+        stroke-linejoin: round;
+      }
+      .child .file-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--morse-font-mono);
       }
       .card {
         border: 1px solid var(--morse-border);
@@ -291,6 +417,7 @@ export class ToolGroup {
   readonly working = input<boolean>(false);
 
   private readonly animation = inject(AnimationService);
+  private readonly display = inject(DisplayPrefs);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly list = viewChild<ElementRef<HTMLElement>>('list');
   private readonly openSteps = signal<Record<string, boolean>>({});
@@ -314,14 +441,34 @@ export class ToolGroup {
   protected readonly failed = computed(() =>
     this.tools().some((step) => step.item.status === 'error'),
   );
+  /** The reader's chosen density, read from the shared preference. */
+  protected readonly compact = computed(() => this.display.toolDisplay() === 'compact');
+  /**
+   * What the compact tree shows: every step once the tree is open (thinking
+   * notes included, so the summary's thought count is truthful), and only the
+   * newest step while it is folded.
+   */
+  protected readonly compactSteps = computed<ProcessStep[]>(() => {
+    const steps = this.steps();
+    if (this.isOpen()) {
+      return steps;
+    }
+    const last = steps.at(-1);
+    return last === undefined ? [] : [last];
+  });
   /**
    * Open while the turn runs, collapsed once it is finished.
    *
    * `running()` is the fallback for hosts that do not report a run state: a
    * tool that is executing keeps the timeline open, and between two steps the
    * host still reports the run, so it cannot flap open and shut per step.
+   *
+   * The compact display deliberately opts out: it stays folded while the agent
+   * works and puts the newest action on the summary line instead.
    */
-  protected readonly autoOpen = computed(() => this.working() || this.running());
+  protected readonly autoOpen = computed(() =>
+    this.compact() ? false : this.working() || this.running(),
+  );
   protected readonly isOpen = computed(() => this.override() ?? this.autoOpen());
 
   protected readonly state = computed<'running' | 'ok' | 'error'>(() => {
@@ -417,9 +564,7 @@ export class ToolGroup {
   }
 
   protected target(item: ToolTranscriptItem): ToolTarget {
-    const raw = item.title.startsWith(`${item.name}: `)
-      ? item.title.slice(item.name.length + 2)
-      : item.title;
+    const raw = rawTitle(item);
     const cut = raw.lastIndexOf('/');
     return cut === -1
       ? { dir: '', base: raw }
@@ -459,6 +604,63 @@ export class ToolGroup {
     return 'read';
   }
 
+  /** One word for the compact summary line: "Edit notes.md", "Run npm test". */
+  protected verb(item: ToolTranscriptItem): string {
+    const name = item.name.toLowerCase();
+    if (name.includes('edit') || name.includes('write') || name.includes('patch')) {
+      return 'Edit';
+    }
+    if (name.includes('read')) {
+      return 'Read';
+    }
+    if (name.includes('search') || name.includes('grep') || name.includes('find')) {
+      return 'Search';
+    }
+    if (name.includes('bash') || name.includes('shell') || name.includes('exec')) {
+      return 'Run';
+    }
+    // An unknown tool keeps its own name rather than a wrong verb.
+    return item.name;
+  }
+
+  /**
+   * What the compact line names after the verb. A file reads by its base name
+   * (the directory chain is noise at this density); a shell command is the
+   * command itself, flattened to one line and clipped so a long invocation
+   * cannot push the diff off the row.
+   */
+  protected compactTarget(item: ToolTranscriptItem): string {
+    if (this.glyphClass(item) !== 'shell') {
+      return this.target(item).base;
+    }
+    const flat = rawTitle(item).replace(/\s+/g, ' ').trim();
+    return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat;
+  }
+
+  /**
+   * The file a step changed, for the child row under it, or `null` when the step
+   * is not a file edit (a shell command, a search, a read). Only edits grow a
+   * child: the file is what the action produced, and repeating it under a read
+   * would just echo the parent row.
+   */
+  protected fileOf(item: ToolTranscriptItem): string | null {
+    const name = item.name.toLowerCase();
+    const editsFile =
+      name.includes('edit') || name.includes('write') || name.includes('patch');
+    if (!editsFile) {
+      return null;
+    }
+    const raw = rawTitle(item);
+    return raw.length > 0 && raw !== item.name ? raw : null;
+  }
+
+  /** The file name alone, so a long path does not push the row out of view. */
+  protected basename(path: string): string {
+    const clean = path.replace(/[\\/]+$/, '');
+    const cut = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
+    return cut === -1 ? clean : clean.slice(cut + 1);
+  }
+
   protected glyph(item: ToolTranscriptItem): string {
     switch (this.glyphClass(item)) {
       case 'edit':
@@ -481,6 +683,13 @@ export class ToolGroup {
       return sum + (step.item.durationMs ?? 0);
     }, 0);
   }
+}
+
+/** The tool title without the `name: ` prefix pi prefixes it with. */
+function rawTitle(item: ToolTranscriptItem): string {
+  return item.title.startsWith(`${item.name}: `)
+    ? item.title.slice(item.name.length + 2)
+    : item.title;
 }
 
 function formatDuration(ms: number): string {

@@ -48,6 +48,29 @@
     <button
       type="button"
       class="icon"
+      [title]="
+        compactTools()
+          ? 'Tool calls: compact — click for the legacy timeline'
+          : 'Tool calls: legacy timeline — click for the compact tree'
+      "
+      [attr.aria-label]="'Tool call display: ' + (compactTools() ? 'compact' : 'timeline')"
+      [attr.aria-pressed]="compactTools()"
+      (click)="toggleToolDisplay()"
+    >
+      @if (compactTools()) {
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 6h10M3 10h6" />
+        </svg>
+      } @else {
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 4.5h10M3 8h10M3 11.5h10" />
+        </svg>
+      }
+    </button>
+
+    <button
+      type="button"
+      class="icon"
       title="Compact the conversation (asks first)"
       aria-label="Compact the conversation"
       [disabled]="!state().agentReady"

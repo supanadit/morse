@@ -47,3 +47,17 @@ simply never mentions updates.
 
 Files the browser uploads (drag-and-drop, paste, or the `+` button) land in `<session-cwd>/.morse/uploads/` and
 ride as `@mentions`; `MORSE_UPLOAD_DIR` moves that inbox. Consider adding it to the project's `.gitignore`.
+
+## Interface preferences
+
+Some display choices belong to whoever is reading, not to the host, so they live in the panel
+(`localStorage`) and behave the same in both hosts:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `morse.navigation.collapsed` | `1` / `0` | Wide layouts only: the sidebar column folded away |
+| `morse.chat.toolDisplay` | `compact` / `timeline` | `compact` (default): one summary line per turn, a tree of steps with their files; `timeline`: the legacy always-open cards |
+
+The tool-call toggle sits in the chat header, next to the conversation compactor; the compact tree is the
+default, and `timeline` is the opt-in legacy view. Storage is a nicety: with `localStorage` unavailable the
+choice still holds for the session.

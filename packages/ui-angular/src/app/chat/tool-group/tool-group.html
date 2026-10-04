@@ -1,4 +1,4 @@
-<div class="group">
+<div class="group" [class.compact]="compact()">
   <button
     type="button"
     class="summary"
@@ -19,6 +19,107 @@
     <span class="chev" [class.open]="isOpen()">›</span>
   </button>
 
+  @if (compact()) {
+    <!--
+      The compact tree. The guide line on the left makes each step a child of
+      the turn summary instead of a sibling, and a file step grows its own
+      children behind a second guide line.
+    -->
+    <ul class="tree">
+      @for (step of compactSteps(); track step.key) {
+        <li class="node">
+          @if (step.kind === 'tool') {
+            <button
+              type="button"
+              class="node-row"
+              [attr.aria-expanded]="isStepOpen(step.key)"
+              (click)="toggleStep(step.key)"
+            >
+              <span class="status" [class]="step.item.status">
+                @if (step.item.status === 'running') {
+                  <span class="spinner"></span>
+                } @else if (step.item.status === 'error') {
+                  <span class="fail">✗</span>
+                } @else {
+                  <span class="ok">✓</span>
+                }
+              </span>
+              <span class="glyph" [class]="glyphClass(step.item)">{{ glyph(step.item) }}</span>
+              <span class="verb">{{ verb(step.item) }}</span>
+              <span class="target" [title]="step.item.title">{{ compactTarget(step.item) }}</span>
+
+              @if (diff(step.item); as changes) {
+                <span class="diff">
+                  @if (changes.added > 0) {
+                    <span class="add">+{{ changes.added }}</span>
+                  }
+                  @if (changes.removed > 0) {
+                    <span class="del">−{{ changes.removed }}</span>
+                  }
+                </span>
+              }
+
+              <span class="grow"></span>
+
+              @if (step.item.status === 'running') {
+                <span class="dots"><i></i><i></i><i></i></span>
+              }
+              @if (elapsed(step.item); as time) {
+                <span class="meta">{{ time }}</span>
+              }
+              <span class="chev" [class.open]="isStepOpen(step.key)">›</span>
+            </button>
+
+            @if (fileOf(step.item); as file) {
+              <ul class="children">
+                <li class="child">
+                  <svg class="file-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4 2.5h5L12.5 6v7.5H4z" />
+                    <path d="M9 2.5V6h3.5" />
+                  </svg>
+                  <span class="file-name" [title]="file">{{ basename(file) }}</span>
+                </li>
+              </ul>
+            }
+
+            @if (isStepOpen(step.key)) {
+              <div class="body" [attr.data-body]="step.key">
+                @if (step.item.input) {
+                  <span class="label-small">input</span>
+                  <pre>{{ step.item.input }}</pre>
+                }
+                @if (step.item.output) {
+                  <span class="label-small">output</span>
+                  <pre>{{ step.item.output }}</pre>
+                }
+                @if (!step.item.input && !step.item.output) {
+                  <span class="label-small">no details reported</span>
+                }
+              </div>
+            }
+          } @else {
+            <button
+              type="button"
+              class="node-row"
+              [attr.aria-expanded]="isStepOpen(step.key)"
+              (click)="toggleStep(step.key)"
+            >
+              <span class="glyph thinking">✻</span>
+              <span class="verb">Thinking</span>
+              <span class="target thought">{{ preview(step.item.thinking) }}</span>
+              <span class="grow"></span>
+              <span class="chev" [class.open]="isStepOpen(step.key)">›</span>
+            </button>
+            @if (isStepOpen(step.key)) {
+              <div class="body" [attr.data-body]="step.key">
+                <pre>{{ step.item.thinking }}</pre>
+              </div>
+            }
+          }
+        </li>
+      }
+    </ul>
+  } @else {
   <ul #list class="rows">
     @for (step of steps(); track step.key; let index = $index) {
       <li [morseEnter]="index" [morseEnterY]="6">
@@ -93,6 +194,7 @@
           }
 
           @case ('thinking') {
+            <!-- The timeline branch only mounts when the display is not compact. -->
             <div class="card thought">
               <button
                 type="button"
@@ -117,4 +219,5 @@
       </li>
     }
   </ul>
+  }
 </div>

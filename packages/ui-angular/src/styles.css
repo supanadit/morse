@@ -104,6 +104,12 @@
   --morse-typename: var(--vscode-charts-purple, #b58fff);
   --morse-attr: var(--morse-typename);
   --morse-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  /*
+   * Structural guides (tool-tree connectors, timeline rails). `panel.border` is
+   * nearly the same colour as the background in VS Code's modern themes, which
+   * made a guide invisible there, so this is mixed from the foreground instead.
+   */
+  --morse-guide: color-mix(in srgb, var(--morse-fg) 30%, transparent);
   --morse-accent: var(--vscode-button-background, #0e639c);
   --morse-accent-fg: var(--vscode-button-foreground, #ffffff);
   --morse-accent-hover: var(--vscode-button-hoverBackground, #1177bb);
@@ -141,6 +147,7 @@
     --morse-typename: var(--vscode-charts-purple, #6f42c1);
     --morse-attr: var(--morse-typename);
     --morse-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+    --morse-guide: color-mix(in srgb, var(--morse-fg) 30%, transparent);
     --morse-button-secondary: var(--vscode-button-secondaryBackground, rgba(0, 0, 0, 0.06));
     --morse-button-secondary-fg: var(--vscode-button-secondaryForeground, #1f1f1f);
     --morse-input-bg: var(--vscode-input-background, #ffffff);
