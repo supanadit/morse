@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 — 4 October 2026
+
+Tool calls get a calmer default view, with every detail still one click away.
+
+### New
+
+- **A compact tree for tool calls, now the default.** A turn folds into a single summary line —
+  *Worked for 6s · 5 actions · 2 thoughts* — with the newest step beneath it and the files that step
+  changed hung off it behind a guide line. Every row opens its own input, output and thinking, so
+  nothing is lost. The detailed, always-open timeline is still one click away in the toolbar, and the
+  choice is remembered between sessions.
+
+### Fixed
+
+- **Elapsed time no longer disappears when a turn settles.** pi reports no duration with a tool
+  result, so *Worked for Ns* only ever appeared while the agent was still working; the host now
+  measures each tool's duration itself, and the total is shown for finished turns too.
+
+### Improved
+
+- **The thought count is back in the summary** — the compact view no longer drops it, and the
+  expanded tree lists the thinking notes it counts.
+
 ## 0.4.1 — 4 October 2026
 
 Three fixes surfaced by an unclean start, a restored `~/.pi`, and an honest token count.
