@@ -45,3 +45,64 @@ describe('TranscriptProjector live compaction', () => {
     expect('summary' in (appends[0] as Record<string, unknown>)).toBe(false);
   });
 });
+
+/**
+ * pi never reports a per-tool duration, so the projector measures one from the
+ * start it stamped — otherwise a finished turn can never say "Worked for Ns".
+ */
+describe('TranscriptProjector tool elapsed', () => {
+  it('measures a duration when the event carries none', () => {
+    const emitted: HostToClientMessage[] = [];
+    let clock = 1_000;
+    const projector = new TranscriptProjector({
+      emit: (message) => emitted.push(message),
+      now: () => clock,
+    });
+
+    projector.apply({
+      type: 'agent/tool-start',
+      at: clock,
+      toolCallId: 'c1',
+      name: 'bash',
+      title: 'bash: npm test',
+    });
+    clock = 4_500;
+    projector.apply({
+      type: 'agent/tool-end',
+      at: clock,
+      toolCallId: 'c1',
+      status: 'ok',
+      output: 'done',
+    });
+
+    const item = projector.snapshot().find((entry) => entry.kind === 'tool');
+    expect(item).toMatchObject({ kind: 'tool', status: 'ok', durationMs: 3_500 });
+  });
+
+  it('keeps a duration the event did report', () => {
+    const emitted: HostToClientMessage[] = [];
+    const projector = new TranscriptProjector({
+      emit: (message) => emitted.push(message),
+      now: () => 0,
+    });
+
+    projector.apply({
+      type: 'agent/tool-start',
+      at: 0,
+      toolCallId: 'c1',
+      name: 'read',
+      title: 'read: a.ts',
+    });
+    projector.apply({
+      type: 'agent/tool-end',
+      at: 0,
+      toolCallId: 'c1',
+      status: 'ok',
+      durationMs: 42,
+    });
+
+    expect(projector.snapshot().find((entry) => entry.kind === 'tool')).toMatchObject({
+      durationMs: 42,
+    });
+  });
+});

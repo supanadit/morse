@@ -253,9 +253,10 @@ export class TranscriptProjector {
     if (output !== undefined) {
       item.output = output;
     }
-    if (durationMs !== undefined) {
-      item.durationMs = durationMs;
-    }
+    // pi's `tool_execution_end` carries no duration, and a finished turn can
+    // only show "Worked for Ns" if one is recorded. Measure it from the start
+    // we stamped ourselves; a host that does report one still wins.
+    item.durationMs = durationMs ?? Math.max(0, this.now() - item.at);
     this.updateItem(item);
     this.toolIndexes.delete(toolCallId);
   }
