@@ -36,6 +36,15 @@ export class WorkspaceFiles {
   readonly status = this.statuses.asReadonly();
   readonly error = this.failure.asReadonly();
   readonly available = computed(() => this.morse.capabilities()?.filePicker === true);
+  /**
+   * Whether the host answers for git at all. The `@` picker only needs the file
+   * list, but the Explorer's badges and the git panel's changes list need the
+   * working tree — and only the browser host implements `gitStatus`. VS Code
+   * keeps its own Source Control and leaves `gitPanel` off, so asking it anyway
+   * put a "VS Code does not implement \"gitStatus\"" error in the transcript on
+   * every poll. Same capability the git panel itself is gated on.
+   */
+  readonly gitAvailable = computed(() => this.morse.capabilities()?.gitPanel === true);
 
   constructor() {
     effect(() => {
@@ -88,7 +97,11 @@ export class WorkspaceFiles {
     }
     void Promise.all([
       this.morse.requestHostCommand('listFiles', force ? { fresh: true } : undefined),
-      this.morse.requestHostCommand('gitStatus'),
+      // A host without git (VS Code) is never asked: it would answer with an
+      // error, and a background poll must not fill the transcript with those.
+      this.gitAvailable()
+        ? this.morse.requestHostCommand('gitStatus')
+        : Promise.resolve(undefined),
     ])
       .then(([listData, statusData]) => {
         if (this.morse.workspace().cwd !== cwd) {

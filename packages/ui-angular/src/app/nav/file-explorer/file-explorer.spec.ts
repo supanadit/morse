@@ -13,7 +13,9 @@ function setup(files: string[], status?: unknown) {
     // The real service derives `workspace` from `state`; mirror that so a project
     // switch reaches both the Explorer and the shared listing.
     workspace: computed(() => state().workspace),
-    capabilities: signal({ hostKind: 'server', filePicker: true, filePreview: true }),
+    // The browser host is the only one with an Explorer, and it also answers git:
+    // `gitStatus` is gated on `gitPanel`, exactly as the real capabilities are.
+    capabilities: signal({ hostKind: 'server', filePicker: true, filePreview: true, gitPanel: true }),
     requestHostCommand: vi.fn((command: string) =>
       Promise.resolve(command === 'gitStatus' ? status : { files }),
     ),
