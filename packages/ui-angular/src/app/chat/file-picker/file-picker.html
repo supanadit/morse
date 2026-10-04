@@ -13,10 +13,10 @@
   } @else {
     <ul #list>
       @for (file of files(); track file; let index = $index) {
-        <li>
+        <li [class.active]="index === active()">
           <button
             type="button"
-            [class.active]="index === active()"
+            class="row"
             (mouseenter)="activeChange.emit(index)"
             (click)="pick.emit(file)"
           >
@@ -25,12 +25,24 @@
               <span class="dir">{{ split(file).dir }}</span>{{ split(file).base }}
             </span>
           </button>
+          @if (!isDirectory(file)) {
+            <button
+              type="button"
+              class="quote"
+              title="Mention and quote a line range"
+              aria-label="Mention and quote a line range"
+              (mouseenter)="activeChange.emit(index)"
+              (click)="quote.emit(file)"
+            >
+              ⧉
+            </button>
+          }
         </li>
       }
     </ul>
   }
 
   <div class="hint">
-    <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> attach/open · <kbd>Esc</kbd> close
+    <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> mention · <kbd>⇧Enter</kbd> quote · <kbd>Esc</kbd> close
   </div>
 </div>

@@ -895,7 +895,7 @@ export class ChatComposer {
           const chosen = items[this.mentionActive()];
           if (chosen) {
             event.preventDefault();
-            this.onPickFile(chosen);
+            this.onPickFile(chosen, event.shiftKey);
             return;
           }
           // No match: Enter still sends, Tab stays inert.
@@ -1406,8 +1406,13 @@ export class ChatComposer {
    * A picked file becomes an `@mention`, like a dropped one. A picked directory
    * is pi's own drill-down: `@docs/` stays in the prompt and the picker stays
    * open, now filtered to that folder, so Enter then walks the tree.
+   *
+   * Opening the file preview is a separate intent (`quote`): a plain mention is
+   * just a reference in the text, while quoting opens the file so a line range
+   * can be dragged into the prompt. Enter mentions, Shift+Enter (or the row's
+   * `⧉`) quotes.
    */
-  protected onPickFile(path: string): void {
+  protected onPickFile(path: string, quote = false): void {
     const directory = path.endsWith('/');
     if (this.mentionMode()) {
       // Replace the `@query` the user typed instead of appending a second mention.
@@ -1417,10 +1422,10 @@ export class ChatComposer {
       this.attachments.addMentions([path]);
       this.attachments.say('info', `Pinned ${path} to this message.`);
     }
-    // On the browser host, picking a file also opens it so the user can drag a
-    // line range into the prompt; it lands in the mention row. VS Code has no
-    // preview and opens its own editor.
-    if (!directory && this.morse.capabilities()?.filePreview) {
+    // Only a quote pick opens the file: a plain mention must not steal the view
+    // from the conversation. On VS Code the preview never exists anyway — the
+    // editor is already the user's.
+    if (quote && !directory && this.morse.capabilities()?.filePreview) {
       this.tabs.openMentionFile(path);
     }
     if (directory) {
@@ -1435,6 +1440,11 @@ export class ChatComposer {
       this.pickerOpen.set(false);
     }
     this.syncInputValue();
+  }
+
+  /** The picker's second target: mention the file and open it to quote lines. */
+  protected onQuoteFile(path: string): void {
+    this.onPickFile(path, true);
   }
 
   protected onThinkingPick(level: ThinkingLevel): void {

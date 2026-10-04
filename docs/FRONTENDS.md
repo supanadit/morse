@@ -128,8 +128,9 @@ strip above the conversation, where sessions and files open side by side.
   directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the
   project `ProjectPolicy` already approved. Files over 512 KB are cut short, and a binary file is reported
   as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
-  prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat"; picking a
-  file in the `@` picker opens it so that drag is one step away.
+  prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat". In the `@`
+  picker, **Enter (or a row click) is a plain mention**; the file is opened only for the explicit quote intent
+  — **Shift+Enter**, or the row's `⧉` — so a reference never steals the view from the conversation.
 - A file the working tree reports as changed (the same `gitStatus` map) also gets a **File / Unified /
   Split** switch in the preview: `gitDiff` (`{ path }` → `{ path, diff }`) supplies the unified diff,
   `core/git-diff.ts` parses it into hunks and pairs the two sides for split view, and an untracked file

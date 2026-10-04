@@ -87,6 +87,7 @@
       [active]="mentionActive()"
       (activeChange)="mentionActive.set($event)"
       (pick)="onPickFile($event)"
+      (quote)="onQuoteFile($event)"
       (reload)="reloadFiles()"
       (close)="onPickerClose()"
     />

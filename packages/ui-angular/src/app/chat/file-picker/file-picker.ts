@@ -44,11 +44,15 @@ import { EnterDirective } from '../../shared/enter.directive';
         list-style: none;
         overflow-y: auto;
       }
-      li button {
+      li {
+        display: flex;
+        align-items: center;
+      }
+      li .row {
+        flex: 1;
         display: flex;
         align-items: center;
         gap: 8px;
-        width: 100%;
         padding: 4px 10px;
         border: 0;
         border-radius: 0;
@@ -58,8 +62,34 @@ import { EnterDirective } from '../../shared/enter.directive';
         text-align: left;
         cursor: pointer;
       }
-      li button.active {
+      li.active .row {
         background: var(--morse-active);
+      }
+      /*
+       * The quote affordance: the row is a plain mention, and this second
+       * target opens the file so a line range can be dragged into the prompt.
+       */
+      .quote {
+        flex: none;
+        width: 26px;
+        height: 26px;
+        margin-right: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font-size: 12px;
+        cursor: pointer;
+        opacity: 0.55;
+      }
+      .quote:hover:not(:disabled) {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+        opacity: 1;
       }
       .icon {
         flex: none;
@@ -124,6 +154,8 @@ export class FilePicker {
   readonly active = input(0);
 
   readonly pick = output<string>();
+  /** A row's quote target: mention it *and* open it to drag a line range. */
+  readonly quote = output<string>();
   readonly close = output<void>();
   /** Ask the host for the list again (a cold cache, a new branch, ...). */
   readonly reload = output<void>();
