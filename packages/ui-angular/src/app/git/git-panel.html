@@ -91,7 +91,13 @@
         </div>
         @if (!changesCollapsed()) {
           @if (changes().length === 0) {
-            <p class="change-empty">No uncommitted changes</p>
+            <div class="empty">
+              <span class="mark" aria-hidden="true">
+                <svg class="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
+                <svg class="check" viewBox="0 0 24 24"><path d="M7.5 12.5 11 16l6-7" /></svg>
+              </span>
+              No uncommitted changes
+            </div>
           } @else {
             <ul class="change-list">
               @for (change of changes(); track change.path) {
@@ -144,7 +150,15 @@
   } @else if (!isRepo()) {
     <p class="hint">This project is not a git repository.</p>
   } @else if (commits().length === 0) {
-    <p class="hint">No commits yet.</p>
+    <div class="empty">
+      <span class="mark node" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path class="line" d="M12 3v18" />
+          <circle class="dot" cx="12" cy="12" r="3.4" />
+        </svg>
+      </span>
+      No commits yet
+    </div>
   } @else {
     <ul class="list" (scroll)="onScroll($event)">
       @for (entry of entries().rows; track entry.commit.hash) {
@@ -161,6 +175,7 @@
           >
             @for (edge of entry.row.edges; track $index) {
               <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
+              <path class="flow" [attr.d]="path(edge)" />
             }
             <circle
               [attr.cx]="x(entry.row.lane)"

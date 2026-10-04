@@ -6,6 +6,7 @@
         role="tab"
         tabindex="0"
         [class.active]="tab.id === activeId()"
+        [class.running]="tab.kind === 'session' && isRunning(tab.id)"
         [attr.aria-selected]="tab.id === activeId()"
         [title]="title(tab)"
         (click)="select(tab.id)"
@@ -14,7 +15,11 @@
         (contextmenu)="openMenu($event, tab.id)"
         (auxclick)="onAuxClick(tab.id, $event)"
       >
-        <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
+        @if (tab.kind === 'session' && isRunning(tab.id)) {
+          <span class="live" aria-hidden="true"></span>
+        } @else {
+          <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
+        }
         <span class="label">{{ tab.title }}</span>
         <button
           type="button"

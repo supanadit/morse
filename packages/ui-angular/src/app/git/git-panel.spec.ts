@@ -93,6 +93,16 @@ describe('GitPanel', () => {
     );
   });
 
+  it('shows an animated, centred mark when there are no changes', async () => {
+    const { fixture } = setup(LOG, { files: [], status: { isRepo: true, files: [] } });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('.changes .empty .mark')).not.toBeNull();
+    expect(host.querySelector('.changes .empty .mark .check')).not.toBeNull();
+    expect(host.textContent).toContain('No uncommitted changes');
+  });
+
   it('lists uncommitted changes above the graph and opens one in a tab', async () => {
     const { fixture } = setup(LOG, {
       files: ['a.ts', 'b.ts'],

@@ -175,6 +175,8 @@ const ROW_HEIGHT = 32;
       .changes {
         flex: none;
         height: 45%;
+        display: flex;
+        flex-direction: column;
         overflow-y: auto;
         overflow-x: hidden;
       }
@@ -294,11 +296,122 @@ const ROW_HEIGHT = 32;
         white-space: nowrap;
         font-size: 12px;
       }
-      .change-empty {
-        margin: 0;
-        padding: 0 10px 8px;
+      /*
+       * An empty section is not a sentence in the corner: a centred, gently
+       * animated mark says "nothing to do" before the text does.
+       */
+      .empty {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 16px;
         color: var(--morse-fg-muted);
         font-size: 11.5px;
+        text-align: center;
+      }
+      .mark {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        animation: mark-breathe 2.8s ease-in-out infinite;
+      }
+      .mark svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .mark .ring {
+        stroke: color-mix(in srgb, var(--morse-fg-muted) 40%, transparent);
+        stroke-width: 1.4;
+      }
+      .mark .check {
+        stroke: var(--morse-success);
+        stroke-width: 2;
+        stroke-dasharray: 20;
+        stroke-dashoffset: 20;
+        animation: check-draw 900ms ease-out 120ms forwards;
+      }
+      .mark.node .line {
+        stroke: color-mix(in srgb, var(--morse-fg-muted) 35%, transparent);
+        stroke-width: 1.4;
+      }
+      .mark.node .dot {
+        stroke: var(--morse-accent);
+        stroke-width: 1.6;
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: node-pulse 2.8s ease-in-out infinite;
+      }
+      /* A soft ping leaving the mark, so "ready" reads as alive, not stuck. */
+      .mark::after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 1px solid color-mix(in srgb, var(--morse-success) 45%, transparent);
+        animation: mark-ping 2.8s ease-out infinite;
+      }
+      .mark.node::after {
+        border-color: color-mix(in srgb, var(--morse-accent) 45%, transparent);
+      }
+      @keyframes mark-breathe {
+        0%,
+        100% {
+          transform: scale(0.95);
+        }
+        50% {
+          transform: scale(1.05);
+        }
+      }
+      @keyframes check-draw {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      @keyframes node-pulse {
+        0%,
+        100% {
+          transform: scale(0.7);
+          opacity: 0.6;
+        }
+        50% {
+          transform: scale(1.15);
+          opacity: 1;
+        }
+      }
+      @keyframes mark-ping {
+        0% {
+          transform: scale(0.85);
+          opacity: 0.7;
+        }
+        70%,
+        100% {
+          transform: scale(1.35);
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .mark,
+        .mark::after {
+          animation: none;
+        }
+        .mark .check {
+          animation: none;
+          stroke-dashoffset: 0;
+        }
+        .mark.node .dot {
+          animation: none;
+        }
       }
       /* The git badge, shared with the Explorer: one letter, coloured by kind. */
       .badge {
@@ -382,6 +495,29 @@ const ROW_HEIGHT = 32;
       .graph circle {
         stroke: var(--morse-nav-bg);
         stroke-width: 1.6;
+      }
+      /*
+       * A light dash travelling down each lane: the graph reads as flow, not a
+       * static diagram. Same path as the lane, drawn over it with an animated
+       * dash offset so the pulse keeps its direction across stacked rows.
+       */
+      .graph path.flow {
+        stroke: var(--morse-fg);
+        stroke-dasharray: 5 15;
+        stroke-linecap: round;
+        opacity: 0.35;
+        animation: graph-flow 1.4s linear infinite;
+      }
+      @keyframes graph-flow {
+        to {
+          stroke-dashoffset: -20;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .graph path.flow {
+          animation: none;
+          opacity: 0;
+        }
       }
       .subject {
         flex: 0 1 auto;

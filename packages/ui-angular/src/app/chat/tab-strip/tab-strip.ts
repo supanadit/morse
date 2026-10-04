@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { fileGlyph } from '../../core/file-tree';
+import { MorseService } from '../../core/morse.service';
 import { WorkspaceTabs, type WorkspaceTab } from '../../core/workspace-tabs';
 
 /** An open tab context menu, anchored at the pointer. */
@@ -116,6 +117,21 @@ interface TabMenu {
         color: var(--morse-fg);
         box-shadow: inset 0 -2px 0 var(--morse-accent);
       }
+      /* A session the agent is streaming in: a spinner, active or not. */
+      .tab .live {
+        flex: none;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        border: 1.5px solid color-mix(in srgb, var(--morse-accent) 30%, transparent);
+        border-top-color: var(--morse-accent);
+        animation: tab-spin 0.8s linear infinite;
+      }
+      @keyframes tab-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
       .glyph {
         flex: none;
         font-size: 11px;
@@ -208,6 +224,7 @@ interface TabMenu {
 })
 export class TabStrip {
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly morse = inject(MorseService);
 
   protected readonly items = this.tabs.tabs;
   protected readonly activeId = this.tabs.activeId;
@@ -221,6 +238,23 @@ export class TabStrip {
 
   protected glyph(tab: WorkspaceTab): string {
     return tab.kind === 'session' ? '✦' : fileGlyph(tab.title);
+  }
+
+  /**
+   * True while the agent is producing a turn in that session, whatever tab is in
+   * front. The tab then shows a spinner, so a run is visible even when the reader
+   * is looking at another session or a file. `sessionActivity` lists every hot
+   * session — opening one spawns its agent — so only `streaming` counts, not a
+   * warm or idle session that merely has an agent attached.
+   */
+  protected isRunning(id: string): boolean {
+    const activity = this.morse.sessionActivity().get(id);
+    if (activity !== undefined) {
+      return activity.streaming;
+    }
+    // A session opened before its id is known cannot match the activity key yet.
+    const state = this.morse.state();
+    return state.sessionId === id && state.streaming;
   }
 
   protected title(tab: WorkspaceTab): string {

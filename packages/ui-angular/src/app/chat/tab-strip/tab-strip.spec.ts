@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../core/morse.service';
@@ -9,6 +10,8 @@ function setup() {
     activateSession: vi.fn(),
     newSession: vi.fn(),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
+    sessionActivity: signal(new Map<string, { sessionKey: string; streaming: boolean }>()),
+    state: signal({ sessionId: undefined as string | undefined, streaming: false }),
   };
   TestBed.configureTestingModule({
     imports: [TabStrip],
@@ -73,6 +76,32 @@ describe('TabStrip context menu', () => {
     const rows = fixture.nativeElement.querySelectorAll('.strip');
     expect(rows).toHaveLength(2);
     expect(rows[1].textContent).toContain('STATUS.md');
+  });
+
+  it('marks a running session tab, even when another tab is in front', () => {
+    const { fixture, tabs, morse } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    morse.sessionActivity.set(new Map([['s1', { sessionKey: 's1', streaming: true }]]));
+    fixture.detectChanges();
+
+    const [first, second] = fixture.nativeElement.querySelectorAll('.tab') as NodeListOf<HTMLElement>;
+    expect(first.classList.contains('running')).toBe(true);
+    expect(first.querySelector('.live')).not.toBeNull();
+    expect(second.classList.contains('running')).toBe(false);
+    expect(second.querySelector('.live')).toBeNull();
+  });
+
+  it('does not animate a session that is warm but not streaming', () => {
+    const { fixture, tabs, morse } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    // Hot (the agent is attached) but idle: no spinner once the turn has ended.
+    morse.sessionActivity.set(new Map([['s1', { sessionKey: 's1', streaming: false }]]));
+    fixture.detectChanges();
+
+    const tab = fixture.nativeElement.querySelector('.tab') as HTMLElement;
+    expect(tab.classList.contains('running')).toBe(false);
+    expect(tab.querySelector('.live')).toBeNull();
   });
 
   it('Close Others keeps the clicked tab and closes the rest', () => {
