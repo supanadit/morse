@@ -265,13 +265,65 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('draft');
   });
 
-  it('keeps files opened from the mention picker in their own row', () => {
+  it('keeps files opened from the mention picker in the active session row', () => {
     const { tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });
-    tabs.openFile('README.md');
     tabs.openMentionFile('docs/STATUS.md');
 
-    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['s1', 'file:README.md']);
-    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:docs/STATUS.md']);
+    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s1:docs/STATUS.md']);
+  });
+
+  it('shows only the quoted files of the session in front', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openMentionFile('a.ts');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+
+    // s1's quoted file is not s2's context.
+    expect(tabs.mentionTabs()).toEqual([]);
+
+    tabs.openMentionFile('b.ts');
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s2:b.ts']);
+
+    tabs.select('s1');
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s1:a.ts']);
+  });
+
+  it('keys a quoted file by session, so the same path can be quoted twice', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openMentionFile('README.md');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.openMentionFile('README.md');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual([
+      's1',
+      'mention:s1:README.md',
+      's2',
+      'mention:s2:README.md',
+    ]);
+  });
+
+  it("closes a session's quoted files with it", () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openMentionFile('a.ts');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+
+    tabs.close('s1');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s2']);
+  });
+
+  it("moves a draft's quoted files to the session it becomes", () => {
+    const { tabs } = setup();
+    tabs.startDraft('/repo');
+    tabs.openMentionFile('a.ts');
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:draft:a.ts']);
+
+    tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
+
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s1:a.ts']);
   });
 });

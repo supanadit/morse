@@ -49,9 +49,45 @@ interface TabMenu {
       .strip::-webkit-scrollbar {
         display: none;
       }
-      /* The hairline between the session row and the mention row below it. */
+      /*
+       * The second row is quoted-file context for the session in front, not a peer
+       * of the session tabs: chips on the panel background instead of a second
+       * flush tab bar, so the two rows read as primary and secondary.
+       */
       .strip + .strip {
+        height: auto;
+        min-height: 30px;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
         border-top: 1px solid var(--morse-border);
+        background: var(--morse-panel, var(--morse-bg));
+      }
+      .strip + .strip .tab {
+        height: 22px;
+        max-width: 190px;
+        padding: 0 4px 0 8px;
+        border: 1px solid var(--morse-border);
+        border-radius: 999px;
+        background: var(--morse-bubble, var(--morse-hover));
+        font-size: 11.5px;
+      }
+      .strip + .strip .tab:hover {
+        background: var(--morse-hover);
+        border-color: var(--morse-accent);
+        color: var(--morse-fg);
+      }
+      .strip + .strip .tab.active {
+        border-color: var(--morse-accent);
+        background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+        color: var(--morse-fg);
+        box-shadow: none;
+      }
+      .strip + .strip .tab .close {
+        width: 15px;
+        height: 15px;
+        font-size: 11px;
+        border-radius: 999px;
       }
       /* Flush tabs: full height, no margin, separated by a hairline. */
       .tab {

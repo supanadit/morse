@@ -14,12 +14,18 @@ export interface SessionTab {
 
 export interface FileTab {
   kind: 'file';
-  /** `file:<path>` (Explorer) or `mention:<path>` (the `@` picker). */
+  /** `file:<path>` (Explorer) or `mention:<sessionId>:<path>` (the `@` picker). */
   id: string;
   path: string;
   title: string;
   /** Opened from the `@` picker: shown in its own row below the sessions. */
   mention?: boolean;
+  /**
+   * A quoted file's session: it is that session's context — shown only while the
+   * session is in front, and closed with it. Quoting the same path in another
+   * session is a second tab, keyed by this id.
+   */
+  sessionId?: string;
   language?: string;
   content?: string;
   size?: number;
@@ -68,13 +74,36 @@ export class WorkspaceTabs {
   readonly mainTabs = computed(() =>
     this.items().filter((tab) => tab.kind === 'session' || tab.mention !== true),
   );
-  /** The second row: files opened from the `@` picker. */
-  readonly mentionTabs = computed(() =>
-    this.items().filter((tab): tab is FileTab => tab.kind === 'file' && tab.mention === true),
-  );
   readonly activeTab = computed<WorkspaceTab | undefined>(() =>
     this.items().find((tab) => tab.id === this.active()),
   );
+  /**
+   * The session the strip is showing context for: the active session tab, or the
+   * owner of the quoted file in front. `undefined` when neither is a session (a
+   * plain Explorer file in front), so no session's context leaks into another's
+   * view.
+   */
+  private readonly contextSessionId = computed<string | undefined>(() => {
+    const tab = this.activeTab();
+    if (tab?.kind === 'session') {
+      return tab.id;
+    }
+    return tab?.kind === 'file' && tab.mention === true ? tab.sessionId : undefined;
+  });
+  /**
+   * The second row: only the quoted files of the session in front. A file the
+   * user never quoted in that session is not this session's context, so it does
+   * not appear here.
+   */
+  readonly mentionTabs = computed<FileTab[]>(() => {
+    const owner = this.contextSessionId();
+    return this.items().filter(
+      (tab): tab is FileTab =>
+        tab.kind === 'file' &&
+        tab.mention === true &&
+        (owner === undefined ? tab.sessionId === undefined : tab.sessionId === owner),
+    );
+  });
   /** The sessions that have a tab open, so the sidebar can mark them. */
   readonly openSessionIds = computed(
     () =>
@@ -167,19 +196,20 @@ export class WorkspaceTabs {
 
   /** Opens or reveals a file tab from the Explorer; reads it the first time. */
   openFile(path: string): void {
-    this.openFileTab(path, false);
+    this.openFileTab(path, false, undefined);
   }
 
   /**
-   * Opens or reveals a file tab from the `@` picker. It stays in its own row so a
-   * quoted file does not push the session tabs aside (see `mainTabs`).
+   * Opens or reveals a file tab from the `@` picker. It belongs to the session in
+   * front, stays in its own row so it does not push the session tabs aside, and
+   * is keyed by that session so the same path quoted elsewhere is a second tab.
    */
   openMentionFile(path: string): void {
-    this.openFileTab(path, true);
+    this.openFileTab(path, true, this.contextSessionId());
   }
 
-  private openFileTab(path: string, mention: boolean): void {
-    const id = `${mention ? MENTION_PREFIX : FILE_PREFIX}${path}`;
+  private openFileTab(path: string, mention: boolean, sessionId?: string): void {
+    const id = mention ? mentionTabId(sessionId, path) : `${FILE_PREFIX}${path}`;
     const existing = this.items().find((tab) => tab.id === id);
     if (existing === undefined) {
       this.items.update((tabs) => [
@@ -192,6 +222,7 @@ export class WorkspaceTabs {
           language: languageForPath(path),
           loading: true,
           mention,
+          sessionId: mention ? sessionId : undefined,
         },
       ]);
     }
@@ -228,19 +259,9 @@ export class WorkspaceTabs {
       return;
     }
     const tab = this.items()[index];
-    const wasActive = this.active() === id;
     const closedSession = tab.kind === 'session' && tab.draft !== true;
     const cwd = tab.kind === 'session' ? tab.cwd : undefined;
-    this.items.update((tabs) => tabs.filter((candidate) => candidate.id !== id));
-    if (wasActive) {
-      const remaining = this.items();
-      const neighbour = remaining[Math.min(index, remaining.length - 1)];
-      if (neighbour === undefined) {
-        this.active.set(undefined);
-      } else {
-        this.select(neighbour.id);
-      }
-    }
+    this.remove(this.doomedWith(id), index);
     if (closedSession) {
       this.fallBackToEmptySession(cwd);
     }
@@ -256,18 +277,7 @@ export class WorkspaceTabs {
     if (index === -1) {
       return;
     }
-    const wasActive = this.active() === id;
-    this.items.update((tabs) => tabs.filter((tab) => tab.id !== id));
-    if (!wasActive) {
-      return;
-    }
-    const remaining = this.items();
-    const neighbour = remaining[Math.min(index, remaining.length - 1)];
-    if (neighbour === undefined) {
-      this.active.set(undefined);
-      return;
-    }
-    this.select(neighbour.id);
+    this.remove(this.doomedWith(id), index);
   }
 
   /**
@@ -282,16 +292,28 @@ export class WorkspaceTabs {
     }
   }
 
-  /** Keeps only `id`, the way VS Code's "Close Others" does. */
+  /**
+   * Keeps only `id` — plus, when it is a session, its quoted files, which cannot
+   * outlive it. (VS Code's "Close Others".)
+   */
   closeOthers(id: string): void {
     const keep = this.items().find((tab) => tab.id === id);
     if (keep === undefined) {
       return;
     }
-    const closing = this.items().filter((tab) => tab.id !== id);
+    const keepIds = new Set<string>([id]);
+    if (keep.kind === 'session') {
+      for (const mention of this.mentionFilesOf(id)) {
+        keepIds.add(mention.id);
+      }
+    } else if (keep.mention === true && keep.sessionId !== undefined) {
+      // A quoted file cannot stay without the session it belongs to.
+      keepIds.add(keep.sessionId);
+    }
+    const closing = this.items().filter((tab) => !keepIds.has(tab.id));
     const closedSession = closing.some((tab) => tab.kind === 'session' && tab.draft !== true);
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
-    this.items.update((tabs) => tabs.filter((tab) => tab.id === id));
+    this.items.update((tabs) => tabs.filter((tab) => keepIds.has(tab.id)));
     this.active.set(id);
     if (keep.kind === 'session') {
       this.morse.activateSession(keep.id, keep.cwd);
@@ -316,6 +338,7 @@ export class WorkspaceTabs {
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
+    this.pruneOrphanMentions();
     if (active !== undefined && ids.has(active)) {
       this.select(id);
     }
@@ -353,6 +376,90 @@ export class WorkspaceTabs {
     this.morse.newSession(cwd ?? this.morse.state().workspace.cwd);
   }
 
+  /**
+   * The tabs that leave with `id`: a session takes its quoted files with it, and
+   * a quoted file whose session is no longer open is orphaned and goes too.
+   */
+  private doomedWith(id: string): Set<string> {
+    const doomed = new Set<string>([id]);
+    const openSessions = new Set(
+      this.items()
+        .filter((tab): tab is SessionTab => tab.kind === 'session' && tab.id !== id)
+        .map((tab) => tab.id),
+    );
+    for (const tab of this.items()) {
+      if (tab.kind !== 'file' || tab.mention !== true) {
+        continue;
+      }
+      if (
+        tab.sessionId === undefined ||
+        tab.sessionId === id ||
+        !openSessions.has(tab.sessionId)
+      ) {
+        doomed.add(tab.id);
+      }
+    }
+    return doomed;
+  }
+
+  /** The quoted files opened as context for `sessionId`. */
+  private mentionFilesOf(sessionId: string): FileTab[] {
+    return this.items().filter(
+      (tab): tab is FileTab =>
+        tab.kind === 'file' && tab.mention === true && tab.sessionId === sessionId,
+    );
+  }
+
+  /**
+   * Removes `doomed` and, if the active tab was among them, brings the nearest
+   * survivor forward — the index is the closed tab's, so the fallback lands where
+   * the user was looking rather than at the end of the strip.
+   */
+  private remove(doomed: Set<string>, index: number): void {
+    const active = this.active();
+    this.items.update((tabs) => tabs.filter((tab) => !doomed.has(tab.id)));
+    if (active === undefined || !doomed.has(active)) {
+      return;
+    }
+    const remaining = this.items();
+    const neighbour = remaining[Math.min(index, remaining.length - 1)];
+    if (neighbour === undefined) {
+      this.active.set(undefined);
+      return;
+    }
+    this.select(neighbour.id);
+  }
+
+  /**
+   * Drops quoted files whose session is no longer open, re-pointing the active
+   * tab if it was one of them.
+   */
+  private pruneOrphanMentions(): void {
+    const openSessions = new Set(
+      this.items()
+        .filter((tab): tab is SessionTab => tab.kind === 'session')
+        .map((tab) => tab.id),
+    );
+    const items = this.items();
+    const doomed = new Set(
+      items
+        .filter(
+          (tab) =>
+            tab.kind === 'file' &&
+            tab.mention === true &&
+            (tab.sessionId === undefined || !openSessions.has(tab.sessionId)),
+        )
+        .map((tab) => tab.id),
+    );
+    if (doomed.size === 0) {
+      return;
+    }
+    this.remove(
+      doomed,
+      items.findIndex((tab) => tab.id === this.active()),
+    );
+  }
+
   /** Re-reads a file tab from disk (the preview's refresh affordance). */
   reload(id: string): void {
     void this.load(id);
@@ -373,11 +480,20 @@ export class WorkspaceTabs {
       return;
     }
     this.items.update((tabs) =>
-      tabs.map((tab) =>
-        tab.kind === 'session' && tab.id === DRAFT_TAB_ID
-          ? { kind: 'session', ...session }
-          : tab,
-      ),
+      tabs.map((tab) => {
+        if (tab.kind === 'session' && tab.id === DRAFT_TAB_ID) {
+          return { kind: 'session', ...session };
+        }
+        // The draft's quoted files belong to the session it just became.
+        if (tab.kind === 'file' && tab.mention === true && tab.sessionId === DRAFT_TAB_ID) {
+          return {
+            ...tab,
+            sessionId: session.id,
+            id: mentionTabId(session.id, tab.path),
+          };
+        }
+        return tab;
+      }),
     );
   }
 
@@ -391,6 +507,7 @@ export class WorkspaceTabs {
     this.items.update((tabs) =>
       tabs.filter((tab) => !(tab.kind === 'session' && tab.id === DRAFT_TAB_ID)),
     );
+    this.pruneOrphanMentions();
   }
 
   private needsLoad(tab: WorkspaceTab): boolean {
@@ -449,4 +566,9 @@ function asPreview(value: unknown): FilePreviewPayload | undefined {
 function basename(path: string): string {
   const slash = path.lastIndexOf('/');
   return slash === -1 ? path : path.slice(slash + 1);
+}
+
+/** A quoted file's tab id: keyed by session, so the same path can be quoted twice. */
+function mentionTabId(sessionId: string | undefined, path: string): string {
+  return `${MENTION_PREFIX}${sessionId ?? ''}:${path}`;
 }
