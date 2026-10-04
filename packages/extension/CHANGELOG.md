@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0 — 4 October 2026
+
+Follow-ups you can see, and changes you can quote straight from the diff.
+
+### New
+
+- **Queued follow-ups.** While the agent is working, a follow-up waits in a **Queued messages** card above
+  the composer instead of disappearing into pi's invisible queue: edit one back into the composer, send it now
+  (as a steer), or remove it. They run one per finished turn, and steer still lands in the turn immediately.
+- **Quote a change from the diff.** In the **Unified** and **Split** diff, click a changed block to pin its line
+  range to the next message — the same chip a dragged range in the **File** view makes — and click it again to
+  unpin. Only changes are clickable; context and hunk headers are not.
+
+### Fixed
+
+- **Clicking *New session* no longer starts a fake `pi` session named “draft”.** The draft tab was activated as
+  a real session, which made `pi` exit and showed a misleading “the pi coding agent is not installed” screen.
+
+### Changed
+
+- **The Explorer no longer repeats the project name** above the file tree; the tree already is that project.
+
 ## 0.8.2 — 4 October 2026
 
 The git panel bends to the window, and a crowded commit reads clearly.
