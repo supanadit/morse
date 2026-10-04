@@ -410,4 +410,34 @@ describe('WorkspaceTabs', () => {
     drafts.use('s1');
     expect(drafts.text()).toBe('the first prompt');
   });
+
+  it('opens a commit file as its own diff tab, read against the commit', async () => {
+    const { tabs, fake } = setup(() => ({ path: 'a.ts', diff: '@@ -1 +1 @@\n-a\n+b\n' }));
+
+    tabs.openCommitFile('abc123', 'a.ts', 'A commit');
+    expect(tabs.tabs()).toHaveLength(1);
+    expect(tabs.tabs()[0]).toMatchObject({
+      kind: 'file',
+      id: 'commit:abc123:a.ts',
+      path: 'a.ts',
+      title: 'a.ts',
+      language: 'typescript',
+      loading: false,
+      commitHash: 'abc123',
+      commitSubject: 'A commit',
+    });
+    await flush();
+
+    // It reads the commit's diff, never the working-tree content or HEAD diff.
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitCommitDiff', {
+      hash: 'abc123',
+      path: 'a.ts',
+    });
+    expect(fake.requestHostCommand).not.toHaveBeenCalledWith('readFile', expect.anything());
+    expect(fake.requestHostCommand).not.toHaveBeenCalledWith('gitDiff', expect.anything());
+    expect(tabs.activeTab()).toMatchObject({
+      diff: '@@ -1 +1 @@\n-a\n+b\n',
+      diffLoading: false,
+    });
+  });
 });

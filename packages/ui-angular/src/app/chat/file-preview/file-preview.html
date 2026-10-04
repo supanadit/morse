@@ -1,16 +1,21 @@
 <header class="head">
   <span class="path" [title]="tab().path">{{ tab().path }}</span>
+  @if (tab().commitHash; as hash) {
+    <span class="commit-ref" [title]="tab().commitSubject ?? ''">{{ hash.slice(0, 7) }}</span>
+  }
   <div class="meta">
-    @if (changed()) {
+    @if (diffable()) {
       <div class="modes" role="group" aria-label="Preview mode">
-        <button
-          type="button"
-          [class.on]="mode() === 'file'"
-          title="The file's content"
-          (click)="setMode('file')"
-        >
-          File
-        </button>
+        @if (tab().commitHash === undefined) {
+          <button
+            type="button"
+            [class.on]="mode() === 'file'"
+            title="The file's content"
+            (click)="setMode('file')"
+          >
+            File
+          </button>
+        }
         <button
           type="button"
           [class.on]="mode() === 'unified'"
@@ -55,7 +60,9 @@
   } @else if (parsed().binary) {
     <p class="hint">Binary file · {{ size() }} · no textual diff.</p>
   } @else if (parsed().hunks.length === 0) {
-    <p class="hint">No changes against HEAD.</p>
+    <p class="hint">
+      {{ tab().commitHash ? 'This commit did not change this file.' : 'No changes against HEAD.' }}
+    </p>
   } @else if (mode() === 'split') {
     <div class="diff split">
       @for (pair of splitView(); track $index) {

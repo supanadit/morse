@@ -38,7 +38,12 @@ export interface MorseActions {
    */
   forkMessage(itemId: string): void;
   /** Runs a host command and resolves with its value, when the host supports it. */
-  hostCommand(command: HostCommand, args?: Record<string, unknown>): Promise<unknown>;
+  hostCommand(
+    command: HostCommand,
+    args?: Record<string, unknown>,
+    /** Override the answer timeout for a slow command (a network pull/push). */
+    timeoutMs?: number,
+  ): Promise<unknown>;
   abort(): void;
   newSession(cwd?: string): void;
   loadSession(sessionId: string, cwd?: string): void;
@@ -60,7 +65,6 @@ export interface MorseActions {
   setModel(provider: string, id: string): void;
   setThinkingLevel(level: ThinkingLevel): void;
   respond(response: InteractionResponse): void;
-  hostCommand(command: HostCommand, args?: Record<string, unknown>): void;
 }
 
 /**
@@ -142,6 +146,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
   const requestHostCommand = (
     command: HostCommand,
     args: Record<string, unknown> | undefined,
+    timeoutMs = HOST_COMMAND_TIMEOUT_MS,
   ): Promise<unknown> => {
     hostRequestCounter += 1;
     const requestId = `host-${hostRequestCounter}`;
@@ -149,7 +154,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       const timer = setTimeout(() => {
         hostRequests.delete(requestId);
         resolve(undefined);
-      }, HOST_COMMAND_TIMEOUT_MS);
+      }, timeoutMs);
       hostRequests.set(requestId, { resolve, timer });
       send({ type: 'host/command', payload: { command, args, requestId } });
     });
@@ -209,7 +214,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       send({ type: 'chat/prompt', payload: { text, mode, images, pins } }),
     editMessage: (itemId, text) => send({ type: 'chat/edit', payload: { itemId, text } }),
     forkMessage: (itemId) => send({ type: 'chat/fork', payload: { itemId } }),
-    hostCommand: (command, args) => requestHostCommand(command, args),
+    hostCommand: (command, args, timeoutMs) => requestHostCommand(command, args, timeoutMs),
     abort: () => send({ type: 'chat/abort', payload: {} }),
     newSession: (cwd) => send({ type: 'session/new', payload: { cwd } }),
     loadSession: (sessionId, cwd) => send({ type: 'session/load', payload: { sessionId, cwd } }),

@@ -146,6 +146,25 @@ describe('FilePreview', () => {
     expect(host.querySelectorAll('.diff.split .srow')).toHaveLength(2);
   });
 
+  it('shows a commit tab as a diff, without the working-tree File view', () => {
+    const { fixture } = render({
+      id: 'commit:abc123:src/main.ts',
+      path: 'src/main.ts',
+      commitHash: 'abc123',
+      commitSubject: 'A commit',
+      diff:
+        'diff --git a/a b/a\nindex 111..222 100644\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n const b = 3;\n',
+    });
+    setDiffMode(fixture, 'Unified diff');
+    const host = fixture.nativeElement as HTMLElement;
+
+    // The diff renders even though the working tree reports no status for it.
+    expect(host.querySelectorAll('.diff .drow.add')).toHaveLength(1);
+    // A commit has no honest "File" view (the disk content is not the commit's).
+    expect(host.querySelector('.modes button[title="The file\'s content"]')).toBeNull();
+    expect(host.querySelector('.commit-ref')?.textContent).toContain('abc123');
+  });
+
   it('says a truncated file was cut short', () => {
     const { fixture } = render({ content: 'a\n', truncated: true, size: 2_097_152 });
 

@@ -87,6 +87,17 @@ const DEFAULT_LINE_HEIGHT = 19.2;
         font-size: 12px;
         color: var(--morse-fg);
       }
+      /* The commit a file's diff belongs to, beside its path. */
+      .commit-ref {
+        flex: none;
+        padding: 0 6px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--morse-fg-muted) 12%, transparent);
+        color: var(--morse-fg-muted);
+        font-family: var(--morse-font-mono);
+        font-size: 10px;
+        line-height: 16px;
+      }
       .meta {
         display: flex;
         align-items: center;
@@ -446,10 +457,26 @@ export class FilePreview {
   protected readonly changed = computed(() =>
     statusByPath(this.workspace.status()).get(this.tab().path),
   );
-  /** File / unified / split. A file with no change has no diff to offer. */
-  protected readonly mode = computed<DiffView>(() =>
-    this.changed() === undefined ? 'file' : this.display.diffView(),
+  /**
+   * Whether there is a diff to show. A working-tree file only has one when it
+   * changed; a commit tab always has one, even if the working tree is clean.
+   */
+  protected readonly diffable = computed(
+    () => this.changed() !== undefined || this.tab().commitHash !== undefined,
   );
+  /**
+   * File / unified / split. A commit tab never offers the File view: the content
+   * on disk is not the commit's content, so the diff is the only honest picture.
+   */
+  protected readonly mode = computed<DiffView>(() => {
+    if (!this.diffable()) {
+      return 'file';
+    }
+    if (this.tab().commitHash !== undefined) {
+      return this.display.diffView() === 'split' ? 'split' : 'unified';
+    }
+    return this.display.diffView();
+  });
   /** The diff to parse: the host's, or the whole content of an untracked file. */
   private readonly diffText = computed(() => {
     const tab = this.tab();
@@ -557,7 +584,7 @@ export class FilePreview {
     });
     // A diff view pulls the file's diff the first time it is shown.
     effect(() => {
-      if (this.mode() === 'file' || this.changed() === undefined) {
+      if (this.mode() === 'file') {
         return;
       }
       const id = this.tab().id;

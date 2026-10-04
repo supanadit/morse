@@ -1,0 +1,82 @@
+<div class="layer" (click)="close.emit()"></div>
+<div class="menu" role="dialog" aria-label="Switch branch or tag">
+  @if (mode() !== 'list') {
+    <div class="create">
+      <input
+        class="name-input"
+        type="text"
+        [placeholder]="formLabel()"
+        [attr.aria-label]="formLabel()"
+        [value]="value()"
+        (input)="onValue($event)"
+        (keydown.enter)="confirm()"
+        (keydown.escape)="close.emit()"
+      />
+      <button
+        type="button"
+        class="primary"
+        [disabled]="busy() || value().trim().length === 0"
+        (click)="confirm()"
+      >
+        {{ confirmLabel() }}
+      </button>
+    </div>
+  } @else {
+    <input
+      class="filter"
+      type="search"
+      placeholder="Select a branch or tag to checkout"
+      aria-label="Select a branch or tag to checkout"
+      [value]="filter()"
+      (input)="onFilter($event)"
+      (keydown.escape)="close.emit()"
+    />
+    <button type="button" class="row create-row" [disabled]="busy()" (click)="startCreate()">
+      + Create new branch…
+    </button>
+    <button type="button" class="row detach-row" [disabled]="busy()" (click)="startDetach()">
+      ⌥ Checkout detached…
+    </button>
+
+    @if (locals().length > 0) {
+      <div class="group">Local</div>
+      @for (name of locals(); track name) {
+        <button
+          type="button"
+          class="row"
+          [disabled]="busy()"
+          [title]="name"
+          (click)="choose(name)"
+        >
+          <span class="dot" [class.on]="name === branches().current"></span>
+          <span class="name">{{ name }}</span>
+        </button>
+      }
+    }
+
+    @if (remotes().length > 0) {
+      <div class="group">Remote</div>
+      @for (name of remotes(); track name) {
+        <button type="button" class="row" [disabled]="busy()" [title]="name" (click)="choose(short(name))">
+          <span class="dot"></span>
+          <span class="name">{{ short(name) }}</span>
+          <span class="remote">{{ name }}</span>
+        </button>
+      }
+    }
+
+    @if (tags().length > 0) {
+      <div class="group">Tags</div>
+      @for (name of tags(); track name) {
+        <button type="button" class="row" [disabled]="busy()" [title]="name" (click)="choose(name)">
+          <span class="tag-glyph" aria-hidden="true">⌂</span>
+          <span class="name">{{ name }}</span>
+        </button>
+      }
+    }
+
+    @if (!hasHits() && filter().trim().length > 0) {
+      <div class="empty">No branch or tag matches “{{ filter() }}”.</div>
+    }
+  }
+</div>

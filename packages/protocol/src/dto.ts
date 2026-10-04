@@ -231,6 +231,53 @@ export interface GitStatus {
   files: GitFileStatus[];
 }
 
+/**
+ * What the `gitCommitFiles` host command answers: the paths a single commit
+ * touched, with the status each had in that commit (`M`, `A`, `D`, `R`, …).
+ */
+export interface GitCommitFiles {
+  isRepo: boolean;
+  hash: string;
+  files: GitFileStatus[];
+}
+
+/**
+ * What the `gitSync` host command answers: how far HEAD is from its upstream,
+ * for the panel's pull/push controls. `behind` is commits to pull, `ahead` is
+ * commits to push.
+ */
+export interface GitSync {
+  isRepo: boolean;
+  /** Current branch (`HEAD` short name), when `isRepo`. */
+  branch?: string;
+  /** The tracked remote branch (`origin/main`), when one is configured. */
+  upstream?: string;
+  ahead: number;
+  behind: number;
+}
+
+/** What the `gitBranches` host command answers: what the panel can switch to. */
+export interface GitBranches {
+  isRepo: boolean;
+  /** The checked-out branch (`HEAD` short name), when known. */
+  current?: string;
+  /** Local branch short names. */
+  local: string[];
+  /** Remote-tracking branches (`origin/main`), without `origin/HEAD`. */
+  remote: string[];
+  /** Tag names (checking one out detaches HEAD, the way git does). */
+  tags: string[];
+}
+
+/**
+ * What a git mutation answers (`gitCommit`, `gitCheckout`). `message` carries
+ * git's own words when it refused, so the panel can say why nothing happened.
+ */
+export interface GitMutation {
+  ok: boolean;
+  message?: string;
+}
+
 /** What the `gitDiff` host command answers: one file's unified diff. */
 export interface GitDiff {
   path: string;

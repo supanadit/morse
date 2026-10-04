@@ -1,6 +1,16 @@
 import { execFile } from 'node:child_process';
 import { relative } from 'node:path';
-import type { GitCommit, GitDiff, GitFileStatus, GitLog, GitStatus } from '@morse/protocol';
+import type {
+  GitBranches,
+  GitCommit,
+  GitCommitFiles,
+  GitDiff,
+  GitFileStatus,
+  GitLog,
+  GitMutation,
+  GitStatus,
+  GitSync,
+} from '@morse/protocol';
 import { resolveWithin } from './file-store.js';
 
 /**
@@ -128,6 +138,74 @@ export async function readGitDiff(cwd: string, requested: string): Promise<GitDi
 }
 
 /**
+ * The paths a commit touched, for the git panel's expandable row. Paths are made
+ * relative to `cwd` (`--relative`), matching `listFiles` and `readGitStatus`, so
+ * a session opened in a subdirectory sees only what it can open. A commit that
+ * touched nothing there is an empty list, not an error.
+ */
+export async function readCommitFiles(cwd: string, requested: string): Promise<GitCommitFiles> {
+  const hash = requested.trim();
+  if (!isCommitHash(hash)) {
+    return { isRepo: false, hash, files: [] };
+  }
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() !== 'true') {
+    return { isRepo: false, hash, files: [] };
+  }
+  const raw = await gitText(
+    ['show', '--name-status', '--format=', '-z', '--find-renames', '--relative', hash],
+    cwd,
+  );
+  return { isRepo: true, hash, files: parseNameStatus(raw ?? '') };
+}
+
+/**
+ * One file's diff *inside a commit* (`git show <hash> -- <path>`), for a file
+ * opened from the git panel's commit row. The path is resolved inside `cwd`,
+ * exactly like `readGitDiff`. A root commit shows the whole file as added.
+ */
+export async function readCommitDiff(cwd: string, hash: string, requested: string): Promise<GitDiff> {
+  const rel = toPosix(relative(cwd, resolveWithin(cwd, requested)));
+  if (!isCommitHash(hash.trim())) {
+    return { path: rel, diff: '' };
+  }
+  const diff = await gitText(
+    ['show', '--format=', '--no-color', '--no-ext-diff', '-U3', '--relative', hash.trim(), '--', rel],
+    cwd,
+  );
+  return { path: rel, diff: diff ?? '' };
+}
+
+/** A revision the client may name: a hex object id, never an option or a ref. */
+function isCommitHash(hash: string): boolean {
+  return /^[0-9a-fA-F]{4,40}$/.test(hash);
+}
+
+/**
+ * `git show --name-status -z` pairs a status with its path, NUL-separated, and a
+ * rename/copy carries both the old and the new path. Only the new path is kept,
+ * with the status reduced to its letter so the shared badge mapping applies.
+ */
+function parseNameStatus(raw: string): GitFileStatus[] {
+  const tokens = raw.split('\0');
+  const files: GitFileStatus[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const status = tokens[index];
+    if (!status) {
+      continue;
+    }
+    const letter = status[0] ?? '';
+    const rename = letter === 'R' || letter === 'C';
+    const path = tokens[index + (rename ? 2 : 1)];
+    index += rename ? 2 : 1;
+    if (path) {
+      files.push({ path: toPosix(path), status: `${letter} ` });
+    }
+  }
+  return files;
+}
+
+/**
  * Stages the named paths in the viewing session's repository (`git add`). Paths
  * are resolved inside `cwd` exactly like `readFile`, so a client cannot stage
  * anything outside its project. The fresh working tree comes back as the answer,
@@ -156,6 +234,155 @@ export async function unstageGitPaths(cwd: string, requested: readonly string[])
     }
   }
   return readGitStatus(cwd);
+}
+
+/**
+ * How far HEAD is from its upstream: `behind` commits to pull, `ahead` commits
+ * to push. A branch with no upstream (or an unborn branch) reports zero for both,
+ * so the panel still shows the pull/push controls without a distance.
+ */
+export async function readGitSync(cwd: string): Promise<GitSync> {
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() !== 'true') {
+    return { isRepo: false, ahead: 0, behind: 0 };
+  }
+  const [branch, upstream] = await Promise.all([
+    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
+    gitText(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], cwd),
+  ]);
+  const name = branch?.trim() || undefined;
+  const tracked = upstream?.trim() || undefined;
+  if (tracked === undefined) {
+    return { isRepo: true, branch: name, ahead: 0, behind: 0 };
+  }
+  const counts = await gitText(
+    ['rev-list', '--left-right', '--count', `${tracked}...HEAD`],
+    cwd,
+  );
+  const [behind, ahead] = parseCounts(counts ?? '');
+  return { isRepo: true, branch: name, upstream: tracked, ahead, behind };
+}
+
+/** Pulls the upstream (`git pull`) and reports the new distance. */
+export async function pullGit(cwd: string): Promise<GitSync> {
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() === 'true') {
+    await gitRun(['pull', '--no-edit'], cwd, 180_000);
+  }
+  return readGitSync(cwd);
+}
+
+/**
+ * Pushes HEAD (`git push`) and reports the new distance. `--follow-tags` sends
+ * the annotated tags that point into the pushed history, so a release tag travels
+ * with the commit it names instead of waiting for a separate `git push --tags`.
+ */
+export async function pushGit(cwd: string): Promise<GitSync> {
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() === 'true') {
+    await gitRun(['push', '--follow-tags'], cwd, 180_000);
+  }
+  return readGitSync(cwd);
+}
+
+/**
+ * The branches the panel can switch to: the current one, the locals, the
+ * remote-tracking branches (minus `origin/HEAD`, which is not a branch), and the
+ * tags (checking one out detaches HEAD).
+ */
+export async function readGitBranches(cwd: string): Promise<GitBranches> {
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() !== 'true') {
+    return { isRepo: false, local: [], remote: [], tags: [] };
+  }
+  const [current, local, remote, tags] = await Promise.all([
+    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
+    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], cwd),
+    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/remotes'], cwd),
+    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/tags'], cwd),
+  ]);
+  return {
+    isRepo: true,
+    current: current?.trim() || undefined,
+    local: nonEmptyLines(local),
+    remote: nonEmptyLines(remote).filter((name) => !name.endsWith('/HEAD')),
+    tags: nonEmptyLines(tags),
+  };
+}
+
+/** Commits the staged changes with `message`; git's refusal is reported back. */
+export async function commitGit(cwd: string, message: string): Promise<GitMutation> {
+  const text = message.trim();
+  if (text.length === 0) {
+    return { ok: false, message: 'A commit needs a message.' };
+  }
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() !== 'true') {
+    return { ok: false, message: 'This project is not a git repository.' };
+  }
+  const result = await gitExec(['commit', '-m', text], cwd, 60_000);
+  return { ok: result.ok, message: result.ok ? undefined : firstLine(result.output) };
+}
+
+/**
+ * Switches branches, creating the branch first when `create` is set. The name is
+ * validated as a refname, so a client cannot smuggle a git option into the
+ * command line.
+ */
+export async function checkoutGit(
+  cwd: string,
+  branch: string,
+  create: boolean,
+): Promise<GitMutation> {
+  const name = branch.trim();
+  if (!isBranchName(name)) {
+    return { ok: false, message: 'That is not a usable branch name.' };
+  }
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside?.trim() !== 'true') {
+    return { ok: false, message: 'This project is not a git repository.' };
+  }
+  const result = await gitExec(
+    create ? ['checkout', '-b', name] : ['checkout', name],
+    cwd,
+    60_000,
+  );
+  return { ok: result.ok, message: result.ok ? undefined : firstLine(result.output) };
+}
+
+/** A conservative refname guard: no options, whitespace, or revision syntax. */
+function isBranchName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    !name.startsWith('-') &&
+    !name.includes('..') &&
+    !name.includes('@{') &&
+    !name.endsWith('/') &&
+    !/\s/.test(name) &&
+    !/[~^:?*\[\\]/.test(name)
+  );
+}
+
+/** The first non-empty line of git's output, capped so a hint stays a hint. */
+function firstLine(output: string): string | undefined {
+  const line = output.split('\n').find((candidate) => candidate.trim().length > 0)?.trim();
+  if (line === undefined) {
+    return undefined;
+  }
+  return line.length > 200 ? `${line.slice(0, 197)}…` : line;
+}
+
+function nonEmptyLines(output: string | undefined): string[] {
+  return (output ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/** `<behind>\t<ahead>` from `git rev-list --left-right --count`; 0 when unreadable. */
+function parseCounts(raw: string): [number, number] {
+  const [behind, ahead] = raw.trim().split(/\s+/).map((value) => Number.parseInt(value, 10));
+  return [Number.isFinite(behind) ? behind : 0, Number.isFinite(ahead) ? ahead : 0];
 }
 
 /** Paths read with `/` on every platform, the way pi prints them. */
@@ -227,14 +454,47 @@ function resolvePaths(cwd: string, requested: readonly string[]): string[] {
     .map((path) => toPosix(relative(cwd, resolveWithin(cwd, path))));
 }
 
-/** A mutation: true when git accepted it, false when it failed (e.g. unborn HEAD). */
-function gitRun(args: string[], cwd: string): Promise<boolean> {
+/**
+ * A git mutation: true when git accepted it, false when it failed. A network
+ * command (pull/push) gets a long timeout and no terminal prompt, so a missing
+ * credential fails instead of hanging the host on a blocked stdin.
+ */
+async function gitRun(args: string[], cwd: string, timeout = 5_000): Promise<boolean> {
+  return (await gitExec(args, cwd, timeout)).ok;
+}
+
+/**
+ * Runs git and keeps both its verdict and its words: a refused command (nothing
+ * staged, a failing hook, a checkout conflict) has its stderr to show the user.
+ */
+function gitExec(
+  args: string[],
+  cwd: string,
+  timeout = 5_000,
+): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {
     execFile(
       'git',
       args,
-      { cwd, timeout: 5_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
-      (error) => resolve(error === null),
+      {
+        cwd,
+        timeout,
+        maxBuffer: 8 * 1024 * 1024,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_EDITOR: 'true',
+          GIT_MERGE_AUTOEDIT: 'no',
+        },
+      },
+      (error, stdout, stderr) => {
+        resolve(
+          error === null
+            ? { ok: true, output: stdout.trim() }
+            : { ok: false, output: (stderr || error.message || '').trim() },
+        );
+      },
     );
   });
 }

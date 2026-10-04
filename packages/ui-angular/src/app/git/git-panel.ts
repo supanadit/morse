@@ -12,7 +12,16 @@ import { MorseService } from '../core/morse.service';
 import { ShellState } from '../core/shell-state';
 import { GitPanelState } from '../core/git-panel-state';
 import { layoutGraph, type GraphEdge, type GraphRow } from '../core/git-graph';
-import { isStaged, isUnstaged, stagedKind, unstagedKind, type ChangeKind } from '../core/git-status';
+import {
+  asCommitFiles,
+  changeKind,
+  isStaged,
+  isUnstaged,
+  stagedKind,
+  unstagedKind,
+  type ChangeKind,
+} from '../core/git-status';
+import { BranchPicker } from './branch-picker/branch-picker';
 import { WorkspaceFiles } from '../core/workspace-files';
 import { WorkspaceTabs } from '../core/workspace-tabs';
 
@@ -20,6 +29,19 @@ import { WorkspaceTabs } from '../core/workspace-tabs';
 interface ChangeView {
   path: string;
   kind: ChangeKind;
+}
+
+/** One file a commit touched, ready for the graph's expanded row. */
+interface CommitFileView {
+  path: string;
+  kind: ChangeKind;
+}
+
+/** The lazily-loaded file list of one expanded commit. */
+interface CommitFilesState {
+  loading: boolean;
+  files: CommitFileView[];
+  error?: string;
 }
 
 /** Lane colours, drawn from the theme's chart palette so both themes read well. */
@@ -51,6 +73,7 @@ const GIT_RESIZE_MIN_CHAT = 180;
 @Component({
   selector: 'morse-git-panel',
   templateUrl: './git-panel.html',
+  imports: [BranchPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -170,6 +193,35 @@ const GIT_RESIZE_MIN_CHAT = 180;
       .ref.kind-tag {
         color: var(--morse-typename);
       }
+      /* The branch chip is a button now: it opens the switcher. */
+      .branch-host {
+        position: relative;
+        display: inline-flex;
+        flex: none;
+        min-width: 0;
+      }
+      button.branch {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border: 1px solid transparent;
+        background: color-mix(in srgb, var(--morse-fg-muted) 12%, transparent);
+        cursor: pointer;
+      }
+      button.branch:hover:not(:disabled) {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+      }
+      button.branch:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .branch-caret {
+        flex: none;
+        font-size: 9px;
+        line-height: 1;
+        opacity: 0.7;
+      }
       .grow {
         flex: 1;
       }
@@ -216,6 +268,85 @@ const GIT_RESIZE_MIN_CHAT = 180;
         display: flex;
         flex-direction: column;
         min-height: 0;
+      }
+      /* Branch distance and the pull/push controls, once for the whole panel. */
+      .sync {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 4px 0 10px;
+        border-bottom: 1px solid var(--morse-border);
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+      }
+      .sync-counts {
+        flex: none;
+        display: inline-flex;
+        gap: 6px;
+        font-family: var(--morse-font-mono);
+      }
+      /* A count of zero is context; a count above zero is the call to action. */
+      .sync-arrow {
+        opacity: 0.5;
+      }
+      .sync-arrow.on {
+        opacity: 1;
+        color: var(--morse-accent);
+      }
+      .sync-upstream {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--morse-font-mono);
+        font-size: 10px;
+      }
+      /* The commit message and its button, above the changes it commits. */
+      .commit-box {
+        flex: none;
+        display: flex;
+        gap: 6px;
+        padding: 6px 8px 6px 10px;
+        border-bottom: 1px solid var(--morse-border);
+      }
+      .commit-input {
+        flex: 1;
+        min-width: 0;
+        padding: 5px 8px;
+        border: 1px solid var(--morse-input-border);
+        border-radius: var(--morse-radius-sm);
+        background: var(--morse-input-bg);
+        color: var(--morse-input-fg);
+        font: inherit;
+        font-size: 12px;
+      }
+      .commit-button {
+        flex: none;
+        padding: 5px 10px;
+        border: 1px solid var(--morse-accent);
+        border-radius: var(--morse-radius-sm);
+        background: var(--morse-accent);
+        color: #fff;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .commit-button:hover:not(:disabled) {
+        filter: brightness(1.08);
+      }
+      .commit-button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .commit-error {
+        flex: none;
+        margin: 0;
+        padding: 4px 10px 6px;
+        color: var(--morse-error);
+        font-size: 11px;
+        line-height: 1.4;
       }
       .changes {
         flex: none;
@@ -588,15 +719,85 @@ const GIT_RESIZE_MIN_CHAT = 180;
       }
       /* One line per commit, so the list reads as a stream, not a stack of cards. */
       .commit {
+        display: block;
+      }
+      /* The row itself is the click target: it unfolds the commit's file list. */
+      .commit-row {
         display: flex;
         flex-wrap: nowrap;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         height: 32px;
         padding-right: 8px;
+        cursor: pointer;
       }
-      .commit:hover {
+      .commit-row:hover {
         background: var(--morse-hover);
+      }
+      .commit-row:focus-visible {
+        outline: 1px solid var(--morse-focus);
+        outline-offset: -1px;
+      }
+      .commit-chevron {
+        flex: none;
+        display: inline-block;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+        line-height: 1;
+        transition: transform 120ms ease;
+      }
+      .commit-chevron.open {
+        transform: rotate(90deg);
+      }
+      /* The files a commit touched, under its row. */
+      .commit-files {
+        position: relative;
+        padding-bottom: 6px;
+      }
+      /* Keeps every lane that survives the commit drawn across the extra height. */
+      .commit-rail {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .rail {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1.7px;
+        transform: translateX(-50%);
+        border-radius: 1px;
+        opacity: 0.9;
+      }
+      .commit-file-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .commit-file {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 2px 10px 2px 44px;
+        border: 0;
+        background: none;
+        color: var(--morse-fg);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .commit-file:hover:not(:disabled) {
+        background: var(--morse-hover);
+      }
+      .commit-file-hint {
+        margin: 0;
+        padding: 2px 12px 6px 44px;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+      }
+      .commit-file-hint.error {
+        color: var(--morse-error);
       }
       /*
        * One SVG per row, stacked with no gap: a lane reads as one continuous line
@@ -702,7 +903,7 @@ const GIT_RESIZE_MIN_CHAT = 180;
         cursor: pointer;
         opacity: 0;
       }
-      .commit:hover .copy {
+      .commit-row:hover .copy {
         opacity: 1;
       }
       .copy:hover:not(:disabled) {
@@ -747,6 +948,10 @@ export class GitPanel {
     const status = this.workspace.status();
     return status?.isRepo ? status.files.length : 0;
   });
+  /** A commit needs a message and something staged, and only one at a time. */
+  protected readonly canCommit = computed(
+    () => this.commitMessage().trim().length > 0 && this.staged().length > 0 && !this.committing(),
+  );
 
   private changesFor(side: 'staged' | 'unstaged'): ChangeView[] {
     const status = this.workspace.status();
@@ -768,6 +973,31 @@ export class GitPanel {
   }
   protected readonly rowHeight = ROW_HEIGHT;
   protected readonly copied = signal<string | undefined>(undefined);
+  /** How far the branch is from its upstream, and its pull/push controls. */
+  protected readonly ahead = this.git.ahead;
+  protected readonly behind = this.git.behind;
+  protected readonly upstream = this.git.upstream;
+  protected readonly syncing = this.git.syncingNow;
+  protected readonly syncLabel = computed(() => {
+    const upstream = this.upstream();
+    if (upstream === undefined) {
+      return 'No upstream branch to pull from or push to';
+    }
+    return `${upstream}: ${this.behind()} to pull, ${this.ahead()} to push`;
+  });
+  /** The branches the picker lists, and the state of a commit/checkout. */
+  protected readonly branches = this.git.branches;
+  protected readonly switching = this.git.switching;
+  protected readonly committing = this.git.committing;
+  protected readonly notice = this.git.notice;
+  /** Whether the branch picker is open; the panel owns that, not the picker. */
+  protected readonly branchOpen = signal(false);
+  /** The commit message being typed; Enter or the Commit button sends it. */
+  protected readonly commitMessage = signal('');
+  /** The commit whose file list is unfolded; `undefined` when all are folded. */
+  protected readonly openCommit = signal<string | undefined>(undefined);
+  /** The file list of each commit that was unfolded, kept so re-opening is free. */
+  private readonly commitFiles = signal<Record<string, CommitFilesState>>({});
 
   /** The graph layout and its commits, paired so the template walks one list. */
   protected readonly entries = computed(() => {
@@ -814,6 +1044,122 @@ export class GitPanel {
 
   protected refresh(): void {
     this.git.refresh();
+  }
+
+  /** Pulls the upstream; the graph and the distance are re-read afterwards. */
+  protected pull(): void {
+    void this.git.pull();
+  }
+
+  /** Pushes the branch; the graph and the distance are re-read afterwards. */
+  protected push(): void {
+    void this.git.push();
+  }
+
+  /** Opens the branch switcher, reading the branch list on the way in. */
+  protected toggleBranchPicker(): void {
+    if (this.branchOpen()) {
+      this.branchOpen.set(false);
+      return;
+    }
+    this.git.loadBranches();
+    this.branchOpen.set(true);
+  }
+
+  protected closeBranchPicker(): void {
+    this.branchOpen.set(false);
+  }
+
+  /** Switches to an existing branch (a remote name checks out its local twin). */
+  protected pickBranch(branch: string): void {
+    this.branchOpen.set(false);
+    void this.git.checkout(branch, false);
+  }
+
+  /** Creates a branch and switches to it in one step. */
+  protected createBranch(branch: string): void {
+    this.branchOpen.set(false);
+    void this.git.checkout(branch, true);
+  }
+
+  /** Checks out a tag or commit directly; git leaves HEAD detached. */
+  protected detachRef(ref: string): void {
+    this.branchOpen.set(false);
+    void this.git.checkout(ref, false);
+  }
+
+  protected onCommitMessage(event: Event): void {
+    this.commitMessage.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Commits what is staged; the message clears only when git accepted it. */
+  protected submitCommit(): void {
+    const message = this.commitMessage().trim();
+    if (message.length === 0 || this.committing()) {
+      return;
+    }
+    void this.git.commit(message).then((ok) => {
+      if (ok) {
+        this.commitMessage.set('');
+      }
+    });
+  }
+
+  /** Whether a commit's file list is unfolded. */
+  protected isCommitOpen(hash: string): boolean {
+    return this.openCommit() === hash;
+  }
+
+  /** A commit's file list, empty until it is unfolded and loaded. */
+  protected commitState(hash: string): CommitFilesState {
+    return this.commitFiles()[hash] ?? { loading: false, files: [] };
+  }
+
+  /**
+   * Unfolds a commit row to its changed files, folding the previous one. The
+   * list is read once (`gitCommitFiles`) and kept, so re-opening is free.
+   */
+  protected toggleCommit(hash: string): void {
+    if (this.openCommit() === hash) {
+      this.openCommit.set(undefined);
+      return;
+    }
+    this.openCommit.set(hash);
+    const existing = this.commitFiles()[hash];
+    if (existing !== undefined && existing.error === undefined) {
+      return;
+    }
+    this.commitFiles.update((map) => ({
+      ...map,
+      [hash]: { loading: true, files: [] },
+    }));
+    void this.morse.requestHostCommand('gitCommitFiles', { hash }).then((data) => {
+      const files = asCommitFiles(data);
+      if (files === undefined) {
+        this.commitFiles.update((map) => ({
+          ...map,
+          [hash]: { loading: false, files: [], error: 'Could not read this commit.' },
+        }));
+        return;
+      }
+      const views: CommitFileView[] = [];
+      for (const file of files) {
+        const kind = changeKind(file.status);
+        if (kind !== undefined) {
+          views.push({ path: file.path, kind });
+        }
+      }
+      views.sort((a, b) => a.path.localeCompare(b.path));
+      this.commitFiles.update((map) => ({
+        ...map,
+        [hash]: { loading: false, files: views },
+      }));
+    });
+  }
+
+  /** Opens one file's diff inside that commit, in its own preview tab. */
+  protected openCommitChange(hash: string, path: string, subject: string): void {
+    this.tabs.openCommitFile(hash, path, subject);
   }
 
   /**
@@ -1099,6 +1445,15 @@ export class GitPanel {
     // leaves and arrives vertically — a flow, not a right-angled detour.
     const mid = (y1 + y2) / 2;
     return `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`;
+  }
+
+  /**
+   * The lanes that continue *below* a commit's row: every edge that leaves its
+   * row at the bottom. An expanded file list pushes the next row down, so the
+   * graph must draw these lanes across the extra height or the line looks cut.
+   */
+  protected continuing(row: GraphRow): GraphEdge[] {
+    return row.edges.filter((edge) => edge.toY === 1);
   }
 
   protected rowColor(row: GraphRow): string {

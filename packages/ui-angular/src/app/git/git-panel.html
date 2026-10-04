@@ -20,7 +20,28 @@
       Git
     </span>
     @if (branch(); as name) {
-      <span class="branch" [title]="name">{{ name }}</span>
+      <div class="branch-host">
+        <button
+          type="button"
+          class="branch"
+          [title]="name + ' — switch branch'"
+          [disabled]="switching()"
+          (click)="toggleBranchPicker()"
+        >
+          {{ name }}
+          <span class="branch-caret" aria-hidden="true">▾</span>
+        </button>
+        @if (branchOpen() && branches(); as list) {
+          <morse-branch-picker
+            [branches]="list"
+            [busy]="switching()"
+            (pick)="pickBranch($event)"
+            (create)="createBranch($event)"
+            (detach)="detachRef($event)"
+            (close)="closeBranchPicker()"
+          />
+        }
+      </div>
     }
     @if (expanded() && commits().length > 0) {
       <span class="count">{{ commits().length }} commits</span>
@@ -79,6 +100,69 @@
     [class.history-collapsed]="historyCollapsed()"
   >
     @if (isRepo()) {
+      <!-- How far the branch is from its upstream, and the way to close the gap. -->
+      <div class="sync">
+        <span class="sync-counts" [title]="syncLabel()">
+          <span class="sync-arrow" [class.on]="behind() > 0">↓{{ behind() }}</span>
+          <span class="sync-arrow" [class.on]="ahead() > 0">↑{{ ahead() }}</span>
+        </span>
+        <span class="sync-upstream" [title]="syncLabel()">{{ upstream() ?? 'no upstream' }}</span>
+        <span class="grow"></span>
+        <button
+          type="button"
+          class="icon"
+          title="Pull from the upstream"
+          aria-label="Pull"
+          [disabled]="syncing()"
+          (click)="pull()"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2v9" />
+            <path d="M4.5 7.5 8 11l3.5-3.5" />
+            <path d="M3 13.5h10" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="icon"
+          title="Push to the upstream (tags follow)"
+          aria-label="Push"
+          [disabled]="syncing()"
+          (click)="push()"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 14V5" />
+            <path d="M4.5 8.5 8 5l3.5 3.5" />
+            <path d="M3 2.5h10" />
+          </svg>
+        </button>
+      </div>
+      <!-- Commit box: what is staged goes in with one line and Enter. -->
+      <div class="commit-box">
+        <input
+          class="commit-input"
+          type="text"
+          [placeholder]="'Message (Enter to commit on ' + (branch() ?? 'HEAD') + ')'"
+          aria-label="Commit message"
+          [value]="commitMessage()"
+          [disabled]="committing()"
+          (input)="onCommitMessage($event)"
+          (keydown.enter)="submitCommit()"
+        />
+        <button
+          type="button"
+          class="commit-button"
+          [disabled]="!canCommit()"
+          (click)="submitCommit()"
+        >
+          Commit
+        </button>
+      </div>
+      @if (notice(); as result) {
+        @if (!result.ok) {
+          <p class="commit-error" role="alert">{{ result.text }}</p>
+        }
+      }
       <section
         class="changes"
         [style.height.px]="changesHeightPx()"
@@ -247,67 +331,120 @@
         <li
           class="commit"
           [class.expanded]="expanded()"
+          [class.open]="isCommitOpen(entry.commit.hash)"
         >
-          <svg
-            class="graph"
-            [attr.width]="graphWidth()"
-            [attr.height]="rowHeight"
-            [attr.viewBox]="'0 0 ' + graphWidth() + ' ' + rowHeight"
-            aria-hidden="true"
+          <div
+            class="commit-row"
+            role="button"
+            tabindex="0"
+            [attr.aria-expanded]="isCommitOpen(entry.commit.hash)"
+            (click)="toggleCommit(entry.commit.hash)"
+            (keydown.enter)="toggleCommit(entry.commit.hash)"
+            (keydown.space)="toggleCommit(entry.commit.hash); $event.preventDefault()"
           >
-            @for (edge of entry.row.edges; track $index) {
-              <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
-              <path class="flow" [attr.d]="path(edge)" />
-            }
-            <circle
-              [attr.cx]="x(entry.row.lane)"
-              [attr.cy]="rowHeight / 2"
-              r="3.4"
-              [style.fill]="rowColor(entry.row)"
-            />
-          </svg>
-
-          <span class="subject">{{ entry.commit.subject }}</span>
-
-          @if (entry.refs.length > 0) {
-            <span class="refs">
-              @for (ref of entry.refs; track ref) {
-                <span
-                  class="ref"
-                  [title]="refLabel(ref)"
-                  [class.kind-head]="refKind(ref) === 'head'"
-                  [class.kind-local]="refKind(ref) === 'local'"
-                  [class.kind-tag]="refKind(ref) === 'tag'"
-                  >{{ refLabel(ref) }}</span
-                >
+            <svg
+              class="graph"
+              [attr.width]="graphWidth()"
+              [attr.height]="rowHeight"
+              [attr.viewBox]="'0 0 ' + graphWidth() + ' ' + rowHeight"
+              aria-hidden="true"
+            >
+              @for (edge of entry.row.edges; track $index) {
+                <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
+                <path class="flow" [attr.d]="path(edge)" />
               }
-              @if (entry.moreRefs > 0) {
-                <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
+              <circle
+                [attr.cx]="x(entry.row.lane)"
+                [attr.cy]="rowHeight / 2"
+                r="3.4"
+                [style.fill]="rowColor(entry.row)"
+              />
+            </svg>
+
+            <span class="commit-chevron" [class.open]="isCommitOpen(entry.commit.hash)">›</span>
+
+            <span class="subject">{{ entry.commit.subject }}</span>
+
+            @if (entry.refs.length > 0) {
+              <span class="refs">
+                @for (ref of entry.refs; track ref) {
+                  <span
+                    class="ref"
+                    [title]="refLabel(ref)"
+                    [class.kind-head]="refKind(ref) === 'head'"
+                    [class.kind-local]="refKind(ref) === 'local'"
+                    [class.kind-tag]="refKind(ref) === 'tag'"
+                    >{{ refLabel(ref) }}</span
+                  >
+                }
+                @if (entry.moreRefs > 0) {
+                  <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
+                }
+              </span>
+            }
+
+            <span class="grow"></span>
+
+            <span class="meta">
+              <span class="hash" [title]="entry.commit.hash">{{ entry.commit.shortHash }}</span>
+              <span class="sep" aria-hidden="true">·</span>
+              <span class="when">{{ when(entry.commit.date) }}</span>
+              @if (expanded()) {
+                <span class="sep" aria-hidden="true">·</span>
+                <span class="author">{{ entry.commit.author }}</span>
               }
             </span>
+
+            <button
+              type="button"
+              class="copy"
+              [title]="copied() === entry.commit.hash ? 'Copied' : 'Copy commit hash'"
+              [attr.aria-label]="'Copy commit hash ' + entry.commit.shortHash"
+              (click)="$event.stopPropagation(); copy(entry.commit)"
+            >
+              {{ copied() === entry.commit.hash ? '✓' : '⧉' }}
+            </button>
+          </div>
+
+          @if (isCommitOpen(entry.commit.hash)) {
+            <div class="commit-files">
+              <!-- The lanes carrying on below the commit, drawn across the list so
+                   the expanded row does not cut the graph. -->
+              <div class="commit-rail" aria-hidden="true">
+                @for (edge of continuing(entry.row); track $index) {
+                  <span
+                    class="rail"
+                    [style.left.px]="x(edge.toLane)"
+                    [style.background]="color(edge.color)"
+                  ></span>
+                }
+              </div>
+              @if (commitState(entry.commit.hash).loading) {
+                <p class="commit-file-hint">Reading the commit…</p>
+              } @else if (commitState(entry.commit.hash).error; as message) {
+                <p class="commit-file-hint error">{{ message }}</p>
+              } @else if (commitState(entry.commit.hash).files.length === 0) {
+                <p class="commit-file-hint">No changed files under this session.</p>
+              } @else {
+                <ul class="commit-file-list">
+                  @for (file of commitState(entry.commit.hash).files; track file.path) {
+                    <li>
+                      <button
+                        type="button"
+                        class="commit-file"
+                        [title]="file.path"
+                        (click)="openCommitChange(entry.commit.hash, file.path, entry.commit.subject)"
+                      >
+                        <span [class]="'badge ' + file.kind">{{ file.kind }}</span>
+                        <span class="change-dir">{{ dirOf(file.path) }}</span
+                        ><span class="change-name">{{ baseOf(file.path) }}</span>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
           }
-
-          <span class="grow"></span>
-
-          <span class="meta">
-            <span class="hash" [title]="entry.commit.hash">{{ entry.commit.shortHash }}</span>
-            <span class="sep" aria-hidden="true">·</span>
-            <span class="when">{{ when(entry.commit.date) }}</span>
-            @if (expanded()) {
-              <span class="sep" aria-hidden="true">·</span>
-              <span class="author">{{ entry.commit.author }}</span>
-            }
-          </span>
-
-          <button
-            type="button"
-            class="copy"
-            [title]="copied() === entry.commit.hash ? 'Copied' : 'Copy commit hash'"
-            [attr.aria-label]="'Copy commit hash ' + entry.commit.shortHash"
-            (click)="copy(entry.commit)"
-          >
-            {{ copied() === entry.commit.hash ? '✓' : '⧉' }}
-          </button>
         </li>
       }
       <li class="more">

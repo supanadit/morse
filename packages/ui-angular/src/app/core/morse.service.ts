@@ -258,9 +258,14 @@ export class MorseService {
 
   /**
    * Runs a host command and waits for its value. Resolves `undefined` when the
-   * host does not answer, so a caller can fall back instead of hanging.
+   * host does not answer, so a caller can fall back instead of hanging. A slow
+   * command (a network pull/push) passes its own `timeoutMs`.
    */
-  requestHostCommand(command: HostCommand, args?: Record<string, unknown>): Promise<unknown> {
-    return this.actions.hostCommand(command, args);
+  requestHostCommand(
+    command: HostCommand,
+    args?: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<unknown> {
+    return this.actions.hostCommand(command, args, timeoutMs);
   }
 }

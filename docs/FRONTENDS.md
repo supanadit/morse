@@ -162,6 +162,13 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   `date` and `subject`. `parents` is all the graph needs: `core/git-graph.ts` is a pure function
   that assigns each commit a lane and the edges across its row, and the panel turns that into one
   SVG per row. No graph algorithm lives in the host.
+- Clicking a commit unfolds its changed files (`gitCommitFiles { hash }` → `{ isRepo, hash, files }`,
+  paths relative to the session's directory like `gitStatus`). Every lane that continues below the
+  commit is redrawn as a rail across the file list, so the graph is not cut by the expansion. Clicking
+  a file opens its own preview tab whose diff is `gitCommitDiff { hash, path }` (`git show`, not the
+  working tree's); the tab carries the hash, so the same path in two commits is two diffs, and it
+  offers only the unified and split layouts — the content on disk is not the commit's content, so a
+  File view would mislead.
 - The panel is two sections: an **uncommitted changes** list on top (the same `gitStatus` poll the
   Explorer uses, so it stays live; a click opens the file in a preview tab) and the **graph** below,
   which pages towards the root commit as it scrolls. Each section folds from its own header, and a
@@ -172,6 +179,19 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   `gitUnstage` (`{ paths }` → the fresh `gitStatus`; `core/git-status.ts` owns the `X`/`Y` split). The
   host resolves every path inside the viewing session's directory, like `readFile`, and answers with
   the new working tree so the list updates in one round trip.
+- The panel has a sync bar: `gitSync` reports how far HEAD is from its upstream (`behind` to pull,
+  `ahead` to push) and the two buttons run `gitPull` / `gitPush`. Push uses `--follow-tags`, so the
+  annotated tags that point into the pushed history travel with it. Both are network commands, so the
+  host runs git with prompts disabled (a missing credential fails rather than blocking), and the
+  frontend gives them a long answer timeout instead of the usual 5s; the graph and the distance are
+  re-read afterwards.
+- The branch chip is a button: it opens `morse-branch-picker` (`gitBranches` → locals, remote
+  tracking branches — remotes shown by their short name — and tags) with "Create new branch…" and
+  "Checkout detached…" rows. `gitCheckout { branch, create }` switches, creates, or detaches (a tag or
+  a commit hash); tags check out detached, the way git does. A commit box above the changes calls
+  `gitCommit { message }` for what is staged; both mutations answer `{ ok, message }`, so a refusal
+  (nothing staged, a hook, a conflict, a bad branch name) is shown in the panel instead of failing
+  silently.
 - The history is read with `git log --all --date-order` and capped (250 by default, 500 hard), so a
   long repository stays readable. VS Code never loads this — the capability, the shortcut row and
   the panel are all gated on `capabilities.gitPanel`.

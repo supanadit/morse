@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  asCommitFiles,
   asGitStatus,
   changeKind,
   isStaged,
@@ -81,5 +82,25 @@ describe('asGitStatus', () => {
       ['a.ts', 'M'],
       ['b.ts', 'U'],
     ]);
+  });
+});
+
+describe('asCommitFiles', () => {
+  it('keeps a commit\u2019s files and drops the malformed rows', () => {
+    const files = asCommitFiles({
+      isRepo: true,
+      hash: 'abc123',
+      files: [{ path: 'a.ts', status: 'M ' }, { path: 1 }, null],
+    });
+    expect(files).toEqual([{ path: 'a.ts', status: 'M ' }]);
+  });
+
+  it('reads a commit that touched nothing as an empty list', () => {
+    expect(asCommitFiles({ isRepo: true, hash: 'abc123' })).toEqual([]);
+  });
+
+  it('rejects a reply that is not a commit file list', () => {
+    expect(asCommitFiles(undefined)).toBeUndefined();
+    expect(asCommitFiles({ files: [] })).toBeUndefined();
   });
 });

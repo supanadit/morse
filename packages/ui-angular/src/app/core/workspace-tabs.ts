@@ -38,6 +38,10 @@ export interface FileTab {
   diff?: string;
   diffLoading?: boolean;
   diffError?: string;
+  /** Opened from a commit's file list: the diff is `git show <hash>`, not HEAD. */
+  commitHash?: string;
+  /** The commit's subject, so the preview can name the commit it is showing. */
+  commitSubject?: string;
 }
 
 export type WorkspaceTab = SessionTab | FileTab;
@@ -228,6 +232,35 @@ export class WorkspaceTabs {
   /** Opens or reveals a file tab from the Explorer; reads it the first time. */
   openFile(path: string): void {
     this.openFileTab(path, false, undefined);
+  }
+
+  /**
+   * Opens a file's diff *inside a commit*, from the git panel's expanded row. It
+   * gets its own tab, separate from the working-tree preview of the same path:
+   * the diff is against the commit, not HEAD.
+   */
+  openCommitFile(hash: string, path: string, subject: string): void {
+    const id = commitTabId(hash, path);
+    const existing = this.items().find((tab) => tab.id === id);
+    if (existing === undefined) {
+      this.items.update((tabs) => [
+        ...tabs,
+        {
+          kind: 'file',
+          id,
+          path,
+          title: basename(path),
+          language: languageForPath(path),
+          loading: false,
+          commitHash: hash,
+          commitSubject: subject,
+        },
+      ]);
+    }
+    this.active.set(id);
+    // The preview loads the diff on its own, but a non-rendered host (or a tab
+    // revealed programmatically) still gets the content this way.
+    this.loadDiff(id);
   }
 
   /**
@@ -529,7 +562,8 @@ export class WorkspaceTabs {
 
   /**
    * Reads the file's unified diff the first time a diff view needs it. Kept on
-   * the tab beside its content, so revealing the same tab again is free.
+   * the tab beside its content, so revealing the same tab again is free. A
+   * commit tab asks for the commit's diff instead of the working tree's.
    */
   loadDiff(id: string): void {
     const tab = this.items().find((candidate) => candidate.id === id);
@@ -542,12 +576,21 @@ export class WorkspaceTabs {
       return;
     }
     this.patch(id, { diffLoading: true, diffError: undefined });
-    void this.morse.requestHostCommand('gitDiff', { path: tab.path }).then((data) => {
+    const request =
+      tab.commitHash !== undefined
+        ? this.morse.requestHostCommand('gitCommitDiff', {
+            hash: tab.commitHash,
+            path: tab.path,
+          })
+        : this.morse.requestHostCommand('gitDiff', { path: tab.path });
+    void request.then((data) => {
       const diff = asDiff(data);
       if (diff === undefined) {
         this.patch(id, {
           diffLoading: false,
-          diffError: 'Could not read this file’s changes.',
+          diffError: tab.commitHash === undefined
+            ? 'Could not read this file’s changes.'
+            : 'Could not read this file in that commit.',
         });
         return;
       }
@@ -629,12 +672,23 @@ export class WorkspaceTabs {
   }
 
   private needsLoad(tab: WorkspaceTab): boolean {
-    return tab.kind === 'file' && !tab.loading && tab.content === undefined && tab.error === undefined;
+    return (
+      tab.kind === 'file' &&
+      // A commit tab has no working-tree content to read: its diff is the view.
+      tab.commitHash === undefined &&
+      !tab.loading &&
+      tab.content === undefined &&
+      tab.error === undefined
+    );
   }
 
   private async load(id: string): Promise<void> {
     const tab = this.items().find((candidate) => candidate.id === id);
     if (tab === undefined || tab.kind !== 'file') {
+      return;
+    }
+    if (tab.commitHash !== undefined) {
+      this.loadDiff(id);
       return;
     }
     this.patch(id, { loading: true, error: undefined });
@@ -697,4 +751,9 @@ function basename(path: string): string {
 /** A quoted file's tab id: keyed by session, so the same path can be quoted twice. */
 function mentionTabId(sessionId: string | undefined, path: string): string {
   return `${MENTION_PREFIX}${sessionId ?? ''}:${path}`;
+}
+
+/** A commit file's tab id: the same path in two commits is two diffs. */
+function commitTabId(hash: string, path: string): string {
+  return `commit:${hash}:${path}`;
 }

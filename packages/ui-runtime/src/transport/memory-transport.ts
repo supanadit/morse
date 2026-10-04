@@ -57,6 +57,8 @@ export class MemoryHostTransport extends BaseHostTransport {
   private items: TranscriptItem[] = isBlankSession() ? [] : mockConversation();
   /** Scripted working tree the mock stages/unstages against. */
   private gitFiles = MOCK_GIT_STATUS.files.map((file) => ({ ...file }));
+  /** Scripted branch distance the mock pulls/pushes against. */
+  private gitSync = { isRepo: true, branch: 'master', upstream: 'origin/master', ahead: 1, behind: 0 };
   /** Persisted-looking catalog; `session/new` prepends to it like a real host. */
   private sessions: SessionSummary[] = mockSessions();
   /** Registry keys of live agent processes, so several can animate at once. */
@@ -299,6 +301,89 @@ export class MemoryHostTransport extends BaseHostTransport {
               ok: true,
               data: { path: String(message.payload.args?.path ?? ''), diff: MOCK_GIT_DIFF },
             },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitCommitFiles' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: {
+                isRepo: true,
+                hash: String(message.payload.args?.hash ?? ''),
+                files: this.gitFiles,
+              },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitCommitDiff' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: { path: String(message.payload.args?.path ?? ''), diff: MOCK_GIT_DIFF },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitSync' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: this.gitSync },
+          });
+          return;
+        }
+        if (
+          (message.payload.command === 'gitPull' || message.payload.command === 'gitPush') &&
+          message.payload.requestId
+        ) {
+          this.gitSync =
+            message.payload.command === 'gitPull'
+              ? { ...this.gitSync, ahead: this.gitSync.ahead + this.gitSync.behind, behind: 0 }
+              : { ...this.gitSync, ahead: 0 };
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: this.gitSync },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitCommit' && message.payload.requestId) {
+          // The mock accepts any message; the panel's job is the round trip.
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitBranches' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: {
+                isRepo: true,
+                current: this.gitSync.branch,
+                local: ['master', 'dev', 'feat/mock'],
+                remote: ['origin/master', 'origin/dev'],
+                tags: ['v0.9.5', 'v0.9.4'],
+              },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'gitCheckout' && message.payload.requestId) {
+          const branch = String(message.payload.args?.branch ?? '');
+          if (branch.length > 0) {
+            this.gitSync = { ...this.gitSync, branch };
+          }
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },
           });
           return;
         }

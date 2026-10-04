@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../core/morse.service';
 import { ShellState } from '../core/shell-state';
-import { asGitLog, GitPanelState } from '../core/git-panel-state';
+import { asGitLog, asGitSync, GitPanelState } from '../core/git-panel-state';
 import { WorkspaceTabs } from '../core/workspace-tabs';
 import { GitPanel } from './git-panel';
 
@@ -42,6 +42,14 @@ function setup(
     getStatus?: () => unknown;
     /** Answer `gitStage`/`gitUnstage`; return the fresh working tree. */
     onGitMutation?: (command: string, paths: string[]) => unknown;
+    /** Answer `gitCommitFiles` with one commit's changed paths. */
+    commitFiles?: unknown;
+    /** Answer `gitSync`/`gitPull`/`gitPush` with the branch distance. */
+    sync?: unknown;
+    /** Answer `gitBranches` with the branches the picker lists. */
+    branches?: unknown;
+    /** Answer `gitCommit`/`gitCheckout` with a mutation verdict. */
+    mutation?: unknown;
   } = {},
 ) {
   const fake = {
@@ -65,6 +73,29 @@ function setup(
         return Promise.resolve(
           options.onGitMutation ? options.onGitMutation(command, paths) : options.status,
         );
+      }
+      if (command === 'gitCommitFiles') {
+        return Promise.resolve(options.commitFiles ?? { isRepo: true, hash: '', files: [] });
+      }
+      if (command === 'gitCommitDiff') {
+        return Promise.resolve({ path: String(args?.['path'] ?? ''), diff: '' });
+      }
+      if (command === 'gitSync' || command === 'gitPull' || command === 'gitPush') {
+        return Promise.resolve(options.sync ?? { isRepo: true, branch: 'main', ahead: 0, behind: 0 });
+      }
+      if (command === 'gitBranches') {
+        return Promise.resolve(
+          options.branches ?? {
+            isRepo: true,
+            current: 'main',
+            local: ['main'],
+            remote: [],
+            tags: [],
+          },
+        );
+      }
+      if (command === 'gitCommit' || command === 'gitCheckout') {
+        return Promise.resolve(options.mutation ?? { ok: true });
       }
       return Promise.resolve(result);
     }),
@@ -136,6 +167,170 @@ describe('GitPanel', () => {
     expect(refs[1].textContent?.trim()).toBe('+2');
     // The folded names are one hover away on the counter.
     expect(refs[1].getAttribute('title')).toContain('origin/main');
+  });
+
+  it('unfolds a commit to its changed files and opens one as a commit diff', async () => {
+    const commitFiles = {
+      isRepo: true,
+      hash: LOG.commits[0].hash,
+      files: [
+        { path: 'src/a.ts', status: 'M ' },
+        { path: 'src/b.ts', status: 'A ' },
+      ],
+    };
+    const { fixture, fake } = setup(LOG, { files: [], commitFiles });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLElement>('.commit-row')!.click();
+    await settle(fixture);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitCommitFiles', {
+      hash: LOG.commits[0].hash,
+    });
+    const names = [...host.querySelectorAll('.commit-file .change-name')].map((node) =>
+      node.textContent?.trim(),
+    );
+    expect(names).toEqual(['a.ts', 'b.ts']);
+    // The lane that survives the commit is drawn across the expanded list, so
+    // the graph line is not cut by the files.
+    expect(host.querySelectorAll('.commit-files .commit-rail .rail').length).toBeGreaterThan(0);
+
+    // Clicking a file opens a tab whose diff is against that commit, not HEAD.
+    host.querySelector<HTMLButtonElement>('.commit-file')!.click();
+    fixture.detectChanges();
+    const tabs = TestBed.inject(WorkspaceTabs);
+    expect(tabs.tabs().map((tab) => tab.id)).toContain(`commit:${LOG.commits[0].hash}:src/a.ts`);
+
+    // Clicking the row again folds the list away.
+    host.querySelector<HTMLElement>('.commit-row')!.click();
+    fixture.detectChanges();
+    expect(host.querySelector('.commit-files')).toBeNull();
+  });
+
+  it('shows the branch distance and pulls/pushes from the sync bar', async () => {
+    const { fixture, fake } = setup(LOG, {
+      files: [],
+      sync: { isRepo: true, branch: 'main', upstream: 'origin/main', ahead: 1, behind: 2 },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const arrows = [...host.querySelectorAll('.sync-arrow')].map((node) => node.textContent?.trim());
+    expect(arrows).toEqual(['↓2', '↑1']);
+    expect(host.querySelector('.sync-arrow.on')?.textContent?.trim()).toBe('↓2');
+    expect(host.querySelector('.sync-upstream')?.textContent).toContain('origin/main');
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Pull"]')?.click();
+    await settle(fixture);
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitPull', undefined, 180_000);
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Push"]')?.click();
+    await settle(fixture);
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitPush', undefined, 180_000);
+  });
+
+  it('commits what is staged from the message box', async () => {
+    const { fixture, fake } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const input = host.querySelector<HTMLInputElement>('.commit-input')!;
+    const button = host.querySelector<HTMLButtonElement>('.commit-button')!;
+    // Nothing typed and nothing staged is not a commit.
+    expect(button.disabled).toBe(true);
+
+    input.value = 'feat: a thing';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+
+    button.click();
+    await settle(fixture);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith(
+      'gitCommit',
+      { message: 'feat: a thing' },
+      60_000,
+    );
+    expect(input.value).toBe('');
+  });
+
+  it('shows why git refused the commit', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] },
+      mutation: { ok: false, message: 'nothing to commit, working tree clean' },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const input = host.querySelector<HTMLInputElement>('.commit-input')!;
+    input.value = 'feat: a thing';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('.commit-button')!.click();
+    await settle(fixture);
+
+    expect(host.querySelector('.commit-error')?.textContent).toContain('nothing to commit');
+  });
+
+  it('switches branch from the picker', async () => {
+    const { fixture, fake } = setup(LOG, {
+      files: [],
+      branches: {
+        isRepo: true,
+        current: 'main',
+        local: ['main', 'dev'],
+        remote: ['origin/main', 'origin/topic'],
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLButtonElement>('.branch')!.click();
+    await settle(fixture);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitBranches');
+    const rows = [...host.querySelectorAll<HTMLButtonElement>('morse-branch-picker .row')];
+    expect(rows.some((row) => row.textContent?.includes('Create new branch'))).toBe(true);
+    const dev = rows.find((row) => row.textContent?.trim() === 'dev')!;
+    expect(dev).toBeDefined();
+
+    dev.click();
+    await settle(fixture);
+    expect(fake.requestHostCommand).toHaveBeenCalledWith(
+      'gitCheckout',
+      { branch: 'dev', create: false },
+      60_000,
+    );
+  });
+
+  it('creates a new branch from the picker', async () => {
+    const { fixture, fake } = setup(LOG, { files: [] });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLButtonElement>('.branch')!.click();
+    await settle(fixture);
+    host.querySelector<HTMLButtonElement>('morse-branch-picker .create-row')!.click();
+    fixture.detectChanges();
+
+    const name = host.querySelector<HTMLInputElement>('morse-branch-picker .name-input')!;
+    name.value = 'feat/new';
+    name.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('morse-branch-picker .primary')!.click();
+    await settle(fixture);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith(
+      'gitCheckout',
+      { branch: 'feat/new', create: true },
+      60_000,
+    );
   });
 
   it('says when the project is not a repository', async () => {
@@ -376,6 +571,7 @@ describe('GitPanelState paging', () => {
   it('appends the next page until the root, then stops', async () => {
     const fake = {
       workspace: signal({ cwd: '/r', name: 'r' }),
+      capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
       requestHostCommand: vi.fn((_command: string, args?: Record<string, unknown>) => {
         const skip = Number(args?.['skip'] ?? 0);
         const commits = skip === 0 ? page(0, 250) : page(250, 3);
@@ -395,5 +591,29 @@ describe('GitPanelState paging', () => {
     expect(state.commits()).toHaveLength(253);
     expect(state.hasMore()).toBe(false);
     expect(fake.requestHostCommand).toHaveBeenLastCalledWith('gitLog', { max: 250, skip: 250 });
+  });
+});
+
+describe('asGitSync', () => {
+  it('keeps the distance and drops junk counts', () => {
+    const sync = asGitSync({
+      isRepo: true,
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 3,
+      behind: -1,
+    });
+    expect(sync).toEqual({
+      isRepo: true,
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 3,
+      behind: 0,
+    });
+  });
+
+  it('rejects a reply that is not a sync', () => {
+    expect(asGitSync(undefined)).toBeUndefined();
+    expect(asGitSync({ ahead: 1 })).toBeUndefined();
   });
 });

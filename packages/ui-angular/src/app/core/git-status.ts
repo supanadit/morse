@@ -100,10 +100,28 @@ export function asGitStatus(value: unknown): GitStatus | undefined {
   if (candidate['isRepo'] !== true) {
     return typeof candidate['isRepo'] === 'boolean' ? { isRepo: false, files: [] } : undefined;
   }
-  const files = Array.isArray(candidate['files'])
-    ? candidate['files'].map(asFileStatus).filter((file): file is GitFileStatus => file !== undefined)
+  return { isRepo: true, files: asFiles(candidate['files']) };
+}
+
+/**
+ * Validates a `gitCommitFiles` answer. A commit that touched nothing here (a
+ * subdirectory session, a merge) is an empty list, not a malformed reply.
+ */
+export function asCommitFiles(value: unknown): GitFileStatus[] | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate['isRepo'] !== 'boolean') {
+    return undefined;
+  }
+  return asFiles(candidate['files']);
+}
+
+function asFiles(value: unknown): GitFileStatus[] {
+  return Array.isArray(value)
+    ? value.map(asFileStatus).filter((file): file is GitFileStatus => file !== undefined)
     : [];
-  return { isRepo: true, files };
 }
 
 /** The changed paths as a `path -> letter` map, for the Explorer's rows. */

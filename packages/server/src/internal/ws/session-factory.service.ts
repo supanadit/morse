@@ -19,9 +19,17 @@ import { saveUpload } from '../uploads/upload-store.js';
 import { browseDirectory } from '../workspace/directory-browser.js';
 import { readWorkspaceFile } from '../workspace/file-store.js';
 import {
+  checkoutGit,
+  commitGit,
+  pullGit,
+  pushGit,
+  readCommitDiff,
+  readCommitFiles,
+  readGitBranches,
   readGitDiff,
   readGitLog,
   readGitStatus,
+  readGitSync,
   stageGitPaths,
   unstageGitPaths,
 } from '../workspace/git-log.js';
@@ -198,6 +206,53 @@ export class MorseSessionFactory {
       case 'gitUnstage': {
         const cwd = this.requireWritableCwd(context);
         return unstageGitPaths(cwd, gitPaths(args));
+      }
+      case 'gitCommitFiles': {
+        // The graph's expandable row: the paths one commit touched. The hash is
+        // client-named, so it is validated as a hex object id, never a ref.
+        const cwd = this.requireWritableCwd(context);
+        const hash = typeof args?.hash === 'string' ? args.hash : '';
+        return readCommitFiles(cwd, hash);
+      }
+      case 'gitCommitDiff': {
+        const cwd = this.requireWritableCwd(context);
+        const hash = typeof args?.hash === 'string' ? args.hash : '';
+        const path = typeof args?.path === 'string' ? args.path : '';
+        if (path.length === 0) {
+          throw new UnsupportedByHostError('gitCommitDiff needs a "path" argument.');
+        }
+        return readCommitDiff(cwd, hash, path);
+      }
+      case 'gitSync': {
+        // How far HEAD is from its upstream, for the panel's pull/push controls.
+        const cwd = this.requireWritableCwd(context);
+        return readGitSync(cwd);
+      }
+      case 'gitPull': {
+        // Network commands: git runs with prompts disabled, so a missing
+        // credential fails instead of blocking the host on stdin.
+        const cwd = this.requireWritableCwd(context);
+        return pullGit(cwd);
+      }
+      case 'gitPush': {
+        const cwd = this.requireWritableCwd(context);
+        return pushGit(cwd);
+      }
+      case 'gitCommit': {
+        // Commits the staged changes. The message is client-named but passed as
+        // a single argv element, never through a shell.
+        const cwd = this.requireWritableCwd(context);
+        const message = typeof args?.message === 'string' ? args.message : '';
+        return commitGit(cwd, message);
+      }
+      case 'gitBranches': {
+        const cwd = this.requireWritableCwd(context);
+        return readGitBranches(cwd);
+      }
+      case 'gitCheckout': {
+        const cwd = this.requireWritableCwd(context);
+        const branch = typeof args?.branch === 'string' ? args.branch : '';
+        return checkoutGit(cwd, branch, args?.create === true);
       }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);

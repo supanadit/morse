@@ -25,6 +25,22 @@ export type HostCommand =
   | 'gitLog'
   | 'gitStatus'
   | 'gitDiff'
+  /** The paths a single commit touched, for the graph's expandable row. */
+  | 'gitCommitFiles'
+  /** One file's unified diff inside a commit (not against HEAD). */
+  | 'gitCommitDiff'
+  /** How far HEAD is from its upstream, for the pull/push controls. */
+  | 'gitSync'
+  /** Pull the upstream into the working tree. */
+  | 'gitPull'
+  /** Push HEAD to its upstream. */
+  | 'gitPush'
+  /** Commit the staged changes with a message. */
+  | 'gitCommit'
+  /** The branches the panel can switch to. */
+  | 'gitBranches'
+  /** Switch to a branch, optionally creating it first. */
+  | 'gitCheckout'
   /** Stage the named paths in the viewing session's repository. */
   | 'gitStage'
   /** Unstage the named paths (keep the working-tree change). */
