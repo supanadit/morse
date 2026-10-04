@@ -181,7 +181,13 @@ const DEFAULT_LINE_HEIGHT = 19.2;
         flex: 1;
         min-width: 0;
         padding: 0 16px 0 6px;
-        white-space: pre;
+        /*
+         * A long diff line wraps onto the next visual line instead of running
+         * under the neighbouring side. Both sides of a .srow grow together
+         * (align-items: stretch), so the old/new pairing stays one row.
+         */
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
       .dnum {
         flex: none;
