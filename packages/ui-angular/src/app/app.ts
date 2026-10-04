@@ -233,10 +233,10 @@ export class App {
     });
     // The strip follows the host's active session: a resume or a fresh session
     // brings its tab forward, while a file tab stays put as the agent streams.
+    // Tracked in both hosts — the strip only *renders* where `filePreview` is set
+    // — because the composer keys its per-session draft off the active tab, and a
+    // draft must be promoted to the session the first prompt opens in every host.
     effect(() => {
-      if (!this.tabsEnabled()) {
-        return;
-      }
       const state = this.morse.state();
       const id = state.sessionId;
       if (id === undefined) {

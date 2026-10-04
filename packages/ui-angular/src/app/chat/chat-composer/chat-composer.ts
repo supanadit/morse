@@ -13,6 +13,7 @@ import {
 import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { promptTemplateForm, readPromptTemplate } from '@morse/ui-runtime';
 import { AttachmentStore, type PendingImage, type PendingPin } from '../../core/attachments';
+import { ComposerDrafts } from '../../core/composer-drafts';
 import { MorseService } from '../../core/morse.service';
 import { QueuedPrompts, type QueuedPrompt } from '../../core/queued-prompts';
 import { ShellState } from '../../core/shell-state';
@@ -548,6 +549,7 @@ export class ChatComposer {
   private readonly shortcuts = inject(ShortcutService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly attachments = inject(AttachmentStore);
+  private readonly drafts = inject(ComposerDrafts);
   private readonly queue = inject(QueuedPrompts);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly tabs = inject(WorkspaceTabs);
@@ -557,7 +559,7 @@ export class ChatComposer {
   /** True between dispatching a queued prompt and the run it starts. */
   private draining = false;
 
-  protected readonly text = signal('');
+  protected readonly text = this.drafts.text;
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
@@ -753,7 +755,7 @@ export class ChatComposer {
       }
       const added = this.attachments.takeMentions();
       const block = added.map((path) => (path.startsWith('@') ? path : `@${path}`)).join('\n');
-      this.text.update((value) => (value.trim().length === 0 ? block : `${value.trimEnd()}\n${block}`));
+      this.drafts.updateText((value) => (value.trim().length === 0 ? block : `${value.trimEnd()}\n${block}`));
       const input = this.promptInput()?.nativeElement;
       input?.focus();
     });
@@ -773,7 +775,7 @@ export class ChatComposer {
     // attachments in the strip, so the user continues the new branch without
     // retyping what they branched from.
     this.morse.onComposerSeed((seed) => {
-      this.text.set(seed.text);
+      this.drafts.setText(seed.text);
       this.syncInputValue();
       this.attachments.seed(seed.images ?? [], seed.pins ?? []);
     });
@@ -824,7 +826,7 @@ export class ChatComposer {
 
   protected onInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
-    this.text.set(target.value);
+    this.drafts.setText(target.value);
     this.refreshMentionQuery(target.value, target.selectionStart);
     this.refreshPaletteQuery(target.value, target.selectionStart);
   }
@@ -915,13 +917,13 @@ export class ChatComposer {
   }
 
   protected sendWith(mode: PromptMode): void {
-    const value = this.text().trim();
+    const value = this.drafts.text().trim();
     // `/compact <instructions>` is the same destructive action as the bare built-in,
     // only with the user's words attached — it must not slip past the confirmation by
     // riding along as a prompt.
     const instructions = compactInstructions(value);
     if (instructions !== undefined) {
-      this.text.set('');
+      this.drafts.setText('');
       this.shell.requestCompact(instructions);
       return;
     }
@@ -929,7 +931,7 @@ export class ChatComposer {
     // not a prompt pi can run — the TUI keeps those commands out of the wire.
     const builtin = builtinName(value);
     if (builtin) {
-      this.text.set('');
+      this.drafts.setText('');
       this.runBuiltin(builtin);
       return;
     }
@@ -953,13 +955,13 @@ export class ChatComposer {
       this.morse.prompt(value, mode === 'followUp' ? 'new' : mode, images, pins);
     }
     this.attachments.setLivePreview(null);
-    this.text.set('');
+    this.drafts.setText('');
   }
 
   /** Puts a queued follow-up back in the composer, attachments and all. */
   protected editQueued(item: QueuedPrompt): void {
     this.queue.remove(item.id);
-    this.text.set(item.text);
+    this.drafts.setText(item.text);
     this.syncInputValue();
     this.attachments.seed(item.images, item.pins);
     this.promptInput()?.nativeElement.focus();
@@ -1084,14 +1086,14 @@ export class ChatComposer {
       this.onPickerClose();
       return;
     }
-    const value = this.text();
+    const value = this.drafts.text();
     const separator = value.length > 0 && !/\s$/.test(value) ? ' ' : '';
-    this.text.set(`${value}${separator}@`);
+    this.drafts.setText(`${value}${separator}@`);
     const input = this.promptInput()?.nativeElement;
     if (input) {
       // Angular updates `[value]` on the next change detection; the caret has to
       // move now, so the DOM value is set here too.
-      const next = this.text();
+      const next = this.drafts.text();
       input.value = next;
       input.focus();
       input.setSelectionRange(next.length, next.length);
@@ -1222,7 +1224,7 @@ export class ChatComposer {
             // The template declares arguments: a bare `/name` would leave them
             // empty, so collect them — and any extra — in the form first.
             this.stripSlashToken();
-            this.text.set('');
+            this.drafts.setText('');
             this.closePalette();
             this.openTemplate({ name, description: command.description, form });
             return;
@@ -1231,7 +1233,7 @@ export class ChatComposer {
           // `/name`: a template added after spawn is not in pi's cache, and an
           // edited body must reach the agent without a pi reload.
           this.stripSlashToken();
-          this.text.set('');
+          this.drafts.setText('');
           this.closePalette();
           this.sendTemplate(readPromptTemplate(command.template).body);
           return;
@@ -1240,7 +1242,7 @@ export class ChatComposer {
         // templates server-side, so the bare `/name` is the whole prompt; pending
         // attachments belong to the user's next one.
         this.stripSlashToken();
-        this.text.set('');
+        this.drafts.setText('');
         this.closePalette();
         this.morse.prompt(`/${name}`, this.streaming() ? 'steer' : 'new');
         return;
@@ -1344,12 +1346,12 @@ export class ChatComposer {
 
   /** Removes the trailing `/command` token the palette opened on. */
   private stripSlashToken(): void {
-    this.text.update((value) => value.replace(/(?:^|\n)(\s*)\/[\w:-]*$/, '$1'));
+    this.drafts.updateText((value) => value.replace(/(?:^|\n)(\s*)\/[\w:-]*$/, '$1'));
     this.syncInputValue();
   }
 
   private replaceSlashToken(replacement: string): void {
-    this.text.update((value) => value.replace(/(?:^|\n)(\s*)\/[\w:-]*$/, `$1${replacement}`));
+    this.drafts.updateText((value) => value.replace(/(?:^|\n)(\s*)\/[\w:-]*$/, `$1${replacement}`));
     this.syncInputValue();
   }
 
@@ -1358,7 +1360,7 @@ export class ChatComposer {
     if (!input) {
       return;
     }
-    const next = this.text();
+    const next = this.drafts.text();
     input.value = next;
     input.focus();
     input.setSelectionRange(next.length, next.length);
@@ -1417,7 +1419,7 @@ export class ChatComposer {
     if (this.mentionMode()) {
       // Replace the `@query` the user typed instead of appending a second mention.
       // A directory keeps its trailing `/` and gets no space, so it stays a prefix.
-      this.text.update((value) => value.replace(/@[\w./-]*$/, `@${path}${directory ? '' : ' '}`));
+      this.drafts.updateText((value) => value.replace(/@[\w./-]*$/, `@${path}${directory ? '' : ' '}`));
     } else if (!directory) {
       this.attachments.addMentions([path]);
       this.attachments.say('info', `Pinned ${path} to this message.`);

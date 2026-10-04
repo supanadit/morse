@@ -25,6 +25,15 @@ export interface AcceptReport {
   skipped: string[];
 }
 
+/** The pending pieces of one composer draft: images, pins and mentions. */
+interface PendingSet {
+  images: PendingImage[];
+  pins: PendingPin[];
+  mentions: string[];
+}
+
+const EMPTY_SET: PendingSet = { images: [], pins: [], mentions: [] };
+
 /**
  * Attachments for the next prompt, owned outside the composer: a file can be
  * dropped anywhere in the chat, and the composer is the thing that sends it.
@@ -32,32 +41,99 @@ export interface AcceptReport {
  * Images become prompt attachments (pi accepts them as content blocks); anything
  * else that arrived as a path becomes an `@mention` in the prompt text, which is
  * how pi references files.
+ *
+ * The pending pieces are kept per composer draft (`use`), so switching to
+ * another session tab carries the reader's attachments with it instead of
+ * leaving them on the wrong message.
  */
 @Injectable({ providedIn: 'root' })
 export class AttachmentStore {
-  private readonly attached = signal<PendingImage[]>([]);
-  private readonly pinned = signal<PendingPin[]>([]);
+  /** Pending pieces per composer draft (a session or draft tab id). */
+  private readonly sets = signal<Record<string, PendingSet>>({});
+  /**
+   * The draft the composer is editing. Everything below reads and writes this
+   * key, so a half-typed message's attachments stay with their session instead
+   * of following the reader to the next tab.
+   */
+  private readonly scope = signal('');
   private readonly live = signal<PendingPin | null>(null);
-  private readonly pendingMentions = signal<string[]>([]);
   private readonly message = signal<{ level: 'info' | 'warn'; text: string; at: number } | null>(
     null,
   );
   private counter = 0;
 
-  readonly images = this.attached.asReadonly();
+  readonly images = computed(() => this.current().images);
   /** Selection chips pinned to the next message (`+` picker / host command). */
-  readonly pins = this.pinned.asReadonly();
+  readonly pins = computed(() => this.current().pins);
   /**
    * The editor's current selection, reported live by the host: it is shown as
    * an unlocked chip that keeps following every selection change until the
    * user clicks it to lock it into `pins`.
    */
   readonly livePreview = this.live.asReadonly();
-  readonly mentions = this.pendingMentions.asReadonly();
+  readonly mentions = computed(() => this.current().mentions);
   readonly notice = this.message.asReadonly();
   readonly count = computed(
-    () => this.attached().length + this.pinned().length + this.pendingMentions().length,
+    () => this.images().length + this.pins().length + this.mentions().length,
   );
+
+  /** Points the store at `key` (the composer draft in front). */
+  use(key: string): void {
+    if (key === this.scope()) {
+      return;
+    }
+    this.scope.set(key);
+    // A live selection belongs to the session that reported it: it must not
+    // follow the reader to another tab.
+    this.live.set(null);
+  }
+
+  /** True when `key`'s draft holds no pending attachments. */
+  isEmpty(key: string): boolean {
+    const set = this.sets()[key] ?? EMPTY_SET;
+    return set.images.length === 0 && set.pins.length === 0 && set.mentions.length === 0;
+  }
+
+  /** Moves a draft's attachments when its tab is promoted to a real session. */
+  rekey(from: string, to: string): void {
+    const set = this.sets()[from];
+    if (set === undefined) {
+      return;
+    }
+    this.sets.update((map) => {
+      const next = { ...map };
+      delete next[from];
+      next[to] = set;
+      return next;
+    });
+    if (this.scope() === from) {
+      this.scope.set(to);
+    }
+  }
+
+  /** Drops a closed tab's attachments. */
+  forget(key: string): void {
+    if (!(key in this.sets())) {
+      return;
+    }
+    this.sets.update((map) => {
+      const next = { ...map };
+      delete next[key];
+      return next;
+    });
+  }
+
+  /** The pending set of the draft in front. */
+  private current(): PendingSet {
+    return this.sets()[this.scope()] ?? EMPTY_SET;
+  }
+
+  /** Replaces fields of the draft in front, leaving the others alone. */
+  private patch(change: Partial<PendingSet>): void {
+    const key = this.scope();
+    const base = this.sets()[key] ?? EMPTY_SET;
+    this.sets.update((map) => ({ ...map, [key]: { ...base, ...change } }));
+  }
 
   /**
    * Reads files without storing them, so the caller can animate them in first and
@@ -93,7 +169,7 @@ export class AttachmentStore {
     if (images.length === 0) {
       return;
     }
-    this.attached.update((list) => [...list, ...images]);
+    this.patch({ images: [...this.current().images, ...images] });
   }
 
   /**
@@ -112,7 +188,7 @@ export class AttachmentStore {
     if (clean.length === 0) {
       return;
     }
-    this.pendingMentions.update((list) => [...list, ...clean]);
+    this.patch({ mentions: [...this.current().mentions, ...clean] });
   }
 
   /**
@@ -150,13 +226,13 @@ export class AttachmentStore {
    * happens on release (`pin(range, id)`), which keeps the whole union.
    */
   setPinRange(id: string, range: { startLine: number; endLine?: number }): void {
-    this.pinned.update((list) =>
-      list.map((item) =>
+    this.patch({
+      pins: this.current().pins.map((item) =>
         item.id === id
           ? { ...item, startLine: range.startLine, endLine: range.endLine }
           : item,
       ),
-    );
+    });
   }
 
   /**
@@ -176,7 +252,7 @@ export class AttachmentStore {
     }
 
     if (pin.startLine === undefined) {
-      const duplicate = this.pinned().find(
+      const duplicate = this.current().pins.find(
         (item) => item.path === pin.path && item.startLine === undefined,
       );
       if (duplicate !== undefined) {
@@ -184,11 +260,11 @@ export class AttachmentStore {
       }
       this.counter += 1;
       const id = `pin-${this.counter}`;
-      this.pinned.update((list) => [...list, { ...pin, id }]);
+      this.patch({ pins: [...this.current().pins, { ...pin, id }] });
       return id;
     }
 
-    const list = this.pinned();
+    const list = this.current().pins;
     let start = pin.startLine;
     let end = pin.endLine ?? pin.startLine;
     // The edited chip is dropped before the merge pass, so it does not absorb
@@ -243,12 +319,12 @@ export class AttachmentStore {
     if (!placed) {
       next.push(merged);
     }
-    this.pinned.set(next);
+    this.patch({ pins: next });
     return merged.id;
   }
 
   removePin(id: string): void {
-    this.pinned.update((list) => list.filter((item) => item.id !== id));
+    this.patch({ pins: this.current().pins.filter((item) => item.id !== id) });
   }
 
   /**
@@ -293,19 +369,19 @@ export class AttachmentStore {
   }
 
   remove(id: string): void {
-    this.attached.update((list) => list.filter((item) => item.id !== id));
+    this.patch({ images: this.current().images.filter((item) => item.id !== id) });
   }
 
   /** The images to send, cleared so the next prompt starts empty. */
   takeImages(): PromptImage[] {
-    const images = this.attached().map(({ data, mimeType }) => ({ data, mimeType }));
-    this.attached.set([]);
+    const images = this.current().images.map(({ data, mimeType }) => ({ data, mimeType }));
+    this.patch({ images: [] });
     return images;
   }
 
   /** The pins to send as the message's attachments, then cleared. */
   takePins(): ChatPin[] {
-    const pins = this.pinned().map(({ path, startLine, endLine }) => {
+    const pins = this.current().pins.map(({ path, startLine, endLine }) => {
       const wire: ChatPin = { path };
       if (startLine !== undefined) {
         wire.startLine = startLine;
@@ -315,22 +391,20 @@ export class AttachmentStore {
       }
       return wire;
     });
-    this.pinned.set([]);
+    this.patch({ pins: [] });
     return pins;
   }
 
   /** Mentions waiting to be written into the prompt text. */
   takeMentions(): string[] {
-    const mentions = this.pendingMentions();
-    this.pendingMentions.set([]);
+    const mentions = this.current().mentions;
+    this.patch({ mentions: [] });
     return mentions;
   }
 
   clear(): void {
-    this.attached.set([]);
-    this.pinned.set([]);
+    this.patch({ images: [], pins: [], mentions: [] });
     this.live.set(null);
-    this.pendingMentions.set([]);
   }
 
   /** Short user-facing feedback, rendered as the app's toast. */

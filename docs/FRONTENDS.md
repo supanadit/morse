@@ -140,8 +140,13 @@ strip above the conversation, where sessions and files open side by side.
 - A session tab is navigation, not a second transcript: selecting it sends `session/activate` and the host
   replays that session, exactly as the sidebar does. Nothing is cached frontend-side, so there is still one
   source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens
-  the tab itself and promotes it to the real session on the first prompt; tabs can be closed to an empty
-  strip, and a closed tab is never reopened by the host's state.
+  a tab for it itself and promotes it to the real session on the first prompt; every "New session" is its
+  own tab, and a tab can be closed to an empty strip, and a closed tab is never reopened by the host's state.
+- The composer is **per tab**. A half-typed message and its attachments live in `core/composer-drafts.ts`
+  (`core/attachments.ts` scopes its pending pieces the same way), keyed by the session or draft tab id in
+  front, so switching tabs shows that tab's draft and never carries the words into another session. An
+  untouched "New session" tab is dropped when a real session is picked; one with text in it stays until the
+  reader closes it.
 
 ### Git history and graph (browser host only)
 

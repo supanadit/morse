@@ -37,6 +37,10 @@ function setup(result: unknown, options: { status?: unknown; files?: string[] } 
   const fake = {
     workspace: signal({ cwd: '/mock/workspace', name: 'morse' }),
     capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
+    state: signal({
+      sessionId: undefined,
+      workspace: { cwd: '/mock/workspace', name: 'morse' },
+    }),
     requestHostCommand: vi.fn((command: string) => {
       if (command === 'listFiles') {
         return Promise.resolve({ files: options.files ?? [] });

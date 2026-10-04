@@ -1,5 +1,6 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { languageForPath } from './highlight';
+import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from './morse.service';
 
 export interface SessionTab {
@@ -44,8 +45,6 @@ export type WorkspaceTab = SessionTab | FileTab;
 const FILE_PREFIX = 'file:';
 /** Files opened from the `@` picker live in a second row, so the prefix differs. */
 const MENTION_PREFIX = 'mention:';
-/** The draft tab's id: a tab for a session the host has not opened yet. */
-export const DRAFT_TAB_ID = 'draft';
 
 /** The shape the host's `readFile` command resolves with. */
 interface FilePreviewPayload {
@@ -63,14 +62,32 @@ interface FilePreviewPayload {
  * host read for it.
  *
  * Frontend shell state, not wire state: which tabs are open is the user's, and the
- * host is told only what it must act on (`session/activate`, `readFile`). VS Code
- * leaves this empty and keeps its native editor tabs (`capabilities.filePreview`).
+ * host is told only what it must act on (`session/activate`, `readFile`). The
+ * strip renders only where `capabilities.filePreview` is set (the browser host);
+ * VS Code keeps its native editor tabs and hides this one, but the store still
+ * follows the active session so the per-session composer draft has a key.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkspaceTabs {
   private readonly morse = inject(MorseService);
+  private readonly drafts = inject(ComposerDrafts);
   private readonly items = signal<WorkspaceTab[]>([]);
   private readonly active = signal<string | undefined>(undefined);
+  /** Names the draft tabs, so each "New session" is its own tab and its own draft. */
+  private draftCounter = 0;
+  /**
+   * The draft the host is holding right now. It becomes the next session the
+   * host opens; `undefined` once the reader moves to a real session. Without it,
+   * a draft left in the strip could be mistaken for the session that just opened.
+   */
+  private pendingDraft: string | undefined;
+
+  constructor() {
+    // The composer edits the draft of the tab in front. Pointing the store here,
+    // where the active tab is known, keeps a half-typed message with its session
+    // even while the composer is unmounted by a file preview.
+    effect(() => this.drafts.use(this.composerKey()));
+  }
 
   readonly tabs = this.items.asReadonly();
   readonly activeId = this.active.asReadonly();
@@ -94,6 +111,14 @@ export class WorkspaceTabs {
     }
     return tab?.kind === 'file' && tab.mention === true ? tab.sessionId : undefined;
   });
+  /**
+   * The draft key the composer should be editing. A plain file tab has no session
+   * of its own, so the host's active session keeps its draft behind the preview:
+   * a drop while a file is in front still lands in the conversation it belongs to.
+   */
+  readonly composerKey = computed<string | undefined>(
+    () => this.contextSessionId() ?? this.morse.state().sessionId,
+  );
   /**
    * The second row: only the quoted files of the session in front. A file the
    * user never quoted in that session is not this session's context, so it does
@@ -166,22 +191,24 @@ export class WorkspaceTabs {
     this.morse.newSession(cwd);
   }
 
-  /** Opens (or reveals) the draft tab the first prompt will fill in. */
+  /** Opens a fresh draft tab for a new session; every call is its own tab. */
   openDraft(cwd?: string): void {
-    const existing = this.items().find((tab) => tab.kind === 'session' && tab.id === DRAFT_TAB_ID);
-    if (existing === undefined) {
-      this.items.update((tabs) => [
-        ...tabs,
-        { kind: 'session', id: DRAFT_TAB_ID, title: 'New session', cwd, draft: true },
-      ]);
-    }
-    this.active.set(DRAFT_TAB_ID);
+    this.draftCounter += 1;
+    const id = `draft-${this.draftCounter}`;
+    this.items.update((tabs) => [
+      ...tabs,
+      { kind: 'session', id, title: 'New session', cwd, draft: true },
+    ]);
+    this.active.set(id);
+    this.pendingDraft = id;
   }
 
   /** The user picked a session (from the sidebar or its tab): show it and activate it. */
   focusSession(session: { id: string; title: string; cwd?: string }): void {
-    // Switching to a real session abandons an unfinished draft.
-    this.discardDraft();
+    // The draft stops being the host's pending session; a filled-in one stays in
+    // the strip as the reader's work, an untouched one is noise.
+    this.pendingDraft = undefined;
+    this.discardEmptyDrafts();
     this.showSession(session);
     this.morse.activateSession(session.id, session.cwd);
   }
@@ -244,9 +271,18 @@ export class WorkspaceTabs {
     this.active.set(id);
     if (tab.kind === 'session') {
       // The draft is a placeholder, not a pi session: activating it would ask
-      // the host to resume a session literally named "draft". The host is
-      // already showing it, so bringing it forward needs no wire message.
-      if (tab.draft !== true) {
+      // the host to resume a session literally named "draft". Only a host that
+      // is showing a real session has to be told to step back to an empty draft;
+      // an empty host draft is the same empty panel for any draft tab.
+      if (tab.draft === true) {
+        this.pendingDraft = tab.id;
+        if (this.morse.state().sessionId !== undefined) {
+          this.morse.newSession(tab.cwd);
+        }
+      } else {
+        // Picking a real session leaves an untouched "New session" tab behind.
+        this.pendingDraft = undefined;
+        this.discardEmptyDrafts();
         this.morse.activateSession(tab.id, tab.cwd);
       }
       return;
@@ -323,6 +359,7 @@ export class WorkspaceTabs {
     const closedSession = closing.some((tab) => tab.kind === 'session' && tab.draft !== true);
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
     this.items.update((tabs) => tabs.filter((tab) => keepIds.has(tab.id)));
+    this.forgetDrafts(closing.map((tab) => tab.id));
     this.active.set(id);
     if (keep.kind === 'session' && keep.draft !== true) {
       this.morse.activateSession(keep.id, keep.cwd);
@@ -347,6 +384,7 @@ export class WorkspaceTabs {
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
+    this.forgetDrafts(ids);
     this.pruneOrphanMentions();
     if (active !== undefined && ids.has(active)) {
       this.select(id);
@@ -362,7 +400,9 @@ export class WorkspaceTabs {
       (tab) => tab.kind === 'session' && tab.draft !== true,
     );
     const cwd = this.items().find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
+    const openIds = this.items().map((tab) => tab.id);
     this.items.set([]);
+    this.forgetDrafts(openIds);
     this.active.set(undefined);
     if (closedSession) {
       this.fallBackToEmptySession(cwd);
@@ -427,6 +467,7 @@ export class WorkspaceTabs {
   private remove(doomed: Set<string>, index: number): void {
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !doomed.has(tab.id)));
+    this.forgetDrafts(doomed);
     if (active === undefined || !doomed.has(active)) {
       return;
     }
@@ -437,6 +478,16 @@ export class WorkspaceTabs {
       return;
     }
     this.select(neighbour.id);
+  }
+
+  /** A closed tab's draft has nowhere to return to. */
+  private forgetDrafts(ids: Iterable<string>): void {
+    for (const id of ids) {
+      if (id === this.pendingDraft) {
+        this.pendingDraft = undefined;
+      }
+      this.drafts.forget(id);
+    }
   }
 
   /**
@@ -510,12 +561,21 @@ export class WorkspaceTabs {
     );
   }
 
-  /** Turns the draft tab into the session that just got an id, in place. */
+  /**
+   * Turns the pending draft tab into the session that just got an id, in place.
+   * The composer was editing that tab, so its draft follows the new id.
+   */
   private promoteDraft(session: { id: string; title: string; cwd?: string }): void {
-    const hasDraft = this.items().some(
-      (tab) => tab.kind === 'session' && tab.id === DRAFT_TAB_ID,
+    const pendingId = this.pendingDraft;
+    this.pendingDraft = undefined;
+    if (pendingId === undefined) {
+      return;
+    }
+    const activeDraft = this.items().find(
+      (tab): tab is SessionTab =>
+        tab.kind === 'session' && tab.id === pendingId && tab.draft === true,
     );
-    if (!hasDraft) {
+    if (activeDraft === undefined) {
       return;
     }
     // A session that already owns a tab is not what this draft became: the user
@@ -523,16 +583,17 @@ export class WorkspaceTabs {
     // the draft is abandoned. Promoting here would leave two tabs for the same
     // session id instead of one.
     if (this.findSession(session.id) !== undefined) {
-      this.discardDraft();
+      this.discardEmptyDrafts();
       return;
     }
+    this.drafts.rekey(activeDraft.id, session.id);
     this.items.update((tabs) =>
       tabs.map((tab) => {
-        if (tab.kind === 'session' && tab.id === DRAFT_TAB_ID) {
+        if (tab.kind === 'session' && tab.id === activeDraft.id) {
           return { kind: 'session', ...session };
         }
         // The draft's quoted files belong to the session it just became.
-        if (tab.kind === 'file' && tab.mention === true && tab.sessionId === DRAFT_TAB_ID) {
+        if (tab.kind === 'file' && tab.mention === true && tab.sessionId === activeDraft.id) {
           return {
             ...tab,
             sessionId: session.id,
@@ -544,16 +605,26 @@ export class WorkspaceTabs {
     );
   }
 
-  private discardDraft(): void {
-    const hasDraft = this.items().some(
-      (tab) => tab.kind === 'session' && tab.id === DRAFT_TAB_ID,
+  /**
+   * Drops draft tabs nobody typed into. A draft the reader filled in is kept:
+   * its words live in the composer store and are theirs to return to.
+   */
+  private discardEmptyDrafts(): void {
+    const doomed = this.items().filter(
+      (tab): tab is SessionTab =>
+        tab.kind === 'session' && tab.draft === true && this.drafts.isEmpty(tab.id),
     );
-    if (!hasDraft) {
+    if (doomed.length === 0) {
       return;
     }
-    this.items.update((tabs) =>
-      tabs.filter((tab) => !(tab.kind === 'session' && tab.id === DRAFT_TAB_ID)),
-    );
+    const ids = new Set(doomed.map((tab) => tab.id));
+    this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
+    if (this.pendingDraft !== undefined && ids.has(this.pendingDraft)) {
+      this.pendingDraft = undefined;
+    }
+    for (const id of ids) {
+      this.drafts.forget(id);
+    }
     this.pruneOrphanMentions();
   }
 

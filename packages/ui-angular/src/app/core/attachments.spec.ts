@@ -89,6 +89,53 @@ describe('AttachmentStore.clear', () => {
   });
 });
 
+describe('AttachmentStore per-draft scoping', () => {
+  it('keeps each draft\u2019s pending pieces apart', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.addMentions(['a.ts']);
+    store.use('s2');
+    store.addMentions(['b.ts']);
+
+    expect(store.mentions()).toEqual(['b.ts']);
+    store.use('s1');
+    expect(store.mentions()).toEqual(['a.ts']);
+  });
+
+  it('reports which drafts are empty', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.addMentions(['a.ts']);
+
+    expect(store.isEmpty('s1')).toBe(false);
+    expect(store.isEmpty('s2')).toBe(true);
+  });
+
+  it('moves a draft\u2019s attachments when its tab becomes a session', () => {
+    const store = freshStore();
+    store.use('draft-1');
+    store.addMentions(['a.ts']);
+
+    store.rekey('draft-1', 's1');
+
+    expect(store.isEmpty('draft-1')).toBe(true);
+    store.use('s1');
+    expect(store.mentions()).toEqual(['a.ts']);
+  });
+
+  it('drops a closed tab\u2019s attachments', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.addMentions(['a.ts']);
+
+    store.forget('s1');
+    store.use('s1');
+
+    expect(store.mentions()).toEqual([]);
+    expect(store.isEmpty('s1')).toBe(true);
+  });
+});
+
 describe('AttachmentStore.pin coalescing', () => {
   it('edits the same range instead of stacking a second chip', () => {
     const store = freshStore();

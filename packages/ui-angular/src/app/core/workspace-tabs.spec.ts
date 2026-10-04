@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from './morse.service';
 import { WorkspaceTabs } from './workspace-tabs';
 
@@ -127,9 +128,9 @@ describe('WorkspaceTabs', () => {
     tabs.startDraft('/repo');
     expect(fake.newSession).toHaveBeenCalledWith('/repo');
     expect(tabs.tabs()).toEqual([
-      { kind: 'session', id: 'draft', title: 'New session', cwd: '/repo', draft: true },
+      { kind: 'session', id: 'draft-1', title: 'New session', cwd: '/repo', draft: true },
     ]);
-    expect(tabs.activeId()).toBe('draft');
+    expect(tabs.activeId()).toBe('draft-1');
 
     // The first prompt gives the draft its real id: the tab becomes that session
     // in place, not a second tab beside an orphaned draft.
@@ -151,7 +152,7 @@ describe('WorkspaceTabs', () => {
     const { tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
     tabs.startDraft('/repo');
-    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'draft']);
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'draft-1']);
 
     // The user clicks the open session's tab while a draft is in front; the host
     // then lands on s1. That is not the draft's own session, so the draft goes
@@ -167,14 +168,51 @@ describe('WorkspaceTabs', () => {
     const { tabs, fake } = setup();
 
     tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0].id;
     fake.activateSession.mockClear();
 
     // Clicking the "New session" tab must not ask the host to resume a session
     // literally named "draft" (pi exits: no session found matching 'draft').
-    tabs.select('draft');
+    tabs.select(draftId);
 
-    expect(tabs.activeId()).toBe('draft');
+    expect(tabs.activeId()).toBe(draftId);
     expect(fake.activateSession).not.toHaveBeenCalled();
+  });
+
+  it('opens a separate tab — and draft — for every "New session"', () => {
+    const { tabs, fake } = setup();
+
+    tabs.startDraft('/repo');
+    tabs.startDraft('/repo');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-1', 'draft-2']);
+    expect(tabs.activeId()).toBe('draft-2');
+    expect(fake.newSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a draft with words in it when a real session is picked', () => {
+    const { tabs } = setup();
+    const drafts = TestBed.inject(ComposerDrafts);
+
+    tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0].id;
+    drafts.use(draftId);
+    drafts.setText('half a thought');
+
+    tabs.focusSession({ id: 's1', title: 'One' });
+
+    // The untouched-draft cleanup must not throw away what the reader typed.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-1', 's1']);
+    expect(drafts.isEmpty('draft-1')).toBe(false);
+  });
+
+  it('drops an untouched draft when a real session is picked', () => {
+    const { tabs } = setup();
+
+    tabs.startDraft('/repo');
+    tabs.focusSession({ id: 's1', title: 'One' });
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
   });
 
   it('refreshes a title but never resurrects a closed tab', () => {
@@ -292,7 +330,7 @@ describe('WorkspaceTabs', () => {
 
     tabs.clearActiveSession();
 
-    expect(tabs.activeId()).toBe('draft');
+    expect(tabs.activeId()).toBe('draft-1');
   });
 
   it('keeps files opened from the mention picker in the active session row', () => {
@@ -349,11 +387,27 @@ describe('WorkspaceTabs', () => {
   it("moves a draft's quoted files to the session it becomes", () => {
     const { tabs } = setup();
     tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0].id;
     tabs.openMentionFile('a.ts');
-    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:draft:a.ts']);
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual([`mention:${draftId}:a.ts`]);
 
     tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
 
     expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s1:a.ts']);
+  });
+
+  it("moves a draft's composer text to the session it becomes", () => {
+    const { tabs } = setup();
+    const drafts = TestBed.inject(ComposerDrafts);
+    tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0].id;
+    drafts.use(draftId);
+    drafts.setText('the first prompt');
+
+    tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
+
+    // The composer was editing the draft tab; its words follow the real id.
+    drafts.use('s1');
+    expect(drafts.text()).toBe('the first prompt');
   });
 });
