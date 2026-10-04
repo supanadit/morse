@@ -144,24 +144,105 @@ export class AttachmentStore {
   }
 
   /**
+   * Moves a pin's range **without** merging. This is the live part of an edge
+   * drag: while the pointer is down the ranges stay separate, so the neighbour a
+   * boundary is being pushed into does not vanish mid-drag. The coalescing
+   * happens on release (`pin(range, id)`), which keeps the whole union.
+   */
+  setPinRange(id: string, range: { startLine: number; endLine?: number }): void {
+    this.pinned.update((list) =>
+      list.map((item) =>
+        item.id === id
+          ? { ...item, startLine: range.startLine, endLine: range.endLine }
+          : item,
+      ),
+    );
+  }
+
+  /**
    * Pins an editor selection (or file) as an attachment chip: it rides with the
    * next prompt as a `@path` mention, while the prompt text keeps only the
    * words the user typed.
+   *
+   * Line ranges are coalesced, the way a text editor treats a selection:
+   * a range that overlaps or touches an existing one becomes **one** chip, and
+   * `replaceId` (the chip the user dragged on again) is *edited in place* rather
+   * than grown, so a highlight can be made smaller as well as bigger. A
+   * whole-file pin (no lines) is a separate kind of chip and never merges.
    */
-  pin(pin: Omit<PendingPin, 'id'>): void {
+  pin(pin: Omit<PendingPin, 'id'>, replaceId?: string): void {
     if (pin.path.length === 0) {
       return;
     }
-    const duplicate = this.pinned().find(
-      (item) =>
-        item.path === pin.path && item.startLine === pin.startLine && item.endLine === pin.endLine,
-    );
-    if (duplicate) {
+
+    if (pin.startLine === undefined) {
+      const duplicate = this.pinned().some(
+        (item) => item.path === pin.path && item.startLine === undefined,
+      );
+      if (duplicate) {
+        return;
+      }
+      this.counter += 1;
+      this.pinned.update((list) => [...list, { ...pin, id: `pin-${this.counter}` }]);
       return;
     }
+
+    const list = this.pinned();
+    let start = pin.startLine;
+    let end = pin.endLine ?? pin.startLine;
+    // The edited chip is dropped before the merge pass, so it does not absorb
+    // its own old (possibly larger) bounds and pin them back.
+    const absorbed = new Set<string>(replaceId === undefined ? [] : [replaceId]);
+    // The first absorbed chip lends its id, so an edit or a merge keeps the chip's
+    // identity (and its slot in the composer) instead of looking like a new one.
+    let targetId: string | undefined;
+
+    // Re-check after every growth: a merge can make the range touch another pin.
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const item of list) {
+        if (absorbed.has(item.id) || item.path !== pin.path || item.startLine === undefined) {
+          continue;
+        }
+        const itemStart = item.startLine;
+        const itemEnd = item.endLine ?? itemStart;
+        if (itemStart <= end + 1 && itemEnd + 1 >= start) {
+          start = Math.min(start, itemStart);
+          end = Math.max(end, itemEnd);
+          absorbed.add(item.id);
+          targetId ??= item.id;
+          grew = true;
+        }
+      }
+    }
+
     this.counter += 1;
-    const id = `pin-${this.counter}`;
-    this.pinned.update((list) => [...list, { ...pin, id }]);
+    const merged: PendingPin = {
+      id: replaceId ?? targetId ?? `pin-${this.counter}`,
+      path: pin.path,
+      startLine: start,
+      endLine: end > start ? end : undefined,
+    };
+
+    // Emit the merged chip once, where the first absorbed chip sat, so editing a
+    // chip does not reshuffle the composer.
+    const next: PendingPin[] = [];
+    let placed = false;
+    for (const item of list) {
+      if (absorbed.has(item.id)) {
+        if (!placed) {
+          next.push(merged);
+          placed = true;
+        }
+        continue;
+      }
+      next.push(item);
+    }
+    if (!placed) {
+      next.push(merged);
+    }
+    this.pinned.set(next);
   }
 
   removePin(id: string): void {

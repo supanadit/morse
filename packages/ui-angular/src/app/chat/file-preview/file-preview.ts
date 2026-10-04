@@ -1,13 +1,46 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { AttachmentStore } from '../../core/attachments';
 import { highlightCode } from '../../core/highlight';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
 
+/** One highlighted range in the preview: a pinned chip, or the drag in progress. */
+interface Highlight {
+  id: string;
+  start: number;
+  end: number;
+}
+
+function rangeText(range: { start: number; end: number } | undefined): string {
+  if (range === undefined) {
+    return '';
+  }
+  return range.start === range.end ? `L${range.start}` : `L${range.start}–${range.end}`;
+}
+
+/** First guess for the code line box; measured from the DOM after the first paint. */
+const DEFAULT_LINE_HEIGHT = 19.2;
+
 /**
  * A file opened from the Explorer, read by the host (`readFile`) and shown with
- * the same highlight.js the transcript uses. Read-only on purpose: this is a
- * preview, and the browser host is not a text editor — VS Code opens the real
- * editor for a file the user wants to change.
+ * the same highlight.js the transcript uses.
+ *
+ * Read-only, with one exception that matters: dragging across the line numbers
+ * picks a range and pins it to the next prompt as `path:start-end` — the browser
+ * host's stand-in for VS Code's "add selection to chat". VS Code opens the real
+ * editor for a file the user wants to change; this only reads and quotes.
  */
 @Component({
   selector: 'morse-file-preview',
@@ -60,6 +93,15 @@ import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
         color: var(--morse-fg-muted);
         font-size: 11px;
       }
+      /* The pinned range, right where the drag happened. */
+      .range {
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+        color: var(--morse-fg);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
       .icon {
         width: 24px;
         height: 24px;
@@ -73,7 +115,7 @@ import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
         color: var(--morse-fg-muted);
         cursor: pointer;
       }
-      .icon:hover {
+      .icon:hover:not(:disabled) {
         background: var(--morse-hover);
         color: var(--morse-fg);
       }
@@ -85,28 +127,78 @@ import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
         padding: 8px 0;
         background: var(--morse-code-bg, var(--morse-bg));
       }
-      pre {
+      pre,
+      .gutter {
         margin: 0;
         font-family: var(--morse-font-mono);
         font-size: 12px;
         line-height: 1.6;
       }
+      /*
+       * The gutter is the drag surface. It stays put while the source scrolls
+       * sideways, so the numbers a drag started on do not slide away.
+       */
       .gutter {
         flex: none;
         position: sticky;
         left: 0;
+        z-index: 2;
         padding: 0 10px 0 14px;
         color: var(--morse-fg-muted);
         text-align: right;
         user-select: none;
         background: var(--morse-code-bg, var(--morse-bg));
-        opacity: 0.65;
+        opacity: 0.7;
       }
-      .source {
+      .gutter .num {
+        display: block;
+        height: 1.6em;
+        cursor: pointer;
+        font-variant-numeric: tabular-nums;
+      }
+      .gutter .num.selected {
+        color: var(--morse-fg);
+        background: color-mix(in srgb, var(--morse-accent) 34%, transparent);
+        opacity: 1;
+      }
+      .source-wrap {
+        position: relative;
         flex: 1;
         min-width: 0;
+      }
+      .source {
+        position: relative;
+        z-index: 1;
         padding: 0 16px 0 4px;
         white-space: pre;
+      }
+      .selection {
+        position: absolute;
+        left: 0;
+        right: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
+        border-left: 2px solid color-mix(in srgb, var(--morse-accent) 70%, transparent);
+      }
+      /* The band's top and bottom edges are drag handles, like the Explorer pane's
+         top edge: pull one to move that boundary. */
+      .edge {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 6px;
+        pointer-events: auto;
+        cursor: ns-resize;
+      }
+      .edge.top {
+        top: -3px;
+      }
+      .edge.bottom {
+        bottom: -3px;
+      }
+      .edge:hover {
+        background: color-mix(in srgb, var(--morse-accent) 70%, transparent);
       }
       .hint {
         margin: 0;
@@ -124,12 +216,21 @@ export class FilePreview {
   readonly tab = input.required<FileTab>();
 
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly attachments = inject(AttachmentStore);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly sourceElement = viewChild<ElementRef<HTMLElement>>('source');
+  private readonly gutterElement = viewChild<ElementRef<HTMLElement>>('gutter');
 
   /** The text without its final newline, so the gutter and the code line up. */
   private readonly source = computed(() => {
     const content = this.tab().content ?? '';
     return content.endsWith('\n') ? content.slice(0, -1) : content;
+  });
+
+  protected readonly lines = computed(() => {
+    const source = this.source();
+    const count = source.length === 0 ? 1 : source.split('\n').length;
+    return Array.from({ length: count }, (_, index) => index + 1);
   });
 
   protected readonly highlighted = computed<SafeHtml>(() => {
@@ -140,21 +241,214 @@ export class FilePreview {
     return this.sanitizer.bypassSecurityTrustHtml(highlightCode(this.source(), tab.language).html);
   });
 
-  protected readonly lineNumbers = computed(() => {
-    const source = this.source();
-    const count = source.length === 0 ? 1 : source.split('\n').length;
-    let numbers = '';
-    for (let line = 1; line <= count; line += 1) {
-      numbers += `${line === 1 ? '' : '\n'}${line}`;
-    }
-    return numbers;
-  });
-
   protected readonly language = computed(() => this.tab().language ?? 'text');
   protected readonly size = computed(() => formatBytes(this.tab().size ?? 0));
 
+  private readonly lineHeight = signal(DEFAULT_LINE_HEIGHT);
+  private readonly selected = signal<{ start: number; end: number } | undefined>(undefined);
+  /** The pin a drag started inside, so releasing edits it instead of adding. */
+  private readonly editingId = signal<string | undefined>(undefined);
+  private anchor = 1;
+
+  /** The live drag's label (`L14–23`), shown in the header while dragging. */
+  protected readonly rangeLabel = computed(() => rangeText(this.selected()));
+  /**
+   * Every range this file's chips carry, plus the drag in progress. The pins are
+   * the source of truth, so removing a chip removes its highlight too — and a
+   * second drag adds to the picture instead of replacing it.
+   */
+  protected readonly highlights = computed<readonly Highlight[]>(() => {
+    const path = this.tab().path;
+    const editing = this.editingId();
+    const pinned: Highlight[] = this.attachments
+      .pins()
+      .filter(
+        (pin) =>
+          pin.path === path && pin.startLine !== undefined && pin.id !== editing,
+      )
+      .map((pin) => ({
+        id: pin.id,
+        start: pin.startLine as number,
+        end: pin.endLine ?? (pin.startLine as number),
+      }));
+    const live = this.selected();
+    return live === undefined
+      ? pinned
+      : [...pinned, { id: 'live', start: live.start, end: live.end }];
+  });
+  /** Ranges already pinned to this file (the drag in progress is not one yet). */
+  protected readonly pinnedCount = computed(
+    () => this.highlights().filter((highlight) => highlight.id !== 'live').length,
+  );
+
+  protected topOf(highlight: Highlight): number {
+    return (highlight.start - 1) * this.lineHeight();
+  }
+
+  protected heightOf(highlight: Highlight): number {
+    return (highlight.end - highlight.start + 1) * this.lineHeight();
+  }
+
+  constructor() {
+    afterNextRender(() => this.measureLineHeight());
+    // A different file starts with no pinned range.
+    effect(() => {
+      this.tab();
+      untracked(() => this.selected.set(undefined));
+    });
+  }
+
+  protected isSelected(line: number): boolean {
+    return this.highlights().some(
+      (highlight) => line >= highlight.start && line <= highlight.end,
+    );
+  }
+
+  /** Pointer down on a line number starts a range; moving extends it. */
+  protected startSelection(event: PointerEvent, line: number): void {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    this.anchor = line;
+    // Dragging from inside an existing highlight edits it; from empty space it
+    // starts a new one (which the store then merges with anything it touches).
+    this.editingId.set(
+      this.highlights().find(
+        (highlight) =>
+          highlight.id !== 'live' && line >= highlight.start && line <= highlight.end,
+      )?.id,
+    );
+    this.selected.set({ start: line, end: line });
+    const gutter = event.currentTarget as HTMLElement;
+    try {
+      gutter.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic event (a test) has no pointer to capture; the listeners below
+      // still see the moves while the pointer is over the gutter.
+    }
+    const move = (moveEvent: PointerEvent): void => {
+      const target = this.lineAt(moveEvent.clientY);
+      if (target === undefined) {
+        return;
+      }
+      this.selected.set({
+        start: Math.min(this.anchor, target),
+        end: Math.max(this.anchor, target),
+      });
+    };
+    const stop = (): void => {
+      gutter.removeEventListener('pointermove', move);
+      gutter.removeEventListener('pointerup', stop);
+      gutter.removeEventListener('pointercancel', stop);
+      this.pinSelection();
+    };
+    gutter.addEventListener('pointermove', move);
+    gutter.addEventListener('pointerup', stop);
+    gutter.addEventListener('pointercancel', stop);
+  }
+
+  protected clearSelection(): void {
+    this.selected.set(undefined);
+    this.editingId.set(undefined);
+  }
+
   protected reload(): void {
     this.tabs.reload(this.tab().id);
+  }
+
+  /**
+   * Grab a highlight's top or bottom edge and move that boundary. Each move
+   * rewrites the pin, so the store's coalescing merges it the moment the edge
+   * touches a neighbouring range — "bersentuhan langsung merged".
+   */
+  protected startResizeEdge(
+    event: PointerEvent,
+    highlight: Highlight,
+    edge: 'start' | 'end',
+  ): void {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic event (a test) has no pointer to capture.
+    }
+    const move = (moveEvent: PointerEvent): void => {
+      const line = this.lineAt(moveEvent.clientY);
+      if (line === undefined) {
+        return;
+      }
+      // Read the pin again: it is the same range, moved — not merged.
+      const current = this.attachments.pins().find((pin) => pin.id === highlight.id);
+      const baseStart = current?.startLine ?? highlight.start;
+      const baseEnd = current?.endLine ?? baseStart;
+      const start = edge === 'start' ? Math.min(line, baseEnd) : baseStart;
+      const end = edge === 'end' ? Math.max(line, baseStart) : baseEnd;
+      this.attachments.setPinRange(highlight.id, {
+        startLine: start,
+        endLine: end > start ? end : undefined,
+      });
+    };
+    const stop = (): void => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', stop);
+      handle.removeEventListener('pointercancel', stop);
+      // Released: only now does a boundary that reached a neighbour coalesce,
+      // and the union keeps the full length of both.
+      const current = this.attachments.pins().find((pin) => pin.id === highlight.id);
+      if (current?.startLine !== undefined) {
+        this.attachments.pin(
+          { path: this.tab().path, startLine: current.startLine, endLine: current.endLine },
+          highlight.id,
+        );
+      }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+  }
+
+  private measureLineHeight(): void {
+    const source = this.sourceElement()?.nativeElement;
+    if (source === undefined) {
+      return;
+    }
+    const height = Number.parseFloat(getComputedStyle(source).lineHeight);
+    if (Number.isFinite(height) && height > 0) {
+      this.lineHeight.set(height);
+    }
+  }
+
+  private lineAt(clientY: number): number | undefined {
+    const gutter = this.gutterElement()?.nativeElement;
+    if (gutter === undefined) {
+      return undefined;
+    }
+    const top = gutter.getBoundingClientRect().top;
+    const line = Math.floor((clientY - top) / this.lineHeight()) + 1;
+    return Math.min(this.lines().length, Math.max(1, line));
+  }
+
+  /** The drag just ended: the range becomes a chip on the next prompt. */
+  private pinSelection(): void {
+    const selection = this.selected();
+    if (selection === undefined) {
+      return;
+    }
+    const endLine = selection.end > selection.start ? selection.end : undefined;
+    this.attachments.pin(
+      { path: this.tab().path, startLine: selection.start, endLine },
+      this.editingId(),
+    );
+    this.attachments.say('info', `Pinned ${this.tab().title} ${this.rangeLabel()} to this message.`);
+    // The chip now owns this highlight; keeping the live range would draw it twice.
+    this.selected.set(undefined);
+    this.editingId.set(undefined);
   }
 }
 

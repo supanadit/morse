@@ -1031,6 +1031,16 @@ export class ChatTranscript {
     return item.pins;
   }
 
+  /** `L13-17` for a range, `L13` for a single line (a pin may carry no end). */
+  protected pinRange(pin: { startLine?: number; endLine?: number }): string {
+    if (pin.startLine === undefined) {
+      return '';
+    }
+    return pin.endLine !== undefined && pin.endLine !== pin.startLine
+      ? `L${pin.startLine}-${pin.endLine}`
+      : `L${pin.startLine}`;
+  }
+
   /**
    * A chip label carries the file name only — in a transcript, a directory chain
    * pushes out what actually identifies the file. The hover tooltip keeps the

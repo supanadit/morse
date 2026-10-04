@@ -1,6 +1,13 @@
 <header class="head">
   <span class="path" [title]="tab().path">{{ tab().path }}</span>
   <div class="meta">
+    @if (rangeLabel(); as range) {
+      <span class="range" [title]="'Pinned to the next prompt'">{{ range }}</span>
+    } @else if (pinnedCount() > 0) {
+      <span class="range" [title]="'Pinned to the next prompt'">{{
+        pinnedCount() === 1 ? '1 range' : pinnedCount() + ' ranges'
+      }}</span>
+    }
     <span class="badge">{{ language() }}</span>
     <span class="stat">{{ size() }}</span>
     <button type="button" class="icon" title="Reload from disk" aria-label="Reload from disk" (click)="reload()">
@@ -16,9 +23,48 @@
 } @else if (tab().binary) {
   <p class="hint">Binary file · {{ size() }} · no text preview.</p>
 } @else {
+  <!--
+    Drag across the line numbers to pin a range (`path:start-end`) to the next
+    prompt — the browser host's version of VS Code's "add selection to chat".
+  -->
   <div class="code">
-    <pre class="gutter" aria-hidden="true">{{ lineNumbers() }}</pre>
-    <pre class="source"><code class="hljs" [innerHTML]="highlighted()"></code></pre>
+    <div
+      #gutter
+      class="gutter"
+      title="Drag line numbers to pin a range to your next message"
+    >
+      @for (line of lines(); track line) {
+        <span
+          class="num"
+          [class.selected]="isSelected(line)"
+          [attr.data-line]="line"
+          (pointerdown)="startSelection($event, line)"
+        >{{ line }}</span>
+      }
+    </div>
+    <div class="source-wrap">
+      <pre class="source" #source><code class="hljs" [innerHTML]="highlighted()"></code></pre>
+      @for (highlight of highlights(); track highlight.id) {
+        <span
+          class="selection"
+          [style.top.px]="topOf(highlight)"
+          [style.height.px]="heightOf(highlight)"
+        >
+          <span
+            class="edge top"
+            title="Drag to resize"
+            aria-hidden="true"
+            (pointerdown)="startResizeEdge($event, highlight, 'start')"
+          ></span>
+          <span
+            class="edge bottom"
+            title="Drag to resize"
+            aria-hidden="true"
+            (pointerdown)="startResizeEdge($event, highlight, 'end')"
+          ></span>
+        </span>
+      }
+    </div>
   </div>
   @if (tab().truncated) {
     <p class="hint">Showing the first 512 KB of {{ size() }}.</p>

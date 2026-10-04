@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { promptTemplateForm, readPromptTemplate } from '@morse/ui-runtime';
-import { AttachmentStore, type PendingImage } from '../../core/attachments';
+import { AttachmentStore, type PendingImage, type PendingPin } from '../../core/attachments';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
@@ -1212,6 +1212,19 @@ export class ChatComposer {
     >;
   }
 
+  /**
+   * A pin's range label: `L13-17` for a range, `L13` for a single line. A
+   * single-line pin has no `endLine`, which must not read as "L13-".
+   */
+  protected pinRange(pin: Pick<PendingPin, 'startLine' | 'endLine'>): string {
+    if (pin.startLine === undefined) {
+      return '';
+    }
+    return pin.endLine !== undefined && pin.endLine !== pin.startLine
+      ? `L${pin.startLine}-${pin.endLine}`
+      : `L${pin.startLine}`;
+  }
+
   /** Closing the picker returns the keyboard to the prompt. */
   protected onPickerClose(): void {
     this.pickerOpen.set(false);
@@ -1233,6 +1246,11 @@ export class ChatComposer {
     } else if (!directory) {
       this.attachments.addMentions([path]);
       this.attachments.say('info', `Pinned ${path} to this message.`);
+    }
+    // On the browser host, picking a file also opens it so the user can drag a
+    // line range into the prompt; VS Code has no preview and opens its own editor.
+    if (!directory && this.morse.capabilities()?.filePreview) {
+      this.tabs.openFile(path);
     }
     if (directory) {
       // Stay open on the folder we just entered; typing keeps narrowing it.

@@ -76,7 +76,7 @@
           >
             <span class="pin-icon" aria-hidden="true">⧉</span>
             <span class="chip-name" [title]="live.path">{{ live.path }}</span>
-            <span class="chip-lines">L{{ live.startLine }}-{{ live.endLine }}</span>
+            <span class="chip-lines">{{ pinRange(live) }}</span>
           </button>
           <button
             type="button"
@@ -120,7 +120,7 @@
           <span class="pin-icon" aria-hidden="true">⧉</span>
           <span class="chip-name" [title]="pin.path">{{ pin.path }}</span>
           @if (pin.startLine !== undefined) {
-            <span class="chip-lines">L{{ pin.startLine }}-{{ pin.endLine }}</span>
+            <span class="chip-lines">{{ pinRange(pin) }}</span>
           }
           <button
             type="button"

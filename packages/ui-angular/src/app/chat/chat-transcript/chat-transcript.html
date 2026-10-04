@@ -24,7 +24,7 @@
                     <span class="pin-icon" aria-hidden="true">⧉</span>
                     <span class="name">{{ basename(pin.path) }}</span>
                     @if (pin.startLine !== undefined) {
-                      <span class="lines">L{{ pin.startLine }}-{{ pin.endLine }}</span>
+                      <span class="lines">{{ pinRange(pin) }}</span>
                     }
                   </li>
                 }

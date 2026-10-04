@@ -69,5 +69,9 @@ an **Explorer** for the session's project and the chat grows a **tab strip**. Cl
 new preview tab; selecting a session opens or reveals its tab and activates that session. Tabs are frontend
 state only (close the last one and the strip is empty), and a preview is read-only on purpose: VS Code is the
 host with an editor. A file over 512 KB is shown truncated, and a binary file is named rather than decoded.
+Drag across the preview's line numbers to pin a range (`path:start-end`) to your next message — picking a
+file in the `@` picker opens it so the drag is one step away. Ranges that touch or overlap become one chip
+(and one highlight); dragging from inside an existing highlight edits that range, and its top and bottom
+edges are handles you can pull to move a boundary. Pull one into a neighbouring range and the two merge.
 Right-click a tab for Close, Close Others, Close to the Right and Close All — the actions VS Code's own tab
 menu offers.

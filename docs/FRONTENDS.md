@@ -119,7 +119,9 @@ strip above the conversation, where sessions and files open side by side.
   binary }`). `path` is relative to the viewing session's cwd: `readWorkspaceFile` resolves it against that
   directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the
   project `ProjectPolicy` already approved. Files over 512 KB are cut short, and a binary file is reported
-  as such instead of being decoded.
+  as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
+  prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat"; picking a
+  file in the `@` picker opens it so that drag is one step away.
 - A session tab is navigation, not a second transcript: selecting it sends `session/activate` and the host
   replays that session, exactly as the sidebar does. Nothing is cached frontend-side, so there is still one
   source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens
