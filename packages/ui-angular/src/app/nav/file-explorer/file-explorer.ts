@@ -35,9 +35,10 @@ interface ExplorerRow {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     // A dragged height replaces the default `max-height`; no height means the
-    // CSS default stands.
-    '[class.sized]': 'height() !== undefined',
-    '[style.height.px]': 'height()',
+    // CSS default stands. Folded, the pane is just its header, so the dragged
+    // height must stand down — otherwise it leaves a tall empty box behind.
+    '[class.sized]': 'height() !== undefined && !collapsed()',
+    '[style.height.px]': 'collapsed() ? null : height()',
   },
   styles: [
     `

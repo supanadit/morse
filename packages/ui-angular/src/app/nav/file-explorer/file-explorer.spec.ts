@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../core/morse.service';
+import { ShellState } from '../../core/shell-state';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { FileExplorer } from './file-explorer';
 
@@ -35,7 +36,10 @@ function rows(fixture: ComponentFixture<FileExplorer>): string[] {
 }
 
 describe('FileExplorer', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
 
   it('lists the project and opens a file in a tab', async () => {
     const { fixture, tabs } = setup(['src/main.ts', 'README.md']);
@@ -89,5 +93,20 @@ describe('FileExplorer', () => {
     fixture.nativeElement.querySelector('.pane-toggle').click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.resize')).toBeNull();
+  });
+
+  it('drops the dragged height while collapsed, so nothing is left behind', async () => {
+    const { fixture } = setup(['a.ts']);
+    await flush();
+    TestBed.inject(ShellState).setExplorerHeight(300);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.style.height).toBe('300px');
+
+    fixture.nativeElement.querySelector('.pane-toggle').click();
+    fixture.detectChanges();
+
+    // Folded, the pane is only its header: no tall empty box.
+    expect(fixture.nativeElement.style.height).toBe('');
+    expect((fixture.nativeElement as HTMLElement).classList.contains('sized')).toBe(false);
   });
 });
