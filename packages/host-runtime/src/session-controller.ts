@@ -92,6 +92,9 @@ type Guarded<T> = { ok: true; value: T } | { ok: false };
 /** How many history entries one page carries when a resumed session is seeded. */
 const HISTORY_PAGE_SIZE = 50;
 
+/** The title a session without a name shows until the user says something. */
+const UNTITLED_SESSION = 'New session';
+
 /**
  * The application service both hosts share: it owns the wire conversation for
  * one client, routes client messages into the core use cases, and projects agent
@@ -1034,7 +1037,7 @@ export class HostSessionController {
         }
         sessions.push({
           id: key,
-          title: state?.sessionTitle ?? this.derivedTitle(key) ?? 'New session',
+          title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
           cwd,
           updatedAt: Date.now(),
           messageCount: 0,
@@ -1135,7 +1138,20 @@ export class HostSessionController {
       ? undefined
       : this.options.services.registry.stateOf(this.activeKey);
     if (state) {
-      return toSessionViewState(state, meta);
+      const view = toSessionViewState(state, meta);
+      // pi names a session only when it emits `session_name`, so a *resumed*
+      // session arrives without one — and the panel then falls back to the
+      // workspace name for a title it already knows. The catalog is the
+      // authority (it is what the sidebar lists); a session still on the
+      // placeholder takes its title from its first prompt instead.
+      if (view.sessionTitle === undefined && this.activeKey !== undefined) {
+        const catalog = this.summaries.get(this.activeKey)?.title;
+        view.sessionTitle =
+          catalog !== undefined && catalog !== UNTITLED_SESSION
+            ? catalog
+            : this.derivedTitle(this.activeKey);
+      }
+      return view;
     }
     // The autoOpen:false draft: a truthful workspace line, and — once the
     // session-less probe lands — pickers that work before any session exists.

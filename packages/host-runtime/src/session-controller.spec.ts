@@ -15,6 +15,7 @@ import {
 import {
   PROTOCOL_VERSION,
   type HostToClientMessage,
+  type SessionSummary,
   type SessionViewState,
   type TranscriptItem,
 } from '@morse/protocol';
@@ -161,6 +162,8 @@ function harness(options: {
   probeError?: Error;
   agentHint?: string;
   refreshCommands?: () => Promise<void>;
+  /** Persisted sessions the catalog reports, so a test can seed a real title. */
+  catalogSessions?: SessionSummary[];
 } = {}): Harness {
   const messages: HostToClientMessage[] = [];
   const gateway = fakeGateway({
@@ -194,7 +197,7 @@ function harness(options: {
   const registry = new SessionRegistry({
     factory,
     catalog: {
-      list: () => Promise.resolve([]),
+      list: () => Promise.resolve(options.catalogSessions ?? []),
       remove: (id) => {
         removed.push(id);
         return Promise.resolve();
@@ -278,6 +281,37 @@ describe('HostSessionController.start (reload reattach)', () => {
     expect(h.lastState()).toMatchObject({ agentReady: true, sessionId: 'sess-1' });
     // The warm session was reused: the reconnect spawned nothing.
     expect(h.spawns()).toBe(1);
+  });
+
+  it('names a session from its first prompt when pi reports no session name', async () => {
+    const h = harness();
+    await withOpenSession(h);
+
+    // The prompt itself does not re-emit the state (a real agent's next event
+    // would); activating the session is that nudge. The title must come from the
+    // prompt, not fall back to the workspace name.
+    await h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    expect(h.lastState()?.sessionTitle).toBe('hello');
+  });
+
+  it('prefers the catalog title over the first prompt', async () => {
+    // The sidebar reads the catalog title, so the panel must show the same one —
+    // not the first prompt, which can be a one-word follow-up like "commit".
+    const h = harness({
+      catalogSessions: [
+        { id: 'sess-1', title: 'Tambahkan fitur copy', cwd: WORKSPACE.cwd, updatedAt: 1, messageCount: 4 },
+      ],
+    });
+    await withOpenSession(h);
+    await h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+
+    expect(h.lastState()?.sessionTitle).toBe('Tambahkan fitur copy');
   });
 
   it('stays on the empty draft when the host has no active session — nothing spawns', async () => {
