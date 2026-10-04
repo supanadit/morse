@@ -1,4 +1,4 @@
-<div class="shell" [class.collapsed]="navigationCollapsed()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()">
+<div class="shell" [class.collapsed]="navigationCollapsed()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()" [style.--morse-git-width]="gitWidth()">
   @if (bootVisible()) {
     <morse-boot-splash
       [ready]="bootReady()"

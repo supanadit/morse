@@ -36,6 +36,8 @@ const PALETTE = [
 /** One lane is 16px wide; a row is one commit and the graph height around it. */
 const LANE_WIDTH = 16;
 const ROW_HEIGHT = 32;
+/** Dragging the panel's left edge keeps at least this much conversation visible. */
+const GIT_RESIZE_MIN_CHAT = 180;
 
 /**
  * The browser host's git panel: the active project's recent commits and their
@@ -67,6 +69,34 @@ const ROW_HEIGHT = 32;
         overflow: hidden;
         border-left: 1px solid var(--morse-border);
         background: var(--morse-nav-bg);
+      }
+      /*
+       * The panel's left edge is a drag handle: pulling it toward the conversation
+       * widens the graph instead of forcing the full-screen toggle. The seam only
+       * lights up on hover, so the two columns stay quiet at rest.
+       */
+      .edge-resize {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 6px;
+        z-index: 3;
+        cursor: ew-resize;
+      }
+      .edge-resize:hover,
+      .edge-resize:active {
+        background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
+      }
+      /*
+       * A drag in progress: no hover hit-testing under the pointer, and the
+       * graph's flow stands still — that is what keeps the resize light.
+       */
+      .panel.resizing .body {
+        pointer-events: none;
+      }
+      .panel.resizing .graph path.flow {
+        animation: none;
       }
       .head {
         position: absolute;
@@ -114,6 +144,21 @@ const ROW_HEIGHT = 32;
         line-height: 16px;
         background: color-mix(in srgb, var(--morse-fg-muted) 12%, transparent);
         color: var(--morse-fg-muted);
+      }
+      /*
+       * A long branch name must not crowd out the hash and the age: the chip is
+       * capped and ellipsised, with its full name one hover away (the title). The
+       * expanded view has room, so it shows more of it.
+       */
+      .branch,
+      .ref {
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .commit.expanded .ref {
+        max-width: 240px;
       }
       .branch,
       .ref.kind-head {
@@ -469,6 +514,7 @@ const ROW_HEIGHT = 32;
       /* One line per commit, so the list reads as a stream, not a stack of cards. */
       .commit {
         display: flex;
+        flex-wrap: nowrap;
         align-items: center;
         gap: 10px;
         height: 32px;
@@ -529,7 +575,7 @@ const ROW_HEIGHT = 32;
         color: var(--morse-fg);
       }
       .refs {
-        flex: none;
+        flex: 0 1 auto;
         display: flex;
         align-items: center;
         gap: 4px;
@@ -634,17 +680,22 @@ export class GitPanel {
   protected readonly entries = computed(() => {
     const commits = this.commits();
     const layout = layoutGraph(commits);
+    // A commit two branches point at must not stack two long chips in a sidebar
+    // row: show the first (the HEAD or branch ref) and fold the rest into `+N`,
+    // whose title names them. The expanded view has room for more.
+    const maxRefs = this.expanded() ? 3 : 1;
     return {
       laneCount: layout.laneCount,
       rows: layout.rows.map((row, index) => {
         const commit = commits[index]!;
-        // Two chips at most: a commit with five decorations would otherwise eat
-        // the whole row in the sidebar. The rest collapse into a `+N`.
+        const refs = commit.refs.slice(0, maxRefs);
+        const rest = commit.refs.slice(maxRefs);
         return {
           row,
           commit,
-          refs: commit.refs.slice(0, 2),
-          moreRefs: Math.max(0, commit.refs.length - 2),
+          refs,
+          moreRefs: rest.length,
+          restTitle: rest.map((ref) => this.refLabel(ref)).join(', '),
         };
       }),
     };
@@ -739,10 +790,25 @@ export class GitPanel {
     const top = body.getBoundingClientRect().top;
     const bottom = body.getBoundingClientRect().bottom;
     handle.setPointerCapture(event.pointerId);
+    let frame = 0;
+    let pending = 0;
+    const apply = (): void => {
+      frame = 0;
+      this.shell.setGitChangesHeight(pending, false);
+    };
     const move = (moveEvent: PointerEvent): void => {
-      this.shell.setGitChangesHeight(Math.min(bottom - top - 80, moveEvent.clientY - top));
+      pending = Math.min(bottom - top - 80, moveEvent.clientY - top);
+      if (frame === 0) {
+        frame = requestAnimationFrame(apply);
+      }
     };
     const stop = (): void => {
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+        apply();
+      }
+      // Write the choice once, when the drag ends, not on every frame.
+      this.shell.setGitChangesHeight(pending);
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', stop);
       handle.removeEventListener('pointercancel', stop);
@@ -750,6 +816,74 @@ export class GitPanel {
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', stop);
     handle.addEventListener('pointercancel', stop);
+  }
+
+  /**
+   * Drag the panel's left edge to size it against the conversation. The grid
+   * column is what changes, so pulling left (a negative delta) widens the panel,
+   * and the drag leaves full mode first or the column would not follow. At least
+   * 180px of conversation stays visible, so the chat never vanishes by accident —
+   * the expand button is still the way to hand the graph everything.
+   */
+  protected startWidthResize(event: PointerEvent): void {
+    event.preventDefault();
+    if (this.shell.gitPanelExpanded()) {
+      this.shell.toggleGitPanelExpanded();
+    }
+    const handle = event.currentTarget as HTMLElement;
+    const panel = handle.parentElement;
+    const startX = event.clientX;
+    const startWidth = panel?.getBoundingClientRect().width ?? 340;
+    const shell = handle.closest('.shell') as HTMLElement | null;
+    const nav = shell?.querySelector('.nav') as HTMLElement | null;
+    const shellWidth = shell?.getBoundingClientRect().width ?? window.innerWidth;
+    const navWidth = this.shell.navigationCollapsed()
+      ? 0
+      : (nav?.getBoundingClientRect().width ?? 240);
+    const max = Math.max(320, shellWidth - navWidth - GIT_RESIZE_MIN_CHAT);
+    handle.setPointerCapture(event.pointerId);
+    /*
+     * Resizing has to follow the pointer, not the shell's 160ms column
+     * transition: retargeting that animation on every move made the drag feel
+     * heavy. It is also frame-coalesced, so one layout runs per paint, and the
+     * graph's flow is paused because repainting hundreds of animated dashes
+     * during a resize is the other half of the cost.
+     */
+    shell?.style.setProperty('transition', 'none');
+    panel?.classList.add('resizing');
+    let frame = 0;
+    let pending = this.shell.gitPanelWidth() ?? Math.round(startWidth);
+    const apply = (): void => {
+      frame = 0;
+      this.shell.setGitPanelWidth(pending, false);
+    };
+    const move = (moveEvent: PointerEvent): void => {
+      pending = Math.min(max, startWidth + (startX - moveEvent.clientX));
+      if (frame === 0) {
+        frame = requestAnimationFrame(apply);
+      }
+    };
+    const stop = (): void => {
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+        apply();
+      }
+      shell?.style.removeProperty('transition');
+      panel?.classList.remove('resizing');
+      // Write the choice once, when the drag ends, not on every frame.
+      this.shell.setGitPanelWidth(pending);
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', stop);
+      handle.removeEventListener('pointercancel', stop);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+  }
+
+  /** Double-clicking the edge restores the default column width. */
+  protected resetWidth(): void {
+    this.shell.resetGitPanelWidth();
   }
 
   /** `HEAD -> main`, `tag: v1.0` and `origin/main` each read their own way. */

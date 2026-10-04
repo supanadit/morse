@@ -1,4 +1,13 @@
 <aside class="panel" aria-label="Git history" [class.full]="expanded()">
+  <div
+    class="edge-resize"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="Resize the git panel"
+    title="Drag to resize"
+    (pointerdown)="startWidthResize($event)"
+    (dblclick)="resetWidth()"
+  ></div>
   <header class="head">
     <span class="brand" [title]="root() ?? ''">
       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -11,7 +20,7 @@
       Git
     </span>
     @if (branch(); as name) {
-      <span class="branch">{{ name }}</span>
+      <span class="branch" [title]="name">{{ name }}</span>
     }
     @if (expanded() && commits().length > 0) {
       <span class="count">{{ commits().length }} commits</span>
@@ -192,6 +201,7 @@
               @for (ref of entry.refs; track ref) {
                 <span
                   class="ref"
+                  [title]="refLabel(ref)"
                   [class.kind-head]="refKind(ref) === 'head'"
                   [class.kind-local]="refKind(ref) === 'local'"
                   [class.kind-tag]="refKind(ref) === 'tag'"
@@ -199,7 +209,7 @@
                 >
               }
               @if (entry.moreRefs > 0) {
-                <span class="ref">+{{ entry.moreRefs }}</span>
+                <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
               }
             </span>
           }

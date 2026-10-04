@@ -9,6 +9,10 @@ const NAV_COLLAPSED_KEY = 'morse.navigation.collapsed';
 const GIT_PANEL_KEY = 'morse.git.open';
 /** Whether the git panel takes over the centre of the shell (the browser host). */
 const GIT_EXPANDED_KEY = 'morse.git.expanded';
+/** The git panel's column width, once its left edge has been dragged. */
+const GIT_WIDTH_KEY = 'morse.git.width';
+const GIT_WIDTH_MIN = 220;
+const GIT_WIDTH_MAX = 1600;
 /** The git panel's Changes section: its dragged height, and its folded state. */
 const GIT_CHANGES_HEIGHT_KEY = 'morse.git.changesHeight';
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
@@ -70,6 +74,31 @@ function storeGitExpanded(expanded: boolean): void {
 
 function clampChangesHeight(px: number): number {
   return Math.round(Math.min(GIT_CHANGES_MAX_HEIGHT, Math.max(GIT_CHANGES_MIN_HEIGHT, px)));
+}
+
+function clampGitWidth(px: number): number {
+  return Math.round(Math.min(GIT_WIDTH_MAX, Math.max(GIT_WIDTH_MIN, px)));
+}
+
+function readGitWidth(): number | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(GIT_WIDTH_KEY);
+    if (raw === null || raw === undefined) {
+      return undefined;
+    }
+    const value = Number.parseInt(raw, 10);
+    return Number.isFinite(value) ? clampGitWidth(value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeGitWidth(px: number): void {
+  try {
+    globalThis.localStorage?.setItem(GIT_WIDTH_KEY, String(px));
+  } catch {
+    // As above: the signal is the truth for this session either way.
+  }
 }
 
 function readChangesHeight(): number | undefined {
@@ -163,6 +192,13 @@ export class ShellState {
   /** Expanded: the panel leaves the sidebar and takes the centre of the shell. */
   private readonly gitExpanded = signal(readGitExpanded());
   readonly gitPanelExpanded = this.gitExpanded.asReadonly();
+  /**
+   * The git panel's column width (px). `undefined` keeps the default from
+   * `styles.css`; once the reader drags the panel's left edge toward the
+   * conversation, the chosen width is remembered like the Explorer's height.
+   */
+  private readonly gitWidthSignal = signal<number | undefined>(readGitWidth());
+  readonly gitPanelWidth = this.gitWidthSignal.asReadonly();
   /** The git panel's Changes section: its dragged height (px) and folded state. */
   private readonly changesHeightSignal = signal<number | undefined>(readChangesHeight());
   readonly gitChangesHeight = this.changesHeightSignal.asReadonly();
@@ -309,10 +345,31 @@ export class ShellState {
   }
 
   /** Drag-to-resize the divider between Changes and History; clamped to a usable range. */
-  setGitChangesHeight(px: number): void {
+  setGitChangesHeight(px: number, persist = true): void {
     const next = clampChangesHeight(px);
     this.changesHeightSignal.set(next);
-    storeChangesHeight(next);
+    if (persist) {
+      storeChangesHeight(next);
+    }
+  }
+
+  /** Drag-to-resize the git panel from its left edge; clamped to a usable range. */
+  setGitPanelWidth(px: number, persist = true): void {
+    const next = clampGitWidth(px);
+    this.gitWidthSignal.set(next);
+    if (persist) {
+      storeGitWidth(next);
+    }
+  }
+
+  /** Double-clicking the edge restores the default column width from `styles.css`. */
+  resetGitPanelWidth(): void {
+    this.gitWidthSignal.set(undefined);
+    try {
+      globalThis.localStorage?.removeItem(GIT_WIDTH_KEY);
+    } catch {
+      // As above: the signal is the truth for this session either way.
+    }
   }
 
   /** Drag-to-resize from the Explorer's top edge; clamped to a usable range. */

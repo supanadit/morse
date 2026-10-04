@@ -108,6 +108,14 @@ export class App {
   protected readonly gitExpanded = computed(
     () => this.gitOpen() && this.shell.gitPanelExpanded(),
   );
+  /**
+   * The dragged width of the git panel, handed to the shell as its CSS variable.
+   * `null` (never dragged) leaves the default from `styles.css` in charge.
+   */
+  protected readonly gitWidth = computed(() => {
+    const width = this.shell.gitPanelWidth();
+    return width === undefined ? null : `${width}px`;
+  });
   /** The file the strip is showing, or `undefined` when a session tab is in front. */
   protected readonly activeFile = computed(() => {
     const tab = this.tabs.activeTab();

@@ -72,6 +72,27 @@ describe('ShellState', () => {
     expect(TestBed.inject(ShellState).explorerHeight()).toBe(280);
   });
 
+  it('resizes the git panel and clamps the width to a usable range', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.gitPanelWidth()).toBeUndefined();
+
+    shell.setGitPanelWidth(520);
+    expect(shell.gitPanelWidth()).toBe(520);
+    shell.setGitPanelWidth(10);
+    expect(shell.gitPanelWidth()).toBe(220);
+    shell.setGitPanelWidth(5_000);
+    expect(shell.gitPanelWidth()).toBe(1600);
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).gitPanelWidth()).toBe(1600);
+
+    // A double-click (or a reload after one) goes back to the CSS default.
+    TestBed.inject(ShellState).resetGitPanelWidth();
+    expect(TestBed.inject(ShellState).gitPanelWidth()).toBeUndefined();
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).gitPanelWidth()).toBeUndefined();
+  });
+
   it('clamps and remembers the git Changes height', () => {
     const shell = TestBed.inject(ShellState);
     shell.setGitChangesHeight(260);

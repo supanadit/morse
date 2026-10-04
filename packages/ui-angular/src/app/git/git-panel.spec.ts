@@ -85,6 +85,37 @@ describe('GitPanel', () => {
     expect(host.querySelector('.ref.kind-head')?.textContent).toContain('main');
   });
 
+  it('caps a long ref but keeps its full name in the title', async () => {
+    const long = 'origin/feat/pms-production-rebalance-sales-purchase-per-node';
+    const { fixture } = setup({
+      ...LOG,
+      commits: [{ ...LOG.commits[0], refs: [long] }, LOG.commits[1]],
+    });
+    await settle(fixture);
+
+    // The chip is CSS-capped; the full name survives for the hover tooltip.
+    const ref = (fixture.nativeElement as HTMLElement).querySelector('.ref') as HTMLElement;
+    expect(ref.getAttribute('title')).toBe(long);
+  });
+
+  it('folds a commit\'s extra branches into +N in the sidebar', async () => {
+    const { fixture } = setup({
+      ...LOG,
+      commits: [
+        { ...LOG.commits[0], refs: ['HEAD -> main', 'origin/main', 'origin/HEAD'] },
+        LOG.commits[1],
+      ],
+    });
+    await settle(fixture);
+
+    const host = fixture.nativeElement as HTMLElement;
+    const refs = host.querySelector('.commit')!.querySelectorAll('.ref');
+    expect(refs).toHaveLength(2);
+    expect(refs[1].textContent?.trim()).toBe('+2');
+    // The folded names are one hover away on the counter.
+    expect(refs[1].getAttribute('title')).toContain('origin/main');
+  });
+
   it('says when the project is not a repository', async () => {
     const { fixture } = setup({ isRepo: false, commits: [] });
     await settle(fixture);
@@ -144,6 +175,14 @@ describe('GitPanel', () => {
 
     expect(host.querySelector('.change-list')).toBeNull();
     expect(host.querySelector('.body.changes-collapsed')).not.toBeNull();
+  });
+
+  it('offers a left-edge handle to resize the panel against the conversation', async () => {
+    const { fixture } = setup(LOG);
+    await settle(fixture);
+    const handle = (fixture.nativeElement as HTMLElement).querySelector('.edge-resize');
+    expect(handle).not.toBeNull();
+    expect(handle?.getAttribute('aria-label')).toBe('Resize the git panel');
   });
 
   it('takes the full width and shows the author when expanded', async () => {
