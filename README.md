@@ -11,6 +11,18 @@ Pi normally lives in your terminal as a TUI. Morse gives the same agent, models,
 interface without reimplementing any of it: both hosts share one core, one wire protocol and one Angular
 frontend, so there are two ways to run Morse and one behaviour to maintain.
 
+## Demo
+
+VS Code extension:
+
+![Morse in VS Code](docs/assets/demo-vscode.gif)
+
+Browser host:
+
+![Morse in the browser](docs/assets/demo-web.gif)
+
+Both clips run the same agent, transcript and protocol; only the host differs.
+
 ## A note on how this is built
 
 Morse is **vibe coded**: it was written with an AI, and it exists to drive an AI. This is an agent harness,
