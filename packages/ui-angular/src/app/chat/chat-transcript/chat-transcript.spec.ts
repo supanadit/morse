@@ -160,3 +160,88 @@ describe('ChatTranscript message editing', () => {
     expect(host.querySelector('.edit-input')).toBeNull();
   });
 });
+
+/**
+ * A thinking note that is still streaming is the live indicator: it opens
+ * itself, and folds back the moment the message produces prose. The transcript
+ * must not add an empty assistant placeholder (a stray caret under the note).
+ */
+describe('ChatTranscript live thinking', () => {
+  const items = signal<TranscriptItem[]>([]);
+
+  beforeEach(async () => {
+    items.set([]);
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state: signal(viewState(true)),
+            items,
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: signal(false),
+            capabilities: signal(null),
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  function setThinkingOnly(): void {
+    items.set([
+      { kind: 'user', id: 'u1', at: 1, text: 'hello' },
+      {
+        kind: 'assistant',
+        id: 'a1',
+        at: 2,
+        text: '',
+        thinking: 'considering the question',
+        streaming: true,
+      },
+    ]);
+  }
+
+  it('expands the streaming note instead of showing a stray caret', () => {
+    setThinkingOnly();
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('.assistant .cursor')).toBeNull();
+    const body = host.querySelector('morse-tool-group .body pre');
+    expect(body?.textContent).toContain('considering the question');
+    // The purple star breathes while the note is live.
+    expect(host.querySelector('morse-tool-group .glyph.thinking.live')).toBeTruthy();
+  });
+
+  it('folds the note back once the message has prose', () => {
+    setThinkingOnly();
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('morse-tool-group .body pre'),
+    ).toBeTruthy();
+
+    items.set([
+      { kind: 'user', id: 'u1', at: 1, text: 'hello' },
+      {
+        kind: 'assistant',
+        id: 'a1',
+        at: 2,
+        text: 'the answer',
+        thinking: 'considering the question',
+        streaming: true,
+      },
+    ]);
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('morse-tool-group .body pre'),
+    ).toBeNull();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('morse-tool-group .glyph.thinking.live'),
+    ).toBeNull();
+  });
+});

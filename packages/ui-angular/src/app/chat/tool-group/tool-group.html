@@ -104,7 +104,7 @@
               [attr.aria-expanded]="isStepOpen(step.key)"
               (click)="toggleStep(step.key)"
             >
-              <span class="glyph thinking">✻</span>
+              <span class="glyph thinking" [class.live]="isThoughtLive(step.key)">✻</span>
               <span class="verb">Thinking</span>
               <span class="target thought">{{ preview(step.item.thinking) }}</span>
               <span class="grow"></span>
@@ -202,7 +202,7 @@
                 [attr.aria-expanded]="isStepOpen(step.key)"
                 (click)="toggleStep(step.key)"
               >
-                <span class="status"><span class="bulb">✻</span></span>
+                <span class="status"><span class="bulb" [class.live]="isThoughtLive(step.key)">✻</span></span>
                 <span class="chip thought-chip">thinking</span>
                 <span class="preview">{{ preview(step.item.thinking) }}</span>
                 <span class="chev" [class.open]="isStepOpen(step.key)">›</span>

@@ -19,6 +19,11 @@ function answer(id: string, streaming = false): AssistantTranscriptItem {
   return { kind: 'assistant', id, at: 0, text: `answer ${id}`, thinking: '', streaming };
 }
 
+/** A note that is still streaming, before the message has produced prose. */
+function liveThinking(id: string): AssistantTranscriptItem {
+  return { kind: 'assistant', id, at: 0, text: '', thinking: `note ${id}`, streaming: true };
+}
+
 describe('groupTranscriptItems', () => {
   it('collapses consecutive steps into one process row', () => {
     const rows = groupTranscriptItems([tool('a'), thinking('b'), tool('c')]);
@@ -61,6 +66,18 @@ describe('groupTranscriptItems', () => {
     const first = keyOf([tool('a')]);
     expect(keyOf([tool('a'), tool('b')])).toBe(first);
     expect(keyOf([tool('a'), tool('b'), thinking('c'), tool('d')])).toBe(first);
+  });
+
+  it('does not add an empty assistant row while a note streams on its own', () => {
+    // The thinking step is the live indicator; an assistant placeholder would
+    // only render a stray caret below the note until the prose starts.
+    const rows = groupTranscriptItems([liveThinking('a')]);
+    expect(rows.map((row) => row.kind)).toEqual(['process']);
+  });
+
+  it('adds the assistant row once the streaming message has prose', () => {
+    const rows = groupTranscriptItems([{ ...liveThinking('a'), text: 'hello' }]);
+    expect(rows.map((row) => row.kind)).toEqual(['process', 'assistant']);
   });
 });
 

@@ -61,7 +61,10 @@ export function groupTranscriptItems(items: TranscriptItem[]): TranscriptRow[] {
       if (thinking.length > 0) {
         pending.push({ kind: 'thinking', key: `${item.id}:thinking`, item });
       }
-      if (item.text.trim().length > 0 || item.streaming) {
+      // While a note streams on its own, the thinking step is the live indicator.
+      // Pushing an empty assistant row here would only add a stray caret below it.
+      const hasProse = item.text.trim().length > 0;
+      if (hasProse || (item.streaming && thinking.length === 0)) {
         flush();
         rows.push({ kind: 'assistant', key: item.id, item });
       } else if (thinking.length === 0) {

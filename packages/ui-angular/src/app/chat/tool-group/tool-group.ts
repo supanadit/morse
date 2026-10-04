@@ -220,6 +220,33 @@ interface ToolDiff {
       .glyph.thinking {
         color: var(--morse-typename);
       }
+      /* The purple star breathes while the note is still streaming in. */
+      .glyph.thinking,
+      .status .bulb {
+        display: inline-block;
+        transform-origin: center;
+      }
+      .glyph.thinking.live,
+      .status .bulb.live {
+        animation: think-breathe 1.1s ease-in-out infinite;
+      }
+      @keyframes think-breathe {
+        0%,
+        100% {
+          transform: scale(0.8);
+          opacity: 0.6;
+        }
+        50% {
+          transform: scale(1.3);
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .glyph.thinking.live,
+        .status .bulb.live {
+          animation: none;
+        }
+      }
       /* The files a step touched, indented under it behind a second guide line. */
       .children {
         display: flex;
@@ -478,6 +505,25 @@ export class ToolGroup {
     this.compact() ? false : this.working() || this.running(),
   );
   protected readonly isOpen = computed(() => this.override() ?? this.autoOpen());
+  /**
+   * Thinking notes that are streaming right now. Each one opens itself so the
+   * reasoning is readable live, and folds back the moment the message moves on to
+   * prose or settles — the timeline follows the run without the reader clicking
+   * every note.
+   */
+  private readonly liveThoughtKeys = computed(() => {
+    const live = new Set<string>();
+    for (const step of this.steps()) {
+      if (
+        step.kind === 'thinking' &&
+        step.item.streaming &&
+        step.item.text.trim().length === 0
+      ) {
+        live.add(step.key);
+      }
+    }
+    return live;
+  });
 
   protected readonly state = computed<'running' | 'ok' | 'error'>(() => {
     if (this.running()) {
@@ -518,6 +564,31 @@ export class ToolGroup {
       this.override.set(null);
     });
 
+    // A live thinking body reads like a log: as its text streams in, keep it
+    // pinned to its own bottom so the newest reasoning is the part on screen.
+    // A macrotask, so the body exists after this change has rendered.
+    effect((onCleanup) => {
+      const live = this.liveThoughtKeys();
+      if (live.size === 0) {
+        return;
+      }
+      const timer = setTimeout(() => {
+        const bodies = Array.from(
+          this.host.nativeElement.querySelectorAll<HTMLElement>('[data-body]'),
+        );
+        for (const body of bodies) {
+          if (!live.has(body.dataset['body'] ?? '')) {
+            continue;
+          }
+          const pre = body.querySelector('pre');
+          if (pre) {
+            pre.scrollTop = pre.scrollHeight;
+          }
+        }
+      }, 0);
+      onCleanup(() => clearTimeout(timer));
+    });
+
     // Animate only on a state change; a first render must not shift the layout.
     let initialised = false;
     effect((onCleanup) => {
@@ -553,7 +624,12 @@ export class ToolGroup {
   }
 
   protected isStepOpen(key: string): boolean {
-    return this.openSteps()[key] === true;
+    return this.openSteps()[key] ?? this.liveThoughtKeys().has(key);
+  }
+
+  /** True while this note is still streaming, so its star can breathe. */
+  protected isThoughtLive(key: string): boolean {
+    return this.liveThoughtKeys().has(key);
   }
 
   /** One line of a thinking note, so the timeline stays scannable. */
