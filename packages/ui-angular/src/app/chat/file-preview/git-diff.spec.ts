@@ -36,6 +36,26 @@ describe('parseUnifiedDiff', () => {
   it('marks a binary diff', () => {
     expect(parseUnifiedDiff('Binary files a/x and b/x differ\n').binary).toBe(true);
   });
+
+  it('tags a change block with the new-file range it occupies', () => {
+    const rows = parseUnifiedDiff(DIFF).hunks[0]!.rows;
+    // Old line 2 became new lines 2–3, so the whole block is clickable as one.
+    const range = { start: 2, end: 3 };
+    expect(rows[1]).toMatchObject({ kind: 'del', newAnchor: 2, change: range });
+    expect(rows[2]).toMatchObject({ kind: 'add', newAnchor: 2, change: range });
+    expect(rows[3]).toMatchObject({ kind: 'add', newAnchor: 3, change: range });
+    // Context rows belong to no change block.
+    expect(rows[0]!.change).toBeUndefined();
+  });
+
+  it('gives a pure deletion the line it left behind', () => {
+    const rows = parseUnifiedDiff('@@ -1,3 +1,2 @@\n a\n-b\n c\n').hunks[0]!.rows;
+    expect(rows[1]).toMatchObject({
+      kind: 'del',
+      newAnchor: 2,
+      change: { start: 2, end: 2 },
+    });
+  });
 });
 
 describe('unifiedRows', () => {

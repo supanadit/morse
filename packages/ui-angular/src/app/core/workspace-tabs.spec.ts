@@ -147,6 +147,20 @@ describe('WorkspaceTabs', () => {
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
   });
 
+  it('never activates the draft as if it were a pi session', () => {
+    const { tabs, fake } = setup();
+
+    tabs.startDraft('/repo');
+    fake.activateSession.mockClear();
+
+    // Clicking the "New session" tab must not ask the host to resume a session
+    // literally named "draft" (pi exits: no session found matching 'draft').
+    tabs.select('draft');
+
+    expect(tabs.activeId()).toBe('draft');
+    expect(fake.activateSession).not.toHaveBeenCalled();
+  });
+
   it('refreshes a title but never resurrects a closed tab', () => {
     const { tabs } = setup();
 

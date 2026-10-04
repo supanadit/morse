@@ -14,7 +14,9 @@ Morse **v0.4.0**. This page is the honest inventory of what ships. Everything el
 
 ### While the agent works
 
-- `steer`, follow-up and abort — a prompt sent mid-run is queued as a follow-up rather than refused.
+- `steer`, follow-up and abort — steering lands in the running turn, while a follow-up is queued above the
+  composer (`Queued messages`: edit, send now, remove) and runs once the current turn settles; a prompt sent
+  mid-run with no mode is queued as a follow-up rather than refused.
 - Compaction behind an explicit confirmation, optionally with custom instructions (`session/compact`).
 - pi's interaction requests: native QuickPick/InputBox in VS Code, rendered inline in the browser.
 - Failures surface as notices (`error` message) instead of a dead panel.

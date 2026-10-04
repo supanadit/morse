@@ -6,6 +6,13 @@ export interface DiffRow {
   oldLine?: number;
   /** Line number in the new file (absent for a deletion). */
   newLine?: number;
+  /**
+   * The row's spot in the new file. An addition uses its own line, a deletion
+   * keeps the line it left behind, so a range can always be pinned by clicking.
+   */
+  newAnchor?: number;
+  /** The new-file range of the change block this row belongs to (adds/dels only). */
+  change?: { start: number; end: number };
 }
 
 export interface DiffHunk {
@@ -76,21 +83,55 @@ export function parseUnifiedDiff(text: string): ParsedDiff {
     const sign = line.charAt(0);
     const body = line.slice(1);
     if (sign === '+') {
-      current.rows.push({ kind: 'add', text: body, newLine });
+      current.rows.push({ kind: 'add', text: body, newLine, newAnchor: newLine });
       newLine += 1;
       additions += 1;
     } else if (sign === '-') {
-      current.rows.push({ kind: 'del', text: body, oldLine });
+      current.rows.push({ kind: 'del', text: body, oldLine, newAnchor: newLine });
       oldLine += 1;
       deletions += 1;
     } else if (sign === ' ') {
-      current.rows.push({ kind: 'context', text: body, oldLine, newLine });
+      current.rows.push({ kind: 'context', text: body, oldLine, newLine, newAnchor: newLine });
       oldLine += 1;
       newLine += 1;
     }
   }
 
+  for (const hunk of hunks) {
+    tagChangeBlocks(hunk.rows);
+  }
+
   return { hunks, additions, deletions, binary };
+}
+
+/**
+ * Tags every run of changed rows with the new-file range it occupies. A click on
+ * either diff layout can then pin the whole block, just as a drag across the
+ * line numbers pins a range in the file view.
+ */
+function tagChangeBlocks(rows: DiffRow[]): void {
+  let index = 0;
+  while (index < rows.length) {
+    if (rows[index]!.kind === 'context') {
+      index += 1;
+      continue;
+    }
+    const block: DiffRow[] = [];
+    while (index < rows.length && rows[index]!.kind !== 'context') {
+      block.push(rows[index]!);
+      index += 1;
+    }
+    const anchors = block
+      .map((row) => row.newAnchor)
+      .filter((anchor): anchor is number => anchor !== undefined);
+    if (anchors.length === 0) {
+      continue;
+    }
+    const change = { start: Math.min(...anchors), end: Math.max(...anchors) };
+    for (const row of block) {
+      row.change = change;
+    }
+  }
 }
 
 /** Flattens the hunks into the rows a unified view draws top to bottom. */

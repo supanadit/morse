@@ -14,6 +14,7 @@ import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { promptTemplateForm, readPromptTemplate } from '@morse/ui-runtime';
 import { AttachmentStore, type PendingImage, type PendingPin } from '../../core/attachments';
 import { MorseService } from '../../core/morse.service';
+import { QueuedPrompts, type QueuedPrompt } from '../../core/queued-prompts';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
 import { Uploader } from '../../core/uploads';
@@ -62,6 +63,102 @@ import { UsageIndicator } from '../usage/usage-indicator';
         background: var(--morse-input-bg);
         padding: 8px;
         transition: border-color 120ms ease;
+      }
+      /*
+       * Follow-ups waiting their turn, above the composer. They stay the reader's
+       * to see and change until the run that queued them settles.
+       */
+      .queue {
+        max-width: 780px;
+        margin: 0 auto 8px;
+        border: 1px solid var(--morse-border);
+        border-radius: var(--morse-radius-md);
+        background: var(--morse-panel, var(--morse-hover));
+        overflow: hidden;
+      }
+      .queue-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        border-bottom: 1px solid var(--morse-border);
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .queue-count {
+        min-width: 16px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--morse-badge-bg);
+        color: var(--morse-fg-muted);
+        text-align: center;
+        font-size: 10px;
+      }
+      .queue-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px 5px 10px;
+      }
+      .queue-row + .queue-row {
+        border-top: 1px solid var(--morse-hover);
+      }
+      .queue-grip {
+        flex: none;
+        color: var(--morse-fg-muted);
+        opacity: 0.5;
+      }
+      .queue-text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      .queue-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex: none;
+      }
+      .queue-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 7px;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .queue-action:hover:not(:disabled) {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+      }
+      .queue-remove {
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .queue-remove:hover:not(:disabled) {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
       }
       .toolbar {
         display: flex;
@@ -451,11 +548,14 @@ export class ChatComposer {
   private readonly shortcuts = inject(ShortcutService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly attachments = inject(AttachmentStore);
+  private readonly queue = inject(QueuedPrompts);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly uploads = inject(Uploader);
   private readonly promptInput = viewChild<ElementRef<HTMLTextAreaElement>>('promptInput');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  /** True between dispatching a queued prompt and the run it starts. */
+  private draining = false;
 
   protected readonly text = signal('');
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
@@ -514,6 +614,8 @@ export class ChatComposer {
   protected readonly images = this.attachments.images;
   /** Selections/files pinned to the next prompt; they are already locked. */
   protected readonly pins = this.attachments.pins;
+  /** Follow-ups waiting their turn, oldest first. */
+  protected readonly queuedMessages = this.queue.queued;
 
   /**
    * Clicking a pinned chip re-opens its file in the browser preview, where the
@@ -694,6 +796,30 @@ export class ChatComposer {
       }, 500);
       onCleanup(() => clearInterval(handle));
     });
+
+    // Follow-ups drain one run at a time: an item queued while the agent works
+    // waits for that run to settle, so the queue keeps its order instead of
+    // racing the turn it was typed during. `draining` stops the settle from
+    // dispatching the whole queue in one tick before `running` flips back on.
+    effect(() => {
+      const running = this.running();
+      const sessionId = this.morse.state().sessionId;
+      const head = this.queue.head(sessionId);
+      untracked(() => {
+        if (running) {
+          this.draining = false;
+          return;
+        }
+        if (head === undefined || this.draining) {
+          return;
+        }
+        this.draining = true;
+        const next = this.queue.shift(sessionId);
+        if (next !== undefined) {
+          this.morse.prompt(next.text, 'new', next.images, next.pins);
+        }
+      });
+    });
   }
 
   protected onInput(event: Event): void {
@@ -807,8 +933,8 @@ export class ChatComposer {
       this.runBuiltin(builtin);
       return;
     }
-    const images = this.attachments.images();
-    const pins = this.attachments.pins();
+    const images = this.attachments.takeImages();
+    const pins = this.attachments.takePins();
     if (value.length === 0 && images.length === 0 && pins.length === 0) {
       this.promptInput()?.nativeElement.focus();
       return;
@@ -817,9 +943,41 @@ export class ChatComposer {
     // the agent gets an `@path` mention for a pin, never a copied blob. The
     // live preview is a preview only: unlocking it was never done, so a
     // selection that was shown but not locked does not ride along.
-    this.morse.prompt(value, mode, this.attachments.takeImages(), this.attachments.takePins());
+    if (mode === 'followUp' && this.running()) {
+      // A follow-up is queued, not sent: the reader gets to see, edit or drop it
+      // before it runs, instead of it disappearing into pi's invisible queue.
+      this.queue.enqueue({ text: value, images, pins }, this.morse.state().sessionId);
+    } else {
+      // While idle (`followUp` won the race with the run ending) a queued kind
+      // makes no sense: pi should start a fresh turn.
+      this.morse.prompt(value, mode === 'followUp' ? 'new' : mode, images, pins);
+    }
     this.attachments.setLivePreview(null);
     this.text.set('');
+  }
+
+  /** Puts a queued follow-up back in the composer, attachments and all. */
+  protected editQueued(item: QueuedPrompt): void {
+    this.queue.remove(item.id);
+    this.text.set(item.text);
+    this.syncInputValue();
+    this.attachments.seed(item.images, item.pins);
+    this.promptInput()?.nativeElement.focus();
+  }
+
+  /** Runs a queued follow-up now: steering it when a run is in flight. */
+  protected sendQueued(item: QueuedPrompt): void {
+    this.queue.remove(item.id);
+    this.morse.prompt(
+      item.text,
+      this.running() ? 'steer' : 'new',
+      item.images,
+      item.pins,
+    );
+  }
+
+  protected removeQueued(item: QueuedPrompt): void {
+    this.queue.remove(item.id);
   }
 
   /** The live chip is a preview until clicked: locking pins its final numbers. */

@@ -127,16 +127,6 @@ interface ExplorerRow {
         background: var(--morse-hover);
         color: var(--morse-fg);
       }
-      .root {
-        flex: none;
-        padding: 0 10px 4px 12px;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--morse-fg-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
       .rows {
         flex: 1;
         min-height: 0;
@@ -237,13 +227,6 @@ export class FileExplorer {
   /** The project the expanded set belongs to, so switching projects folds it. */
   private expandedFor = '';
 
-  protected readonly root = computed(() => {
-    const workspace = this.morse.state().workspace;
-    return {
-      cwd: workspace.cwd,
-      name: workspace.name || basename(workspace.cwd),
-    };
-  });
   private readonly tree = computed(() => buildFileTree(this.workspace.files()));
   protected readonly rows = computed(() => flatten(this.tree(), this.expanded()));
   protected readonly fileCount = computed(() => countFiles(this.tree()));
@@ -385,10 +368,4 @@ function countFiles(nodes: readonly FileNode[]): number {
     count += node.kind === 'file' ? 1 : countFiles(node.children);
   }
   return count;
-}
-
-function basename(path: string): string {
-  const trimmed = path.replace(/[/\\]+$/, '');
-  const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
-  return slash === -1 ? trimmed : trimmed.slice(slash + 1);
 }

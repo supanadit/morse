@@ -15,6 +15,7 @@ function render(
   attachments: {
     pin: ReturnType<typeof vi.fn>;
     setPinRange: ReturnType<typeof vi.fn>;
+    removePin: ReturnType<typeof vi.fn>;
     say: ReturnType<typeof vi.fn>;
   };
   animation: { confetti: ReturnType<typeof vi.fn> };
@@ -53,6 +54,9 @@ function render(
       pins.update((list) =>
         list.map((item) => (item.id === id ? { ...item, ...range } : item)),
       );
+    }),
+    removePin: vi.fn((id: string) => {
+      pins.update((list) => list.filter((item) => item.id !== id));
     }),
     say: vi.fn(),
   };
@@ -93,6 +97,13 @@ function numbers(fixture: ComponentFixture<FilePreview>): string[] {
   return [...fixture.nativeElement.querySelectorAll('.gutter .num')].map(
     (node: Element) => node.textContent ?? '',
   );
+}
+
+/** Picks a preview mode (the choice persists in localStorage across tests). */
+function setDiffMode(fixture: ComponentFixture<FilePreview>, title: string): void {
+  const host = fixture.nativeElement as HTMLElement;
+  host.querySelector<HTMLButtonElement>(`.modes button[title="${title}"]`)?.click();
+  fixture.detectChanges();
 }
 
 function press(element: Element, type: string, clientY = 0): void {
@@ -259,6 +270,97 @@ describe('FilePreview', () => {
     expect(pins()).toHaveLength(1);
     expect(fixture.nativeElement.querySelector('.selection.merged')).not.toBeNull();
     expect(animation.confetti).toHaveBeenCalled();
+  });
+
+  it('pins a changed block when its diff row is clicked', () => {
+    const { fixture, attachments } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\nconst c = 4;\n',
+        diff: '@@ -1,2 +1,3 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    setDiffMode(fixture, 'Unified diff');
+
+    const added = fixture.nativeElement.querySelector('.drow.add') as Element;
+    expect(added).not.toBeNull();
+    added.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    // The whole block (old line 2 -> new lines 2–3) becomes one chip.
+    expect(attachments.pin).toHaveBeenCalledWith({
+      path: 'src/main.ts',
+      startLine: 2,
+      endLine: 3,
+    });
+    expect(fixture.nativeElement.querySelectorAll('.drow.pinned')).toHaveLength(3);
+    expect(attachments.say).toHaveBeenCalled();
+  });
+
+  it('pins a deletion at the new-file line it left behind', () => {
+    const { fixture, attachments } = render(
+      {
+        content: 'const a = 1;\nconst c = 3;\n',
+        diff: '@@ -1,3 +1,2 @@\n const a = 1;\n-const b = 2;\n const c = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    setDiffMode(fixture, 'Unified diff');
+
+    const removed = fixture.nativeElement.querySelector('.drow.del') as Element;
+    removed.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(attachments.pin).toHaveBeenCalledWith({
+      path: 'src/main.ts',
+      startLine: 2,
+      endLine: undefined,
+    });
+  });
+
+  it('unpins a change when its highlighted block is clicked again', () => {
+    const { fixture, attachments, pins } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\n',
+        diff: '@@ -1,2 +1,2 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
+    fixture.detectChanges();
+    setDiffMode(fixture, 'Unified diff');
+
+    const added = fixture.nativeElement.querySelector('.drow.add') as Element;
+    added.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(attachments.removePin).toHaveBeenCalledWith('p1');
+    expect(attachments.pin).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelectorAll('.drow.pinned')).toHaveLength(0);
+  });
+
+  it('pins a change from the side-by-side view too', () => {
+    const { fixture, attachments } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\n',
+        diff: '@@ -1,2 +1,2 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    const host = fixture.nativeElement as HTMLElement;
+    setDiffMode(fixture, 'Side-by-side diff');
+
+    const added = host.querySelector('.diff.split .side.add') as Element;
+    expect(added).not.toBeNull();
+    added.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(attachments.pin).toHaveBeenCalledWith({
+      path: 'src/main.ts',
+      startLine: 2,
+      endLine: undefined,
+    });
+    expect(host.querySelectorAll('.diff.split .side.pinned')).toHaveLength(2);
   });
 
   it('draws every range pinned to this file, and only this file', () => {

@@ -63,12 +63,26 @@
           <div class="drow hunk"><span class="dtext">{{ header }}</span></div>
         } @else {
           <div class="srow">
-            <div class="side" [class.del]="pair.left?.kind === 'del'">
+            <div
+              class="side"
+              [class.del]="pair.left?.kind === 'del'"
+              [class.clickable]="pair.left?.change !== undefined"
+              [class.pinned]="isChangePinned(pair.left?.newAnchor)"
+              [attr.title]="pair.left?.change !== undefined ? 'Click to pin this change to your next message' : null"
+              (click)="toggleChange(pair.left)"
+            >
               <span class="dnum">{{ pair.left?.oldLine ?? '' }}</span>
               <span class="dsign">{{ diffSign(pair.left) }}</span>
               <span class="dtext" [innerHTML]="pair.left?.html"></span>
             </div>
-            <div class="side" [class.add]="pair.right?.kind === 'add'">
+            <div
+              class="side"
+              [class.add]="pair.right?.kind === 'add'"
+              [class.clickable]="pair.right?.change !== undefined"
+              [class.pinned]="isChangePinned(pair.right?.newAnchor)"
+              [attr.title]="pair.right?.change !== undefined ? 'Click to pin this change to your next message' : null"
+              (click)="toggleChange(pair.right)"
+            >
               <span class="dnum">{{ pair.right?.newLine ?? '' }}</span>
               <span class="dsign">{{ diffSign(pair.right) }}</span>
               <span class="dtext" [innerHTML]="pair.right?.html"></span>
@@ -83,7 +97,15 @@
         @if (row.kind === 'hunk') {
           <div class="drow hunk"><span class="dtext">{{ row.text }}</span></div>
         } @else {
-          <div class="drow" [class.add]="row.kind === 'add'" [class.del]="row.kind === 'del'">
+          <div
+            class="drow"
+            [class.add]="row.kind === 'add'"
+            [class.del]="row.kind === 'del'"
+            [class.clickable]="row.change !== undefined"
+            [class.pinned]="isChangePinned(row.newAnchor)"
+            [attr.title]="row.change !== undefined ? 'Click to pin this change to your next message' : null"
+            (click)="toggleChange(row)"
+          >
             <span class="dnum">{{ row.oldLine ?? '' }}</span>
             <span class="dnum">{{ row.newLine ?? '' }}</span>
             <span class="dsign">{{ diffSign(row) }}</span>

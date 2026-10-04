@@ -243,7 +243,12 @@ export class WorkspaceTabs {
     }
     this.active.set(id);
     if (tab.kind === 'session') {
-      this.morse.activateSession(tab.id, tab.cwd);
+      // The draft is a placeholder, not a pi session: activating it would ask
+      // the host to resume a session literally named "draft". The host is
+      // already showing it, so bringing it forward needs no wire message.
+      if (tab.draft !== true) {
+        this.morse.activateSession(tab.id, tab.cwd);
+      }
       return;
     }
     if (this.needsLoad(tab)) {
@@ -319,7 +324,7 @@ export class WorkspaceTabs {
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
     this.items.update((tabs) => tabs.filter((tab) => keepIds.has(tab.id)));
     this.active.set(id);
-    if (keep.kind === 'session') {
+    if (keep.kind === 'session' && keep.draft !== true) {
       this.morse.activateSession(keep.id, keep.cwd);
     }
     if (closedSession) {

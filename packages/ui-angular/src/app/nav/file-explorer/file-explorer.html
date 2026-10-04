@@ -25,7 +25,6 @@
 </div>
 
 @if (!collapsed()) {
-  <div class="root" [title]="root().cwd">{{ root().name }}</div>
   <div class="rows">
     @if (isLoading() && rows().length === 0) {
       <p class="hint">Loading files…</p>

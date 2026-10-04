@@ -1,4 +1,46 @@
 <footer class="host">
+  @if (queuedMessages().length > 0) {
+    <div class="queue" role="region" aria-label="Queued follow-up messages">
+      <div class="queue-head">
+        <span class="queue-glyph" aria-hidden="true">⏲</span>
+        <span class="queue-title">Queued messages</span>
+        <span class="queue-count">{{ queuedMessages().length }}</span>
+      </div>
+      @for (item of queuedMessages(); track item.id) {
+        <div class="queue-row" [morseEnter]="$index" [morseEnterY]="4">
+          <span class="queue-grip" aria-hidden="true">⠿</span>
+          <span class="queue-text" [title]="item.text">{{ item.text }}</span>
+          <div class="queue-actions">
+            <button
+              type="button"
+              class="queue-action"
+              title="Edit in the composer"
+              (click)="editQueued(item)"
+            >
+              ✎ <span>edit</span>
+            </button>
+            <button
+              type="button"
+              class="queue-action"
+              title="Send now"
+              (click)="sendQueued(item)"
+            >
+              ➤ <span>send</span>
+            </button>
+            <button
+              type="button"
+              class="queue-remove"
+              title="Remove from the queue"
+              aria-label="Remove from the queue"
+              (click)="removeQueued(item)"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  }
   <div class="box">
   <div class="toolbar">
     <button

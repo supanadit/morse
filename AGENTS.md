@@ -80,6 +80,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | Browser UI stuck on `connecting` / `no model` | the dev server is not proxying `/ws` — check `packages/ui-angular/proxy.conf.mjs`, `MORSE_SERVER_URL` or the `?server=` override |
 | UI shows `Starting the Pi agent…` | normal (cold start ~1.5 s): lifecycle is the badge (`connecting` → `starting` → `ready`), not a banner |
 | UI shows one group and no project switcher | that host is `scope: 'workspace'` (VS Code) — intended, not a bug |
+| `pi: No session found matching 'draft'`, agent exits code=1 | a draft tab was activated as a real session: never send `session/activate` for a tab whose `draft` flag is set (`packages/ui-angular/src/app/core/workspace-tabs.ts`); the host is already showing it |
 | Resumed session shows an empty panel | history is seeded from `get_messages`; check `AgentGateway.history()` and the store's `items()` guard |
 | A banner flashes on every load | it must not: banners render only for a refused handshake, `error`/`closed`, or a handshake stalled > 6 s (`slowConnection`). The first such state after the cold start is the friendly `ConnectionScreen`, not a banner |
 | Transcript lost on every refresh | the session was evicted — raise `MORSE_HOT_SESSIONS` (default 4) or `morse.sessions.hotLimit` |

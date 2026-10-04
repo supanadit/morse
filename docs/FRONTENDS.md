@@ -57,8 +57,10 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    the host answers with `composer/seed`), `abort()`, `newSession(cwd?)`,
    `openProject(path)`, `activateSession(id, cwd?)`, `closeSession(id)`, `compactSession()`,
    `requestSessions()`, `requestProjects()`, `setModel(provider, id)`, `setThinkingLevel(level)`.
-   When the agent is streaming, prompts use `steer` or `followUp` (the core also downgrades a `new` prompt
-   while streaming and tells the user via a notice).
+   When the agent is streaming, a prompt uses `steer` for an immediate course-correction; a **follow-up**
+   is queued in the frontend (`core/queued-prompts.ts`), shown above the composer as `Queued messages`
+   with edit / send / remove, and dispatched one prompt per settled run — the reader's queue, not pi's
+   invisible one. The core also downgrades a `new` prompt while streaming and tells the user via a notice.
 4. **Interactions** — if `capabilities.nativeDialogs` is `false`, render `pendingInteraction` yourself and
    answer with `interaction/respond`. If it is `true`, the host is already showing QuickPick/InputBox and the
    request never reaches you.
@@ -131,7 +133,9 @@ strip above the conversation, where sessions and files open side by side.
 - A file the working tree reports as changed (the same `gitStatus` map) also gets a **File / Unified /
   Split** switch in the preview: `gitDiff` (`{ path }` → `{ path, diff }`) supplies the unified diff,
   `core/git-diff.ts` parses it into hunks and pairs the two sides for split view, and an untracked file
-  has its content rendered as all-added. The chosen mode is remembered (`DisplayPrefs.diffView`).
+  has its content rendered as all-added. A change block in either diff layout is clickable: one click pins
+  its new-file range to the next prompt, and clicking it again unpins — no drag needed. The chosen mode is
+  remembered (`DisplayPrefs.diffView`).
 - A session tab is navigation, not a second transcript: selecting it sends `session/activate` and the host
   replays that session, exactly as the sidebar does. Nothing is cached frontend-side, so there is still one
   source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens

@@ -216,6 +216,23 @@ const DEFAULT_LINE_HEIGHT = 19.2;
       .side.del .dsign {
         color: var(--morse-error);
       }
+      /*
+       * A change block is clickable: one click pins its new-file range to the
+       * next prompt, the same chip a dragged range makes in the File view.
+       */
+      .drow.clickable,
+      .side.clickable {
+        cursor: pointer;
+      }
+      .drow.clickable:hover,
+      .side.clickable:hover {
+        background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+      }
+      .drow.pinned,
+      .side.pinned {
+        background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+        box-shadow: inset 2px 0 0 color-mix(in srgb, var(--morse-accent) 70%, transparent);
+      }
       .drow.hunk {
         margin: 6px 0 2px;
         padding: 2px 12px;
@@ -561,6 +578,58 @@ export class FilePreview {
       default:
         return '';
     }
+  }
+
+  /** Whether the pins already cover the new-file line a diff row sits on. */
+  protected isChangePinned(anchor: number | undefined): boolean {
+    if (anchor === undefined) {
+      return false;
+    }
+    const path = this.tab().path;
+    return this.attachments
+      .pins()
+      .some(
+        (pin) =>
+          pin.path === path &&
+          pin.startLine !== undefined &&
+          anchor >= pin.startLine &&
+          anchor <= (pin.endLine ?? pin.startLine),
+      );
+  }
+
+  /**
+   * Clicking a change block in either diff layout pins its new-file range to the
+   * next prompt — the diff view's stand-in for dragging line numbers, so a click
+   * is enough. Clicking an already-pinned block unpins it again.
+   */
+  protected toggleChange(row: UnifiedRow | DiffRow | undefined): void {
+    const change = row !== undefined && row.kind !== 'hunk' ? row.change : undefined;
+    if (change === undefined) {
+      return;
+    }
+    const path = this.tab().path;
+    const covering = this.attachments
+      .pins()
+      .find(
+        (pin) =>
+          pin.path === path &&
+          pin.startLine !== undefined &&
+          pin.startLine <= change.start &&
+          (pin.endLine ?? pin.startLine) >= change.end,
+      );
+    if (covering !== undefined) {
+      this.attachments.removePin(covering.id);
+      return;
+    }
+    this.attachments.pin({
+      path,
+      startLine: change.start,
+      endLine: change.end > change.start ? change.end : undefined,
+    });
+    this.attachments.say(
+      'info',
+      `Pinned ${this.tab().title} ${rangeText(change)} to this message.`,
+    );
   }
 
   protected isSelected(line: number): boolean {
