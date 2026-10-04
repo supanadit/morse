@@ -97,8 +97,12 @@ gotcha table in `AGENTS.md`.
 - **daemon by default** — the server is spawned `detached: true` with `stdio: ['ignore', logFd, logFd]`,
   then `child.unref()`, so the new process group survives the shell exiting. Start returns as soon as
   `GET /api/health` answers (up to 25 s).
-- **state** — `~/.morse/server.json` (`MORSE_HOME` overrides) records pid, port, host, url, workspace and
-  startedAt; `~/.morse/logs/server.log` holds stdout+stderr.
+- **state** — `~/.morse/server.json` (`MORSE_HOME` overrides) records pid, port, host, url, workspace,
+  startedAt and the per-start `instance` token; `~/.morse/logs/server.log` holds stdout+stderr.
+- **liveness** — the pid is only a hint. A force-killed daemon leaves the state file behind and its pid can
+  be recycled by an unrelated process, so `start`/`status`/`stop` also require `/api/health` to answer with
+  the same `instance` (state written before this token existed falls back to a healthy payload, legacy
+  state without it too). A stale state file is cleared instead of reported as "already running".
 - **`--foreground`** — runs the same bundle as a child with inherited stdio for systemd or containers, and
   still writes the state file so `status`/`stop` keep working.
 - **port** — defaults to 4399; if nobody asked for a specific port and it is taken, the CLI picks the next
@@ -141,3 +145,4 @@ morse stop
 | `morse start` prints "failed to start" | read `morse logs`; most often `pi` is not on the `PATH` of the daemon (set `MORSE_PI_PATH`) |
 | Blank page after install | `dist/ui/index.html` missing — `build.mjs --ui` needs `packages/ui-angular/dist` |
 | Port busy after an unclean exit | `morse status` / `morse stop`; state lives in `~/.morse/server.json` |
+| `morse (start\|status)` says "already running" but nothing answers | stale state after a force-kill and a recycled pid; the instance token now catches it — just run `morse start` again |

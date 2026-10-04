@@ -11,6 +11,7 @@
  *   morse status|stop|restart|logs
  */
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import {
   existsSync,
@@ -48,6 +49,13 @@ interface ServerState {
   workspace: string;
   startedAt: string;
   logFile: string;
+  /**
+   * Random token minted per start and echoed by `/api/health`. A pid alone is
+   * not proof of ownership: after a force-kill the state file survives and the
+   * OS may reassign that pid to an unrelated process. Optional so state written
+   * by an older CLI still loads (the check then falls back to the health body).
+   */
+  instance?: string;
 }
 
 interface Options {
@@ -217,6 +225,7 @@ function readState(): ServerState | undefined {
       workspace: parsed.workspace ?? process.cwd(),
       startedAt: parsed.startedAt ?? new Date().toISOString(),
       logFile: parsed.logFile ?? LOG_FILE,
+      instance: typeof parsed.instance === 'string' ? parsed.instance : undefined,
     };
   } catch {
     return undefined;
@@ -233,6 +242,9 @@ function clearState(): void {
 }
 
 function isAlive(pid: number): boolean {
+  // `process.kill(0, 0)` and `process.kill(-1, 0)` are not "does this pid
+  // exist" — the latter answers true whenever *any* process is signalable.
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -252,19 +264,43 @@ function healthUrl(state: Pick<ServerState, 'host' | 'port'>): string {
   return `http://${displayHost(state.host)}:${state.port}${HEALTH_PATH}`;
 }
 
-async function probe(url: string): Promise<boolean> {
+interface HealthPayload {
+  status?: string;
+  instance?: string;
+}
+
+async function probe(url: string): Promise<HealthPayload | undefined> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
-    return response.ok;
+    if (!response.ok) return undefined;
+    return (await response.json()) as HealthPayload;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-async function waitForHealth(url: string, timeoutMs: number): Promise<boolean> {
+/**
+ * Is the daemon recorded in `state` really the one that is running?
+ *
+ * A live pid is necessary but not sufficient: a force-killed daemon leaves the
+ * state file behind and its pid can be recycled by any later process. Only a
+ * matching `instance` (or, for legacy state, a healthy Morse payload) counts.
+ */
+async function isServerRunning(state: ServerState): Promise<boolean> {
+  if (!isAlive(state.pid)) return false;
+  const health = await probe(healthUrl(state));
+  if (health?.status !== 'ok') return false;
+  if (state.instance !== undefined && health.instance !== state.instance) return false;
+  return true;
+}
+
+async function waitForHealth(url: string, expected: string, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (await probe(url)) return true;
+    const health = await probe(url);
+    if (health?.status === 'ok' && (health.instance === undefined || health.instance === expected)) {
+      return true;
+    }
     if (Date.now() >= deadline) return false;
     await sleep(250);
   }
@@ -294,7 +330,7 @@ function sleep(ms: number): Promise<void> {
 
 async function start(options: Options): Promise<number> {
   const existing = readState();
-  if (existing && isAlive(existing.pid)) {
+  if (existing && (await isServerRunning(existing))) {
     if (!options.force) {
       console.log(`${yellow('Morse is already running')} (PID ${existing.pid})`);
       console.log(`  visit: ${cyan(existing.url)}`);
@@ -303,6 +339,7 @@ async function start(options: Options): Promise<number> {
     }
     await stop({ quiet: true });
   }
+  // Either no state, or state whose process is gone / no longer Morse.
   clearState();
 
   const workspace = options.workspace ? resolve(options.workspace) : process.cwd();
@@ -321,21 +358,29 @@ async function start(options: Options): Promise<number> {
   }
 
   const host = options.lan ? '0.0.0.0' : (options.host ?? process.env.MORSE_HOST ?? DEFAULT_HOST);
-  const env = buildEnv(options, port, host, workspace);
+  const instance = randomUUID();
+  const env = buildEnv(options, port, host, workspace, instance);
 
   if (options.foreground) {
-    return startForeground(env, port, host, workspace);
+    return startForeground(env, port, host, workspace, instance);
   }
-  return startDaemon(env, port, host, workspace, options);
+  return startDaemon(env, port, host, workspace, instance, options);
 }
 
-function buildEnv(options: Options, port: number, host: string, workspace: string): NodeJS.ProcessEnv {
+function buildEnv(
+  options: Options,
+  port: number,
+  host: string,
+  workspace: string,
+  instance: string,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     MORSE_HOST: host,
     MORSE_PORT: String(port),
     MORSE_UI_DIR: UI_DIR,
     MORSE_WORKSPACE: workspace,
+    MORSE_INSTANCE: instance,
   };
   if (options.projects) env.MORSE_PROJECTS = options.projects;
   return env;
@@ -346,6 +391,7 @@ async function startDaemon(
   port: number,
   host: string,
   workspace: string,
+  instance: string,
   options: Options,
 ): Promise<number> {
   mkdirSync(LOG_DIR, { recursive: true });
@@ -373,10 +419,11 @@ async function startDaemon(
     workspace,
     startedAt: new Date().toISOString(),
     logFile: LOG_FILE,
+    instance,
   };
   writeState(state);
 
-  const healthy = await waitForHealth(healthUrl(state), 25_000);
+  const healthy = await waitForHealth(healthUrl(state), instance, 25_000);
   if (!healthy) {
     console.error(red('Morse failed to start.'));
     if (!isAlive(state.pid)) {
@@ -410,6 +457,7 @@ async function startForeground(
   port: number,
   host: string,
   workspace: string,
+  instance: string,
 ): Promise<number> {
   const child = spawn(process.execPath, [SERVER_ENTRY], { cwd: workspace, env, stdio: 'inherit' });
   writeState({
@@ -420,6 +468,7 @@ async function startForeground(
     workspace,
     startedAt: new Date().toISOString(),
     logFile: LOG_FILE,
+    instance,
   });
 
   const forward = (signal: NodeJS.Signals): void => {
@@ -437,7 +486,7 @@ async function startForeground(
 
 async function stop(options: { quiet?: boolean } = {}): Promise<number> {
   const state = readState();
-  if (!state || !isAlive(state.pid)) {
+  if (!state || !(await isServerRunning(state))) {
     clearState();
     if (!options.quiet) console.log(dim('Morse is not running.'));
     return 0;
@@ -465,9 +514,9 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
   return !isAlive(pid);
 }
 
-function status(options: Options): number {
+async function status(options: Options): Promise<number> {
   const state = readState();
-  if (!state || !isAlive(state.pid)) {
+  if (!state || !(await isServerRunning(state))) {
     clearState();
     if (options.json) {
       console.log(JSON.stringify({ running: false }));

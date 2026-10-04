@@ -102,6 +102,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | A prompt costs ~1 s of host CPU, or the sidebar takes a second to refresh | `session/list` is scanning every session file again: keep the size+mtime cache and the row scan in `pi-rpc-session-catalog.ts` (measured 624 ms → 2 ms; see `docs/DEVELOPMENT.md`) |
 | Streamed prose lags the model by a beat | intended: `Markdown` re-renders at most every 90 ms instead of per delta; measure `docs/DEVELOPMENT.md` before removing it |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
+| `morse start`/`status` claims a daemon is running that is gone | stale `~/.morse/server.json` after a force-kill and a recycled pid; the pid alone is not proof, so `/api/health` must echo the state's `instance` token (`packages/morse-web/src/cli.ts` → `isServerRunning`) |
 
 ## Pointers
 

@@ -30,6 +30,13 @@ export interface MorseServerConfig {
    */
   updateCheck: boolean;
   /**
+   * Opaque token the `morse` CLI mints for each daemon it spawns. Relayed by
+   * `/api/health`, it lets the CLI prove which process is answering instead of
+   * trusting a pid that the OS may have recycled to an unrelated process.
+   * Undefined when the server is started without the CLI.
+   */
+  instance?: string;
+  /**
    * The bundle this host serves, as its own manifest declares it. Relayed to
    * clients in `host/ready`, so a frontend can name itself (the About dialog) and
    * the host log says which build is talking. Undefined when the directory has no
@@ -73,6 +80,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     projects: parseList(env.MORSE_PROJECTS),
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
+    instance: env.MORSE_INSTANCE?.trim() || undefined,
   };
 }
 

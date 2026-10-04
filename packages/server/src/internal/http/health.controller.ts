@@ -16,12 +16,16 @@ export class HealthController {
     protocolVersion: number;
     workspace: string;
     frontend: string;
+    instance?: string;
   } {
     return {
       status: 'ok',
       protocolVersion: PROTOCOL_VERSION,
       workspace: this.config.workspace.cwd,
       frontend: this.config.uiDir,
+      // Echoed so the CLI that spawned this daemon can tell it apart from an
+      // unrelated process that later reused the same pid.
+      ...(this.config.instance ? { instance: this.config.instance } : {}),
     };
   }
 

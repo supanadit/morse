@@ -212,7 +212,7 @@ it only on a trusted network or behind a TLS reverse proxy.
 
 | Path | Contents |
 |---|---|
-| `~/.morse/server.json` | daemon state: pid, port, host, url, workspace, startedAt (`MORSE_HOME` overrides) |
+| `~/.morse/server.json` | daemon state: pid, port, host, url, workspace, startedAt, instance (`MORSE_HOME` overrides) |
 | `~/.morse/logs/server.log` | server stdout + stderr; `morse logs` reads this |
 | `<session-cwd>/.morse/uploads/` | browser uploads, attached as `@mentions` (`MORSE_UPLOAD_DIR` moves it) |
 
@@ -248,7 +248,7 @@ code --list-extensions | grep morse
 # CLI
 morse --version
 morse status
-curl -s http://127.0.0.1:4399/api/health     # {"status":"ok","protocolVersion":15,...}
+curl -s http://127.0.0.1:4399/api/health     # {"status":"ok","protocolVersion":15,"instance":"…",…}
 curl -s http://127.0.0.1:4399/api/manifest   # the protocolVersion the served frontend speaks
 ```
 
