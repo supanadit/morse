@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -24,6 +25,7 @@ interface TabMenu {
  */
 @Component({
   selector: 'morse-tab-strip',
+  imports: [NgTemplateOutlet],
   templateUrl: './tab-strip.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -31,32 +33,38 @@ interface TabMenu {
       :host {
         display: block;
         flex: none;
-        min-height: var(--morse-head-height);
+        min-height: 30px;
         border-bottom: 1px solid var(--morse-border);
         background: var(--morse-nav-bg);
       }
       .strip {
         display: flex;
         align-items: stretch;
-        gap: 2px;
-        height: var(--morse-head-height);
-        padding: 0 6px;
+        gap: 0;
+        height: 30px;
+        padding: 0;
         overflow-x: auto;
         scrollbar-width: none;
       }
       .strip::-webkit-scrollbar {
         display: none;
       }
+      /* The hairline between the session row and the mention row below it. */
+      .strip + .strip {
+        border-top: 1px solid var(--morse-border);
+      }
+      /* Flush tabs: full height, no margin, separated by a hairline. */
       .tab {
         display: flex;
         align-items: center;
         gap: 6px;
         flex: none;
-        max-width: 200px;
-        padding: 0 6px 0 10px;
-        margin: 5px 0;
+        max-width: 170px;
+        padding: 0 8px 0 10px;
+        margin: 0;
         border: 0;
-        border-radius: var(--morse-radius-sm);
+        border-right: 1px solid var(--morse-border);
+        border-radius: 0;
         background: none;
         color: var(--morse-fg-muted);
         font: inherit;
@@ -167,6 +175,9 @@ export class TabStrip {
 
   protected readonly items = this.tabs.tabs;
   protected readonly activeId = this.tabs.activeId;
+  /** Two rows: sessions/Explorer files first, then files from the `@` picker. */
+  protected readonly mainTabs = this.tabs.mainTabs;
+  protected readonly mentionTabs = this.tabs.mentionTabs;
 
   private readonly menuState = signal<TabMenu | undefined>(undefined);
   protected readonly menu = this.menuState.asReadonly();

@@ -264,4 +264,14 @@ describe('WorkspaceTabs', () => {
 
     expect(tabs.activeId()).toBe('draft');
   });
+
+  it('keeps files opened from the mention picker in their own row', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('README.md');
+    tabs.openMentionFile('docs/STATUS.md');
+
+    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['s1', 'file:README.md']);
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:docs/STATUS.md']);
+  });
 });

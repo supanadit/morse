@@ -60,6 +60,21 @@ describe('TabStrip context menu', () => {
     expect(right?.disabled).toBe(true);
   });
 
+  it('renders a second row for files opened from the mention picker', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('README.md');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.strip')).toHaveLength(1);
+
+    tabs.openMentionFile('docs/STATUS.md');
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('.strip');
+    expect(rows).toHaveLength(2);
+    expect(rows[1].textContent).toContain('STATUS.md');
+  });
+
   it('Close Others keeps the clicked tab and closes the rest', () => {
     const { fixture, tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });

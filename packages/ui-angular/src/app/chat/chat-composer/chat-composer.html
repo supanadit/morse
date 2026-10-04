@@ -117,11 +117,20 @@
           [morseEnterScale]="0.55"
           [morseEnterDuration]="320"
         >
-          <span class="pin-icon" aria-hidden="true">⧉</span>
-          <span class="chip-name" [title]="pin.path">{{ pin.path }}</span>
-          @if (pin.startLine !== undefined) {
-            <span class="chip-lines">{{ pinRange(pin) }}</span>
-          }
+          <!-- Clicking a pinned chip re-opens its file in the preview, where the
+               highlighted range can be dragged to edit it. -->
+          <button
+            type="button"
+            class="chip-body"
+            [title]="'Open ' + pin.path + ' in the preview'"
+            (click)="openPinPreview(pin)"
+          >
+            <span class="pin-icon" aria-hidden="true">⧉</span>
+            <span class="chip-name">{{ pin.path }}</span>
+            @if (pin.startLine !== undefined) {
+              <span class="chip-lines">{{ pinRange(pin) }}</span>
+            }
+          </button>
           <button
             type="button"
             class="chip-remove"

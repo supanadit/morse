@@ -1,34 +1,53 @@
-<div class="strip" role="tablist" aria-label="Open tabs">
-  @for (tab of items(); track tab.id) {
-    <div
-      class="tab"
-      role="tab"
-      tabindex="0"
-      [class.active]="tab.id === activeId()"
-      [attr.aria-selected]="tab.id === activeId()"
-      [title]="title(tab)"
-      (click)="select(tab.id)"
-      (keydown.enter)="select(tab.id)"
-      (keydown.space)="select(tab.id)"
-      (contextmenu)="openMenu($event, tab.id)"
-      (auxclick)="onAuxClick(tab.id, $event)"
-    >
-      <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
-      <span class="label">{{ tab.title }}</span>
-      <button
-        type="button"
-        class="close"
-        aria-label="Close tab"
-        [title]="'Close ' + tab.title"
-        (click)="close(tab.id, $event)"
+<ng-template #row let-items="items" let-label="label">
+  <div class="strip" role="tablist" [attr.aria-label]="label">
+    @for (tab of items; track tab.id) {
+      <div
+        class="tab"
+        role="tab"
+        tabindex="0"
+        [class.active]="tab.id === activeId()"
+        [attr.aria-selected]="tab.id === activeId()"
+        [title]="title(tab)"
+        (click)="select(tab.id)"
+        (keydown.enter)="select(tab.id)"
+        (keydown.space)="select(tab.id)"
+        (contextmenu)="openMenu($event, tab.id)"
+        (auxclick)="onAuxClick(tab.id, $event)"
       >
-        ×
-      </button>
-    </div>
-  } @empty {
-    <span class="empty">No open tabs</span>
-  }
-</div>
+        <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
+        <span class="label">{{ tab.title }}</span>
+        <button
+          type="button"
+          class="close"
+          aria-label="Close tab"
+          [title]="'Close ' + tab.title"
+          (click)="close(tab.id, $event)"
+        >
+          ×
+        </button>
+      </div>
+    } @empty {
+      <span class="empty">No open tabs</span>
+    }
+  </div>
+</ng-template>
+
+<!--
+  Two rows: sessions and Explorer files in the first, files quoted from the `@`
+  picker in the second, so opening a mentioned file never pushes a session tab
+  out of reach.
+-->
+<ng-container
+  [ngTemplateOutlet]="row"
+  [ngTemplateOutletContext]="{ items: mainTabs(), label: 'Open tabs' }"
+></ng-container>
+
+@if (mentionTabs().length > 0) {
+  <ng-container
+    [ngTemplateOutlet]="row"
+    [ngTemplateOutletContext]="{ items: mentionTabs(), label: 'Mentioned files' }"
+  ></ng-container>
+}
 
 <!-- Right-click a tab for the actions VS Code offers; a layer behind it closes
      the menu on any click outside. -->

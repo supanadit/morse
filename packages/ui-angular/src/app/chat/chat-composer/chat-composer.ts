@@ -514,6 +514,18 @@ export class ChatComposer {
   protected readonly images = this.attachments.images;
   /** Selections/files pinned to the next prompt; they are already locked. */
   protected readonly pins = this.attachments.pins;
+
+  /**
+   * Clicking a pinned chip re-opens its file in the browser preview, where the
+   * highlighted range can be dragged to edit it. VS Code has no preview — its
+   * own editor is already where a selection came from.
+   */
+  protected openPinPreview(pin: PendingPin): void {
+    if (this.morse.capabilities()?.filePreview) {
+      this.tabs.openMentionFile(pin.path);
+    }
+  }
+
   /**
    * The editor selection the host reports live: it is unlocked until the user
    * clicks it, which pins it. A payload without lines means the selection is
@@ -1248,9 +1260,10 @@ export class ChatComposer {
       this.attachments.say('info', `Pinned ${path} to this message.`);
     }
     // On the browser host, picking a file also opens it so the user can drag a
-    // line range into the prompt; VS Code has no preview and opens its own editor.
+    // line range into the prompt; it lands in the mention row. VS Code has no
+    // preview and opens its own editor.
     if (!directory && this.morse.capabilities()?.filePreview) {
-      this.tabs.openFile(path);
+      this.tabs.openMentionFile(path);
     }
     if (directory) {
       // Stay open on the folder we just entered; typing keeps narrowing it.

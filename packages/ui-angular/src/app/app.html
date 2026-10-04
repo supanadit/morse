@@ -72,8 +72,11 @@
       </div>
     }
 
-    <!-- The browser host's tabs: sessions and files side by side. VS Code keeps
-         its own editor tabs and never renders this strip. -->
+    <morse-chat-header />
+
+    <!-- The browser host's tabs: sessions and files side by side, below the
+         session header so that header keeps the same place in both hosts. VS
+         Code keeps its own editor tabs and never renders this strip. -->
     @if (tabsEnabled()) {
       <morse-tab-strip />
     }
@@ -81,8 +84,6 @@
     @if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
     } @else {
-      <morse-chat-header />
-
       @if (lastError(); as error) {
         <section class="alert offline" role="status">
           <strong>Offline — the host wouldn't take this frontend</strong>

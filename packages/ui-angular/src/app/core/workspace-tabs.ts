@@ -14,10 +14,12 @@ export interface SessionTab {
 
 export interface FileTab {
   kind: 'file';
-  /** `file:<path>`, so a tab id never collides with a session id. */
+  /** `file:<path>` (Explorer) or `mention:<path>` (the `@` picker). */
   id: string;
   path: string;
   title: string;
+  /** Opened from the `@` picker: shown in its own row below the sessions. */
+  mention?: boolean;
   language?: string;
   content?: string;
   size?: number;
@@ -30,6 +32,8 @@ export interface FileTab {
 export type WorkspaceTab = SessionTab | FileTab;
 
 const FILE_PREFIX = 'file:';
+/** Files opened from the `@` picker live in a second row, so the prefix differs. */
+const MENTION_PREFIX = 'mention:';
 /** The draft tab's id: a tab for a session the host has not opened yet. */
 export const DRAFT_TAB_ID = 'draft';
 
@@ -60,6 +64,14 @@ export class WorkspaceTabs {
 
   readonly tabs = this.items.asReadonly();
   readonly activeId = this.active.asReadonly();
+  /** The first row: sessions, and files opened from the Explorer. */
+  readonly mainTabs = computed(() =>
+    this.items().filter((tab) => tab.kind === 'session' || tab.mention !== true),
+  );
+  /** The second row: files opened from the `@` picker. */
+  readonly mentionTabs = computed(() =>
+    this.items().filter((tab): tab is FileTab => tab.kind === 'file' && tab.mention === true),
+  );
   readonly activeTab = computed<WorkspaceTab | undefined>(() =>
     this.items().find((tab) => tab.id === this.active()),
   );
@@ -153,9 +165,21 @@ export class WorkspaceTabs {
     this.active.set(session.id);
   }
 
-  /** Opens or reveals a file tab; reads it the first time it is shown. */
+  /** Opens or reveals a file tab from the Explorer; reads it the first time. */
   openFile(path: string): void {
-    const id = FILE_PREFIX + path;
+    this.openFileTab(path, false);
+  }
+
+  /**
+   * Opens or reveals a file tab from the `@` picker. It stays in its own row so a
+   * quoted file does not push the session tabs aside (see `mainTabs`).
+   */
+  openMentionFile(path: string): void {
+    this.openFileTab(path, true);
+  }
+
+  private openFileTab(path: string, mention: boolean): void {
+    const id = `${mention ? MENTION_PREFIX : FILE_PREFIX}${path}`;
     const existing = this.items().find((tab) => tab.id === id);
     if (existing === undefined) {
       this.items.update((tabs) => [
@@ -167,6 +191,7 @@ export class WorkspaceTabs {
           title: basename(path),
           language: languageForPath(path),
           loading: true,
+          mention,
         },
       ]);
     }
