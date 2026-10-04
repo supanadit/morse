@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.5 — 4 October 2026
+
+Two Morse windows no longer double the conversation.
+
+### Fixed
+
+- **Two connected clients no longer duplicate the transcript.** The transcript is shared by every connection, but each
+  connection projected the agent's events into it again — so with a second window (or another device) every thought was
+  repeated word by word, a finished message appeared twice, and a tool whose call id was re-bound stayed on the spinner
+  forever, leaving the turn stuck on **Working for …**. Each event is now projected once, whichever client receives it.
+
 ## 0.9.4 — 4 October 2026
 
 The file picker stops waving a badge at you every few seconds.
