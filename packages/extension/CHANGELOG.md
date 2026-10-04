@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.1 — 4 October 2026
+
+Three fixes surfaced by an unclean start, a restored `~/.pi`, and an honest token count.
+
+### Fixed
+
+- **`morse start` no longer claims a daemon is running when it is gone.** A force-kill
+  leaves `~/.morse/server.json` behind, and the OS can hand that pid to an unrelated
+  process; the CLI trusted the pid alone, so it reported a running server that was not
+  there. It now mints a per-start `instance` token and requires `/api/health` to echo it,
+  clearing the stale state instead. `morse stop` also refuses to signal a recycled pid.
+- **The setup screen appears on load when `pi` is missing.** The draft probe that fills
+  the empty panel's model pickers swallowed the "agent not found" error, so a machine
+  with a restored `~/.pi` (old sessions in the sidebar) but no `pi` binary looked healthy
+  until the first prompt failed. The missing agent is named as soon as the panel loads,
+  and Retry re-probes so a later install is picked up.
+- **The Context panel shows `—` for a token count the provider never reported.** pi turns
+  a missing reasoning breakdown into `0`, so the panel read as "the model did not think"
+  when Ollama or Anthropic simply does not count thinking tokens separately.
+
 ## 0.4.0 — 3 October 2026
 
 Prompt templates become first-class in the composer.
