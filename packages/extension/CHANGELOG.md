@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.1 — 4 October 2026
+
+Motion, so a busy graph and a running session read at a glance.
+
+### Improved
+
+- **The git graph flows.** A light pulse travels down each lane, so history reads as movement rather than a
+  static diagram.
+- **Empty git sections animate.** *No uncommitted changes* and *No commits yet* are centred marks that breathe
+  instead of a line of plain text.
+- **A streaming session is visible from its tab.** An open session whose agent is producing a turn shows a
+  spinner on its tab even when another session or a file is in front — and it stops the moment the turn ends.
+
 ## 0.8.0 — 4 October 2026
 
 A git panel and diffs arrive in the browser host, and thinking is readable while it happens.
