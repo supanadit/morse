@@ -232,15 +232,12 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         // Feeds the frontend's file picker. A webview cannot read the workspace,
         // and VS Code does not deliver Explorer drags to it, so this is how files
         // get attached in this host.
+        //
+        // No notice is posted here: the frontend re-reads this list on a timer,
+        // so a toast per answer flashed on every poll. `workspaceFiles` already
+        // logs the count (and a zero count) for diagnosis; the browser host keeps
+        // the same quiet, its `listFiles` never raising a notice either.
         const files = await workspaceFiles(this.deps.logger);
-        // The count is reported to the UI as well: an empty picker with this
-        // number in front of it is diagnosable without opening any devtools.
-        this.postNotice(
-          files.length === 0 ? 'warn' : 'info',
-          files.length === 0
-            ? 'No workspace files were found for the picker.'
-            : `File picker: ${files.length} workspace files.`,
-        );
         return { files };
       }
       case 'openSettings':
