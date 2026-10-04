@@ -147,6 +147,22 @@ describe('WorkspaceTabs', () => {
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
   });
 
+  it('abandons the draft instead of duplicating a session tab already open', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.startDraft('/repo');
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'draft']);
+
+    // The user clicks the open session's tab while a draft is in front; the host
+    // then lands on s1. That is not the draft's own session, so the draft goes
+    // away instead of being promoted into a second tab for the same id.
+    tabs.select('s1');
+    tabs.showSession({ id: 's1', title: 'One', cwd: '/repo' });
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.activeId()).toBe('s1');
+  });
+
   it('never activates the draft as if it were a pi session', () => {
     const { tabs, fake } = setup();
 

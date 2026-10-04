@@ -518,6 +518,14 @@ export class WorkspaceTabs {
     if (!hasDraft) {
       return;
     }
+    // A session that already owns a tab is not what this draft became: the user
+    // put an open session in front (clicked its tab) and the host followed, so
+    // the draft is abandoned. Promoting here would leave two tabs for the same
+    // session id instead of one.
+    if (this.findSession(session.id) !== undefined) {
+      this.discardDraft();
+      return;
+    }
     this.items.update((tabs) =>
       tabs.map((tab) => {
         if (tab.kind === 'session' && tab.id === DRAFT_TAB_ID) {
