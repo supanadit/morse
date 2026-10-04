@@ -219,6 +219,10 @@ export class App {
       const state = this.morse.state();
       const id = state.sessionId;
       if (id === undefined) {
+        // The host dropped to an empty draft (a session closed behind us, a
+        // retry): no real session tab is showing it, so none stays highlighted.
+        this.focusedSession = undefined;
+        this.tabs.clearActiveSession();
         return;
       }
       const session = {

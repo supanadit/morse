@@ -21,6 +21,24 @@ class TitledSessionTransport extends BaseHostTransport {
     this.emitStatus('closed');
   }
 
+  /** The host dropped to an empty draft, e.g. a session closed elsewhere. */
+  dropToDraft(): void {
+    this.emitMessage({
+      type: 'session/state',
+      payload: {
+        workspace: { cwd: '/work/morse', name: 'morse' },
+        thinkingLevel: 'off',
+        availableModels: [],
+        availableThinkingLevels: [],
+        availableCommands: [],
+        streaming: false,
+        busy: false,
+        agentReady: false,
+        agentStarting: false,
+      },
+    });
+  }
+
   send(message: ClientToHostMessage): void {
     if (message.type !== 'client/ready') {
       return;
@@ -84,6 +102,23 @@ describe('App session tabs', () => {
 
     const label = fixture.nativeElement.querySelector('.tab .label')?.textContent?.trim();
     expect(label).toBe('Sekarang tampilan tool');
+  });
+
+  it('clears the active tab when the host drops to an empty draft', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('.tab.active')).not.toBeNull();
+
+    transport.dropToDraft();
+    fixture.detectChanges();
+
+    // The stale tab stays, but it must not look like the conversation on screen.
+    expect(fixture.nativeElement.querySelectorAll('.tab')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('.tab.active')).toBeNull();
   });
 
   it('closing the last session tab leaves the strip empty for good', () => {

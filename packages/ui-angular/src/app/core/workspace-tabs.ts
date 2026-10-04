@@ -221,6 +221,42 @@ export class WorkspaceTabs {
     }
   }
 
+  /**
+   * Removes a tab because the host was told to close or delete that session; no
+   * action is sent (the caller does that). Falls back to the neighbour like
+   * `close`, so the panel does not sit on a tab that just disappeared.
+   */
+  forget(id: string): void {
+    const index = this.items().findIndex((tab) => tab.id === id);
+    if (index === -1) {
+      return;
+    }
+    const wasActive = this.active() === id;
+    this.items.update((tabs) => tabs.filter((tab) => tab.id !== id));
+    if (!wasActive) {
+      return;
+    }
+    const remaining = this.items();
+    const neighbour = remaining[Math.min(index, remaining.length - 1)];
+    if (neighbour === undefined) {
+      this.active.set(undefined);
+      return;
+    }
+    this.select(neighbour.id);
+  }
+
+  /**
+   * The host shows no session (an empty draft): a real session tab cannot be the
+   * one on screen. Clears the active flag so a stale tab does not look active
+   * over an empty panel; a draft tab stays, since it *is* that empty session.
+   */
+  clearActiveSession(): void {
+    const active = this.items().find((tab) => tab.id === this.active());
+    if (active !== undefined && active.kind === 'session' && active.draft !== true) {
+      this.active.set(undefined);
+    }
+  }
+
   /** Keeps only `id`, the way VS Code's "Close Others" does. */
   closeOthers(id: string): void {
     const keep = this.items().find((tab) => tab.id === id);

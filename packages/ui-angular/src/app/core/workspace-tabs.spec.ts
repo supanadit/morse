@@ -228,4 +228,40 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBeUndefined();
     expect(fake.newSession).toHaveBeenCalledWith('/repo');
   });
+
+  it('forgets a tab the host was told to close, without sending actions', () => {
+    const { tabs, fake } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    fake.activateSession.mockClear();
+    fake.newSession.mockClear();
+
+    tabs.forget('s2');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    // The caller owns the `session/close`; forgetting must not add another action.
+    expect(fake.activateSession).toHaveBeenCalledWith('s1', undefined);
+    expect(fake.newSession).not.toHaveBeenCalled();
+  });
+
+  it('clears an active session tab when the host drops to a draft', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    expect(tabs.activeId()).toBe('s1');
+
+    tabs.clearActiveSession();
+
+    // The stale tab stays in the strip, but nothing claims to be on screen.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.activeId()).toBeUndefined();
+  });
+
+  it('keeps a draft tab active while the host is on a draft', () => {
+    const { tabs } = setup();
+    tabs.startDraft('/repo');
+
+    tabs.clearActiveSession();
+
+    expect(tabs.activeId()).toBe('draft');
+  });
 });

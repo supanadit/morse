@@ -691,6 +691,9 @@ export class SessionNav {
 
   protected closeNow(session: SessionSummary): void {
     this.closeMenu();
+    // The tab goes with the session: closing only the host's agent would leave a
+    // tab pointing at a conversation the host no longer shows.
+    this.tabs.forget(session.id);
     this.morse.closeSession(session.id);
   }
 
@@ -725,6 +728,7 @@ export class SessionNav {
 
   protected deleteNow(session: SessionSummary): void {
     this.closeMenu();
+    this.tabs.forget(session.id);
     this.morse.deleteSession(session.id);
   }
 
