@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0 — 5 October 2026
+
+Drafts that stay yours, and a git panel that does the everyday work.
+
+### New
+
+- **A draft per new session.** Every **New session** opens its own draft tab, and the half-typed message, its images,
+  pins and `@` mentions are kept per tab — switching tabs shows that tab's words and never carries them into another
+  session. An untouched draft is dropped when you open a real session; one you have written in stays until you close it.
+- **The git panel does the everyday work.** Stage or unstage a file or a whole group, write a commit message and commit
+  what is staged, and read how far HEAD is from its upstream with **Pull**/**Push** buttons (**Push** carries release
+  tags with it). Expanding a commit in the graph lists the files it touched and opens one as its own diff, and the
+  branch chip opens a picker with local, remote and tag checkouts, **Create new branch…** and **Checkout detached…**.
+
+### Fixed
+
+- **A bare URL in a transcript is a link again.** `github.com/owner/repo` now opens when clicked, without turning
+  filenames or version numbers into links.
+- **An abandoned draft no longer leaves two tabs.** Promoting a session that already owns a tab replaces the old one
+  instead of leaving a duplicate.
+
 ## 0.9.5 — 4 October 2026
 
 Two Morse windows no longer double the conversation.

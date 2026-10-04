@@ -1,6 +1,6 @@
 {
   "name": "morse-monorepo",
-  "version": "0.9.5",
+  "version": "0.10.0",
   "private": true,
   "description": "Comfortable Pi Interface — the Pi coding agent in VS Code or in your browser.",
   "license": "MIT",
