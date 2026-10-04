@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2 — 4 October 2026
+
+A long line in the diff stays on its own side of the split.
+
+### Fixed
+
+- **A wide line no longer runs under the other column.** In the **Split** diff, a line longer than its half painted
+  past the divider and crossed into the new side; it now wraps onto the next visual line, and both halves grow
+  together so the old/new pairing stays one row. The **Unified** diff wraps the same way.
+
 ## 0.9.1 — 4 October 2026
 
 A mention is a reference again, not an editor tab.
