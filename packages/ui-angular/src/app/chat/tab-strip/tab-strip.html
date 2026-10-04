@@ -1,0 +1,61 @@
+<div class="strip" role="tablist" aria-label="Open tabs">
+  @for (tab of items(); track tab.id) {
+    <div
+      class="tab"
+      role="tab"
+      tabindex="0"
+      [class.active]="tab.id === activeId()"
+      [attr.aria-selected]="tab.id === activeId()"
+      [title]="title(tab)"
+      (click)="select(tab.id)"
+      (keydown.enter)="select(tab.id)"
+      (keydown.space)="select(tab.id)"
+      (contextmenu)="openMenu($event, tab.id)"
+      (auxclick)="onAuxClick(tab.id, $event)"
+    >
+      <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
+      <span class="label">{{ tab.title }}</span>
+      <button
+        type="button"
+        class="close"
+        aria-label="Close tab"
+        [title]="'Close ' + tab.title"
+        (click)="close(tab.id, $event)"
+      >
+        ×
+      </button>
+    </div>
+  } @empty {
+    <span class="empty">No open tabs</span>
+  }
+</div>
+
+<!-- Right-click a tab for the actions VS Code offers; a layer behind it closes
+     the menu on any click outside. -->
+@if (menu(); as open) {
+  <div
+    class="context-menu-layer"
+    (click)="closeMenu()"
+    (contextmenu)="$event.preventDefault(); closeMenu()"
+  ></div>
+  <div class="context-menu" role="menu" [style.left.px]="open.x" [style.top.px]="open.y">
+    <button type="button" class="context-menu-item" (click)="menuClose()">Close</button>
+    <button
+      type="button"
+      class="context-menu-item"
+      [disabled]="!closableOthers()"
+      (click)="menuCloseOthers()"
+    >
+      Close Others
+    </button>
+    <button
+      type="button"
+      class="context-menu-item"
+      [disabled]="!canCloseToTheRight(open.id)"
+      (click)="menuCloseToTheRight()"
+    >
+      Close to the Right
+    </button>
+    <button type="button" class="context-menu-item" (click)="menuCloseAll()">Close All</button>
+  </div>
+}

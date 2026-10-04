@@ -15,6 +15,8 @@ import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
 import { toolFileName, toolGerund, toolKind, toolTitle } from '../../core/tool-describe';
 import { UpdateCheck } from '../../core/update';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
+import { FileExplorer } from '../file-explorer/file-explorer';
 import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
 interface SessionGroup {
@@ -44,7 +46,7 @@ interface SessionMenu {
  */
 @Component({
   selector: 'morse-session-nav',
-  imports: [ProjectFilter],
+  imports: [ProjectFilter, FileExplorer],
   templateUrl: './session-nav.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -199,7 +201,7 @@ interface SessionMenu {
         text-transform: uppercase;
         cursor: pointer;
       }
-      .group-title:hover {
+      .group-title:hover:not(:disabled) {
         background: var(--morse-hover);
       }
       .group-title .name {
@@ -224,8 +226,8 @@ interface SessionMenu {
         line-height: 1.2;
         cursor: pointer;
       }
-      .group-new:hover,
-      .group-new:focus-visible {
+      .group-new:hover:not(:disabled),
+      .group-new:focus-visible:not(:disabled) {
         background: var(--morse-hover);
         color: var(--morse-fg);
       }
@@ -373,8 +375,8 @@ interface SessionMenu {
         text-align: left;
         cursor: pointer;
       }
-      .context-menu-item:hover,
-      .context-menu-item:focus-visible {
+      .context-menu-item:hover:not(:disabled),
+      .context-menu-item:focus-visible:not(:disabled) {
         background: var(--morse-hover);
       }
       .context-menu-item.danger {
@@ -448,6 +450,7 @@ export class SessionNav {
   private readonly shell = inject(ShellState);
   private readonly shortcuts = inject(ShortcutService);
   private readonly update = inject(UpdateCheck);
+  private readonly tabs = inject(WorkspaceTabs);
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
 
@@ -471,6 +474,14 @@ export class SessionNav {
   protected readonly updateNotice = this.update.available;
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
+
+  /**
+   * The browser host's Explorer belongs in the sidebar; VS Code has its own and
+   * advertises `filePreview: false`, so this is the one switch for it.
+   */
+  protected readonly filePreview = computed(
+    () => this.morse.capabilities()?.filePreview === true,
+  );
   /** The browser host opens a folder modal for "New session" (see ProjectPicker). */
   private readonly directoryPicker = computed(
     () => this.morse.capabilities()?.directoryPicker === true,
@@ -648,7 +659,9 @@ export class SessionNav {
   }
 
   protected activate(session: SessionSummary): void {
-    this.morse.activateSession(session.id, session.cwd);
+    // The tab strip (browser host) opens the session's tab; the host also
+    // replays its transcript. VS Code has no strip and this is still the switch.
+    this.tabs.focusSession({ id: session.id, title: session.title, cwd: session.cwd });
     this.shell.closeNavigation();
   }
 
@@ -777,7 +790,7 @@ export class SessionNav {
       this.shell.closeNavigation();
       return;
     }
-    this.morse.newSession(path ?? this.morse.workspace().cwd);
+    this.tabs.startDraft(path ?? this.morse.workspace().cwd);
     this.shell.closeNavigation();
   }
 

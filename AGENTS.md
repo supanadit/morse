@@ -103,6 +103,11 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | Streamed prose lags the model by a beat | intended: `Markdown` re-renders at most every 90 ms instead of per delta; measure `docs/DEVELOPMENT.md` before removing it |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
 | `morse start`/`status` claims a daemon is running that is gone | stale `~/.morse/server.json` after a force-kill and a recycled pid; the pid alone is not proof, so `/api/health` must echo the state's `instance` token (`packages/morse-web/src/cli.ts` → `isServerRunning`) |
+| No Explorer in VS Code | intended: the Explorer and tab strip exist only where `capabilities.filePreview` is set (the browser host); VS Code keeps its native explorer, editor and tabs |
+| A preview refuses a file, or opens nothing | `readFile` resolves the path against the viewing session's cwd and rejects an absolute or `..` path (`packages/server/src/internal/workspace/file-store.ts`); the Explorer only offers paths from `listFiles` |
+| File/session tabs vanish on reload | intended: open tabs are frontend state (`core/workspace-tabs.ts`), not wire state; the active session's tab returns with `session/state`, and a file is re-read on demand |
+| A custom button paints the theme accent on hover | the global `button:hover:not(:disabled)` (specificity 0,2,1) beats a plain `.row:hover` (0,2,0); write the override as `.row:hover:not(:disabled)` (same for `.group-title`, `.context-menu-item`, …) |
+| The Explorer cannot be resized | it can: drag its top edge (`.resize`); the height persists in `morse.explorer.height` via `ShellState` |
 
 ## Pointers
 

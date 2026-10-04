@@ -52,6 +52,26 @@ describe('ShellState', () => {
    * `modalOpen` is what lets overlay shortcuts stand down, so it has to include
    * every dialog that can cover the app — including the help itself.
    */
+  it('resizes the Explorer pane and clamps the height to a usable range', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.explorerHeight()).toBeUndefined();
+
+    shell.setExplorerHeight(320);
+    expect(shell.explorerHeight()).toBe(320);
+
+    shell.setExplorerHeight(10);
+    expect(shell.explorerHeight()).toBe(140);
+    shell.setExplorerHeight(10_000);
+    expect(shell.explorerHeight()).toBe(720);
+  });
+
+  it('remembers the Explorer height across a reload', () => {
+    TestBed.inject(ShellState).setExplorerHeight(280);
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).explorerHeight()).toBe(280);
+  });
+
   it('knows when a dialog owns the screen', () => {
     const shell = TestBed.inject(ShellState);
     expect(shell.modalOpen()).toBe(false);

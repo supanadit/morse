@@ -19,6 +19,7 @@ export type PromptMode = 'new' | 'steer' | 'followUp';
 
 export type HostCommand =
   | 'listFiles'
+  | 'readFile'
   | 'listDirectories'
   | 'uploadFile'
   | 'openSettings'

@@ -67,7 +67,9 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    "attach selection" makes sense, `filePicker` whether the host can answer `listFiles` for an `@mention`
    picker, `fileUpload` whether it can store a file the browser read (see below),
    `directoryPicker` whether "New session" has to ask which folder the agent runs in (browser host) or
-   already knows (VS Code), `editMessage` whether editing a past prompt (a fork) is possible,
+   already knows (VS Code), `filePreview` whether the host can read a file's contents (`readFile`) for the
+   frontend's own Explorer and preview tabs (the browser host; VS Code keeps its native explorer and editor
+   and leaves it off), `editMessage` whether editing a past prompt (a fork) is possible,
    `forkMessage` whether a fork can branch a new session and hand the prompt back instead, and
    `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering, and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
@@ -104,6 +106,25 @@ creates the session as a normal draft in the chosen folder (`session/new` with `
 the host still applies `ProjectPolicy` — `canOpen: false` disables "New session here" and names
 `MORSE_PROJECTS` as the fix. The per-project "+" in the sidebar skips the modal and targets that project
 directly.
+
+### Explorer and file preview (browser host only)
+
+VS Code has an Explorer and a text editor, so its host leaves `filePreview` off and none of this renders.
+The browser host has neither, so `filePreview: true` gives the frontend an Explorer in the sidebar and a tab
+strip above the conversation, where sessions and files open side by side.
+
+- The Explorer is built from the same flat `listFiles` listing the `@mention` picker uses (git-aware, the
+  active session's directory), turned into a tree in `core/file-tree.ts`. Clicking a file opens a tab.
+- A file tab is filled by the `readFile` host command (`{ path }` → `{ path, content, size, truncated,
+  binary }`). `path` is relative to the viewing session's cwd: `readWorkspaceFile` resolves it against that
+  directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the
+  project `ProjectPolicy` already approved. Files over 512 KB are cut short, and a binary file is reported
+  as such instead of being decoded.
+- A session tab is navigation, not a second transcript: selecting it sends `session/activate` and the host
+  replays that session, exactly as the sidebar does. Nothing is cached frontend-side, so there is still one
+  source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens
+  the tab itself and promotes it to the real session on the first prompt; tabs can be closed to an empty
+  strip, and a closed tab is never reopened by the host's state.
 6. **Theme** — inside VS Code use the `--vscode-*` variables, with fallbacks so the same bundle looks right in
    a browser. See `packages/ui-angular/src/styles.css`. Fonts follow the same rule: VS Code supplies
    `--vscode-font-family` / `--vscode-editor-font-family`, so the panel inherits the user's editor font; a

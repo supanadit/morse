@@ -172,6 +172,11 @@
   }
 </div>
 
+<!-- The browser host's file tree; VS Code has its own Explorer and skips this. -->
+@if (filePreview()) {
+  <morse-file-explorer />
+}
+
 <!-- Colophon: who made this, and who it stands on — one click from either host. -->
 <div class="foot">
   <!-- A newer release, in the one row both hosts always render. It says the

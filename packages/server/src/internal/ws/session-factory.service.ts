@@ -17,6 +17,7 @@ import {
 } from '../../app/tokens.js';
 import { saveUpload } from '../uploads/upload-store.js';
 import { browseDirectory } from '../workspace/directory-browser.js';
+import { readWorkspaceFile } from '../workspace/file-store.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 
@@ -52,6 +53,9 @@ export class MorseSessionFactory {
       // The server can walk the active session's directory, so the composer's
       // `@` picker works here too — the same list VS Code offers for a workspace.
       filePicker: true,
+      // A browser has no editor of its own, so this host reads files for the
+      // frontend's Explorer and preview tabs. VS Code keeps its native ones.
+      filePreview: true,
       // A browser cannot hand a dragged file's path to pi, so the host takes the
       // bytes and writes them next to the session; the frontend then `@mentions`
       // the path it gets back.
@@ -131,6 +135,16 @@ export class MorseSessionFactory {
         // exactly what pi resolves a mention against.
         const files = await workspaceFiles(cwd, this.logger);
         return { files };
+      }
+      case 'readFile': {
+        // The Explorer and the preview tabs. `readWorkspaceFile` resolves the
+        // path inside the session's directory and refuses anything that escapes.
+        const cwd = this.requireWritableCwd(context);
+        const path = typeof args?.path === 'string' ? args.path : '';
+        if (path.length === 0) {
+          throw new UnsupportedByHostError('readFile needs a "path" argument.');
+        }
+        return readWorkspaceFile(cwd, path);
       }
       case 'uploadFile': {
         const cwd = this.requireWritableCwd(context);

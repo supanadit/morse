@@ -1,0 +1,26 @@
+<header class="head">
+  <span class="path" [title]="tab().path">{{ tab().path }}</span>
+  <div class="meta">
+    <span class="badge">{{ language() }}</span>
+    <span class="stat">{{ size() }}</span>
+    <button type="button" class="icon" title="Reload from disk" aria-label="Reload from disk" (click)="reload()">
+      ⟳
+    </button>
+  </div>
+</header>
+
+@if (tab().loading) {
+  <p class="hint">Reading {{ tab().title }}…</p>
+} @else if (tab().error; as error) {
+  <p class="hint error">{{ error }}</p>
+} @else if (tab().binary) {
+  <p class="hint">Binary file · {{ size() }} · no text preview.</p>
+} @else {
+  <div class="code">
+    <pre class="gutter" aria-hidden="true">{{ lineNumbers() }}</pre>
+    <pre class="source"><code class="hljs" [innerHTML]="highlighted()"></code></pre>
+  </div>
+  @if (tab().truncated) {
+    <p class="hint">Showing the first 512 KB of {{ size() }}.</p>
+  }
+}

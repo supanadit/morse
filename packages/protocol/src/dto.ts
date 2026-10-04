@@ -152,6 +152,13 @@ export interface HostCapabilities {
    */
   directoryPicker?: boolean;
   /**
+   * Host can read a file's contents (`readFile`), so the frontend can render an
+   * Explorer and open files in its own preview tabs. This is the browser host's
+   * stand-in for a text editor; VS Code already has an Explorer and an editor,
+   * so it leaves this off and keeps its native ones.
+   */
+  filePreview?: boolean;
+  /**
    * Host can fork the conversation before a past user message, which is how a
    * user edits a prompt the agent already answered. Optional: an agent backend
    * without fork support leaves it off and the frontend hides the affordance.

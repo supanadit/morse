@@ -61,3 +61,13 @@ Some display choices belong to whoever is reading, not to the host, so they live
 The tool-call toggle sits in the chat header, next to the conversation compactor; the compact tree is the
 default, and `timeline` is the opt-in legacy view. Storage is a nicety: with `localStorage` unavailable the
 choice still holds for the session.
+
+### Explorer and tabs (browser host)
+
+When the host advertises `filePreview` — the NestJS/browser host does, VS Code does not — the sidebar grows
+an **Explorer** for the session's project and the chat grows a **tab strip**. Clicking a file opens it in a
+new preview tab; selecting a session opens or reveals its tab and activates that session. Tabs are frontend
+state only (close the last one and the strip is empty), and a preview is read-only on purpose: VS Code is the
+host with an editor. A file over 512 KB is shown truncated, and a binary file is named rather than decoded.
+Right-click a tab for Close, Close Others, Close to the Right and Close All — the actions VS Code's own tab
+menu offers.

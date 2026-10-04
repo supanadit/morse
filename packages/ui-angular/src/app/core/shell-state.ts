@@ -5,6 +5,10 @@ import { Injectable, computed, signal } from '@angular/core';
  * storage disabled simply forgets it — the toggle still works for the session.
  */
 const NAV_COLLAPSED_KEY = 'morse.navigation.collapsed';
+/** The Explorer pane's height, so a resize survives a reload. */
+const EXPLORER_HEIGHT_KEY = 'morse.explorer.height';
+const EXPLORER_MIN_HEIGHT = 140;
+const EXPLORER_MAX_HEIGHT = 720;
 
 function readNavCollapsed(): boolean {
   try {
@@ -19,6 +23,31 @@ function storeNavCollapsed(collapsed: boolean): void {
     globalThis.localStorage?.setItem(NAV_COLLAPSED_KEY, collapsed ? '1' : '0');
   } catch {
     // Storage is a nicety, not a requirement: the signal still holds the state.
+  }
+}
+
+function clampExplorerHeight(px: number): number {
+  return Math.round(Math.min(EXPLORER_MAX_HEIGHT, Math.max(EXPLORER_MIN_HEIGHT, px)));
+}
+
+function readExplorerHeight(): number | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(EXPLORER_HEIGHT_KEY);
+    if (raw === null || raw === undefined) {
+      return undefined;
+    }
+    const value = Number.parseInt(raw, 10);
+    return Number.isFinite(value) ? clampExplorerHeight(value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeExplorerHeight(px: number): void {
+  try {
+    globalThis.localStorage?.setItem(EXPLORER_HEIGHT_KEY, String(px));
+  } catch {
+    // As above: the signal is the truth for this session either way.
   }
 }
 
@@ -40,6 +69,14 @@ export class ShellState {
    */
   private readonly collapsed = signal(readNavCollapsed());
   readonly navigationCollapsed = this.collapsed.asReadonly();
+
+  /**
+   * The browser host's Explorer pane height (px). `undefined` means the default
+   * (`max-height` in CSS); once the user drags its top edge, the chosen height is
+   * remembered like the navigation fold.
+   */
+  private readonly explorer = signal<number | undefined>(readExplorerHeight());
+  readonly explorerHeight = this.explorer.asReadonly();
 
   /**
    * The "New session" folder browser (browser host only). It is shell state
@@ -133,6 +170,13 @@ export class ShellState {
   private setCollapsed(collapsed: boolean): void {
     this.collapsed.set(collapsed);
     storeNavCollapsed(collapsed);
+  }
+
+  /** Drag-to-resize from the Explorer's top edge; clamped to a usable range. */
+  setExplorerHeight(px: number): void {
+    const next = clampExplorerHeight(px);
+    this.explorer.set(next);
+    storeExplorerHeight(next);
   }
 
   openAbout(): void {

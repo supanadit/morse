@@ -1,49 +1,6 @@
 import DOMPurify from 'dompurify';
-import hljs from 'highlight.js/lib/core';
-import bash from 'highlight.js/lib/languages/bash';
-import css from 'highlight.js/lib/languages/css';
-import diff from 'highlight.js/lib/languages/diff';
-import go from 'highlight.js/lib/languages/go';
-import javascript from 'highlight.js/lib/languages/javascript';
-import json from 'highlight.js/lib/languages/json';
-import markdown from 'highlight.js/lib/languages/markdown';
-import php from 'highlight.js/lib/languages/php';
-import python from 'highlight.js/lib/languages/python';
-import typescript from 'highlight.js/lib/languages/typescript';
-import xml from 'highlight.js/lib/languages/xml';
-import yaml from 'highlight.js/lib/languages/yaml';
 import { Marked, type RendererObject } from 'marked';
-
-for (const [name, language] of Object.entries({
-  bash,
-  css,
-  diff,
-  go,
-  javascript,
-  json,
-  markdown,
-  php,
-  python,
-  typescript,
-  xml,
-  yaml,
-})) {
-  hljs.registerLanguage(name, language);
-}
-
-const ALIASES: Record<string, string> = {
-  sh: 'bash',
-  shell: 'bash',
-  zsh: 'bash',
-  js: 'javascript',
-  jsx: 'javascript',
-  ts: 'typescript',
-  tsx: 'typescript',
-  html: 'xml',
-  svg: 'xml',
-  md: 'markdown',
-  yml: 'yaml',
-};
+import { highlightCode } from './highlight';
 
 /**
  * The custom renderer both Marked instances share: highlighted code blocks with
@@ -52,17 +9,11 @@ const ALIASES: Record<string, string> = {
 function renderer(): RendererObject {
   return {
     code({ text, lang }) {
-      const requested = (lang ?? '').trim().toLowerCase();
-      const language = ALIASES[requested] ?? requested;
-      const known = language.length > 0 && hljs.getLanguage(language) !== undefined;
-      const highlighted = known
-        ? hljs.highlight(text, { language, ignoreIllegals: true }).value
-        : escapeHtml(text);
-      const label = language.length > 0 ? language : 'text';
+      const { html, language } = highlightCode(text, lang ?? undefined);
       return (
-        `<div class="code"><div class="code-head"><span class="code-lang">${label}</span>` +
+        `<div class="code"><div class="code-head"><span class="code-lang">${language}</span>` +
         `<button type="button" class="copy" data-copy>Copy</button></div>` +
-        `<pre><code class="hljs">${highlighted}</code></pre></div>`
+        `<pre><code class="hljs">${html}</code></pre></div>`
       );
     },
     link({ href, title, tokens }) {
@@ -134,13 +85,4 @@ export function renderMarkdown(text: string): string {
  */
 export function renderUserMarkdown(text: string): string {
   return cachedRender(userCache, userMarked, text);
-}
-
-/** Plain, escaped text for the places that must not render markup. */
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

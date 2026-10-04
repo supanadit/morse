@@ -72,53 +72,63 @@
       </div>
     }
 
-    <morse-chat-header />
-
-    @if (lastError(); as error) {
-      <section class="alert offline" role="status">
-        <strong>Offline — the host wouldn't take this frontend</strong>
-        <p>{{ error.message }}<br />{{ error.detail }}</p>
-        <div class="actions">
-          <button type="button" (click)="reload()">Reload</button>
-          <button type="button" class="secondary" (click)="retryConnection()">Retry</button>
-          <button type="button" class="secondary" (click)="showLog()">Show log</button>
-        </div>
-      </section>
-    } @else if (offline()) {
-      <section class="alert offline" role="status">
-        <strong>Offline — reconnecting</strong>
-        <p>
-          Morse keeps retrying in the background; the rest of the interface stays available while
-          it does.
-        </p>
-        <div class="actions">
-          <button type="button" (click)="retryConnection()">Retry now</button>
-          <button type="button" class="secondary" (click)="showConnectionHelp()">
-            Connection help
-          </button>
-        </div>
-      </section>
-    } @else if (agentBanner()) {
-      <!-- A spawn failure with a transcript to read above it. An empty panel gets
-           `morse-agent-screen` instead, which can say a great deal more; a window
-           with no session yet (lazy open) is a normal empty state and gets neither. -->
-      <section class="alert" role="alert">
-        <strong>Pi agent unavailable</strong>
-        <p>{{ agentError() || 'Morse could not start the pi coding agent.' }}</p>
-        <div class="actions">
-          <button type="button" (click)="retryAgent()">Retry</button>
-          <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
-          <button type="button" class="secondary" (click)="showLog()">Show log</button>
-        </div>
-      </section>
+    <!-- The browser host's tabs: sessions and files side by side. VS Code keeps
+         its own editor tabs and never renders this strip. -->
+    @if (tabsEnabled()) {
+      <morse-tab-strip />
     }
 
-    @if (agentScreen()) {
-      <morse-agent-screen />
+    @if (activeFile(); as file) {
+      <morse-file-preview [tab]="file" />
     } @else {
-      <morse-chat-transcript />
-      <morse-interaction-panel />
-      <morse-chat-composer />
+      <morse-chat-header />
+
+      @if (lastError(); as error) {
+        <section class="alert offline" role="status">
+          <strong>Offline — the host wouldn't take this frontend</strong>
+          <p>{{ error.message }}<br />{{ error.detail }}</p>
+          <div class="actions">
+            <button type="button" (click)="reload()">Reload</button>
+            <button type="button" class="secondary" (click)="retryConnection()">Retry</button>
+            <button type="button" class="secondary" (click)="showLog()">Show log</button>
+          </div>
+        </section>
+      } @else if (offline()) {
+        <section class="alert offline" role="status">
+          <strong>Offline — reconnecting</strong>
+          <p>
+            Morse keeps retrying in the background; the rest of the interface stays available while
+            it does.
+          </p>
+          <div class="actions">
+            <button type="button" (click)="retryConnection()">Retry now</button>
+            <button type="button" class="secondary" (click)="showConnectionHelp()">
+              Connection help
+            </button>
+          </div>
+        </section>
+      } @else if (agentBanner()) {
+        <!-- A spawn failure with a transcript to read above it. An empty panel gets
+             `morse-agent-screen` instead, which can say a great deal more; a window
+             with no session yet (lazy open) is a normal empty state and gets neither. -->
+        <section class="alert" role="alert">
+          <strong>Pi agent unavailable</strong>
+          <p>{{ agentError() || 'Morse could not start the pi coding agent.' }}</p>
+          <div class="actions">
+            <button type="button" (click)="retryAgent()">Retry</button>
+            <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
+            <button type="button" class="secondary" (click)="showLog()">Show log</button>
+          </div>
+        </section>
+      }
+
+      @if (agentScreen()) {
+        <morse-agent-screen />
+      } @else {
+        <morse-chat-transcript />
+        <morse-interaction-panel />
+        <morse-chat-composer />
+      }
     }
 
     @if (toast(); as notice) {

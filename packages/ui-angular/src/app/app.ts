@@ -4,12 +4,15 @@ import { ConnectionScreen } from './connection/connection-screen';
 import { ChatComposer } from './chat/chat-composer/chat-composer';
 import { ChatHeader } from './chat/chat-header/chat-header';
 import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
+import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
+import { TabStrip } from './chat/tab-strip/tab-strip';
 import { AnimationService } from './core/animation.service';
 import { AttachmentStore } from './core/attachments';
 import { DropZone } from './core/drop-zone';
 import { MorseService } from './core/morse.service';
 import { ShellState } from './core/shell-state';
+import { WorkspaceTabs } from './core/workspace-tabs';
 import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
@@ -43,6 +46,8 @@ function previewBoot(): boolean {
     ChatTranscript,
     InteractionPanel,
     ChatComposer,
+    TabStrip,
+    FilePreview,
     EnterDirective,
     BootSplash,
     ConnectionScreen,
@@ -54,6 +59,7 @@ function previewBoot(): boolean {
 export class App {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly tabs = inject(WorkspaceTabs);
   private readonly shortcuts = inject(ShortcutService);
   private readonly dropZone = inject(DropZone);
   private readonly animation = inject(AnimationService);
@@ -84,6 +90,18 @@ export class App {
   protected readonly offline = signal(false);
 
   protected readonly navigationOpen = this.shell.navigationOpen;
+  /**
+   * The browser host's tab strip (sessions + file previews). Gated on the host's
+   * own capability, so VS Code — which has an editor already — stays as it was.
+   */
+  protected readonly tabsEnabled = computed(() => this.morse.capabilities()?.filePreview === true);
+  /** The file the strip is showing, or `undefined` when a session tab is in front. */
+  protected readonly activeFile = computed(() => {
+    const tab = this.tabs.activeTab();
+    return tab?.kind === 'file' ? tab : undefined;
+  });
+  /** The last session the strip brought forward, so a redraw does not re-focus it. */
+  private focusedSession: string | undefined;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
@@ -192,11 +210,49 @@ export class App {
       this.clearNoticeTimer();
       this.clearBootTimer();
     });
+    // The strip follows the host's active session: a resume or a fresh session
+    // brings its tab forward, while a file tab stays put as the agent streams.
+    effect(() => {
+      if (!this.tabsEnabled()) {
+        return;
+      }
+      const state = this.morse.state();
+      const id = state.sessionId;
+      if (id === undefined) {
+        return;
+      }
+      const session = {
+        id,
+        title: this.sessionTitle(id, state.sessionTitle),
+        cwd: state.workspace.cwd,
+      };
+      if (id === this.focusedSession) {
+        // Same session: keep the tab's title current without stealing focus — and
+        // without bringing back a tab the user closed.
+        this.tabs.refreshSession(session);
+        return;
+      }
+      this.focusedSession = id;
+      this.tabs.showSession(session);
+    });
   }
 
   protected onBootDismissed(): void {
     this.bootVisible.set(false);
     this.clearBootTimer();
+  }
+
+  /**
+   * A tab's label. The host puts a session's title in `session/list` (where the
+   * sidebar reads it) and, once it can derive one, in `session/state` too — so
+   * prefer the state's, and fall back to the list for a host that sends only it.
+   */
+  private sessionTitle(id: string, stateTitle?: string): string {
+    if (stateTitle !== undefined && stateTitle.length > 0) {
+      return stateTitle;
+    }
+    const summary = this.morse.sessions().find((session) => session.id === id);
+    return summary?.title ?? 'New session';
   }
 
   protected onConnectionExplore(): void {

@@ -18,6 +18,7 @@ import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
 import { Uploader } from '../../core/uploads';
 import { WorkspaceFiles } from '../../core/workspace-files';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { PopoverFit } from '../../core/popover-fit.directive';
 import { EnterDirective } from '../../shared/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
@@ -451,6 +452,7 @@ export class ChatComposer {
   private readonly destroyRef = inject(DestroyRef);
   private readonly attachments = inject(AttachmentStore);
   private readonly workspace = inject(WorkspaceFiles);
+  private readonly tabs = inject(WorkspaceTabs);
   private readonly uploads = inject(Uploader);
   private readonly promptInput = viewChild<ElementRef<HTMLTextAreaElement>>('promptInput');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
@@ -1147,7 +1149,7 @@ export class ChatComposer {
   private runBuiltin(name: string): void {
     switch (name) {
       case 'new':
-        this.morse.newSession(this.morse.workspace().cwd);
+        this.tabs.startDraft(this.morse.workspace().cwd);
         break;
       case 'compact':
         // Asked for, not done: `/compact` opens the same confirmation as the

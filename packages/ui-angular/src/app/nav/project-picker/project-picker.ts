@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
 
 /** One subdirectory row, as the host reports it. */
 export interface DirectoryEntry {
@@ -218,6 +219,7 @@ export interface DirectoryListing {
 export class ProjectPicker {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly tabs = inject(WorkspaceTabs);
 
   protected readonly loading = signal(false);
   protected readonly error = signal<string | undefined>(undefined);
@@ -255,7 +257,7 @@ export class ProjectPicker {
     if (path.length === 0 || !this.canOpen()) {
       return;
     }
-    this.morse.newSession(path);
+    this.tabs.startDraft(path);
     this.shell.closeNavigation();
     this.close();
   }
