@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.3 — 4 October 2026
+
+The VS Code chat stops repeating a host error it cannot fix.
+
+### Fixed
+
+- **The transcript no longer fills with “VS Code does not implement \"gitStatus\"”.** VS Code has native Source
+  Control and does not implement the `gitStatus` host command, but the background file poll asked for it anyway —
+  so a red row was appended every few seconds, forever. The working tree is now only read from a host that
+  advertises git (the browser host), exactly as the git panel already was; the `@` file picker in VS Code is
+  unchanged.
+
 ## 0.9.2 — 4 October 2026
 
 A long line in the diff stays on its own side of the split.
