@@ -1,6 +1,6 @@
 # Status
 
-Morse **v0.4.0**. This page is the honest inventory of what ships. Everything else points here:
+Morse **v0.9.2**. This page is the honest inventory of what ships. Everything else points here:
 [`README.md`](../README.md) for the pitch, [`ARCHITECTURE.md`](ARCHITECTURE.md) for how it is built,
 [`CONFIGURATION.md`](CONFIGURATION.md) for the knobs, [`FRONTENDS.md`](FRONTENDS.md) for the frontend contract.
 
@@ -9,14 +9,16 @@ Morse **v0.4.0**. This page is the honest inventory of what ships. Everything el
 ### The conversation
 
 - Markdown transcript with highlighted, copyable code blocks.
-- A process timeline that interleaves tool calls and thinking, with per-step status and expandable details.
-- Paged history for long sessions; a resumed session is seeded from the agent, never from a blank panel.
+- Tool calls as a **compact tree** by default: one summary line per turn with its steps and the files they
+  touched nested under it. The always-open timeline is a per-user toggle (`morse.chat.toolDisplay=timeline`).
+- Thinking streams as it arrives, and a resumed session is seeded from the agent — never from a blank panel.
+- Paged history for long sessions.
 
 ### While the agent works
 
-- `steer`, follow-up and abort — steering lands in the running turn, while a follow-up is queued above the
-  composer (`Queued messages`: edit, send now, remove) and runs once the current turn settles; a prompt sent
-  mid-run with no mode is queued as a follow-up rather than refused.
+- `steer`, follow-up and abort. Steering lands in the running turn; a prompt sent mid-run with no mode is
+  **queued** as a follow-up rather than refused, and shown above the composer (`Queued messages`: edit, send
+  now, remove) until it runs as the current turn settles.
 - Compaction behind an explicit confirmation, optionally with custom instructions (`session/compact`).
 - pi's interaction requests: native QuickPick/InputBox in VS Code, rendered inline in the browser.
 - Failures surface as notices (`error` message) instead of a dead panel.
@@ -35,6 +37,8 @@ Morse **v0.4.0**. This page is the honest inventory of what ships. Everything el
 - One `pi` process per session, kept warm LRU-style (`MORSE_HOT_SESSIONS`, default 4), so switching projects or
   reloading the page reattaches instead of respawning. A live session is a whole pi process (275–450 MB);
   the cap is the number to size a box by.
+- An **In progress** section lifts the sessions working right now, so several active sessions are visible at
+  once instead of only the selected one (`session/activity`).
 - Project browser with a searchable filter, session search, activate, close (retire the process) and delete
   (remove the session file, behind the host's own confirmation).
 - The browser host allows any directory; the VS Code host advertises `capabilities.scope: 'workspace'` and
@@ -43,7 +47,8 @@ Morse **v0.4.0**. This page is the honest inventory of what ships. Everything el
 ### Context you attach
 
 - VS Code: editor selection plus a live selection chip that follows the caret while the user drags.
-- Everywhere: drag/drop/paste images; browser uploads land next to the session and ride as `@mentions`.
+- Everywhere: drag/drop/paste images; browser uploads land next to the session (`<cwd>/.morse/uploads/`) and
+  ride as `@mentions`.
 - The `@mention` picker lists files **and** directories (`@docs/` drills in) and honours `.gitignore`.
 
 ### Editing what was sent
@@ -57,6 +62,21 @@ Forking — pi's `fork` primitive — is behind both:
 
 Both are advertised as `capabilities.editMessage` / `capabilities.forkMessage`, so a backend without fork
 support simply never shows the affordance.
+
+### Git and files (browser host)
+
+VS Code has an Explorer, editor and Source Control and leaves `filePreview` / `gitPanel` off; the browser host
+turns them on so the panel stands on its own:
+
+- **Git panel** (`Ctrl+Alt+G`): the active project's recent commits with their branch graph, plus the
+  working tree's uncommitted changes with a per-file kind. Resizable from its edge; long refs fold.
+- **Explorer**: the session project's files with git status badges, resizable, refreshed by polling
+  `listFiles` (`fresh: true`) and `gitStatus`.
+- **Preview tabs**: a file opens in a read-only tab beside the sessions; over 512 kB is truncated and a binary
+  is named rather than decoded. Drag the line numbers to pin a `path:start-end` range into your next message;
+  touching ranges merge and can be edited by their handles.
+- **Tab strip**: sessions and files open side by side, quoted files get their own row, and right-click offers
+  Close / Close Others / Close to the Right / Close All.
 
 ### Keyboard, templates, updates, install
 
@@ -72,5 +92,9 @@ support simply never shows the affordance.
 ## Not built yet
 
 - **Session rename** — sessions are named by pi and only by pi; Morse has no rename path on the wire.
-- **A dedicated diff / review view** — tool-call diffs render inline in the timeline (`ToolDiff`), but there is
-  no surface for reviewing, approving or rejecting a set of changes as a whole.
+- **Editing files in the browser** — the preview is read-only on purpose. VS Code is the host with an editor;
+  the browser host reads, quotes and diffs, but does not write.
+- **Staging, approving or rejecting changes as a set** — diffs are shown (tool-call diffs in the transcript,
+  a file's diff in the preview), but there is no review surface that acts on them as a whole.
+- **Authentication on the browser host** — there is none. `--lan` is for trusted networks only, or put an
+  authenticating proxy in front.

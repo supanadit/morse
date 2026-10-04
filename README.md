@@ -32,36 +32,42 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
 
 ## Highlights
 
-- **Two hosts, one product** — the VS Code extension and the browser server drive the same agent, render the
-  same transcript and speak the same versioned protocol.
 - **Multiple sessions across multiple projects** — one `pi` process per session, kept warm (LRU), alive while
-  you switch projects or reload the page. A refresh reattaches and replays the transcript.
-- **A real transcript** — markdown with highlighted, copyable code blocks; a process timeline that interleaves
-  tool calls and thinking, with per-step status and expandable details; paged history for long sessions.
-- **Steer while it works** — `steer`, follow-up and abort, model and thinking-level pickers, and context
-  compaction, all without leaving the chat.
+  you switch projects or reload the page. An **In progress** section lifts the sessions working right now, and
+  a refresh reattaches and replays the transcript.
+- **A real transcript** — markdown with highlighted, copyable code blocks; tool calls as a compact tree by
+  default (one summary line per turn, steps and their files nested under it — the always-open timeline is one
+  toggle away); thinking that streams as it arrives; paged history for long sessions.
+- **Steer while it works** — `steer`, follow-up and abort. A prompt sent mid-run is queued as a follow-up
+  above the composer (`Queued messages`: edit, send now, remove) rather than refused, and runs when the
+  current turn settles. Model and thinking-level pickers and context compaction, all without leaving the chat.
+- **Edit or fork what was sent** — edit-and-resend forks before a past prompt and sends the rewrite; fork
+  branches there and hands the prompt back to the composer. The old branch stays resumable.
 - **Attach context the way each host can** — editor selection and live selection chips in VS Code; drag, drop
   and pasted images everywhere; browser uploads land next to the session and ride as `@mentions`.
 - **`@mention` anything** — a gitignore-aware picker for files *and* directories (`@docs/` drills in), opened
   with `+` or by typing `@`, with markdown formatting in your own prompts too.
 - **Native interactions in VS Code** — pi's interaction requests become QuickPick/InputBox there, and are
   rendered inline in the browser.
+- **Git and files where there is no editor** — on the browser host, a git panel (commit list, branch graph,
+  uncommitted changes) and an Explorer, with read-only previews, diff views, and line ranges you drag to pin
+  into your next message. VS Code keeps its own Explorer, editor and Source Control.
+- **Prompt templates with a form** — a `/<template>` opens a generated form with a live preview, and a
+  template file added or edited shows up without restarting pi.
 - **Keyboard first** — `Ctrl+Alt+…` (`⌘⌥…` on macOS) starts a session, narrows the sidebar to a project,
-  changes the model or the thinking level, and opens the compaction question; `/` jumps to the session
-  search and `?` prints the whole list — the same keys in both hosts.
-- **Never silently stale** — the panel reads the published version once per load, so the sidebar can say
-  "update available" with the version and the command that installs it. One request, public data, and a host
-  can turn it off with `MORSE_UPDATE_CHECK=0`.
+  changes the model or the thinking level, toggles the git panel (browser host), and opens the compaction
+  question; `/` jumps to the session search and `?` prints the whole list.
 
 ## Light, and honest about what is not
 
-Morse is an interface, not another agent: it spawns `pi --mode rpc` and never imports it (~408 MB on disk stays
-pi's problem, not Morse's). What is left is small, and measured rather than claimed:
+Morse is an interface, not another agent: it spawns `pi --mode rpc` and never imports it (`pi` and its own
+footprint — hundreds of megabytes — stay pi's problem, not Morse's). What is left is small, and measured
+rather than claimed:
 
 | Piece | Measured |
 |---|---|
-| Frontend, over the wire | **156 kB** compressed (590 kB raw), 10.8 kB CSS |
-| Host bundle (`@morse/server`, the NestJS app) | **68 kB** of JS |
+| Frontend, over the wire | **176 kB** compressed (733 kB raw), 11.3 kB CSS |
+| Host bundle (`@morse/server`, the NestJS app) | **53 kB** of JS |
 | Host, nothing happening | **0.000% CPU**, ~110 MB RSS — no polling, no heartbeat, nothing to wake up for |
 | One prompt in a warm session | **2.3%** of one core of *host* CPU |
 | Refreshing the session list | **2 ms** warm (it was 624 ms of CPU before it was cached) |
@@ -74,6 +80,9 @@ a box by is this one, not the 110 MB above.
 
 Both numbers were measured against a real `pi` with the host built for production; the method and the before/after
 are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), so you can reproduce them — or watch them not be true.
+
+The panel's only request to the internet of its own is the version check behind "update available": one read of
+the npm registry per load, public data only, and a host can turn it off (`MORSE_UPDATE_CHECK=0`).
 
 ## Requirements
 
