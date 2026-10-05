@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.0 — 5 October 2026
+
+Manage your MCP servers from the panel, and a thinking picker that follows the model you actually picked.
+
+### New
+
+- **Manage MCP servers.** The chat toolbar now has an MCP indicator that opens a manager for the servers pi sees for
+  the session's directory: their connection state, tools and errors, plus add, remove, enable and disable. Edits land
+  where you choose — **This project** writes `.pi/mcp.json`, disabling a user-level server with a project override the
+  way pi's own `/mcp` does, or **Global** for the user file. Signing in stays pi's job.
+- **Thinking that follows the model.** pi scopes its thinking levels to the current model, and the picker now mirrors
+  them per provider and per model instead of keeping the first model's list: switching models re-reads the levels, and
+  a model chosen on an empty draft re-probes its catalog.
+- **Models appear without a restart.** A model added to `models.json` shows up when you open the model picker — and a
+  reload re-reads the warm session — so neither the host nor the session has to be restarted.
+
+### Fixed
+
+- **A file chip's right-click menu no longer closes your session.** Close, Close Others, Close to the Right and Close
+  All now act on the chip's own row; a session tab's menu still spans the whole strip.
+- **`pi mcp` no longer dies under `node --watch`.** An inherited IPC channel (`NODE_CHANNEL_FD`) made the spawned `pi`
+  exit with `write EINVAL` before it could answer; both the MCP call and the RPC session now spawn with a clean
+  environment.
+
 ## 0.13.0 — 5 October 2026
 
 One field to drive everything, a terminal that survives a reload, and a quiet ping when a session is done.
