@@ -240,6 +240,11 @@ export class MorseService {
     this.actions.refreshCommands();
   }
 
+  /** Re-reads the model catalog, so a model added to `models.json` shows up. */
+  refreshModels(): void {
+    this.actions.refreshModels();
+  }
+
   setModel(provider: string, id: string): void {
     this.actions.setModel(provider, id);
   }

@@ -1356,11 +1356,19 @@ export class ChatComposer {
 
   /** Opens the model chooser; `/model` and the footer trigger share it. */
   private openModelPicker(): void {
+    // pi caches its configured models while the session is warm, so opening the
+    // picker asks for a fresh catalog: a model added to `models.json` shows up
+    // here without restarting the host or the session.
+    this.morse.refreshModels();
     this.modelPickerOpen.set(true);
   }
 
   protected toggleModelPicker(): void {
-    this.modelPickerOpen.update((open) => !open);
+    if (this.modelPickerOpen()) {
+      this.modelPickerOpen.set(false);
+      return;
+    }
+    this.openModelPicker();
   }
 
   protected onModelPick(model: ModelOption): void {

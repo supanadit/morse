@@ -191,6 +191,9 @@ export class HostSessionController {
         void this.warmDraft();
       } else {
         await this.runSessionChange(() => this.options.services.registry.activate(existingKey));
+        // A reload keeps the warm session: re-read its model catalog so a model
+        // added while the panel was away shows up without restarting the host.
+        void this.refreshModels();
       }
     }
     void this.publishLists();
@@ -312,6 +315,9 @@ export class HostSessionController {
         return;
       case 'commands/refresh':
         await this.refreshCommands();
+        return;
+      case 'models/refresh':
+        await this.refreshModels();
         return;
       case 'project/list':
         await this.publishProjects();
@@ -519,7 +525,7 @@ export class HostSessionController {
   /** Fills the draft pickers from the registry's session-less probe. */
   private async warmDraft(): Promise<void> {
     try {
-      this.draftCatalog = await this.options.services.registry.draftDefaults();
+      this.draftCatalog = await this.options.services.registry.draftDefaults(this.draftModel);
     } catch (error: unknown) {
       // The session-less probe is where a missing pi shows up on load. Without
       // this the draft looked healthy (empty pickers) until the first prompt
@@ -970,6 +976,9 @@ export class HostSessionController {
       );
       this.draftModel = match ?? { provider, id, name: id };
       this.emitState();
+      // pi reports thinking levels per *current* model, so the picker has to be
+      // re-probed for the model the reader just chose before a session exists.
+      void this.refreshDraftCatalog(this.draftModel);
       return;
     }
     const result = await this.guard(() =>
@@ -977,6 +986,29 @@ export class HostSessionController {
     );
     if (result.ok) {
       this.emitState();
+    }
+  }
+
+  /**
+   * Re-reads the draft catalog for a model picked before any session exists, so
+   * the thinking picker mirrors that model's levels instead of the default
+   * model's. The request is dropped when the reader picks again or a session
+   * opens while the probe is in flight.
+   */
+  private async refreshDraftCatalog(model: ModelRef): Promise<void> {
+    try {
+      const catalog = await this.options.services.registry.draftDefaults(model);
+      if (
+        catalog &&
+        this.activeKey === undefined &&
+        !this.disposed &&
+        this.draftModel === model
+      ) {
+        this.draftCatalog = catalog;
+        this.emitState();
+      }
+    } catch (error: unknown) {
+      this.options.logger.warn('Could not probe the draft catalog for the picked model', error);
     }
   }
 
@@ -1013,6 +1045,25 @@ export class HostSessionController {
       return;
     }
     await this.guard(() => gateway.refreshCommands!());
+  }
+
+  /**
+   * Re-reads the model catalog on request. A warm session re-asks pi over RPC
+   * (cheap); a draft re-runs the session-less probe, since that is where its
+   * picker's catalog came from and it would otherwise be frozen for the host's
+   * lifetime.
+   */
+  private async refreshModels(): Promise<void> {
+    if (this.activeKey === undefined) {
+      this.options.services.registry.refreshDraftDefaults();
+      await this.warmDraft();
+      return;
+    }
+    const gateway = this.options.services.registry.active();
+    if (gateway?.refreshModels === undefined) {
+      return;
+    }
+    await this.guard(() => gateway.refreshModels!());
   }
 
   private async runHostCommand(

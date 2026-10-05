@@ -6,6 +6,7 @@ import {
   type EditorContextProvider,
   type MorseLogger,
 } from '@morse/core';
+import { parseMcpServerInput, type PiMcp } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostSessionServices,
@@ -35,37 +36,44 @@ export interface ChatViewProviderDeps {
   logger: MorseLogger & { show(): void };
   webviewRoot: vscode.Uri;
   frontend?: { name: string; version: string };
+  /** pi's MCP configuration. The panel's MCP manager is hidden when the CLI is missing. */
+  mcp: PiMcp;
+  mcpAvailable: boolean;
 }
 
 /** What this host can do — the frontend reads this instead of guessing. */
-const CAPABILITIES: HostCapabilities = {
-  hostKind: 'vscode',
-  // VS Code is scoped to the folders this window has open:
-  // no project switcher, only sessions inside them.
-  scope: 'workspace',
-  // The host can answer `getEditorContext` so the frontend can pin a selection
-  // chip; the context itself is an attachment, never prompt text.
-  editorContext: true,
-  // The host streams what the user selects (`context/selectionLive`), so the
-  // composer can show a live chip that follows the drag until it is clicked.
-  selectionLive: true,
-  nativeDialogs: true,
-  insertIntoEditor: true,
-  revealFile: true,
-  filePicker: true,
-  // pi's fork re-parents the conversation, so a past prompt can be edited.
-  editMessage: true,
-  // The same fork can branch a new session and hand the prompt back instead.
-  forkMessage: true,
-  // The panel may ask the registry for the latest release, so a reader of a VSIX
-  // installed by hand still hears about a newer one. VS Code itself only does
-  // that for a Marketplace install. The webview's CSP names the registry origin
-  // for exactly this request (see `webview-html.ts`).
-  updateCheck: true,
-  // A webview has no Web Notifications, so the panel asks the host to raise one
-  // when a run finishes while the reader is looking elsewhere.
-  notify: true,
-};
+function buildCapabilities(mcp: boolean): HostCapabilities {
+  return {
+    hostKind: 'vscode',
+    // VS Code is scoped to the folders this window has open:
+    // no project switcher, only sessions inside them.
+    scope: 'workspace',
+    // The host can answer `getEditorContext` so the frontend can pin a selection
+    // chip; the context itself is an attachment, never prompt text.
+    editorContext: true,
+    // The host streams what the user selects (`context/selectionLive`), so the
+    // composer can show a live chip that follows the drag until it is clicked.
+    selectionLive: true,
+    nativeDialogs: true,
+    insertIntoEditor: true,
+    revealFile: true,
+    filePicker: true,
+    // pi's fork re-parents the conversation, so a past prompt can be edited.
+    editMessage: true,
+    // The same fork can branch a new session and hand the prompt back instead.
+    forkMessage: true,
+    // The panel may ask the registry for the latest release, so a reader of a VSIX
+    // installed by hand still hears about a newer one. VS Code itself only does
+    // that for a Marketplace install. The webview's CSP names the registry origin
+    // for exactly this request (see `webview-html.ts`).
+    updateCheck: true,
+    // A webview has no Web Notifications, so the panel asks the host to raise one
+    // when a run finishes while the reader is looking elsewhere.
+    notify: true,
+    // pi's MCP servers can be listed and edited through the `pi` CLI.
+    mcp,
+  };
+}
 
 /**
  * Driving adapter: hosts the Morse chat webview inside VS Code and bridges it to
@@ -111,7 +119,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
     const controller = new HostSessionController({
       services,
-      capabilities: CAPABILITIES,
+      capabilities: buildCapabilities(this.deps.mcpAvailable),
       emit: (message) => this.post(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -125,7 +133,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       policy: this.deps.policy,
       scope: { kind: 'workspace', roots: this.deps.roots },
       frontend: this.deps.frontend,
-      onHostCommand: (command, args) => this.runHostCommand(command, args),
+      onHostCommand: (command, args, context) => this.runHostCommand(command, args, context),
       agentHint: 'Set "morse.pi.path" or install the pi CLI so that it is on PATH.',
     });
     this.controller = controller;
@@ -226,9 +234,15 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     void this.view?.webview.postMessage(message);
   }
 
+  /** The directory MCP commands run in: the folder the panel is viewing, then the first root. */
+  private mcpCwd(context?: { cwd: string }): string {
+    return context?.cwd || this.deps.roots[0] || process.cwd();
+  }
+
   private async runHostCommand(
     command: string,
     args: Record<string, unknown> | undefined,
+    context?: { cwd: string },
   ): Promise<unknown> {
     switch (command) {
       case 'listFiles': {
@@ -283,6 +297,26 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.window.showInformationMessage(body ? `${title}: ${body}` : title);
         return;
       }
+      case 'mcpStatus': {
+        // The session directory is the window's workspace folder; the CLI is the
+        // source of truth for connection state.
+        try {
+          return await this.deps.mcp.status(this.mcpCwd(context));
+        } catch (error: unknown) {
+          return { servers: [], errors: [describeError(error)] };
+        }
+      }
+      case 'mcpAdd':
+        return this.deps.mcp.add(parseMcpServerInput(args), this.mcpCwd(context));
+      case 'mcpRemove':
+        return this.deps.mcp.remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
+      case 'mcpSetEnabled':
+        return this.deps.mcp.setEnabled(
+          stringArg(args, 'name'),
+          args?.enabled === true,
+          this.mcpCwd(context),
+          mcpScope(args),
+        );
       case 'confirmDeleteSession': {
         // Deleting a stored conversation cannot be undone, so VS Code asks with
         // its own modal warning. The browser host has no native dialogs and
@@ -309,6 +343,11 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 function stringArg(args: Record<string, unknown> | undefined, key: string): string {
   const value = args?.[key];
   return typeof value === 'string' ? value : '';
+}
+
+/** The scope a mutation edits, when the panel named one. */
+function mcpScope(args: Record<string, unknown> | undefined): 'global' | 'project' | undefined {
+  return args?.scope === 'global' || args?.scope === 'project' ? args.scope : undefined;
 }
 
 /** The selection lines of an editor, if any, as a `context/selection` payload. */

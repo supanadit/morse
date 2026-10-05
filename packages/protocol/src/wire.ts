@@ -41,6 +41,17 @@ export type HostCommand =
   | 'gitBranches'
   /** Switch to a branch, optionally creating it first. */
   | 'gitCheckout'
+  /**
+   * pi's MCP servers for the viewing session's directory: their connection
+   * state, tools and configuration source (`pi mcp list --json`).
+   */
+  | 'mcpStatus'
+  /** Add or replace an MCP server in the global or the project `mcp.json`. */
+  | 'mcpAdd'
+  /** Remove an MCP server from whichever `mcp.json` defines it. */
+  | 'mcpRemove'
+  /** Turn an MCP server on or off in the `mcp.json` that defines it. */
+  | 'mcpSetEnabled'
   /** Stage the named paths in the viewing session's repository. */
   | 'gitStage'
   /** Unstage the named paths (keep the working-tree change). */
@@ -172,6 +183,12 @@ export type ClientToHostMessage =
    * host re-reads the template files and answers with a fresh `session/state`.
    */
   | { type: 'commands/refresh'; payload: Record<string, never> }
+  /**
+   * Re-reads the model catalog. pi caches its configured models while a session
+   * is warm, so a model added to `models.json` is invisible until this — the
+   * host re-reads it and answers with a fresh `session/state`.
+   */
+  | { type: 'models/refresh'; payload: Record<string, never> }
   | { type: 'project/list'; payload: Record<string, never> }
   | { type: 'project/open'; payload: { path: string } }
   | { type: 'model/set'; payload: { provider: string; id: string } }
@@ -236,6 +253,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'history/load',
   'session/list',
   'commands/refresh',
+  'models/refresh',
   'project/list',
   'project/open',
   'model/set',

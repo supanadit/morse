@@ -85,7 +85,10 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    its own tab restoration and leaves it off), and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
-   shows an update notice), and `notify`
+   shows an update notice), `mcp`
+   whether the host can manage pi's MCP servers (`mcpStatus` / `mcpAdd` / `mcpRemove` / `mcpSetEnabled`) —
+   on only when the host found the `pi` CLI, so a host that cannot run it hides the indicator instead of
+   promising a manager it cannot use — and `notify`
    whether the host can raise a notification of its own (`notify`) — on for VS Code, whose webview has no Web
    Notifications; the browser host leaves it off and the frontend uses the `Notification` API.
    Same rule for a dead backend: render `state.agentFailure` (`code`, `install`, `hint`) instead of paraphrasing
@@ -256,6 +259,44 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   conversation area (the chat steps aside), which is where a many-lane graph gets the room it needs.
   The layout is fluid either way — one line per commit, refs capped at two chips with a `+N`, and the
   lane transitions drawn as smooth cubic curves rather than right-angled segments.
+
+### MCP servers (both hosts)
+
+pi connects the MCP servers from the user-level `~/.pi/agent/mcp.json` and, in a trusted project, the
+project's `.pi/mcp.json`. Morse surfaces that from the chat toolbar: an indicator dot beside the git
+and tool-density buttons opens an MCP manager (`Ctrl+Alt+S`), and the dot's colour is the health of
+the directory the session is viewing.
+
+- The indicator and the panel are gated on `capabilities.mcp`, which a host sets only when it found
+the `pi` CLI. The VS Code webview and the browser host both run `pi mcp list --json` through the same
+`@morse/adapter-pi-rpc` `PiMcp` adapter; a host without the CLI leaves the capability off and the
+button is not rendered, rather than promising a manager it cannot run.
+- **State comes from pi, not from Morse.** `mcpStatus` runs `pi mcp list --json` in the viewing
+session's directory and returns each server's `name`, `scope`, `source`, `enabled`, `exposure`,
+`transport`, `state` (`connecting` / `connected` / `disconnected` / `needs-auth` / `failed` / `closed` /
+`disabled`), `tools`, per-tool `toolExposure` and any connection `error`, plus the config-file `errors`.
+Connecting to every enabled server is not instant, so the frontend reuses an answer for a minute
+(`core/mcp-state.ts`), shares one round trip per directory, and shows a tooltip that names the state.
+- **Edits go to the same file pi reads.** The panel has one scope control — *Changes apply to*: **This project**
+(default) or **Global** — and Add, Enable/Disable and Remove all honour it. `mcpAdd` writes an entry to the
+chosen file; **This project** writes `.pi/mcp.json`. `setEnabled` is why Morse edits `mcp.json` directly:
+pi has no enable/disable command. In **This project** scope a user-level server is turned off with a
+project **override** (`{ "name": { "enabled": false } }`), exactly like pi's “Disable in this project” —
+enabling removes the override so the global value applies again. A project-defined server is edited in
+place. Morse preserves every unrelated key and entry, drops `enabled` when it would be the default `true`,
+and reports a malformed file instead of overwriting it. The panel then refreshes the status, so a change is
+confirmed by pi rather than assumed.
+- **Status is per directory and per file.** `pi mcp list` runs in the session's directory, so the list is the
+*effective* config for that project (user file + trusted `.pi/mcp.json`). Each row shows whether it is
+`global` or `project`, and an “enabled/disabled here” chip when a project override applies. Project config is
+**trust-gated by pi**: when the project is not trusted, `pi mcp list --json` returns the `note` saying so,
+and the panel renders it — the server will not load until the project is trusted (start pi in the project,
+`defaultProjectTrust: "always"`, or a saved decision in `~/.pi/agent/trust.json`).
+- **The panel never trusts a file path.** `mcpRemove` and `mcpSetEnabled` are given a server *name*, a scope
+and the session's directory; the host resolves the project/user `mcp.json` itself and only then edits. The
+project scope cannot touch the user file and vice versa. A server pi reports as needing sign-in is shown as
+such — signing in happens through pi's own `/mcp` or `pi mcp login`, which is a terminal flow Morse does not
+replace.
 
 ### Bottom panel and terminal (browser host only)
 

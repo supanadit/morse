@@ -286,7 +286,6 @@ export class TabStrip {
 
   private readonly menuState = signal<TabMenu | undefined>(undefined);
   protected readonly menu = this.menuState.asReadonly();
-  protected readonly closableOthers = computed(() => this.items().length > 1);
   /**
    * The session a chip in front belongs to, so the main row can mark it. `undefined`
    * unless the active tab is a chip (a file attached to a session).
@@ -374,9 +373,13 @@ export class TabStrip {
     this.closeMenu();
   }
 
+  /** A file chip's menu only spans its row, so these ask the store's scope. */
+  protected canCloseOthers(id: string): boolean {
+    return this.tabs.canCloseOthers(id);
+  }
+
   protected canCloseToTheRight(id: string): boolean {
-    const index = this.items().findIndex((tab) => tab.id === id);
-    return index !== -1 && index < this.items().length - 1;
+    return this.tabs.canCloseToTheRight(id);
   }
 
   /** Menu actions read the open menu's tab, so the template needs no closure. */
@@ -401,7 +404,6 @@ export class TabStrip {
   }
 
   protected menuCloseAll(): void {
-    this.closeMenu();
-    this.tabs.closeAll();
+    this.withMenu((id) => this.tabs.closeAll(id));
   }
 }

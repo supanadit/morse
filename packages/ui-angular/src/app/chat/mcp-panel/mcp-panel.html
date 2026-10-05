@@ -1,0 +1,234 @@
+<div class="modal-layer" (click)="close()">
+  <div
+    class="modal-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="mcp-title"
+    (click)="$event.stopPropagation()"
+  >
+    <header>
+      <h2 id="mcp-title">MCP servers</h2>
+      <span class="cwd" [title]="cwd()">{{ cwd() }}</span>
+      <button
+        type="button"
+        class="icon"
+        title="Refresh"
+        aria-label="Refresh MCP servers"
+        [disabled]="loading()"
+        (click)="refresh()"
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13 8a5 5 0 1 1-1.5-3.5" />
+          <path d="M13 2.5V5h-2.5" />
+        </svg>
+      </button>
+      <button type="button" class="icon" title="Close" aria-label="Close" (click)="close()">✕</button>
+    </header>
+
+    <div class="body">
+      <div class="scope-bar">
+        <span class="scope-label">Changes apply to</span>
+        <div class="segmented" role="group" aria-label="MCP edit scope">
+          <button
+            type="button"
+            [class.active]="editScope() === 'project'"
+            [attr.aria-pressed]="editScope() === 'project'"
+            (click)="editScope.set('project')"
+          >
+            This project
+          </button>
+          <button
+            type="button"
+            [class.active]="editScope() === 'global'"
+            [attr.aria-pressed]="editScope() === 'global'"
+            (click)="editScope.set('global')"
+          >
+            Global
+          </button>
+        </div>
+      </div>
+
+      @if (actionError(); as message) {
+        <div class="errors">{{ message }}</div>
+      }
+
+      @if (note(); as text) {
+        <div class="note">{{ text }}</div>
+      }
+
+      @if (errors(); as list) {
+        @if (list.length > 0) {
+          <div class="errors">
+            @for (problem of list; track problem) {
+              <div>{{ problem }}</div>
+            }
+          </div>
+        }
+      }
+
+      @if (loading() && servers().length === 0) {
+        <p class="hint">Checking the servers… this can take a few seconds.</p>
+      } @else if (servers().length === 0 && errors().length === 0) {
+        <p class="hint">
+          No MCP servers are configured for this directory. Add one below; it is written to the
+          chosen <code>mcp.json</code> and pi picks it up on the next session.
+        </p>
+      }
+
+      @for (server of servers(); track server.name) {
+        <div class="row">
+          <span [class]="'dot ' + server.state" aria-hidden="true"></span>
+          <div class="info">
+            <div class="name">
+              <span class="server">{{ server.name }}</span>
+              <span class="chip">{{ server.scope }}</span>
+              @if (server.override) {
+                <span class="chip override">{{ server.enabled ? 'enabled here' : 'disabled here' }}</span>
+              }
+              @if (server.exposure !== 'codemode') {
+                <span class="chip">{{ server.exposure }}</span>
+              }
+            </div>
+            <div class="meta" [title]="server.override ?? server.source">
+              {{ server.enabled ? stateLabel(server) : 'disabled' }}
+              @if (server.transport) {
+                · {{ server.transport }}
+              }
+            </div>
+            @if (server.error; as problem) {
+              <div class="error">{{ problem }}</div>
+            }
+          </div>
+          <div class="actions">
+            @if (pendingRemove() === server.name) {
+              <button type="button" class="danger" [disabled]="busy()" (click)="remove(server)">
+                Remove?
+              </button>
+              <button type="button" class="secondary" (click)="pendingRemove.set(null)">
+                Cancel
+              </button>
+            } @else {
+              <button
+                type="button"
+                [disabled]="busy() || !canEdit(server)"
+                [title]="editHint(server)"
+                (click)="toggleEnabled(server)"
+              >
+                {{ toggleLabel(server) }}
+              </button>
+              @if (canRemove(server)) {
+                <button
+                  type="button"
+                  class="danger"
+                  [disabled]="busy()"
+                  (click)="remove(server)"
+                >
+                  Remove
+                </button>
+              }
+            }
+          </div>
+        </div>
+      }
+
+      @if (adding()) {
+        <div class="add">
+          <h3>Add a server</h3>
+          <div class="field">
+            <label for="mcp-name">Name</label>
+            <input
+              id="mcp-name"
+              type="text"
+              placeholder="filesystem"
+              [value]="name()"
+              (input)="name.set($any($event.target).value)"
+            />
+          </div>
+          <div class="field">
+            <label for="mcp-type">Transport</label>
+            <select
+              id="mcp-type"
+              [value]="type()"
+              (change)="type.set($any($event.target).value)"
+            >
+              <option value="stdio">stdio (command)</option>
+              <option value="http">HTTP (url)</option>
+            </select>
+          </div>
+          @if (type() === 'stdio') {
+            <div class="field">
+              <label for="mcp-command">Command</label>
+              <input
+                id="mcp-command"
+                type="text"
+                placeholder="npx"
+                [value]="command()"
+                (input)="command.set($any($event.target).value)"
+              />
+            </div>
+            <div class="field">
+              <label for="mcp-args">Arguments</label>
+              <input
+                id="mcp-args"
+                type="text"
+                placeholder="-y @modelcontextprotocol/server-filesystem ."
+                [value]="argsText()"
+                (input)="argsText.set($any($event.target).value)"
+              />
+            </div>
+          } @else {
+            <div class="field">
+              <label for="mcp-url">URL</label>
+              <input
+                id="mcp-url"
+                type="text"
+                placeholder="https://example.com/mcp"
+                [value]="url()"
+                (input)="url.set($any($event.target).value)"
+              />
+            </div>
+          }
+          <div class="field">
+            <label for="mcp-exposure">Exposure</label>
+            <select
+              id="mcp-exposure"
+              [value]="exposure()"
+              (change)="exposure.set($any($event.target).value)"
+            >
+              <option value="codemode">codemode</option>
+              <option value="deferred">deferred</option>
+              <option value="direct">direct</option>
+              <option value="hidden">hidden</option>
+            </select>
+          </div>
+          <p class="add-note">
+            Saves to
+            {{ editScope() === 'project' ? 'this project (.pi/mcp.json)' : 'your user mcp.json' }}.
+          </p>
+          @if (formError(); as problem) {
+            <div class="error">{{ problem }}</div>
+          }
+          <div class="add-actions">
+            <button type="button" class="secondary" (click)="closeAdd()">Cancel</button>
+            <button type="button" [disabled]="busy()" (click)="submitAdd()">
+              {{ busy() ? 'Adding…' : 'Add server' }}
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+
+    <footer>
+      <span class="spinner">
+        @if (loading()) {
+          Updating…
+        } @else {
+          {{ enabledServers().length }} of {{ servers().length }} enabled
+        }
+      </span>
+      @if (!adding()) {
+        <button type="button" (click)="openAdd()">Add server</button>
+      }
+    </footer>
+  </div>
+</div>

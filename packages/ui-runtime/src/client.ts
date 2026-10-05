@@ -61,6 +61,8 @@ export interface MorseActions {
   requestProjects(): void;
   /** Re-reads the prompt templates and other commands the palette lists. */
   refreshCommands(): void;
+  /** Re-reads the model catalog so a model added while the host runs is visible. */
+  refreshModels(): void;
   openProject(path: string): void;
   setModel(provider: string, id: string): void;
   setThinkingLevel(level: ThinkingLevel): void;
@@ -260,6 +262,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     requestSessions: () => send({ type: 'session/list', payload: {} }),
     requestProjects: () => send({ type: 'project/list', payload: {} }),
     refreshCommands: () => send({ type: 'commands/refresh', payload: {} }),
+    refreshModels: () => send({ type: 'models/refresh', payload: {} }),
     openProject: (path) => send({ type: 'project/open', payload: { path } }),
     setModel: (provider, id) => send({ type: 'model/set', payload: { provider, id } }),
     setThinkingLevel: (level) => send({ type: 'thinking/set', payload: { level } }),

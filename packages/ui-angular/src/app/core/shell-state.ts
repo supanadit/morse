@@ -285,6 +285,14 @@ export class ShellState {
   readonly compactInstructions = computed(() => this.compactPrompt()?.instructions);
 
   /**
+   * The MCP manager. Shell state like About: the header's indicator opens it,
+   * it renders over the whole app from one place, and `modalOpen` has to know it
+   * owns the screen.
+   */
+  private readonly mcp = signal(false);
+  readonly mcpOpen = this.mcp.asReadonly();
+
+  /**
    * True while a dialog owns the screen. Overlay shortcuts stand down on this:
    * opening a picker behind a modal reads as a bug, not as a feature.
    */
@@ -296,6 +304,7 @@ export class ShellState {
       this.projectPicker() ||
       this.projectFilter() ||
       this.promptTemplate() ||
+      this.mcp() ||
       this.compactPrompt() !== undefined,
   );
 
@@ -471,6 +480,15 @@ export class ShellState {
 
   closeProjectPicker(): void {
     this.projectPicker.set(false);
+  }
+
+  /** Opens the MCP manager (the header's indicator owns the click). */
+  openMcp(): void {
+    this.mcp.set(true);
+  }
+
+  closeMcp(): void {
+    this.mcp.set(false);
   }
 
   /** Asks before compacting; the caller runs the action on confirmation. */

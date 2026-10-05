@@ -4,6 +4,7 @@ import { ConnectionScreen } from './connection/connection-screen';
 import { ChatComposer } from './chat/chat-composer/chat-composer';
 import { EmptySession } from './chat/empty-session/empty-session';
 import { ChatHeader } from './chat/chat-header/chat-header';
+import { McpPanel } from './chat/mcp-panel/mcp-panel';
 import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
 import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
@@ -52,6 +53,7 @@ function previewBoot(): boolean {
     AgentScreen,
     ConfirmDialog,
     ChatHeader,
+    McpPanel,
     ChatTranscript,
     InteractionPanel,
     ChatComposer,
@@ -188,6 +190,7 @@ export class App {
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
+  protected readonly mcpOpen = this.shell.mcpOpen;
   protected readonly paletteOpen = this.shell.paletteOpen;
   protected readonly navigationCollapsed = this.shell.navigationCollapsed;
   protected readonly compactConfirmOpen = this.shell.compactConfirmOpen;

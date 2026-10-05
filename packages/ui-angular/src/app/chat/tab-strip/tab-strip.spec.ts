@@ -144,6 +144,58 @@ describe('TabStrip context menu', () => {
     expect(fixture.nativeElement.querySelector('.context-menu')).toBeNull();
   });
 
+  /**
+   * The bug this locks: the context menu on a file chip used the whole strip as
+   * its scope, so “Close All” on a chip also closed the session tab it belonged
+   * to. A chip is context — its menu must only touch the chip row.
+   */
+  it('a file chip’s “Close All” never closes the session tab', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('a.ts');
+    tabs.openFile('b.ts');
+    fixture.detectChanges();
+
+    // DOM order is the session first, then its chips: right-click the first chip.
+    openMenuOn(fixture, 1);
+    menuItems(fixture).find((item) => item.textContent?.includes('Close All'))?.click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().some((tab) => tab.kind === 'session' && tab.id === 's1')).toBe(true);
+    expect(tabs.tabs().filter((tab) => tab.kind === 'file')).toHaveLength(0);
+  });
+
+  it('a file chip’s “Close Others” keeps the session and the clicked chip', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('a.ts');
+    tabs.openFile('b.ts');
+    fixture.detectChanges();
+
+    openMenuOn(fixture, 1);
+    menuItems(fixture).find((item) => item.textContent?.includes('Close Others'))?.click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().some((tab) => tab.kind === 'session' && tab.id === 's1')).toBe(true);
+    expect(tabs.tabs().filter((tab) => tab.kind === 'file')).toHaveLength(1);
+  });
+
+  it('a standalone file’s “Close All” leaves session tabs alone', () => {
+    const { fixture, tabs } = setup();
+    tabs.closeAll();
+    tabs.openFile('docs/STATUS.md');
+    tabs.focusSession({ id: 's1', title: 'One' });
+    fixture.detectChanges();
+
+    const tabsInDom = [...fixture.nativeElement.querySelectorAll('.tab')] as HTMLElement[];
+    const fileIndex = tabsInDom.findIndex((tab) => tab.textContent?.includes('STATUS'));
+    openMenuOn(fixture, fileIndex);
+    menuItems(fixture).find((item) => item.textContent?.includes('Close All'))?.click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+  });
+
   it('moves a tab to the slot CDK reports it was dropped on', () => {
     const { fixture, tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });

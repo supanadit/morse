@@ -10,6 +10,7 @@ import {
   type AgentGatewayFactory,
   type AgentHistoryEntry,
   type AgentSessionState,
+  type ModelRef,
   type PromptDisposition,
 } from '@morse/core';
 import {
@@ -65,6 +66,8 @@ function fakeGateway(
     fork?: { text: string; sessionId: string };
     /** Counts palette-driven command re-reads; omitted means the adapter can't. */
     refreshCommands?: () => Promise<void>;
+    /** Counts model-catalog re-reads; omitted means the adapter can't. */
+    refreshModels?: () => Promise<void>;
   } = {},
 ): AgentGateway {
   let sessionId = options.sessionId;
@@ -105,6 +108,7 @@ function fakeGateway(
         : Promise.reject(options.compactError ?? new Error('compact failed')),
     respondToInteraction: () => Promise.resolve(),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
+    ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
     dispose: () => Promise.resolve(),
   };
 }
@@ -161,8 +165,12 @@ function harness(options: {
   spawnError?: Error;
   /** The draft probe refuses too: the same missing pi, seen before any prompt. */
   probeError?: Error;
+  /** A successful session-less probe whose catalog depends on the requested model. */
+  probeState?: (model?: ModelRef) => AgentSessionState | undefined;
   agentHint?: string;
   refreshCommands?: () => Promise<void>;
+  /** Counts model-catalog re-reads; omitted means the adapter can't. */
+  refreshModels?: () => Promise<void>;
   /** Persisted sessions the catalog reports, so a test can seed a real title. */
   catalogSessions?: SessionSummary[];
 } = {}): Harness {
@@ -175,6 +183,7 @@ function harness(options: {
     ...(options.forkMessages ? { forkMessages: options.forkMessages } : {}),
     ...(options.fork ? { fork: options.fork } : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
+    ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
   });
   const spawns = { count: 0 };
   const probes = { count: 0 };
@@ -185,14 +194,26 @@ function harness(options: {
         ? Promise.reject(options.spawnError)
         : Promise.resolve(gateway);
     },
-    ...(options.probeError
+    ...(options.probeState
       ? {
-          probeDefaults: () => {
+          probeDefaults: (input: { workspace: typeof WORKSPACE; model?: ModelRef }) => {
             probes.count += 1;
-            return Promise.reject(options.probeError);
+            const state = options.probeState!(input.model);
+            if (!state) {
+              return Promise.reject(new Error('no probe state'));
+            }
+            const gateway = fakeGateway({ sessionId: 'probe-1' });
+            return Promise.resolve({ ...gateway, state: () => Promise.resolve(state) });
           },
         }
-      : {}),
+      : options.probeError
+        ? {
+            probeDefaults: () => {
+              probes.count += 1;
+              return Promise.reject(options.probeError);
+            },
+          }
+        : {}),
   };
   const removed: string[] = [];
   const registry = new SessionRegistry({
@@ -492,6 +513,85 @@ describe('HostSessionController failures', () => {
     // probe must not be cached, or Retry could never succeed after installing pi.
     await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
     expect(h.probes()).toBe(2);
+  });
+
+  it('re-probes the draft for the picked model, so the thinking picker follows that model', async () => {
+    const base: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'low',
+      availableModels: [
+        { provider: 'mock', id: 'reasoner', name: 'Reasoner' },
+        { provider: 'mock', id: 'plain', name: 'Plain' },
+      ],
+      availableThinkingLevels: ['off', 'low', 'high', 'max'],
+      availableCommands: [],
+      streaming: false,
+    };
+    const h = harness({
+      probeState: (model) =>
+        model?.id === 'plain'
+          ? { ...base, model, thinkingLevel: 'off', availableThinkingLevels: ['off'] }
+          : base,
+    });
+    await h.controller.start();
+    await vi.waitFor(() =>
+      expect(h.lastState()?.availableThinkingLevels).toEqual(['off', 'low', 'high', 'max']),
+    );
+    expect(h.probes()).toBe(1);
+
+    // pi reports thinking levels per current model, so the draft's picker must
+    // be re-read for the model the reader picked, not the default one's.
+    await h.controller.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'mock', id: 'plain' },
+    });
+
+    await vi.waitFor(() =>
+      expect(h.lastState()?.availableThinkingLevels).toEqual(['off']),
+    );
+    expect(h.probes()).toBe(2);
+    expect(h.lastState()?.model?.id).toBe('plain');
+  });
+
+  it('re-probes the draft catalog on models/refresh, so a new model shows up', async () => {
+    let calls = 0;
+    const state = (availableModels: AgentSessionState['availableModels']): AgentSessionState => ({
+      workspace: WORKSPACE,
+      thinkingLevel: 'off',
+      availableModels,
+      availableThinkingLevels: ['off'],
+      availableCommands: [],
+      streaming: false,
+    });
+    const first = [{ provider: 'mock', id: 'one', name: 'One' }];
+    const second = [...first, { provider: 'thinking-lab', id: 'lab-full', name: 'Lab Full' }];
+    const h = harness({
+      probeState: () => {
+        calls += 1;
+        return state(calls === 1 ? first : second);
+      },
+    });
+    await h.controller.start();
+    await vi.waitFor(() => expect(h.lastState()?.availableModels).toHaveLength(1));
+
+    // The picker opening sends this; without it the probe would stay cached for
+    // the host's lifetime and a model added to models.json would be invisible.
+    await h.controller.handleClientMessage({ type: 'models/refresh', payload: {} });
+
+    await vi.waitFor(() => expect(h.lastState()?.availableModels).toHaveLength(2));
+    expect(h.probes()).toBe(2);
+  });
+
+  it('re-asks a warm session for its model catalog on models/refresh', async () => {
+    const refreshModels = vi.fn(() => Promise.resolve());
+    const h = harness({ refreshModels });
+    await withOpenSession(h);
+
+    await h.controller.handleClientMessage({ type: 'models/refresh', payload: {} });
+
+    expect(refreshModels).toHaveBeenCalledTimes(1);
+    // A warm session is re-asked over RPC: no new probe, no respawn.
+    expect(h.probes()).toBe(0);
   });
 
   it('a rejected compact lands in the transcript — never on the wire error channel', async () => {

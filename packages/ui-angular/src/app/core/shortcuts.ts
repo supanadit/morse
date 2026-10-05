@@ -8,6 +8,8 @@ export type ActionId =
   | 'command.palette'
   | 'project.filter'
   | 'view.git'
+  /** The MCP manager: list, enable and disable pi's MCP servers. */
+  | 'view.mcp'
   | 'model.pick'
   | 'thinking.pick'
   | 'context.compact'
@@ -128,6 +130,15 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     label: 'Toggle the git panel',
     detail: 'Shows or hides the history and graph for the active project. The browser host only — VS Code has its own Source Control view.',
     binding: { key: 'g', mod: true, alt: true },
+    overlay: true,
+    whileTyping: true,
+  },
+  {
+    id: 'view.mcp',
+    group: 'Navigate',
+    label: 'Manage MCP servers',
+    detail: 'Opens the MCP manager: the servers pi sees for the active directory, with add, enable, disable and remove. A host that cannot run the `pi` CLI shows it as unavailable.',
+    binding: { key: 's', mod: true, alt: true },
     overlay: true,
     whileTyping: true,
   },

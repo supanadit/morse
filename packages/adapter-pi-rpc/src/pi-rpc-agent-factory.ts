@@ -1,6 +1,7 @@
 import type {
   AgentGateway,
   AgentGatewayFactory,
+  ModelRef,
   MorseLogger,
   WorkspaceRef,
 } from '@morse/core';
@@ -48,7 +49,7 @@ export class PiRpcAgentFactory implements AgentGatewayFactory {
    * disk. Its only job is to answer state once — model catalog, thinking
    * levels, commands — for the draft (empty panel) state.
    */
-  async probeDefaults(input: { workspace: WorkspaceRef }): Promise<AgentGateway> {
+  async probeDefaults(input: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway> {
     const resolveOptions: ResolvePiOptions = {
       piPath: this.options.piPath,
       nodeEntryPath: this.options.nodeEntryPath,
@@ -57,7 +58,16 @@ export class PiRpcAgentFactory implements AgentGatewayFactory {
       extraArgs: this.options.extraArgs,
       env: this.options.env,
     };
-    return this.spawnAgent(resolveOptions, input.workspace);
+    const agent = await this.spawnAgent(resolveOptions, input.workspace);
+    // Selecting the model on the probe is what makes pi report that model's
+    // thinking levels (they are read per current model), so the draft picker
+    // mirrors the TUI before a real session exists.
+    if (input.model) {
+      await agent.setModel(input.model).catch((error: unknown) => {
+        this.logger.warn('Could not select the model on the draft probe', error);
+      });
+    }
+    return agent;
   }
 
   private async spawnAgent(

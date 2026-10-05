@@ -85,5 +85,7 @@ file in the `@` picker opens it so the drag is one step away. Ranges that touch 
 (and one highlight); dragging from inside an existing highlight edits that range, and its top and bottom
 edges are handles you can pull to move a boundary. Pull one into a neighbouring range and the two merge.
 Right-click a tab for Close, Close Others, Close to the Right and Close All — the actions VS Code's own tab
-menu offers. Files opened from the `@` picker get their own row below the sessions, so quoting a file never
-pushes a session tab aside.
+menu offers. The menu's scope is the tab you clicked: on a **session** it spans the whole strip (its quoted
+files go with it), but on a **file chip** it only spans that chip's row, so closing a chip can never take the
+session tab with it. Files opened from the `@` picker get their own row below the sessions, so quoting a file
+never pushes a session tab aside.

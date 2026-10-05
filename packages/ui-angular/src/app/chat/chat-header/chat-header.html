@@ -64,6 +64,24 @@
       </button>
     }
 
+    @if (mcpEnabled()) {
+      <button
+        type="button"
+        [class]="'icon mcp ' + mcpOverall()"
+        [title]="mcpTitle()"
+        aria-label="MCP servers"
+        (click)="openMcp()"
+      >
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="2.5" y="3" width="11" height="4.4" rx="1.2" />
+          <rect x="2.5" y="8.6" width="11" height="4.4" rx="1.2" />
+          <circle cx="5" cy="5.2" r="0.6" />
+          <circle cx="5" cy="10.8" r="0.6" />
+        </svg>
+        <span class="mcp-dot" aria-hidden="true"></span>
+      </button>
+    }
+
     <button
       type="button"
       class="icon"

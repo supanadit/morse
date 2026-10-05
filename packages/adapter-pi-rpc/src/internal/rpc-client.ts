@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { cleanSpawnEnv } from './spawn-env.js';
 import { AgentProtocolError, AgentUnavailableError } from '@morse/core';
 import { JsonlFramer } from './jsonl-framer.js';
 import type { RpcCommand, RpcExtensionUiResponse, RpcRecord } from './rpc-types.js';
@@ -51,7 +52,7 @@ export class PiRpcClient {
     this.failed = undefined;
     const child = spawn(this.options.command, this.options.args, {
       cwd: this.options.cwd,
-      env: this.options.env ?? process.env,
+      env: cleanSpawnEnv(this.options.env),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });

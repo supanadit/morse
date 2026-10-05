@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/core';
+import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
+import { parseMcpServerInput } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostCommandContext,
@@ -11,6 +13,7 @@ import type { MorseServerConfig } from '../../app/config.js';
 import {
   MORSE_CONFIG,
   MORSE_LOGGER,
+  MORSE_PI_ADAPTER,
   MORSE_PROJECT_POLICY,
   MORSE_SESSION_REGISTRY,
   MORSE_TRANSCRIPT_STORE,
@@ -55,6 +58,7 @@ export class MorseSessionFactory {
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
     @Inject(MORSE_CONFIG) private readonly config: MorseServerConfig,
     @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
+    @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
   ) {}
 
   capabilities(): HostCapabilities {
@@ -101,6 +105,9 @@ export class MorseSessionFactory {
       // the sidebar can say when a newer Morse is out. A host without it stays
       // quiet; this one is on unless `MORSE_UPDATE_CHECK=0` says otherwise.
       updateCheck: this.config.updateCheck,
+      // Managing MCP servers runs the `pi` CLI, so this host offers it only when
+      // it found one. A host without it hides the affordance.
+      mcp: this.pi.describeCli() !== undefined,
     };
   }
 
@@ -284,6 +291,34 @@ export class MorseSessionFactory {
         const branch = typeof args?.branch === 'string' ? args.branch : '';
         return checkoutGit(cwd, branch, args?.create === true);
       }
+      case 'mcpStatus': {
+        // The viewing session's MCP servers. `pi mcp list --json` connects every
+        // enabled server, so a failure is reported as a value (the panel renders
+        // it) rather than thrown — the panel has something to say either way.
+        const cwd = this.requireWritableCwd(context);
+        try {
+          return await this.pi.mcp.status(cwd);
+        } catch (error: unknown) {
+          return { servers: [], errors: [describeError(error)] };
+        }
+      }
+      case 'mcpAdd': {
+        const cwd = this.requireWritableCwd(context);
+        return this.pi.mcp.add(parseMcpServerInput(args), cwd);
+      }
+      case 'mcpRemove': {
+        const cwd = this.requireWritableCwd(context);
+        return this.pi.mcp.remove(stringArg(args, 'name'), cwd, mcpScope(args));
+      }
+      case 'mcpSetEnabled': {
+        const cwd = this.requireWritableCwd(context);
+        return this.pi.mcp.setEnabled(
+          stringArg(args, 'name'),
+          args?.enabled === true,
+          cwd,
+          mcpScope(args),
+        );
+      }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);
     }
@@ -337,4 +372,18 @@ function gitPaths(args: Record<string, unknown> | undefined): string[] {
     return [];
   }
   return paths.filter((path): path is string => typeof path === 'string' && path.length > 0);
+}
+
+function stringArg(args: Record<string, unknown> | undefined, key: string): string {
+  const value = args?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+/** The scope a mutation edits, when the panel named one. */
+function mcpScope(args: Record<string, unknown> | undefined): 'global' | 'project' | undefined {
+  return args?.scope === 'global' || args?.scope === 'project' ? args.scope : undefined;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

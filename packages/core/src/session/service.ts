@@ -61,6 +61,13 @@ export interface AgentGateway {
    * omits it and the palette keeps what the last `state()` reported.
    */
   refreshCommands?(): Promise<void>;
+  /**
+   * Optional: re-reads the model catalog for this session. The model picker
+   * calls it when it opens, so a model added to `models.json` while the host
+   * runs shows up without restarting the host or the session. Adapters that
+   * cannot re-read the catalog simply omit it.
+   */
+  refreshModels?(): Promise<void>;
   setModel(model: ModelRef): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   compact(customInstructions?: string): Promise<void>;
@@ -75,9 +82,11 @@ export interface AgentGatewayFactory {
    * Optional: a gateway that never records — pi spawned with `--no-session` —
    * used only to read what the backend offers before any session exists (model
    * catalog, thinking levels, commands). Adapters without a session-less mode
-   * omit it, and the draft state simply ships without a catalog.
+   * omit it, and the draft state simply ships without a catalog. `model` asks
+   * the probe for the levels of a specific model, so the draft picker can follow
+   * a model the user selected before the session exists.
    */
-  probeDefaults?(options: { workspace: WorkspaceRef }): Promise<AgentGateway>;
+  probeDefaults?(options: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway>;
 }
 
 /** Driven port (R2): reads persisted sessions. */
@@ -162,9 +171,9 @@ export class SessionRegistry {
   private readonly hotLimit: number;
   private activeKey: string | undefined;
   private syntheticKeys = 0;
-  /** Cached snapshot of a never-recording spawn (see `draftDefaults`). */
-  private draftCache: AgentSessionState | undefined;
-  private draftProbe: Promise<AgentSessionState | undefined> | undefined;
+  /** Cached snapshots of never-recording spawns, keyed by model (`''` = the default). */
+  private readonly draftCache = new Map<string, AgentSessionState>();
+  private readonly draftProbes = new Map<string, Promise<AgentSessionState | undefined>>();
 
   constructor(private readonly deps: SessionRegistryDeps) {
     this.hotLimit = Math.max(1, deps.hotLimit ?? DEFAULT_HOT_LIMIT);
@@ -206,25 +215,47 @@ export class SessionRegistry {
   }
 
   /**
-   * What the backend offers before any session exists: the model catalog,
-   * thinking levels and commands of an untouched spawn. Probed once per
-   * registry — never per client — from a gateway that never records itself
-   * (pi `--no-session`), so the empty state can ship a real model picker
-   * without creating a session.
+   * Forgets the session-less probe caches, so the next `draftDefaults()` runs pi
+   * again. The model picker calls it while the panel is still on a draft, where
+   * spawning nothing would otherwise freeze the catalog for the host's lifetime.
    */
-  async draftDefaults(): Promise<AgentSessionState | undefined> {
-    if (this.draftCache) {
-      return this.draftCache;
+  refreshDraftDefaults(): void {
+    this.draftCache.clear();
+    this.draftProbes.clear();
+  }
+
+  /**
+   * What the backend offers before any session exists: the model catalog,
+   * thinking levels and commands of an untouched spawn. Probed once per model —
+   * never per client — from a gateway that never records itself (pi
+   * `--no-session`), so the empty state can ship a real model picker without
+   * creating a session. Passing `model` asks for that model's thinking levels,
+   * which pi reports per current model.
+   */
+  async draftDefaults(model?: ModelRef): Promise<AgentSessionState | undefined> {
+    const key = model ? `${model.provider}/${model.id}` : '';
+    const cached = this.draftCache.get(key);
+    if (cached) {
+      return cached;
     }
-    if (!this.draftProbe) {
+    let probe = this.draftProbes.get(key);
+    if (!probe) {
       // A rejected probe must not be memoized: the setup screen's Retry (or the
       // next draft) has to be able to reach pi once the user installed it.
-      this.draftProbe = this.probeDraft().catch((error: unknown) => {
-        this.draftProbe = undefined;
-        throw error;
-      });
+      probe = this.probeDraft(model)
+        .then((state) => {
+          if (state) {
+            this.draftCache.set(key, state);
+          }
+          return state;
+        })
+        .catch((error: unknown) => {
+          this.draftProbes.delete(key);
+          throw error;
+        });
+      this.draftProbes.set(key, probe);
     }
-    return this.draftProbe;
+    return probe;
   }
 
   /** Opens a new (or resumes an existing) session and makes it active. */
@@ -388,8 +419,8 @@ export class SessionRegistry {
     this.recency.length = 0;
     this.listeners.clear();
     this.activeKey = undefined;
-    this.draftCache = undefined;
-    this.draftProbe = undefined;
+    this.draftCache.clear();
+    this.draftProbes.clear();
     await Promise.all(
       sessions.map((session) => {
         session.detach();
@@ -465,13 +496,16 @@ export class SessionRegistry {
   }
 
   /** Asks the factory for a never-recording gateway and snapshots its state. */
-  private async probeDraft(): Promise<AgentSessionState | undefined> {
+  private async probeDraft(model?: ModelRef): Promise<AgentSessionState | undefined> {
     const factory = this.deps.factory.probeDefaults;
     if (!factory) {
       return undefined;
     }
     try {
-      const gateway = await factory.call(this.deps.factory, { workspace: this.deps.defaultWorkspace });
+      const gateway = await factory.call(this.deps.factory, {
+        workspace: this.deps.defaultWorkspace,
+        ...(model ? { model } : {}),
+      });
       const state = await gateway.state();
       await gateway.dispose();
       return state;

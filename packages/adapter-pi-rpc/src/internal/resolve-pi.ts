@@ -1,6 +1,6 @@
 import { accessSync, constants } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { AgentUnavailableError } from '@morse/core';
 
 export interface ResolvePiOptions {
@@ -79,6 +79,57 @@ export function resolvePi(options: ResolvePiOptions = {}): PiSpawn {
     ].join('\n'),
     { remedy: { install: PI_INSTALL_COMMAND } },
   );
+}
+
+export interface PiCliSpawn {
+  command: string;
+  /** Arguments that select pi itself, before the subcommand (the node RPC entry). */
+  baseArgs: string[];
+  source: PiSpawnSource;
+}
+
+/**
+ * The `pi` CLI, for the subcommands Morse runs *outside* a session (`pi mcp ...`).
+ *
+ * Not `resolvePi`: that one builds `--mode rpc`, which the CLI would treat as an
+ * RPC session rather than a subcommand. A configured path or the binary on PATH
+ * is used directly; a bundled RPC entry is only useful for `--mode rpc`, so its
+ * sibling `cli.js` is preferred and a clear error is raised when there is none.
+ */
+export function resolvePiCli(options: ResolvePiOptions = {}): PiCliSpawn {
+  const env = options.env ?? process.env;
+  const configured = options.piPath ?? env.MORSE_PI_PATH;
+  if (configured) {
+    return { command: configured, baseArgs: [], source: 'configured' };
+  }
+
+  const onPath = findOnPath('pi', env);
+  if (onPath) {
+    return { command: onPath, baseArgs: [], source: 'path' };
+  }
+
+  const entry = options.nodeEntryPath ?? env.MORSE_PI_ENTRY;
+  const cli = entry ? siblingCliEntry(entry) : undefined;
+  if (cli) {
+    return { command: process.execPath, baseArgs: [cli], source: 'node-entry' };
+  }
+
+  throw new AgentUnavailableError(
+    [
+      'The pi CLI was not found, so Morse cannot run `pi mcp`.',
+      `Install it (\`${PI_INSTALL_COMMAND}\`) or point Morse at it:`,
+      '- VS Code: setting "morse.pi.path"',
+      '- NestJS host: env MORSE_PI_PATH',
+    ].join('\n'),
+    { remedy: { install: PI_INSTALL_COMMAND } },
+  );
+}
+
+/** `.../dist/bundle/rpc-entry.js` -> `.../dist/bundle/cli.js` when it exists. */
+function siblingCliEntry(entry: string): string | undefined {
+  const directory = dirname(entry);
+  const cli = join(directory, 'cli.js');
+  return entry.endsWith('rpc-entry.js') && isExecutableEntry(cli) ? cli : undefined;
 }
 
 export function findOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): string | undefined {

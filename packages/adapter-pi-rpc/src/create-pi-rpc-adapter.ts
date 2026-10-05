@@ -1,7 +1,8 @@
 import type { AgentGatewayFactory, MorseLogger, SessionCatalog } from '@morse/core';
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
+import { PiMcp } from './pi-mcp.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
-import { resolvePi, type PiSpawn } from './internal/resolve-pi.js';
+import { resolvePi, resolvePiCli, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
 
 export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
   sessionDir?: string;
@@ -13,8 +14,12 @@ export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
 export interface PiRpcAdapter {
   factory: AgentGatewayFactory;
   catalog: SessionCatalog;
+  /** pi's MCP configuration, read and written through the CLI and `mcp.json`. */
+  mcp: PiMcp;
   /** Resolves the spawn command; throws with an actionable message when pi is missing. */
   describe(): PiSpawn;
+  /** The `pi` CLI when it can be run, for host capabilities that need a subcommand. */
+  describeCli(): PiCliSpawn | undefined;
 }
 
 /**
@@ -29,9 +34,16 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
     env: config.env,
     removeFile: config.removeSessionFile,
   });
+  const cliOptions = {
+    piPath: config.piPath,
+    nodeEntryPath: config.nodeEntryPath,
+    env: config.env,
+  };
+  const mcp = new PiMcp(cliOptions);
   return {
     factory,
     catalog,
+    mcp,
     describe: () =>
       resolvePi({
         piPath: config.piPath,
@@ -41,5 +53,12 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
         extraArgs: config.extraArgs,
         env: config.env,
       }),
+    describeCli: () => {
+      try {
+        return resolvePiCli(cliOptions);
+      } catch {
+        return undefined;
+      }
+    },
   };
 }

@@ -187,6 +187,13 @@ export interface HostCapabilities {
    */
   gitPanel?: boolean;
   /**
+   * Host can manage pi's MCP servers (`mcpStatus`/`mcpAdd`/`mcpRemove`/
+   * `mcpSetEnabled`): list their connection state, add one, remove one, or turn
+   * one off. On when the host found the `pi` CLI; a host without it leaves this
+   * off and the frontend hides the affordance instead of promising it.
+   */
+  mcp?: boolean;
+  /**
    * Host can run an interactive shell for the frontend's bottom panel
    * (`terminal/open` and friends), streaming its output back. VS Code already
    * has an integrated terminal and leaves it off; the browser host turns it on,
@@ -301,6 +308,87 @@ export interface GitBranches {
   remote: string[];
   /** Tag names (checking one out detaches HEAD, the way git does). */
   tags: string[];
+}
+
+/** How an MCP server's tools reach the model (pi's `McpExposure`). */
+export type McpExposure = 'codemode' | 'deferred' | 'direct' | 'hidden';
+
+/** pi's connection lifecycle, plus the entry that is configured but turned off. */
+export type McpServerState =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'needs-auth'
+  | 'failed'
+  | 'closed'
+  | 'disabled';
+
+export type McpServerScope = 'global' | 'project' | 'extension';
+
+/** Where an MCP edit lands: the user file (every project) or this project's `.pi/mcp.json`. */
+export type McpConfigScope = 'global' | 'project';
+
+/** One MCP server, as the host's `mcpStatus` command reports it. */
+export interface McpServerStatus {
+  name: string;
+  scope: McpServerScope;
+  /** The `mcp.json` that defines it (or the extension path). */
+  source: string;
+  /**
+   * The project `.pi/mcp.json` that overrides this user-level server's
+   * `enabled`/`exposure` for the viewing directory. Present only when there is one.
+   */
+  override?: string;
+  enabled: boolean;
+  exposure: McpExposure;
+  /** A one-line summary of how it connects: `stdio: command args` or `http: url`. */
+  transport: string;
+  state: McpServerState;
+  /** The tool names the server offers once connected. */
+  tools: string[];
+  /** Per-tool exposure overrides, when they differ from the server's. */
+  toolExposure?: Record<string, McpExposure>;
+  resources?: number;
+  resourceTemplates?: number;
+  /** Why it is not connected: the connection error, or the config-file complaint. */
+  error?: string;
+}
+
+/** What the `mcpStatus` host command answers. */
+export interface McpStatus {
+  servers: McpServerStatus[];
+  /** Config-file problems pi could not attach to a server. */
+  errors: string[];
+  note?: string;
+}
+
+/** What the `mcpAdd` host command takes. */
+export interface McpServerInput {
+  name: string;
+  /** `project` writes `<cwd>/.pi/mcp.json`; default `global` (`~/.pi/agent/mcp.json`). */
+  scope?: 'global' | 'project';
+  type?: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+  exposure?: McpExposure;
+  description?: string;
+}
+
+/** What an MCP mutation answers. `message` carries the reason when it refused. */
+export interface McpMutation {
+  ok: boolean;
+  message?: string;
+  /** The `mcp.json` that was written, for the panel to name. */
+  path?: string;
+  /** Which file the change landed in. */
+  scope?: McpConfigScope;
+  /** True when a user-level server got a project override instead of a rewrite. */
+  override?: boolean;
 }
 
 /**

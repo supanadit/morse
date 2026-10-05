@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
+import { McpState } from '../../core/mcp-state';
 import { DisplayPrefs } from '../../core/display-prefs';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
@@ -93,6 +94,36 @@ import { WorkspaceTabs } from '../../core/workspace-tabs';
           display: inline-flex;
         }
       }
+      /* The MCP indicator: the button is the network glyph, the dot overlays it. */
+      .mcp {
+        position: relative;
+      }
+      .mcp .mcp-dot {
+        position: absolute;
+        right: 3px;
+        bottom: 3px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--morse-fg-muted);
+        box-shadow: 0 0 0 1.5px var(--morse-bg);
+      }
+      .mcp.ok .mcp-dot {
+        background: var(--morse-success);
+      }
+      .mcp.warn .mcp-dot {
+        background: var(--morse-warn);
+      }
+      .mcp.error .mcp-dot {
+        background: var(--morse-error);
+      }
+      .mcp.loading .mcp-dot {
+        background: var(--morse-warn);
+        animation: status-pulse 1.1s ease-in-out infinite;
+      }
+      .mcp.off .mcp-dot {
+        background: var(--morse-border);
+      }
       .titles {
         flex: 1;
         min-width: 0;
@@ -161,6 +192,7 @@ import { WorkspaceTabs } from '../../core/workspace-tabs';
 })
 export class ChatHeader {
   private readonly morse = inject(MorseService);
+  private readonly mcp = inject(McpState);
   private readonly shell = inject(ShellState);
   private readonly display = inject(DisplayPrefs);
   private readonly shortcuts = inject(ShortcutService);
@@ -179,6 +211,13 @@ export class ChatHeader {
   /** The git panel's button only exists where the host can answer `gitLog`. */
   protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
   protected readonly gitOpen = this.shell.gitPanelOpen;
+  /** The MCP indicator only exists where the host can run the `pi` CLI. */
+  protected readonly mcpEnabled = this.mcp.enabled;
+  protected readonly mcpOverall = computed(() => this.mcp.overall(this.workspace().cwd));
+  protected readonly mcpTitle = computed(() => {
+    const label = this.mcp.label(this.workspace().cwd);
+    return this.mcpEnabled() ? `${label} — click to manage` : label;
+  });
 
   constructor() {
     // The header owns the git toggle's button, so it owns the key too: an
@@ -189,7 +228,13 @@ export class ChatHeader {
       () => this.shell.toggleGitPanel(),
       () => this.gitEnabled(),
     );
+    const unbindMcp = this.shortcuts.bind(
+      'view.mcp',
+      () => (this.shell.mcpOpen() ? this.shell.closeMcp() : this.shell.openMcp()),
+      () => this.mcpEnabled(),
+    );
     this.destroyRef.onDestroy(unbind);
+    this.destroyRef.onDestroy(unbindMcp);
   }
 
   /** The happy path lives in the dot: no banner needed while it is healthy. */
@@ -286,5 +331,10 @@ export class ChatHeader {
   /** Shows or hides the browser host's git panel. */
   protected toggleGit(): void {
     this.shell.toggleGitPanel();
+  }
+
+  /** Opens the MCP manager; the panel fetches the status when it mounts. */
+  protected openMcp(): void {
+    this.shell.openMcp();
   }
 }

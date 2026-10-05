@@ -706,44 +706,81 @@ export class WorkspaceTabs {
   }
 
   /**
+   * The tabs a context-menu action applies to. A session's menu is the whole
+   * strip (its quoted files go with it), but a file chip is context, not
+   * navigation: its menu is limited to its own row, so closing it can never take
+   * a session tab with it. No `id` means the whole strip.
+   */
+  private menuScope(id: string | undefined): WorkspaceTab[] {
+    const target = id === undefined ? undefined : this.items().find((tab) => tab.id === id);
+    if (target === undefined || target.kind === 'session') {
+      return this.items();
+    }
+    if (target.mention === true) {
+      return this.items().filter(
+        (tab): tab is FileTab =>
+          tab.kind === 'file' && tab.mention === true && tab.sessionId === target.sessionId,
+      );
+    }
+    return this.items().filter((tab) => tab.kind === 'file' && tab.mention !== true);
+  }
+
+  /** Whether a tab has anything to its right inside its own menu scope. */
+  canCloseToTheRight(id: string): boolean {
+    const scope = this.menuScope(id);
+    const index = scope.findIndex((tab) => tab.id === id);
+    return index !== -1 && index < scope.length - 1;
+  }
+
+  /** Whether “Close Others” would remove anything within this tab's scope. */
+  canCloseOthers(id: string): boolean {
+    return this.menuScope(id).length > 1;
+  }
+
+  /**
    * Keeps only `id` — plus, when it is a session, its quoted files, which cannot
-   * outlive it. (VS Code's "Close Others".)
+   * outlive it — inside the tab's own scope. (VS Code's "Close Others".)
    */
   closeOthers(id: string): void {
     const keep = this.items().find((tab) => tab.id === id);
     if (keep === undefined) {
       return;
     }
+    const scope = this.menuScope(id);
     const keepIds = new Set<string>([id]);
     if (keep.kind === 'session') {
       for (const mention of this.mentionFilesOf(id)) {
         keepIds.add(mention.id);
       }
-    } else if (keep.mention === true && keep.sessionId !== undefined) {
-      // A quoted file cannot stay without the session it belongs to.
-      keepIds.add(keep.sessionId);
     }
-    const closing = this.items().filter((tab) => !keepIds.has(tab.id));
+    const closing = scope.filter((tab) => !keepIds.has(tab.id));
+    if (closing.length === 0) {
+      return;
+    }
+    const closingIds = new Set(closing.map((tab) => tab.id));
     const closedSession = closing.some((tab) => tab.kind === 'session' && tab.draft !== true);
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
-    this.items.update((tabs) => tabs.filter((tab) => keepIds.has(tab.id)));
-    this.forgetDrafts(closing.map((tab) => tab.id));
+    this.items.update((tabs) => tabs.filter((tab) => !closingIds.has(tab.id)));
+    this.forgetDrafts(closingIds);
     this.active.set(id);
     if (keep.kind === 'session' && keep.draft !== true) {
       this.morse.activateSession(keep.id, keep.cwd);
     }
+    // A closed session may orphan its quoted files; a file-scoped close cannot.
+    this.pruneOrphanMentions();
     if (closedSession) {
       this.fallBackToEmptySession(cwd);
     }
   }
 
-  /** Closes every tab to the right of `id` (VS Code's "Close to the Right"). */
+  /** Closes every tab to the right of `id` in its scope (VS Code's "Close to the Right"). */
   closeToTheRight(id: string): void {
-    const index = this.items().findIndex((tab) => tab.id === id);
+    const scope = this.menuScope(id);
+    const index = scope.findIndex((tab) => tab.id === id);
     if (index === -1) {
       return;
     }
-    const closing = this.items().slice(index + 1);
+    const closing = scope.slice(index + 1);
     if (closing.length === 0) {
       return;
     }
@@ -762,16 +799,31 @@ export class WorkspaceTabs {
     }
   }
 
-  /** Empties the strip (VS Code's "Close All"). */
-  closeAll(): void {
-    const closedSession = this.items().some(
-      (tab) => tab.kind === 'session' && tab.draft !== true,
-    );
-    const cwd = this.items().find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
-    const openIds = this.items().map((tab) => tab.id);
-    this.items.set([]);
-    this.forgetDrafts(openIds);
-    this.active.set(undefined);
+  /**
+   * Closes a tab's scope (VS Code's "Close All"): the whole strip for a session,
+   * or only its row for a file chip. Without an `id`, everything goes.
+   */
+  closeAll(id?: string): void {
+    const scope = this.menuScope(id);
+    if (scope.length === 0) {
+      return;
+    }
+    const ids = new Set(scope.map((tab) => tab.id));
+    const closedSession = scope.some((tab) => tab.kind === 'session' && tab.draft !== true);
+    const cwd = scope.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
+    const active = this.active();
+    this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
+    this.forgetDrafts(ids);
+    this.pruneOrphanMentions();
+    if (active !== undefined && ids.has(active)) {
+      const remaining = this.items();
+      const neighbour = remaining.at(-1) ?? remaining[0];
+      if (neighbour !== undefined) {
+        this.select(neighbour.id);
+      } else {
+        this.active.set(undefined);
+      }
+    }
     if (closedSession) {
       this.fallBackToEmptySession(cwd);
     }

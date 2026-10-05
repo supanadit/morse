@@ -4,13 +4,25 @@ export { PiRpcAgent } from './pi-rpc-agent.js';
 export type { PiRpcAgentOptions } from './pi-rpc-agent.js';
 export { PiRpcAgentFactory } from './pi-rpc-agent-factory.js';
 export type { PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
+export { PiMcp, parseMcpServerInput } from './pi-mcp.js';
+export type {
+  McpConfigScope,
+  McpExposure,
+  McpMutation,
+  McpServerInput,
+  McpServerScope,
+  McpServerState,
+  McpServerStatus,
+  McpStatus,
+  PiMcpOptions,
+} from './pi-mcp.js';
 export { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 export type { PiRpcSessionCatalogOptions } from './pi-rpc-session-catalog.js';
 export { PiRpcClient } from './internal/rpc-client.js';
 export type { PiRpcClientOptions } from './internal/rpc-client.js';
 export { JsonlFramer } from './internal/jsonl-framer.js';
-export { buildRpcArgs, findOnPath, resolvePi, resolveSessionDir } from './internal/resolve-pi.js';
-export type { PiSpawn, PiSpawnSource, ResolvePiOptions } from './internal/resolve-pi.js';
+export { buildRpcArgs, findOnPath, resolvePi, resolvePiCli, resolveSessionDir } from './internal/resolve-pi.js';
+export type { PiCliSpawn, PiSpawn, PiSpawnSource, ResolvePiOptions } from './internal/resolve-pi.js';
 export {
   contentToText,
   contentToThinking,

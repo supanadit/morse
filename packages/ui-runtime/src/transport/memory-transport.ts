@@ -4,10 +4,13 @@ import {
   type GitCommit,
   type HostCapabilities,
   type HostToClientMessage,
+  type McpServerState,
+  type McpServerStatus,
   type ProjectSummary,
   type SessionActivity,
   type SessionSummary,
   type SessionViewState,
+  type ThinkingLevel,
   type TranscriptItem,
 } from '@morse/protocol';
 import { BaseHostTransport } from './host-transport.js';
@@ -34,6 +37,9 @@ const CAPABILITIES: HostCapabilities = {
   // The mock fakes a tiny shell so the bottom panel and its terminal are
   // reviewable without the NestJS server.
   terminal: true,
+  // Same for the MCP manager: a scripted server list lets the indicator and the
+  // panel be developed with no `pi` call.
+  mcp: true,
   // Off by default: a dev page must not reach the internet unless it was asked
   // for. `?mock=1&update=1` turns it on, and `?newer=<version>` (frontend side)
   // fakes the published version, so the notice is reviewable before a release.
@@ -46,6 +52,21 @@ function isUpdateCheckWanted(): boolean {
     return false;
   }
   return new URL(location.href, 'http://localhost/').searchParams.get('update') === '1';
+}
+
+/**
+ * Mock reasoning levels per model, so switching models visibly changes the
+ * thinking picker — the behaviour a real pi reports per current model.
+ */
+const MOCK_THINKING: Record<string, ThinkingLevel[]> = {
+  'mock/mock-1': ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'mock/mock-2': ['off', 'low', 'high'],
+  'mock-cloud/mock-1': ['off', 'medium', 'high'],
+  'mock-cloud/mock-3': ['off'],
+};
+
+function mockThinkingLevels(provider: string, id: string): ThinkingLevel[] {
+  return MOCK_THINKING[`${provider}/${id}`] ?? ['off', 'low', 'high'];
 }
 
 /**
@@ -68,6 +89,40 @@ export class MemoryHostTransport extends BaseHostTransport {
   private readonly hot = new Set<string>(this.sessions.slice(0, 2).map((s) => s.id));
   /** Terminal ids the mock shell has open, so it can echo and exit by id. */
   private readonly terminals = new Set<string>();
+  /** Scripted MCP servers the mock adds/removes/toggles against. */
+  private mcpServers: McpServerStatus[] = [
+    {
+      name: 'context7',
+      scope: 'global',
+      source: '/mock/.pi/agent/mcp.json',
+      enabled: true,
+      exposure: 'codemode',
+      transport: 'http: https://mcp.context7.com/mcp',
+      state: 'connected',
+      tools: ['resolve-library-id', 'query-docs'],
+    },
+    {
+      name: 'firecrawl',
+      scope: 'global',
+      source: '/mock/.pi/agent/mcp.json',
+      enabled: true,
+      exposure: 'codemode',
+      transport: 'stdio: npx -y firecrawl-mcp',
+      state: 'failed',
+      tools: [],
+      error: 'spawn npx ENOENT',
+    },
+    {
+      name: 'openviking',
+      scope: 'project',
+      source: '/mock/workspace/.pi/mcp.json',
+      enabled: false,
+      exposure: 'codemode',
+      transport: 'http: http://localhost:1933/mcp',
+      state: 'disabled',
+      tools: [],
+    },
+  ];
   /** Starts high so generated ids cannot collide with the fixture's own ids. */
   private counter = 100;
   private disposed = false;
@@ -84,7 +139,7 @@ export class MemoryHostTransport extends BaseHostTransport {
       { provider: 'mock-cloud', id: 'mock-1', name: 'Mock Model', contextWindow: 200_000 },
       { provider: 'mock-cloud', id: 'mock-3', name: 'Mock Model (pro)', contextWindow: 1_000_000 },
     ],
-    availableThinkingLevels: ['off', 'low', 'high'],
+    availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
     availableCommands: [
       { name: 'skill:codebase-memory', description: 'Query the knowledge graph', source: 'skill' },
       { name: 'fix-tests', description: 'Fix failing tests', source: 'prompt' },
@@ -223,19 +278,30 @@ export class MemoryHostTransport extends BaseHostTransport {
           (model) =>
             model.provider === message.payload.provider && model.id === message.payload.id,
         );
+        const provider = known?.provider ?? message.payload.provider;
+        const id = known?.id ?? message.payload.id;
+        const levels = mockThinkingLevels(provider, id);
         this.state = {
           ...this.state,
-          model: known
-            ? { ...known }
-            : { provider: message.payload.provider, id: message.payload.id, name: message.payload.id },
+          model: known ? { ...known } : { provider, id, name: id },
+          availableThinkingLevels: levels,
+          // A model without the current level resets it, exactly like pi.
+          thinkingLevel: levels.includes(this.state.thinkingLevel)
+            ? this.state.thinkingLevel
+            : (levels[0] ?? 'off'),
         };
         this.emit({ type: 'session/state', payload: this.state });
         return;
       }
-      case 'thinking/set':
-        this.state = { ...this.state, thinkingLevel: message.payload.level };
+      case 'thinking/set': {
+        const levels = this.state.availableThinkingLevels;
+        const level = levels.includes(message.payload.level)
+          ? message.payload.level
+          : this.state.thinkingLevel;
+        this.state = { ...this.state, thinkingLevel: level };
         this.emit({ type: 'session/state', payload: this.state });
         return;
+      }
       case 'terminal/open': {
         this.terminals.add(message.payload.terminalId);
         this.emit({
@@ -422,6 +488,90 @@ export class MemoryHostTransport extends BaseHostTransport {
           if (branch.length > 0) {
             this.gitSync = { ...this.gitSync, branch };
           }
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },
+          });
+          return;
+        }
+        if (message.payload.command === 'mcpStatus' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: { servers: this.mcpServers, errors: [] },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'mcpAdd' && message.payload.requestId) {
+          const name = String(message.payload.args?.name ?? 'server');
+          const isHttp = message.payload.args?.type === 'http';
+          this.mcpServers = [
+            ...this.mcpServers.filter((server) => server.name !== name),
+            {
+              name,
+              scope: message.payload.args?.scope === 'project' ? 'project' : 'global',
+              source: '/mock/.pi/agent/mcp.json',
+              enabled: true,
+              exposure: 'codemode',
+              transport: isHttp
+                ? `http: ${String(message.payload.args?.url ?? '')}`
+                : `stdio: ${String(message.payload.args?.command ?? '')}`,
+              state: 'connected',
+              tools: [],
+            },
+          ];
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: { ok: true, path: '/mock/.pi/agent/mcp.json' },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'mcpRemove' && message.payload.requestId) {
+          const name = String(message.payload.args?.name ?? '');
+          const scope = message.payload.args?.scope;
+          if (scope === 'project') {
+            // Project scope drops the project entry/override only.
+            this.mcpServers = this.mcpServers.map((server) =>
+              server.name === name && server.scope === 'project'
+                ? { ...server, scope: 'global', override: undefined }
+                : server,
+            );
+          } else {
+            this.mcpServers = this.mcpServers.filter((server) => server.name !== name);
+          }
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },
+          });
+          return;
+        }
+        if (message.payload.command === 'mcpSetEnabled' && message.payload.requestId) {
+          const name = String(message.payload.args?.name ?? '');
+          const enabled = message.payload.args?.enabled === true;
+          const scope = message.payload.args?.scope;
+          this.mcpServers = this.mcpServers.map((server) => {
+            if (server.name !== name) {
+              return server;
+            }
+            if (scope === 'project' && server.scope !== 'project') {
+              // A user-level server toggled here gets a project override.
+              return enabled
+                ? { ...server, enabled: true, override: undefined }
+                : { ...server, enabled: false, override: '/mock/workspace/.pi/mcp.json' };
+            }
+            return {
+              ...server,
+              enabled,
+              state: enabled ? 'connected' : ('disabled' as McpServerState),
+            };
+          });
           this.emit({
             type: 'host/command/result',
             payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },

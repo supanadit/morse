@@ -248,6 +248,32 @@ export class PiRpcAgent implements AgentGateway {
       modelId: model.id,
     });
     this.patchState({ model: data ? toModelRef(data) : model });
+    // pi scopes the thinking levels to the *current* model, so switching models
+    // can change which ones exist (or whether reasoning is offered at all). pi's
+    // own TUI re-reads them after a model change; without this the picker kept
+    // showing the previous model's levels for every model.
+    await this.refreshThinkingLevels();
+  }
+
+  /**
+   * Re-read the levels the current model supports, and the level pi actually
+   * settled the session on (a model without reasoning resets it to `off`).
+   */
+  private async refreshThinkingLevels(): Promise<void> {
+    const [levels, state] = await Promise.all([
+      this.client
+        .request<{ levels?: string[] }>({ type: 'get_available_thinking_levels' })
+        .catch(() => undefined),
+      this.client.request<RpcSessionStateData>({ type: 'get_state' }).catch(() => undefined),
+    ]);
+    const available = dedupeThinkingLevels(
+      (levels?.levels ?? []).map(toThinkingLevel).filter(isDefined),
+    );
+    const thinkingLevel = state ? toThinkingLevel(state.thinkingLevel) : undefined;
+    this.patchState({
+      availableThinkingLevels: available.length > 0 ? available : [...THINKING_LEVELS],
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    });
   }
 
   async setThinkingLevel(level: ThinkingLevel): Promise<void> {
@@ -343,6 +369,25 @@ export class PiRpcAgent implements AgentGateway {
   /** Where a command list is rebuilt from: the session's workspace and env. */
   private commandContext(): CommandContext {
     return { cwd: this.options.workspace.cwd, env: this.options.env };
+  }
+
+  /**
+   * Re-reads `get_available_models` and reports it the same way a fresh spawn
+   * would. The model picker calls it the moment it opens, so a model added to
+   * `models.json` while this session is warm is there without reopening the
+   * session or restarting the host.
+   */
+  async refreshModels(): Promise<void> {
+    if (this.disposed || !this.ready) {
+      return;
+    }
+    const models = await this.client
+      .request<{ models?: RpcModel[] }>({ type: 'get_available_models' })
+      .catch(() => undefined);
+    if (models === undefined) {
+      return;
+    }
+    this.patchState({ availableModels: (models.models ?? []).map(toModelRef) });
   }
 
   /**
@@ -499,7 +544,12 @@ function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
   if (!value) {
     return undefined;
   }
-  return THINKING_LEVELS.find((level) => level === value);
+  // pi's canonical list is off..max, but the level names arrive from pi and are
+  // what pi validates against (`set_thinking_level` accepts whatever it
+  // reported). An unfamiliar name — say a future provider tier — is passed
+  // through intact: the picker's brain falls back to its default intensity and
+  // the label is just capitalized, so hiding it would silently drop a real level.
+  return THINKING_LEVELS.find((level) => level === value) ?? (value.trim() as ThinkingLevel);
 }
 
 function dedupeThinkingLevels(levels: ThinkingLevel[]): ThinkingLevel[] {
