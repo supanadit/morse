@@ -100,6 +100,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | A character typed with AltGr triggers an action | Windows reports AltGr as Ctrl+Alt; `ShortcutService` skips `getModifierState('AltGraph')` |
 | An overlay opens behind a dialog | specs marked `overlay` stand down while `ShellState.modalOpen()`; mark the new one or it will stack |
 | The update notice never appears | the host must advertise `capabilities.updateCheck` (`MORSE_UPDATE_CHECK=0` disables it, and the VS Code webview CSP must list `https://registry.npmjs.org`); review it offline with `?mock=1&newer=0.3.0` |
+| No notification when a run finishes | it is **off by default**: turn it on from the one-time `.notify-prompt` nudge or the palette (`Turn on completion notifications`). `core/notification-prefs.ts` also picks the mode (`away` by default, so it stays quiet while the panel is focused; `always` speaks every time). VS Code raises it through `capabilities.notify` → the `notify` host command; the browser host uses the `Notification` API and needs the permission granted. If the permission is revoked later, `RunNotifier.permission` re-reads it on focus / `navigator.permissions` and the banner returns as **blocked** — the stored preference alone must not claim it works |
 | A prompt costs ~1 s of host CPU, or the sidebar takes a second to refresh | `session/list` is scanning every session file again: keep the size+mtime cache and the row scan in `pi-rpc-session-catalog.ts` (measured 624 ms → 2 ms; see `docs/DEVELOPMENT.md`) |
 | Streamed prose lags the model by a beat | intended: `Markdown` re-renders at most every 90 ms instead of per delta; measure `docs/DEVELOPMENT.md` before removing it |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
@@ -133,6 +134,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | protocol version | `packages/protocol/src/version.ts` |
 | keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/core/shortcuts.ts` ← `shortcuts/shortcuts-dialog.ts` |
 | "a newer release is out" notice | `packages/ui-angular/src/app/core/update.ts` ← `capabilities.updateCheck`, `docs/CONFIGURATION.md` |
+| "a run finished" notice while the window is elsewhere | `packages/ui-angular/src/app/core/notifications.ts` + `notification-prefs.ts` ← `capabilities.notify` |
 | measured performance baseline | `docs/DEVELOPMENT.md` ← session catalog cache, markdown render cadence |
 | git history + graph panel (browser host) | `packages/ui-angular/src/app/git/git-panel.ts` ← `core/git-graph.ts`, `packages/server/src/internal/workspace/git-log.ts` |
 | bottom panel + terminal (browser host) | `packages/ui-angular/src/app/chat/bottom-panel/`, `chat/terminal/` ← `core/panel-state.ts`, `packages/host-runtime/src/terminal.ts`, `packages/server/src/internal/terminal/terminal.service.ts` |

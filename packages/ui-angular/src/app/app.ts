@@ -14,6 +14,8 @@ import { AnimationService } from './core/animation.service';
 import { AttachmentStore } from './core/attachments';
 import { DropZone } from './core/drop-zone';
 import { MorseService } from './core/morse.service';
+import { RunNotifier } from './core/notifications';
+import { NotificationPrefs } from './core/notification-prefs';
 import { PanelState } from './core/panel-state';
 import { ShellState } from './core/shell-state';
 import { WorkspaceTabs } from './core/workspace-tabs';
@@ -71,6 +73,8 @@ export class App {
   private readonly shell = inject(ShellState);
   private readonly panel = inject(PanelState);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly notifier = inject(RunNotifier);
+  private readonly notifications = inject(NotificationPrefs);
   private readonly shortcuts = inject(ShortcutService);
   private readonly dropZone = inject(DropZone);
   private readonly animation = inject(AnimationService);
@@ -151,6 +155,30 @@ export class App {
    * one. The shared signal lives on `WorkspaceTabs` so the header reads it too.
    */
   protected readonly noSessionSelected = this.tabs.noSessionInFront;
+
+  /**
+   * The notification banner, or nothing when there is no channel to fix:
+   *
+   * - `nudge` — first visit, or the reader turned it off; offers **Turn on**;
+   * - `blocked` — it is switched on but the browser is not letting the
+   *   notification through (the permission was reset or blocked after the fact),
+   *   so the reader thinks it works when it does not.
+   *
+   * VS Code raises its own notifications, so only its on/off choice matters there.
+   */
+  protected readonly notificationPrompt = computed<'nudge' | 'blocked' | null>(() => {
+    if (this.morse.capabilities()?.notify === true) {
+      return !this.notifications.enabled() && !this.notifications.bannerDismissed() ? 'nudge' : null;
+    }
+    const permission = this.notifier.permission();
+    if (permission === 'unsupported') {
+      return null;
+    }
+    if (!this.notifications.enabled()) {
+      return this.notifications.bannerDismissed() ? null : 'nudge';
+    }
+    return permission === 'granted' ? null : 'blocked';
+  });
   /** Whether any session tab is open behind the placeholder, so it can say so. */
   protected readonly hasSessionTabs = computed(() =>
     this.tabs.tabs().some((tab) => tab.kind === 'session'),
@@ -453,6 +481,20 @@ export class App {
    */
   protected newSession(): void {
     this.shortcuts.run('session.new');
+  }
+
+  /** The nudge's "Turn on": opt in — the browser prompt lands on this click. */
+  protected enableNotifications(): void {
+    void this.notifier.optIn();
+  }
+
+  protected dismissNotificationPrompt(): void {
+    this.notifications.dismissBanner();
+  }
+
+  /** The blocked banner's way out: stop asking for notifications at all. */
+  protected turnOffNotifications(): void {
+    this.notifications.disable();
   }
 
   protected retryConnection(): void {

@@ -1,7 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { MORSE_TRANSPORT } from './core/transport.token';
 
@@ -12,6 +12,11 @@ import { MORSE_TRANSPORT } from './core/transport.token';
  */
 class TitledSessionTransport extends BaseHostTransport {
   readonly kind = 'memory' as const;
+
+  /** `false` models a host with no notification channel of its own (the web). */
+  constructor(private readonly hostCanNotify = true) {
+    super();
+  }
 
   connect(): void {
     this.emitStatus('open');
@@ -55,6 +60,7 @@ class TitledSessionTransport extends BaseHostTransport {
           insertIntoEditor: false,
           revealFile: false,
           filePreview: true,
+          notify: this.hostCanNotify,
         },
         state: {
           sessionId: 'session-1',
@@ -91,6 +97,7 @@ function render(): ComponentFixture<App> {
 describe('App session tabs', () => {
   afterEach(() => {
     localStorage.clear();
+    vi.unstubAllGlobals();
     TestBed.resetTestingModule();
   });
 
@@ -141,6 +148,45 @@ describe('App session tabs', () => {
     // the header must not claim that project as this empty panel's subject.
     expect(header().querySelector('.title')?.textContent?.trim()).toBe('Morse');
     expect(header().querySelector('.meta')).toBeNull();
+  });
+
+  it('nudges for notifications once, and remembers the answer', () => {
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new TitledSessionTransport() }],
+    });
+    const fixture = render();
+    const banner = () => fixture.nativeElement.querySelector('.notify-prompt') as HTMLElement | null;
+
+    expect(banner()).not.toBeNull();
+    (banner()!.querySelector('.notify-on') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // Answering it (here: turning it on) retires the nudge for good.
+    expect(banner()).toBeNull();
+  });
+
+  it('comes back when the permission is reset after opting in', () => {
+    vi.stubGlobal('Notification', { permission: 'granted' });
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new TitledSessionTransport(false) }],
+    });
+    const fixture = render();
+    const banner = () => fixture.nativeElement.querySelector('.notify-prompt') as HTMLElement | null;
+
+    // Opt in while the browser is granting: the nudge goes away.
+    (banner()!.querySelector('.notify-on') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(banner()).toBeNull();
+
+    // The site setting is reset from the browser; coming back re-reads it, and
+    // the panel has to say the notification is not actually going through.
+    (globalThis as unknown as { Notification: { permission: string } }).Notification.permission = 'denied';
+    window.dispatchEvent(new Event('focus'));
+    fixture.detectChanges();
+
+    expect(banner()?.textContent).toContain('blocked for this site');
   });
 
   it('hides the chat and offers a session when no tab is in front', () => {

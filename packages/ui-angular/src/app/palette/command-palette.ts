@@ -22,6 +22,8 @@ import {
 } from '../core/shortcuts';
 import { WorkspaceFiles } from '../core/workspace-files';
 import { WorkspaceTabs } from '../core/workspace-tabs';
+import { NotificationPrefs } from '../core/notification-prefs';
+import { RunNotifier } from '../core/notifications';
 import { paletteGroups, parsePaletteQuery, type PaletteEntry } from '../core/palette';
 
 /**
@@ -192,6 +194,8 @@ export class CommandPalette {
   private readonly shortcuts = inject(ShortcutService);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly workspace = inject(WorkspaceFiles);
+  private readonly prefs = inject(NotificationPrefs);
+  private readonly notifier = inject(RunNotifier);
 
   private readonly search = viewChild<ElementRef<HTMLInputElement>>('search');
   private readonly list = viewChild<ElementRef<HTMLElement>>('list');
@@ -232,6 +236,54 @@ export class CommandPalette {
       icon: '›',
       keywords: spec.id,
     }));
+  });
+
+  /**
+   * Commands that are not keyboard shortcuts, so they live here and not in
+   * `SHORTCUTS`: the notification toggle and its mode. Their labels read the
+   * current preference, so a row always says what running it will do.
+   */
+  private readonly notificationCommands = computed<PaletteEntry[]>(() => {
+    const enabled = this.prefs.enabled();
+    const rows: PaletteEntry[] = [
+      enabled
+        ? {
+            id: 'command:notify.off',
+            kind: 'command',
+            label: 'Turn off completion notifications',
+            description: 'No notice when a session finishes',
+            badge: 'notify',
+            icon: '›',
+          }
+        : {
+            id: 'command:notify.on',
+            kind: 'command',
+            label: 'Turn on completion notifications',
+            description: 'Hear when a session finishes',
+            badge: 'notify',
+            icon: '›',
+          },
+    ];
+    if (enabled) {
+      rows.push(
+        this.prefs.mode() === 'away'
+          ? {
+              id: 'command:notify.always',
+              kind: 'command',
+              label: 'Notify even while the window is focused',
+              badge: 'notify',
+              icon: '›',
+            }
+          : {
+              id: 'command:notify.away',
+              kind: 'command',
+              label: 'Notify only when the window is not focused',
+              badge: 'notify',
+              icon: '›',
+            },
+      );
+    }
+    return rows;
   });
 
   private readonly tabEntries = computed<PaletteEntry[]>(() => {
@@ -343,6 +395,7 @@ export class CommandPalette {
 
   private readonly entries = computed<PaletteEntry[]>(() => [
     ...this.commandEntries(),
+    ...this.notificationCommands(),
     ...this.tabEntries(),
     ...this.sessionEntries(),
     ...this.projectEntries(),
@@ -394,9 +447,29 @@ export class CommandPalette {
   protected pick(entry: PaletteEntry): void {
     this.shell.closePalette();
     switch (entry.kind) {
-      case 'command':
-        this.shortcuts.run(entryId(entry, 'command') as ActionId);
+      case 'command': {
+        const id = entryId(entry, 'command');
+        // The notification rows are the palette's own; everything else runs the
+        // owner-bound handler its key would, through `ShortcutService`.
+        if (id === 'notify.on') {
+          void this.notifier.optIn();
+          return;
+        }
+        if (id === 'notify.off') {
+          this.prefs.disable();
+          return;
+        }
+        if (id === 'notify.always') {
+          this.prefs.setMode('always');
+          return;
+        }
+        if (id === 'notify.away') {
+          this.prefs.setMode('away');
+          return;
+        }
+        this.shortcuts.run(id as ActionId);
         return;
+      }
       case 'tab':
         this.tabs.select(entryId(entry, 'tab'));
         return;

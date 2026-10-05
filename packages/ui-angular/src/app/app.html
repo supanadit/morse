@@ -88,6 +88,41 @@
       <morse-tab-strip />
     }
 
+    <!-- The one-time "notifications are off" nudge, like a chat app's: it stops
+         asking once the reader answers it (turn on, or dismiss). -->
+    @if (notificationPrompt(); as prompt) {
+      <div class="notify-prompt" role="status">
+        <span class="notify-glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16">
+            <path d="M8 2.2a3.4 3.4 0 0 0-3.4 3.4c0 3.2-1.4 4-1.4 4h9.6s-1.4-.8-1.4-4A3.4 3.4 0 0 0 8 2.2Z" />
+            <path d="M6.6 12.2a1.5 1.5 0 0 0 2.8 0" />
+            <path d="m3.2 13.2 9.6-10.4" />
+          </svg>
+        </span>
+        <span class="notify-text">
+          @if (prompt === 'blocked') {
+            Notifications are blocked for this site — allow them in your browser's site settings.
+          } @else {
+            Notifications are off — you won't hear when a session finishes.
+            <button type="button" class="notify-on" (click)="enableNotifications()">Turn on</button>
+          }
+        </span>
+        @if (prompt === 'blocked') {
+          <button type="button" class="notify-off" (click)="turnOffNotifications()">Turn off</button>
+        } @else {
+          <button
+            type="button"
+            class="notify-dismiss"
+            aria-label="Dismiss"
+            title="Dismiss"
+            (click)="dismissNotificationPrompt()"
+          >
+            ×
+          </button>
+        }
+      </div>
+    }
+
     @if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
     } @else {

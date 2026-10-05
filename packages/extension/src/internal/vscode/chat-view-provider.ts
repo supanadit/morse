@@ -62,6 +62,9 @@ const CAPABILITIES: HostCapabilities = {
   // that for a Marketplace install. The webview's CSP names the registry origin
   // for exactly this request (see `webview-html.ts`).
   updateCheck: true,
+  // A webview has no Web Notifications, so the panel asks the host to raise one
+  // when a run finishes while the reader is looking elsewhere.
+  notify: true,
 };
 
 /**
@@ -270,6 +273,14 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         }
         const document = await vscode.workspace.openTextDocument(toWorkspacePath(raw));
         await vscode.window.showTextDocument(document, { preview: true });
+        return;
+      }
+      case 'notify': {
+        // A finished run the reader stepped away from. VS Code's webview has no
+        // Web Notifications, so the panel asks the host to raise one.
+        const title = stringArg(args, 'title') || 'Morse';
+        const body = stringArg(args, 'body');
+        void vscode.window.showInformationMessage(body ? `${title}: ${body}` : title);
         return;
       }
       case 'confirmDeleteSession': {

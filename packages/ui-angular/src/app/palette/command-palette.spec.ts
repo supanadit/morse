@@ -9,6 +9,7 @@ import { BaseHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../app';
 import { ShellState } from '../core/shell-state';
+import { NotificationPrefs } from '../core/notification-prefs';
 import { MORSE_TRANSPORT } from '../core/transport.token';
 import { WorkspaceTabs } from '../core/workspace-tabs';
 
@@ -24,6 +25,8 @@ const CAPABILITIES: HostCapabilities = {
   filePicker: true,
   // The browser host's shape: a tab strip, an Explorer and a file preview.
   filePreview: true,
+  // A native notification channel, so opting in from the palette needs no prompt.
+  notify: true,
 };
 
 const STATE: SessionViewState = {
@@ -330,6 +333,26 @@ describe('CommandPalette', () => {
     press('Tab');
     fixture.detectChanges();
     expect(active()).not.toBe(second);
+  });
+
+  it('offers a notification toggle, and running it switches the preference on', async () => {
+    const { fixture } = await render();
+    const prefs = TestBed.inject(NotificationPrefs);
+    expect(prefs.enabled()).toBe(false);
+
+    open(fixture);
+    search(fixture, 'notify');
+    expect(labels(fixture)).toContain('Turn on completion notifications');
+
+    press('Enter');
+    fixture.detectChanges();
+    expect(prefs.enabled()).toBe(true);
+
+    // The same row now offers the way back, and a second one picks the mode.
+    open(fixture);
+    search(fixture, 'notify');
+    expect(labels(fixture)).toContain('Turn off completion notifications');
+    expect(labels(fixture)).toContain('Notify even while the window is focused');
   });
 
   it('closes on Escape without running anything', async () => {

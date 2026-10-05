@@ -189,6 +189,86 @@
   display: none;
 }
 
+/*
+ * The one-time "notifications are off" nudge: a calm info bar, not an error.
+ * It sits under the header (and the tab strip) so it reads as a tip about the
+ * shell, not as part of the conversation.
+ */
+.notify-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--morse-border);
+  background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
+  color: var(--morse-fg);
+  font-size: 12.5px;
+}
+
+.notify-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--morse-fg-muted);
+}
+
+.notify-glyph svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notify-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.notify-on {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--morse-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.notify-dismiss {
+  flex: none;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notify-dismiss:hover {
+  color: var(--morse-fg);
+}
+
+.notify-off {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.notify-off:hover {
+  background: var(--morse-hover);
+}
+
 .alert {
   margin: 10px;
   padding: 10px 12px;

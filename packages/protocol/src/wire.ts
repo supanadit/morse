@@ -63,7 +63,12 @@ export type HostCommand =
   | 'revealFile'
   | 'getEditorContext'
   /** Ask the host to confirm a destructive action in its own dialog. */
-  | 'confirmDeleteSession';
+  | 'confirmDeleteSession'
+  /**
+   * Show a notification of the host's own (a finished run the reader stepped
+   * away from). Only offered where `capabilities.notify` is set.
+   */
+  | 'notify';
 
 /** Host -> frontend. */
 export type HostToClientMessage =

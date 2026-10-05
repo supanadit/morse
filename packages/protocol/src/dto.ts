@@ -200,6 +200,13 @@ export interface HostCapabilities {
    * own editor/tab restoration and leaves it off.
    */
   workbench?: boolean;
+  /**
+   * Host can raise a notification of its own (`notify`), so the frontend can say
+   * a run finished while the reader was elsewhere. VS Code turns it on (its
+   * webview has no Web Notifications); the browser host leaves it off and uses
+   * the `Notification` API instead.
+   */
+  notify?: boolean;
 }
 
 /**

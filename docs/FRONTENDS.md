@@ -85,7 +85,9 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    its own tab restoration and leaves it off), and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
-   shows an update notice).
+   shows an update notice), and `notify`
+   whether the host can raise a notification of its own (`notify`) — on for VS Code, whose webview has no Web
+   Notifications; the browser host leaves it off and the frontend uses the `Notification` API.
    Same rule for a dead backend: render `state.agentFailure` (`code`, `install`, `hint`) instead of paraphrasing
    `agentError` — the adapter knows pi's package name, the host knows which setting it reads, and a frontend
    that guessed would offer the wrong remedy. A host that could not classify the failure sends no `code`,
@@ -171,6 +173,20 @@ strip above the conversation, where sessions and files open side by side.
   reader closes it. The browser host also persists every tab's draft — text, pins, mentions and inline
   images — to `<MORSE_HOME>/drafts.json`, so a long prompt with attachments survives a reload, a `morse
   stop` or a closed laptop. It stays isolated per tab; a draft tab keeps its own placeholder too.
+- A run **finishing while the reader is elsewhere** raises a notification: `core/notifications.ts` watches
+  `sessionActivity` and, on a `streaming` true → false, speaks per the reader's preference in
+  `core/notification-prefs.ts` (`morse.notifications.*` in `localStorage`): **off by default**, and when on,
+  either `away` (only when `document.hidden` or the document has no focus) or `always`. A host with its own
+  notifications (`capabilities.notify`, VS Code, whose webview has no Web Notifications) raises one through
+  the `notify` command; the browser host uses the `Notification` API, with an in-app toast as the last resort.
+  Because it is off by default, a first visit shows a one-time nudge (`.notify-prompt`, like a chat app's) with
+  **Turn on** and dismiss. Turn on asks the browser for permission on the click (the native prompt, from the
+  gesture) and only enables the preference once it is granted — a blocked prompt leaves it off and says so;
+  after that the command palette toggles it (`Turn on/off completion notifications`)
+  and its mode (`Notify even while the window is focused` / `Notify only when the window is not focused`). The
+  browser's permission is re-read on focus and through `navigator.permissions`, so revoking it after opting in
+  brings the banner back as a **blocked** warning (with a way to turn the preference off) instead of silently
+  never delivering.
 - The **layout is restored** where the host advertises `workbench`: `core/workbench-persistence.ts` reads
   `readWorkbench` / `readDrafts` once the handshake is ready and writes `saveWorkbench` / `saveDrafts`
   (debounced, plus a flush when the page is hidden). `workbench.json` holds the open tabs and the one in
