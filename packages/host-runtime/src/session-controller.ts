@@ -875,21 +875,22 @@ export class HostSessionController {
       this.answerHostCommand(requestId, false, undefined, `This host does not support "${command}".`);
       return;
     }
-    const result = await this.guard(() =>
-      Promise.resolve(
-        handler(command, args, { cwd: this.currentState().workspace.cwd }),
-      ),
-    );
-    if (!requestId) {
+    // A host command answers a surface that asked for a value — the folder a user
+    // is typing, a file being previewed, a working tree on a timer. Its failure
+    // belongs to that caller (it receives `ok: false`) and to the log; it is not
+    // conversation content. Appending it here is what filled the transcript with a
+    // red "scandir" row for every unfinished or wrong path the folder browser was
+    // asked about, and for every poll of a directory that had gone away. `guard`
+    // stays for the session/agent commands, whose failure *is* the panel's news.
+    let value: unknown;
+    try {
+      value = await handler(command, args, { cwd: this.currentState().workspace.cwd });
+    } catch (error: unknown) {
+      this.options.logger.error(`Morse command failed: ${describeError(error)}`, error);
+      this.answerHostCommand(requestId, false, undefined, `"${command}" failed`);
       return;
     }
-    // The failure detail is already surfaced by `guard` (notice + log), so the
-    // caller only needs to know that it failed.
-    if (result.ok) {
-      this.answerHostCommand(requestId, true, result.value);
-      return;
-    }
-    this.answerHostCommand(requestId, false, undefined, `"${command}" failed`);
+    this.answerHostCommand(requestId, true, value);
   }
 
   /** Replies to a host command the frontend asked a value for. */

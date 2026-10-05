@@ -730,6 +730,44 @@ describe('HostSessionController project list', () => {
 
     expect(seen.at(-1)).toEqual({ command: 'listFiles', cwd: '/work/other' });
   });
+
+  it('answers a failed host command without appending it to the transcript', async () => {
+    const messages: HostToClientMessage[] = [];
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(fakeGateway({ sessionId: 'sess-1' })) },
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const controller = new HostSessionController({
+      services: { registry, chat },
+      capabilities: CAPABILITIES,
+      emit: (message) => messages.push(message),
+      logger: silentLogger,
+      transcripts,
+      autoOpen: false,
+      scope: { kind: 'global' },
+      onHostCommand: () =>
+        Promise.reject(new Error("ENOENT: no such file or directory, scandir '/gone'")),
+    });
+    await controller.start();
+    // A live session whose transcript a failure used to be appended to.
+    await controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hi' } });
+    await controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'listDirectories', requestId: 'r1' },
+    });
+
+    // The caller is told the value is missing: typing an unfinished or wrong
+    // folder must land as the picker's inline message, not as conversation.
+    const result = messages.find((message) => message.type === 'host/command/result');
+    expect(result?.type === 'host/command/result' ? result.payload.ok : undefined).toBe(false);
+    const key = registry.activeKeyOf();
+    const items = key === undefined ? [] : transcripts.items(key);
+    expect(items.some((item) => item.kind === 'notice' && item.level === 'error')).toBe(false);
+  });
 });
 
 describe('SessionRegistry hot limit', () => {
