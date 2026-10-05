@@ -581,6 +581,21 @@ export class WorkspaceTabs {
     if (tab === undefined) {
       return;
     }
+    // Clicking the chip already in front goes back to its session: the chip is
+    // that conversation's context, so a second click means "show me the chat
+    // again", not a no-op. A file with no session has nowhere to go.
+    if (
+      id === this.active() &&
+      tab.kind === 'file' &&
+      tab.mention === true &&
+      tab.sessionId !== undefined
+    ) {
+      const owner = this.findSession(tab.sessionId);
+      if (owner !== undefined) {
+        this.select(owner.id);
+        return;
+      }
+    }
     this.active.set(id);
     if (tab.kind === 'session') {
       // The draft is a placeholder, not a pi session: activating it would ask

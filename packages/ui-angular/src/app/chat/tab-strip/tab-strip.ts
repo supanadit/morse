@@ -26,7 +26,8 @@ interface TabMenu {
  * host advertises `filePreview: false`.
  *
  * A file attached to a session (a chip in the second row) also marks its session
- * in the first row, so which session a chip belongs to is never a guess.
+ * in the first row, so which session a chip belongs to is never a guess — and
+ * clicking the chip once it is in front returns to that session's conversation.
  */
 @Component({
   selector: 'morse-tab-strip',

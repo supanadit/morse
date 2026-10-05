@@ -573,6 +573,32 @@ describe('WorkspaceTabs', () => {
     expect(tabs.composerKey()).toBe('s2');
   });
 
+  it('clicking the chip already in front goes back to its session', () => {
+    const { tabs, fake } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.openFile('a.ts');
+    expect(tabs.activeId()).toBe('mention:s1:a.ts');
+    fake.activateSession.mockClear();
+
+    // A second click means "show me the chat again", not a no-op.
+    tabs.select('mention:s1:a.ts');
+
+    expect(tabs.activeId()).toBe('s1');
+    expect(fake.activateSession).toHaveBeenCalledWith('s1', '/repo');
+  });
+
+  it('a standalone file has no session to return to, so a second click stays', () => {
+    const { tabs, fake } = setup();
+    tabs.openFile('a.ts');
+    expect(tabs.activeId()).toBe('file:a.ts');
+    fake.activateSession.mockClear();
+
+    tabs.select('file:a.ts');
+
+    expect(tabs.activeId()).toBe('file:a.ts');
+    expect(fake.activateSession).not.toHaveBeenCalled();
+  });
+
   it('attaches a commit diff chip to the session in front', () => {
     const { tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
