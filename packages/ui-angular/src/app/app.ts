@@ -22,6 +22,7 @@ import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
 import { AboutDialog } from './about/about-dialog';
 import { ShortcutsDialog } from './shortcuts/shortcuts-dialog';
+import { CommandPalette } from './palette/command-palette';
 import { ShortcutService } from './core/shortcuts';
 import { ConfirmDialog } from './shared/confirm-dialog';
 import { AgentScreen } from './agent/agent-screen';
@@ -44,6 +45,7 @@ function previewBoot(): boolean {
     ProjectPicker,
     AboutDialog,
     ShortcutsDialog,
+    CommandPalette,
     AgentScreen,
     ConfirmDialog,
     ChatHeader,
@@ -145,6 +147,7 @@ export class App {
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
+  protected readonly paletteOpen = this.shell.paletteOpen;
   protected readonly navigationCollapsed = this.shell.navigationCollapsed;
   protected readonly compactConfirmOpen = this.shell.compactConfirmOpen;
   /**
@@ -226,6 +229,9 @@ export class App {
     const unbind = [
       this.shortcuts.bind('context.compact', () => this.shell.requestCompact(), () => this.morse.state().agentReady),
       this.shortcuts.bind('help.shortcuts', () => this.shell.toggleShortcuts()),
+      // The palette's open flag is shell state (so `modalOpen` is honest and the
+      // overlay renders from one place), so its key is bound here like the help's.
+      this.shortcuts.bind('command.palette', () => this.shell.togglePalette()),
     ];
     this.destroyRef.onDestroy(() => {
       for (const off of unbind) {

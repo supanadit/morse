@@ -246,12 +246,25 @@ export class ShellState {
   readonly shortcutsOpen = this.shortcuts.asReadonly();
 
   /**
+   * The command palette. Shell state like the help: the shortcut opens it from
+   * anywhere, it renders over the whole app from one place, and `modalOpen` has
+   * to know it owns the screen.
+   */
+  private readonly palette = signal(false);
+  readonly paletteOpen = this.palette.asReadonly();
+
+  /**
    * The project filter. The list narrowed to one project is `SessionNav`'s to
-   * keep, but the flag lives here: two places open it (the sidebar button and
-   * the shortcut), and `modalOpen` has to be honest about what is on screen.
+   * render, but *which* project and whether the panel is up live here: two
+   * places open the panel (the sidebar button and the shortcut), the command
+   * palette narrows the list too, and `modalOpen` has to be honest about what is
+   * on screen.
    */
   private readonly projectFilter = signal(false);
   readonly projectFilterOpen = this.projectFilter.asReadonly();
+  private readonly projectFocus = signal('');
+  /** The project the sidebar is narrowed to; `''` shows every one of them. */
+  readonly projectFilterPath = this.projectFocus.asReadonly();
 
   /**
    * The prompt-template form. The composer owns the request (it needs the
@@ -279,6 +292,7 @@ export class ShellState {
     () =>
       this.about() ||
       this.shortcuts() ||
+      this.palette() ||
       this.projectPicker() ||
       this.projectFilter() ||
       this.promptTemplate() ||
@@ -418,6 +432,24 @@ export class ShellState {
   /** `?` means the same key opens and closes the list, so it is a toggle. */
   toggleShortcuts(): void {
     this.shortcuts.update((open) => !open);
+  }
+
+  openPalette(): void {
+    this.palette.set(true);
+  }
+
+  closePalette(): void {
+    this.palette.set(false);
+  }
+
+  /** The palette's own key toggles it closed as well as open. */
+  togglePalette(): void {
+    this.palette.update((open) => !open);
+  }
+
+  /** Narrows the sidebar to one project; `''` is every project. */
+  setProjectFilter(path: string): void {
+    this.projectFocus.set(path);
   }
 
   openProjectFilter(): void {

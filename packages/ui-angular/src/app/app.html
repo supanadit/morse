@@ -33,6 +33,12 @@
     <morse-shortcuts-dialog />
   }
 
+  <!-- The command palette: one field over commands, tabs, sessions, projects,
+       files and the model. Mounted at the app level so it covers everything. -->
+  @if (paletteOpen()) {
+    <morse-command-palette />
+  }
+
   @if (compactConfirmOpen()) {
     <morse-confirm-dialog
       title="Compact the conversation?"

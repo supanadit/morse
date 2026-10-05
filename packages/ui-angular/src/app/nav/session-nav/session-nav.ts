@@ -458,7 +458,7 @@ export class SessionNav {
   protected readonly collapsed = signal<Record<string, boolean>>({});
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
   /** Which project the list is narrowed to; `''` shows every one of them. */
-  protected readonly projectFilter = signal('');
+  protected readonly projectFilter = this.shell.projectFilterPath;
   /**
    * The filter panel's open flag lives in `ShellState`: the shortcut opens it from
    * outside this component, and the shell watches it to know a dialog is up.
@@ -753,13 +753,13 @@ export class SessionNav {
   }
 
   protected onProjectSelect(path: string): void {
-    this.projectFilter.set(path);
+    this.shell.setProjectFilter(path);
     this.closeFilter();
   }
 
   /** The empty state's way out: jump to the project whose name the reader typed. */
   protected filterToProject(project: ProjectOption): void {
-    this.projectFilter.set(project.path);
+    this.shell.setProjectFilter(project.path);
     // The reader asked for that project, not for those characters in a session
     // title — keeping the query would land them in a filtered project with an
     // empty list, which is the confusion this jump exists to fix.

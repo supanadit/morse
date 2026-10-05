@@ -5,6 +5,7 @@ import { ShellState } from './shell-state';
 export type ActionId =
   | 'session.new'
   | 'session.search'
+  | 'command.palette'
   | 'project.filter'
   | 'view.git'
   | 'model.pick'
@@ -49,7 +50,12 @@ interface ShortcutBase {
 /** A shortcut this service matches on every keydown. */
 export interface ManagedShortcut extends ShortcutBase {
   readonly id: ActionId;
-  readonly binding: Binding;
+  /**
+   * One gesture, or several that mean the same thing. An array is how a second
+   * key reaches one action without a second catalog row: the `?` dialog still
+   * prints a single line, with its keys joined by `/`.
+   */
+  readonly binding: Binding | readonly Binding[];
   /**
    * The action puts something on top of the app. While a dialog is already up
    * these stand down — a picker opened behind a modal is a bug, not a feature.
@@ -95,6 +101,18 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     label: 'Focus the session search',
     detail: 'Opens the sidebar when the layout hid it, and puts the caret in the field. In the prompt, `/` opens the command palette instead.',
     binding: { key: '/' },
+  },
+  {
+    id: 'command.palette',
+    group: 'Navigate',
+    label: 'Command palette',
+    detail: 'One field for everything: run a command, switch a tab, open a session, file or project, or pick the model and thinking level. A leading >, #, @ or : narrows it to that source.',
+    binding: [
+      { key: 'k', mod: true, alt: true },
+      { key: '/', mod: true, alt: true },
+    ],
+    overlay: true,
+    whileTyping: true,
   },
   {
     id: 'project.filter',
@@ -192,7 +210,14 @@ export function isApple(): boolean {
  * How the keys are printed for this machine: `Ctrl+Alt+N` / `⌘⌥N`. Letters are
  * upper-cased, symbols (`?`, `/`) are left alone.
  */
-export function bindingLabel(binding: Binding, apple = isApple()): string {
+export function bindingLabel(binding: Binding | readonly Binding[], apple = isApple()): string {
+  return asBindings(binding)
+    .map((one) => labelOne(one, apple))
+    .join(' / ');
+}
+
+/** One combination, printed for this machine. */
+function labelOne(binding: Binding, apple: boolean): string {
   const parts: string[] = [];
   if (binding.mod === true) {
     parts.push(apple ? '⌘' : 'Ctrl');
@@ -202,6 +227,11 @@ export function bindingLabel(binding: Binding, apple = isApple()): string {
   }
   parts.push(binding.key.length === 1 && /[a-z]/.test(binding.key) ? binding.key.toUpperCase() : binding.key);
   return apple ? parts.join('') : parts.join('+');
+}
+
+/** A single binding as a one-element list, so the matcher and printer share a shape. */
+function asBindings(binding: Binding | readonly Binding[]): readonly Binding[] {
+  return Array.isArray(binding) ? binding : [binding as Binding];
 }
 
 /** One action an owner has taken responsibility for. */
@@ -283,6 +313,21 @@ export class ShortcutService {
     this.revision.update((value) => value + 1);
   }
 
+  /**
+   * Runs an action for a caller that is not the keyboard — the command palette.
+   * It goes through the same owner-bound handler the key would, and refuses when
+   * that owner says it cannot run, so the palette offers exactly what the `?`
+   * list offers and neither grows a second implementation.
+   */
+  run(id: ActionId): boolean {
+    const handler = this.handlers.get(id);
+    if (handler === undefined || (handler.enabled !== undefined && !handler.enabled())) {
+      return false;
+    }
+    handler.run();
+    return true;
+  }
+
   private readonly onKeydown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.isComposing) {
       return;
@@ -306,7 +351,9 @@ export class ShortcutService {
     // closes the list it opened. Over somebody else's dialog it stays quiet, so
     // the list never stacks on top of About or the project filter.
     if (spec.overlay === true && this.shell.modalOpen()) {
-      const ownDialog = spec.id === 'help.shortcuts' && this.shell.shortcutsOpen();
+      const ownDialog =
+        (spec.id === 'help.shortcuts' && this.shell.shortcutsOpen()) ||
+        (spec.id === 'command.palette' && this.shell.paletteOpen());
       if (!ownDialog) {
         return;
       }
@@ -326,7 +373,11 @@ export class ShortcutService {
  * keyboard *produces* a key: `Ctrl+Alt+Shift+N` is still the gesture for "new
  * session" (same letters), while `Ctrl+Shift+M` alone is not the model chooser.
  */
-function matches(binding: Binding, event: KeyboardEvent): boolean {
+function matches(binding: Binding | readonly Binding[], event: KeyboardEvent): boolean {
+  return asBindings(binding).some((one) => matchesOne(one, event));
+}
+
+function matchesOne(binding: Binding, event: KeyboardEvent): boolean {
   if (event.key.toLowerCase() !== binding.key.toLowerCase()) {
     return false;
   }

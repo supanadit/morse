@@ -1,0 +1,71 @@
+<div class="modal-layer" (click)="dismiss()">
+  <div
+    class="modal-card"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Command palette"
+    (click)="$event.stopPropagation()"
+  >
+    <div class="search">
+      <input
+        #search
+        type="text"
+        aria-label="Command palette"
+        placeholder="Run a command, open a session, file or project, or pick a model…"
+        autocomplete="off"
+        spellcheck="false"
+        [value]="query()"
+        (input)="onInput($event)"
+      />
+      <kbd class="esc">Esc</kbd>
+    </div>
+
+    <div class="list" role="listbox" #list>
+      @for (group of groups(); track group.kind) {
+        <section class="group" role="group" [attr.aria-label]="group.title">
+          <div class="group-title">{{ group.title }}</div>
+          @for (entry of group.entries; track entry.id) {
+            <button
+              type="button"
+              class="row"
+              role="option"
+              [class.active]="entry.id === activeId()"
+              [attr.aria-selected]="entry.id === activeId()"
+              (mouseenter)="hover(entry)"
+              (click)="pick(entry)"
+            >
+              <span class="icon" aria-hidden="true">{{ entry.icon }}</span>
+              <span class="text">
+                <span class="label">{{ entry.label }}</span>
+                @if (entry.description) {
+                  <span class="description">{{ entry.description }}</span>
+                }
+              </span>
+              @if (entry.badge) {
+                <span class="badge">{{ entry.badge }}</span>
+              }
+            </button>
+          }
+        </section>
+      } @empty {
+        <div class="empty">
+          @if (locked()) {
+            Nothing here matches that. Remove the leading character for every source.
+          } @else {
+            No match.
+          }
+        </div>
+      }
+    </div>
+
+    <div class="hint">
+      <kbd>↑</kbd><kbd>↓</kbd><span>move</span>
+      <kbd>Tab</kbd><span>next source</span>
+      <kbd>Enter</kbd><span>run</span>
+      <span class="spacer"></span>
+      <span class="prefixes" title="Narrow the list to one source">
+        <kbd>&gt;</kbd> commands · <kbd>#</kbd> sessions · <kbd>@</kbd> files · <kbd>:</kbd> projects
+      </span>
+    </div>
+  </div>
+</div>

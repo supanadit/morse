@@ -149,9 +149,28 @@ describe('ShellState', () => {
     expect(shell.shortcutsOpen()).toBe(false);
     expect(shell.modalOpen()).toBe(false);
 
+    shell.togglePalette();
+    expect(shell.paletteOpen()).toBe(true);
+    expect(shell.modalOpen()).toBe(true);
+    shell.closePalette();
+    expect(shell.paletteOpen()).toBe(false);
+    expect(shell.modalOpen()).toBe(false);
+
     shell.requestCompact('keep the schema');
     expect(shell.modalOpen()).toBe(true);
     shell.closeCompactPrompt();
     expect(shell.modalOpen()).toBe(false);
+  });
+
+  it('shares the project the sidebar is narrowed to', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.projectFilterPath()).toBe('');
+
+    shell.setProjectFilter('/work/morse');
+    expect(shell.projectFilterPath()).toBe('/work/morse');
+
+    // Back to every project — the palette's "All projects" row uses the same setter.
+    shell.setProjectFilter('');
+    expect(shell.projectFilterPath()).toBe('');
   });
 });

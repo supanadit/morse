@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SHORTCUTS, ShortcutService, bindingLabel, isManagedShortcut } from './shortcuts';
+import { SHORTCUTS, ShortcutService, bindingLabel, isManagedShortcut, type Binding } from './shortcuts';
 import { ShellState } from './shell-state';
 
 type Press = { key: string; ctrl?: boolean; alt?: boolean; meta?: boolean; target?: EventTarget };
@@ -44,6 +44,7 @@ describe('shortcut catalog', () => {
     const managed = SHORTCUTS.filter(isManagedShortcut).map((spec) => spec.id);
 
     expect(managed.sort()).toEqual([
+      'command.palette',
       'context.compact',
       'help.shortcuts',
       'model.pick',
@@ -66,6 +67,16 @@ describe('shortcut catalog', () => {
     // A symbol is a key in its own right: Shift is how the keyboard makes it.
     expect(bindingLabel({ key: '?' }, false)).toBe('?');
     expect(bindingLabel({ key: '/' }, true)).toBe('/');
+  });
+
+  it('prints every key of a multi-key action on its one row', () => {
+    const palette: readonly Binding[] = [
+      { key: 'k', mod: true, alt: true },
+      { key: '/', mod: true, alt: true },
+    ];
+
+    expect(bindingLabel(palette, true)).toBe('⌘⌥K / ⌘⌥/');
+    expect(bindingLabel(palette, false)).toBe('Ctrl+Alt+K / Ctrl+Alt+/');
   });
 });
 
@@ -186,6 +197,50 @@ describe('ShortcutService', () => {
     expect(service().available().get('thinking.pick')).toBe(false);
     press({ key: 't', ctrl: true, alt: true });
     expect(ran).not.toHaveBeenCalled();
+  });
+
+  it('runs an action from any of its keys', () => {
+    const ran = vi.fn();
+    service().bind('command.palette', ran);
+
+    press({ key: 'k', ctrl: true, alt: true });
+    press({ key: '/', ctrl: true, alt: true });
+    expect(ran).toHaveBeenCalledTimes(2);
+
+    // A key that is not on the row is not a match, even with the modifiers.
+    press({ key: 'p', ctrl: true, alt: true });
+    expect(ran).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs an action for a caller that is not the keyboard, and respects the owner', () => {
+    const ran = vi.fn();
+    const ready = signal(true);
+    const unbind = service().bind('context.compact', ran, () => ready());
+
+    expect(service().run('context.compact')).toBe(true);
+    expect(ran).toHaveBeenCalledTimes(1);
+
+    ready.set(false);
+    expect(service().run('context.compact')).toBe(false);
+    expect(ran).toHaveBeenCalledTimes(1);
+
+    unbind();
+    expect(service().run('context.compact')).toBe(false);
+  });
+
+  it('lets the palette key close the palette it opened, but not another dialog', () => {
+    const toggle = vi.fn();
+    service().bind('command.palette', toggle);
+    const shell = TestBed.inject(ShellState);
+
+    shell.openPalette();
+    press({ key: 'k', ctrl: true, alt: true });
+    expect(toggle).toHaveBeenCalledTimes(1);
+
+    shell.closePalette();
+    shell.openAbout();
+    press({ key: 'k', ctrl: true, alt: true });
+    expect(toggle).toHaveBeenCalledTimes(1);
   });
 
   it('leaves an unbound action alone instead of guessing', () => {
