@@ -132,6 +132,10 @@
 
       @if (agentScreen()) {
         <morse-agent-screen />
+      } @else if (noSessionSelected()) {
+        <!-- No tab is in front: nothing to read and nothing to send. The panel
+             says so and offers the one action that changes it. -->
+        <morse-empty-session [hasTabs]="hasSessionTabs()" (create)="newSession()" />
       } @else {
         <morse-chat-transcript />
         <morse-interaction-panel />

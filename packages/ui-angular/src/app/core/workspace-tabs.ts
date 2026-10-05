@@ -142,7 +142,7 @@ export class WorkspaceTabs {
 
   readonly tabs = this.items.asReadonly();
   readonly activeId = this.active.asReadonly();
-  /** The first row: sessions, and files opened from the Explorer. */
+  /** The first row: sessions, and files opened with no session in front. */
   readonly mainTabs = computed(() =>
     this.items().filter((tab) => tab.kind === 'session' || tab.mention !== true),
   );
@@ -150,17 +150,33 @@ export class WorkspaceTabs {
     this.items().find((tab) => tab.id === this.active()),
   );
   /**
-   * The session the strip is showing context for: the active session tab, or the
-   * owner of the quoted file in front. `undefined` when neither is a session (a
-   * plain Explorer file in front), so no session's context leaks into another's
-   * view.
+   * No session is in front on a host that shows the strip: the panel is the empty
+   * placeholder, not a conversation. Only a tabbed host has this state — VS Code
+   * has no strip, and its session-less panel is a normal "start a session".
    */
-  private readonly contextSessionId = computed<string | undefined>(() => {
+  readonly noSessionInFront = computed(
+    () => this.morse.capabilities()?.filePreview === true && this.active() === undefined,
+  );
+  /**
+   * The session the strip is showing context for: the active session tab, or the
+   * owner of the file in front. `undefined` when neither is a session (a plain
+   * file standing alone), so no session's context leaks into another's view.
+   *
+   * Public because the strip uses it to mark the session a chip belongs to.
+   */
+  readonly contextSessionId = computed<string | undefined>(() => {
     const tab = this.activeTab();
     if (tab?.kind === 'session') {
       return tab.id;
     }
-    return tab?.kind === 'file' && tab.mention === true ? tab.sessionId : undefined;
+    if (tab?.kind !== 'file' || tab.sessionId === undefined) {
+      return undefined;
+    }
+    // A file opened from the Explorer or git carries the session it was opened
+    // under, so a pin from its preview lands in that conversation. The id only
+    // counts while that session is still open: a stale one falls through to the
+    // host's active session instead of reviving a closed tab.
+    return this.findSession(tab.sessionId) !== undefined ? tab.sessionId : undefined;
   });
   /**
    * The draft key the composer should be editing. A plain file tab has no session
@@ -171,9 +187,9 @@ export class WorkspaceTabs {
     () => this.contextSessionId() ?? this.morse.state().sessionId,
   );
   /**
-   * The second row: only the quoted files of the session in front. A file the
-   * user never quoted in that session is not this session's context, so it does
-   * not appear here.
+   * The second row: the files attached to the session in front, as chips — from
+   * the Explorer, the git panel, or the `@` picker. A file attached to another
+   * session is not this session's context, so it does not appear here.
    */
   readonly mentionTabs = computed<FileTab[]>(() => {
     const owner = this.contextSessionId();
@@ -333,7 +349,11 @@ export class WorkspaceTabs {
           path: tab.path,
           title: tab.title,
           ...(tab.mention === true ? { mention: true } : {}),
-          ...(tab.sessionId !== undefined ? { sessionId: tab.sessionId } : {}),
+          // Only an owner that is still an open session is worth restoring; a
+          // stale one would resurrect a closed conversation on the next boot.
+          ...(tab.sessionId !== undefined && sessionIds.has(tab.sessionId)
+            ? { sessionId: tab.sessionId }
+            : {}),
           ...(tab.language !== undefined ? { language: tab.language } : {}),
           ...(tab.commitHash !== undefined ? { commitHash: tab.commitHash } : {}),
           ...(tab.commitSubject !== undefined ? { commitSubject: tab.commitSubject } : {}),
@@ -421,71 +441,137 @@ export class WorkspaceTabs {
     this.restorePending = false;
   }
 
-  /** Opens or reveals a file tab from the Explorer; reads it the first time. */
+  /**
+   * Opens or reveals a file tab from the Explorer. With a session in front the
+   * file is that session's **chip** (the row that never pushes a session tab
+   * aside); with no session it stands on its own, like a session.
+   */
   openFile(path: string): void {
-    this.openFileTab(path, false, undefined);
+    const owner = this.focusedOwner();
+    this.placeFileTab(`${FILE_PREFIX}${path}`, path, path, owner.id !== undefined, owner.id, owner.cwd);
   }
 
   /**
    * Opens a file's diff *inside a commit*, from the git panel's expanded row. It
-   * gets its own tab, separate from the working-tree preview of the same path:
-   * the diff is against the commit, not HEAD.
+   * is its own tab, separate from the working-tree preview of the same path — the
+   * diff is against the commit, not HEAD — and follows the same rule as the
+   * Explorer: a chip for the session in front, a plain tab when there is none.
    */
   openCommitFile(hash: string, path: string, subject: string): void {
-    const id = commitTabId(hash, path);
-    const existing = this.items().find((tab) => tab.id === id);
-    if (existing === undefined) {
-      this.items.update((tabs) => [
-        ...tabs,
-        {
-          kind: 'file',
-          id,
-          path,
-          title: basename(path),
-          language: languageForPath(path),
-          loading: false,
-          commitHash: hash,
-          commitSubject: subject,
-          projectCwd: this.morse.state().workspace?.cwd,
-        },
-      ]);
-    }
-    this.active.set(id);
-    // The preview loads the diff on its own, but a non-rendered host (or a tab
-    // revealed programmatically) still gets the content this way.
-    this.loadDiff(id);
+    const owner = this.focusedOwner();
+    const commitId = commitTabId(hash, path);
+    this.placeFileTab(commitId, commitId, path, owner.id !== undefined, owner.id, owner.cwd, {
+      commitHash: hash,
+      commitSubject: subject,
+    });
   }
 
   /**
-   * Opens or reveals a file tab from the `@` picker. It belongs to the session in
-   * front, stays in its own row so it does not push the session tabs aside, and
-   * is keyed by that session so the same path quoted elsewhere is a second tab.
+   * Opens or reveals a file tab from the `@` picker. It always belongs to the
+   * session in front — a chip in that session's row, keyed by it, so the same
+   * path quoted elsewhere is a second chip.
    */
   openMentionFile(path: string): void {
-    this.openFileTab(path, true, this.contextSessionId());
+    const owner = this.focusedOwner();
+    this.placeFileTab(`${FILE_PREFIX}${path}`, path, path, true, owner.id, owner.cwd);
   }
 
-  private openFileTab(path: string, mention: boolean, sessionId?: string): void {
-    const id = mention ? mentionTabId(sessionId, path) : `${FILE_PREFIX}${path}`;
+  /**
+   * The session a file opened right now belongs to: the tab in front (a session,
+   * or a file that already carries one), else the host's active session — but only
+   * while that session has a tab to attach to. With no session to belong to, a
+   * file from the Explorer or git stands alone instead of becoming a chip nobody
+   * can see.
+   */
+  private focusedOwner(): { id?: string; cwd?: string } {
+    const tab = this.activeTab();
+    if (tab?.kind === 'session') {
+      return { id: tab.id, cwd: tab.cwd ?? this.morse.state().workspace?.cwd };
+    }
+    if (tab?.kind === 'file' && tab.sessionId !== undefined && this.findSession(tab.sessionId) !== undefined) {
+      return { id: tab.sessionId, cwd: tab.projectCwd ?? this.morse.state().workspace?.cwd };
+    }
+    const host = this.morse.state().sessionId;
+    if (host !== undefined && this.findSession(host) !== undefined) {
+      return { id: host, cwd: this.morse.state().workspace?.cwd };
+    }
+    return { cwd: this.morse.state().workspace?.cwd };
+  }
+
+  /**
+   * Opens or reveals one file tab in the form the caller asked for: attached to a
+   * session (`mention`, a chip in its row, id keyed by the session) or standing
+   * alone (a main-row tab). Attaching a path that is already open on its own moves
+   * that tab rather than leaving the same file open twice.
+   */
+  private placeFileTab(
+    standaloneId: string,
+    mentionKey: string,
+    path: string,
+    mention: boolean,
+    sessionId: string | undefined,
+    projectCwd: string | undefined,
+    extra: Partial<FileTab> = {},
+  ): void {
+    const id = mention ? mentionTabId(sessionId, mentionKey) : standaloneId;
     const existing = this.items().find((tab) => tab.id === id);
-    if (existing === undefined) {
-      this.items.update((tabs) => [
-        ...tabs,
-        {
-          kind: 'file',
-          id,
-          path,
-          title: basename(path),
-          language: languageForPath(path),
-          loading: true,
-          mention,
-          sessionId: mention ? sessionId : undefined,
-          projectCwd: this.morse.state().workspace?.cwd,
-        },
-      ]);
+    if (existing !== undefined) {
+      if (existing.kind === 'file') {
+        this.revealFileTab(id, existing, sessionId, projectCwd);
+      }
+      return;
+    }
+    // The path may be open in the other form; move it rather than duplicate it.
+    const standalone = mention
+      ? this.items().find((tab): tab is FileTab => tab.kind === 'file' && tab.id === standaloneId)
+      : undefined;
+    if (standalone !== undefined) {
+      const reread = standalone.projectCwd !== projectCwd;
+      this.items.update((tabs) =>
+        tabs.map((tab) =>
+          tab.id === standalone.id && tab.kind === 'file'
+            ? { ...tab, id, mention: true, sessionId, projectCwd, ...(reread ? clearedPreview() : {}) }
+            : tab,
+        ),
+      );
+      this.active.set(id);
+      if (reread || this.needsLoad(standalone)) {
+        void this.load(id);
+      }
+      return;
+    }
+    this.items.update((tabs) => [
+      ...tabs,
+      {
+        kind: 'file',
+        id,
+        path,
+        title: basename(path),
+        language: languageForPath(path),
+        loading: false,
+        mention,
+        sessionId,
+        projectCwd,
+        ...extra,
+      },
+    ]);
+    this.active.set(id);
+    void this.load(id);
+  }
+
+  /** Focuses an already-open file tab, re-reading it when its project moved. */
+  private revealFileTab(
+    id: string,
+    tab: FileTab,
+    sessionId: string | undefined,
+    projectCwd: string | undefined,
+  ): void {
+    const reread = tab.projectCwd !== projectCwd;
+    if (tab.sessionId !== sessionId || reread) {
+      this.patch(id, { sessionId, projectCwd, ...(reread ? clearedPreview() : {}) });
     }
     this.active.set(id);
-    if (existing === undefined || this.needsLoad(existing)) {
+    if (reread || this.needsLoad(tab)) {
       void this.load(id);
     }
   }
@@ -1087,7 +1173,15 @@ function commitTabId(hash: string, path: string): string {
   return `commit:${hash}:${path}`;
 }
 
-/** The row a tab renders in: quoted files get their own, below the sessions. */
+/**
+ * Drops a file tab's content and diff, so a reveal that changed the project reads
+ * the new directory instead of showing the old one's bytes.
+ */
+function clearedPreview(): Partial<FileTab> {
+  return { content: undefined, error: undefined, diff: undefined, diffError: undefined };
+}
+
+/** The row a tab renders in: files attached to a session get their own, below the sessions. */
 function tabRow(tab: WorkspaceTab): 'main' | 'mention' {
   return tab.kind === 'file' && tab.mention === true ? 'mention' : 'main';
 }

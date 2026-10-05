@@ -58,6 +58,7 @@ class TitledSessionTransport extends BaseHostTransport {
         },
         state: {
           sessionId: 'session-1',
+          sessionTitle: 'Sekarang tampilan tool',
           workspace: { cwd: '/work/morse', name: 'morse' },
           thinkingLevel: 'off',
           availableModels: [],
@@ -119,6 +120,72 @@ describe('App session tabs', () => {
     // The stale tab stays, but it must not look like the conversation on screen.
     expect(fixture.nativeElement.querySelectorAll('.tab')).toHaveLength(1);
     expect(fixture.nativeElement.querySelector('.tab.active')).toBeNull();
+  });
+
+  it('does not name the previous project in the header once no tab is in front', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+    const header = () => fixture.nativeElement.querySelector('morse-chat-header') as HTMLElement;
+
+    expect(header().querySelector('.title')?.textContent?.trim()).toBe('Sekarang tampilan tool');
+    expect(header().querySelector('.meta')?.textContent).toContain('morse');
+
+    transport.dropToDraft();
+    fixture.detectChanges();
+
+    // The host's workspace is still /work/morse, but no conversation is in front:
+    // the header must not claim that project as this empty panel's subject.
+    expect(header().querySelector('.title')?.textContent?.trim()).toBe('Morse');
+    expect(header().querySelector('.meta')).toBeNull();
+  });
+
+  it('hides the chat and offers a session when no tab is in front', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('textarea')).toBeTruthy();
+
+    transport.dropToDraft();
+    fixture.detectChanges();
+
+    // No conversation to read and none to send: the composer is gone, not merely
+    // disabled, and the panel says what to do instead of showing a hero.
+    expect(fixture.nativeElement.querySelector('textarea')).toBeNull();
+    expect(fixture.nativeElement.querySelector('morse-empty-session')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('morse-empty-session')?.textContent).toContain(
+      'Pick a session from the tabs above',
+    );
+  });
+
+  it('starts a session from the placeholder when no tab is open at all', () => {
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new TitledSessionTransport() }],
+    });
+    const fixture = render();
+
+    // Close the only tab: the strip is empty, so there is nothing to pick.
+    (fixture.nativeElement.querySelector('.tab .close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.tab')).toHaveLength(0);
+    expect(fixture.nativeElement.querySelector('morse-empty-session')?.textContent).toContain(
+      'Start a new session',
+    );
+
+    // Its button runs the sidebar's own "New session" (a draft tab, then the chat).
+    (fixture.nativeElement.querySelector('morse-empty-session button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelectorAll('.tab')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('morse-empty-session')).toBeNull();
+    expect(fixture.nativeElement.querySelector('textarea')).toBeTruthy();
   });
 
   it('closing the last session tab leaves the strip empty for good', () => {

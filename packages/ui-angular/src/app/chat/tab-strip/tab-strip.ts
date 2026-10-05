@@ -24,6 +24,9 @@ interface TabMenu {
  * The browser host's tab strip: every open session and file, one active at a
  * time. VS Code never renders it — its editor already owns the tabs, and the
  * host advertises `filePreview: false`.
+ *
+ * A file attached to a session (a chip in the second row) also marks its session
+ * in the first row, so which session a chip belongs to is never a guess.
  */
 @Component({
   selector: 'morse-tab-strip',
@@ -152,6 +155,19 @@ interface TabMenu {
         color: var(--morse-fg);
         box-shadow: inset 0 -2px 0 var(--morse-accent);
       }
+      /*
+       * The session whose chip is in front. Marked — with a softer underline than
+       * the active tab's — so the chip's owner is obvious instead of the reader
+       * having to guess which session it belongs to.
+       */
+      .tab.parent {
+        background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
+        color: var(--morse-fg);
+        box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--morse-accent) 45%, transparent);
+      }
+      .tab.parent .glyph {
+        color: var(--morse-accent);
+      }
       /* A session the agent is streaming in: a spinner, active or not. */
       .tab .live {
         flex: none;
@@ -270,6 +286,14 @@ export class TabStrip {
   private readonly menuState = signal<TabMenu | undefined>(undefined);
   protected readonly menu = this.menuState.asReadonly();
   protected readonly closableOthers = computed(() => this.items().length > 1);
+  /**
+   * The session a chip in front belongs to, so the main row can mark it. `undefined`
+   * unless the active tab is a chip (a file attached to a session).
+   */
+  protected readonly activeChipOwner = computed<string | undefined>(() => {
+    const tab = this.tabs.activeTab();
+    return tab?.kind === 'file' && tab.mention === true ? this.tabs.contextSessionId() : undefined;
+  });
 
   protected glyph(tab: WorkspaceTab): string {
     return tab.kind === 'session' ? '✦' : fileGlyph(tab.title);

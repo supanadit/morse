@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, injec
 import { BootSplash } from './boot/boot-splash';
 import { ConnectionScreen } from './connection/connection-screen';
 import { ChatComposer } from './chat/chat-composer/chat-composer';
+import { EmptySession } from './chat/empty-session/empty-session';
 import { ChatHeader } from './chat/chat-header/chat-header';
 import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
 import { FilePreview } from './chat/file-preview/file-preview';
@@ -52,6 +53,7 @@ function previewBoot(): boolean {
     ChatTranscript,
     InteractionPanel,
     ChatComposer,
+    EmptySession,
     TabStrip,
     BottomPanel,
     FilePreview,
@@ -142,6 +144,17 @@ export class App {
     const tab = this.tabs.activeTab();
     return tab?.kind === 'file' ? tab : undefined;
   });
+  /**
+   * No session tab is in front, on the host that shows the strip. The panel shows
+   * a placeholder instead of a conversation that does not exist, and the composer
+   * is not mounted at all — a prompt typed with no session used to silently open
+   * one. The shared signal lives on `WorkspaceTabs` so the header reads it too.
+   */
+  protected readonly noSessionSelected = this.tabs.noSessionInFront;
+  /** Whether any session tab is open behind the placeholder, so it can say so. */
+  protected readonly hasSessionTabs = computed(() =>
+    this.tabs.tabs().some((tab) => tab.kind === 'session'),
+  );
   /** The last session the strip brought forward, so a redraw does not re-focus it. */
   private focusedSession: string | undefined;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
@@ -431,6 +444,15 @@ export class App {
 
   protected closeNavigation(): void {
     this.shell.closeNavigation();
+  }
+
+  /**
+   * The empty panel's "New session": the sidebar's own action, host-aware (a
+   * global host asks which folder first), rather than a second implementation
+   * that could drift from the button and the key.
+   */
+  protected newSession(): void {
+    this.shortcuts.run('session.new');
   }
 
   protected retryConnection(): void {

@@ -3,6 +3,7 @@ import { MorseService } from '../../core/morse.service';
 import { DisplayPrefs } from '../../core/display-prefs';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
 
 @Component({
   selector: 'morse-chat-header',
@@ -163,6 +164,7 @@ export class ChatHeader {
   private readonly shell = inject(ShellState);
   private readonly display = inject(DisplayPrefs);
   private readonly shortcuts = inject(ShortcutService);
+  private readonly tabs = inject(WorkspaceTabs);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly state = this.morse.state;
@@ -230,18 +232,29 @@ export class ChatHeader {
     return detail ? `${this.statusLabel()} · ${detail}` : this.statusLabel();
   });
 
-  protected readonly title = computed(
-    () => this.state().sessionTitle || this.workspace().name || 'Morse',
-  );
+  /**
+   * True when no session is in front on a tabbed host — the empty placeholder.
+   * The host's workspace is still whatever it last was, so naming it here read as
+   * "this empty panel belongs to the previous project".
+   */
+  private readonly noSessionInFront = this.tabs.noSessionInFront;
+
+  protected readonly title = computed(() => {
+    if (this.noSessionInFront()) {
+      return 'Morse';
+    }
+    return this.state().sessionTitle || this.workspace().name || 'Morse';
+  });
 
   /**
    * One muted line under the title. The workspace name is only repeated when it
-   * is not already the title — a fresh session used to read "morse" twice.
+   * is not already the title — a fresh session used to read "morse" twice — and
+   * not at all when no session is in front.
    */
   protected readonly meta = computed(() => {
     const parts: string[] = [];
     const workspaceName = this.workspace().name;
-    if (workspaceName && workspaceName !== this.title()) {
+    if (!this.noSessionInFront() && workspaceName && workspaceName !== this.title()) {
       parts.push(workspaceName);
     }
     const model = this.state().model;

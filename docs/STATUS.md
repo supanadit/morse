@@ -72,7 +72,8 @@ turns them on so the panel stands on its own:
   working tree's uncommitted changes with a per-file kind. Resizable from its edge; long refs fold.
 - **Explorer**: the session project's files with git status badges, resizable, refreshed by polling
   `listFiles` (`fresh: true`) and `gitStatus`.
-- **Preview tabs**: a file opens in a read-only tab beside the sessions; over 512 kB is truncated and a binary
+- **Preview tabs**: a file opens read-only as a chip of the session in front (its own tab when no session is
+  open); over 512 kB is truncated and a binary
   is named rather than decoded. Drag the line numbers to pin a `path:start-end` range into your next message;
   touching ranges merge and can be edited by their handles.
 - **Tab strip**: sessions and files open side by side, quoted files get their own row, and right-click offers

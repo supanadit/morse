@@ -63,19 +63,43 @@ describe('TabStrip context menu', () => {
     expect(right?.disabled).toBe(true);
   });
 
-  it('renders a second row for files opened from the mention picker', () => {
+  it('renders a file as a chip of the session in front, and a plain row with none', () => {
     const { fixture, tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });
     tabs.openFile('README.md');
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.strip')).toHaveLength(1);
 
-    tabs.openMentionFile('docs/STATUS.md');
-    fixture.detectChanges();
-
+    // The Explorer's file is s1's chip: a second row, not a tab beside the session.
     const rows = fixture.nativeElement.querySelectorAll('.strip');
     expect(rows).toHaveLength(2);
-    expect(rows[1].textContent).toContain('STATUS.md');
+    expect(rows[1].textContent).toContain('README.md');
+
+    // With no session in front, the same call opens its own main-row tab.
+    tabs.closeAll();
+    fixture.detectChanges();
+    tabs.openFile('docs/STATUS.md');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.strip')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('.strip').textContent).toContain('STATUS.md');
+  });
+
+  it('marks the session a chip in front belongs to', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.openFile('README.md');
+    fixture.detectChanges();
+
+    const [main] = [...fixture.nativeElement.querySelectorAll('.strip')] as HTMLElement[];
+    const sessions = [...main.querySelectorAll('.tab')] as HTMLElement[];
+    const s1 = sessions.find((tab) => tab.textContent?.includes('One'));
+    const s2 = sessions.find((tab) => tab.textContent?.includes('Two'));
+
+    // The chip is the active tab; its session is marked as its owner, not as
+    // active itself, so the chip's origin is obvious.
+    expect(s2?.classList.contains('parent')).toBe(true);
+    expect(s2?.classList.contains('active')).toBe(false);
+    expect(s1?.classList.contains('parent')).toBe(false);
   });
 
   it('marks a running session tab, even when another tab is in front', () => {

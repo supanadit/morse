@@ -604,6 +604,10 @@ export class ChatComposer {
    * (`autoOpen: false`) the host lazily opens one on the first prompt, so
    * "agent not ready yet" must not block the composer. Only a spawn failure
    * does: that is when the banner offers Retry instead.
+   *
+   * Where the host has a tab strip (the browser host), `App` does not mount the
+   * composer at all until a session tab is in front, so this only decides the
+   * lazy start on a host with no tabs (VS Code).
    */
   protected readonly canSend = computed(
     () => this.connected() && !this.agentStarting() && this.agentError() === undefined,

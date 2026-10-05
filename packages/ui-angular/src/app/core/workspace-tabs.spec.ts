@@ -70,13 +70,14 @@ describe('WorkspaceTabs', () => {
     expect(fake.requestHostCommand).toHaveBeenCalledTimes(1);
     expect(tabs.activeTab()).toMatchObject({ kind: 'file', content: 'const x = 1;\n', loading: false });
 
-    // Revealing the same tab again (it was pushed behind a session) is free.
+    // Re-opening it under a session moves it into that session's chip row, and
+    // the move does not re-read the file.
     tabs.focusSession({ id: 's1', title: 'One' });
     fake.requestHostCommand.mockClear();
     tabs.openFile('src/main.ts');
     await flush();
     expect(fake.requestHostCommand).not.toHaveBeenCalled();
-    expect(tabs.activeId()).toBe('file:src/main.ts');
+    expect(tabs.activeId()).toBe('mention:s1:src/main.ts');
   });
 
   it('reports a read failure on the tab instead of hanging in loading', async () => {
@@ -517,6 +518,78 @@ describe('WorkspaceTabs', () => {
     expect(drafts.text()).toBe('the first prompt');
   });
 
+  it('keeps a file opened under a session attached to that session', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/work/morse' });
+    tabs.openFile('a.ts');
+
+    // A file opened while s1 is in front is s1's chip — not a tab beside the
+    // sessions — and it carries the project it was read from.
+    expect(tabs.activeTab()).toMatchObject({ mention: true, sessionId: 's1', projectCwd: '/work/morse' });
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s1:a.ts']);
+    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.composerKey()).toBe('s1');
+
+    // Picking its chip back up keeps the composer with s1.
+    tabs.focusSession({ id: 's2', title: 'Two', cwd: '/work/morse' });
+    tabs.select('mention:s1:a.ts');
+    expect(tabs.composerKey()).toBe('s1');
+  });
+
+  it('gives each session its own chip for the same path', async () => {
+    const { tabs } = setup(() => preview());
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/one' });
+    tabs.openFile('a.ts');
+    await flush();
+    tabs.focusSession({ id: 's2', title: 'Two', cwd: '/two' });
+
+    tabs.openFile('a.ts');
+    await flush();
+
+    // A chip is keyed by its session, so another session's copy is its own —
+    // read against its own project.
+    expect(tabs.activeTab()).toMatchObject({ mention: true, sessionId: 's2', projectCwd: '/two' });
+    expect(tabs.composerKey()).toBe('s2');
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual([
+      's1',
+      'mention:s1:a.ts',
+      's2',
+      'mention:s2:a.ts',
+    ]);
+  });
+
+  it('closes a file chip with the session it belongs to', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.openFile('a.ts');
+    tabs.focusSession({ id: 's2', title: 'Two', cwd: '/repo' });
+    tabs.select('mention:s1:a.ts');
+
+    tabs.close('s1');
+
+    // The chip is the session's, so it goes with its tab — and the panel falls
+    // back to the session still open rather than to nothing.
+    expect(tabs.tabs().some((tab) => tab.id === 'mention:s1:a.ts')).toBe(false);
+    expect(tabs.composerKey()).toBe('s2');
+  });
+
+  it('attaches a commit diff chip to the session in front', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+
+    tabs.openCommitFile('abc123', 'a.ts', 'A commit');
+
+    expect(tabs.activeTab()).toMatchObject({ mention: true, sessionId: 's1', projectCwd: '/repo' });
+    expect(tabs.mentionTabs().map((tab) => tab.id)).toEqual(['mention:s1:commit:abc123:a.ts']);
+    expect(tabs.composerKey()).toBe('s1');
+
+    // Another session's copy is its own chip, read against its own project.
+    tabs.focusSession({ id: 's2', title: 'Two', cwd: '/other' });
+    tabs.openCommitFile('abc123', 'a.ts', 'A commit');
+    expect(tabs.activeTab()).toMatchObject({ mention: true, sessionId: 's2', projectCwd: '/other' });
+    expect(tabs.composerKey()).toBe('s2');
+  });
+
   it('opens a commit file as its own diff tab, read against the commit', async () => {
     const { tabs, fake } = setup(() => ({ path: 'a.ts', diff: '@@ -1 +1 @@\n-a\n+b\n' }));
 
@@ -559,7 +632,7 @@ describe('WorkspaceTabs', () => {
 
     // A "New session" tab keeps its place (the prompt lives in the saved drafts),
     // but the file quoted inside it does not: a draft owns no session context.
-    expect(snapshot.tabs.map((tab) => tab.id)).toEqual(['s1', 'file:README.md', 'draft-1']);
+    expect(snapshot.tabs.map((tab) => tab.id)).toEqual(['s1', 'mention:s1:README.md', 'draft-1']);
     expect(snapshot.tabs.find((tab) => tab.id === 'draft-1')).toEqual({
       kind: 'session',
       id: 'draft-1',
@@ -567,14 +640,17 @@ describe('WorkspaceTabs', () => {
       cwd: '/repo',
       draft: true,
     });
-    // A preview's content is read again, never written to the layout.
-    expect(snapshot.tabs.find((tab) => tab.id === 'file:README.md')).toEqual({
+    // A preview's content is read again, never written to the layout — but the
+    // session it was opened under is, so it comes back as that session's chip.
+    expect(snapshot.tabs.find((tab) => tab.id === 'mention:s1:README.md')).toEqual({
       kind: 'file',
-      id: 'file:README.md',
+      id: 'mention:s1:README.md',
       path: 'README.md',
       title: 'README.md',
       language: 'markdown',
       projectCwd: '/repo',
+      mention: true,
+      sessionId: 's1',
     });
   });
 

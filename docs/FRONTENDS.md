@@ -139,7 +139,13 @@ strip above the conversation, where sessions and files open side by side.
   as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
   prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat". In the `@`
   picker, **Enter (or a row click) is a plain mention**; the file is opened only for the explicit quote intent
-  — **Shift+Enter**, or the row's `⧉` — so a reference never steals the view from the conversation.
+  — **Shift+Enter**, or the row's `⧉` — so a reference never steals the view from the conversation. A file
+  opened **while a session is in front** — from the Explorer, the git panel, or a quote — becomes that
+  session's **chip** in the tab strip's second row, keyed by the session, and the composer keys off it, so a
+  pin dragged in the preview lands in that conversation — its session tab is marked in the first row while the
+  chip is in front. A file opened **with no session** (the empty panel)
+  stands on its own in the first row, like a session; opening it later under a session moves the tab rather
+  than leaving the same file open twice. A chip is removed with the session it belongs to.
 - A file the working tree reports as changed (the same `gitStatus` map) also gets a **File / Unified /
   Split** switch in the preview: `gitDiff` (`{ path }` → `{ path, diff }`) supplies the unified diff,
   `core/git-diff.ts` parses it into hunks and pairs the two sides for split view, and an untracked file
@@ -151,6 +157,13 @@ strip above the conversation, where sessions and files open side by side.
   source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens
   a tab for it itself and promotes it to the real session on the first prompt; every "New session" is its
   own tab, and a tab can be closed to an empty strip, and a closed tab is never reopened by the host's state.
+  With **no session tab in front** the browser host shows no conversation at all:
+  `packages/ui-angular/src/app/chat/empty-session/` is a placeholder that says so and offers the sidebar's
+  own "New session" (through `ShortcutService.run('session.new')`, so the button and the key cannot drift), and
+  the composer is not mounted — a prompt typed with nothing open used to quietly start a session. `ChatHeader`
+  reads the same `WorkspaceTabs.noSessionInFront` signal and shows `Morse` instead of the host's last
+  workspace, so the empty panel does not claim the previous project. A host without a tab strip (VS Code)
+  keeps the lazy start and its folder line.
 - The composer is **per tab**. A half-typed message and its attachments live in `core/composer-drafts.ts`
   (`core/attachments.ts` scopes its pending pieces the same way), keyed by the session or draft tab id in
   front, so switching tabs shows that tab's draft and never carries the words into another session. An
