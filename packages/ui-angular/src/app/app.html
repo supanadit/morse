@@ -132,6 +132,12 @@
       }
     }
 
+    <!-- The browser host's bottom panel: chips that open a tool (the terminal)
+         below the composer. VS Code has its own panel and never mounts it. -->
+    @if (bottomPanelEnabled()) {
+      <morse-bottom-panel />
+    }
+
     @if (toast(); as notice) {
       <div class="toast" [class]="notice.level" role="status">
         <span class="toast-text">{{ notice.text }}</span>

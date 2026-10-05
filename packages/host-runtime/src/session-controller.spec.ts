@@ -21,6 +21,7 @@ import {
 } from '@morse/protocol';
 import { HostSessionController } from './session-controller.js';
 import { SessionTranscriptStore } from './transcript-store.js';
+import type { TerminalBackend, TerminalSink } from './terminal.js';
 import type { HostScopeOptions } from './session-controller.js';
 
 /**
@@ -846,5 +847,152 @@ describe('SessionRegistry hot limit', () => {
 
     expect(disposed).toEqual([]);
     expect(registry.hotKeys()).toHaveLength(3);
+  });
+});
+
+/** A hand-driven shell: the test writes keystrokes and pushes output at will. */
+function fakeTerminal() {
+  const writes: string[] = [];
+  const opened: { cwd: string; cols: number; rows: number }[] = [];
+  const sinks: TerminalSink[] = [];
+  let killed = false;
+  const backend: TerminalBackend = {
+    open(options, nextSink) {
+      opened.push(options);
+      sinks.push(nextSink);
+      return {
+        write: (data) => writes.push(data),
+        resize: () => undefined,
+        kill: () => {
+          killed = true;
+        },
+      };
+    },
+  };
+  return {
+    backend,
+    writes,
+    opened,
+    sinks,
+    isKilled: () => killed,
+    output: (data: string) => sinks.at(-1)?.output(data),
+    end: (code?: number, error?: string) => sinks.at(-1)?.exit(code, error),
+  };
+}
+
+describe('HostSessionController terminal', () => {
+  function controller(messages: HostToClientMessage[], terminal?: TerminalBackend) {
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(fakeGateway()) },
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    return new HostSessionController({
+      services: { registry, chat },
+      capabilities: CAPABILITIES,
+      emit: (message) => messages.push(message),
+      logger: silentLogger,
+      transcripts: new SessionTranscriptStore(),
+      autoOpen: false,
+      scope: { kind: 'global' },
+      ...(terminal ? { terminal } : {}),
+    });
+  }
+
+  it('opens a shell in the viewing workspace and streams it', async () => {
+    const messages: HostToClientMessage[] = [];
+    const shell = fakeTerminal();
+    const host = controller(messages, shell.backend);
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+    shell.output('hello\n');
+    await host.handleClientMessage({
+      type: 'terminal/input',
+      payload: { terminalId: 't1', data: 'ls\n' },
+    });
+
+    expect(shell.opened[0]?.cwd).toBe(WORKSPACE.cwd);
+    expect(shell.writes).toEqual(['ls\n']);
+    expect(messages).toContainEqual({
+      type: 'terminal/output',
+      payload: { terminalId: 't1', data: 'hello\n' },
+    });
+  });
+
+  it('kills the shell when the terminal is closed or the client leaves', async () => {
+    const messages: HostToClientMessage[] = [];
+    const shell = fakeTerminal();
+    const host = controller(messages, shell.backend);
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+    await host.handleClientMessage({ type: 'terminal/close', payload: { terminalId: 't1' } });
+    expect(shell.isKilled()).toBe(true);
+
+    // A terminal still open when the connection goes away is killed with it.
+    const second = fakeTerminal();
+    const other = controller(messages, second.backend);
+    await other.start();
+    await other.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't2' } });
+    await other.dispose();
+    expect(second.isKilled()).toBe(true);
+  });
+
+  it('reports a shell that could not start as an exit with the reason', async () => {
+    const messages: HostToClientMessage[] = [];
+    const host = controller(messages, {
+      open: () => Promise.reject(new Error('not allowed here')),
+    });
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+
+    expect(messages).toContainEqual({
+      type: 'terminal/exit',
+      payload: { terminalId: 't1', code: undefined, error: 'not allowed here' },
+    });
+  });
+
+  it('ignores the exit of a shell replaced under the same id', async () => {
+    const messages: HostToClientMessage[] = [];
+    const shells = fakeTerminal();
+    const host = controller(messages, shells.backend);
+    await host.start();
+
+    // Open t1 twice: the second replaces the first.
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+    // The superseded shell ends late; that is not the terminal's news.
+    shells.sinks[0]?.exit(1);
+
+    expect(messages.filter((message) => message.type === 'terminal/exit')).toHaveLength(0);
+
+    // The shell now holding the id still streams and reports.
+    shells.sinks[1]?.output('still here\n');
+    shells.sinks[1]?.exit(0);
+    expect(messages).toContainEqual({
+      type: 'terminal/output',
+      payload: { terminalId: 't1', data: 'still here\n' },
+    });
+    expect(messages).toContainEqual({
+      type: 'terminal/exit',
+      payload: { terminalId: 't1', code: 0, error: undefined },
+    });
+  });
+
+  it('refuses a terminal when the host has no backend', async () => {
+    const messages: HostToClientMessage[] = [];
+    const host = controller(messages);
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+
+    expect(messages).toContainEqual({
+      type: 'terminal/exit',
+      payload: { terminalId: 't1', code: undefined, error: 'This host has no terminal.' },
+    });
   });
 });

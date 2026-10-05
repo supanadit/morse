@@ -40,7 +40,7 @@ const wants = (name) => selected.size === 0 || selected.has(name);
  * under `@morse/` is workspace code and gets bundled. `platform: 'node'` keeps
  * `node:*` builtins external automatically.
  */
-const runtimeExternals = ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws'];
+const runtimeExternals = ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws', 'node-pty'];
 
 async function requireBuild(path, hint) {
   try {

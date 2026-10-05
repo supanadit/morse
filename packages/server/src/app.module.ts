@@ -6,6 +6,7 @@ import { SessionTranscriptStore } from '@morse/host-runtime';
 import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
+import { ServerTerminalBackend } from './internal/terminal/terminal.service.js';
 import { createSessionRegistry, MorseRegistryLifecycle } from './internal/registry.js';
 import { MorseGateway } from './internal/ws/morse.gateway.js';
 import { MorseSessionFactory } from './internal/ws/session-factory.service.js';
@@ -73,6 +74,7 @@ import {
       inject: [MORSE_CONFIG],
     },
     MorseRegistryLifecycle,
+    ServerTerminalBackend,
     MorseSessionFactory,
     MorseGateway,
   ],

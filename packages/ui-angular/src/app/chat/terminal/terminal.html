@@ -1,0 +1,5 @@
+<div #screen class="screen morse-terminal-screen" aria-label="Terminal"></div>
+
+@if (ended() !== undefined) {
+  <button type="button" class="restart" (click)="restart()">Restart</button>
+}

@@ -65,6 +65,14 @@ export interface MorseActions {
   setModel(provider: string, id: string): void;
   setThinkingLevel(level: ThinkingLevel): void;
   respond(response: InteractionResponse): void;
+  /** Starts a shell for the bottom panel's terminal, streamed as it writes. */
+  openTerminal(terminalId: string, options?: { cwd?: string; cols?: number; rows?: number }): void;
+  /** Writes keystrokes (or a whole pasted line) to a running terminal. */
+  sendTerminal(terminalId: string, data: string): void;
+  /** Tells the host's shell the viewer's new size. */
+  resizeTerminal(terminalId: string, cols: number, rows: number): void;
+  /** Closes a terminal and kills its shell. */
+  closeTerminal(terminalId: string): void;
 }
 
 /**
@@ -93,6 +101,12 @@ export interface MorseClient {
    * the old session is left untouched and stays resumable.
    */
   onComposerSeed(listener: (seed: ComposerSeed) => void): () => void;
+  /** Bytes a terminal's shell wrote, as they arrive. */
+  onTerminalOutput(listener: (event: { terminalId: string; data: string }) => void): () => void;
+  /** A terminal's shell ended (or never started). */
+  onTerminalExit(
+    listener: (event: { terminalId: string; code?: number; error?: string }) => void,
+  ): () => void;
   readonly actions: MorseActions;
   dispose(): void;
 }
@@ -142,6 +156,12 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
   >();
   /** Listeners for a forked prompt handed back to the composer (`composer/seed`). */
   const composerSeedListeners = new Set<(seed: ComposerSeed) => void>();
+  /** Listeners for terminal output (`terminal/output`). */
+  const terminalOutputListeners = new Set<(event: { terminalId: string; data: string }) => void>();
+  /** Listeners for a terminal ending (`terminal/exit`). */
+  const terminalExitListeners = new Set<
+    (event: { terminalId: string; code?: number; error?: string }) => void
+  >();
 
   const requestHostCommand = (
     command: HostCommand,
@@ -184,6 +204,18 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     }
     if (message.type === 'composer/seed') {
       for (const listener of [...composerSeedListeners]) {
+        listener(message.payload);
+      }
+      return;
+    }
+    if (message.type === 'terminal/output') {
+      for (const listener of [...terminalOutputListeners]) {
+        listener(message.payload);
+      }
+      return;
+    }
+    if (message.type === 'terminal/exit') {
+      for (const listener of [...terminalExitListeners]) {
         listener(message.payload);
       }
       return;
@@ -232,6 +264,13 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     setModel: (provider, id) => send({ type: 'model/set', payload: { provider, id } }),
     setThinkingLevel: (level) => send({ type: 'thinking/set', payload: { level } }),
     respond: (response) => send({ type: 'interaction/respond', payload: response }),
+    openTerminal: (terminalId, terminalOptions) =>
+      send({ type: 'terminal/open', payload: { terminalId, ...terminalOptions } }),
+    sendTerminal: (terminalId, data) =>
+      send({ type: 'terminal/input', payload: { terminalId, data } }),
+    resizeTerminal: (terminalId, cols, rows) =>
+      send({ type: 'terminal/resize', payload: { terminalId, cols, rows } }),
+    closeTerminal: (terminalId) => send({ type: 'terminal/close', payload: { terminalId } }),
   };
 
   options.transport.connect();
@@ -261,6 +300,18 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       composerSeedListeners.add(listener);
       return () => {
         composerSeedListeners.delete(listener);
+      };
+    },
+    onTerminalOutput: (listener) => {
+      terminalOutputListeners.add(listener);
+      return () => {
+        terminalOutputListeners.delete(listener);
+      };
+    },
+    onTerminalExit: (listener) => {
+      terminalExitListeners.add(listener);
+      return () => {
+        terminalExitListeners.delete(listener);
       };
     },
     actions,

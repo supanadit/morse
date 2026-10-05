@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from './morse.service';
+import { TerminalStore } from './terminal-store';
 import { WorkspaceTabs } from './workspace-tabs';
 
 type Preview = {
@@ -339,6 +340,29 @@ describe('WorkspaceTabs', () => {
     tabs.move('s2', 'mention:s1:a.ts');
 
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(before);
+  });
+
+  it("kills a session's terminals when its tab closes", () => {
+    const { tabs } = setup();
+    const terminals = TestBed.inject(TerminalStore);
+    tabs.focusSession({ id: 's1', title: 'One' });
+    const terminal = terminals.open('s1');
+
+    tabs.close('s1');
+
+    expect(terminals.terminals().some((entry) => entry.id === terminal)).toBe(false);
+  });
+
+  it("moves a draft's terminals to the session it becomes", () => {
+    const { tabs } = setup();
+    const terminals = TestBed.inject(TerminalStore);
+    tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0]!.id;
+    const terminal = terminals.open(draftId);
+
+    tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
+
+    expect(terminals.terminals().find((entry) => entry.id === terminal)?.owner).toBe('s1');
   });
 
   it('empties the strip and the host with closeAll', () => {

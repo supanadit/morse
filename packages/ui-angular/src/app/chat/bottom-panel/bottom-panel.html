@@ -1,0 +1,73 @@
+<section
+  class="panel"
+  [class.expanded]="expanded()"
+  [style.height.px]="expanded() ? height() ?? defaultHeight : null"
+>
+  @if (expanded()) {
+    <div
+      class="resize"
+      title="Drag to resize"
+      (pointerdown)="onResizeStart($event)"
+      (pointermove)="onResizeMove($event)"
+      (pointerup)="onResizeEnd($event)"
+      (pointercancel)="onResizeEnd($event)"
+    ></div>
+  }
+
+  <div class="bar">
+    <div class="chips" role="tablist" aria-label="Bottom panel">
+      @for (view of views; track view.id) {
+        <div
+          class="chip"
+          [class.active]="activeView() === view.id && expanded()"
+          [class.with-actions]="activeView() === view.id && expanded() && actions().length > 0"
+        >
+          <button
+            type="button"
+            class="chip-label"
+            role="tab"
+            [attr.aria-selected]="activeView() === view.id && expanded()"
+            (click)="select(view.id)"
+          >
+            {{ view.label }}
+          </button>
+          @if (activeView() === view.id && expanded()) {
+            @for (action of actions(); track action.label) {
+              <button
+                type="button"
+                class="chip-action"
+                [title]="action.title"
+                [attr.aria-label]="action.title"
+                (click)="action.run()"
+              >
+                {{ action.label }}
+              </button>
+            }
+          }
+        </div>
+      }
+    </div>
+    <span class="grow"></span>
+    <button
+      type="button"
+      class="toggle"
+      [title]="expanded() ? 'Collapse panel' : 'Expand panel'"
+      [attr.aria-expanded]="expanded()"
+      [attr.aria-label]="expanded() ? 'Collapse panel' : 'Expand panel'"
+      (click)="toggleExpanded()"
+    >
+      {{ expanded() ? '⌄' : '⌃' }}
+    </button>
+  </div>
+
+  <!-- Folded, the body keeps its component (and its shell) and only loses space. -->
+  <div class="body" [class.hidden]="!expanded()">
+    @if (activeView(); as view) {
+      @if (componentFor(view); as component) {
+        <ng-container [ngComponentOutlet]="component" />
+      }
+    } @else {
+      <p class="empty">Choose a tool above.</p>
+    }
+  </div>
+</section>

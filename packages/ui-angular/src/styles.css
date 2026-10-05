@@ -1,3 +1,5 @@
+@import '@xterm/xterm/css/xterm.css';
+
 /*
  * One stylesheet for both hosts.
  *
@@ -572,4 +574,21 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * The terminal (xterm.js) builds its own DOM, so the component's encapsulated
+ * styles cannot reach it. The emulator is pinned to the panel's screen box:
+ * letting it size to its own rows made it taller than the panel, so the last
+ * lines could never be scrolled into view.
+ */
+.morse-terminal-screen {
+  height: 100%;
+}
+
+.morse-terminal-screen .xterm {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  padding: 0;
 }

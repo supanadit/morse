@@ -128,6 +128,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | "a newer release is out" notice | `packages/ui-angular/src/app/core/update.ts` ← `capabilities.updateCheck`, `docs/CONFIGURATION.md` |
 | measured performance baseline | `docs/DEVELOPMENT.md` ← session catalog cache, markdown render cadence |
 | git history + graph panel (browser host) | `packages/ui-angular/src/app/git/git-panel.ts` ← `core/git-graph.ts`, `packages/server/src/internal/workspace/git-log.ts` |
+| bottom panel + terminal (browser host) | `packages/ui-angular/src/app/chat/bottom-panel/`, `chat/terminal/` ← `core/panel-state.ts`, `packages/host-runtime/src/terminal.ts`, `packages/server/src/internal/terminal/terminal.service.ts` |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
 | pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |

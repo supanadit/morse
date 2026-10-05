@@ -104,7 +104,17 @@ export type HostToClientMessage =
       type: 'host/command/result';
       payload: { requestId: string; ok: boolean; data?: unknown; error?: string };
     }
-  | { type: 'error'; payload: { message: string; detail?: string; at: number } };
+  | { type: 'error'; payload: { message: string; detail?: string; at: number } }
+  /**
+   * Bytes the shell wrote, as they arrive. A terminal is a stream, not a
+   * request: `terminal/open` starts it and this carries everything after.
+   */
+  | { type: 'terminal/output'; payload: { terminalId: string; data: string } }
+  /** The shell ended (or never started); no more output follows for this id. */
+  | {
+      type: 'terminal/exit';
+      payload: { terminalId: string; code?: number; error?: string };
+    };
 
 /** Frontend -> host. */
 export type ClientToHostMessage =
@@ -154,7 +164,21 @@ export type ClientToHostMessage =
   | {
       type: 'host/command';
       payload: { command: HostCommand; args?: Record<string, unknown>; requestId?: string };
-    };
+    }
+  /**
+   * Starts an interactive shell in the viewing session's directory (or `cwd`)
+   * and streams it back as `terminal/output` / `terminal/exit`.
+   */
+  | {
+      type: 'terminal/open';
+      payload: { terminalId: string; cwd?: string; cols?: number; rows?: number };
+    }
+  /** Keystrokes (or a pasted line) for a running terminal. */
+  | { type: 'terminal/input'; payload: { terminalId: string; data: string } }
+  /** The viewer's terminal was resized; the shell gets the new geometry. */
+  | { type: 'terminal/resize'; payload: { terminalId: string; cols: number; rows: number } }
+  /** Closes a terminal and kills its shell. */
+  | { type: 'terminal/close'; payload: { terminalId: string } };
 
 export type WireMessage = HostToClientMessage | ClientToHostMessage;
 
@@ -177,6 +201,8 @@ export const HOST_MESSAGE_TYPES = [
   'composer/seed',
   'host/command/result',
   'error',
+  'terminal/output',
+  'terminal/exit',
 ] as const;
 
 export const CLIENT_MESSAGE_TYPES = [
@@ -200,6 +226,10 @@ export const CLIENT_MESSAGE_TYPES = [
   'thinking/set',
   'interaction/respond',
   'host/command',
+  'terminal/open',
+  'terminal/input',
+  'terminal/resize',
+  'terminal/close',
 ] as const;
 
 export function encodeWireMessage(message: WireMessage): string {

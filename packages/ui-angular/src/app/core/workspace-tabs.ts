@@ -2,6 +2,7 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { languageForPath } from './highlight';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from './morse.service';
+import { TerminalStore } from './terminal-store';
 
 export interface SessionTab {
   kind: 'session';
@@ -75,6 +76,7 @@ interface FilePreviewPayload {
 export class WorkspaceTabs {
   private readonly morse = inject(MorseService);
   private readonly drafts = inject(ComposerDrafts);
+  private readonly terminals = inject(TerminalStore);
   private readonly items = signal<WorkspaceTab[]>([]);
   private readonly active = signal<string | undefined>(undefined);
   /** Names the draft tabs, so each "New session" is its own tab and its own draft. */
@@ -548,13 +550,15 @@ export class WorkspaceTabs {
     this.select(neighbour.id);
   }
 
-  /** A closed tab's draft has nowhere to return to. */
+  /** A closed tab's draft and terminals have nowhere to return to. */
   private forgetDrafts(ids: Iterable<string>): void {
     for (const id of ids) {
       if (id === this.pendingDraft) {
         this.pendingDraft = undefined;
       }
       this.drafts.forget(id);
+      // A terminal belongs to its session tab: closing the tab kills its shells.
+      this.terminals.forgetOwner(id);
     }
   }
 
@@ -665,6 +669,8 @@ export class WorkspaceTabs {
       return;
     }
     this.drafts.rekey(activeDraft.id, session.id);
+    // The draft's terminals belong to the session it just became.
+    this.terminals.rekey(activeDraft.id, session.id);
     this.items.update((tabs) =>
       tabs.map((tab) => {
         if (tab.kind === 'session' && tab.id === activeDraft.id) {
@@ -702,6 +708,7 @@ export class WorkspaceTabs {
     }
     for (const id of ids) {
       this.drafts.forget(id);
+      this.terminals.forgetOwner(id);
     }
     this.pruneOrphanMentions();
   }

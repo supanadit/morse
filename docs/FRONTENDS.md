@@ -75,7 +75,9 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    `forkMessage` whether a fork can branch a new session and hand the prompt back instead, and
    `insertIntoEditor`/`revealFile` decide whether `host/command` is worth offering, `gitPanel`
    whether the host can read the active project's git history (`gitLog`) for the frontend's own
-   git panel (the browser host; VS Code keeps its Source Control view and leaves it off), and `updateCheck`
+   git panel (the browser host; VS Code keeps its Source Control view and leaves it off), `terminal`
+   whether the host can run an interactive shell (`terminal/open` and its siblings) for the bottom
+   panel's terminal (again the browser host; VS Code keeps its integrated terminal), and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
    shows an update notice).
@@ -199,6 +201,35 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   conversation area (the chat steps aside), which is where a many-lane graph gets the room it needs.
   The layout is fluid either way — one line per commit, refs capped at two chips with a `+N`, and the
   lane transitions drawn as smooth cubic curves rather than right-angled segments.
+
+### Bottom panel and terminal (browser host only)
+
+VS Code already has an integrated terminal and an editor area, so its host leaves `terminal` off and
+none of this renders. The browser host turns it on, so the frontend has a VS Code-style bottom panel
+below the composer: a chip row that starts folded, opens the tool its chip names, and drags taller from
+its top edge (height, chosen tool and fold remembered in `PanelState`, like the other shell preferences).
+The panel keeps the chosen view mounted while folded, so a running terminal is not killed by a collapse;
+adding a tool is one line in the panel's `VIEWS` list plus its component.
+
+- The **Terminal** view runs a real shell on the host. `terminal/open` names an id (and optionally a `cwd`;
+the host defaults to the viewing session's directory), and the host streams `terminal/output` as the
+shell writes and `terminal/exit` when it ends or cannot start. `terminal/input` carries keystrokes and
+`terminal/resize` the new geometry; `terminal/close` kills the shell.
+- **A terminal belongs to one session.** `TerminalStore` keys every terminal by the composer's session
+key, so the view's tab row shows the terminals of the session in front and `+` opens another for it.
+Switching sessions swaps the row while the other sessions' shells keep running (their emulators stay
+mounted, hidden); closing a session tab drops its terminals, which kills their shells. A draft's
+terminals follow it when it becomes a real session (`rekey`), exactly like its composer draft.
+- The backend is a port (`TerminalBackend`, `packages/host-runtime/src/terminal.ts`), so the controller
+owns the wire conversation and the host owns the process. The NestJS host implements it in
+`ServerTerminalBackend` with **`node-pty`** — a real pseudo-terminal in the viewing session's directory,
+gated by `ProjectPolicy` like opening a session — so prompts, colours, line editing, resize and
+full-screen programs (vim, top) all work as in a desktop terminal. `node-pty` is a native module,
+kept external in the `morse-web` bundle and installed by npm (it needs a compiler on Linux).
+- The view is **xterm.js** (`@xterm/xterm` plus the fit and WebGL addons), imported lazily the first
+time the panel opens so a reader who never opens it downloads nothing. xterm renders the PTY's raw
+stream; keystrokes go back untouched. Its theme and monospace font are read from the active CSS
+variables, so it matches the rest of Morse.
 
 6. **Theme** — inside VS Code use the `--vscode-*` variables, with fallbacks so the same bundle looks right in
    a browser. See `packages/ui-angular/src/styles.css`. Fonts follow the same rule: VS Code supplies

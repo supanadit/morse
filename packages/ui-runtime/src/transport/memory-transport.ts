@@ -31,6 +31,9 @@ const CAPABILITIES: HostCapabilities = {
   // Same for the "New session" folder browser: the mock answers a tiny tree so
   // the modal can be developed with no server.
   directoryPicker: true,
+  // The mock fakes a tiny shell so the bottom panel and its terminal are
+  // reviewable without the NestJS server.
+  terminal: true,
   // Off by default: a dev page must not reach the internet unless it was asked
   // for. `?mock=1&update=1` turns it on, and `?newer=<version>` (frontend side)
   // fakes the published version, so the notice is reviewable before a release.
@@ -63,6 +66,8 @@ export class MemoryHostTransport extends BaseHostTransport {
   private sessions: SessionSummary[] = mockSessions();
   /** Registry keys of live agent processes, so several can animate at once. */
   private readonly hot = new Set<string>(this.sessions.slice(0, 2).map((s) => s.id));
+  /** Terminal ids the mock shell has open, so it can echo and exit by id. */
+  private readonly terminals = new Set<string>();
   /** Starts high so generated ids cannot collide with the fixture's own ids. */
   private counter = 100;
   private disposed = false;
@@ -230,6 +235,42 @@ export class MemoryHostTransport extends BaseHostTransport {
       case 'thinking/set':
         this.state = { ...this.state, thinkingLevel: message.payload.level };
         this.emit({ type: 'session/state', payload: this.state });
+        return;
+      case 'terminal/open': {
+        this.terminals.add(message.payload.terminalId);
+        this.emit({
+          type: 'terminal/output',
+          payload: {
+            terminalId: message.payload.terminalId,
+            data: 'Morse mock shell — no server here. Type `help` or any command.\n',
+          },
+        });
+        return;
+      }
+      case 'terminal/input': {
+        if (!this.terminals.has(message.payload.terminalId)) {
+          return;
+        }
+        const command = message.payload.data.trim();
+        const text =
+          command === 'help'
+            ? 'Commands are simulated in the mock host.\n'
+            : `(mock) ${command || '\u00b7'} — 0.0s, exit 0\n`;
+        this.emit({
+          type: 'terminal/output',
+          payload: { terminalId: message.payload.terminalId, data: text },
+        });
+        return;
+      }
+      case 'terminal/resize':
+        return;
+      case 'terminal/close':
+        if (this.terminals.delete(message.payload.terminalId)) {
+          this.emit({
+            type: 'terminal/exit',
+            payload: { terminalId: message.payload.terminalId, code: 0 },
+          });
+        }
         return;
       case 'interaction/respond':
         this.emit({

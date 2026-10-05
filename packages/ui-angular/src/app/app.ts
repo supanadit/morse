@@ -6,6 +6,7 @@ import { ChatHeader } from './chat/chat-header/chat-header';
 import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
 import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
+import { BottomPanel } from './chat/bottom-panel/bottom-panel';
 import { TabStrip } from './chat/tab-strip/tab-strip';
 import { GitPanel } from './git/git-panel';
 import { AnimationService } from './core/animation.service';
@@ -48,6 +49,7 @@ function previewBoot(): boolean {
     InteractionPanel,
     ChatComposer,
     TabStrip,
+    BottomPanel,
     FilePreview,
     GitPanel,
     EnterDirective,
@@ -97,6 +99,13 @@ export class App {
    * own capability, so VS Code — which has an editor already — stays as it was.
    */
   protected readonly tabsEnabled = computed(() => this.morse.capabilities()?.filePreview === true);
+  /**
+   * The browser host's bottom panel. VS Code leaves `terminal` off (its own
+   * panel has the terminal), so this is only ever mounted by the server host.
+   */
+  protected readonly bottomPanelEnabled = computed(
+    () => this.morse.capabilities()?.terminal === true,
+  );
   /**
    * The browser host's git panel: history and graph for the active project. VS
    * Code advertises no `gitPanel` and keeps its own Source Control view.

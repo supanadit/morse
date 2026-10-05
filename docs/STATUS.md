@@ -77,6 +77,11 @@ turns them on so the panel stands on its own:
   touching ranges merge and can be edited by their handles.
 - **Tab strip**: sessions and files open side by side, quoted files get their own row, and right-click offers
   Close / Close Others / Close to the Right / Close All.
+- **Bottom panel**: a chip row below the composer that opens a tool and drags taller from its top edge. Its
+  first tool is a **terminal** — one or more real PTYs (`node-pty`) per session, each in its own tab, in the
+  viewing project, rendered with xterm.js (ANSI, colours, cursor, resize, full-screen programs). Terminals
+  are never shared across sessions and die with their session tab; the emulator is lazy-loaded. VS Code
+  leaves `terminal` off and keeps its own.
 
 ### Keyboard, templates, updates, install
 

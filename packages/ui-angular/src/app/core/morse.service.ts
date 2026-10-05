@@ -268,4 +268,42 @@ export class MorseService {
   ): Promise<unknown> {
     return this.actions.hostCommand(command, args, timeoutMs);
   }
+
+  /**
+   * The bottom panel's terminal: a shell the host runs on its own machine,
+   * streamed back. Only offered where `capabilities.terminal` is set — the
+   * browser host; VS Code keeps its own integrated terminal.
+   */
+  openTerminal(
+    terminalId: string,
+    options?: { cwd?: string; cols?: number; rows?: number },
+  ): void {
+    this.actions.openTerminal(terminalId, options);
+  }
+
+  sendTerminal(terminalId: string, data: string): void {
+    this.actions.sendTerminal(terminalId, data);
+  }
+
+  resizeTerminal(terminalId: string, cols: number, rows: number): void {
+    this.actions.resizeTerminal(terminalId, cols, rows);
+  }
+
+  closeTerminal(terminalId: string): void {
+    this.actions.closeTerminal(terminalId);
+  }
+
+  /** Streams a terminal's output; the caller keeps it in its own buffer. */
+  onTerminalOutput(
+    listener: (event: { terminalId: string; data: string }) => void,
+  ): () => void {
+    return this.client.onTerminalOutput(listener);
+  }
+
+  /** A terminal's shell ended (or never started). */
+  onTerminalExit(
+    listener: (event: { terminalId: string; code?: number; error?: string }) => void,
+  ): () => void {
+    return this.client.onTerminalExit(listener);
+  }
 }

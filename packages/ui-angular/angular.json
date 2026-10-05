@@ -34,7 +34,12 @@
             ],
             "allowedCommonJsDependencies": [
               "@morse/protocol",
-              "@morse/ui-runtime"
+              "@morse/ui-runtime",
+              // xterm.js ships CommonJS only; it is lazy-loaded, so its size and
+              // format never touch the initial bundle.
+              "@xterm/xterm",
+              "@xterm/addon-fit",
+              "@xterm/addon-webgl"
             ]
           },
           "configurations": {

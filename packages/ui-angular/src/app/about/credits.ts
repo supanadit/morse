@@ -67,6 +67,14 @@ export const CREDITS: readonly CreditGroup[] = [
         by: 'Google',
       },
       {
+        name: 'xterm.js',
+        packages: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-webgl'],
+        license: 'MIT',
+        url: 'https://xtermjs.org',
+        by: 'The xterm.js authors',
+        role: 'The terminal emulator that renders the bottom panel\u2019s shell.',
+      },
+      {
         name: 'RxJS',
         packages: ['rxjs'],
         license: 'Apache-2.0',
@@ -136,6 +144,14 @@ export const CREDITS: readonly CreditGroup[] = [
         license: 'MIT',
         url: 'https://github.com/websockets/ws',
         role: 'The WebSocket server NestJS sits on.',
+      },
+      {
+        name: 'node-pty',
+        packages: ['node-pty'],
+        license: 'MIT',
+        url: 'https://github.com/microsoft/node-pty',
+        role: 'The pseudo-terminal the browser host runs the panel\u2019s shell in.',
+        by: 'Microsoft',
       },
       {
         name: 'reflect-metadata',

@@ -186,6 +186,13 @@ export interface HostCapabilities {
    * Source Control view and leaves it off.
    */
   gitPanel?: boolean;
+  /**
+   * Host can run an interactive shell for the frontend's bottom panel
+   * (`terminal/open` and friends), streaming its output back. VS Code already
+   * has an integrated terminal and leaves it off; the browser host turns it on,
+   * so the panel stands on its own.
+   */
+  terminal?: boolean;
 }
 
 /**

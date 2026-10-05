@@ -35,6 +35,7 @@ import {
 } from '../workspace/git-log.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
+import { ServerTerminalBackend } from '../terminal/terminal.service.js';
 
 /**
  * Composition root for one client connection (clean-architecture R7): the only
@@ -52,6 +53,7 @@ export class MorseSessionFactory {
     @Inject(MORSE_PROJECT_POLICY) private readonly policy: ServerProjectPolicy,
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
     @Inject(MORSE_CONFIG) private readonly config: MorseServerConfig,
+    @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
   ) {}
 
   capabilities(): HostCapabilities {
@@ -74,6 +76,10 @@ export class MorseSessionFactory {
       // The same reasoning for history: VS Code has Source Control, so the
       // browser host is the one that answers `gitLog` for its own git panel.
       gitPanel: true,
+      // VS Code already has an integrated terminal; the browser host has none, so
+      // the bottom panel's terminal is this host's. It runs in the viewing
+      // session's directory and is gated by `ProjectPolicy`, like a session.
+      terminal: true,
       // A browser cannot hand a dragged file's path to pi, so the host takes the
       // bytes and writes them next to the session; the frontend then `@mentions`
       // the path it gets back.
@@ -114,6 +120,8 @@ export class MorseSessionFactory {
       // A page load must not create a session; the first prompt opens one.
       autoOpen: false,
       onHostCommand: (command, args, context) => this.runHostCommand(command, args, context),
+      // The bottom panel's shell: this host can spawn one on its own machine.
+      terminal: this.terminal,
       agentHint:
         'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',
     });

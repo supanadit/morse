@@ -33,6 +33,7 @@ import {
   type UserTranscriptItem,
 } from '@morse/protocol';
 import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
+import type { TerminalBackend, TerminalProcess } from './terminal.js';
 import { SessionTranscriptStore } from './transcript-store.js';
 import {
   draftSessionViewState,
@@ -77,6 +78,11 @@ export interface HostSessionControllerOptions {
   frontend?: FrontendIdentity;
   onHostCommand?: HostCommandHandler;
   autoOpen?: boolean;
+  /**
+   * Runs interactive shells for the bottom panel's terminal. Omitted by a host
+   * that leaves `capabilities.terminal` off (VS Code keeps its own terminal).
+   */
+  terminal?: TerminalBackend;
   /**
    * Dispose the shared session registry together with this controller.
    * Defaults to false: registries outlive a client so a refresh reattaches.
@@ -134,6 +140,14 @@ export class HostSessionController {
   private loadingOlderHistory = false;
   /** Discriminates history item ids across pages (see `historyItems`). */
   private historyPageSeq = 0;
+  /** The shells this client has open, keyed by the terminal id it named. */
+  private readonly terminals = new Map<string, TerminalProcess>();
+  /**
+   * Bumped whenever a terminal id is opened or closed. A shell's late `exit`
+   * (a replaced one, a killed one) compares its generation and stays silent, so
+   * it cannot delete or report over the shell now holding the id.
+   */
+  private readonly terminalGenerations = new Map<string, number>();
 
   constructor(private readonly options: HostSessionControllerOptions) {}
 
@@ -189,6 +203,11 @@ export class HostSessionController {
       return;
     }
     this.disposed = true;
+    for (const process of this.terminals.values()) {
+      process.kill();
+    }
+    this.terminals.clear();
+    this.terminalGenerations.clear();
     this.detachRegistry?.();
     this.detachRegistry = undefined;
     this.detachTranscripts?.();
@@ -306,8 +325,101 @@ export class HostSessionController {
           message.payload.requestId,
         );
         return;
+      case 'terminal/open':
+        await this.openTerminal(message.payload);
+        return;
+      case 'terminal/input':
+        this.terminals.get(message.payload.terminalId)?.write(message.payload.data);
+        return;
+      case 'terminal/resize':
+        this.terminals
+          .get(message.payload.terminalId)
+          ?.resize(message.payload.cols, message.payload.rows);
+        return;
+      case 'terminal/close':
+        this.closeTerminal(message.payload.terminalId);
+        return;
       default:
         return;
+    }
+  }
+
+  /**
+   * Starts a shell for the bottom panel. The directory is the viewing session's
+   * (or the draft's), never an arbitrary path the client names — the backend
+   * still re-checks it against the host policy before spawning.
+   */
+  private async openTerminal(payload: {
+    terminalId: string;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<void> {
+    if (this.options.terminal === undefined) {
+      this.emitTerminalExit(payload.terminalId, undefined, 'This host has no terminal.');
+      return;
+    }
+    // One terminal per id: a repeated open replaces the shell rather than
+    // leaking a second one behind the same name.
+    this.closeTerminal(payload.terminalId);
+    const generation = this.terminalGenerations.get(payload.terminalId) ?? 0;
+    const cwd = payload.cwd ?? this.currentState().workspace.cwd;
+    const cols = clampGeometry(payload.cols, 80);
+    const rows = clampGeometry(payload.rows, 24);
+    let process: TerminalProcess;
+    try {
+      process = await this.options.terminal.open(
+        { cwd, cols, rows },
+        {
+          output: (data) => {
+            if (this.terminalGenerations.get(payload.terminalId) === generation) {
+              this.emitTerminalOutput(payload.terminalId, data);
+            }
+          },
+          exit: (code, error) => {
+            // A shell replaced or closed after this one opened is not the shell
+            // the client is looking at; its end is not news.
+            if (this.terminalGenerations.get(payload.terminalId) !== generation) {
+              return;
+            }
+            this.terminals.delete(payload.terminalId);
+            this.emitTerminalExit(payload.terminalId, code, error);
+          },
+        },
+      );
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to open a terminal', error);
+      this.emitTerminalExit(payload.terminalId, undefined, describeTerminalError(error));
+      return;
+    }
+    // The client may have closed it while `open` was still awaiting the shell.
+    if (!this.disposed && this.terminalGenerations.get(payload.terminalId) === generation) {
+      this.terminals.set(payload.terminalId, process);
+    } else {
+      process.kill();
+    }
+  }
+
+  private closeTerminal(terminalId: string): void {
+    // Any pending exit for the old shell is now stale.
+    this.terminalGenerations.set(terminalId, (this.terminalGenerations.get(terminalId) ?? 0) + 1);
+    const process = this.terminals.get(terminalId);
+    if (process === undefined) {
+      return;
+    }
+    this.terminals.delete(terminalId);
+    process.kill();
+  }
+
+  private emitTerminalOutput(terminalId: string, data: string): void {
+    if (data.length > 0 && !this.disposed) {
+      this.options.emit({ type: 'terminal/output', payload: { terminalId, data } });
+    }
+  }
+
+  private emitTerminalExit(terminalId: string, code?: number, error?: string): void {
+    if (!this.disposed) {
+      this.options.emit({ type: 'terminal/exit', payload: { terminalId, code, error } });
     }
   }
 
@@ -1301,6 +1413,19 @@ function describeError(error: unknown): string {
     return error.message;
   }
   return typeof error === 'string' ? error : JSON.stringify(error);
+}
+
+/** Terminal geometry the wire named: a positive integer, or the default. */
+function clampGeometry(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(1000, Math.floor(value)));
+}
+
+/** A terminal that could not open says why, the same way a command failure does. */
+function describeTerminalError(error: unknown): string {
+  return error instanceof MorseError ? error.message : describeError(error);
 }
 
 /**
