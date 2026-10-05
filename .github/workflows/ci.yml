@@ -21,6 +21,16 @@ jobs:
           node-version: 24
           cache: npm
 
+      # node-pty is the browser host's terminal and ships no Linux prebuild, so
+      # `npm ci` compiles it. Make sure the toolchain node-gyp needs is present
+      # before the install, or the whole job dies on a native build.
+      - name: Ensure a C++ toolchain for node-pty
+        run: |
+          if ! command -v g++ >/dev/null || ! command -v make >/dev/null || ! command -v python3 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential python3
+          fi
+
       - name: Install
         run: npm ci
 
@@ -53,6 +63,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+
+      # Same native build as the job above: node-pty has no Linux prebuild.
+      - name: Ensure a C++ toolchain for node-pty
+        run: |
+          if ! command -v g++ >/dev/null || ! command -v make >/dev/null || ! command -v python3 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential python3
+          fi
 
       - name: Install
         run: npm ci

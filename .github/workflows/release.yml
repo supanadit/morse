@@ -69,6 +69,17 @@ jobs:
             console.log(`All manifests are ${want}.`);
           '
 
+      # node-pty is the browser host's terminal and ships no Linux prebuild, so
+      # `npm ci` compiles it. Install the toolchain node-gyp needs first; the
+      # VSIX itself never bundles node-pty (the extension does not import the
+      # server) and the npm artifact keeps it external, as a runtime dependency.
+      - name: Ensure a C++ toolchain for node-pty
+        run: |
+          if ! command -v g++ >/dev/null || ! command -v make >/dev/null || ! command -v python3 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential python3
+          fi
+
       - name: Install
         run: npm ci
 

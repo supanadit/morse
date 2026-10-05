@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.0 — 5 October 2026
+
+A terminal in the panel, and a panel that gets out of its way.
+
+### New
+
+- **A terminal in the panel.** A VS Code-style panel below the composer opens a real terminal — one per session, started in
+  that session's own directory, so each conversation keeps its own shells. It starts folded to its chip; the chip opens it,
+  the top edge drags it taller, the chevron folds it back without killing the shell, and the expand button hands it the whole
+  conversation column.
+- **Split terminals.** A terminal can be split into panes side by side, each with its own shell and its own scrollback. The
+  chip shows the count (`Terminal 1 (2)`), a tab row under the panes names each one, and the seam between two panes drags to
+  size them.
+- **Terminals name themselves — and rename.** A terminal follows the shell's title, so a running `npm run dev` names its own
+  tab; double-click a chip to name it yourself, and the shell's title stops replacing it.
+- **Reorder tabs, browse folders, inspect commits.** Tabs drag to reorder; the New session path field live-loads its
+  subfolders as you type; a commit row's tooltip shows its full subject, refs, author, exact time and hash.
+
+### Fixed
+
+- **A failed background command no longer writes into the transcript.** A folder browse, file preview or git poll that fails
+  is reported to its caller instead of painting a red notice into the conversation.
+- **Queued follow-ups stay in their session.** The queued-messages list now belongs to the tab in front, so a follow-up
+  scheduled in one session no longer appears in another.
+
 ## 0.10.0 — 5 October 2026
 
 Drafts that stay yours, and a git panel that does the everyday work.
