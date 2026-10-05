@@ -16,6 +16,7 @@ import { MorseService } from './core/morse.service';
 import { PanelState } from './core/panel-state';
 import { ShellState } from './core/shell-state';
 import { WorkspaceTabs } from './core/workspace-tabs';
+import { WorkbenchPersistence } from './core/workbench-persistence';
 import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
@@ -213,6 +214,11 @@ export class App {
   });
 
   constructor() {
+    // The browser host persists the shell layout (open/focused tabs, panel and
+    // terminals). Constructing the service loads what the reader had open and
+    // starts watching for changes worth saving; the VS Code host advertises no
+    // such capability and the service stays inert there.
+    inject(WorkbenchPersistence);
     // The two shortcuts whose action belongs to the shell itself. The rest are
     // bound where their state lives: the sidebar owns the search field and the
     // project filter, the composer owns the model chooser, the thinking picker

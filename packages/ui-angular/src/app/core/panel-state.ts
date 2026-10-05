@@ -17,6 +17,14 @@ export interface PanelAction {
   run(): void;
 }
 
+/** The panel as a saved layout keeps it: the open tool, its state and height. */
+export interface PanelSnapshot {
+  view?: string;
+  expanded: boolean;
+  full: boolean;
+  height?: number;
+}
+
 /** Where the panel's height, open state and chosen chip are remembered. */
 const PANEL_HEIGHT_KEY = 'morse.panel.height';
 const PANEL_EXPANDED_KEY = 'morse.panel.expanded';
@@ -61,6 +69,22 @@ function storeView(view: string): void {
 
 function clampHeight(px: number): number {
   return Math.round(Math.min(PANEL_MAX_HEIGHT, Math.max(PANEL_MIN_HEIGHT, px)));
+}
+
+/** A saved panel state, with anything that is not a boolean/string/number dropped. */
+function asPanelSnapshot(value: unknown): PanelSnapshot | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const view = candidate['view'];
+  const height = candidate['height'];
+  return {
+    ...(typeof view === 'string' && view.length > 0 ? { view } : {}),
+    expanded: candidate['expanded'] === true,
+    full: candidate['full'] === true,
+    ...(typeof height === 'number' && Number.isFinite(height) ? { height } : {}),
+  };
 }
 
 function readHeight(): number | undefined {
@@ -173,6 +197,42 @@ export class PanelState {
       globalThis.localStorage?.removeItem(PANEL_HEIGHT_KEY);
     } catch {
       // As above: the signal is the truth for this session either way.
+    }
+  }
+
+  /**
+   * The panel's state for the saved layout: which tool is showing, whether it is
+   * open and full, and the height it was dragged to. `undefined` values stay
+   * absent so a restored panel keeps the defaults it never changed.
+   */
+  snapshot(): PanelSnapshot {
+    return {
+      ...(this.active() !== undefined ? { view: this.active() } : {}),
+      expanded: this.open(),
+      full: this.fullSignal(),
+      ...(this.heightSignal() !== undefined ? { height: this.heightSignal() } : {}),
+    };
+  }
+
+  /**
+   * Applies a saved panel state. It is written through the same storage the
+   * manual controls use, so a later reload without the host still sees the last
+   * choice rather than jumping back to the defaults.
+   */
+  restore(snapshot: unknown): void {
+    const parsed = asPanelSnapshot(snapshot);
+    if (parsed === undefined) {
+      return;
+    }
+    if (parsed.view !== undefined) {
+      this.active.set(parsed.view);
+      storeView(parsed.view);
+    }
+    this.setExpanded(parsed.expanded);
+    // `setExpanded(false)` clears full, so full is applied after it.
+    this.setFull(parsed.expanded && parsed.full);
+    if (parsed.height !== undefined) {
+      this.setHeight(parsed.height);
     }
   }
 

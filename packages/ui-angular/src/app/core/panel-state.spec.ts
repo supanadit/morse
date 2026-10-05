@@ -105,4 +105,42 @@ describe('PanelState', () => {
     expect(restored.expanded()).toBe(true);
     expect(restored.height()).toBe(320);
   });
+
+  it('snapshots the open tool, its state and the dragged height', () => {
+    const panel = TestBed.inject(PanelState);
+    panel.toggle('terminal');
+    panel.setHeight(320);
+
+    expect(panel.snapshot()).toEqual({
+      view: 'terminal',
+      expanded: true,
+      full: false,
+      height: 320,
+    });
+  });
+
+  it('restores a saved panel, including full screen and the height', () => {
+    const panel = TestBed.inject(PanelState);
+
+    panel.restore({ view: 'terminal', expanded: true, full: true, height: 420 });
+
+    expect(panel.activeView()).toBe('terminal');
+    expect(panel.expanded()).toBe(true);
+    expect(panel.full()).toBe(true);
+    expect(panel.height()).toBe(420);
+
+    // The choice is written to storage too, so a later host-less reload keeps it.
+    TestBed.resetTestingModule();
+    const restored = TestBed.inject(PanelState);
+    expect(restored.full()).toBe(true);
+    expect(restored.height()).toBe(420);
+  });
+
+  it('ignores a malformed panel snapshot', () => {
+    const panel = TestBed.inject(PanelState);
+    panel.restore('nope');
+
+    expect(panel.expanded()).toBe(false);
+    expect(panel.activeView()).toBeUndefined();
+  });
 });

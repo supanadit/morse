@@ -69,6 +69,12 @@ export class Terminal {
   private readonly screen = viewChild<ElementRef<HTMLElement>>('screen');
   /** The terminal's wire id, minted by `TerminalStore` (the session owns it). */
   readonly id = input.required<string>();
+  /**
+   * The directory the shell runs in. A restored pane carries its own, because
+   * its session may not be the one in front yet; a live pane leaves it empty and
+   * the host uses the viewing session's directory.
+   */
+  readonly cwd = input<string | undefined>(undefined);
   /** The shell's own title (OSC 0/2), so the tab can follow the running command. */
   readonly titleChange = output<string>();
 
@@ -110,8 +116,8 @@ export class Terminal {
       return;
     }
     const [core, fitModule] = await Promise.all([
-      import('@xterm/xterm'),
-      import('@xterm/addon-fit'),
+      importCjs(import('@xterm/xterm')),
+      importCjs(import('@xterm/addon-fit')),
     ]);
     // A fold or a close while the chunk was loading: nothing to attach to.
     if (this.destroyed) {
@@ -142,7 +148,7 @@ export class Terminal {
     // OSC 0/2: the shell names the tab (its cwd, or the command it is running).
     term.onTitleChange((title) => this.titleChange.emit(title));
     this.fitNow();
-    this.morse.openTerminal(this.id(), { cols: term.cols, rows: term.rows });
+    this.morse.openTerminal(this.id(), { cwd: this.cwd(), cols: term.cols, rows: term.rows });
     term.focus();
 
     if (typeof ResizeObserver !== 'undefined') {
@@ -153,7 +159,7 @@ export class Terminal {
 
   private async enableWebgl(term: XTermInstance): Promise<void> {
     try {
-      const { WebglAddon } = await import('@xterm/addon-webgl');
+      const { WebglAddon } = await importCjs(import('@xterm/addon-webgl'));
       if (this.destroyed || this.term !== term) {
         return;
       }
@@ -168,7 +174,11 @@ export class Terminal {
   protected restart(): void {
     this.ended.set(undefined);
     this.term?.write('\r\n');
-    this.morse.openTerminal(this.id(), { cols: this.term?.cols, rows: this.term?.rows });
+    this.morse.openTerminal(this.id(), {
+      cwd: this.cwd(),
+      cols: this.term?.cols,
+      rows: this.term?.rows,
+    });
     this.term?.focus();
   }
 
@@ -202,7 +212,9 @@ export class Terminal {
     return value.length > 0 ? value : 'monospace';
   }
 
-  /** The panel's palette, read from the active theme so the terminal matches it. */
+  /**
+   * The panel's palette, read from the active theme so the terminal matches it.
+   */
   private theme(): ITheme {
     const read = (name: string): string =>
       getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -213,4 +225,16 @@ export class Terminal {
       selectionBackground: read('--morse-hover'),
     };
   }
+}
+
+/**
+ * xterm ships CommonJS, and a production bundle wraps a lazily imported CJS
+ * module as `{ default: exports }` — while its typings (and the dev server)
+ * expose the names directly. Unwrapping the default when it is there keeps both
+ * shapes working; without it `core.Terminal` is `undefined` in the packaged
+ * build and the pane stays blank forever (the lazy import never rejects).
+ */
+async function importCjs<T>(module: Promise<T>): Promise<T> {
+  const loaded = (await module) as T & { default?: T };
+  return loaded.default ?? loaded;
 }

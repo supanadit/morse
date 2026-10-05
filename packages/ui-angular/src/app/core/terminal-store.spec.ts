@@ -162,4 +162,59 @@ describe('TerminalStore', () => {
     store.split(first);
     expect(store.groups()[0]!.sizes).toEqual([1 / 3, 1 / 3, 1 / 3]);
   });
+
+  it('snapshots the panes and every “which is in front” choice', () => {
+    const store = TestBed.inject(TerminalStore);
+    const first = store.open('s1');
+    const second = store.split(first)!;
+    store.open('s2');
+    store.setSizes(first, [0.6, 0.4]);
+
+    const snapshot = store.snapshot();
+
+    expect(snapshot.panes.map((pane) => pane.id)).toEqual([first, second, 'term-3']);
+    expect(snapshot.activeByOwner['s1']).toBe(first);
+    expect(snapshot.activePaneByGroup[first]).toBe(second);
+    expect(snapshot.sizesByGroup[first]).toEqual([0.6, 0.4]);
+  });
+
+  it('restores the layout, and a later terminal does not reuse a restored id', () => {
+    const store = TestBed.inject(TerminalStore);
+
+    store.restore({
+      panes: [
+        { id: 'term-4', owner: 's1', group: 'term-4', title: 'Server', fallbackTitle: 'Terminal 4', custom: 'Server' },
+        { id: 'term-5', owner: 's1', group: 'term-4', title: 'Terminal 5', fallbackTitle: 'Terminal 5' },
+      ],
+      activeByOwner: { s1: 'term-4' },
+      activePaneByGroup: { 'term-4': 'term-5' },
+      sizesByGroup: { 'term-4': [0.5, 0.5] },
+    });
+
+    expect(store.groups().map((group) => group.title)).toEqual(['Server (2)']);
+    expect(store.activeFor('s1')).toBe('term-4');
+    expect(store.activePaneFor('term-4')).toBe('term-5');
+
+    const next = store.open('s1');
+    expect(next).toBe('term-6');
+  });
+
+  it('keeps a restored pane’s directory and drops a malformed one', () => {
+    const store = TestBed.inject(TerminalStore);
+
+    store.restore({
+      panes: [
+        { id: 'term-1', owner: 's1', group: 'term-1', title: 'T', fallbackTitle: 'Terminal 1', cwd: '/repo' },
+        { id: '', group: 'x' },
+      ],
+      activeByOwner: { s1: 'term-1', gone: 'term-1' },
+      activePaneByGroup: { 'term-1': 'term-1' },
+      sizesByGroup: { 'term-1': [1], missing: [0.5, 0.5] },
+    });
+
+    expect(store.terminals().map((pane) => pane.cwd)).toEqual(['/repo']);
+    // The maps are filtered to what survived: a stale owner never resurrects a pane.
+    expect(store.snapshot().activeByOwner).toEqual({ s1: 'term-1' });
+    expect(Object.keys(store.snapshot().sizesByGroup)).toEqual(['term-1']);
+  });
 });

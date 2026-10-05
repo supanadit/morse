@@ -17,6 +17,9 @@ const GIT_WIDTH_MAX = 1600;
 const GIT_CHANGES_HEIGHT_KEY = 'morse.git.changesHeight';
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
 const GIT_HISTORY_COLLAPSED_KEY = 'morse.git.historyCollapsed';
+/** The Staged / Unstaged groups fold on their own, like VS Code's Source Control. */
+const GIT_STAGED_COLLAPSED_KEY = 'morse.git.stagedCollapsed';
+const GIT_UNSTAGED_COLLAPSED_KEY = 'morse.git.unstagedCollapsed';
 const GIT_CHANGES_MIN_HEIGHT = 48;
 const GIT_CHANGES_MAX_HEIGHT = 1200;
 /** The Explorer pane's height, so a resize survives a reload. */
@@ -206,6 +209,11 @@ export class ShellState {
   readonly gitChangesCollapsed = this.changesCollapsedSignal.asReadonly();
   private readonly historyCollapsedSignal = signal(readFlag(GIT_HISTORY_COLLAPSED_KEY));
   readonly gitHistoryCollapsed = this.historyCollapsedSignal.asReadonly();
+  /** The two change groups, each folded independently. */
+  private readonly stagedCollapsedSignal = signal(readFlag(GIT_STAGED_COLLAPSED_KEY));
+  readonly gitStagedCollapsed = this.stagedCollapsedSignal.asReadonly();
+  private readonly unstagedCollapsedSignal = signal(readFlag(GIT_UNSTAGED_COLLAPSED_KEY));
+  readonly gitUnstagedCollapsed = this.unstagedCollapsedSignal.asReadonly();
   /**
    * The browser host's Explorer pane height (px). `undefined` means the default
    * (`max-height` in CSS); once the user drags its top edge, the chosen height is
@@ -342,6 +350,18 @@ export class ShellState {
   toggleGitHistory(): void {
     this.historyCollapsedSignal.update((collapsed) => !collapsed);
     storeFlag(GIT_HISTORY_COLLAPSED_KEY, this.historyCollapsedSignal());
+  }
+
+  /** Folds the Staged group down to its header, or brings it back. */
+  toggleGitStaged(): void {
+    this.stagedCollapsedSignal.update((collapsed) => !collapsed);
+    storeFlag(GIT_STAGED_COLLAPSED_KEY, this.stagedCollapsedSignal());
+  }
+
+  /** Folds the Unstaged group down to its header, or brings it back. */
+  toggleGitUnstaged(): void {
+    this.unstagedCollapsedSignal.update((collapsed) => !collapsed);
+    storeFlag(GIT_UNSTAGED_COLLAPSED_KEY, this.unstagedCollapsedSignal());
   }
 
   /** Drag-to-resize the divider between Changes and History; clamped to a usable range. */

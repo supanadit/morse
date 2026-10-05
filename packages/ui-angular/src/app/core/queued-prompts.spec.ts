@@ -68,4 +68,41 @@ describe('QueuedPrompts', () => {
     expect(queue.queued()).toEqual([]);
     expect(queue.shift()).toBeUndefined();
   });
+
+  it('moves a follow-up past the one it is dropped on, both ways', () => {
+    const queue = store();
+    const first = queue.enqueue({ text: 'first', images: [], pins: [] }, 's1');
+    const second = queue.enqueue({ text: 'second', images: [], pins: [] }, 's1');
+    const third = queue.enqueue({ text: 'third', images: [], pins: [] }, 's1');
+
+    // Dropped downward it lands after the target; upward, before it.
+    queue.move(first, third);
+    expect(queue.forOwner('s1').map((item) => item.text)).toEqual(['second', 'third', 'first']);
+
+    queue.move(first, second);
+    expect(queue.forOwner('s1').map((item) => item.text)).toEqual(['first', 'second', 'third']);
+  });
+
+  it('moves the head, so the queue dispatches what the reader chose first', () => {
+    const queue = store();
+    queue.enqueue({ text: 'first', images: [], pins: [] }, 's1');
+    const second = queue.enqueue({ text: 'second', images: [], pins: [] }, 's1');
+
+    queue.move(second, 'queued-1');
+
+    expect(queue.shift('s1')?.text).toBe('second');
+  });
+
+  it('refuses a cross-session or self move', () => {
+    const queue = store();
+    const a = queue.enqueue({ text: 'for A', images: [], pins: [] }, 'a');
+    const b = queue.enqueue({ text: 'for B', images: [], pins: [] }, 'b');
+
+    expect(queue.canMove(a, b)).toBe(false);
+    expect(queue.canMove(a, a)).toBe(false);
+    queue.move(b, a);
+
+    expect(queue.forOwner('a').map((item) => item.text)).toEqual(['for A']);
+    expect(queue.forOwner('b').map((item) => item.text)).toEqual(['for B']);
+  });
 });

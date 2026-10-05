@@ -2,33 +2,38 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The panel mounts the real TerminalView, which builds xterm emulators; jsdom has
-// no layout or canvas, so the emulator is mocked here (see terminal.spec.ts).
+// no layout or canvas, so the emulator is mocked here (see terminal.spec.ts). The
+// mocks carry the production shape — the CJS module under `default`.
 vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    cols = 80;
-    rows = 24;
-    open(): void {}
-    loadAddon(): void {}
-    onData() {
-      return { dispose: () => undefined };
-    }
-    onResize() {
-      return { dispose: () => undefined };
-    }
-    onTitleChange() {
-      return { dispose: () => undefined };
-    }
-    write(): void {}
-    reset(): void {}
-    focus(): void {}
-    dispose(): void {}
+  default: {
+    Terminal: class {
+      cols = 80;
+      rows = 24;
+      open(): void {}
+      loadAddon(): void {}
+      onData() {
+        return { dispose: () => undefined };
+      }
+      onResize() {
+        return { dispose: () => undefined };
+      }
+      onTitleChange() {
+        return { dispose: () => undefined };
+      }
+      write(): void {}
+      reset(): void {}
+      focus(): void {}
+      dispose(): void {}
+    },
   },
 }));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit(): void {} } }));
+vi.mock('@xterm/addon-fit', () => ({ default: { FitAddon: class { fit(): void {} } } }));
 vi.mock('@xterm/addon-webgl', () => ({
-  WebglAddon: class {
-    onContextLoss(): void {}
-    dispose(): void {}
+  default: {
+    WebglAddon: class {
+      onContextLoss(): void {}
+      dispose(): void {}
+    },
   },
 }));
 

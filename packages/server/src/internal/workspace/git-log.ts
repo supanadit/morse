@@ -321,7 +321,10 @@ export async function commitGit(cwd: string, message: string): Promise<GitMutati
     return { ok: false, message: 'This project is not a git repository.' };
   }
   const result = await gitExec(['commit', '-m', text], cwd, 60_000);
-  return { ok: result.ok, message: result.ok ? undefined : firstLine(result.output) };
+  if (result.ok) {
+    return { ok: true };
+  }
+  return { ok: false, message: describeCommitFailure(result.output) };
 }
 
 /**
@@ -347,7 +350,7 @@ export async function checkoutGit(
     cwd,
     60_000,
   );
-  return { ok: result.ok, message: result.ok ? undefined : firstLine(result.output) };
+  return { ok: result.ok, message: result.ok ? undefined : gitRefusal(result.output) };
 }
 
 /** A conservative refname guard: no options, whitespace, or revision syntax. */
@@ -363,9 +366,36 @@ function isBranchName(name: string): boolean {
   );
 }
 
-/** The first non-empty line of git's output, capped so a hint stays a hint. */
-function firstLine(output: string): string | undefined {
-  const line = output.split('\n').find((candidate) => candidate.trim().length > 0)?.trim();
+/**
+ * What to tell the reader when `git commit` refused. "Nothing to commit" is the
+ * everyday case — the branch is clean, or the changes were never staged — and it
+ * gets a plain instruction instead of git's paragraph; anything else (a failing
+ * hook, a rejected signature) keeps git's own line.
+ */
+function describeCommitFailure(output: string): string | undefined {
+  if (/nothing to commit|no changes added to commit|nothing added to commit/i.test(output)) {
+    return 'Nothing is staged to commit. Stage a change first.';
+  }
+  return gitRefusal(output);
+}
+
+/**
+ * The line from a refused command a reader should see: the first line that is
+ * git's own, not Node's `Command failed: …` wrapper or the branch chatter
+ * (`On branch main`, `Your branch is up to date with …`) that always leads a
+ * commit's output. Capped so a hint stays a hint.
+ */
+function gitRefusal(output: string): string | undefined {
+  const line = output
+    .split('\n')
+    .map((candidate) => candidate.trim())
+    .find(
+      (candidate) =>
+        candidate.length > 0 &&
+        !candidate.startsWith('Command failed:') &&
+        !/^On branch /.test(candidate) &&
+        !/^Your branch /.test(candidate),
+    );
   if (line === undefined) {
     return undefined;
   }
@@ -489,11 +519,18 @@ function gitExec(
         },
       },
       (error, stdout, stderr) => {
-        resolve(
-          error === null
-            ? { ok: true, output: stdout.trim() }
-            : { ok: false, output: (stderr || error.message || '').trim() },
-        );
+        if (error === null) {
+          resolve({ ok: true, output: stdout.trim() });
+          return;
+        }
+        // git writes a refusal to stderr *or* stdout — "nothing to commit" is on
+        // stdout — while Node's `error.message` is only the `Command failed: git …`
+        // wrapper around that same output. Prefer git's own words and keep the
+        // wrapper only for a failure with no output at all (a spawn error).
+        const output = [stderr.trim(), stdout.trim()]
+          .filter((part) => part.length > 0)
+          .join('\n');
+        resolve({ ok: false, output: output.length > 0 ? output : error.message.trim() });
       },
     );
   });

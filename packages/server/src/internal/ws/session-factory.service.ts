@@ -34,6 +34,7 @@ import {
   unstageGitPaths,
 } from '../workspace/git-log.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
+import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '../workspace/workbench-store.js';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
 
@@ -80,6 +81,10 @@ export class MorseSessionFactory {
       // the bottom panel's terminal is this host's. It runs in the viewing
       // session's directory and is gated by `ProjectPolicy`, like a session.
       terminal: true,
+      // The browser host restores the tabs, panel, terminals and half-written
+      // prompts the reader left open, kept under `<MORSE_HOME>`. VS Code has its
+      // own tab restoration and leaves this off.
+      workbench: true,
       // A browser cannot hand a dragged file's path to pi, so the host takes the
       // bytes and writes them next to the session; the frontend then `@mentions`
       // the path it gets back.
@@ -154,6 +159,23 @@ export class MorseSessionFactory {
         });
         return { ...listing, canOpen: this.policy.canOpen(listing.path) };
       }
+      case 'readWorkbench': {
+        // The shell layout the reader left behind. Read-only and host-scoped (a
+        // file under `MORSE_HOME`), so it never consults the project policy.
+        return readWorkbench(this.config.dataDir) ?? null;
+      }
+      case 'saveWorkbench': {
+        // The frontend owns the inner shape; the store guards version and size.
+        return { ok: saveWorkbench(this.config.dataDir, args) };
+      }
+      case 'readDrafts': {
+        // The half-written prompts, keyed by tab. Same host-scoped file as the
+        // layout, but its own file because a draft can carry inline images.
+        return readDrafts(this.config.dataDir) ?? null;
+      }
+      case 'saveDrafts': {
+        return { ok: saveDrafts(this.config.dataDir, args) };
+      }
       case 'listFiles': {
         const cwd = this.requireWritableCwd(context);
         // There is no workspace folder here, so the list is the directory the
@@ -166,7 +188,7 @@ export class MorseSessionFactory {
       case 'readFile': {
         // The Explorer and the preview tabs. `readWorkspaceFile` resolves the
         // path inside the session's directory and refuses anything that escapes.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.commandCwd(context, args);
         const path = typeof args?.path === 'string' ? args.path : '';
         if (path.length === 0) {
           throw new UnsupportedByHostError('readFile needs a "path" argument.');
@@ -197,7 +219,7 @@ export class MorseSessionFactory {
       case 'gitDiff': {
         // One file's unified diff for the preview's diff modes. The path is
         // resolved inside the session's directory, exactly like `readFile`.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.commandCwd(context, args);
         const path = typeof args?.path === 'string' ? args.path : '';
         if (path.length === 0) {
           throw new UnsupportedByHostError('gitDiff needs a "path" argument.');
@@ -223,7 +245,7 @@ export class MorseSessionFactory {
         return readCommitFiles(cwd, hash);
       }
       case 'gitCommitDiff': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.commandCwd(context, args);
         const hash = typeof args?.hash === 'string' ? args.hash : '';
         const path = typeof args?.path === 'string' ? args.path : '';
         if (path.length === 0) {
@@ -281,6 +303,23 @@ export class MorseSessionFactory {
       throw new UnsupportedByHostError(`Morse is not allowed to work in ${cwd}.`);
     }
     return cwd;
+  }
+
+  /**
+   * The directory a file command works in. A restored preview tab carries the
+   * project it was read from (`args.cwd`), because the host may still be on
+   * another session when that tab is loaded; the policy checks it exactly like a
+   * terminal's directory. Without one, the viewing session's directory is used.
+   */
+  private commandCwd(context?: HostCommandContext, args?: Record<string, unknown>): string {
+    const requested = args?.cwd;
+    if (typeof requested === 'string' && requested.length > 0) {
+      if (!this.policy.canOpen(requested)) {
+        throw new UnsupportedByHostError(`Morse is not allowed to work in ${requested}.`);
+      }
+      return requested;
+    }
+    return this.requireWritableCwd(context);
   }
 
   /** The cwd of the session this connection is showing. */

@@ -40,6 +40,13 @@ export interface FileTab {
   diff?: string;
   diffLoading?: boolean;
   diffError?: string;
+  /**
+   * The project the file was opened under. The host resolves a preview against
+   * the viewing session's directory, which is not necessarily this file's when a
+   * restored tab is loaded before its own session is in front, so the tab
+   * carries the directory it was read from.
+   */
+  projectCwd?: string;
   /** Opened from a commit's file list: the diff is `git show <hash>`, not HEAD. */
   commitHash?: string;
   /** The commit's subject, so the preview can name the commit it is showing. */
@@ -47,6 +54,34 @@ export interface FileTab {
 }
 
 export type WorkspaceTab = SessionTab | FileTab;
+
+/**
+ * One tab as it is written to `<MORSE_HOME>/workbench.json`. Only the durable
+ * half is kept: a session's id/title/cwd (a draft keeps its `draft` flag), a
+ * file's path and how it was opened. A preview's content (and a commit's diff)
+ * is read again on restore, so the file stays small and the view is never a
+ * stale copy of the disk.
+ */
+export type PersistedTab =
+  | { kind: 'session'; id: string; title: string; cwd?: string; draft?: boolean }
+  | {
+      kind: 'file';
+      id: string;
+      path: string;
+      title: string;
+      mention?: boolean;
+      sessionId?: string;
+      language?: string;
+      commitHash?: string;
+      commitSubject?: string;
+      projectCwd?: string;
+    };
+
+/** What the strip remembers across a reload: its tabs, and which one was in front. */
+export interface TabsSnapshot {
+  tabs: PersistedTab[];
+  activeId?: string;
+}
 
 const FILE_PREFIX = 'file:';
 /** Files opened from the `@` picker live in a second row, so the prefix differs. */
@@ -89,6 +124,14 @@ export class WorkspaceTabs {
    * a draft left in the strip could be mistaken for the session that just opened.
    */
   private pendingDraft: string | undefined;
+  /**
+   * True while a restored layout owns the front tab. The host's reattached
+   * session must join the strip without stealing focus, so the first
+   * `showSession` after a restore keeps the restored active tab and only asks
+   * the host to switch when that tab is another session. Cleared by that first
+   * `showSession` (or `endRestore`, when the host never sends one).
+   */
+  private restorePending = false;
 
   constructor() {
     // The composer edits the draft of the tab in front. Pointing the store here,
@@ -213,6 +256,9 @@ export class WorkspaceTabs {
 
   /** The user picked a session (from the sidebar or its tab): show it and activate it. */
   focusSession(session: { id: string; title: string; cwd?: string }): void {
+    // A pick is the reader's own navigation: it always wins over a restored
+    // layout's hold on the front tab.
+    this.restorePending = false;
     // The draft stops being the host's pending session; a filled-in one stays in
     // the strip as the reader's work, an untouched one is noise.
     this.pendingDraft = undefined;
@@ -228,9 +274,151 @@ export class WorkspaceTabs {
    * first prompt fills in rather than a second tab beside it.
    */
   showSession(session: { id: string; title: string; cwd?: string }): void {
+    if (this.restorePending) {
+      // A restored layout owns the front tab. The host's reattached session is
+      // added without being brought forward; when the restored tab is a *different*
+      // session, the host is asked to switch to it, which is what makes the tab
+      // the reader left on the one they see. A restored file tab — or a restored
+      // "New session" draft — leaves the host on the session it reattached; a
+      // restored draft is not promoted here, so the first prompt still fills it in.
+      this.restorePending = false;
+      this.ensureSession(session);
+      const active = this.activeTab();
+      if (active?.kind === 'session' && active.draft !== true && active.id !== session.id) {
+        this.morse.activateSession(active.id, active.cwd);
+        return;
+      }
+      if (active === undefined) {
+        this.active.set(session.id);
+      }
+      return;
+    }
     this.promoteDraft(session);
     this.ensureSession(session);
     this.active.set(session.id);
+  }
+
+  /**
+   * What the strip remembers: every tab, in order, and the one in front. A draft
+   * is kept too — its tab carries the reader's half-written "New session", and the
+   * prompt itself lives in the saved drafts.
+   */
+  snapshot(): TabsSnapshot {
+    // A quoted file is that session's context, so it only survives with the
+    // session it was quoted in; files quoted in a draft are left out together.
+    const sessionIds = new Set(
+      this.items()
+        .filter((tab): tab is SessionTab => tab.kind === 'session' && tab.draft !== true)
+        .map((tab) => tab.id),
+    );
+    const tabs = this.items().flatMap<PersistedTab>((tab) => {
+      if (tab.kind === 'session') {
+        return [
+          {
+            kind: 'session',
+            id: tab.id,
+            title: tab.title,
+            cwd: tab.cwd,
+            ...(tab.draft === true ? { draft: true } : {}),
+          },
+        ];
+      }
+      if (tab.mention === true && (tab.sessionId === undefined || !sessionIds.has(tab.sessionId))) {
+        return [];
+      }
+      return [
+        {
+          kind: 'file',
+          id: tab.id,
+          path: tab.path,
+          title: tab.title,
+          ...(tab.mention === true ? { mention: true } : {}),
+          ...(tab.sessionId !== undefined ? { sessionId: tab.sessionId } : {}),
+          ...(tab.language !== undefined ? { language: tab.language } : {}),
+          ...(tab.commitHash !== undefined ? { commitHash: tab.commitHash } : {}),
+          ...(tab.commitSubject !== undefined ? { commitSubject: tab.commitSubject } : {}),
+          ...(tab.projectCwd !== undefined ? { projectCwd: tab.projectCwd } : {}),
+        },
+      ];
+    });
+    const active = this.active();
+    return {
+      tabs,
+      ...(active !== undefined && tabs.some((tab) => tab.id === active) ? { activeId: active } : {}),
+    };
+  }
+
+  /**
+   * Applies a layout from `~/.morse/workbench.json`. Tabs are built without
+   * their content: a file is re-read from disk the moment it is selected (or is
+   * already in front), so the preview is never a stale copy. An unknown shape is
+   * ignored — a layout written by another version is not worth guessing at.
+   */
+  restore(snapshot: unknown): void {
+    const parsed = asTabsSnapshot(snapshot);
+    if (parsed === undefined) {
+      return;
+    }
+    const items = parsed.tabs.flatMap<WorkspaceTab>((tab) => {
+      if (tab.kind === 'session') {
+        return [
+          {
+            kind: 'session',
+            id: tab.id,
+            title: tab.title,
+            cwd: tab.cwd,
+            ...(tab.draft === true ? { draft: true } : {}),
+          },
+        ];
+      }
+      return [
+        {
+          kind: 'file',
+          id: tab.id,
+          path: tab.path,
+          title: tab.title,
+          language: tab.language ?? languageForPath(tab.path),
+          loading: false,
+          ...(tab.mention === true ? { mention: true } : {}),
+          ...(tab.sessionId !== undefined ? { sessionId: tab.sessionId } : {}),
+          ...(tab.commitHash !== undefined ? { commitHash: tab.commitHash } : {}),
+          ...(tab.commitSubject !== undefined ? { commitSubject: tab.commitSubject } : {}),
+          ...(tab.projectCwd !== undefined ? { projectCwd: tab.projectCwd } : {}),
+        },
+      ];
+    });
+    this.items.set(items);
+    const active =
+      parsed.activeId !== undefined && items.some((tab) => tab.id === parsed.activeId)
+        ? parsed.activeId
+        : undefined;
+    this.active.set(active);
+    this.restorePending = active !== undefined;
+    // A restored "New session" is still pending the first prompt that fills it in.
+    const activeTab = items.find((tab) => tab.id === active);
+    this.pendingDraft =
+      activeTab?.kind === 'session' && activeTab.draft === true ? active : undefined;
+    // A new draft must not reuse a restored `draft-N` id.
+    this.draftCounter = items.reduce(
+      (highest, tab) =>
+        tab.kind === 'session' && tab.draft === true
+          ? Math.max(highest, draftNumber(tab.id))
+          : highest,
+      this.draftCounter,
+    );
+    const inFront = this.activeTab();
+    if (inFront?.kind === 'file' && this.needsLoad(inFront)) {
+      void this.load(inFront.id);
+    }
+  }
+
+  /**
+   * Releases a restored layout's hold on the front tab. The browser host calls
+   * this when its reattached session never arrived (a host with no open session),
+   * so a later session does not silently fail to come forward.
+   */
+  endRestore(): void {
+    this.restorePending = false;
   }
 
   /** Opens or reveals a file tab from the Explorer; reads it the first time. */
@@ -258,6 +446,7 @@ export class WorkspaceTabs {
           loading: false,
           commitHash: hash,
           commitSubject: subject,
+          projectCwd: this.morse.state().workspace?.cwd,
         },
       ]);
     }
@@ -291,6 +480,7 @@ export class WorkspaceTabs {
           loading: true,
           mention,
           sessionId: mention ? sessionId : undefined,
+          projectCwd: this.morse.state().workspace?.cwd,
         },
       ]);
     }
@@ -403,6 +593,11 @@ export class WorkspaceTabs {
    * over an empty panel; a draft tab stays, since it *is* that empty session.
    */
   clearActiveSession(): void {
+    // A restored layout still owns the front tab; the host's empty draft must not
+    // clear it before the session the layout asked for has had a chance to open.
+    if (this.restorePending) {
+      return;
+    }
     const active = this.items().find((tab) => tab.id === this.active());
     if (active !== undefined && active.kind === 'session' && active.draft !== true) {
       this.active.set(undefined);
@@ -624,8 +819,9 @@ export class WorkspaceTabs {
         ? this.morse.requestHostCommand('gitCommitDiff', {
             hash: tab.commitHash,
             path: tab.path,
+            cwd: tab.projectCwd,
           })
-        : this.morse.requestHostCommand('gitDiff', { path: tab.path });
+        : this.morse.requestHostCommand('gitDiff', { path: tab.path, cwd: tab.projectCwd });
     void request.then((data) => {
       const diff = asDiff(data);
       if (diff === undefined) {
@@ -721,14 +917,14 @@ export class WorkspaceTabs {
   }
 
   private needsLoad(tab: WorkspaceTab): boolean {
-    return (
-      tab.kind === 'file' &&
-      // A commit tab has no working-tree content to read: its diff is the view.
-      tab.commitHash === undefined &&
-      !tab.loading &&
-      tab.content === undefined &&
-      tab.error === undefined
-    );
+    if (tab.kind !== 'file') {
+      return false;
+    }
+    // A commit tab has no working-tree content to read: its diff is the view.
+    if (tab.commitHash !== undefined) {
+      return tab.diff === undefined && tab.diffLoading !== true && tab.diffError === undefined;
+    }
+    return !tab.loading && tab.content === undefined && tab.error === undefined;
   }
 
   private async load(id: string): Promise<void> {
@@ -741,7 +937,10 @@ export class WorkspaceTabs {
       return;
     }
     this.patch(id, { loading: true, error: undefined });
-    const data = await this.morse.requestHostCommand('readFile', { path: tab.path });
+    const data = await this.morse.requestHostCommand('readFile', {
+      path: tab.path,
+      cwd: tab.projectCwd,
+    });
     const preview = asPreview(data);
     if (preview === undefined) {
       this.patch(id, { loading: false, error: 'Could not read this file.' });
@@ -784,12 +983,93 @@ function asPreview(value: unknown): FilePreviewPayload | undefined {
   };
 }
 
+/**
+ * The persisted `{ tabs, activeId }` shape, with every entry that is not a
+ * usable tab dropped. A layout from an unknown version (or a hand-edited file)
+ * degrades to the entries that still make sense instead of throwing at boot.
+ */
+function asTabsSnapshot(value: unknown): TabsSnapshot | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const rawTabs = candidate['tabs'];
+  if (!Array.isArray(rawTabs)) {
+    return undefined;
+  }
+  const tabs = rawTabs.flatMap<PersistedTab>((entry) => {
+    const tab = asPersistedTab(entry);
+    return tab === undefined ? [] : [tab];
+  });
+  const activeId = candidate['activeId'];
+  return {
+    tabs,
+    ...(typeof activeId === 'string' ? { activeId } : {}),
+  };
+}
+
+function asPersistedTab(value: unknown): PersistedTab | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const id = candidate['id'];
+  if (typeof id !== 'string' || id.length === 0) {
+    return undefined;
+  }
+  if (candidate['kind'] === 'session') {
+    const title = candidate['title'];
+    if (typeof title !== 'string') {
+      return undefined;
+    }
+    const cwd = candidate['cwd'];
+    return {
+      kind: 'session',
+      id,
+      title,
+      ...(typeof cwd === 'string' ? { cwd } : {}),
+      ...(candidate['draft'] === true ? { draft: true } : {}),
+    };
+  }
+  if (candidate['kind'] !== 'file') {
+    return undefined;
+  }
+  const path = candidate['path'];
+  const title = candidate['title'];
+  if (typeof path !== 'string' || typeof title !== 'string') {
+    return undefined;
+  }
+  const sessionId = candidate['sessionId'];
+  const language = candidate['language'];
+  const commitHash = candidate['commitHash'];
+  const commitSubject = candidate['commitSubject'];
+  const projectCwd = candidate['projectCwd'];
+  return {
+    kind: 'file',
+    id,
+    path,
+    title,
+    ...(candidate['mention'] === true ? { mention: true } : {}),
+    ...(typeof sessionId === 'string' ? { sessionId } : {}),
+    ...(typeof language === 'string' ? { language } : {}),
+    ...(typeof commitHash === 'string' ? { commitHash } : {}),
+    ...(typeof commitSubject === 'string' ? { commitSubject } : {}),
+    ...(typeof projectCwd === 'string' ? { projectCwd } : {}),
+  };
+}
+
 function asDiff(value: unknown): string | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
   const diff = (value as { diff?: unknown }).diff;
   return typeof diff === 'string' ? diff : undefined;
+}
+
+/** The `N` in `draft-N`; 0 when the id is not a draft id this store minted. */
+function draftNumber(id: string): number {
+  const match = /^draft-(\d+)$/.exec(id);
+  return match === null ? 0 : Number.parseInt(match[1]!, 10);
 }
 
 function basename(path: string): string {

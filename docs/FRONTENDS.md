@@ -59,8 +59,10 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    `requestSessions()`, `requestProjects()`, `setModel(provider, id)`, `setThinkingLevel(level)`.
    When the agent is streaming, a prompt uses `steer` for an immediate course-correction; a **follow-up**
    is queued in the frontend (`core/queued-prompts.ts`), shown above the composer as `Queued messages`
-   with edit / send / remove, and dispatched one prompt per settled run — the reader's queue, not pi's
-   invisible one. The core also downgrades a `new` prompt while streaming and tells the user via a notice.
+   with edit / send / remove and a drag handle to reorder (`QueuedPrompts.move`, the same CDK drop the
+   tab strip uses — the queue dispatches `shift`, so the order is which follow-up runs first), and
+   dispatched one prompt per settled run — the reader's queue, not pi's invisible one. The core also
+   downgrades a `new` prompt while streaming and tells the user via a notice.
 4. **Interactions** — if `capabilities.nativeDialogs` is `false`, render `pendingInteraction` yourself and
    answer with `interaction/respond`. If it is `true`, the host is already showing QuickPick/InputBox and the
    request never reaches you.
@@ -77,7 +79,10 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    whether the host can read the active project's git history (`gitLog`) for the frontend's own
    git panel (the browser host; VS Code keeps its Source Control view and leaves it off), `terminal`
    whether the host can run an interactive shell (`terminal/open` and its siblings) for the bottom
-   panel's terminal (again the browser host; VS Code keeps its integrated terminal), and `updateCheck`
+   panel's terminal (again the browser host; VS Code keeps its integrated terminal), `workbench`
+   whether the host can store the shell layout (`readWorkbench` / `saveWorkbench`) so the tabs, panel
+   and terminals come back on the next visit (the browser host keeps it under `MORSE_HOME`; VS Code has
+   its own tab restoration and leaves it off), and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
    shows an update notice).
@@ -125,10 +130,12 @@ strip above the conversation, where sessions and files open side by side.
   the host's index cache), so a file added or deleted on disk appears without a restart. The same poll asks
   `gitStatus` (`{ isRepo, files: [{ path, status }] }`, porcelain codes), and a changed file shows the
   one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the folder that holds it.
-- A file tab is filled by the `readFile` host command (`{ path }` → `{ path, content, size, truncated,
+- A file tab is filled by the `readFile` host command (`{ path, cwd? }` → `{ path, content, size, truncated,
   binary }`). `path` is relative to the viewing session's cwd: `readWorkspaceFile` resolves it against that
   directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the
-  project `ProjectPolicy` already approved. Files over 512 KB are cut short, and a binary file is reported
+  project `ProjectPolicy` already approved. A restored tab also carries the project it was read from
+  (`cwd`), because the host may still be on another session when that tab is loaded; the server policy-checks
+  it exactly like a terminal's directory. Files over 512 KB are cut short, and a binary file is reported
   as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
   prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat". In the `@`
   picker, **Enter (or a row click) is a plain mention**; the file is opened only for the explicit quote intent
@@ -148,7 +155,17 @@ strip above the conversation, where sessions and files open side by side.
   (`core/attachments.ts` scopes its pending pieces the same way), keyed by the session or draft tab id in
   front, so switching tabs shows that tab's draft and never carries the words into another session. An
   untouched "New session" tab is dropped when a real session is picked; one with text in it stays until the
-  reader closes it.
+  reader closes it. The browser host also persists every tab's draft — text, pins, mentions and inline
+  images — to `<MORSE_HOME>/drafts.json`, so a long prompt with attachments survives a reload, a `morse
+  stop` or a closed laptop. It stays isolated per tab; a draft tab keeps its own placeholder too.
+- The **layout is restored** where the host advertises `workbench`: `core/workbench-persistence.ts` reads
+  `readWorkbench` / `readDrafts` once the handshake is ready and writes `saveWorkbench` / `saveDrafts`
+  (debounced, plus a flush when the page is hidden). `workbench.json` holds the open tabs and the one in
+  front (a "New session" draft included), the bottom panel's state and every terminal; `drafts.json` holds
+  the per-tab composer drafts. The frontend owns both inner shapes; the host only guards the
+  `{ version, data }` envelope and a per-file size cap. A restored file is re-read from disk — the layout
+  stores a path, never a stale preview. A saved terminal re-opens a fresh shell in its session's directory:
+  the layout survives, the scrollback does not.
 
 ### Git history and graph (browser host only)
 
@@ -180,7 +197,11 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   has a `+`/`−` action and each group header stages or unstages the whole group through `gitStage` /
   `gitUnstage` (`{ paths }` → the fresh `gitStatus`; `core/git-status.ts` owns the `X`/`Y` split). The
   host resolves every path inside the viewing session's directory, like `readFile`, and answers with
-  the new working tree so the list updates in one round trip.
+  the new working tree so the list updates in one round trip. The **Staged** group is always present
+  while the section is open — an empty one says “No staged files. Stage a change to commit it.” so the
+  commit flow keeps a stable home — while the whole-tree-clean state stays the centered
+  “No uncommitted changes”. Each group's header folds its own rows (a chevron, persisted in
+  `ShellState` like the Changes/History folds), so Staged and Unstaged collapse independently.
 - The panel has a sync bar: `gitSync` reports how far HEAD is from its upstream (`behind` to pull,
   `ahead` to push) and the two buttons run `gitPull` / `gitPush`. Push uses `--follow-tags`, so the
   annotated tags that point into the pushed history travel with it. Both are network commands, so the
@@ -192,8 +213,10 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   "Checkout detached…" rows. `gitCheckout { branch, create }` switches, creates, or detaches (a tag or
   a commit hash); tags check out detached, the way git does. A commit box above the changes calls
   `gitCommit { message }` for what is staged; both mutations answer `{ ok, message }`, so a refusal
-  (nothing staged, a hook, a conflict, a bad branch name) is shown in the panel instead of failing
-  silently.
+  (a hook, a conflict, a bad branch name) is shown in the panel instead of failing silently. Git's
+  everyday refusal — "nothing to commit" — is reported as *"Nothing is staged to commit. Stage a change
+  first."*, and pressing Enter in the message box with an empty index says the same without asking git
+  (`gitExec` prefers git's own stdout/stderr over Node's `Command failed: …` wrapper).
 - The history is read with `git log --all --date-order` and capped (250 by default, 500 hard), so a
   long repository stays readable. VS Code never loads this — the capability, the shortcut row and
   the panel are all gated on `capabilities.gitPanel`.
@@ -207,7 +230,8 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
 VS Code already has an integrated terminal and an editor area, so its host leaves `terminal` off and
 none of this renders. The browser host turns it on, so the frontend has a VS Code-style bottom panel
 below the composer: a chip row that starts folded, opens the tool its chip names, and drags taller from
-its top edge (height, chosen tool and fold remembered in `PanelState`, like the other shell preferences).
+its top edge (height, chosen tool and fold remembered in `PanelState` and restored from the saved layout,
+like the other shell preferences).
 The panel keeps the chosen view mounted while folded, so a running terminal is not killed by a collapse;
 adding a tool is one line in the panel's `VIEWS` list plus its component.
 
@@ -229,7 +253,9 @@ kept external in the `morse-web` bundle and installed by npm (it needs a compile
 - The view is **xterm.js** (`@xterm/xterm` plus the fit and WebGL addons), imported lazily the first
 time the panel opens so a reader who never opens it downloads nothing. xterm renders the PTY's raw
 stream; keystrokes go back untouched. Its theme and monospace font are read from the active CSS
-variables, so it matches the rest of Morse.
+variables, so it matches the rest of Morse. The packages are CommonJS, and a production build wraps a
+lazily imported CJS module as `{ default: exports }`, so `importCjs` unwraps `default` — without it
+`core.Terminal` is `undefined`, the pane stays blank and no shell is ever requested.
 
 6. **Theme** — inside VS Code use the `--vscode-*` variables, with fallbacks so the same bundle looks right in
    a browser. See `packages/ui-angular/src/styles.css`. Fonts follow the same rule: VS Code supplies

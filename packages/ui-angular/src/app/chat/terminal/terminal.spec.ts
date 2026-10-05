@@ -60,9 +60,11 @@ const xterm = vi.hoisted(() => {
   return { instances, FakeTerminal, FakeFitAddon, FakeWebglAddon };
 });
 
-vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeFitAddon }));
-vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }));
+// xterm ships CommonJS: a production bundle's lazy chunk exports the module as
+// `default`, which is exactly what these mocks reproduce (see `importCjs`).
+vi.mock('@xterm/xterm', () => ({ default: { Terminal: xterm.FakeTerminal } }));
+vi.mock('@xterm/addon-fit', () => ({ default: { FitAddon: xterm.FakeFitAddon } }));
+vi.mock('@xterm/addon-webgl', () => ({ default: { WebglAddon: xterm.FakeWebglAddon } }));
 
 import { MorseService } from '../../core/morse.service';
 import { Terminal } from './terminal';

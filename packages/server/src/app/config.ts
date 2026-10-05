@@ -1,5 +1,6 @@
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { WorkspaceRef } from '@morse/core';
 import { FRONTEND_MANIFEST_FILE, frontendIdentity, parseFrontendManifest } from '@morse/protocol';
@@ -23,6 +24,12 @@ export interface MorseServerConfig {
   projects: string[];
   /** Where browser uploads land: relative to a session cwd, or absolute. */
   uploadDir: string;
+  /**
+   * The Morse data directory (`MORSE_HOME`, default `~/.morse`): where this host
+   * keeps state that outlives a browser tab — the shell layout the reader left
+   * behind. It is the same directory the `morse` CLI writes its state and logs to.
+   */
+  dataDir: string;
   /**
    * Whether the frontend may ask the registry for the latest release. On unless
    * `MORSE_UPDATE_CHECK=0`; an air-gapped host turns it off rather than letting
@@ -79,6 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     hotSessions: parsePositiveInt(env.MORSE_HOT_SESSIONS, 4),
     projects: parseList(env.MORSE_PROJECTS),
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
+    dataDir: resolveDataDir(env),
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
     instance: env.MORSE_INSTANCE?.trim() || undefined,
   };
@@ -97,6 +105,12 @@ function readFrontendIdentity(uiDir: string): FrontendIdentity | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** `MORSE_HOME` wins, else the same `~/.morse` the CLI uses. */
+function resolveDataDir(env: NodeJS.ProcessEnv): string {
+  const explicit = env.MORSE_HOME?.trim();
+  return explicit && explicit.length > 0 ? explicit : join(homedir(), '.morse');
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

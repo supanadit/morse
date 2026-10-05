@@ -92,4 +92,39 @@ describe('ChatComposer queued messages', () => {
 
     expect(rows(host)).toEqual(['for s2']);
   });
+
+  it('reorders the queue to the slot CDK reports the row was dropped on', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const queue = TestBed.inject(QueuedPrompts);
+    const tabs = TestBed.inject(WorkspaceTabs);
+
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    fixture.detectChanges();
+    queue.enqueue({ text: 'first', images: [], pins: [] }, 's1');
+    queue.enqueue({ text: 'second', images: [], pins: [] }, 's1');
+    fixture.detectChanges();
+    expect(rows(host)).toEqual(['first', 'second']);
+
+    // A CDK drop carries the list as it was at drag start plus the landed index.
+    const row = queue.forOwner('s1');
+    (
+      fixture.componentInstance as unknown as {
+        onQueueDrop: (event: {
+          item: { data: unknown };
+          container: { data: readonly unknown[] };
+          currentIndex: number;
+        }) => void;
+      }
+    ).onQueueDrop({ item: { data: row[0] }, container: { data: row }, currentIndex: 1 });
+    fixture.detectChanges();
+
+    expect(rows(host)).toEqual(['second', 'first']);
+  });
 });

@@ -81,7 +81,11 @@
             ></div>
           }
           <div class="pane" [style.flexGrow]="group.sizes[i]" (pointerdown)="focusPane(pane)">
-            <morse-terminal [id]="pane.id" (titleChange)="onTitleChange(pane.id, $event)" />
+            <morse-terminal
+              [id]="pane.id"
+              [cwd]="pane.cwd"
+              (titleChange)="onTitleChange(pane.id, $event)"
+            />
           </div>
         }
       </div>

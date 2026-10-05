@@ -45,6 +45,17 @@ export type HostCommand =
   | 'gitStage'
   /** Unstage the named paths (keep the working-tree change). */
   | 'gitUnstage'
+  /** The shell layout the reader left behind (`~/.morse/workbench.json`). */
+  | 'readWorkbench'
+  /** Writes the shell layout back, so the next visit opens the same tabs. */
+  | 'saveWorkbench'
+  /**
+   * The half-written prompts the reader left behind, per tab (`~/.morse/drafts.json`).
+   * Separate from the layout because a draft can carry inline images and is much
+   * larger, and because it is rewritten as the reader types.
+   */
+  | 'readDrafts'
+  | 'saveDrafts'
   | 'openSettings'
   | 'showOutput'
   | 'copyToClipboard'

@@ -452,15 +452,55 @@ const GIT_RESIZE_MIN_CHAT = 180;
         display: flex;
         align-items: center;
         gap: 5px;
-        padding: 4px 10px 3px;
+        /* Right padding matches a row's action margin, so the group's +/− lines up
+           with the per-file +/− under it. */
+        padding: 4px 6px 3px 10px;
         color: var(--morse-fg-muted);
         font-size: 10.5px;
         letter-spacing: 0.06em;
         text-transform: uppercase;
       }
+      .change-group-head:hover {
+        background: var(--morse-hover);
+      }
+      /* The title area folds its group; the header's own action stays outside it. */
+      .group-toggle {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      /* Wins over the global button hover (see AGENTS.md): the row owns the hover. */
+      .group-toggle:hover:not(:disabled) {
+        background: none;
+        color: var(--morse-fg);
+      }
       .change-group-count {
         font-size: 10.5px;
         color: var(--morse-fg-muted);
+      }
+      /* The Staged group is always present; an empty one says what to do next. */
+      .change-empty {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        padding: 2px 10px 8px;
+        color: var(--morse-fg-muted);
+        font-size: 11.5px;
+      }
+      /* Reserves the status-badge column so the note lines up with a row's path. */
+      .change-empty::before {
+        content: '';
+        flex: none;
+        width: 14px;
       }
       /* Fold/unfold all of a group's paths at once. */
       .group-action,
@@ -479,8 +519,8 @@ const GIT_RESIZE_MIN_CHAT = 180;
         cursor: pointer;
       }
       .group-action {
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
         font-size: 14px;
         text-transform: none;
       }
@@ -936,6 +976,9 @@ export class GitPanel {
   protected readonly error = this.git.error;
   protected readonly changesCollapsed = this.shell.gitChangesCollapsed;
   protected readonly historyCollapsed = this.shell.gitHistoryCollapsed;
+  /** Each change group folds on its own, the way VS Code's Source Control does. */
+  protected readonly stagedCollapsed = this.shell.gitStagedCollapsed;
+  protected readonly unstagedCollapsed = this.shell.gitUnstagedCollapsed;
   private readonly changesHeight = this.shell.gitChangesHeight;
   /** True while a stage/unstage round trip is in flight, so the rows stay quiet. */
   protected readonly staging = signal(false);
@@ -1101,6 +1144,13 @@ export class GitPanel {
     if (message.length === 0 || this.committing()) {
       return;
     }
+    // Enter in the message box goes through here too, so the button's own guard
+    // is repeated: nothing staged is not a commit, and saying so beats asking git
+    // and showing its raw refusal.
+    if (this.staged().length === 0) {
+      this.git.refuse('Nothing is staged to commit. Stage a change first.');
+      return;
+    }
     void this.git.commit(message).then((ok) => {
       if (ok) {
         this.commitMessage.set('');
@@ -1251,6 +1301,16 @@ export class GitPanel {
 
   protected toggleHistory(): void {
     this.shell.toggleGitHistory();
+  }
+
+  /** Folds the Staged group's rows under its header, leaving the header in place. */
+  protected toggleStaged(): void {
+    this.shell.toggleGitStaged();
+  }
+
+  /** Folds the Unstaged group's rows under its header, leaving the header in place. */
+  protected toggleUnstaged(): void {
+    this.shell.toggleGitUnstaged();
   }
 
   /** The inline height only while both sections are open; otherwise CSS decides. */

@@ -193,6 +193,26 @@ export interface HostCapabilities {
    * so the panel stands on its own.
    */
   terminal?: boolean;
+  /**
+   * Host can read and write the frontend's shell layout (`readWorkbench` /
+   * `saveWorkbench`), so the tabs and terminal a reader had open come back on
+   * the next visit. The browser host keeps it under `~/.morse`; VS Code has its
+   * own editor/tab restoration and leaves it off.
+   */
+  workbench?: boolean;
+}
+
+/**
+ * The frontend's persisted shell layout: which tabs are open and in front, the
+ * bottom panel's state and its terminals. The frontend owns the inner schema
+ * (it is the only thing that reads it back), so the host stores the blob
+ * verbatim and a frontend can add a field without a protocol change. `version`
+ * lets a frontend ignore a layout it can no longer read instead of misreading it.
+ */
+export interface WorkbenchSnapshot {
+  version: number;
+  /** The frontend's own shape; opaque to the host. */
+  data: unknown;
 }
 
 /**

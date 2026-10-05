@@ -234,3 +234,37 @@ describe('AttachmentStore.pin coalescing', () => {
     expect(store.pins()[0]).toMatchObject({ id, startLine: 1, endLine: 6 });
   });
 });
+
+describe('AttachmentStore snapshot', () => {
+  it('round-trips each draft and moves the id counter past the restored ones', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.pin({ path: 'a.ts', startLine: 1, endLine: 2 });
+    store.addMentions(['b.ts']);
+
+    const snapshot = store.snapshot();
+    const restored = freshStore();
+    restored.restore(snapshot);
+    restored.use('s1');
+
+    expect(restored.pins()).toHaveLength(1);
+    expect(restored.mentions()).toEqual(['b.ts']);
+    // `pin-1` came back, so the next pin is `pin-2`, not a colliding id.
+    expect(restored.pin({ path: 'c.ts' })).toBe('pin-2');
+  });
+
+  it('drops a malformed saved set instead of throwing', () => {
+    const store = freshStore();
+
+    store.restore({
+      s1: 'not a set',
+      s2: { images: [{}], pins: [{ path: 'a.ts' }], mentions: [1] },
+    });
+
+    store.use('s1');
+    expect(store.pins()).toEqual([]);
+    store.use('s2');
+    expect(store.pins()).toEqual([]);
+    expect(store.mentions()).toEqual([]);
+  });
+});

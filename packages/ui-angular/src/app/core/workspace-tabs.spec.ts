@@ -538,6 +538,7 @@ describe('WorkspaceTabs', () => {
     expect(fake.requestHostCommand).toHaveBeenCalledWith('gitCommitDiff', {
       hash: 'abc123',
       path: 'a.ts',
+      cwd: '/repo',
     });
     expect(fake.requestHostCommand).not.toHaveBeenCalledWith('readFile', expect.anything());
     expect(fake.requestHostCommand).not.toHaveBeenCalledWith('gitDiff', expect.anything());
@@ -545,5 +546,144 @@ describe('WorkspaceTabs', () => {
       diff: '@@ -1 +1 @@\n-a\n+b\n',
       diffLoading: false,
     });
+  });
+
+  it('snapshots the open tabs and the front one, a draft tab included', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.openFile('README.md');
+    tabs.startDraft('/repo');
+    tabs.openMentionFile('a.ts');
+
+    const snapshot = tabs.snapshot();
+
+    // A "New session" tab keeps its place (the prompt lives in the saved drafts),
+    // but the file quoted inside it does not: a draft owns no session context.
+    expect(snapshot.tabs.map((tab) => tab.id)).toEqual(['s1', 'file:README.md', 'draft-1']);
+    expect(snapshot.tabs.find((tab) => tab.id === 'draft-1')).toEqual({
+      kind: 'session',
+      id: 'draft-1',
+      title: 'New session',
+      cwd: '/repo',
+      draft: true,
+    });
+    // A preview's content is read again, never written to the layout.
+    expect(snapshot.tabs.find((tab) => tab.id === 'file:README.md')).toEqual({
+      kind: 'file',
+      id: 'file:README.md',
+      path: 'README.md',
+      title: 'README.md',
+      language: 'markdown',
+      projectCwd: '/repo',
+    });
+  });
+
+  it('restores a New session draft and promotes it on the first prompt', () => {
+    const { tabs, fake } = setup();
+    tabs.restore({
+      tabs: [{ kind: 'session', id: 'draft-2', title: 'New session', cwd: '/repo', draft: true }],
+      activeId: 'draft-2',
+    });
+
+    // The host reattaching a session must not consume the draft before it is sent.
+    tabs.showSession({ id: 's1', title: 'One', cwd: '/repo' });
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-2', 's1']);
+    expect(tabs.activeId()).toBe('draft-2');
+    fake.activateSession.mockClear();
+
+    // The first prompt opens a session, and the draft becomes that session in place.
+    tabs.showSession({ id: 's9', title: 'hello', cwd: '/repo' });
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s9', 's1']);
+    expect(tabs.activeId()).toBe('s9');
+    expect(fake.activateSession).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse a restored draft id for a new session', () => {
+    const { tabs } = setup();
+    tabs.restore({
+      tabs: [{ kind: 'session', id: 'draft-3', title: 'New session', draft: true }],
+    });
+
+    tabs.startDraft('/repo');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-3', 'draft-4']);
+  });
+
+  it('restores the tabs and the front one, re-reading a file in front', async () => {
+    const { tabs, fake } = setup(() => preview());
+
+    tabs.restore({
+      tabs: [
+        { kind: 'session', id: 's1', title: 'One', cwd: '/repo' },
+        { kind: 'file', id: 'file:a.ts', path: 'a.ts', title: 'a.ts', language: 'typescript', projectCwd: '/repo' },
+      ],
+      activeId: 'file:a.ts',
+    });
+    await flush();
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'file:a.ts']);
+    expect(tabs.activeId()).toBe('file:a.ts');
+    // The front file is read again, so the preview is the disk, not a memory.
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('readFile', { path: 'a.ts', cwd: '/repo' });
+    expect(tabs.activeTab()).toMatchObject({ kind: 'file', content: 'const x = 1;\n' });
+  });
+
+  it('keeps a restored file in front when the host reattaches its session', () => {
+    const { tabs, fake } = setup();
+    tabs.restore({
+      tabs: [
+        { kind: 'session', id: 's1', title: 'One', cwd: '/repo' },
+        { kind: 'file', id: 'file:a.ts', path: 'a.ts', title: 'a.ts' },
+      ],
+      activeId: 'file:a.ts',
+    });
+    fake.activateSession.mockClear();
+
+    tabs.showSession({ id: 's2', title: 'Two', cwd: '/repo' });
+
+    // s2 joins the strip, but the file the reader left on stays in front.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'file:a.ts', 's2']);
+    expect(tabs.activeId()).toBe('file:a.ts');
+    expect(fake.activateSession).not.toHaveBeenCalled();
+  });
+
+  it('asks the host for a restored session that is not the reattached one', () => {
+    const { tabs, fake } = setup();
+    tabs.restore({
+      tabs: [
+        { kind: 'session', id: 's1', title: 'One', cwd: '/repo' },
+        { kind: 'session', id: 's2', title: 'Two', cwd: '/repo' },
+      ],
+      activeId: 's2',
+    });
+    fake.activateSession.mockClear();
+
+    tabs.showSession({ id: 's1', title: 'One', cwd: '/repo' });
+
+    expect(tabs.activeId()).toBe('s2');
+    expect(fake.activateSession).toHaveBeenCalledWith('s2', '/repo');
+  });
+
+  it('does not clear a restored front tab while the host is on an empty draft', () => {
+    const { tabs } = setup();
+    tabs.restore({
+      tabs: [{ kind: 'session', id: 's1', title: 'One', cwd: '/repo' }],
+      activeId: 's1',
+    });
+
+    tabs.clearActiveSession();
+
+    expect(tabs.activeId()).toBe('s1');
+  });
+
+  it('ignores a layout it cannot read', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+
+    // A malformed snapshot leaves the strip exactly as it was.
+    tabs.restore({ tabs: 'not-an-array' });
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.activeId()).toBe('s1');
   });
 });

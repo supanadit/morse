@@ -18,6 +18,26 @@ export interface TerminalInstance {
   custom?: string;
   /** The shell's last OSC 0/2 title (the command it is running), when it set one. */
   auto?: string;
+  /**
+   * The directory the shell runs in, when it was restored from a saved layout.
+   * A live terminal does not need it (the host runs it in the viewing session's
+   * directory), but a restored one belongs to a session that may not be in front
+   * yet, so the pane carries its own directory to open the shell in.
+   */
+  cwd?: string;
+}
+
+/**
+ * The terminals a reader had open, written to their saved layout: the panes, the
+ * terminal in front per session, the focused pane per split and the dragged pane
+ * widths. The PTYs themselves cannot survive a reload, so a restore re-opens a
+ * fresh shell for every pane; what comes back is the *layout*, not the scrollback.
+ */
+export interface TerminalsSnapshot {
+  panes: TerminalInstance[];
+  activeByOwner: Record<string, string | undefined>;
+  activePaneByGroup: Record<string, string | undefined>;
+  sizesByGroup: Record<string, number[]>;
 }
 
 /**
@@ -259,6 +279,37 @@ export class TerminalStore {
     }
   }
 
+  /** Everything a saved layout keeps: the panes and every "which is in front" map. */
+  snapshot(): TerminalsSnapshot {
+    return {
+      panes: this.items().map((pane) => ({ ...pane })),
+      activeByOwner: { ...this.activeByOwner() },
+      activePaneByGroup: { ...this.activePaneByGroup() },
+      sizesByGroup: { ...this.sizesByGroup() },
+    };
+  }
+
+  /**
+   * Restores a saved layout. Every pane is re-minted with the id it had, so the
+   * host opens the same shell under the same name, and the counter moves past
+   * the highest id so a new terminal never collides with a restored one. Ids the
+   * layout cannot use are dropped rather than re-opened as dead shells.
+   */
+  restore(snapshot: unknown): void {
+    const parsed = asTerminalsSnapshot(snapshot);
+    if (parsed === undefined) {
+      return;
+    }
+    this.items.set(parsed.panes);
+    this.activeByOwner.set(parsed.activeByOwner);
+    this.activePaneByGroup.set(parsed.activePaneByGroup);
+    this.sizesByGroup.set(parsed.sizesByGroup);
+    this.counter = parsed.panes.reduce(
+      (highest, pane) => Math.max(highest, numericSuffix(pane.id)),
+      this.counter,
+    );
+  }
+
   /** Mints a pane; without a group it starts its own terminal. */
   private mint(owner: string | undefined, group: string | undefined): TerminalInstance {
     this.counter += 1;
@@ -292,4 +343,109 @@ export class TerminalStore {
 
 function keyOf(owner: string | undefined): string {
   return owner ?? '';
+}
+
+/** The `N` in `term-N`; 0 when the id is not one this store minted. */
+function numericSuffix(id: string): number {
+  const match = /^term-(\d+)$/.exec(id);
+  return match === null ? 0 : Number.parseInt(match[1]!, 10);
+}
+
+/**
+ * Validates a saved terminals layout. A pane without an id or a group is
+ * meaningless (nothing to mount, nothing to split), so it is dropped; the maps
+ * are kept only where their keys still name a surviving pane or group.
+ */
+function asTerminalsSnapshot(value: unknown): TerminalsSnapshot | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const rawPanes = candidate['panes'];
+  if (!Array.isArray(rawPanes)) {
+    return undefined;
+  }
+  const panes = rawPanes.flatMap<TerminalInstance>((entry) => {
+    const pane = asTerminalInstance(entry);
+    return pane === undefined ? [] : [pane];
+  });
+  const groups = new Set(panes.map((pane) => pane.group));
+  const owners = new Set(panes.map((pane) => keyOf(pane.owner)));
+  return {
+    panes,
+    activeByOwner: filterMap(candidate['activeByOwner'], (key) => owners.has(key)),
+    activePaneByGroup: filterMap(candidate['activePaneByGroup'], (key) => groups.has(key)),
+    sizesByGroup: filterSizes(candidate['sizesByGroup'], groups),
+  };
+}
+
+function asTerminalInstance(value: unknown): TerminalInstance | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const id = candidate['id'];
+  const group = candidate['group'];
+  const title = candidate['title'];
+  const fallbackTitle = candidate['fallbackTitle'];
+  if (
+    typeof id !== 'string' ||
+    typeof group !== 'string' ||
+    typeof title !== 'string' ||
+    typeof fallbackTitle !== 'string'
+  ) {
+    return undefined;
+  }
+  const owner = candidate['owner'];
+  const custom = candidate['custom'];
+  const auto = candidate['auto'];
+  const cwd = candidate['cwd'];
+  return {
+    id,
+    group,
+    title,
+    fallbackTitle,
+    owner: typeof owner === 'string' ? owner : undefined,
+    ...(typeof custom === 'string' ? { custom } : {}),
+    ...(typeof auto === 'string' ? { auto } : {}),
+    ...(typeof cwd === 'string' ? { cwd } : {}),
+  };
+}
+
+/** A `Record<string, string|undefined>` with the entries whose key is still live. */
+function filterMap(
+  value: unknown,
+  keep: (key: string) => boolean,
+): Record<string, string | undefined> {
+  if (typeof value !== 'object' || value === null) {
+    return {};
+  }
+  const source = value as Record<string, unknown>;
+  const result: Record<string, string | undefined> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    if (!keep(key)) {
+      continue;
+    }
+    result[key] = typeof entry === 'string' ? entry : undefined;
+  }
+  return result;
+}
+
+/** The pane widths, kept only for a group that survived, and only as numbers. */
+function filterSizes(value: unknown, groups: Set<string>): Record<string, number[]> {
+  if (typeof value !== 'object' || value === null) {
+    return {};
+  }
+  const source = value as Record<string, unknown>;
+  const result: Record<string, number[]> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    if (!groups.has(key) || !Array.isArray(entry)) {
+      continue;
+    }
+    const sizes = entry.filter((size): size is number => typeof size === 'number');
+    if (sizes.length === entry.length && sizes.length > 0) {
+      result[key] = sizes;
+    }
+  }
+  return result;
 }

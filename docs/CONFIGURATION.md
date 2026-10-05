@@ -22,7 +22,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 |---|---|---|
 | `MORSE_HOST` | `127.0.0.1` | Bind address |
 | `MORSE_PORT` | `4399` | Port (the CLI picks the next free one if this is taken and unset) |
-| `MORSE_HOME` | `~/.morse` | CLI state, pidfile and logs |
+| `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, the saved shell layout (`workbench.json`) and the per-tab composer drafts (`drafts.json`) |
 | `MORSE_WORKSPACE` | current directory | Directory the agent works in |
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
 | `MORSE_HOT_SESSIONS` | `4` | How many `pi` processes stay alive at once |
@@ -66,8 +66,12 @@ choice still holds for the session.
 
 When the host advertises `filePreview` — the NestJS/browser host does, VS Code does not — the sidebar grows
 an **Explorer** for the session's project and the chat grows a **tab strip**. Clicking a file opens it in a
-new preview tab; selecting a session opens or reveals its tab and activates that session. Tabs are frontend
-state only (close the last one and the strip is empty), and a preview is read-only on purpose: VS Code is the
+new preview tab; selecting a session opens or reveals its tab and activates that session. The strip is
+frontend state, and the browser host persists it (with the bottom panel and its terminals) to
+`<MORSE_HOME>/workbench.json`, so opening the page again lands on the tab the reader left; the drafts of
+those tabs — text, pins, mentions and inline images — are persisted per tab to
+`<MORSE_HOME>/drafts.json`, so a long prompt survives a reload or a `morse stop`. VS Code keeps its own tab
+restoration and restores nothing here. A preview is read-only on purpose: VS Code is the
 host with an editor. A file over 512 KB is shown truncated, and a binary file is named rather than decoded.
 Drag across the preview's line numbers to pin a range (`path:start-end`) to your next message — picking a
 file in the `@` picker opens it so the drag is one step away. Ranges that touch or overlap become one chip

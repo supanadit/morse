@@ -75,4 +75,37 @@ describe('ComposerDrafts', () => {
     expect(drafts.text()).toBe('');
     expect(attachments.mentions()).toEqual([]);
   });
+
+  it('round-trips every tab draft, attachments included', () => {
+    const { drafts, attachments } = setup();
+    drafts.use('s1');
+    drafts.setText('a long prompt the reader typed');
+    attachments.addMentions(['a.ts']);
+    drafts.use('s2');
+    drafts.setText('another tab');
+
+    const snapshot = drafts.snapshot();
+    TestBed.resetTestingModule();
+    const restored = TestBed.inject(ComposerDrafts);
+    const restoredAttachments = TestBed.inject(AttachmentStore);
+    restored.restore(snapshot);
+
+    // Each tab comes back isolated, with its own words and attachments.
+    restored.use('s1');
+    expect(restored.text()).toBe('a long prompt the reader typed');
+    expect(restoredAttachments.mentions()).toEqual(['a.ts']);
+    restored.use('s2');
+    expect(restored.text()).toBe('another tab');
+    expect(restoredAttachments.mentions()).toEqual([]);
+  });
+
+  it('does not clobber words typed before a restore lands', () => {
+    const { drafts } = setup();
+    drafts.use('s1');
+    drafts.setText('typed just now');
+
+    drafts.restore({ texts: { s1: 'from disk' }, attachments: {} });
+
+    expect(drafts.text()).toBe('typed just now');
+  });
 });

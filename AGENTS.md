@@ -106,9 +106,13 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | `morse start`/`status` claims a daemon is running that is gone | stale `~/.morse/server.json` after a force-kill and a recycled pid; the pid alone is not proof, so `/api/health` must echo the state's `instance` token (`packages/morse-web/src/cli.ts` → `isServerRunning`) |
 | No Explorer in VS Code | intended: the Explorer and tab strip exist only where `capabilities.filePreview` is set (the browser host); VS Code keeps its native explorer, editor and tabs |
 | No git panel in VS Code | intended: `capabilities.gitPanel` is the browser host's; VS Code has its own Source Control view |
+| Commit shows `Command failed: git commit -m …` | git puts `nothing to commit` on **stdout**, so `gitExec` keeps stdout/stderr and `commitGit` maps it to "Nothing is staged to commit."; `submitCommit` also guards an empty index so Enter never asks git (see `git-log.ts`, `git-panel.ts`) |
 | A preview refuses a file, or opens nothing | `readFile` resolves the path against the viewing session's cwd and rejects an absolute or `..` path (`packages/server/src/internal/workspace/file-store.ts`); the Explorer only offers paths from `listFiles` |
 | A new file is missing from the Explorer | it polls `listFiles` (`fresh: true`) every 4 s plus `gitStatus`; a hidden tab pauses the poll. No host push — the tree changes on disk |
-| File/session tabs vanish on reload | intended: open tabs are frontend state (`core/workspace-tabs.ts`), not wire state; the active session's tab returns with `session/state`, and a file is re-read on demand |
+| File/session tabs vanish on reload | intended only in VS Code (its own editor restores tabs). The browser host persists the open/focused tabs, panel and terminals to `<MORSE_HOME>/workbench.json` — check `capabilities.workbench` and `core/workbench-persistence.ts`; a snapshot from another `version` is ignored on purpose |
+| Restored terminals show a fresh prompt, no scrollback | intended: `terminal/open` starts a new PTY; only the layout (chips, splits, names, sizes, focused pane) is persisted, never the shell's output |
+| A long prompt or its attachments vanish on reload / `morse stop` / a closed laptop | intended only in VS Code. The browser host saves every tab's draft — text, pins, mentions and inline images — to `<MORSE_HOME>/drafts.json` (`core/composer-drafts.ts`, `core/attachments.ts` via `WorkbenchPersistence`); the tab itself, a "New session" draft included, lives in `workbench.json` |
+| Terminal pane stays blank and no shell is ever spawned | the xterm packages are CommonJS: a production bundle's lazy chunk exports only `default`, so `core.Terminal` is `undefined` and the pane silently never calls `terminal/open` — go through `importCjs` in `chat/terminal/terminal.ts`. A unit mock with named exports hides this, so the specs mirror the `default`-only shape |
 | A custom button paints the theme accent on hover | the global `button:hover:not(:disabled)` (specificity 0,2,1) beats a plain `.row:hover` (0,2,0); write the override as `.row:hover:not(:disabled)` (same for `.group-title`, `.context-menu-item`, …) |
 | The Explorer cannot be resized | it can: drag its top edge (`.resize`); the height persists in `morse.explorer.height` via `ShellState` |
 
@@ -131,6 +135,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | bottom panel + terminal (browser host) | `packages/ui-angular/src/app/chat/bottom-panel/`, `chat/terminal/` ← `core/panel-state.ts`, `packages/host-runtime/src/terminal.ts`, `packages/server/src/internal/terminal/terminal.service.ts` |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
 | pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
+| open tabs / focused tab / terminals / per-tab drafts across a reload (browser host) | `packages/ui-angular/src/app/core/workbench-persistence.ts` ← `readWorkbench`/`saveWorkbench` + `readDrafts`/`saveDrafts`, `packages/server/src/internal/workspace/workbench-store.ts` |
 | npm package (`morse start`) | `packages/morse-web/build.mjs`, `packages/morse-web/src/cli.ts`, `docs/PACKAGING.md` |
 | installing (VSIX + CLI) | `docs/INSTALL.md` |
 | releasing (VSIX + npm) | `docs/RELEASING.md`, `.github/workflows/release.yml` |

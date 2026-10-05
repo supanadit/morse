@@ -64,6 +64,15 @@ export class GitPanelState {
   /** The last mutation's words, so a refusal is visible instead of silent. */
   readonly notice = this.feedback.asReadonly();
 
+  /**
+   * Shows a refusal the host was never asked about — a client-side guard, such as
+   * pressing Enter with nothing staged. The wording matches the host's own answer
+   * for the same situation, so the message is the same either way.
+   */
+  refuse(text: string): void {
+    this.feedback.set({ ok: false, text });
+  }
+
   refresh(): void {
     const cwd = this.morse.workspace().cwd;
     if (!cwd) {

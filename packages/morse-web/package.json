@@ -1,6 +1,6 @@
 {
   "name": "@supanadit/morse-web",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Comfortable Pi Interface in your browser: the Morse host (Angular + NestJS) as one installable package. `npm i -g @supanadit/morse-web` then `morse start`.",
   "author": "Supan Adit Pratama",
   "type": "module",

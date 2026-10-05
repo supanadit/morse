@@ -26,7 +26,7 @@ export interface AcceptReport {
 }
 
 /** The pending pieces of one composer draft: images, pins and mentions. */
-interface PendingSet {
+export interface PendingSet {
   images: PendingImage[];
   pins: PendingPin[];
   mentions: string[];
@@ -121,6 +121,46 @@ export class AttachmentStore {
       delete next[key];
       return next;
     });
+  }
+
+  /** Every draft's pending pieces, as the saved state keeps them. */
+  snapshot(): Record<string, PendingSet> {
+    const result: Record<string, PendingSet> = {};
+    for (const [key, set] of Object.entries(this.sets())) {
+      result[key] = {
+        images: set.images.map((image) => ({ ...image })),
+        pins: set.pins.map((pin) => ({ ...pin })),
+        mentions: [...set.mentions],
+      };
+    }
+    return result;
+  }
+
+  /**
+   * Restores the saved attachments. The in-memory pieces win over the restored
+   * ones, so a load that lands after the reader started attaching cannot clobber
+   * them; the id counter moves past every restored id so a new chip never
+   * collides with one that came back. The live preview is never restored — it
+   * belonged to a selection that is gone.
+   */
+  restore(sets: unknown): void {
+    const parsed = asAttachmentSets(sets);
+    if (parsed === undefined) {
+      return;
+    }
+    this.sets.update((current) => {
+      const next: Record<string, PendingSet> = { ...parsed };
+      for (const [key, set] of Object.entries(current)) {
+        next[key] = set;
+      }
+      return next;
+    });
+    for (const set of Object.values(parsed)) {
+      for (const piece of [...set.images, ...set.pins]) {
+        this.counter = Math.max(this.counter, trailingNumber(piece.id));
+      }
+    }
+    this.live.set(null);
   }
 
   /** The pending set of the draft in front. */
@@ -434,4 +474,92 @@ export function readBase64(file: File): Promise<string | undefined> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** The `N` in `attachment-N` / `pin-N`; 0 when the id has no trailing number. */
+function trailingNumber(id: string): number {
+  const match = /(\d+)$/.exec(id);
+  return match === null ? 0 : Number.parseInt(match[1]!, 10);
+}
+
+/**
+ * Validates a saved attachments map, dropping anything that is not a usable
+ * pending set. A layout from an unknown version degrades to the draft keys that
+ * still make sense instead of throwing at boot.
+ */
+function asAttachmentSets(value: unknown): Record<string, PendingSet> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const result: Record<string, PendingSet> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const set = asPendingSet(entry);
+    if (set !== undefined && !isEmptySet(set)) {
+      result[key] = set;
+    }
+  }
+  return result;
+}
+
+function asPendingSet(value: unknown): PendingSet | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const rawImages = candidate['images'];
+  const rawPins = candidate['pins'];
+  const rawMentions = candidate['mentions'];
+  const images = Array.isArray(rawImages) ? rawImages.flatMap(asPendingImage) : [];
+  const pins = Array.isArray(rawPins) ? rawPins.flatMap(asPendingPin) : [];
+  const mentions = Array.isArray(rawMentions)
+    ? rawMentions.filter((mention): mention is string => typeof mention === 'string')
+    : [];
+  return { images, pins, mentions };
+}
+
+function asPendingImage(value: unknown): PendingImage[] {
+  if (typeof value !== 'object' || value === null) {
+    return [];
+  }
+  const candidate = value as Record<string, unknown>;
+  const id = candidate['id'];
+  const name = candidate['name'];
+  const mimeType = candidate['mimeType'];
+  const data = candidate['data'];
+  if (
+    typeof id !== 'string' ||
+    typeof name !== 'string' ||
+    typeof mimeType !== 'string' ||
+    typeof data !== 'string'
+  ) {
+    return [];
+  }
+  const bytes = candidate['bytes'];
+  return [{ id, name, mimeType, data, bytes: typeof bytes === 'number' ? bytes : 0 }];
+}
+
+function asPendingPin(value: unknown): PendingPin[] {
+  if (typeof value !== 'object' || value === null) {
+    return [];
+  }
+  const candidate = value as Record<string, unknown>;
+  const id = candidate['id'];
+  const path = candidate['path'];
+  if (typeof id !== 'string' || typeof path !== 'string') {
+    return [];
+  }
+  const startLine = candidate['startLine'];
+  const endLine = candidate['endLine'];
+  return [
+    {
+      id,
+      path,
+      ...(typeof startLine === 'number' ? { startLine } : {}),
+      ...(typeof endLine === 'number' ? { endLine } : {}),
+    },
+  ];
+}
+
+function isEmptySet(set: PendingSet): boolean {
+  return set.images.length === 0 && set.pins.length === 0 && set.mentions.length === 0;
 }

@@ -198,12 +198,22 @@
               No uncommitted changes
             </div>
           } @else {
-            @if (staged().length > 0) {
-              <div class="change-group">
-                <div class="change-group-head">
+            <div class="change-group">
+              <div class="change-group-head">
+                <button
+                  type="button"
+                  class="group-toggle"
+                  [attr.aria-expanded]="!stagedCollapsed()"
+                  (click)="toggleStaged()"
+                >
+                  <span class="chevron" [class.open]="!stagedCollapsed()">›</span>
                   <span class="change-group-title">Staged</span>
-                  <span class="change-group-count">{{ staged().length }}</span>
-                  <span class="grow"></span>
+                  @if (staged().length > 0) {
+                    <span class="change-group-count">{{ staged().length }}</span>
+                  }
+                </button>
+                <span class="grow"></span>
+                @if (staged().length > 0) {
                   <button
                     type="button"
                     class="group-action"
@@ -214,40 +224,54 @@
                   >
                     −
                   </button>
-                </div>
-                <ul class="change-list">
-                  @for (change of staged(); track change.path) {
-                    <li class="change-row">
-                      <button
-                        type="button"
-                        class="change"
-                        [title]="change.path"
-                        (click)="openChange(change.path)"
-                      >
-                        <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
-                        <span class="change-dir">{{ dirOf(change.path) }}</span
-                        ><span class="change-name">{{ baseOf(change.path) }}</span>
-                      </button>
-                      <button
-                        type="button"
-                        class="change-action"
-                        title="Unstage"
-                        [attr.aria-label]="'Unstage ' + change.path"
-                        [disabled]="staging()"
-                        (click)="unstage(change.path)"
-                      >
-                        −
-                      </button>
-                    </li>
-                  }
-                </ul>
+                }
               </div>
-            }
+              @if (!stagedCollapsed()) {
+                @if (staged().length === 0) {
+                  <p class="change-empty">No staged files. Stage a change to commit it.</p>
+                } @else {
+                  <ul class="change-list">
+                    @for (change of staged(); track change.path) {
+                      <li class="change-row">
+                        <button
+                          type="button"
+                          class="change"
+                          [title]="change.path"
+                          (click)="openChange(change.path)"
+                        >
+                          <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
+                          <span class="change-dir">{{ dirOf(change.path) }}</span
+                          ><span class="change-name">{{ baseOf(change.path) }}</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="change-action"
+                          title="Unstage"
+                          [attr.aria-label]="'Unstage ' + change.path"
+                          [disabled]="staging()"
+                          (click)="unstage(change.path)"
+                        >
+                          −
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              }
+            </div>
             @if (unstaged().length > 0) {
               <div class="change-group">
                 <div class="change-group-head">
-                  <span class="change-group-title">Unstaged</span>
-                  <span class="change-group-count">{{ unstaged().length }}</span>
+                  <button
+                    type="button"
+                    class="group-toggle"
+                    [attr.aria-expanded]="!unstagedCollapsed()"
+                    (click)="toggleUnstaged()"
+                  >
+                    <span class="chevron" [class.open]="!unstagedCollapsed()">›</span>
+                    <span class="change-group-title">Unstaged</span>
+                    <span class="change-group-count">{{ unstaged().length }}</span>
+                  </button>
                   <span class="grow"></span>
                   <button
                     type="button"
@@ -260,32 +284,34 @@
                     +
                   </button>
                 </div>
-                <ul class="change-list">
-                  @for (change of unstaged(); track change.path) {
-                    <li class="change-row">
-                      <button
-                        type="button"
-                        class="change"
-                        [title]="change.path"
-                        (click)="openChange(change.path)"
-                      >
-                        <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
-                        <span class="change-dir">{{ dirOf(change.path) }}</span
-                        ><span class="change-name">{{ baseOf(change.path) }}</span>
-                      </button>
-                      <button
-                        type="button"
-                        class="change-action"
-                        title="Stage"
-                        [attr.aria-label]="'Stage ' + change.path"
-                        [disabled]="staging()"
-                        (click)="stage(change.path)"
-                      >
-                        +
-                      </button>
-                    </li>
-                  }
-                </ul>
+                @if (!unstagedCollapsed()) {
+                  <ul class="change-list">
+                    @for (change of unstaged(); track change.path) {
+                      <li class="change-row">
+                        <button
+                          type="button"
+                          class="change"
+                          [title]="change.path"
+                          (click)="openChange(change.path)"
+                        >
+                          <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
+                          <span class="change-dir">{{ dirOf(change.path) }}</span
+                          ><span class="change-name">{{ baseOf(change.path) }}</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="change-action"
+                          title="Stage"
+                          [attr.aria-label]="'Stage ' + change.path"
+                          [disabled]="staging()"
+                          (click)="stage(change.path)"
+                        >
+                          +
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
               </div>
             }
           }

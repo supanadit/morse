@@ -11,6 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import { promptTemplateForm, readPromptTemplate } from '@morse/ui-runtime';
 import { AttachmentStore, type PendingImage, type PendingPin } from '../../core/attachments';
 import { ComposerDrafts } from '../../core/composer-drafts';
@@ -45,6 +46,9 @@ import { UsageIndicator } from '../usage/usage-indicator';
     ThinkingPicker,
     PromptTemplateDialog,
     PopoverFit,
+    CdkDropList,
+    CdkDrag,
+    CdkDragHandle,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -110,6 +114,36 @@ import { UsageIndicator } from '../usage/usage-indicator';
         flex: none;
         color: var(--morse-fg-muted);
         opacity: 0.5;
+        cursor: grab;
+        touch-action: none;
+      }
+      .queue-grip:active {
+        cursor: grabbing;
+      }
+      /* Angular CDK drag: the row in hand floats in a preview and the rest slide
+         aside, exactly like the session strip's tabs. */
+      .queue-list.cdk-drop-list-dragging .queue-row:not(.cdk-drag-placeholder) {
+        transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+      }
+      .queue-row.cdk-drag-animating {
+        transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+      }
+      .queue-row.cdk-drag-placeholder {
+        opacity: 0.3;
+      }
+      .cdk-drag-preview {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        box-sizing: border-box;
+        padding: 5px 8px 5px 10px;
+        border: 1px solid var(--morse-border);
+        border-radius: var(--morse-radius-sm);
+        background: var(--morse-panel, var(--morse-bg));
+        color: var(--morse-fg);
+        font: inherit;
+        font-size: 12px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
       }
       .queue-text {
         flex: 1;
@@ -986,6 +1020,19 @@ export class ChatComposer {
 
   protected removeQueued(item: QueuedPrompt): void {
     this.queue.remove(item.id);
+  }
+
+  /**
+   * A CDK drop on the queue: the dragged follow-up takes the slot the placeholder
+   * is on. CDK never mutates the data, so `currentIndex` still indexes the list as
+   * it was when the drag started — the row sitting there is where it landed.
+   */
+  protected onQueueDrop(event: CdkDragDrop<readonly QueuedPrompt[]>): void {
+    const dragged = event.item.data as QueuedPrompt | undefined;
+    const target = event.container.data[event.currentIndex];
+    if (dragged !== undefined && target !== undefined) {
+      this.queue.move(dragged.id, target.id);
+    }
   }
 
   /** The live chip is a preview until clicked: locking pins its final numbers. */

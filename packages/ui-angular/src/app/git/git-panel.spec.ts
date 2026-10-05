@@ -116,6 +116,13 @@ async function settle(fixture: ReturnType<typeof TestBed.createComponent<GitPane
   fixture.detectChanges();
 }
 
+/** The `.change-group` whose sub-heading is `title` (“Staged” / “Unstaged”). */
+function groupByTitle(host: HTMLElement, title: string): HTMLElement | undefined {
+  return [...host.querySelectorAll<HTMLElement>('.change-group')].find(
+    (group) => group.querySelector('.change-group-title')?.textContent?.trim() === title,
+  );
+}
+
 describe('GitPanel', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -292,7 +299,7 @@ describe('GitPanel', () => {
     const { fixture } = setup(LOG, {
       files: [],
       status: { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] },
-      mutation: { ok: false, message: 'nothing to commit, working tree clean' },
+      mutation: { ok: false, message: 'Nothing is staged to commit. Stage a change first.' },
     });
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
@@ -304,7 +311,29 @@ describe('GitPanel', () => {
     host.querySelector<HTMLButtonElement>('.commit-button')!.click();
     await settle(fixture);
 
-    expect(host.querySelector('.commit-error')?.textContent).toContain('nothing to commit');
+    expect(host.querySelector('.commit-error')?.textContent).toContain('Nothing is staged');
+  });
+
+  it('refuses an empty index itself instead of asking git', async () => {
+    const { fixture, fake } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [] },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const input = host.querySelector<HTMLInputElement>('.commit-input')!;
+    input.value = 'asS';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    // Enter goes through `submitCommit`, which the disabled button does not stop.
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle(fixture);
+
+    expect(host.querySelector('.commit-error')?.textContent).toContain('Nothing is staged');
+    expect(fake.requestHostCommand.mock.calls.some(([command]) => command === 'gitCommit')).toBe(
+      false,
+    );
   });
 
   it('switches branch from the picker', async () => {
@@ -425,9 +454,53 @@ describe('GitPanel', () => {
     const names = (group: Element) =>
       [...group.querySelectorAll('.change-name')].map((node) => node.textContent?.trim());
     expect(groups).toHaveLength(2);
-    expect(names(groups[0]!)).toEqual(['both.ts', 'staged.ts']);
-    expect(names(groups[1]!)).toEqual(['both.ts', 'unstaged.ts', 'untracked.ts']);
+    expect(names(groupByTitle(host, 'Staged')!)).toEqual(['both.ts', 'staged.ts']);
+    expect(names(groupByTitle(host, 'Unstaged')!)).toEqual(['both.ts', 'unstaged.ts', 'untracked.ts']);
     expect(host.querySelector('.change-group-title')?.textContent?.trim()).toBe('Staged');
+  });
+
+  it('keeps the Staged group with an empty note when nothing is staged', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    // The group never disappears: the commit flow needs a stable home, and an
+    // empty one says what to do instead of leaving a gap.
+    const staged = groupByTitle(host, 'Staged');
+    expect(staged).toBeDefined();
+    expect(staged?.querySelector('.change-empty')?.textContent).toContain('No staged files');
+    expect(staged?.querySelectorAll('.change-row')).toHaveLength(0);
+  });
+
+  it('folds a change group from its header, independently', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: {
+        isRepo: true,
+        files: [
+          { path: 'staged.ts', status: 'M ' },
+          { path: 'unstaged.ts', status: ' M' },
+        ],
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+    const toggle = (title: string) =>
+      groupByTitle(host, title)!.querySelector<HTMLButtonElement>('.group-toggle')!;
+
+    toggle('Staged').click();
+    fixture.detectChanges();
+    // The rows fold under the header, which stays put; the other group is untouched.
+    expect(groupByTitle(host, 'Staged')?.querySelectorAll('.change-row')).toHaveLength(0);
+    expect(toggle('Staged').getAttribute('aria-expanded')).toBe('false');
+    expect(groupByTitle(host, 'Unstaged')?.querySelectorAll('.change-row')).toHaveLength(1);
+
+    toggle('Staged').click();
+    fixture.detectChanges();
+    expect(groupByTitle(host, 'Staged')?.querySelectorAll('.change-row')).toHaveLength(1);
   });
 
   it('stages an unstaged path from its row', async () => {
@@ -445,12 +518,12 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const unstaged = [...host.querySelectorAll('.change-group')][0]!;
+    const unstaged = groupByTitle(host, 'Unstaged')!;
     unstaged.querySelector<HTMLButtonElement>('.change-action')?.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts'] }]);
-    const staged = [...host.querySelectorAll('.change-group')][0]!;
+    const staged = groupByTitle(host, 'Staged')!;
     expect([...staged.querySelectorAll('.change-name')].map((node) => node.textContent?.trim())).toEqual([
       'a.ts',
     ]);
@@ -471,12 +544,12 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const staged = [...host.querySelectorAll('.change-group')][0]!;
+    const staged = groupByTitle(host, 'Staged')!;
     staged.querySelector<HTMLButtonElement>('.change-action')?.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitUnstage', paths: ['a.ts'] }]);
-    const unstaged = [...host.querySelectorAll('.change-group')][0]!;
+    const unstaged = groupByTitle(host, 'Unstaged')!;
     expect([...unstaged.querySelectorAll('.change-name')].map((node) => node.textContent?.trim())).toEqual([
       'a.ts',
     ]);
@@ -511,7 +584,7 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const unstaged = [...host.querySelectorAll('.change-group')][1]!;
+    const unstaged = groupByTitle(host, 'Unstaged')!;
     unstaged.querySelector<HTMLButtonElement>('.group-action')?.click();
     await settle(fixture);
 

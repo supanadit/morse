@@ -116,6 +116,22 @@ describe('ShellState', () => {
     expect(shell.gitHistoryCollapsed()).toBe(true);
   });
 
+  it('folds the Staged and Unstaged groups independently, and remembers it', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.gitStagedCollapsed()).toBe(false);
+
+    shell.toggleGitStaged();
+    expect(shell.gitStagedCollapsed()).toBe(true);
+    expect(shell.gitUnstagedCollapsed()).toBe(false);
+
+    shell.toggleGitUnstaged();
+    expect(shell.gitUnstagedCollapsed()).toBe(true);
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).gitStagedCollapsed()).toBe(true);
+    expect(TestBed.inject(ShellState).gitUnstagedCollapsed()).toBe(true);
+  });
+
   it('knows when a dialog owns the screen', () => {
     const shell = TestBed.inject(ShellState);
     expect(shell.modalOpen()).toBe(false);

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.12.0 — 5 October 2026
+
+Pick up where you left off — and a terminal that finally runs.
+
+### New
+
+- **Reopen where you left off.** The browser host now restores your workspace when you come back: the tabs you had
+  open and the one in front, the bottom panel and every terminal, and it resumes the session you were on — so a
+  `morse stop`, a refresh or a closed laptop is no longer a fresh start. A "New session" draft keeps its own tab too.
+- **Drafts that outlive the tab.** The half-written message of each tab — text, pinned ranges, `@` mentions and
+  attached images — is saved per tab and comes back with it, so a long prompt survives a restart. It stays isolated:
+  switching tabs never carries one session's words into another.
+- **Reorder the queue.** Drag a queued follow-up by its grip to change which one runs first.
+- **Collapse Staged and Unstaged.** Each change group folds from its own header, the way VS Code's Source Control does.
+
+### Fixed
+
+- **The terminal works in the packaged build.** The pane never opened a shell outside development — a CommonJS import
+  left `Terminal` undefined — so the terminal now starts as it should, GPU renderer included.
+- **Committing with nothing staged says so.** Instead of `Command failed: git commit -m …`, the panel answers
+  "Nothing is staged to commit. Stage a change first.", and pressing Enter on an empty index no longer asks git at
+  all. A refused checkout shows git's own line rather than the wrapper.
+- **The Staged group stays put.** It is always visible while Changes is open, with "No staged files. Stage a change to
+  commit it." when empty, and its +/− buttons line up with the per-file ones.
+
 ## 0.11.0 — 5 October 2026
 
 A terminal in the panel, and a panel that gets out of its way.
