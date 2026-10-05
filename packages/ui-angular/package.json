@@ -1,6 +1,6 @@
 {
   "name": "@morse/ui-angular",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "description": "Morse frontend built with Angular. Emits a self-contained bundle that any host (VS Code webview or the NestJS server) can serve.",
   "scripts": {

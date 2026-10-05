@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.1 — 5 October 2026
+
+A model change and its thinking levels now arrive together, so the thinking picker never shows the previous
+model's list.
+
+### Fixed
+
+- **No more stale thinking levels when you switch models.** A model change used to update the model first and its
+  thinking levels a moment later, so the picker could briefly show the levels of the model you just left. Both now
+  arrive as one update.
+- **A failed level read no longer invents a list.** If pi did not answer, the picker fell back to every level pi
+  knows, including ones the model does not support; it now keeps the levels it already had instead.
+- **The open picker keeps its row.** If the level list changes while the panel is open, the highlighted row is
+  clamped to the list rather than pointing past its end.
+
 ## 0.14.0 — 5 October 2026
 
 Manage your MCP servers from the panel, and a thinking picker that follows the model you actually picked.
