@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.13.0 — 5 October 2026
+
+One field to drive everything, a terminal that survives a reload, and a quiet ping when a session is done.
+
+### New
+
+- **The command palette.** One field over the whole app: run a command, switch a tab, open a session, file or project,
+  or pick the model and thinking level. It lists everything by default and a leading `>` `#` `@` `:` narrows it to that
+  source. Open it with `⌘⌥K` / `Ctrl+Alt+K` — or straight from the prompt.
+- **A terminal that outlives the page.** The shell now runs in the host, not the tab, so a refresh reattaches to the same
+  process and replays what streamed while you were away. The scrollback is written to `<MORSE_HOME>/terminals/` too, so
+  even after the host restarts you get the old output back under a fresh prompt. An idle shell is reclaimed after 30
+  minutes (`MORSE_TERMINAL_IDLE_MS`).
+- **Files belong to the session in front.** A file opened from the Explorer, the git panel or a quote becomes a chip of
+  the session you are in rather than a tab beside it, and that session is marked as the chip's owner — so it is never a
+  guess which conversation a file belongs to. Click the chip again while it is in front to go back to the chat.
+- **A ping when a session finishes.** A run that ends while you are elsewhere can say so. It is off by default, with a
+  one-time nudge that offers to turn it on; choose **only when the window is not focused** or **always**, from the banner
+  or the command palette. VS Code raises its own notification; the browser uses the desktop one, asking for permission on
+  the click.
+
+### Improved
+
+- **No session is a clear state.** With nothing open, the panel now says so and offers to start a session instead of
+  showing a hero and letting a stray prompt quietly create one — and it no longer names the previous project as if this
+  empty panel belonged to it.
+
 ## 0.12.0 — 5 October 2026
 
 Pick up where you left off — and a terminal that finally runs.
