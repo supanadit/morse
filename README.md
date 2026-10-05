@@ -40,7 +40,10 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
   toggle away); thinking that streams as it arrives; paged history for long sessions.
 - **Steer while it works** — `steer`, follow-up and abort. A prompt sent mid-run is queued as a follow-up
   above the composer (`Queued messages`: edit, send now, remove) rather than refused, and runs when the
-  current turn settles. Model and thinking-level pickers and context compaction, all without leaving the chat.
+  current turn settles. Context compaction is a click away, with a confirmation.
+- **Model & thinking that follow pi** — pick any model pi is configured with; the thinking picker mirrors the
+  levels the *current model* supports in pi's own TUI and re-reads them on every switch, and a model added to
+  `models.json` appears when you open the picker — no reload, no restart.
 - **Edit or fork what was sent** — edit-and-resend forks before a past prompt and sends the rewrite; fork
   branches there and hands the prompt back to the composer. The old branch stays resumable.
 - **Attach context the way each host can** — editor selection and live selection chips in VS Code; drag, drop
@@ -52,6 +55,9 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
 - **Git and files where there is no editor** — on the browser host, a git panel (commit list, branch graph,
   uncommitted changes) and an Explorer, with read-only previews, diff views, and line ranges you drag to pin
   into your next message. VS Code keeps its own Explorer, editor and Source Control.
+- **Manage MCP servers** — an indicator in the chat toolbar opens a manager for the servers pi sees for the
+  session's directory: their state, tools and errors, plus add, remove, enable and disable. In project scope,
+  disabling a user-level server writes a project override — the same file pi's own `/mcp` writes.
 - **Prompt templates with a form** — a `/<template>` opens a generated form with a live preview, and a
   template file added or edited shows up without restarting pi.
 - **Keyboard first** — `Ctrl+Alt+…` (`⌘⌥…` on macOS) starts a session, narrows the sidebar to a project,
@@ -66,7 +72,7 @@ rather than claimed:
 
 | Piece | Measured |
 |---|---|
-| Frontend, over the wire | **176 kB** compressed (733 kB raw), 11.3 kB CSS |
+| Frontend, over the wire | **221 kB** compressed (950 kB raw, 14 kB CSS) |
 | Host bundle (`@morse/server`, the NestJS app) | **53 kB** of JS |
 | Host, nothing happening | **0.000% CPU**, ~110 MB RSS — no polling, no heartbeat, nothing to wake up for |
 | One prompt in a warm session | **2.3%** of one core of *host* CPU |

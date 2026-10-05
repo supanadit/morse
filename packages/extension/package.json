@@ -9,6 +9,10 @@
     "type": "git",
     "url": "https://github.com/supanadit/morse.git"
   },
+  "homepage": "https://github.com/supanadit/morse#readme",
+  "bugs": {
+    "url": "https://github.com/supanadit/morse/issues"
+  },
   "license": "MIT",
   "private": true,
   "engines": {
@@ -21,9 +25,12 @@
   ],
   "keywords": [
     "pi",
+    "pi-coding-agent",
     "agent",
     "chat",
     "ai",
+    "mcp",
+    "reasoning",
     "copilot-alternative"
   ],
   "activationEvents": [
@@ -31,6 +38,10 @@
   ],
   "main": "./dist/extension.js",
   "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0e639c",
+    "theme": "dark"
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [

@@ -3,6 +3,15 @@
   "version": "0.13.0",
   "description": "Comfortable Pi Interface in your browser: the Morse host (Angular + NestJS) as one installable package. `npm i -g @supanadit/morse-web` then `morse start`.",
   "author": "Supan Adit Pratama",
+  "homepage": "https://github.com/supanadit/morse#readme",
+  "bugs": {
+    "url": "https://github.com/supanadit/morse/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/supanadit/morse.git",
+    "directory": "packages/morse-web"
+  },
   "type": "module",
   "bin": {
     "morse": "./dist/cli.mjs"
@@ -20,10 +29,12 @@
   },
   "keywords": [
     "pi",
+    "pi-coding-agent",
     "morse",
     "agent",
     "chat",
     "ai",
+    "mcp",
     "nest",
     "angular"
   ],

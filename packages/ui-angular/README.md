@@ -9,6 +9,8 @@ framework-free client in `@morse/ui-runtime`, and it runs unchanged in both host
 `Angular` knows nothing about either host: `src/app/core/transport.token.ts` resolves the transport at
 startup, and `src/app/core/morse.service.ts` is the only file that binds Angular signals to the protocol.
 
+Part of the [Morse](../../README.md) monorepo; this is the package the published frontend is built from.
+
 ## Development
 
 ```bash
@@ -35,8 +37,14 @@ npm run test -w @morse/ui-angular      # vitest + jsdom, using the in-memory tra
 ## Structure
 
 ```
-src/app/core/            transport token + MorseService (Angular <-> protocol binding)
-src/app/chat/            project-browser, session-bar, chat-transcript, tool-card, chat-composer, interaction-panel
+src/app/core/            transport token, MorseService (Angular <-> protocol), shell state, tabs,
+                         workbench persistence, MCP state, git panel state, attachments, shortcuts
+src/app/chat/            transcript, composer, tab strip, header, bottom panel + terminal,
+                         model/thinking pickers, MCP panel, file preview, tool group
+src/app/nav/             session navigation, project picker, file explorer
+src/app/git/             the browser host's git panel and graph
+src/app/palette/         the command palette
+src/app/agent/           the "pi is not installed" setup screen
 src/styles.css           VS Code theme variables with browser fallbacks
 scripts/write-manifest.mjs  writes the frontend manifest hosts validate against
 ```

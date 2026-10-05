@@ -1,29 +1,58 @@
-# Morse — Pi coding agent for VS Code
+# Morse — the Pi coding agent, as a chat panel in VS Code
 
-Morse brings the [Pi](https://github.com/earendil-works/pi) coding agent into VS Code as a chat panel, instead
-of a terminal TUI. It drives your existing pi installation: the same models, credentials, tools, sessions and
-context files you already use on the command line.
+[![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-Install-0e639c)](https://marketplace.visualstudio.com/items?itemName=supanadit.morse)
+[![Open VSX](https://img.shields.io/badge/Open%20VSX-Install-9a5cd0)](https://open-vsx.org/extension/supanadit/morse)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/supanadit/morse/blob/master/LICENSE)
+[![CI](https://github.com/supanadit/morse/actions/workflows/ci.yml/badge.svg)](https://github.com/supanadit/morse/actions/workflows/ci.yml)
+
+Your [Pi](https://github.com/earendil-works/pi) agent already has the models, credentials, tools, sessions and
+context files you set up. **Morse gives all of it a real interface** — a chat panel beside your code, not a
+terminal TUI. It drives your existing `pi` installation over RPC: nothing is re-implemented, no API key is ever
+stored by the extension, and a session started in the terminal shows up here (and vice versa).
+
+![Morse in VS Code](https://raw.githubusercontent.com/supanadit/morse/master/docs/assets/demo-vscode.gif)
+
+## Why Morse
+
+- **It is your Pi, not a walled garden.** Morse spawns `pi --mode rpc` in your workspace and reads/writes the
+  same `~/.pi` sessions. Switch to the terminal and back and it is the same conversation.
+- **No keys, no telemetry.** Prompts go wherever *your* pi configuration sends them. The extension itself talks
+  only to the local `pi` process.
+- **Two hosts, one behaviour.** The same chat runs in a browser served by a small NestJS host — the same core,
+  protocol and frontend, maintained once. (See **Without VS Code** below.)
 
 ## Features
 
-- **Chat sidebar** — streaming answers, thinking blocks and tool calls rendered as cards with input/output.
-- **Scoped to your window** — the navigation lists the sessions of the folders this window has open.
-  (The browser host is the global variant: every project pi knows about.)
-- **Sessions stay warm** — switch between sessions without respawning the agent, and resume any pi session with
-  its history replayed (`morse.sessions.hotLimit`, default 4).
-- **Context compaction** — shrink the conversation context from the panel.
-- **Bring your own agent** — Morse starts `pi --mode rpc` in your workspace; nothing is re-implemented and no
-  API keys are stored by the extension.
-- **Same sessions** — sessions are read from and written to your pi session directory, so a conversation
-  started with `pi` in the terminal can be listed and resumed here.
-- **Steering** — keep typing while the agent works: send a steer or a follow-up, or stop it.
-- **Model & thinking control** — pick from the models pi has configured, and set the thinking level.
-- **Editor context** — the active file, selection and open editors are attached to the prompt. Selecting text
-  shows a live chip in the composer whose line numbers follow the drag in real time; clicking it locks the
-  selection (new selections then make new chips), and `Morse: Attach Selection to Next Prompt` still pins the
-  current selection in one command.
-- **Agent questions answered natively** — when pi (or one of its extensions) asks for input, Morse shows a
-  QuickPick, InputBox or confirmation instead of a wall of text.
+- **A chat panel that streams** — answers, thinking blocks and tool calls as they arrive. Tool calls render as a
+  compact, expandable tree by default (one summary line per turn, steps and files nested under it); the legacy
+  timeline is one toggle away. Long sessions page their history.
+- **Many sessions, many projects, kept warm** — one `pi` process per session, LRU-capped
+  (`morse.sessions.hotLimit`, default 4). Switching projects or reloading the window reattaches instead of
+  respawning, and an **In progress** section lifts the sessions working right now.
+- **Steer while it works** — send a `steer` or queue a follow-up (`Queued messages`: edit, send now, remove)
+  instead of being refused mid-run. Stop it with one click.
+- **Edit or fork what was sent** — edit-and-resend forks before a past prompt and sends the rewrite; fork
+  branches there and hands the prompt back to the composer. The old branch stays resumable.
+- **Model & thinking control that follows Pi** — pick from the models your pi is configured with; the thinking
+  picker mirrors exactly the levels the *current model* supports in Pi's TUI, and re-reads them when you switch
+  models. A model added to `models.json` shows up when you open the picker — no reload, no restart.
+- **Manage your MCP servers** — the MCP indicator in the chat toolbar lists every server pi sees for the
+  workspace, with its connection state, tools and errors, and lets you add, remove, enable or disable one. In
+  project scope, disabling a user-level server writes a project override, exactly like Pi's own `/mcp`.
+- **Context the way VS Code has it** — the active file, selection and open editors are attached to the prompt.
+  Selecting text shows a live chip whose line numbers follow your drag; click it to lock (new selections then
+  make new chips), or run **Morse: Attach Selection to Next Prompt**. Drag, drop and paste images too.
+- **`@mention` anything** — a gitignore-aware picker for files *and* directories (`@docs/` drills in), opened
+  with `+` or by typing `@`.
+- **Prompt templates with a form** — a `/<template>` opens a generated form with a live preview; a template file
+  added or edited shows up without restarting pi.
+- **Native questions** — when pi (or one of its extensions) asks for input, Morse shows a QuickPick, InputBox or
+  confirmation instead of a wall of text.
+- **Keyboard first** — `Ctrl+Alt+…` (`⌘⌥…` on macOS) starts a session, searches sessions, changes the model or
+  thinking level, and compacts context; `?` prints the whole list, and the command palette runs everything from
+  one field.
+- **Context compaction** — shrink the conversation from the panel, with a confirmation before Pi replaces what
+  it remembers.
 
 ## Requirements
 
@@ -32,12 +61,12 @@ context files you already use on the command line.
 
 ## Getting started
 
-1. Install the extension.
-2. Open the Morse icon in the activity bar (or run **Morse: Open Chat**).
-3. Ask a question. The first run starts a pi process in the current workspace.
+1. Install this extension.
+2. Open the **Morse** icon in the activity bar, or run **Morse: Open Chat**.
+3. Ask a question — the first run starts a `pi` process in the current workspace.
 
-If the panel reports that the agent is unavailable, open **Morse: Show Log** for the exact reason — usually a
-missing `pi` binary or an unauthenticated provider.
+If the panel reports the agent is unavailable, run **Morse: Show Log** for the exact reason — usually a missing
+`pi` binary or an unauthenticated provider.
 
 ## Settings
 
@@ -64,15 +93,28 @@ missing `pi` binary or an unauthenticated provider.
 
 Morse talks to your local `pi` process. Prompts and responses go wherever your pi configuration sends them
 (your configured provider, or a local model). The extension itself sends nothing anywhere and stores no
-credentials. Anything you attach as context — the current file name, the selected text — is included in the
-prompt, so review it before sending.
+credentials. Anything you attach as context — the current file name, the selected text, a dragged image — is
+included in the prompt, so review it before sending.
 
 ## Without VS Code
 
-The same chat UI and the same agent are available as a browser app served by a small NestJS host, for people
-who do not want an editor open. See the repository README.
+The same chat UI and the same agent are available as a browser app served by a small NestJS host, for people who
+do not want an editor open:
 
-## Source
+```bash
+npm install -g @supanadit/morse-web
+morse start
+```
 
-The extension is one of two hosts in the Morse monorepo; `@morse/core`, `@morse/protocol` and
-`@morse/adapter-pi-rpc` are shared with the NestJS host, and the frontend is a swappable package.
+See [`@supanadit/morse-web`](https://www.npmjs.com/package/@supanadit/morse-web).
+
+## Learn more
+
+- [Repository and full README](https://github.com/supanadit/morse)
+- [Install guide](https://github.com/supanadit/morse/blob/master/docs/INSTALL.md)
+- [Configuration](https://github.com/supanadit/morse/blob/master/docs/CONFIGURATION.md)
+- [What is implemented, and what is not](https://github.com/supanadit/morse/blob/master/docs/STATUS.md)
+
+## License
+
+[MIT](https://github.com/supanadit/morse/blob/master/LICENSE) © 2026 Supan Adit Pratama
