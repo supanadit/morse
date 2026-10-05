@@ -247,19 +247,26 @@ export class PiRpcAgent implements AgentGateway {
       provider: model.provider,
       modelId: model.id,
     });
-    this.patchState({ model: data ? toModelRef(data) : model });
-    // pi scopes the thinking levels to the *current* model, so switching models
-    // can change which ones exist (or whether reasoning is offered at all). pi's
-    // own TUI re-reads them after a model change; without this the picker kept
-    // showing the previous model's levels for every model.
-    await this.refreshThinkingLevels();
+    // Read the levels **before** emitting: a model and its thinking levels are one
+    // state to the UI. Emitting the new model first showed the picker the previous
+    // model's levels for a beat — and pi scopes the levels to the current model,
+    // so switching models can change which ones exist (or drop reasoning entirely).
+    const thinking = await this.readThinkingLevels();
+    this.patchState({
+      model: data ? toModelRef(data) : model,
+      ...thinking,
+    });
   }
 
   /**
-   * Re-read the levels the current model supports, and the level pi actually
-   * settled the session on (a model without reasoning resets it to `off`).
+   * The levels the current model supports, and the level pi settled on (a model
+   * without reasoning resets it to `off`). Returns a patch with nothing to say
+   * when pi did not answer, so the caller keeps the last known levels instead of
+   * inventing the full list — a failed refresh must not make the picker wrong.
    */
-  private async refreshThinkingLevels(): Promise<void> {
+  private async readThinkingLevels(): Promise<
+    Pick<Partial<AgentSessionState>, 'availableThinkingLevels' | 'thinkingLevel'>
+  > {
     const [levels, state] = await Promise.all([
       this.client
         .request<{ levels?: string[] }>({ type: 'get_available_thinking_levels' })
@@ -270,10 +277,10 @@ export class PiRpcAgent implements AgentGateway {
       (levels?.levels ?? []).map(toThinkingLevel).filter(isDefined),
     );
     const thinkingLevel = state ? toThinkingLevel(state.thinkingLevel) : undefined;
-    this.patchState({
-      availableThinkingLevels: available.length > 0 ? available : [...THINKING_LEVELS],
+    return {
+      ...(available.length > 0 ? { availableThinkingLevels: available } : {}),
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
-    });
+    };
   }
 
   async setThinkingLevel(level: ThinkingLevel): Promise<void> {

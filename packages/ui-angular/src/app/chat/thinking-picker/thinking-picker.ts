@@ -150,6 +150,15 @@ export class ThinkingPicker {
       // arrow keys drive the list instead of the prompt.
       setTimeout(() => this.panel()?.nativeElement.focus(), 0);
     });
+
+    // The levels can change while the panel is open (the model changed under it),
+    // so keep the highlight inside the list instead of pointing past its end.
+    effect(() => {
+      const last = Math.max(0, this.levels().length - 1);
+      if (this.active() > last) {
+        this.active.set(last);
+      }
+    });
   }
 
   protected toggle(): void {
