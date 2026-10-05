@@ -164,8 +164,11 @@ strip above the conversation, where sessions and files open side by side.
   front (a "New session" draft included), the bottom panel's state and every terminal; `drafts.json` holds
   the per-tab composer drafts. The frontend owns both inner shapes; the host only guards the
   `{ version, data }` envelope and a per-file size cap. A restored file is re-read from disk — the layout
-  stores a path, never a stale preview. A saved terminal re-opens a fresh shell in its session's directory:
-  the layout survives, the scrollback does not.
+  stores a path, never a stale preview. A saved terminal reattaches to the shell the host is still running — the
+  PTY lives in the server's registry, not in the connection — and the host replays the output produced while
+  the page was away; `terminal/close` is what ends a shell. That scrollback is also written under
+  `<MORSE_HOME>/terminals/`, so even after the host itself restarts the old output comes back with a fresh
+  shell: the process does not survive a restart, the output does.
 
 ### Git history and graph (browser host only)
 

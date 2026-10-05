@@ -23,7 +23,9 @@ import { MorseService } from '../../core/morse.service';
  * (and CommonJS), and a reader who never opens the panel should not download it.
  *
  * The shell survives a collapse because the panel keeps this component mounted,
- * and is killed when the component is destroyed — closing the tool.
+ * and it survives a page reload because the host owns the process: this view
+ * detaches on destroy and the host leaves the shell running, so a remount replays
+ * the scrollback into a fresh emulator and the shell keeps going.
  */
 @Component({
   selector: 'morse-terminal',

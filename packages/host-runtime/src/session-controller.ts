@@ -33,7 +33,7 @@ import {
   type UserTranscriptItem,
 } from '@morse/protocol';
 import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
-import type { TerminalBackend, TerminalProcess } from './terminal.js';
+import type { TerminalBackend, TerminalSession } from './terminal.js';
 import { SessionTranscriptStore } from './transcript-store.js';
 import {
   draftSessionViewState,
@@ -140,8 +140,15 @@ export class HostSessionController {
   private loadingOlderHistory = false;
   /** Discriminates history item ids across pages (see `historyItems`). */
   private historyPageSeq = 0;
-  /** The shells this client has open, keyed by the terminal id it named. */
-  private readonly terminals = new Map<string, TerminalProcess>();
+  /** This client's live attachments to shells, keyed by the terminal id it named. */
+  private readonly terminals = new Map<string, TerminalSession>();
+  /**
+   * The ids this connection has already opened. It separates a *first* open — a
+   * page reattaching to a shell the host still runs — from a repeat open (the
+   * Restart button), which must replace the shell and clear its scrollback
+   * instead of replaying it into the emulator that already shows it.
+   */
+  private readonly openedTerminals = new Set<string>();
   /**
    * Bumped whenever a terminal id is opened or closed. A shell's late `exit`
    * (a replaced one, a killed one) compares its generation and stays silent, so
@@ -203,11 +210,16 @@ export class HostSessionController {
       return;
     }
     this.disposed = true;
-    for (const process of this.terminals.values()) {
-      process.kill();
+    // Detach, do not kill: the shell and its scrollback belong to the host now,
+    // so a reloaded page (a browser refresh) can attach to the same process. An
+    // explicit `terminal/close` is the only thing that ends a shell.
+    for (const session of this.terminals.values()) {
+      session.detach();
     }
     this.terminals.clear();
     this.terminalGenerations.clear();
+    // The next connection is a new viewer, so every id is a first open again.
+    this.openedTerminals.clear();
     this.detachRegistry?.();
     this.detachRegistry = undefined;
     this.detachTranscripts?.();
@@ -345,9 +357,14 @@ export class HostSessionController {
   }
 
   /**
-   * Starts a shell for the bottom panel. The directory is the viewing session's
-   * (or the draft's), never an arbitrary path the client names — the backend
-   * still re-checks it against the host policy before spawning.
+   * Attaches this client to a shell for the bottom panel. The directory is the
+   * viewing session's (or the draft's), never an arbitrary path the client
+   * names — the backend still re-checks it against the host policy before
+   * spawning.
+   *
+   * A *first* open on this connection may land on a shell that is already running
+   * (a reloaded page reattaching); a repeat open (the Restart button) replaces
+   * it, scrollback and all, so the fresh shell does not replay the old one.
    */
   private async openTerminal(payload: {
     terminalId: string;
@@ -355,20 +372,36 @@ export class HostSessionController {
     cols?: number;
     rows?: number;
   }): Promise<void> {
-    if (this.options.terminal === undefined) {
+    const backend = this.options.terminal;
+    if (backend === undefined) {
       this.emitTerminalExit(payload.terminalId, undefined, 'This host has no terminal.');
       return;
     }
-    // One terminal per id: a repeated open replaces the shell rather than
-    // leaking a second one behind the same name.
-    this.closeTerminal(payload.terminalId);
-    const generation = this.terminalGenerations.get(payload.terminalId) ?? 0;
+    // A repeat open on this connection replaces the shell rather than leaking a
+    // second one behind the same name. A first open must not: the shell may be
+    // one this connection is reattaching to, and that one keeps running.
+    const previous = this.terminals.get(payload.terminalId);
+    if (previous !== undefined) {
+      previous.detach();
+      this.terminals.delete(payload.terminalId);
+      backend.close(payload.terminalId);
+    } else if (this.openedTerminals.has(payload.terminalId)) {
+      // A restart after the shell exited: drop the dead shell's scrollback, so
+      // the fresh shell does not replay it over the emulator that still has it.
+      backend.close(payload.terminalId);
+    }
+    this.openedTerminals.add(payload.terminalId);
+    // Any pending exit for a superseded shell is now stale.
+    const generation = (this.terminalGenerations.get(payload.terminalId) ?? 0) + 1;
+    this.terminalGenerations.set(payload.terminalId, generation);
+
     const cwd = payload.cwd ?? this.currentState().workspace.cwd;
     const cols = clampGeometry(payload.cols, 80);
     const rows = clampGeometry(payload.rows, 24);
-    let process: TerminalProcess;
+    let session: TerminalSession;
     try {
-      process = await this.options.terminal.open(
+      session = await backend.attach(
+        payload.terminalId,
         { cwd, cols, rows },
         {
           output: (data) => {
@@ -392,23 +425,31 @@ export class HostSessionController {
       this.emitTerminalExit(payload.terminalId, undefined, describeTerminalError(error));
       return;
     }
-    // The client may have closed it while `open` was still awaiting the shell.
+    // The client may have closed it while `attach` was still awaiting the shell.
     if (!this.disposed && this.terminalGenerations.get(payload.terminalId) === generation) {
-      this.terminals.set(payload.terminalId, process);
+      this.terminals.set(payload.terminalId, session);
+      // Catch the viewer up before the shell's next chunk: what it missed while
+      // no page was attached is the whole point of a surviving terminal.
+      if (session.replay.length > 0) {
+        this.emitTerminalOutput(payload.terminalId, session.replay);
+      }
     } else {
-      process.kill();
+      // Nobody is watching any more: leave the shell running for the next attach.
+      session.detach();
     }
   }
 
+  /**
+   * Ends a shell for good: the reader closed the pane. Bumps the generation first,
+   * so a late `exit` for the shell being replaced is not reported as news.
+   */
   private closeTerminal(terminalId: string): void {
-    // Any pending exit for the old shell is now stale.
     this.terminalGenerations.set(terminalId, (this.terminalGenerations.get(terminalId) ?? 0) + 1);
-    const process = this.terminals.get(terminalId);
-    if (process === undefined) {
-      return;
-    }
+    const session = this.terminals.get(terminalId);
     this.terminals.delete(terminalId);
-    process.kill();
+    this.openedTerminals.delete(terminalId);
+    session?.detach();
+    this.options.terminal?.close(terminalId);
   }
 
   private emitTerminalOutput(terminalId: string, data: string): void {

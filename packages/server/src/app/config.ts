@@ -31,6 +31,12 @@ export interface MorseServerConfig {
    */
   dataDir: string;
   /**
+   * How long a detached shell keeps running before the host reclaims it. A
+   * terminal survives a page reload, so the process needs its own expiry: only
+   * an explicit close ends one sooner. `0` disables the timeout.
+   */
+  terminalIdleMs: number;
+  /**
    * Whether the frontend may ask the registry for the latest release. On unless
    * `MORSE_UPDATE_CHECK=0`; an air-gapped host turns it off rather than letting
    * the panel try and fail.
@@ -87,6 +93,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     projects: parseList(env.MORSE_PROJECTS),
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
     dataDir: resolveDataDir(env),
+    terminalIdleMs: parsePositiveInt(env.MORSE_TERMINAL_IDLE_MS, 30 * 60_000),
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
     instance: env.MORSE_INSTANCE?.trim() || undefined,
   };

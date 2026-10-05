@@ -30,9 +30,9 @@ export interface TerminalInstance {
 /**
  * The terminals a reader had open, written to their saved layout: the panes, the
  * terminal in front per session, the focused pane per split and the dragged pane
- * widths. The PTYs themselves cannot survive a reload, so a restore re-opens a
- * fresh shell for every pane; what comes back is the *layout*, not the scrollback.
- */
+ * widths. The host owns the PTY itself (a server-side registry), so a restore
+ * reattaches to the same shell and replays what it missed; `terminal/close` is
+ * what ends one. The frontend still owns only the layout — it never stores output. */
 export interface TerminalsSnapshot {
   panes: TerminalInstance[];
   activeByOwner: Record<string, string | undefined>;
@@ -80,8 +80,9 @@ function relabel(instance: TerminalInstance): TerminalInstance {
  *
  * A terminal can be **split**: `split()` adds a pane to the group, and every pane
  * is its own shell while the group keeps one chip. Only metadata lives here; the
- * PTY itself is opened by the `Terminal` view and killed when its pane unmounts —
- * which is what closing a pane, a terminal, or its session tab does.
+ * PTY itself is opened by the `Terminal` view and left running by the host when
+ * the pane unmounts — closing a pane, a terminal or its session tab sends
+ * `terminal/close`, which is what ends it.
  */
 @Injectable({ providedIn: 'root' })
 export class TerminalStore {

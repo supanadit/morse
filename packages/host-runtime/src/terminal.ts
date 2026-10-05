@@ -5,7 +5,7 @@
  *
  * Kept free of `node:*` so the same controller serves the VS Code host (which
  * leaves the capability off) and the NestJS host (which implements it with
- * `child_process`).
+ * `node-pty`).
  */
 
 /** How a terminal is opened. `cwd` is already policy-approved by the host. */
@@ -13,16 +13,6 @@ export interface TerminalOpenOptions {
   cwd: string;
   cols: number;
   rows: number;
-}
-
-/** The running shell behind one terminal id. */
-export interface TerminalProcess {
-  /** Writes keystrokes (or a whole pasted line) to the shell's stdin. */
-  write(data: string): void;
-  /** Tells the shell the viewer's new size; a no-op for a pipe-only shell. */
-  resize(cols: number, rows: number): void;
-  /** Ends the shell. Safe to call more than once. */
-  kill(): void;
 }
 
 /** Where a terminal's output and end go. Called from the host's process callbacks. */
@@ -33,10 +23,35 @@ export interface TerminalSink {
 }
 
 /**
- * Port (R2) the host owns. `open` may reject (a directory the policy refuses, a
+ * One viewer's handle on a shell.
+ *
+ * `detach` ends only the *viewer*: the shell and its scrollback stay with the
+ * host, so a reloaded page can attach again (`replay` hands it what it missed).
+ * Ending the shell for good is `TerminalBackend.close`.
+ */
+export interface TerminalSession {
+  /** Output produced while nobody was attached; `''` when there is none. */
+  readonly replay: string;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  detach(): void;
+}
+
+/**
+ * Port (R2) the host owns. `attach` may reject (a directory the policy refuses, a
  * shell that cannot be spawned); the controller turns that into `terminal/exit`
  * with the message, so the panel can say what happened instead of hanging.
+ *
+ * The backend, not the connection, owns the shell: the same `terminalId` gets the
+ * same live shell back across a client reload, and its scrollback is replayed on
+ * the next attach. That is what lets a browser refresh keep a running command.
  */
 export interface TerminalBackend {
-  open(options: TerminalOpenOptions, sink: TerminalSink): TerminalProcess | Promise<TerminalProcess>;
+  attach(
+    terminalId: string,
+    options: TerminalOpenOptions,
+    sink: TerminalSink,
+  ): TerminalSession | Promise<TerminalSession>;
+  /** Ends the shell and forgets its scrollback (the reader closed the pane). */
+  close(terminalId: string): void;
 }

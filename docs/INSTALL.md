@@ -214,6 +214,8 @@ it only on a trusted network or behind a TLS reverse proxy.
 |---|---|
 | `~/.morse/server.json` | daemon state: pid, port, host, url, workspace, startedAt, instance (`MORSE_HOME` overrides) |
 | `~/.morse/logs/server.log` | server stdout + stderr; `morse logs` reads this |
+| `~/.morse/workbench.json` / `drafts.json` | the tabs, panel and terminals a browser left open, and its per-tab composer drafts |
+| `~/.morse/terminals/` | terminal scrollback, one file per pane, so output survives a host restart |
 | `<session-cwd>/.morse/uploads/` | browser uploads, attached as `@mentions` (`MORSE_UPLOAD_DIR` moves it) |
 
 The daemon is `spawn(process.execPath, [dist/server.mjs], { detached: true, stdio: ['ignore', logFd, logFd] })`
@@ -225,7 +227,7 @@ agent is unavailable — set `MORSE_PI_PATH` in the environment you launch from.
 
 `MORSE_HOME`, `MORSE_PORT`, `MORSE_HOST`, `MORSE_WORKSPACE`, `MORSE_PROJECTS`, `MORSE_HOT_SESSIONS` (4),
 `MORSE_PI_PATH`, `MORSE_PI_ENTRY`, `MORSE_SESSION_DIR`, `MORSE_NO_SESSION`, `MORSE_REQUEST_TIMEOUT_MS`,
-`MORSE_UPLOAD_DIR`, `MORSE_UI_DIR`.
+`MORSE_UPLOAD_DIR`, `MORSE_UI_DIR`, `MORSE_TERMINAL_IDLE_MS`.
 
 `MORSE_PROJECTS` is the security boundary: when set (`/a:/b`), the agent only works inside those roots. Unset
 means any absolute path is accepted — fine for `127.0.0.1`, not for `--lan`.

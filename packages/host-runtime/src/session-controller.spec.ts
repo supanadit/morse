@@ -851,22 +851,30 @@ describe('SessionRegistry hot limit', () => {
 });
 
 /** A hand-driven shell: the test writes keystrokes and pushes output at will. */
-function fakeTerminal() {
+function fakeTerminal(options: { replay?: string } = {}) {
   const writes: string[] = [];
   const opened: { cwd: string; cols: number; rows: number }[] = [];
   const sinks: TerminalSink[] = [];
+  let buffer = options.replay ?? '';
   let killed = false;
+  let detaches = 0;
   const backend: TerminalBackend = {
-    open(options, nextSink) {
-      opened.push(options);
+    attach(_terminalId, nextOptions, nextSink) {
+      opened.push(nextOptions);
       sinks.push(nextSink);
       return {
+        replay: buffer,
         write: (data) => writes.push(data),
         resize: () => undefined,
-        kill: () => {
-          killed = true;
+        detach: () => {
+          detaches += 1;
         },
       };
+    },
+    close: () => {
+      killed = true;
+      // The real backend drops the scrollback here, so a restart does not replay it.
+      buffer = '';
     },
   };
   return {
@@ -875,6 +883,7 @@ function fakeTerminal() {
     opened,
     sinks,
     isKilled: () => killed,
+    detaches: () => detaches,
     output: (data: string) => sinks.at(-1)?.output(data),
     end: (code?: number, error?: string) => sinks.at(-1)?.exit(code, error),
   };
@@ -922,7 +931,7 @@ describe('HostSessionController terminal', () => {
     });
   });
 
-  it('kills the shell when the terminal is closed or the client leaves', async () => {
+  it('kills the shell on close, but only detaches it when the client leaves', async () => {
     const messages: HostToClientMessage[] = [];
     const shell = fakeTerminal();
     const host = controller(messages, shell.backend);
@@ -932,19 +941,53 @@ describe('HostSessionController terminal', () => {
     await host.handleClientMessage({ type: 'terminal/close', payload: { terminalId: 't1' } });
     expect(shell.isKilled()).toBe(true);
 
-    // A terminal still open when the connection goes away is killed with it.
+    // A shell still open when the connection goes away is left running: the host
+    // owns it, and a reloaded page attaches to the same process.
     const second = fakeTerminal();
     const other = controller(messages, second.backend);
     await other.start();
     await other.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't2' } });
     await other.dispose();
-    expect(second.isKilled()).toBe(true);
+    expect(second.isKilled()).toBe(false);
+    expect(second.detaches()).toBe(1);
+  });
+
+  it('replays the scrollback a reattached shell produced while nobody watched', async () => {
+    const messages: HostToClientMessage[] = [];
+    const shell = fakeTerminal({ replay: 'earlier output\n' });
+    const host = controller(messages, shell.backend);
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+
+    expect(messages).toContainEqual({
+      type: 'terminal/output',
+      payload: { terminalId: 't1', data: 'earlier output\n' },
+    });
+  });
+
+  it('clears the scrollback when a shell is restarted on the same connection', async () => {
+    const messages: HostToClientMessage[] = [];
+    const shell = fakeTerminal({ replay: 'before the restart\n' });
+    const host = controller(messages, shell.backend);
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+    shell.end(0);
+    // Restart: the emulator still shows the old output, so replaying it would
+    // duplicate the whole scrollback.
+    messages.length = 0;
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+
+    expect(shell.isKilled()).toBe(true);
+    expect(messages.filter((message) => message.type === 'terminal/output')).toHaveLength(0);
   });
 
   it('reports a shell that could not start as an exit with the reason', async () => {
     const messages: HostToClientMessage[] = [];
     const host = controller(messages, {
-      open: () => Promise.reject(new Error('not allowed here')),
+      attach: () => Promise.reject(new Error('not allowed here')),
+      close: () => undefined,
     });
     await host.start();
 

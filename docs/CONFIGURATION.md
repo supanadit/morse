@@ -22,7 +22,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 |---|---|---|
 | `MORSE_HOST` | `127.0.0.1` | Bind address |
 | `MORSE_PORT` | `4399` | Port (the CLI picks the next free one if this is taken and unset) |
-| `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, the saved shell layout (`workbench.json`) and the per-tab composer drafts (`drafts.json`) |
+| `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, the saved shell layout (`workbench.json`), the per-tab composer drafts (`drafts.json`) and the terminal scrollback (`terminals/`) |
 | `MORSE_WORKSPACE` | current directory | Directory the agent works in |
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
 | `MORSE_HOT_SESSIONS` | `4` | How many `pi` processes stay alive at once |
@@ -32,6 +32,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_UI_DIR` | bundled frontend | Override the served frontend directory |
 | `MORSE_UPLOAD_DIR` | `.morse/uploads` | Where browser uploads land (relative to a session cwd, or absolute) |
 | `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published version from the npm registry (`0`/`false`/`off` disables it) |
+| `MORSE_TERMINAL_IDLE_MS` | `1800000` | How long a terminal's shell keeps running with no page attached before the host reclaims it (`0` disables the timeout) |
 
 `MORSE_PROJECTS` is the security boundary: when set, the agent may only work inside those roots. When unset,
 any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for one you expose.
@@ -47,6 +48,12 @@ simply never mentions updates.
 
 Files the browser uploads (drag-and-drop, paste, or the `+` button) land in `<session-cwd>/.morse/uploads/` and
 ride as `@mentions`; `MORSE_UPLOAD_DIR` moves that inbox. Consider adding it to the project's `.gitignore`.
+
+Terminals are the browser host's, and they outlive the page: the shell runs in the host, so a reload reattaches
+to the same process and replays what it missed, and the output is written under `<MORSE_HOME>/terminals/` so it
+survives a host restart too. `MORSE_TERMINAL_IDLE_MS` is the dial for how long a shell nobody is watching keeps
+running before it is reclaimed — the scrollback stays either way. A shell only ends sooner when its pane is
+closed.
 
 ## Interface preferences
 
