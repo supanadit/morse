@@ -20,6 +20,7 @@ export interface PanelAction {
 /** Where the panel's height, open state and chosen chip are remembered. */
 const PANEL_HEIGHT_KEY = 'morse.panel.height';
 const PANEL_EXPANDED_KEY = 'morse.panel.expanded';
+const PANEL_FULL_KEY = 'morse.panel.full';
 const PANEL_VIEW_KEY = 'morse.panel.view';
 const PANEL_MIN_HEIGHT = 120;
 const PANEL_MAX_HEIGHT = 900;
@@ -96,6 +97,7 @@ export class PanelState {
   private readonly active = signal<string | undefined>(readView());
   private readonly open = signal(readFlag(PANEL_EXPANDED_KEY));
   private readonly heightSignal = signal<number | undefined>(readHeight());
+  private readonly fullSignal = signal(readFlag(PANEL_FULL_KEY));
   /** Actions each tool registered for the bar, keyed by the tool id. */
   private readonly registered = signal<Record<string, PanelAction[]>>({});
 
@@ -103,6 +105,8 @@ export class PanelState {
   readonly expanded = this.open.asReadonly();
   /** `undefined` keeps the default from `styles.css`/`PANEL_DEFAULT_HEIGHT`. */
   readonly height = this.heightSignal.asReadonly();
+  /** Full screen: the panel takes the whole conversation column. Only ever with a tool open. */
+  readonly full = computed(() => this.fullSignal() && this.open());
   /** The active tool's bar actions — the terminal's `+`, when it is open. */
   readonly actions = computed(() => {
     const view = this.active();
@@ -144,15 +148,45 @@ export class PanelState {
     this.setExpanded(false);
   }
 
+  /** The bar's full-screen button: the panel takes the whole conversation column. */
+  toggleFull(): void {
+    // Full only makes sense with a tool open; the caller opens one first.
+    if (!this.open()) {
+      return;
+    }
+    this.setFull(!this.fullSignal());
+  }
+
   /** Drag-to-resize from the panel's top edge; clamped to a usable range. */
-  setHeight(px: number): void {
+  setHeight(px: number, persist = true): void {
     const next = clampHeight(px);
     this.heightSignal.set(next);
-    storeHeight(next);
+    if (persist) {
+      storeHeight(next);
+    }
+  }
+
+  /** Double-clicking the edge restores the default height. */
+  resetHeight(): void {
+    this.heightSignal.set(undefined);
+    try {
+      globalThis.localStorage?.removeItem(PANEL_HEIGHT_KEY);
+    } catch {
+      // As above: the signal is the truth for this session either way.
+    }
   }
 
   private setExpanded(expanded: boolean): void {
     this.open.set(expanded);
     storeFlag(PANEL_EXPANDED_KEY, expanded);
+    if (!expanded) {
+      // Full only exists with a tool showing; folding the panel leaves it.
+      this.setFull(false);
+    }
+  }
+
+  private setFull(full: boolean): void {
+    this.fullSignal.set(full);
+    storeFlag(PANEL_FULL_KEY, full);
   }
 }

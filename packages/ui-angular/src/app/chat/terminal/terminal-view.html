@@ -1,42 +1,121 @@
 <div class="terminal-view">
-  <div class="tabbar" role="tablist" aria-label="Terminals">
-    @for (terminal of mine(); track terminal.id) {
-      <div
-        class="ttab"
-        role="tab"
-        tabindex="0"
-        [class.active]="terminal.id === activeId()"
-        [attr.aria-selected]="terminal.id === activeId()"
-        [title]="terminal.title"
-        (click)="select(terminal.id)"
-        (keydown.enter)="select(terminal.id)"
-        (auxclick)="onAuxClick(terminal.id, $event)"
-      >
-        <span class="glyph" aria-hidden="true">❯</span>
-        <span class="label">{{ terminal.title }}</span>
-        <button
-          type="button"
-          class="close"
-          aria-label="Close terminal"
-          [title]="'Close ' + terminal.title"
-          (click)="close(terminal.id, $event)"
-        >
-          ×
-        </button>
+  <!-- No terminals yet: there is nothing to list, so the chip row folds away and
+       only the empty state below speaks. -->
+  @if (mine().length > 0) {
+    <div class="tabbar">
+      <div class="tabs" role="tablist" aria-label="Terminals">
+        @for (group of mine(); track group.id) {
+          <div
+            class="ttab"
+            role="tab"
+            tabindex="0"
+            [class.active]="group.id === activeGroup()?.id"
+            [attr.aria-selected]="group.id === activeGroup()?.id"
+            [title]="group.title + ' — double-click to rename'"
+            (click)="select(group)"
+            (keydown.enter)="select(group)"
+            (dblclick)="beginRename(group.id, $event)"
+            (auxclick)="onAuxClick(group.id, $event)"
+          >
+            <span class="glyph" aria-hidden="true">❯</span>
+            @if (editingId() === group.id) {
+              <input
+                #renameInput
+                class="rename"
+                type="text"
+                aria-label="Rename terminal"
+                [value]="group.name"
+                (click)="$event.stopPropagation()"
+                (dblclick)="$event.stopPropagation()"
+                (keydown)="onRenameKey(group.id, $event)"
+                (blur)="commitRename(group.id, $any($event.target).value)"
+              />
+            } @else {
+              <span class="label">{{ group.name }}</span>
+              @if (group.count > 1) {
+                <span class="count" aria-hidden="true">({{ group.count }})</span>
+              }
+            }
+            <button
+              type="button"
+              class="close"
+              aria-label="Close terminal"
+              [title]="'Close ' + group.title"
+              (click)="close(group, $event)"
+            >
+              ×
+            </button>
+          </div>
+        }
       </div>
-    }
-  </div>
+      <button
+        type="button"
+        class="split-button"
+        title="Split the terminal — a second shell beside it"
+        aria-label="Split terminal"
+        (click)="split()"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="2" y="3" width="12" height="10" rx="1.5" />
+          <path d="M8 3.5v9" />
+        </svg>
+      </button>
+    </div>
+  }
 
   <div class="screens">
     @if (mine().length === 0) {
       <p class="empty">No terminals in this session.</p>
     }
-    @for (terminal of all(); track terminal.id) {
-      <morse-terminal
-        class="screen-host"
-        [class.hidden]="terminal.id !== activeId()"
-        [id]="terminal.id"
-      />
+    @for (group of allGroups(); track group.id) {
+      <div class="group" [class.hidden]="group.id !== activeGroup()?.id">
+        @for (pane of group.panes; track pane.id; let i = $index) {
+          @if (i > 0) {
+            <div
+              class="splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the terminal panes"
+              title="Drag to resize"
+              (pointerdown)="startResize(group, i - 1, $event)"
+            ></div>
+          }
+          <div class="pane" [style.flexGrow]="group.sizes[i]" (pointerdown)="focusPane(pane)">
+            <morse-terminal [id]="pane.id" (titleChange)="onTitleChange(pane.id, $event)" />
+          </div>
+        }
+      </div>
     }
   </div>
+
+  <!-- The split's own tab row: the panes of the terminal in front, each with a
+       name and a close button. Only shown while the terminal is actually split. -->
+  @if (splitPanes().length > 0) {
+    <div class="pane-strip" role="tablist" aria-label="Terminal panes">
+      @for (pane of splitPanes(); track pane.id) {
+        <div
+          class="pane-tab"
+          role="tab"
+          tabindex="0"
+          [class.active]="pane.id === activeGroup()?.activePane"
+          [attr.aria-selected]="pane.id === activeGroup()?.activePane"
+          [title]="pane.title"
+          (click)="focusPane(pane)"
+          (keydown.enter)="focusPane(pane)"
+        >
+          <span class="glyph" aria-hidden="true">❯</span>
+          <span class="label">{{ pane.title }}</span>
+          <button
+            type="button"
+            class="close"
+            aria-label="Close pane"
+            [title]="'Close ' + pane.title"
+            (click)="closePane(pane, $event)"
+          >
+            ×
+          </button>
+        </div>
+      }
+    </div>
+  }
 </div>

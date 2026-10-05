@@ -1,16 +1,17 @@
 <section
   class="panel"
   [class.expanded]="expanded()"
-  [style.height.px]="expanded() ? height() ?? defaultHeight : null"
+  [style.height.px]="expanded() && !full() ? height() ?? defaultHeight : null"
 >
-  @if (expanded()) {
+  @if (expanded() && !full()) {
     <div
       class="resize"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the bottom panel"
       title="Drag to resize"
       (pointerdown)="onResizeStart($event)"
-      (pointermove)="onResizeMove($event)"
-      (pointerup)="onResizeEnd($event)"
-      (pointercancel)="onResizeEnd($event)"
+      (dblclick)="onResizeReset()"
     ></div>
   }
 
@@ -51,12 +52,44 @@
     <button
       type="button"
       class="toggle"
+      [title]="full() ? 'Fit the panel back below the chat' : 'Expand the panel to full screen'"
+      [attr.aria-label]="full() ? 'Exit full screen' : 'Full screen'"
+      [attr.aria-pressed]="full()"
+      (click)="toggleFull()"
+    >
+      @if (full()) {
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3.5 6.5h3v-3" />
+          <path d="M12.5 9.5h-3v3" />
+          <path d="M6.5 6.5 3 3" />
+          <path d="M9.5 9.5 13 13" />
+        </svg>
+      } @else {
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6.5 3.5h-3v3" />
+          <path d="M9.5 12.5h3v-3" />
+          <path d="M3.5 3.5 8 8" />
+          <path d="M12.5 12.5 8 8" />
+        </svg>
+      }
+    </button>
+    <button
+      type="button"
+      class="toggle"
       [title]="expanded() ? 'Collapse panel' : 'Expand panel'"
       [attr.aria-expanded]="expanded()"
       [attr.aria-label]="expanded() ? 'Collapse panel' : 'Expand panel'"
       (click)="toggleExpanded()"
     >
-      {{ expanded() ? '⌄' : '⌃' }}
+      @if (expanded()) {
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 6.5 8 10.5 12 6.5" />
+        </svg>
+      } @else {
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 9.5 8 5.5 12 9.5" />
+        </svg>
+      }
     </button>
   </div>
 

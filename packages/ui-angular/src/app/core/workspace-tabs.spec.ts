@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from './morse.service';
+import { QueuedPrompts } from './queued-prompts';
 import { TerminalStore } from './terminal-store';
 import { WorkspaceTabs } from './workspace-tabs';
 
@@ -363,6 +364,30 @@ describe('WorkspaceTabs', () => {
     tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
 
     expect(terminals.terminals().find((entry) => entry.id === terminal)?.owner).toBe('s1');
+  });
+
+  it("drops a session's queued follow-ups when its tab closes", () => {
+    const { tabs } = setup();
+    const queue = TestBed.inject(QueuedPrompts);
+    tabs.focusSession({ id: 's1', title: 'One' });
+    queue.enqueue({ text: 'later', images: [], pins: [] }, 's1');
+
+    tabs.close('s1');
+
+    expect(queue.forOwner('s1')).toEqual([]);
+  });
+
+  it("moves a draft's queued follow-ups to the session it becomes", () => {
+    const { tabs } = setup();
+    const queue = TestBed.inject(QueuedPrompts);
+    tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0]!.id;
+    queue.enqueue({ text: 'later', images: [], pins: [] }, draftId);
+
+    tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
+
+    expect(queue.forOwner('s1').map((item) => item.text)).toEqual(['later']);
+    expect(queue.forOwner(draftId)).toEqual([]);
   });
 
   it('empties the strip and the host with closeAll', () => {

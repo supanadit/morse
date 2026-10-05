@@ -53,6 +53,20 @@
 }
 
 /*
+ * Full-screen bottom panel: the terminal gets the whole conversation column, so
+ * everything above it steps aside and the panel grows into the space. Only the
+ * panel's own host stays, and it is the one that flexes.
+ */
+.chat.bottom-full > morse-chat-header,
+.chat.bottom-full > morse-tab-strip,
+.chat.bottom-full > morse-file-preview,
+.chat.bottom-full > morse-chat-transcript,
+.chat.bottom-full > morse-interaction-panel,
+.chat.bottom-full > morse-chat-composer {
+  display: none;
+}
+
+/*
  * Wide layouts (the browser host, a wide VS Code window): the column folds away
  * on its own, without the drawer machinery below. The nav keeps its intrinsic
  * width while the grid track animates to zero, so the sidebar slides out of the

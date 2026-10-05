@@ -10,12 +10,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const xterm = vi.hoisted(() => {
   type DataHandler = (data: string) => void;
   type ResizeHandler = (size: { cols: number; rows: number }) => void;
+  type TitleHandler = (title: string) => void;
   const instances: Array<{
     cols: number;
     rows: number;
     writes: string[];
     dataHandler?: DataHandler;
     resizeHandler?: ResizeHandler;
+    titleHandler?: TitleHandler;
   }> = [];
   class FakeTerminal {
     cols = 100;
@@ -23,6 +25,7 @@ const xterm = vi.hoisted(() => {
     writes: string[] = [];
     dataHandler: DataHandler | undefined;
     resizeHandler: ResizeHandler | undefined;
+    titleHandler: TitleHandler | undefined;
     constructor() {
       instances.push(this);
     }
@@ -34,6 +37,10 @@ const xterm = vi.hoisted(() => {
     }
     onResize(handler: ResizeHandler) {
       this.resizeHandler = handler;
+      return { dispose: () => undefined };
+    }
+    onTitleChange(handler: TitleHandler) {
+      this.titleHandler = handler;
       return { dispose: () => undefined };
     }
     write(data: string): void {
@@ -146,6 +153,18 @@ describe('Terminal', () => {
 
     expect(morse.sendTerminal).toHaveBeenCalledWith(id, 'x');
     expect(morse.resizeTerminal).toHaveBeenCalledWith(id, 120, 40);
+  });
+
+  it('forwards the shell title to the tab', async () => {
+    const { fixture } = setup();
+    await fixture.whenStable();
+    await tick();
+    const titles: string[] = [];
+    fixture.componentInstance.titleChange.subscribe((title) => titles.push(title));
+
+    xterm.instances.at(-1)?.titleHandler?.('npm run dev');
+
+    expect(titles).toEqual(['npm run dev']);
   });
 
   it('offers a restart once the shell has ended', async () => {

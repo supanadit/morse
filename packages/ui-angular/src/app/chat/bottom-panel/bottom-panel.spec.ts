@@ -15,6 +15,9 @@ vi.mock('@xterm/xterm', () => ({
     onResize() {
       return { dispose: () => undefined };
     }
+    onTitleChange() {
+      return { dispose: () => undefined };
+    }
     write(): void {}
     reset(): void {}
     focus(): void {}
@@ -31,8 +34,15 @@ vi.mock('@xterm/addon-webgl', () => ({
 
 import { signal } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
-import { PanelState } from '../../core/panel-state';
+import { PANEL_DEFAULT_HEIGHT, PanelState } from '../../core/panel-state';
 import { BottomPanel } from './bottom-panel';
+
+/** Dispatch a pointer-like event on a handle (jsdom has no PointerEvent). */
+function press(element: Element, type: string, clientY = 0): void {
+  element.dispatchEvent(
+    new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY }),
+  );
+}
 
 /** The terminal view needs a host that exists (for the session key) and talks. */
 function morseStub() {
@@ -120,5 +130,63 @@ describe('BottomPanel', () => {
     await fixture.whenStable();
 
     expect((host.querySelector('.panel') as HTMLElement).style.height).toBe('340px');
+  });
+
+  it('reaches the top-edge handle and follows the drag', async () => {
+    const { fixture, host } = setup();
+    (host.querySelector('.chip-label') as HTMLElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const handle = host.querySelector('.resize') as HTMLElement;
+    expect(handle.getAttribute('aria-label')).toBe('Resize the bottom panel');
+
+    // Pulling up from the handle grows the panel (260 default + 80).
+    press(handle, 'pointerdown', 400);
+    press(handle, 'pointermove', 320);
+    press(handle, 'pointerup', 320);
+    fixture.detectChanges();
+
+    expect(TestBed.inject(PanelState).height()).toBe(340);
+    expect((host.querySelector('.panel') as HTMLElement).style.height).toBe('340px');
+  });
+
+  it('restores the default height when the handle is double-clicked', async () => {
+    const { fixture, host } = setup();
+    TestBed.inject(PanelState).setHeight(340);
+    (host.querySelector('.chip-label') as HTMLElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    press(host.querySelector('.resize') as HTMLElement, 'dblclick');
+    fixture.detectChanges();
+
+    expect(TestBed.inject(PanelState).height()).toBeUndefined();
+    expect((host.querySelector('.panel') as HTMLElement).style.height).toBe(
+      `${PANEL_DEFAULT_HEIGHT}px`,
+    );
+  });
+
+  it('hands the panel the whole column in full screen, and gives it back', async () => {
+    const { fixture, host } = setup();
+    (host.querySelector('.toggle[aria-label="Full screen"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const panel = TestBed.inject(PanelState);
+    // Going full opens the tool too, so the space is not handed to an empty panel.
+    expect(panel.expanded()).toBe(true);
+    expect(panel.full()).toBe(true);
+    expect(host.classList.contains('full')).toBe(true);
+    // No inline height and no drag handle: the flex column sizes it now.
+    expect((host.querySelector('.panel') as HTMLElement).style.height).toBe('');
+    expect(host.querySelector('.resize')).toBeNull();
+
+    (host.querySelector('.toggle[aria-label="Exit full screen"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(panel.full()).toBe(false);
+    expect(host.classList.contains('full')).toBe(false);
+    expect(host.querySelector('.resize')).not.toBeNull();
   });
 });

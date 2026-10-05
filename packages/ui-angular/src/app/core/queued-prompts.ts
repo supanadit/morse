@@ -32,6 +32,11 @@ export class QueuedPrompts {
   readonly queued = this.items.asReadonly();
   readonly count = computed(() => this.items().length);
 
+  /** The prompts waiting for `owner`, oldest first — the tab in front's own queue. */
+  forOwner(owner: string | undefined): readonly QueuedPrompt[] {
+    return this.items().filter((item) => item.sessionId === owner);
+  }
+
   /** The oldest prompt queued for `sessionId` — the one that runs next. */
   head(sessionId?: string): QueuedPrompt | undefined {
     return this.items().find((item) => item.sessionId === sessionId);
@@ -60,5 +65,17 @@ export class QueuedPrompts {
 
   clear(): void {
     this.items.set([]);
+  }
+
+  /** A draft tab became the session that owns it; its queue follows the new id. */
+  rekey(from: string, to: string): void {
+    this.items.update((list) =>
+      list.map((item) => (item.sessionId === from ? { ...item, sessionId: to } : item)),
+    );
+  }
+
+  /** A closed tab's queue has nowhere to return to. */
+  forgetOwner(owner: string | undefined): void {
+    this.items.update((list) => list.filter((item) => item.sessionId !== owner));
   }
 }

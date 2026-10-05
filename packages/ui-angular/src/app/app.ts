@@ -13,6 +13,7 @@ import { AnimationService } from './core/animation.service';
 import { AttachmentStore } from './core/attachments';
 import { DropZone } from './core/drop-zone';
 import { MorseService } from './core/morse.service';
+import { PanelState } from './core/panel-state';
 import { ShellState } from './core/shell-state';
 import { WorkspaceTabs } from './core/workspace-tabs';
 import { EnterDirective } from './shared/enter.directive';
@@ -63,6 +64,7 @@ function previewBoot(): boolean {
 export class App {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly panel = inject(PanelState);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly shortcuts = inject(ShortcutService);
   private readonly dropZone = inject(DropZone);
@@ -105,6 +107,13 @@ export class App {
    */
   protected readonly bottomPanelEnabled = computed(
     () => this.morse.capabilities()?.terminal === true,
+  );
+  /**
+   * Full-screen bottom panel: the panel takes the whole chat column and the
+   * conversation behind it steps aside, the way the git panel's full mode does.
+   */
+  protected readonly bottomPanelFull = computed(
+    () => this.bottomPanelEnabled() && this.panel.full(),
   );
   /**
    * The browser host's git panel: history and graph for the active project. VS

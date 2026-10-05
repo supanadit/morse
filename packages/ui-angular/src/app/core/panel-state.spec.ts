@@ -42,6 +42,45 @@ describe('PanelState', () => {
     expect(panel.height()).toBe(900);
   });
 
+  it('returns to the default height when the choice is reset', () => {
+    const panel = TestBed.inject(PanelState);
+    panel.setHeight(320);
+
+    panel.resetHeight();
+    expect(panel.height()).toBeUndefined();
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(PanelState).height()).toBeUndefined();
+  });
+
+  it('goes full screen only with a tool open, and leaves it on collapse', () => {
+    const panel = TestBed.inject(PanelState);
+
+    // Nothing open: there is no panel to hand the whole column to.
+    panel.toggleFull();
+    expect(panel.full()).toBe(false);
+
+    panel.toggle('terminal');
+    panel.toggleFull();
+    expect(panel.full()).toBe(true);
+
+    // Folding the panel ends full screen with it.
+    panel.collapse();
+    expect(panel.full()).toBe(false);
+    expect(panel.expanded()).toBe(false);
+  });
+
+  it('remembers full screen across a reload', () => {
+    const panel = TestBed.inject(PanelState);
+    panel.toggle('terminal');
+    panel.toggleFull();
+
+    TestBed.resetTestingModule();
+    const restored = TestBed.inject(PanelState);
+    expect(restored.expanded()).toBe(true);
+    expect(restored.full()).toBe(true);
+  });
+
   it('publishes the active tool’s bar actions', () => {
     const panel = TestBed.inject(PanelState);
     panel.registerActions('terminal', [

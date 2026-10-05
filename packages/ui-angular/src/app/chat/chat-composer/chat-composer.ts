@@ -616,8 +616,14 @@ export class ChatComposer {
   protected readonly images = this.attachments.images;
   /** Selections/files pinned to the next prompt; they are already locked. */
   protected readonly pins = this.attachments.pins;
-  /** Follow-ups waiting their turn, oldest first. */
-  protected readonly queuedMessages = this.queue.queued;
+  /**
+   * Follow-ups waiting their turn for the tab in front. The store keeps every
+   * session's queue; this is only the one the composer is editing, so a tab
+   * never shows another session's messages.
+   */
+  protected readonly queuedMessages = computed(() =>
+    this.queue.forOwner(this.tabs.composerKey()),
+  );
 
   /**
    * Clicking a pinned chip re-opens its file in the browser preview, where the
@@ -805,7 +811,7 @@ export class ChatComposer {
     // dispatching the whole queue in one tick before `running` flips back on.
     effect(() => {
       const running = this.running();
-      const sessionId = this.morse.state().sessionId;
+      const sessionId = this.tabs.composerKey();
       const head = this.queue.head(sessionId);
       untracked(() => {
         if (running) {
@@ -948,7 +954,7 @@ export class ChatComposer {
     if (mode === 'followUp' && this.running()) {
       // A follow-up is queued, not sent: the reader gets to see, edit or drop it
       // before it runs, instead of it disappearing into pi's invisible queue.
-      this.queue.enqueue({ text: value, images, pins }, this.morse.state().sessionId);
+      this.queue.enqueue({ text: value, images, pins }, this.tabs.composerKey());
     } else {
       // While idle (`followUp` won the race with the run ending) a queued kind
       // makes no sense: pi should start a fresh turn.

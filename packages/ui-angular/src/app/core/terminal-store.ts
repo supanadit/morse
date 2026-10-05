@@ -1,11 +1,54 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
 
-/** One open terminal, owned by the session (or draft) that opened it. */
+/**
+ * One terminal pane: a real PTY. A chip on the tab row can hold several of them
+ * (a split), and they all share a `group`.
+ */
 export interface TerminalInstance {
   id: string;
   /** The session/draft id it belongs to; `undefined` is the empty draft. */
   owner: string | undefined;
+  /** Split panes share a group; the first pane of a group owns its chip. */
+  group: string;
+  /** The label shown: the reader's name, else the shell's title, else the fallback. */
   title: string;
+  /** `Terminal N`, shown until a name or a shell title arrives. */
+  fallbackTitle: string;
+  /** The reader's own name; while set, the shell title never replaces the label. */
+  custom?: string;
+  /** The shell's last OSC 0/2 title (the command it is running), when it set one. */
+  auto?: string;
+}
+
+/**
+ * One chip on the tab row: a terminal and the panes split from it. The chip's
+ * label carries the pane count (`Terminal 1 (2)`) so a split is visible at a
+ * glance, and `panes` is what the side list and the screen area render.
+ */
+export interface TerminalGroup {
+  id: string;
+  owner: string | undefined;
+  /** The base name, without a split suffix; what a rename edits. */
+  name: string;
+  /** The chip's full label: `name`, plus `(N)` when the terminal is split. */
+  title: string;
+  /** How many panes the split holds; `1` for a plain terminal. */
+  count: number;
+  /** Each pane's share of the width (sums to 1), so a split can be resized. */
+  sizes: number[];
+  panes: TerminalInstance[];
+  /** The pane in front inside the group; the chip follows its command. */
+  activePane: string;
+}
+
+/** An even split for `count` panes. */
+function evenSizes(count: number): number[] {
+  return Array.from({ length: count }, () => 1 / count);
+}
+
+/** The label a pane shows: a rename wins, then the shell's title, then `Terminal N`. */
+function relabel(instance: TerminalInstance): TerminalInstance {
+  return { ...instance, title: instance.custom ?? instance.auto ?? instance.fallbackTitle };
 }
 
 /**
@@ -15,74 +58,198 @@ export interface TerminalInstance {
  * session that opens a terminal is the composer's key (`WorkspaceTabs.composerKey`),
  * which already tracks the session in front (a draft id included).
  *
- * Only metadata lives here; the PTY itself is opened by the `Terminal` view and
- * killed when its component unmounts — which is what closing a terminal, or
- * closing its session tab, does.
+ * A terminal can be **split**: `split()` adds a pane to the group, and every pane
+ * is its own shell while the group keeps one chip. Only metadata lives here; the
+ * PTY itself is opened by the `Terminal` view and killed when its pane unmounts —
+ * which is what closing a pane, a terminal, or its session tab does.
  */
 @Injectable({ providedIn: 'root' })
 export class TerminalStore {
   private readonly items = signal<TerminalInstance[]>([]);
-  /** The terminal in front per owner, so each session remembers its own. */
+  /** The terminal (group) in front per owner, so each session remembers its own. */
   private readonly activeByOwner = signal<Record<string, string | undefined>>({});
+  /** The pane in front per group, so a split remembers which one had focus. */
+  private readonly activePaneByGroup = signal<Record<string, string | undefined>>({});
+  /** Each group's pane widths, when the reader has dragged a splitter. */
+  private readonly sizesByGroup = signal<Record<string, number[]>>({});
   private counter = 0;
 
   readonly terminals = this.items.asReadonly();
 
+  /**
+   * The chips, one per terminal: the panes of a group kept together, its label
+   * carrying the split count. Derived, so closing a pane or a whole terminal
+   * never leaves a stale chip behind.
+   */
+  readonly groups = computed<TerminalGroup[]>(() => {
+    const items = this.items();
+    const order: string[] = [];
+    const byGroup = new Map<string, TerminalInstance[]>();
+    for (const pane of items) {
+      if (!byGroup.has(pane.group)) {
+        byGroup.set(pane.group, []);
+        order.push(pane.group);
+      }
+      byGroup.get(pane.group)!.push(pane);
+    }
+    return order.map((groupId) => {
+      const panes = byGroup.get(groupId)!;
+      const first = panes[0]!;
+      const active = panes.find((pane) => pane.id === this.activePaneByGroup()[groupId]) ?? first;
+      // The chip follows the focused pane's command; the first pane's fallback
+      // keeps it from turning into a second pane's `Terminal 2`.
+      const base = first.custom ?? active.auto ?? first.auto ?? first.fallbackTitle;
+      return {
+        id: groupId,
+        owner: first.owner,
+        name: base,
+        title: panes.length > 1 ? `${base} (${panes.length})` : base,
+        count: panes.length,
+        sizes: this.sizesFor(groupId, panes.length),
+        panes,
+        activePane: active.id,
+      };
+    });
+  });
+
   /** Opens a new terminal for `owner` and puts it in front. Returns its id. */
   open(owner: string | undefined): string {
-    this.counter += 1;
-    const id = `term-${this.counter}`;
-    this.items.update((list) => [
-      ...list,
-      { id, owner, title: `Terminal ${this.counter}` },
-    ]);
-    this.setActive(owner, id);
-    return id;
+    const pane = this.mint(owner, undefined);
+    this.setActive(owner, pane.group);
+    return pane.id;
   }
 
   /**
-   * Closes one terminal, falling back to its neighbour when it was in front —
-   * the same rule the session tab strip uses.
+   * Splits a terminal: adds a pane to `groupId`'s split and puts it in front.
+   * Returns the new pane's id, or `undefined` when the terminal is gone.
    */
-  close(id: string): void {
-    const instance = this.items().find((terminal) => terminal.id === id);
-    if (instance === undefined) {
+  split(groupId: string): string | undefined {
+    const group = this.groups().find((entry) => entry.id === groupId);
+    if (group === undefined) {
+      return undefined;
+    }
+    const pane = this.mint(group.owner, groupId);
+    this.setActive(group.owner, groupId);
+    this.setActivePane(groupId, pane.id);
+    return pane.id;
+  }
+
+  /**
+   * Stores a pane's shell title (OSC 0/2), which is how a running command names
+   * the tab — `npm run dev`, `vim`. A reader's rename outranks it, so the label
+   * only moves while the terminal has not been named by hand.
+   */
+  setAutoTitle(id: string, title: string): void {
+    const auto = title.trim().length > 0 ? title.trim() : undefined;
+    this.items.update((list) =>
+      list.map((instance) => {
+        if (instance.id !== id || instance.auto === auto) {
+          return instance;
+        }
+        return relabel({ ...instance, auto });
+      }),
+    );
+  }
+
+  /** Renames a terminal (the whole chip); an empty name restores the shell title. */
+  rename(id: string, name: string): void {
+    const custom = name.trim().length > 0 ? name.trim() : undefined;
+    this.items.update((list) => {
+      const index = list.findIndex((instance) => instance.group === id);
+      if (index < 0) {
+        return list;
+      }
+      const next = [...list];
+      next[index] = relabel({ ...next[index]!, custom });
+      return next;
+    });
+  }
+
+  /**
+   * Closes one pane. The last pane of a group closes the terminal (and its chip),
+   * so a split never leaves an empty shell behind.
+   */
+  closePane(id: string): void {
+    const pane = this.items().find((instance) => instance.id === id);
+    if (pane === undefined) {
       return;
     }
-    const siblings = this.items().filter((terminal) => terminal.owner === instance.owner);
-    const index = siblings.findIndex((terminal) => terminal.id === id);
-    this.items.update((list) => list.filter((terminal) => terminal.id !== id));
-    if (this.activeFor(instance.owner) === id) {
-      const remaining = this.items().filter((terminal) => terminal.owner === instance.owner);
-      const neighbour = remaining[Math.min(index, remaining.length - 1)];
-      this.setActive(instance.owner, neighbour?.id);
+    const siblings = this.items().filter((instance) => instance.group === pane.group);
+    if (siblings.length <= 1) {
+      this.close(pane.group);
+      return;
+    }
+    const index = siblings.findIndex((instance) => instance.id === id);
+    this.items.update((list) => list.filter((instance) => instance.id !== id));
+    if (this.activePaneFor(pane.group) === id) {
+      const remaining = this.items().filter((instance) => instance.group === pane.group);
+      this.setActivePane(pane.group, remaining[Math.min(index, remaining.length - 1)]?.id);
     }
   }
 
-  /** Brings a terminal in front within its own session. */
+  /**
+   * Closes a whole terminal (every pane in its split), falling back to its
+   * neighbour when it was in front — the same rule the session tab strip uses.
+   */
+  close(id: string): void {
+    const owner = this.items().find((instance) => instance.group === id)?.owner;
+    const groups = this.groupIds(owner);
+    const index = groups.indexOf(id);
+    if (index < 0) {
+      return;
+    }
+    this.items.update((list) => list.filter((instance) => instance.group !== id));
+    this.setActivePane(id, undefined);
+    if (this.activeFor(owner) === id) {
+      const remaining = this.groupIds(owner);
+      this.setActive(owner, remaining[Math.min(index, remaining.length - 1)]);
+    }
+  }
+
+  /** Brings a pane — and the terminal it is split into — in front. */
   focus(id: string): void {
-    const instance = this.items().find((terminal) => terminal.id === id);
-    if (instance !== undefined) {
-      this.setActive(instance.owner, id);
+    const pane = this.items().find((instance) => instance.id === id);
+    if (pane !== undefined) {
+      this.setActive(pane.owner, pane.group);
+      this.setActivePane(pane.group, id);
     }
   }
 
-  /** The terminal in front for a session; `undefined` when it has none. */
+  /** The terminal (group) in front for a session; `undefined` when it has none. */
   activeFor(owner: string | undefined): string | undefined {
     return this.activeByOwner()[keyOf(owner)];
   }
 
+  /** The pane in front inside a group; `undefined` when the group is gone. */
+  activePaneFor(group: string): string | undefined {
+    return this.activePaneByGroup()[group];
+  }
+
+  /**
+   * Stores a split's pane widths after a drag. A structural change (a new pane or
+   * a closed one) no longer matches the count, and `sizesFor` falls back to even.
+   */
+  setSizes(group: string, sizes: number[]): void {
+    this.sizesByGroup.update((record) => ({ ...record, [group]: sizes }));
+  }
+
+  /** A group's stored widths, or an even split while they are unknown or stale. */
+  private sizesFor(group: string, count: number): number[] {
+    const stored = this.sizesByGroup()[group];
+    return stored !== undefined && stored.length === count ? stored : evenSizes(count);
+  }
+
   /** Drops every terminal of a session (its tab was closed). */
   forgetOwner(owner: string | undefined): void {
-    this.items.update((list) => list.filter((terminal) => terminal.owner !== owner));
+    this.items.update((list) => list.filter((instance) => instance.owner !== owner));
     this.setActive(owner, undefined);
   }
 
   /** A draft became the session that owns it; its terminals follow it. */
   rekey(from: string, to: string): void {
     this.items.update((list) =>
-      list.map((terminal) =>
-        terminal.owner === from ? { ...terminal, owner: to } : terminal,
+      list.map((instance) =>
+        instance.owner === from ? { ...instance, owner: to } : instance,
       ),
     );
     const active = this.activeFor(from);
@@ -92,8 +259,34 @@ export class TerminalStore {
     }
   }
 
+  /** Mints a pane; without a group it starts its own terminal. */
+  private mint(owner: string | undefined, group: string | undefined): TerminalInstance {
+    this.counter += 1;
+    const id = `term-${this.counter}`;
+    const fallbackTitle = `Terminal ${this.counter}`;
+    const pane: TerminalInstance = { id, owner, group: group ?? id, title: fallbackTitle, fallbackTitle };
+    this.items.update((list) => [...list, pane]);
+    this.setActivePane(pane.group, id);
+    return pane;
+  }
+
+  /** The terminal ids of an owner, in chip order. */
+  private groupIds(owner: string | undefined): string[] {
+    const order: string[] = [];
+    for (const pane of this.items()) {
+      if (pane.owner === owner && !order.includes(pane.group)) {
+        order.push(pane.group);
+      }
+    }
+    return order;
+  }
+
   private setActive(owner: string | undefined, id: string | undefined): void {
     this.activeByOwner.update((record) => ({ ...record, [keyOf(owner)]: id }));
+  }
+
+  private setActivePane(group: string, id: string | undefined): void {
+    this.activePaneByGroup.update((record) => ({ ...record, [group]: id }));
   }
 }
 

@@ -37,12 +37,22 @@ const VIEWS: readonly BottomPanelView[] = [
   imports: [NgComponentOutlet],
   templateUrl: './bottom-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.full]': 'full()' },
   styles: [
     `
       :host {
         display: block;
         flex: none;
         min-width: 0;
+      }
+      /* Full screen: the panel owns the chat column, so it grows to fill it. */
+      :host(.full) {
+        flex: 1;
+        min-height: 0;
+      }
+      :host(.full) .panel {
+        height: 100%;
+        border-top: 0;
       }
       .panel {
         display: flex;
@@ -52,16 +62,26 @@ const VIEWS: readonly BottomPanelView[] = [
         border-top: 1px solid var(--morse-border);
         background: var(--morse-nav-bg);
       }
-      /* The top edge of an open panel: drag it up to make the terminal taller. */
+      /*
+       * The top edge of an open panel: drag it up to make the terminal taller.
+       * It sits in normal flow as its own strip rather than overlapping the bar
+       * with a negative margin — the later sibling would paint and hit-test over
+       * it there, leaving the handle unreachable.
+       */
       .resize {
         flex: none;
         height: 5px;
-        margin-bottom: -5px;
         cursor: ns-resize;
         touch-action: none;
       }
-      .resize:hover {
-        background: var(--morse-accent);
+      .resize:hover,
+      .resize:active {
+        background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
+      }
+      /* A drag in progress: no hover hit-testing under the pointer. */
+      .panel.resizing .bar,
+      .panel.resizing .body {
+        pointer-events: none;
       }
       .bar {
         display: flex;
@@ -163,6 +183,7 @@ const VIEWS: readonly BottomPanelView[] = [
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        padding: 0;
         border: 0;
         border-radius: var(--morse-radius-sm);
         background: transparent;
@@ -174,6 +195,15 @@ const VIEWS: readonly BottomPanelView[] = [
       .toggle:hover:not(:disabled) {
         background: var(--morse-hover);
         color: var(--morse-fg);
+      }
+      .toggle svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       .body {
         flex: 1;
@@ -203,6 +233,7 @@ export class BottomPanel {
   protected readonly activeView = this.panel.activeView;
   protected readonly expanded = this.panel.expanded;
   protected readonly height = this.panel.height;
+  protected readonly full = this.panel.full;
   protected readonly actions = this.panel.actions;
   /** Where the pointer started and how tall the panel was, for the drag. */
   private resizeStartY = 0;
@@ -222,25 +253,67 @@ export class BottomPanel {
     this.panel.toggle(this.activeView() ?? VIEWS[0]!.id);
   }
 
+  /** The expand glyph: hand the panel the whole column, or fit it back below the chat. */
+  protected toggleFull(): void {
+    if (!this.expanded()) {
+      this.panel.toggle(this.activeView() ?? VIEWS[0]!.id);
+    }
+    this.panel.toggleFull();
+  }
+
   protected componentFor(id: string): Type<unknown> | undefined {
     return VIEWS.find((view) => view.id === id)?.component;
   }
 
+  /**
+   * Drag the top edge to size the panel. The height follows the pointer, so
+   * pulling up (a negative delta) grows it; the drag is frame-coalesced so one
+   * layout runs per paint even while the terminal's `ResizeObserver` re-fits.
+   */
   protected onResizeStart(event: PointerEvent): void {
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    const handle = event.currentTarget as HTMLElement;
+    const panel = handle.parentElement;
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic event (a test) has no pointer to capture; the listeners
+      // below still see the moves while the pointer is over the handle.
+    }
     this.resizeStartY = event.clientY;
     this.resizeStartHeight = this.height() ?? PANEL_DEFAULT_HEIGHT;
+    let frame = 0;
+    let pending = this.resizeStartHeight;
+    const apply = (): void => {
+      frame = 0;
+      this.panel.setHeight(pending, false);
+    };
+    const move = (moveEvent: PointerEvent): void => {
+      // Dragging up grows the panel: distance above the start adds to the height.
+      pending = this.resizeStartHeight + (this.resizeStartY - moveEvent.clientY);
+      if (frame === 0) {
+        frame = requestAnimationFrame(apply);
+      }
+    };
+    const stop = (): void => {
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+        apply();
+      }
+      panel?.classList.remove('resizing');
+      // Write the choice once, when the drag ends, not on every frame.
+      this.panel.setHeight(pending);
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', stop);
+      handle.removeEventListener('pointercancel', stop);
+    };
+    panel?.classList.add('resizing');
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
   }
 
-  protected onResizeMove(event: PointerEvent): void {
-    if (!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
-      return;
-    }
-    // Dragging up grows the panel: distance above the start adds to the height.
-    this.panel.setHeight(this.resizeStartHeight + (this.resizeStartY - event.clientY));
-  }
-
-  protected onResizeEnd(event: PointerEvent): void {
-    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+  /** Double-clicking the edge restores the default height. */
+  protected onResizeReset(): void {
+    this.panel.resetHeight();
   }
 }

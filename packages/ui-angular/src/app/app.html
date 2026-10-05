@@ -56,6 +56,7 @@
   <main
     class="chat"
     [class.dropping]="dragging()"
+    [class.bottom-full]="bottomPanelFull()"
     (dragenter)="onDragEnter($event)"
     (dragover)="onDragOver($event)"
     (dragleave)="onDragLeave()"

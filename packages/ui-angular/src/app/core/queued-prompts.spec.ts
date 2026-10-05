@@ -39,6 +39,26 @@ describe('QueuedPrompts', () => {
     expect(queue.queued().map((item) => item.text)).toEqual(['for A']);
   });
 
+  it('shows each tab only its own queue', () => {
+    const queue = store();
+    queue.enqueue({ text: 'for A', images: [], pins: [] }, 'a');
+    queue.enqueue({ text: 'for B', images: [], pins: [] }, 'b');
+
+    expect(queue.forOwner('a').map((item) => item.text)).toEqual(['for A']);
+    expect(queue.forOwner('b').map((item) => item.text)).toEqual(['for B']);
+    expect(queue.forOwner('c')).toEqual([]);
+  });
+
+  it('carries a queue across a draft that became a session', () => {
+    const queue = store();
+    queue.enqueue({ text: 'later', images: [], pins: [] }, 'draft-1');
+
+    queue.rekey('draft-1', 's1');
+
+    expect(queue.forOwner('s1').map((item) => item.text)).toEqual(['later']);
+    expect(queue.forOwner('draft-1')).toEqual([]);
+  });
+
   it('removes a single follow-up by id', () => {
     const queue = store();
     const id = queue.enqueue({ text: 'drop me', images: [], pins: [] });

@@ -16,6 +16,9 @@ vi.mock('@xterm/xterm', () => ({
     onResize() {
       return { dispose: () => undefined };
     }
+    onTitleChange() {
+      return { dispose: () => undefined };
+    }
     write(): void {}
     reset(): void {}
     focus(): void {}
@@ -80,12 +83,21 @@ function chips(host: HTMLElement): string[] {
   return [...host.querySelectorAll('.ttab .label')].map((node) => node.textContent?.trim() ?? '');
 }
 
+function paneTabs(host: HTMLElement): HTMLElement[] {
+  return [...host.querySelectorAll('.pane-tab')] as HTMLElement[];
+}
+
 describe('TerminalView', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
 
   it('starts empty for the session in front', () => {
     const { host } = setup();
     expect(chips(host)).toEqual([]);
+    // Nothing to list, so the chip row is not rendered at all.
+    expect(host.querySelector('.tabbar')).toBeNull();
     expect(host.querySelector('.empty')).not.toBeNull();
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(0);
   });
@@ -99,13 +111,15 @@ describe('TerminalView', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
+    expect(host.querySelector('.tabbar')).not.toBeNull();
     expect(chips(host)).toEqual(['Terminal 1', 'Terminal 2']);
     expect(host.querySelector('.ttab.active .label')?.textContent?.trim()).toBe('Terminal 2');
-    // Both emulators are mounted; only the active one is shown.
-    const screens = [...host.querySelectorAll('morse-terminal')] as HTMLElement[];
-    expect(screens).toHaveLength(2);
-    expect(screens[0]!.classList.contains('hidden')).toBe(true);
-    expect(screens[1]!.classList.contains('hidden')).toBe(false);
+    // Both emulators are mounted; only the group in front takes space.
+    const groups = [...host.querySelectorAll('.group')] as HTMLElement[];
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.classList.contains('hidden')).toBe(true);
+    expect(groups[1]!.classList.contains('hidden')).toBe(false);
+    expect(host.querySelectorAll('morse-terminal')).toHaveLength(2);
     expect(host.querySelector('.empty')).toBeNull();
   });
 
@@ -120,11 +134,131 @@ describe('TerminalView', () => {
     state.set({ sessionId: 's2', workspace: { cwd: '/other', name: 'other' } });
     fixture.detectChanges();
 
+    expect(host.querySelector('.tabbar')).toBeNull();
     expect(chips(host)).toEqual([]);
+    // The other session's shell stays mounted, only its group loses the space.
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(1);
-    expect((host.querySelector('morse-terminal') as HTMLElement).classList.contains('hidden')).toBe(
-      true,
-    );
+    expect(host.querySelector('.group')?.classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows the shell title and renames a tab inline', async () => {
+    const { fixture, host } = setup();
+    const store = TestBed.inject(TerminalStore);
+    const id = open();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // No rename yet: the tab follows the command the shell is running.
+    store.setAutoTitle(id, 'npm run dev');
+    fixture.detectChanges();
+    expect(chips(host)).toEqual(['npm run dev']);
+
+    // Double-clicking the tab opens the rename field, pre-filled.
+    const tab = host.querySelector('.ttab') as HTMLElement;
+    tab.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    fixture.detectChanges();
+    const input = host.querySelector('.rename') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe('npm run dev');
+
+    input.value = 'Dev server';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(host.querySelector('.rename')).toBeNull();
+    expect(chips(host)).toEqual(['Dev server']);
+
+    // A later shell title leaves the reader's name alone.
+    store.setAutoTitle(id, 'vim');
+    fixture.detectChanges();
+    expect(chips(host)).toEqual(['Dev server']);
+  });
+
+  it('splits a terminal into two panes and lists them beside it', async () => {
+    const { fixture, host } = setup();
+    const store = TestBed.inject(TerminalStore);
+    const first = open();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // A plain terminal: one chip, no split tab row.
+    expect(host.querySelector('.pane-strip')).toBeNull();
+
+    (host.querySelector('.split-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // The chip carries the count and both panes are mounted side by side.
+    expect(chips(host)).toEqual(['Terminal 1']);
+    expect(host.querySelector('.ttab .count')?.textContent?.trim()).toBe('(2)');
+    expect(host.querySelectorAll('.pane')).toHaveLength(2);
+    expect(host.querySelectorAll('morse-terminal')).toHaveLength(2);
+
+    // The split's own tab row names both panes, the new one in front.
+    const items = paneTabs(host);
+    expect(items).toHaveLength(2);
+    const group = store.groups()[0]!;
+    const second = group.panes[1]!.id;
+    expect(group.activePane).toBe(second);
+    expect(items[1]!.classList.contains('active')).toBe(true);
+
+    // Clicking a row brings that pane in front.
+    items[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(store.groups()[0]!.activePane).toBe(first);
+
+    // Closing one pane leaves the terminal whole again.
+    (paneTabs(host)[1]!.querySelector('.close') as HTMLElement).click();
+    fixture.detectChanges();
+
+    expect(chips(host)).toEqual(['Terminal 1']);
+    expect(host.querySelector('.ttab .count')).toBeNull();
+    expect(host.querySelector('.pane-strip')).toBeNull();
+    expect(store.terminals()).toHaveLength(1);
+  });
+
+  it('resizes two panes by dragging the seam between them', async () => {
+    const { fixture, host } = setup();
+    const store = TestBed.inject(TerminalStore);
+    const first = open();
+    store.split(first);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // jsdom has no layout: give the split a width so the drag has a scale.
+    const container = host.querySelector('.group') as HTMLElement;
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({ width: 400 } as DOMRect);
+    const splitter = host.querySelector('.splitter') as HTMLElement;
+    expect(splitter).not.toBeNull();
+
+    splitter.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 200 }));
+    splitter.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 260 }));
+    splitter.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 260 }));
+    fixture.detectChanges();
+
+    // 60px of 400 = 0.15, moved from the right pane to the left one.
+    const sizes = store.groups()[0]!.sizes;
+    expect(sizes[0]).toBeCloseTo(0.65);
+    expect(sizes[1]).toBeCloseTo(0.35);
+  });
+
+  it('closing a split chip takes every pane with it', async () => {
+    const { fixture, host } = setup();
+    const store = TestBed.inject(TerminalStore);
+    open();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    (host.querySelector('.split-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(store.terminals()).toHaveLength(2);
+
+    (host.querySelector('.ttab .close') as HTMLElement).click();
+    fixture.detectChanges();
+
+    expect(chips(host)).toEqual([]);
+    expect(store.terminals()).toHaveLength(0);
+    expect(host.querySelector('.empty')).not.toBeNull();
   });
 
   it('closes a terminal from its chip', async () => {
@@ -137,6 +271,7 @@ describe('TerminalView', () => {
     fixture.detectChanges();
 
     expect(chips(host)).toEqual([]);
+    expect(host.querySelector('.tabbar')).toBeNull();
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(0);
   });
 

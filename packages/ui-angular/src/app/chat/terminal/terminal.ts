@@ -6,6 +6,7 @@ import {
   afterNextRender,
   inject,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -68,6 +69,8 @@ export class Terminal {
   private readonly screen = viewChild<ElementRef<HTMLElement>>('screen');
   /** The terminal's wire id, minted by `TerminalStore` (the session owns it). */
   readonly id = input.required<string>();
+  /** The shell's own title (OSC 0/2), so the tab can follow the running command. */
+  readonly titleChange = output<string>();
 
   private term: XTermInstance | undefined;
   private fit: FitAddon | undefined;
@@ -136,6 +139,8 @@ export class Terminal {
     // editing and echo, exactly like a desktop terminal.
     term.onData((data) => this.morse.sendTerminal(this.id(), data));
     term.onResize(({ cols, rows }) => this.morse.resizeTerminal(this.id(), cols, rows));
+    // OSC 0/2: the shell names the tab (its cwd, or the command it is running).
+    term.onTitleChange((title) => this.titleChange.emit(title));
     this.fitNow();
     this.morse.openTerminal(this.id(), { cols: term.cols, rows: term.rows });
     term.focus();
