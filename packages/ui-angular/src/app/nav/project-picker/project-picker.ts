@@ -5,6 +5,17 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import {
+  Subject,
+  debounceTime,
+  distinctUntilChanged,
+  filter,
+  from,
+  map,
+  merge,
+  switchMap,
+} from 'rxjs';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
@@ -233,7 +244,45 @@ export class ProjectPicker {
   protected readonly isGitRepo = signal(false);
   protected readonly canOpen = signal(false);
 
+  /**
+   * Navigation (a click, a parent, a root chip) is answered at once; typing is
+   * debounced. Both funnel through the same stream so a newer request cancels the
+   * one still in flight and only the last thing asked for can land.
+   */
+  private readonly browse$ = new Subject<{ path?: string; live: boolean }>();
+  private readonly typedPath$ = new Subject<string>();
+  /** Bumped on every navigation, so a debounced keystroke it overtook is dropped. */
+  private revision = 0;
+
   constructor() {
+    merge(
+      this.browse$,
+      this.typedPath$.pipe(
+        // Stamp the keystroke before debouncing: if the user navigates while it
+        // waits out the debounce, the stamp no longer matches and it is dropped.
+        map((value) => ({ value: value.trim(), revision: this.revision })),
+        debounceTime(250),
+        distinctUntilChanged((a, b) => a.value === b.value && a.revision === b.revision),
+        filter(({ value, revision }) => revision === this.revision && value !== this.path()),
+        map(({ value }): { path?: string; live: boolean } => ({
+          path: value.length > 0 ? value : undefined,
+          live: true,
+        })),
+      ),
+    )
+      .pipe(
+        switchMap((request) =>
+          from(
+            this.morse.requestHostCommand(
+              'listDirectories',
+              request.path ? { path: request.path } : undefined,
+            ),
+          ).pipe(map((data) => ({ request, listing: data as DirectoryListing | undefined }))),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe(({ request, listing }) => this.apply(listing, request.live));
+
     this.load();
   }
 
@@ -244,7 +293,14 @@ export class ProjectPicker {
   }
 
   protected onPathInput(event: Event): void {
-    this.draftPath.set((event.target as HTMLInputElement).value);
+    const value = (event.target as HTMLInputElement).value;
+    this.draftPath.set(value);
+    // A folder is not "chosen" until the host has read the typed path; otherwise a
+    // fast click could open the folder that was on screen a moment ago.
+    if (value.trim() !== this.path()) {
+      this.canOpen.set(false);
+    }
+    this.typedPath$.next(value);
   }
 
   protected close(): void {
@@ -270,24 +326,39 @@ export class ProjectPicker {
   private load(path?: string): void {
     this.loading.set(true);
     this.error.set(undefined);
-    void this.morse
-      .requestHostCommand('listDirectories', path ? { path } : undefined)
-      .then((data) => {
-        this.loading.set(false);
-        const listing = data as DirectoryListing | undefined;
-        if (!listing || typeof listing.path !== 'string') {
-          // A path the host could not read: keep what the user typed so they can
-          // fix it, and say so instead of silently bouncing to the old folder.
-          this.error.set('That folder could not be read.');
-          return;
-        }
-        this.path.set(listing.path);
-        this.draftPath.set(listing.path);
-        this.parent.set(listing.parent);
-        this.directories.set(listing.directories ?? []);
-        this.roots.set(listing.roots ?? []);
-        this.isGitRepo.set(listing.isGitRepo === true);
-        this.canOpen.set(listing.canOpen === true);
-      });
+    this.revision += 1;
+    this.browse$.next({ path: path?.trim() || undefined, live: false });
+  }
+
+  /**
+   * Applies a listing. A live (typed) response never rewrites `draftPath`, so the
+   * caret stays where the user left it; navigation adopts the resolved folder.
+   */
+  private apply(listing: DirectoryListing | undefined, live: boolean): void {
+    this.loading.set(false);
+    if (!listing || typeof listing.path !== 'string') {
+      // A path the host could not read: keep what the user typed so they can fix
+      // it, and say so instead of silently bouncing to the old folder.
+      this.error.set('That folder could not be read.');
+      if (live) {
+        // The listing on screen no longer belongs to the typed path, and neither
+        // does the folder a session would start in.
+        this.directories.set([]);
+        this.parent.set(undefined);
+        this.isGitRepo.set(false);
+        this.canOpen.set(false);
+      }
+      return;
+    }
+    this.error.set(undefined);
+    this.path.set(listing.path);
+    if (!live) {
+      this.draftPath.set(listing.path);
+    }
+    this.parent.set(listing.parent);
+    this.directories.set(listing.directories ?? []);
+    this.roots.set(listing.roots ?? []);
+    this.isGitRepo.set(listing.isGitRepo === true);
+    this.canOpen.set(listing.canOpen === true);
   }
 }

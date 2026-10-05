@@ -289,6 +289,9 @@ const GIT_RESIZE_MIN_CHAT = 180;
       }
       /* A count of zero is context; a count above zero is the call to action. */
       .sync-arrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
         opacity: 0.5;
       }
       .sync-arrow.on {
@@ -1404,6 +1407,36 @@ export class GitPanel {
       return `${hours}h`;
     }
     return `${Math.round(hours / 24)}d`;
+  }
+
+  /**
+   * The hover tooltip for a commit row: the full subject the sidebar trims with
+   * an ellipsis, every ref including the ones folded into `+N`, and the identity
+   * (author, exact time, hash) git shows. A native `title`, so the browser owns
+   * the placement and the panel needs no overlay of its own.
+   */
+  protected commitTitle(commit: GitCommit): string {
+    const lines = [commit.subject];
+    if (commit.refs.length > 0) {
+      lines.push('', ...commit.refs.map((ref) => this.refDetail(ref)));
+    }
+    lines.push('', `${commit.author} · ${this.exactTime(commit.date)}`, commit.hash);
+    return lines.join('\n');
+  }
+
+  /** `HEAD -> main`, `tag: v1.0`, `origin/main` spelled out for the tooltip. */
+  private refDetail(ref: string): string {
+    if (ref.startsWith('tag: ')) {
+      return `tag ${ref.slice(5)}`;
+    }
+    const arrow = ref.indexOf(' -> ');
+    return arrow === -1 ? ref : `HEAD → ${ref.slice(arrow + 4)}`;
+  }
+
+  /** The exact commit time, in the viewer's locale — `when` only says "9h". */
+  private exactTime(iso: string): string {
+    const at = new Date(iso);
+    return Number.isNaN(at.getTime()) ? '' : at.toLocaleString();
   }
 
   protected async copy(commit: GitCommit): Promise<void> {

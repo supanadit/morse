@@ -103,8 +103,14 @@
       <!-- How far the branch is from its upstream, and the way to close the gap. -->
       <div class="sync">
         <span class="sync-counts" [title]="syncLabel()">
-          <span class="sync-arrow" [class.on]="behind() > 0">↓{{ behind() }}</span>
-          <span class="sync-arrow" [class.on]="ahead() > 0">↑{{ ahead() }}</span>
+          <span class="sync-arrow" [class.on]="behind() > 0">
+            <span aria-hidden="true">↓</span>
+            <span>{{ behind() }}</span>
+          </span>
+          <span class="sync-arrow" [class.on]="ahead() > 0">
+            <span aria-hidden="true">↑</span>
+            <span>{{ ahead() }}</span>
+          </span>
         </span>
         <span class="sync-upstream" [title]="syncLabel()">{{ upstream() ?? 'no upstream' }}</span>
         <span class="grow"></span>
@@ -337,6 +343,7 @@
             class="commit-row"
             role="button"
             tabindex="0"
+            [title]="commitTitle(entry.commit)"
             [attr.aria-expanded]="isCommitOpen(entry.commit.hash)"
             (click)="toggleCommit(entry.commit.hash)"
             (keydown.enter)="toggleCommit(entry.commit.hash)"

@@ -1,10 +1,22 @@
 <ng-template #row let-items="items" let-label="label">
-  <div class="strip" role="tablist" [attr.aria-label]="label">
+  <div
+    class="strip"
+    role="tablist"
+    [attr.aria-label]="label"
+    cdkDropList
+    cdkDropListOrientation="horizontal"
+    [cdkDropListData]="items"
+    (cdkDropListDropped)="onDrop($event)"
+  >
     @for (tab of items; track tab.id) {
       <div
         class="tab"
         role="tab"
         tabindex="0"
+        cdkDrag
+        cdkDragLockAxis="x"
+        [cdkDragData]="tab"
+        [class.mention]="tab.kind === 'file' && tab.mention === true"
         [class.active]="tab.id === activeId()"
         [class.running]="tab.kind === 'session' && isRunning(tab.id)"
         [attr.aria-selected]="tab.id === activeId()"

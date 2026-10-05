@@ -121,6 +121,19 @@ function rowNamed(host: HTMLElement, name: string): HTMLElement {
   return row;
 }
 
+/** Types a path into the folder field, as a user would. */
+function typePath(host: HTMLElement, value: string): void {
+  const input = host.querySelector('.path-row input') as HTMLInputElement;
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function listRequests(transport: FolderHostTransport): number {
+  return transport.sent.filter(
+    (message) => message.type === 'host/command' && message.payload.command === 'listDirectories',
+  ).length;
+}
+
 describe('ProjectPicker', () => {
   it('browses into subfolders and creates a session in the chosen one', async () => {
     const { host, transport, fixture } = await render();
@@ -166,5 +179,49 @@ describe('ProjectPicker', () => {
     const { host } = await render();
     (host.querySelector('.modal-foot .secondary') as HTMLElement).click();
     expect(TestBed.inject(ShellState).projectPickerOpen()).toBe(false);
+  });
+
+  it('loads subfolders live while the path is typed', async () => {
+    const { host, fixture } = await render();
+
+    typePath(host, '/home/me/projects');
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    fixture.detectChanges();
+
+    expect(rowNamed(host, 'alpha')).toBeTruthy();
+    expect(rowNamed(host, 'beta')).toBeTruthy();
+    expect(host.querySelector('.selected')?.textContent).toContain('/home/me/projects');
+    // Live browsing leaves the caret alone: the field keeps exactly what was typed.
+    expect((host.querySelector('.path-row input') as HTMLInputElement).value).toBe(
+      '/home/me/projects',
+    );
+  });
+
+  it('debounces a burst of keystrokes into a single request', async () => {
+    const { host, fixture, transport } = await render();
+    const before = listRequests(transport);
+
+    typePath(host, '/home/me/pro');
+    typePath(host, '/home/me/proj');
+    typePath(host, '/home/me/projects');
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(listRequests(transport) - before).toBe(1);
+  });
+
+  it('lets a click win over a keystroke still waiting out the debounce', async () => {
+    const { host, fixture } = await render();
+
+    typePath(host, '/home/me/projects/alpha');
+    // Navigate before the debounce fires: the typed folder must not overwrite it.
+    rowNamed(host, 'projects').click();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    fixture.detectChanges();
+
+    expect(host.querySelector('.selected')?.textContent).toContain('/home/me/projects');
+    expect(host.querySelector('.selected')?.textContent).not.toContain('alpha');
   });
 });

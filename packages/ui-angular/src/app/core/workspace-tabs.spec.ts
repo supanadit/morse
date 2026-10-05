@@ -284,6 +284,63 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('s1');
   });
 
+  it('moves a tab to the right of the one it is dropped on', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.focusSession({ id: 's3', title: 'Three' });
+
+    tabs.move('s1', 's3');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s2', 's3', 's1']);
+  });
+
+  it('moves a tab to the left of the one it is dropped on', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.focusSession({ id: 's3', title: 'Three' });
+
+    tabs.move('s3', 's1');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s3', 's1', 's2']);
+  });
+
+  it('moves a tab one step without keeping it where it was', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.focusSession({ id: 's3', title: 'Three' });
+
+    tabs.move('s1', 's2');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s2', 's1', 's3']);
+  });
+
+  it('reorders without changing the active tab', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.select('s1');
+
+    tabs.move('s1', 's2');
+
+    expect(tabs.activeId()).toBe('s1');
+  });
+
+  it('refuses to reorder across the quoted-file row', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openMentionFile('a.ts');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    const before = tabs.tabs().map((tab) => tab.id);
+
+    expect(tabs.canMove('s2', 'mention:s1:a.ts')).toBe(false);
+    tabs.move('s2', 'mention:s1:a.ts');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(before);
+  });
+
   it('empties the strip and the host with closeAll', () => {
     const { tabs, fake } = setup();
     tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });

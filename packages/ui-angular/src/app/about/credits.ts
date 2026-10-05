@@ -59,6 +59,14 @@ export const CREDITS: readonly CreditGroup[] = [
         by: 'Google',
       },
       {
+        name: 'Angular CDK',
+        packages: ['@angular/cdk'],
+        license: 'MIT',
+        url: 'https://material.angular.dev/cdk/categories',
+        role: 'The drag-and-drop that reorders the tab strip.',
+        by: 'Google',
+      },
+      {
         name: 'RxJS',
         packages: ['rxjs'],
         license: 'Apache-2.0',

@@ -119,4 +119,20 @@ describe('TabStrip context menu', () => {
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
     expect(fixture.nativeElement.querySelector('.context-menu')).toBeNull();
   });
+
+  it('moves a tab to the slot CDK reports it was dropped on', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.focusSession({ id: 's3', title: 'Three' });
+    fixture.detectChanges();
+    const row = tabs.mainTabs();
+
+    // A CDK drop carries the row as it was at drag start plus the landed index.
+    (fixture.componentInstance as unknown as {
+      onDrop: (event: { item: { data: unknown }; container: { data: unknown[] }; currentIndex: number }) => void;
+    }).onDrop({ item: { data: row[0] }, container: { data: row }, currentIndex: 2 });
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s2', 's3', 's1']);
+  });
 });

@@ -1,4 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
+import { CdkDrag, CdkDragDrop, CdkDropList } from '@angular/cdk/drag-drop';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -26,7 +27,7 @@ interface TabMenu {
  */
 @Component({
   selector: 'morse-tab-strip',
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, CdkDropList, CdkDrag],
   templateUrl: './tab-strip.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -64,7 +65,7 @@ interface TabMenu {
         border-top: 1px solid var(--morse-border);
         background: var(--morse-panel, var(--morse-bg));
       }
-      .strip + .strip .tab {
+      .tab.mention {
         height: 22px;
         max-width: 190px;
         padding: 0 4px 0 8px;
@@ -73,18 +74,18 @@ interface TabMenu {
         background: var(--morse-bubble, var(--morse-hover));
         font-size: 11.5px;
       }
-      .strip + .strip .tab:hover {
+      .tab.mention:hover {
         background: var(--morse-hover);
         border-color: var(--morse-accent);
         color: var(--morse-fg);
       }
-      .strip + .strip .tab.active {
+      .tab.mention.active {
         border-color: var(--morse-accent);
         background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
         color: var(--morse-fg);
         box-shadow: none;
       }
-      .strip + .strip .tab .close {
+      .tab.mention .close {
         width: 15px;
         height: 15px;
         font-size: 11px;
@@ -106,7 +107,41 @@ interface TabMenu {
         color: var(--morse-fg-muted);
         font: inherit;
         font-size: 12px;
-        cursor: pointer;
+        cursor: grab;
+        position: relative;
+      }
+      .tab:active {
+        cursor: grabbing;
+      }
+      /* Angular CDK drag: the tab in hand floats in a preview, the siblings slide
+         aside, and a placeholder holds the slot it will land in. */
+      .strip.cdk-drop-list-dragging .tab:not(.cdk-drag-placeholder) {
+        transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+      }
+      .tab.cdk-drag-animating {
+        transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+      }
+      .tab.cdk-drag-placeholder {
+        opacity: 0.3;
+      }
+      .cdk-drag-preview {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        box-sizing: border-box;
+        max-width: 170px;
+        height: 30px;
+        padding: 0 8px 0 10px;
+        border: 1px solid var(--morse-border);
+        border-radius: var(--morse-radius-sm);
+        background: var(--morse-panel, var(--morse-bg));
+        color: var(--morse-fg);
+        font: inherit;
+        font-size: 12px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+      }
+      .cdk-drag-preview .close {
+        opacity: 1;
       }
       .tab:hover {
         background: var(--morse-hover);
@@ -275,6 +310,19 @@ export class TabStrip {
     if (event.button === 1) {
       event.preventDefault();
       this.tabs.close(id);
+    }
+  }
+
+  /**
+   * A CDK drop: the dragged tab takes the slot the placeholder is on. CDK never
+   * mutates the data, so `currentIndex` still indexes the array as it was when
+   * the drag started — the tab sitting there is where it landed.
+   */
+  protected onDrop(event: CdkDragDrop<WorkspaceTab[]>): void {
+    const dragged = event.item.data as WorkspaceTab | undefined;
+    const target = event.container.data[event.currentIndex];
+    if (dragged !== undefined && target !== undefined) {
+      this.tabs.move(dragged.id, target.id);
     }
   }
 

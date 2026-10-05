@@ -169,6 +169,34 @@ describe('GitPanel', () => {
     expect(refs[1].getAttribute('title')).toContain('origin/main');
   });
 
+  it('shows the full commit in the row hover tooltip', async () => {
+    const long = 'feat(ui): round out the tab strip with a description the sidebar trims';
+    const { fixture } = setup({
+      ...LOG,
+      commits: [
+        {
+          ...LOG.commits[0],
+          subject: long,
+          author: 'Ada Lovelace',
+          refs: ['HEAD -> main', 'origin/main', 'tag: v0.9.5'],
+        },
+        LOG.commits[1],
+      ],
+    });
+    await settle(fixture);
+
+    const row = (fixture.nativeElement as HTMLElement).querySelector('.commit-row') as HTMLElement;
+    const title = row.getAttribute('title') ?? '';
+    // The full subject, and every ref — the two trimmed away in the sidebar.
+    expect(title).toContain(long);
+    expect(title).toContain('HEAD → main');
+    expect(title).toContain('origin/main');
+    expect(title).toContain('tag v0.9.5');
+    // The identity git would print alongside them.
+    expect(title).toContain('Ada Lovelace');
+    expect(title).toContain('f1a2b3c4');
+  });
+
   it('unfolds a commit to its changed files and opens one as a commit diff', async () => {
     const commitFiles = {
       isRepo: true,
@@ -216,9 +244,10 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const arrows = [...host.querySelectorAll('.sync-arrow')].map((node) => node.textContent?.trim());
+    const compact = (node: Element | null): string => (node?.textContent ?? '').replace(/\s+/g, '');
+    const arrows = [...host.querySelectorAll('.sync-arrow')].map(compact);
     expect(arrows).toEqual(['↓2', '↑1']);
-    expect(host.querySelector('.sync-arrow.on')?.textContent?.trim()).toBe('↓2');
+    expect(compact(host.querySelector('.sync-arrow.on'))).toBe('↓2');
     expect(host.querySelector('.sync-upstream')?.textContent).toContain('origin/main');
 
     host.querySelector<HTMLButtonElement>('button[aria-label="Pull"]')?.click();

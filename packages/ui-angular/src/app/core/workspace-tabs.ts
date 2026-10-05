@@ -326,6 +326,41 @@ export class WorkspaceTabs {
   }
 
   /**
+   * True when `id` can be dropped on `targetId`: a different tab, in the same
+   * row. The two rows are separate lists (`items` holds both), so a session tab
+   * cannot be dropped among the quoted files and vice versa.
+   */
+  canMove(id: string, targetId: string): boolean {
+    if (id === targetId) {
+      return false;
+    }
+    const items = this.items();
+    const from = items.find((tab) => tab.id === id);
+    const to = items.find((tab) => tab.id === targetId);
+    return from !== undefined && to !== undefined && tabRow(from) === tabRow(to);
+  }
+
+  /**
+   * Reorders a tab, putting it where it was dropped: dragged rightward it lands
+   * after the tab it was dropped on, leftward before it — the way an editor's
+   * dragged tab takes the slot it was released over. The active tab is unchanged;
+   * reordering is not selecting.
+   */
+  move(id: string, targetId: string): void {
+    if (!this.canMove(id, targetId)) {
+      return;
+    }
+    const items = this.items();
+    const from = items.findIndex((tab) => tab.id === id);
+    const to = items.findIndex((tab) => tab.id === targetId);
+    const moved = items[from];
+    const next = items.filter((tab) => tab.id !== id);
+    const target = next.findIndex((tab) => tab.id === targetId);
+    next.splice(from < to ? target + 1 : target, 0, moved);
+    this.items.set(next);
+  }
+
+  /**
    * Closes a tab, falling back to its neighbour when it was the active one. When
    * no session is left in front — the strip is empty, or a file tab takes over —
    * the host is sent back to an empty draft, so the panel never keeps showing the
@@ -756,4 +791,9 @@ function mentionTabId(sessionId: string | undefined, path: string): string {
 /** A commit file's tab id: the same path in two commits is two diffs. */
 function commitTabId(hash: string, path: string): string {
   return `commit:${hash}:${path}`;
+}
+
+/** The row a tab renders in: quoted files get their own, below the sessions. */
+function tabRow(tab: WorkspaceTab): 'main' | 'mention' {
+  return tab.kind === 'file' && tab.mention === true ? 'mention' : 'main';
 }
