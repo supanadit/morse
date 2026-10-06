@@ -37,6 +37,12 @@ class TemplateHostTransport extends BaseHostTransport {
               source: 'prompt',
               template: 'Review ${1:-the staged changes}.',
             },
+            {
+              name: 'indexing-cbm',
+              description: 'Index this repository',
+              source: 'prompt',
+              template: 'Index this repository.',
+            },
           ],
           streaming: false,
           busy: false,
@@ -73,6 +79,12 @@ class TemplateHostTransport extends BaseHostTransport {
               source: 'prompt',
               template: 'Review ${1:-the staged changes}.',
             },
+            {
+              name: 'indexing-cbm',
+              description: 'Index this repository',
+              source: 'prompt',
+              template: 'Index this repository.',
+            },
           ],
           streaming: false,
           busy: false,
@@ -88,7 +100,11 @@ class TemplateHostTransport extends BaseHostTransport {
   }
 }
 
-async function render(): Promise<{ host: HTMLElement; fixture: ComponentFixture<ChatComposer> }> {
+async function render(): Promise<{
+  host: HTMLElement;
+  fixture: ComponentFixture<ChatComposer>;
+  transport: TemplateHostTransport;
+}> {
   TestBed.resetTestingModule();
   const transport = new TemplateHostTransport();
   await TestBed.configureTestingModule({
@@ -97,7 +113,7 @@ async function render(): Promise<{ host: HTMLElement; fixture: ComponentFixture<
   }).compileComponents();
   const fixture = TestBed.createComponent(ChatComposer);
   fixture.detectChanges();
-  return { host: fixture.nativeElement as HTMLElement, fixture };
+  return { host: fixture.nativeElement as HTMLElement, fixture, transport };
 }
 
 function openPalette(host: HTMLElement, fixture: ComponentFixture<ChatComposer>): void {
@@ -135,6 +151,59 @@ describe('ChatComposer palette', () => {
 
     const textarea = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-prompt-template-dialog')).not.toBeNull();
+  });
+
+  it('expands an inline-argument template when Enter sends without the palette', async () => {
+    const { host, fixture, transport } = await render();
+    const textarea = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
+    // The space closes the palette, so Enter goes through `sendWith`, not a row.
+    textarea.value = '/review correctness';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(host.querySelector('morse-command-picker')).toBeNull();
+
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const prompt = transport.sent.find((message) => message.type === 'chat/prompt');
+    expect(prompt?.payload.text).toBe('Review correctness.');
+  });
+
+  it('expands a no-argument template when Enter sends without the palette', async () => {
+    const { host, fixture, transport } = await render();
+    const textarea = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
+    textarea.value = '/indexing-cbm ';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const prompt = transport.sent.find((message) => message.type === 'chat/prompt');
+    expect(prompt?.payload.text).toBe('Index this repository.');
+  });
+
+  it('opens the argument form when Enter sends a bare argument template', async () => {
+    const { host, fixture } = await render();
+    const textarea = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
+    textarea.value = '/review ';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();

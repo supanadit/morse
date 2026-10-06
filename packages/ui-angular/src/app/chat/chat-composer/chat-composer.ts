@@ -12,7 +12,12 @@ import {
 } from '@angular/core';
 import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
-import { promptTemplateForm, readPromptTemplate } from '@morse/ui-runtime';
+import {
+  parseCommandArgs,
+  promptTemplateForm,
+  readPromptTemplate,
+  substituteArgs,
+} from '@morse/ui-runtime';
 import { AttachmentStore, type PendingImage, type PendingPin } from '../../core/attachments';
 import { ComposerDrafts } from '../../core/composer-drafts';
 import { MorseService } from '../../core/morse.service';
@@ -961,7 +966,7 @@ export class ChatComposer {
   }
 
   protected sendWith(mode: PromptMode): void {
-    const value = this.drafts.text().trim();
+    let value = this.drafts.text().trim();
     // `/compact <instructions>` is the same destructive action as the bare built-in,
     // only with the user's words attached — it must not slip past the confirmation by
     // riding along as a prompt.
@@ -978,6 +983,17 @@ export class ChatComposer {
       this.drafts.setText('');
       this.runBuiltin(builtin);
       return;
+    }
+    // A `/template` draft is expanded before it leaves the composer, so the agent
+    // and the transcript get the body, never the bare token. The palette already
+    // does this for its rows; Enter has to do it too when the palette was not open
+    // (a stale command list, a restored draft, a pasted command).
+    const expanded = this.expandTemplateDraft(value);
+    if (expanded === 'form') {
+      return;
+    }
+    if (expanded !== undefined) {
+      value = expanded;
     }
     const images = this.attachments.takeImages();
     const pins = this.attachments.takePins();
@@ -1307,6 +1323,40 @@ export class ChatComposer {
       this.replaceSlashToken(`/${name} `);
       this.closePalette();
     }
+  }
+
+  /**
+   * The expanded body of a `/command` draft that names a prompt template, or
+   * `'form'` when the template declares arguments and none were typed (the form
+   * opens instead), or `undefined` when the draft is not a template invocation.
+   *
+   * Built-ins are handled before this; a skill or extension command has no body
+   * Morse can read, so it stays a bare `/name` — pi expands those itself.
+   */
+  private expandTemplateDraft(value: string): string | 'form' | undefined {
+    const match = /^\/([\w:-]+)(?:[ \t]+(.*))?$/.exec(value);
+    if (match === null) {
+      return undefined;
+    }
+    const name = match[1] ?? '';
+    const args = (match[2] ?? '').trim();
+    const command = this.availableCommands().find(
+      (candidate) => candidate.name === name && candidate.source === 'prompt',
+    );
+    if (command?.template === undefined) {
+      return undefined;
+    }
+    const form = promptTemplateForm(command.template);
+    if (form !== undefined && args.length === 0) {
+      // The template declares arguments and a bare `/name` would leave them
+      // empty, so collect them — and any extra — in the form first.
+      this.drafts.setText('');
+      this.syncInputValue();
+      this.openTemplate({ name, description: command.description, form });
+      return 'form';
+    }
+    const body = readPromptTemplate(command.template).body;
+    return args.length > 0 ? substituteArgs(body, parseCommandArgs(args)) : body;
   }
 
   /** Opens the argument form for a prompt template; the dialog owns the fields. */
