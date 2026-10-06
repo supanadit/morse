@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentSessionState } from '@morse/core';
+import type { AgentSessionState, ModelRef } from '@morse/core';
 import { toSessionViewState } from './view-state.js';
 
 const META = { agentReady: true, agentStarting: false, busy: false };
@@ -36,5 +36,31 @@ describe('toSessionViewState', () => {
 
     expect(view.widgets).toBeUndefined();
     expect(view.statuses).toBeUndefined();
+  });
+
+  it('carries the input modalities, as a copy, so the picker can badge them', () => {
+    const input: ModelRef['input'] = ['text', 'image'];
+    const state: AgentSessionState = {
+      ...base(),
+      model: { provider: 'ollama', id: 'gemma-3', name: 'Gemma 3', input },
+    };
+
+    const view = toSessionViewState(state, META);
+
+    expect(view.model?.input).toEqual(['text', 'image']);
+    expect(view.model?.input).not.toBe(input);
+  });
+
+  it('omits input when pi did not report any, instead of claiming text-only', () => {
+    const state: AgentSessionState = {
+      ...base(),
+      model: { provider: 'ollama', id: 'mystery', name: 'Mystery' },
+      availableModels: [{ provider: 'ollama', id: 'mystery', name: 'Mystery', input: [] }],
+    };
+
+    const view = toSessionViewState(state, META);
+
+    expect(view.model?.input).toBeUndefined();
+    expect(view.availableModels[0]?.input).toBeUndefined();
   });
 });

@@ -36,6 +36,7 @@ import {
   type PromptTemplateRequest,
 } from '../prompt-template-dialog/prompt-template-dialog';
 import { ModelPicker } from '../model-picker/model-picker';
+import { ModelInputs } from '../model-picker/model-inputs';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
 
@@ -48,6 +49,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     UsageIndicator,
     CommandPicker,
     ModelPicker,
+    ModelInputs,
     ThinkingPicker,
     PromptTemplateDialog,
     PopoverFit,

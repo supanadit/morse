@@ -52,6 +52,8 @@ export interface RpcModel {
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;
+  /** Input modalities pi accepts for this model (`text`, `image`). */
+  input?: string[];
 }
 
 /** `get_commands`: extension commands, prompt templates and skills. */

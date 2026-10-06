@@ -276,6 +276,7 @@
           <span class="provider" [title]="provider">{{ provider }}</span>
         }
         <span class="label">{{ currentModel()?.name || 'no model' }}</span>
+        <morse-model-inputs class="inputs" [input]="currentModel()?.input" />
         <span class="caret" aria-hidden="true">▾</span>
       </button>
 

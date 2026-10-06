@@ -2,7 +2,7 @@
  * Wire protocol version. Bump this (and the frontends) whenever a message shape
  * changes in a breaking way — hosts refuse to talk to a mismatched frontend.
  */
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 
 /** File a frontend build writes next to its index.html so any host can identify it. */
 export const FRONTEND_MANIFEST_FILE = 'webview.manifest.json';

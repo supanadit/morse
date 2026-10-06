@@ -17,6 +17,8 @@ import {
   type AgentCommand,
   type AgentCommandSource,
   type ChatPin,
+  MODEL_INPUTS,
+  type ModelInput,
   type ModelRef,
   type MorseLogger,
   type NoticeLevel,
@@ -641,7 +643,20 @@ function toModelRef(model: RpcModel): ModelRef {
     name: model.name ?? model.id,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
+    ...(model.input && model.input.length > 0 ? { input: toModelInputs(model.input) } : {}),
   };
+}
+
+/**
+ * pi reports input as a plain string array; only the values the frontend can
+ * badge are kept, and an unfamiliar one is dropped rather than rendered as a
+ * modality nobody knows (pi ships `text`/`image` today). Exported so the
+ * mapping is locked by a test without spawning pi.
+ */
+export function toModelInputs(values: readonly string[]): ModelInput[] {
+  return values
+    .map((value) => MODEL_INPUTS.find((known) => known === value))
+    .filter(isDefined);
 }
 
 function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {

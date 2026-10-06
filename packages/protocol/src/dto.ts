@@ -13,12 +13,21 @@ export type HostKind = 'vscode' | 'server';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
+/**
+ * What a model accepts as input — pi's `input` array. pi itself ships `text`
+ * and `image` today; the wider union covers the modalities the picker has an
+ * icon for.
+ */
+export type ModelInput = 'text' | 'image' | 'audio' | 'video' | 'pdf';
+
 export interface ModelOption {
   provider: string;
   id: string;
   name: string;
   contextWindow?: number;
   maxTokens?: number;
+  /** Input modalities pi reported; absent means pi did not say. */
+  input?: ModelInput[];
 }
 
 export type CommandSource = 'extension' | 'prompt' | 'skill';

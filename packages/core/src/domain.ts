@@ -17,6 +17,17 @@ export const THINKING_LEVELS: readonly ThinkingLevel[] = [
 
 export type NoticeLevel = 'info' | 'success' | 'warn' | 'error';
 
+/**
+ * What a model accepts as input — pi's `input` array. pi itself ships `text`
+ * and `image` today; the wider union covers the modalities the picker has an
+ * icon for. An unknown value from a future pi is dropped at the adapter
+ * boundary, not rendered as a modality with no icon.
+ */
+export type ModelInput = 'text' | 'image' | 'audio' | 'video' | 'pdf';
+
+/** Every modality Morse can badge, in the order the picker shows them. */
+export const MODEL_INPUTS: readonly ModelInput[] = ['text', 'image', 'audio', 'video', 'pdf'];
+
 export interface ModelRef {
   provider: string;
   id: string;
@@ -24,6 +35,12 @@ export interface ModelRef {
   contextWindow?: number;
   /** Provider cap on the response length, for the footer's output limit. */
   maxTokens?: number;
+  /**
+   * Input modalities pi reported for the model. Optional on purpose: absent
+   * means pi did not say, and the picker then shows no badge instead of
+   * claiming a text-only model.
+   */
+  input?: ModelInput[];
 }
 
 export type AgentCommandSource = 'extension' | 'prompt' | 'skill';

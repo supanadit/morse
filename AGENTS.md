@@ -109,6 +109,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | No notification when a run finishes | it is **off by default**: turn it on from the one-time `.notify-prompt` nudge or the palette (`Turn on completion notifications`). `core/notification-prefs.ts` also picks the mode (`away` by default, so it stays quiet while the panel is focused; `always` speaks every time). VS Code raises it through `capabilities.notify` → the `notify` host command; the browser host uses the `Notification` API and needs the permission granted. If the permission is revoked later, `RunNotifier.permission` re-reads it on focus / `navigator.permissions` and the banner returns as **blocked** — the stored preference alone must not claim it works |
 | A prompt costs ~1 s of host CPU, or the sidebar takes a second to refresh | `session/list` is scanning every session file again: keep the size+mtime cache and the row scan in `pi-rpc-session-catalog.ts` (measured 624 ms → 2 ms; see `docs/DEVELOPMENT.md`) |
 | A model added to `models.json` does not appear without `morse stop`/`start` | pi caches its catalog per warm session, and the draft probe is cached for the host's lifetime. The model picker sends `models/refresh` when it opens: `PiRpcAgent.refreshModels` re-requests `get_available_models`, a draft clears `SessionRegistry.refreshDraftDefaults()` and re-probes. A reload also re-reads the warm session. Never re-probe on every draft reload — it spawns a `pi` process |
+| A model row shows no modality icon | pi did not report `input` for it: the badge is absent rather than claiming text-only (`input` is optional end to end, and an unknown modality is dropped at the adapter). pi ships `["text"]` / `["text","image"]` today; `morse-model-inputs` renders an icon per known modality |
 | Streamed prose lags the model by a beat | intended: `Markdown` re-renders at most every 90 ms instead of per delta; measure `docs/DEVELOPMENT.md` before removing it |
 | `pgrep -f "pi --mode rpc"` finds nothing | pi renames `process.title`; use `pgrep -P <server-pid>` |
 | `morse start`/`status` claims a daemon is running that is gone | stale `~/.morse/server.json` after a force-kill and a recycled pid; the pid alone is not proof, so `/api/health` must echo the state's `instance` token (`packages/morse-web/src/cli.ts` → `isServerRunning`) |
@@ -142,6 +143,7 @@ Done = `build` + `check-types` + `test:fast` (+ `npm run sync-webview` when the 
 | Need | File |
 |---|---|
 | pi event mapping | `packages/adapter-pi-rpc/src/event-mapping.ts` |
+| a model's input modalities (text/vision/audio/…) | `packages/ui-angular/src/app/chat/model-picker/model-inputs.ts` ← pi's `input` on `ModelOption.input` |
 | session registry (hot sessions, LRU, projects) | `packages/core/src/session/service.ts` |
 | which directories may run an agent | `packages/server/src/internal/projects/project-policy.ts` |
 | client message routing | `packages/host-runtime/src/session-controller.ts` |

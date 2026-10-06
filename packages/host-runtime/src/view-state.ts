@@ -130,6 +130,7 @@ function toModelOption(model: ModelRef | undefined): ModelOption | undefined {
     name: model.name,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
+    ...(model.input && model.input.length > 0 ? { input: [...model.input] } : {}),
   };
 }
 

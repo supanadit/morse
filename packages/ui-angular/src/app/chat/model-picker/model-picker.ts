@@ -15,6 +15,7 @@ import {
 import type { ModelOption } from '@morse/protocol';
 import { EnterDirective } from '../../shared/enter.directive';
 import { formatTokens } from '../../core/usage-format';
+import { ModelInputs, modelInputKeywords } from './model-inputs';
 
 export interface ModelGroup {
   provider: string;
@@ -27,14 +28,16 @@ export interface ModelGroup {
  * Provider grouping is the whole point: two providers can expose a model with
  * the same display name, so a flat list cannot tell them apart. Filtering keeps
  * a group when at least one of its models matches (the provider name itself
- * matches too, so `ollama` shows that provider's models).
+ * matches too, so `ollama` shows that provider's models). A modality matches
+ * too, so `vision` narrows the list to the models that accept images.
  */
 export function groupModels(models: readonly ModelOption[], filter: string): ModelGroup[] {
   const needle = filter.trim().toLowerCase();
   const groups = new Map<string, ModelOption[]>();
   for (const model of models) {
     if (needle.length > 0) {
-      const haystack = `${model.provider} ${model.id} ${model.name}`.toLowerCase();
+      const haystack =
+        `${model.provider} ${model.id} ${model.name} ${modelInputKeywords(model.input)}`.toLowerCase();
       if (!haystack.includes(needle)) {
         continue;
       }
@@ -63,7 +66,7 @@ interface ModelRow {
  */
 @Component({
   selector: 'morse-model-picker',
-  imports: [EnterDirective],
+  imports: [EnterDirective, ModelInputs],
   templateUrl: './model-picker.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -131,18 +134,23 @@ interface ModelRow {
         letter-spacing: 0.06em;
         text-transform: uppercase;
       }
+      /*
+       * Two lines: the model name and its selected check on top, the input
+       * modalities and the context size below. One line per model forced the
+       * badges and the token count to fight the name for the same run of
+       * space, so every row read as a jumble.
+       */
       .row {
         display: flex;
-        align-items: center;
-        gap: 8px;
+        flex-direction: column;
+        gap: 1px;
         width: 100%;
-        padding: 5px 10px;
+        padding: 6px 10px;
         border: 0;
         border-radius: 0;
         background: transparent;
         color: var(--morse-fg);
         font: inherit;
-        font-size: 12.5px;
         text-align: left;
         cursor: pointer;
       }
@@ -153,17 +161,29 @@ interface ModelRow {
       .row.selected {
         background: var(--morse-active);
       }
+      .title,
+      .details {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
       .name {
         flex: 1;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        font-size: 12.5px;
+      }
+      .details {
+        /* Room for the widest badge row, so the names above stay aligned. */
+        min-height: 13px;
       }
       .meta {
-        flex: none;
+        margin-left: auto;
         color: var(--morse-fg-muted);
-        font-size: 11px;
+        font-size: 10.5px;
       }
       .check {
         flex: none;
@@ -256,6 +276,15 @@ export class ModelPicker {
 
   protected context(model: ModelOption): string {
     return model.contextWindow ? formatTokens(model.contextWindow) : '';
+  }
+
+  /**
+   * Whether the second line has anything to say. A model pi described fully
+   * (modalities and a context window) renders two lines; one with neither stays
+   * a single line rather than an empty shelf under the name.
+   */
+  protected hasDetails(model: ModelOption): boolean {
+    return (model.input?.length ?? 0) > 0 || model.contextWindow !== undefined;
   }
 
   protected onFilter(event: Event): void {

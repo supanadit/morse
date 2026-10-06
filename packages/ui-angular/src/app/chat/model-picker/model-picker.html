@@ -37,12 +37,19 @@
               (mouseenter)="active.set(row.index)"
               (click)="pick.emit(row.model)"
             >
-              <span class="name">{{ row.model.name }}</span>
-              @if (context(row.model); as meta) {
-                <span class="meta">{{ meta }}</span>
-              }
-              @if (keyOf(row.model) === current()) {
-                <span class="check">✓</span>
+              <span class="title">
+                <span class="name">{{ row.model.name }}</span>
+                @if (keyOf(row.model) === current()) {
+                  <span class="check">✓</span>
+                }
+              </span>
+              @if (hasDetails(row.model)) {
+                <span class="details">
+                  <morse-model-inputs class="inputs" [input]="row.model.input" />
+                  @if (context(row.model); as meta) {
+                    <span class="meta">{{ meta }}</span>
+                  }
+                </span>
               }
             </button>
           }

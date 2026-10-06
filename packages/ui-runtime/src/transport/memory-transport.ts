@@ -148,15 +148,15 @@ export class MemoryHostTransport extends BaseHostTransport {
   private persistedState: unknown;
   private state: SessionViewState = {
     workspace: WORKSPACE,
-    model: { provider: 'mock', id: 'mock-1', name: 'Mock Model', contextWindow: 1_000_000, maxTokens: 32_768 },
+    model: { provider: 'mock', id: 'mock-1', name: 'Mock Model', contextWindow: 1_000_000, maxTokens: 32_768, input: ['text', 'image'] },
     thinkingLevel: 'low',
     availableModels: [
-      { provider: 'mock', id: 'mock-1', name: 'Mock Model', contextWindow: 128_000 },
-      { provider: 'mock', id: 'mock-2', name: 'Mock Model (fast)', contextWindow: 262_144 },
+      { provider: 'mock', id: 'mock-1', name: 'Mock Model', contextWindow: 128_000, input: ['text', 'image'] },
+      { provider: 'mock', id: 'mock-2', name: 'Mock Model (fast)', contextWindow: 262_144, input: ['text'] },
       // A second provider with the same display name: the picker must group them,
       // otherwise the user cannot tell which provider a model belongs to.
-      { provider: 'mock-cloud', id: 'mock-1', name: 'Mock Model', contextWindow: 200_000 },
-      { provider: 'mock-cloud', id: 'mock-3', name: 'Mock Model (pro)', contextWindow: 1_000_000 },
+      { provider: 'mock-cloud', id: 'mock-1', name: 'Mock Model', contextWindow: 200_000, input: ['text', 'image', 'audio'] },
+      { provider: 'mock-cloud', id: 'mock-3', name: 'Mock Model (pro)', contextWindow: 1_000_000, input: ['text', 'image', 'video', 'pdf'] },
     ],
     availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
     availableCommands: [

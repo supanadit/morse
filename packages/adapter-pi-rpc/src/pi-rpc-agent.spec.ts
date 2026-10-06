@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildCommandList, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
+import { buildCommandList, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
 
 /**
  * The palette is rebuilt from disk because pi caches its prompt templates at
@@ -233,6 +233,22 @@ describe('upsertWidget', () => {
     });
 
     expect(set).toEqual([]);
+  });
+});
+
+describe('toModelInputs', () => {
+  it('keeps the modalities pi reported, in pi’s order', () => {
+    expect(toModelInputs(['text', 'image'])).toEqual(['text', 'image']);
+    expect(toModelInputs(['image', 'text'])).toEqual(['image', 'text']);
+  });
+
+  it('drops a value no badge exists for, so the picker cannot render a blank icon', () => {
+    expect(toModelInputs(['text', 'hologram'])).toEqual(['text']);
+  });
+
+  it('keeps a text-only description as such', () => {
+    expect(toModelInputs(['text'])).toEqual(['text']);
+    expect(toModelInputs([])).toEqual([]);
   });
 });
 
