@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.18.0 — 6 October 2026
+
+Pi's own extension chrome, follow-ups that run while you look elsewhere, and a cleaner empty view.
+
+### New
+
+- **Pi's extension chrome, in Morse.** Extensions that set a status line or a text widget through pi's `ctx.ui` now
+  show up as a strip just above the bottom panel in the browser host, and at the foot of the chat in VS Code. RPC
+  forwards text only, so it is the extension's own lines — not a second terminal.
+- **Follow-ups run in their session, even when it is not in front.** A queued follow-up now runs as soon as *its*
+  session settles, instead of waiting until you switch back to that tab. The prompt is addressed to that session, so
+  the panel stays where you are looking.
+- **A prompt template renders on Enter.** Typing `/command` and pressing Enter expands the template (inline arguments
+  included) instead of sending the bare command — the same result as picking it from the palette.
+
+### Fixed
+
+- **The bottom panel is folded per session.** Opening the terminal in one conversation no longer opens it in every
+  other one; each session keeps its own fold, while the dragged height stays shared.
+- **"Close All" on a file chip returns to its session.** It used to land on whichever session tab sat last in the
+  strip, instead of the conversation the chip belonged to.
+- **No stale project with no session.** The Explorer, git panel, terminal and the palette's file list stay out when no
+  session is in front, and the header drops the previous session's model and project buttons. Global things stay
+  usable: MCP still opens (your own `mcp.json`, project scope disabled) and prompt templates edit your user
+  templates.
+- **A new session's project search is focused.** Opening **New session** — from the sidebar or the command palette —
+  puts the caret in the search field.
+
 ## 0.17.0 — 6 October 2026
 
 Write and test pi's prompt templates without leaving the editor, and have a template written anywhere show up on
