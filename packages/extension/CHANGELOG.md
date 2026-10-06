@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.1 — 6 October 2026
+
+A terminal that comes back where you left it after `morse stop` and `morse start`.
+
+### Fixed
+
+- **A restored terminal reopens in the directory you `cd`'d to.** The shell's own directory is read from the
+  terminal's OSC 7 report and kept per pane, so after a host restart each pane — a split included — starts in
+  the folder it was in, not at the session's project root. A restart also replays the scrollback the host kept
+  on disk, so the old output is there with the new prompt.
+
 ## 0.19.0 — 6 October 2026
 
 Keyboard-driven project picking, and a terminal that survives every tab switch.

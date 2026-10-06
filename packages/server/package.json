@@ -1,6 +1,6 @@
 {
   "name": "@morse/server",
-  "version": "0.19.0",
+  "version": "0.19.1",
   "private": true,
   "type": "module",
   "description": "Morse without VS Code: a NestJS host that serves the same Angular frontend and drives the same pi agent over WebSocket.",
