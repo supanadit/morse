@@ -212,4 +212,31 @@ describe('PiRpcSessionCatalog', () => {
 
     await expect(catalog.remove(join(root, '..', 'elsewhere.jsonl'))).rejects.toThrow(/outside/);
   });
+
+  it('treats an already-deleted session file as deleted', async () => {
+    const root = await makeCatalog(ONE_SESSION);
+    roots.push(root);
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root });
+    const path = join(root, '--work-project--', 'one.jsonl');
+
+    // The file was removed out of band (or by a concurrent delete). Delete must
+    // be idempotent: a session that is already gone is what the caller wanted.
+    await expect(catalog.remove(join(root, '--work-project--', 'gone.jsonl'))).resolves.toBeUndefined();
+    await expect(catalog.remove(path)).resolves.toBeUndefined();
+    await expect(catalog.remove(path)).resolves.toBeUndefined();
+  });
+
+  it('treats a host-specific not-found (VS Code) as deleted too', async () => {
+    const root = await makeCatalog(ONE_SESSION);
+    roots.push(root);
+    const catalog = new PiRpcSessionCatalog({
+      sessionDir: root,
+      removeFile: async () => {
+        // What `vscode.workspace.fs.delete` throws for a missing file.
+        throw Object.assign(new Error('Unable to delete file'), { name: 'FileNotFound' });
+      },
+    });
+
+    await expect(catalog.remove(join(root, '--work-project--', 'one.jsonl'))).resolves.toBeUndefined();
+  });
 });

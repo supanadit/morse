@@ -152,7 +152,16 @@ export class PiRpcSessionCatalog implements SessionCatalog {
     if (!path.startsWith(`${directory}${sep}`) || !path.endsWith('.jsonl')) {
       throw new Error(`Refusing to delete a session outside ${directory}`);
     }
-    await this.removeFile(path);
+    try {
+      await this.removeFile(path);
+    } catch (error: unknown) {
+      // Already gone is what the caller asked for. A session file removed out
+      // of band (or by a concurrent delete) must not turn "Delete" into an
+      // error, so a not-found is a success — anything else still surfaces.
+      if (!isNotFound(error)) {
+        throw error;
+      }
+    }
   }
 
   private async collectSessionFiles(): Promise<
@@ -352,6 +361,18 @@ function titleFromText(text: string | undefined): string | undefined {
     return undefined;
   }
   return single.length > 72 ? `${single.slice(0, 72)}…` : single;
+}
+
+/** A missing file, from `fs.unlink` (ENOENT) or VS Code's workspace filesystem. */
+function isNotFound(error: unknown): boolean {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  if (code === 'ENOENT') {
+    return true;
+  }
+  // `vscode.workspace.fs.delete` reports a missing file as FileNotFound; the
+  // adapter stays editor-free, so it recognises the shape, not the class.
+  const name = (error as { name?: unknown } | undefined)?.name;
+  return name === 'FileNotFound' || name === 'EntryNotFound';
 }
 
 async function safeReadDir(path: string): Promise<import('node:fs').Dirent[]> {
