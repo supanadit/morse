@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0 — 6 October 2026
+
+Keyboard-driven project picking, and a terminal that survives every tab switch.
+
+### New
+
+- **Pick a project with the keyboard.** In **New session**, the search field now takes the arrow keys to move
+  through the matching projects and Enter to open the highlighted one — no mouse needed. The first match is used
+  when nothing is highlighted, and the highlight follows the query.
+
+### Fixed
+
+- **A running terminal no longer dies when you switch tabs.** A shell belongs to the host, not to the panel:
+  hiding the bottom panel (no session in front), switching sessions, or a reload/reconnect only detaches and
+  replays, and a shell ends only when you close the pane, the chip, or its session tab.
+- **A "New session" that holds a terminal is no longer discarded.** Picking another tab used to drop the untouched
+  draft — and the shell running in it, including the directory it was in.
+
 ## 0.18.1 — 6 October 2026
 
 MCP config edits arrive on their own, and a background session no longer strands a dialog.
