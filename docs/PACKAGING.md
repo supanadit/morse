@@ -50,7 +50,9 @@ packages/morse-web/
 
 1. **server** — entry `packages/server/src/main.ts`, `bundle: true`, `platform: node`, `format: esm`,
    `target: node20`.
-   - `external: ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws']` — the runtime npm installs.
+   - `external: ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws', 'node-pty', 'yaml']` — the
+     runtime npm installs. Keep this list equal to `package.json` `dependencies`: the output is ESM, so a
+     CommonJS dependency that `require()`s a builtin (`yaml` → `require('process')`) must not be inlined.
    - `node:*` builtins are external automatically under `platform: node`.
    - `@morse/*` are left to resolve through the root `node_modules` symlinks and get inlined.
    - `tsconfig` points at `packages/server/tsconfig.json` so `experimentalDecorators` and
@@ -143,6 +145,7 @@ morse stop
 | `Nest can't resolve dependencies of X (?, …)` in the bundle only | a constructor parameter lost its `@Inject(...)`; esbuild cannot emit `design:paramtypes` |
 | `ERR_MODULE_NOT_FOUND: @nestjs/platform-express` | `main.ts` imports the platform only as a type; keep `@nestjs/platform-express` in `dependencies` — Nest loads it dynamically at runtime |
 | `morse start` prints "failed to start" | read `morse logs`; most often `pi` is not on the `PATH` of the daemon (set `MORSE_PI_PATH`) |
+| `morse start` seems to hang, then fails; the log says `Dynamic require of "process" is not supported` | a CommonJS runtime dep was inlined into the ESM bundle — add it to `runtimeExternals` **and** to `dependencies` in `packages/morse-web`, then rebuild. `build.mjs` now refuses to emit such a bundle |
 | Blank page after install | `dist/ui/index.html` missing — `build.mjs --ui` needs `packages/ui-angular/dist` |
 | Port busy after an unclean exit | `morse status` / `morse stop`; state lives in `~/.morse/server.json` |
 | `morse (start\|status)` says "already running" but nothing answers | stale state after a force-kill and a recycled pid; the instance token now catches it — just run `morse start` again |

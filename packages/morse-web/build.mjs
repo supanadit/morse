@@ -22,7 +22,7 @@
 //   node build.mjs                 # server + cli + ui
 //   node build.mjs --server --cli  # skip the (slow) frontend copy
 //   node build.mjs --ui
-import { cp, mkdir, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -36,11 +36,25 @@ const selected = new Set(flags.map((value) => value.slice(2)));
 const wants = (name) => selected.size === 0 || selected.has(name);
 
 /**
- * The NestJS runtime is the only thing `npm install` has to fetch; everything
- * under `@morse/` is workspace code and gets bundled. `platform: 'node'` keeps
- * `node:*` builtins external automatically.
+ * Third-party runtime dependencies stay external and are installed by npm from
+ * `dependencies`; everything under `@morse/` is workspace code and gets bundled.
+ * `platform: 'node'` keeps `node:*` builtins external automatically.
+ *
+ * Keep this list in sync with `package.json` `dependencies`. The bundler emits
+ * ESM, so a CommonJS dependency that `require()`s a builtin (`yaml` does
+ * `require('process')`) cannot be inlined: esbuild rewrites it to a `__require`
+ * shim that throws `Dynamic require of "process" is not supported` the moment
+ * the server starts.
  */
-const runtimeExternals = ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws', 'node-pty'];
+const runtimeExternals = [
+  '@nestjs/*',
+  'reflect-metadata',
+  'rxjs',
+  'rxjs/*',
+  'ws',
+  'node-pty',
+  'yaml',
+];
 
 async function requireBuild(path, hint) {
   try {
@@ -84,6 +98,28 @@ async function bundleServer() {
     },
   });
   console.log('[morse-web] server.mjs');
+  await assertServerLoads(join(distDir, 'server.mjs'));
+}
+
+/**
+ * Refuse a bundle that would crash the daemon on start.
+ *
+ * The published artifact is one ESM file. Inlining a CommonJS dependency that
+ * `require()`s a Node builtin leaves esbuild's `__require` shim behind, which
+ * throws `Dynamic require of "process" is not supported` before NestJS boots.
+ * `morse start` then only shows a 25 s health-probe timeout, so the failure is
+ * silent unless the log is read — block it at build time instead.
+ */
+async function assertServerLoads(file) {
+  const bundle = await readFile(file, 'utf8');
+  if (bundle.includes('Dynamic require of') && bundle.includes('__require(')) {
+    console.error(
+      '[morse-web] dist/server.mjs still contains an esbuild `__require` shim.\n' +
+        '            A CommonJS dependency was inlined into the ESM bundle; add it to `runtimeExternals`\n' +
+        '            and to `package.json` `dependencies`, then rebuild.',
+    );
+    process.exit(1);
+  }
 }
 
 async function bundleCli() {
