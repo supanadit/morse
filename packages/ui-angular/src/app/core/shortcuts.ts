@@ -10,6 +10,8 @@ export type ActionId =
   | 'view.git'
   /** The MCP manager: list, enable and disable pi's MCP servers. */
   | 'view.mcp'
+  /** The prompt-template editor: list, edit and test pi's `/commands`. */
+  | 'view.prompts'
   | 'model.pick'
   | 'thinking.pick'
   | 'context.compact'
@@ -139,6 +141,15 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     label: 'Manage MCP servers',
     detail: 'Opens the MCP manager: the servers pi sees for the active directory, with add, enable, disable and remove. A host that cannot run the `pi` CLI shows it as unavailable.',
     binding: { key: 's', mod: true, alt: true },
+    overlay: true,
+    whileTyping: true,
+  },
+  {
+    id: 'view.prompts',
+    group: 'Navigate',
+    label: 'Edit prompt templates',
+    detail: 'Opens Morse\u2019s editor for pi\u2019s `/commands`: the templates in your user prompt directory and, with a project in front, that project\u2019s `.pi/prompts`, with a form and an argument tester.',
+    binding: { key: 'e', mod: true, alt: true },
     overlay: true,
     whileTyping: true,
   },

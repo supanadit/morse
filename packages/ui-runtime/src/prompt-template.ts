@@ -24,6 +24,8 @@ export interface PromptTemplateArgument {
   required: boolean;
   /** 1-based positional index; absent for the catch-all raw-arguments field. */
   index?: number;
+  /** The `${n:-default}` fallback the body declares, shown as the field's placeholder. */
+  default?: string;
 }
 
 /** Everything the modal needs to render and expand one prompt template. */
@@ -43,6 +45,8 @@ const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const HINT_TOKEN = /<([^<>]+)>|\[([^\[\]]+)\]/g;
 const POSITIONAL = /\$(\d+)|\$\{(\d+):/g;
 const CATCH_ALL = /\$(?:@|ARGUMENTS)|\$\{(?:@|ARGUMENTS)(?::|-)/;
+/** `${1:-fallback}` and its catch-all twin, captured so a field can show the fallback. */
+const DEFAULT_VALUE = /\$\{(\d+|@|ARGUMENTS):-([^}]*)\}/g;
 
 /**
  * Split a shell-like argument string, quotes and all. Ported from pi so
@@ -110,11 +114,40 @@ export function substituteArgs(content: string, args: readonly string[]): string
   );
 }
 
+/** The `${n:-default}` fallbacks a body declares, keyed by argument index. */
+function positionalDefaults(body: string): Map<number, string> {
+  const defaults = new Map<number, string>();
+  DEFAULT_VALUE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = DEFAULT_VALUE.exec(body)) !== null) {
+    const target = match[1] ?? '';
+    if (target === '@' || target === 'ARGUMENTS') {
+      continue;
+    }
+    defaults.set(Number.parseInt(target, 10), match[2] ?? '');
+  }
+  return defaults;
+}
+
+/** The default the catch-all fallback declares (`${@:-...}`), if any. */
+function catchAllDefault(body: string): string | undefined {
+  DEFAULT_VALUE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = DEFAULT_VALUE.exec(body)) !== null) {
+    const target = match[1] ?? '';
+    if (target === '@' || target === 'ARGUMENTS') {
+      return match[2] ?? '';
+    }
+  }
+  return undefined;
+}
+
 /** Split `argument-hint` into positional fields; angle brackets mean required. */
-function hintArguments(hint: string | undefined): PromptTemplateArgument[] {
+function hintArguments(hint: string | undefined, body: string): PromptTemplateArgument[] {
   if (hint === undefined) {
     return [];
   }
+  const defaults = positionalDefaults(body);
   const fields: PromptTemplateArgument[] = [];
   HINT_TOKEN.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -122,11 +155,13 @@ function hintArguments(hint: string | undefined): PromptTemplateArgument[] {
   while ((match = HINT_TOKEN.exec(hint)) !== null) {
     index += 1;
     const label = (match[1] ?? match[2] ?? '').trim();
+    const fallback = defaults.get(index);
     fields.push({
       id: `arg${index}`,
       label: label.length > 0 ? label : `Argument ${index}`,
       required: match[1] !== undefined,
       index,
+      ...(fallback !== undefined ? { default: fallback } : {}),
     });
   }
   return fields;
@@ -134,6 +169,7 @@ function hintArguments(hint: string | undefined): PromptTemplateArgument[] {
 
 /** Fall back to the body's own `$1…$n` when no hint declares the arguments. */
 function bodyArguments(body: string): PromptTemplateArgument[] {
+  const defaults = positionalDefaults(body);
   let highest = 0;
   POSITIONAL.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -145,7 +181,14 @@ function bodyArguments(body: string): PromptTemplateArgument[] {
   }
   const fields: PromptTemplateArgument[] = [];
   for (let index = 1; index <= highest; index += 1) {
-    fields.push({ id: `arg${index}`, label: `Argument ${index}`, required: false, index });
+    const fallback = defaults.get(index);
+    fields.push({
+      id: `arg${index}`,
+      label: `Argument ${index}`,
+      required: false,
+      index,
+      ...(fallback !== undefined ? { default: fallback } : {}),
+    });
   }
   return fields;
 }
@@ -170,22 +213,103 @@ export function readPromptTemplate(raw: string): ParsedPromptTemplate {
 }
 
 /**
+ * The fields a body actually references, labeled by the hint where it lines up.
+ *
+ * Unlike `promptTemplateFields`, this is body-first: a hint token with no matching
+ * placeholder is dropped, and a placeholder with no hint token still gets a field.
+ * That is what lets the editor's tester track the body — delete `$3` and its input
+ * disappears, add `$4` and one appears. The composer keeps the hint-first form, so
+ * its argument dialog still collects what `argument-hint` advertises.
+ */
+export function promptTemplateArgumentFields(
+  body: string,
+  argumentHint?: string,
+): PromptTemplateArgument[] {
+  const fromHint = hintArguments(argumentHint, body);
+  const defaults = positionalDefaults(body);
+  const fields: PromptTemplateArgument[] = [];
+  for (const index of referencedIndices(body)) {
+    const hint = fromHint[index - 1];
+    const fallback = defaults.get(index);
+    fields.push({
+      id: `arg${index}`,
+      label: hint?.label ?? `Argument ${index}`,
+      required: hint?.required ?? false,
+      index,
+      ...(fallback !== undefined ? { default: fallback } : {}),
+    });
+  }
+  if (fields.length > 0) {
+    return fields;
+  }
+  if (CATCH_ALL.test(body)) {
+    const fallback = catchAllDefault(body);
+    return [
+      {
+        id: 'arguments',
+        label: 'Arguments',
+        required: false,
+        ...(fallback !== undefined ? { default: fallback } : {}),
+      },
+    ];
+  }
+  return [];
+}
+
+/** The positional indices a body references (`$1`, `$2`, …), ascending and unique. */
+function referencedIndices(body: string): number[] {
+  const indices = new Set<number>();
+  POSITIONAL.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = POSITIONAL.exec(body)) !== null) {
+    const index = Number.parseInt(match[1] ?? match[2] ?? '0', 10);
+    if (Number.isFinite(index) && index > 0) {
+      indices.add(index);
+    }
+  }
+  return [...indices].sort((left, right) => left - right);
+}
+
+/**
+ * The fields a template's arguments map to: the `argument-hint` tokens (with the
+ * body's `${n:-default}` fallbacks), else the body's own `$1…$n`, else the single
+ * raw-arguments field a `$@`/`$ARGUMENTS`-only body needs. Empty when the
+ * template takes no arguments, so the composer can send `/<name>` straight to pi.
+ */
+export function promptTemplateFields(
+  body: string,
+  argumentHint?: string,
+): PromptTemplateArgument[] {
+  const fromHint = hintArguments(argumentHint, body);
+  if (fromHint.length > 0) {
+    return fromHint;
+  }
+  const fromBody = bodyArguments(body);
+  if (fromBody.length > 0) {
+    return fromBody;
+  }
+  if (CATCH_ALL.test(body)) {
+    const fallback = catchAllDefault(body);
+    return [
+      {
+        id: 'arguments',
+        label: 'Arguments',
+        required: false,
+        ...(fallback !== undefined ? { default: fallback } : {}),
+      },
+    ];
+  }
+  return [];
+}
+
+/**
  * The form for a template, or `undefined` when it takes no arguments — the
  * composer then sends `/<name>` straight to pi, which expands it itself.
  */
 export function promptTemplateForm(raw: string): PromptTemplateForm | undefined {
   const parsed = readPromptTemplate(raw);
-  const fromHint = hintArguments(parsed.argumentHint);
-  const fields = fromHint.length > 0 ? fromHint : bodyArguments(parsed.body);
-  if (fields.length > 0) {
-    return { body: parsed.body, arguments: fields };
-  }
-  // A body that only speaks `$@`/`$ARGUMENTS` still takes arguments; one free
-  // field feeds the whole argument string, shell-quoted like pi would parse it.
-  if (CATCH_ALL.test(parsed.body)) {
-    return { body: parsed.body, arguments: [{ id: 'arguments', label: 'Arguments', required: false }] };
-  }
-  return undefined;
+  const fields = promptTemplateFields(parsed.body, parsed.argumentHint);
+  return fields.length > 0 ? { body: parsed.body, arguments: fields } : undefined;
 }
 
 /**

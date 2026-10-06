@@ -16,6 +16,15 @@ export type {
   McpStatus,
   PiMcpOptions,
 } from './pi-mcp.js';
+export { PiPrompts, isValidTemplateName, parsePromptTemplateInput } from './pi-prompts.js';
+export type {
+  PiPromptsOptions,
+  PromptScope,
+  PromptTemplateInfo,
+  PromptTemplateInput,
+  PromptTemplateMutation,
+  PromptTemplatesResult,
+} from './pi-prompts.js';
 export { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 export { McpInspector, classify, parseMcpServerSpec } from './internal/mcp-client.js';
 export type {

@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { NgComponentOutlet } from '@angular/common';
 import { BootSplash } from './boot/boot-splash';
 import { ConnectionScreen } from './connection/connection-screen';
 import { ChatComposer } from './chat/chat-composer/chat-composer';
@@ -6,7 +7,7 @@ import { EmptySession } from './chat/empty-session/empty-session';
 import { ChatHeader } from './chat/chat-header/chat-header';
 import { McpPanel } from './chat/mcp-panel/mcp-panel';
 import { McpEditor } from './chat/mcp-editor/mcp-editor';
-import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
+import type { PromptEditor } from './chat/prompt-editor/prompt-editor';import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
 import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
 import { BottomPanel } from './chat/bottom-panel/bottom-panel';
@@ -56,6 +57,7 @@ function previewBoot(): boolean {
     ChatHeader,
     McpPanel,
     McpEditor,
+    NgComponentOutlet,
     ChatTranscript,
     InteractionPanel,
     ChatComposer,
@@ -154,6 +156,8 @@ export class App {
   });
   /** The MCP editor is in front, so the panel shows it instead of a conversation. */
   protected readonly activeMcp = computed(() => this.tabs.activeTab()?.kind === 'mcp');
+  /** The prompt-template editor is in front. */
+  protected readonly activePrompt = computed(() => this.tabs.activeTab()?.kind === 'prompt');
   /**
    * No session tab is in front, on the host that shows the strip. The panel shows
    * a placeholder instead of a conversation that does not exist, and the composer
@@ -191,6 +195,14 @@ export class App {
   );
   /** The last session the strip brought forward, so a redraw does not re-focus it. */
   private focusedSession: string | undefined;
+  /**
+   * The prompt editor is code-split: its class arrives from a dynamic import
+   * only while its tab is in front, and `ngComponentOutlet` mounts it. Keeping
+   * it out of `imports` is what keeps its form out of the initial bundle.
+   */
+  protected readonly promptEditorComponent = signal<typeof PromptEditor | null>(null);
+  private promptEditorClass: typeof PromptEditor | null = null;
+  private promptEditorLoading = false;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
@@ -293,6 +305,14 @@ export class App {
       // The palette's open flag is shell state (so `modalOpen` is honest and the
       // overlay renders from one place), so its key is bound here like the help's.
       this.shortcuts.bind('command.palette', () => this.shell.togglePalette()),
+      // A Morse surface, not a pi command: it opens a tab (browser) or the
+      // host's own editor panel (VS Code). Unavailable where the host cannot
+      // read pi's prompt directories.
+      this.shortcuts.bind(
+        'view.prompts',
+        () => this.openPromptEditor(),
+        () => this.morse.capabilities()?.promptEditor === true,
+      ),
     ];
     this.destroyRef.onDestroy(() => {
       for (const off of unbind) {
@@ -351,6 +371,38 @@ export class App {
       this.focusedSession = id;
       this.tabs.showSession(session);
     });
+    // Load the prompt editor only while its tab is in front. A lazy `import()`
+    // keeps its template and cheat sheet in their own chunk, unlike `@defer`,
+    // whose runtime would ride in the initial bundle instead.
+    effect(() => {
+      if (!this.activePrompt()) {
+        this.promptEditorComponent.set(null);
+        return;
+      }
+      // The class is cached, so a switch away and back re-mounts without a
+      // second `import()` (and an in-flight load never leaves the tab empty).
+      if (this.promptEditorClass !== null) {
+        this.promptEditorComponent.set(this.promptEditorClass);
+        return;
+      }
+      void this.loadPromptEditor();
+    });
+  }
+
+  private async loadPromptEditor(): Promise<void> {
+    if (this.promptEditorLoading) {
+      return;
+    }
+    this.promptEditorLoading = true;
+    try {
+      const { PromptEditor: Editor } = await import('./chat/prompt-editor/prompt-editor');
+      this.promptEditorClass = Editor;
+      if (this.activePrompt()) {
+        this.promptEditorComponent.set(Editor);
+      }
+    } finally {
+      this.promptEditorLoading = false;
+    }
   }
 
   protected onBootDismissed(): void {
@@ -373,6 +425,18 @@ export class App {
 
   protected onConnectionExplore(): void {
     this.connectionDismissed.set(true);
+  }
+
+  /**
+   * Opens the prompt-template editor: a tab on a host with a Morse tab strip,
+   * the host's own editor panel where there is none (VS Code).
+   */
+  protected openPromptEditor(): void {
+    if (this.morse.capabilities()?.filePreview === true) {
+      this.tabs.openPrompt();
+    } else {
+      void this.morse.requestHostCommand('openPromptEditor', {}).catch(() => undefined);
+    }
   }
 
   /** Bring the full-screen connection help back after it was dismissed. */

@@ -1,6 +1,7 @@
 import type { AgentGatewayFactory, MorseLogger, SessionCatalog } from '@morse/core';
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
 import { PiMcp } from './pi-mcp.js';
+import { PiPrompts } from './pi-prompts.js';
 import { McpInspector } from './internal/mcp-client.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 import { resolvePi, resolvePiCli, readPiVersion, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
@@ -19,6 +20,8 @@ export interface PiRpcAdapter {
   catalog: SessionCatalog;
   /** pi's MCP configuration, read and written through the CLI and `mcp.json`. */
   mcp: PiMcp;
+  /** pi's prompt templates, read and written as the `.md` files pi loads. */
+  prompts: PiPrompts;
   /**
    * Connects to an MCP server before it is added, so the reader can see what it
    * offers. A client Morse owns; no inspector package is installed.
@@ -54,6 +57,7 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
     env: config.env,
   };
   const mcp = new PiMcp(cliOptions);
+  const prompts = new PiPrompts({ env: config.env });
   const inspector = new McpInspector({
     clientVersion: config.clientVersion,
   });
@@ -64,6 +68,7 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
     factory,
     catalog,
     mcp,
+    prompts,
     inspector,
     describe: () =>
       resolvePi({

@@ -1,0 +1,275 @@
+<div #card class="page" role="region" aria-labelledby="prompt-editor-title">
+  <header class="head">
+    <div class="title">
+      <h2 id="prompt-editor-title">Prompt templates</h2>
+      @if (info(); as meta) {
+        <p class="dirs">
+          <span class="dir">user <code>{{ meta.globalDir }}</code></span>
+          @if (meta.projectDir) {
+            <span class="dir">project <code>{{ meta.projectDir }}</code></span>
+          }
+        </p>
+      }
+    </div>
+  </header>
+
+  <div class="body">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <button type="button" class="new" (click)="newTemplateHere()">+ New template</button>
+        <input
+          type="search"
+          class="filter"
+          placeholder="Filter templates"
+          aria-label="Filter templates"
+          [value]="filter()"
+          (input)="setFilter($any($event.target).value)"
+        />
+      </div>
+      <ul class="list">
+        @for (template of visibleTemplates(); track template.scope + ':' + template.name) {
+          <li>
+            <button
+              type="button"
+              [class.active]="originalName() === template.name && originalScope() === template.scope"
+              (click)="select(template)"
+            >
+              <span class="row-name">/{{ template.name }}</span>
+              <span class="row-meta">
+                <span class="badge" [class.broken]="template.error !== undefined">
+                  {{ template.scope }}
+                </span>
+                @if (template.argumentHint) {
+                  <span class="row-hint">{{ template.argumentHint }}</span>
+                } @else if (template.description) {
+                  <span class="row-hint">{{ template.description }}</span>
+                }
+              </span>
+            </button>
+          </li>
+        } @empty {
+          <li class="empty">
+            @if (filter()) {
+              No template matches “{{ filter() }}”.
+            } @else {
+              No templates yet. Create one with <strong>New template</strong>.
+            }
+          </li>
+        }
+      </ul>
+    </aside>
+
+    <section class="editor">
+      <div class="editor-scroll">
+        @if (info(); as meta) {
+          @if (!meta.trusted) {
+            <p class="notice">
+              <span>
+                This project isn’t trusted, so pi ignores its <code>.pi/prompts</code> templates until
+                you trust it (MCP panel → <em>Trust this project</em>).
+              </span>
+            </p>
+          }
+        }
+        @if (!hasProject()) {
+          <p class="notice muted">
+            <span>
+              No project in front — you’re editing user templates only. Open a session to edit or save
+              under its <code>.pi/prompts</code>.
+            </span>
+          </p>
+        }
+
+        <div class="fields">
+          <div class="row">
+            <label class="field grow">
+              <span class="field-label">Name</span>
+              <input
+                id="prompt-name"
+                type="text"
+                spellcheck="false"
+                placeholder="review"
+                [value]="name()"
+                (input)="setName($any($event.target).value)"
+              />
+            </label>
+            <div class="field scope-field">
+              <span class="field-label">Scope</span>
+              <div class="segmented">
+                <button type="button" [class.active]="scope() === 'global'" (click)="setScope('global')">
+                  User
+                </button>
+                <button
+                  type="button"
+                  [class.active]="scope() === 'project'"
+                  [disabled]="!hasProject()"
+                  [title]="hasProject() ? '' : 'Open a session to scope a template to its project'"
+                  (click)="setScope('project')"
+                >
+                  Project
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">Description</span>
+            <input
+              id="prompt-description"
+              type="text"
+              placeholder="Review staged git changes"
+              [value]="description()"
+              (input)="setDescription($any($event.target).value)"
+            />
+          </label>
+
+          <label class="field">
+            <span class="field-label">Argument hint</span>
+            <input
+              id="prompt-hint"
+              type="text"
+              spellcheck="false"
+              placeholder="[focus] &lt;path&gt;"
+              [value]="hint()"
+              (input)="setHint($any($event.target).value)"
+            />
+            <span class="default-hint">
+              Angle brackets &lt;name&gt; mark required, square brackets [name] optional. The body’s
+              <code>$1</code> placeholders decide which fields appear below.
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Body</span>
+            <textarea
+              id="prompt-body"
+              class="mono"
+              rows="10"
+              spellcheck="false"
+              [placeholder]="bodyPlaceholder"
+              [value]="body()"
+              (input)="setBody($any($event.target).value)"
+            ></textarea>
+          </label>
+        </div>
+
+        @if (hasPreview()) {
+          <div class="test">
+            <!-- The tester appears only when there is something to preview. Its
+                 field inputs appear only when the body really references args. -->
+            @if (hasFields()) {
+              <div class="test-head">
+                <span class="field-label">Test arguments</span>
+                <span class="grow"></span>
+                <div class="segmented">
+                  <button type="button" [class.active]="mode() === 'fields'" (click)="setMode('fields')">
+                    Fields
+                  </button>
+                  <button type="button" [class.active]="mode() === 'raw'" (click)="setMode('raw')">
+                    Raw
+                  </button>
+                </div>
+              </div>
+
+              @if (mode() === 'raw') {
+                <input
+                  type="text"
+                  spellcheck="false"
+                  aria-label="Shell-quoted arguments"
+                  placeholder='Shell-quoted, e.g. "api tests" lint'
+                  [value]="rawArgs()"
+                  (input)="setRawArgs($any($event.target).value)"
+                />
+              } @else {
+                <div class="arg-grid">
+                  @for (field of fields(); track field.id) {
+                    <label class="field">
+                      <span class="field-label">
+                        {{ field.label }}
+                        @if (field.required) {
+                          <span class="required">required</span>
+                        }
+                      </span>
+                      <input
+                        type="text"
+                        [attr.aria-label]="field.label"
+                        [placeholder]="field.default ?? ''"
+                        [value]="fieldValue(field.id)"
+                        (input)="setFieldValue(field.id, $any($event.target).value)"
+                      />
+                      @if (defaultHint(field); as fallback) {
+                        <span class="default-hint">{{ fallback }}</span>
+                      }
+                    </label>
+                  }
+                </div>
+              }
+            }
+
+            <span class="field-label preview-label">Preview</span>
+            <pre class="preview" aria-label="Prompt preview">{{ preview() }}</pre>
+
+            <details class="cheat">
+              <summary>Advanced substitutions</summary>
+              <table>
+                <tbody>
+                  @for (row of cheatSheet; track row.syntax) {
+                    <tr>
+                      <td><code>{{ row.syntax }}</code></td>
+                      <td>{{ row.meaning }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <p class="default-hint">
+                Arguments follow shell-like quoting:
+                <code>{{ quoteExample }}</code>
+                is one argument. The raw mode parses the line exactly as pi does.
+              </p>
+            </details>
+          </div>
+        }
+      </div>
+
+      <footer>
+        @if (confirmingDelete()) {
+          <div class="status-row error">
+            Delete /{{ originalName() }}? This cannot be undone.
+          </div>
+        } @else if (status(); as message) {
+          <div
+            class="status-row"
+            [class.error]="message.kind === 'error'"
+            [class.ok]="message.kind === 'ok'"
+          >
+            {{ message.text }}
+          </div>
+        } @else if (dirty()) {
+          <div class="status-row">Unsaved changes</div>
+        }
+
+        <div class="actions-row">
+          @if (editingExisting() && !confirmingDelete()) {
+            <button type="button" class="danger" (click)="requestDelete()">Delete</button>
+          }
+          <span class="grow"></span>
+          @if (confirmingDelete()) {
+            <button type="button" class="secondary" (click)="cancelDelete()">Cancel</button>
+            <button type="button" class="danger" (click)="confirmDelete()" [disabled]="deleting()">
+              Delete
+            </button>
+          } @else {
+            <button type="button" class="secondary" (click)="copyPreview()">Copy preview</button>
+            <button
+              type="button"
+              (click)="save()"
+              [disabled]="saving() || !validName() || body().trim().length === 0"
+            >
+              {{ saving() ? 'Saving…' : 'Save' }}
+            </button>
+          }
+        </div>
+      </footer>
+    </section>
+  </div>
+</div>

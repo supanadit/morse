@@ -91,3 +91,24 @@ menu offers. The menu's scope is the tab you clicked: on a **session** it spans 
 files go with it), but on a **file chip** it only spans that chip's row, so closing a chip can never take the
 session tab with it. Files opened from the `@` picker get their own row below the sessions, so quoting a file
 never pushes a session tab aside.
+
+## Prompt templates
+
+pi turns Markdown files under `~/.pi/agent/prompts` (and, once a project is trusted, `<project>/.pi/prompts`)
+into `/commands`. Run **Edit prompt templates** from the command palette (`Ctrl+Alt+E`; it is a Morse command,
+not a pi one) to open Morse's editor for them — the browser host opens a **Prompt templates** tab next to the
+sessions, and VS Code opens a **Prompt templates** editor panel, the same way the MCP editor does. It lists the
+templates the host read — your user prompt directory plus, with a session in front, that session's project
+`.pi/prompts` — writes the file for you (frontmatter and body) and tests the expansion before you run it.
+
+The editor understands pi's full substitution vocabulary: `$1`, `${1:-fallback}`, `$@` / `$ARGUMENTS`,
+`${@:-fallback}`, `${@:2}` and `${@:2:3}`, with shell-like quoting for arguments that contain spaces. The
+**Fields** tester derives one input per argument from `argument-hint` (angle brackets required, square brackets
+optional) and shows the `${n:-…}` default as its placeholder; the **Raw** tester parses a line the way pi does.
+Either way the preview is the exact prompt the agent would receive. A save asks the host to re-read the files, so
+a new or renamed template shows up in the palette without restarting the session.
+
+A template pi would refuse (invalid YAML frontmatter) is listed with its error instead of vanishing: fix the
+frontmatter and save. Writing a project template works before the project is trusted, but pi ignores `.pi/prompts`
+until you trust it — the editor says so, and the MCP panel's **Trust this project** does it. With no session in
+front there is no project scope, so the editor offers the user templates only.

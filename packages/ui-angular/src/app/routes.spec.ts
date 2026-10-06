@@ -19,4 +19,11 @@ describe('app routes', () => {
     expect(resolveAppRoute('#/not-a-route')).toBe(DEFAULT_ROUTE);
     expect(resolveAppRoute('')).toBe(DEFAULT_ROUTE);
   });
+
+  it('resolves the code-split prompt editor route with a lazy loader', () => {
+    const route = resolveAppRoute('#/prompts');
+    expect(route.path).toBe('/prompts');
+    expect(route.component).toBeUndefined();
+    expect(route.load).toBeTypeOf('function');
+  });
 });

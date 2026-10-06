@@ -9,16 +9,26 @@ import { McpEditorPage } from './chat/mcp-editor/mcp-editor-page';
  * here plus a component — the bootstrap in `main.ts` does not change. VS Code
  * uses this for editor panels (`#/mcp`): it has no Morse tab strip, so a
  * standalone surface needs its own `WebviewPanel` and its own route.
+ *
+ * A row may name a `component` (eager, part of the initial bundle) or a `load`
+ * that code-splits it. Use `load` for a surface whose component is heavy and
+ * only needed when the route is actually booted.
  */
 export interface AppRoute {
   /** Hash path without the leading `#`, e.g. `/mcp`. */
   path: string;
-  /** What that path boots. */
-  component: Type<unknown>;
+  /** What that path boots, when it is not code-split. */
+  component?: Type<unknown>;
+  /** Resolves the component when it is code-split. */
+  load?: () => Promise<Type<unknown>>;
 }
 
 export const APP_ROUTES: readonly AppRoute[] = [
   { path: '/mcp', component: McpEditorPage },
+  {
+    path: '/prompts',
+    load: () => import('./chat/prompt-editor/prompt-editor-page').then((m) => m.PromptEditorPage),
+  },
 ];
 
 /** What an unknown or empty hash boots: the chat app (also the shell's `<app-root>`). */

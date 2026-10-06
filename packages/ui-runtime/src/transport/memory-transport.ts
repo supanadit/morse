@@ -7,6 +7,7 @@ import {
   type McpServerState,
   type McpServerStatus,
   type ProjectSummary,
+  type PromptTemplateInfo,
   type SessionActivity,
   type SessionSummary,
   type SessionViewState,
@@ -40,6 +41,9 @@ const CAPABILITIES: HostCapabilities = {
   // Same for the MCP manager: a scripted server list lets the indicator and the
   // panel be developed with no `pi` call.
   mcp: true,
+  // The prompt-template editor reads and writes `.md` files; the mock serves a
+  // scripted pair so the editor and its tester can be developed with no disk.
+  promptEditor: true,
   // Off by default: a dev page must not reach the internet unless it was asked
   // for. `?mock=1&update=1` turns it on, and `?newer=<version>` (frontend side)
   // fakes the published version, so the notice is reviewable before a release.
@@ -92,6 +96,8 @@ export class MemoryHostTransport extends BaseHostTransport {
   private items: TranscriptItem[] = isBlankSession() ? [] : mockConversation();
   /** Scripted working tree the mock stages/unstages against. */
   private gitFiles = MOCK_GIT_STATUS.files.map((file) => ({ ...file }));
+  /** The mock's prompt templates, mutable so save/delete round-trip in a dev page. */
+  private readonly mockPrompts = MOCK_PROMPTS.map((template) => ({ ...template }));
   /** Scripted branch distance the mock pulls/pushes against. */
   private gitSync = { isRepo: true, branch: 'master', upstream: 'origin/master', ahead: 1, behind: 0 };
   /** Persisted-looking catalog; `session/new` prepends to it like a real host. */
@@ -392,6 +398,50 @@ export class MemoryHostTransport extends BaseHostTransport {
               requestId: message.payload.requestId,
               ok: true,
               data: { path: `.morse/uploads/${name}`, name, bytes: 0 },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'promptTemplates' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: {
+                templates: this.mockPrompts.map((template) => ({ ...template })),
+                globalDir: '~/.pi/agent/prompts',
+                projectDir: '/repo/.pi/prompts',
+                trusted: true,
+              },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'promptTemplateSave' && message.payload.requestId) {
+          applyMockPromptSave(this.mockPrompts, message.payload.args);
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },
+          });
+          return;
+        }
+        if (message.payload.command === 'promptTemplateDelete' && message.payload.requestId) {
+          const name = typeof message.payload.args?.name === 'string' ? message.payload.args.name : '';
+          const scope = message.payload.args?.scope === 'project' ? 'project' : 'global';
+          const index = this.mockPrompts.findIndex(
+            (template) => template.name === name && template.scope === scope,
+          );
+          const removed = index !== -1;
+          if (removed) {
+            this.mockPrompts.splice(index, 1);
+          }
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: removed ? { ok: true } : { ok: false, message: `No "${name}" to delete.` },
             },
           });
           return;
@@ -961,6 +1011,80 @@ const MOCK_FILES = [
   'packages/ui-angular/src/app/core/markdown.ts',
   'packages/ui-runtime/src/client.ts',
 ];
+
+/** Two scripted prompt templates, so the editor and its argument tester work under `?mock=1`. */
+const MOCK_PROMPTS: PromptTemplateInfo[] = [
+  {
+    name: 'review',
+    scope: 'global',
+    path: '~/.pi/agent/prompts/review.md',
+    description: 'Review staged git changes',
+    argumentHint: '[focus]',
+    body: 'Review the staged changes. Focus on ${1:-correctness, security, and error handling}.',
+    raw: '---\ndescription: Review staged git changes\nargument-hint: "[focus]"\n---\nReview the staged changes. Focus on ${1:-correctness, security, and error handling}.\n',
+  },
+  {
+    name: 'test',
+    scope: 'project',
+    path: '/repo/.pi/prompts/test.md',
+    description: 'Run the tests for a path',
+    argumentHint: '<path>',
+    body: 'Run the test suite for $1.',
+    raw: '---\ndescription: Run the tests for a path\nargument-hint: "<path>"\n---\nRun the test suite for $1.\n',
+  },
+];
+
+/** Upsert a template from the editor's save args, with a crude frontmatter strip. */
+function applyMockPromptSave(
+  prompts: PromptTemplateInfo[],
+  args: Record<string, unknown> | undefined,
+): void {
+  const name = typeof args?.name === 'string' ? args.name : '';
+  if (name.length === 0) {
+    return;
+  }
+  const scope = args?.scope === 'project' ? 'project' : 'global';
+  const originalName = typeof args?.originalName === 'string' ? args.originalName : undefined;
+  const originalScope =
+    args?.originalScope === 'project' || args?.originalScope === 'global'
+      ? args.originalScope
+      : undefined;
+  if (
+    originalName !== undefined &&
+    originalScope !== undefined &&
+    (originalName !== name || originalScope !== scope)
+  ) {
+    const old = prompts.findIndex((t) => t.name === originalName && t.scope === originalScope);
+    if (old !== -1) {
+      prompts.splice(old, 1);
+    }
+  }
+  const raw = typeof args?.raw === 'string' ? args.raw : '';
+  const info: PromptTemplateInfo = {
+    name,
+    scope,
+    path:
+      scope === 'project'
+        ? `/repo/.pi/prompts/${name}.md`
+        : `~/.pi/agent/prompts/${name}.md`,
+    body: raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim(),
+    raw,
+  };
+  const description = /^description:[ \t]*(.+)$/m.exec(raw)?.[1]?.trim().replace(/^"|"$/g, '');
+  if (description) {
+    info.description = description;
+  }
+  const hint = /^argument-hint:[ \t]*(.+)$/m.exec(raw)?.[1]?.trim().replace(/^"|"$/g, '');
+  if (hint) {
+    info.argumentHint = hint;
+  }
+  const index = prompts.findIndex((t) => t.name === name && t.scope === scope);
+  if (index === -1) {
+    prompts.push(info);
+  } else {
+    prompts[index] = info;
+  }
+}
 
 /** A tiny directory tree so the browser-only "choose a folder" modal is usable
  *  under `?mock=1`. Paths are synthetic; nothing is read from disk. */

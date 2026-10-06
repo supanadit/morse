@@ -162,6 +162,10 @@
 
     @if (activeMcp()) {
       <morse-mcp-editor />
+    } @else if (activePrompt()) {
+      <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
+           its own chunk instead of joining the initial bundle. -->
+      <ng-container [ngComponentOutlet]="promptEditorComponent()" />
     } @else if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
     } @else {

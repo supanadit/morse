@@ -53,7 +53,7 @@ export interface FileTab {
   commitSubject?: string;
 }
 
-export type WorkspaceTab = SessionTab | FileTab | McpTab;
+export type WorkspaceTab = SessionTab | FileTab | McpTab | PromptTab;
 
 /**
  * The MCP editor, opened in the strip. There is exactly one (`MCP_TAB_ID`), so
@@ -61,6 +61,16 @@ export type WorkspaceTab = SessionTab | FileTab | McpTab;
  */
 export interface McpTab {
   kind: 'mcp';
+  id: string;
+  title: string;
+}
+
+/**
+ * The prompt-template editor, opened in the strip. There is exactly one
+ * (`PROMPT_TAB_ID`), like the MCP editor: `/prompts` re-focuses it.
+ */
+export interface PromptTab {
+  kind: 'prompt';
   id: string;
   title: string;
 }
@@ -75,6 +85,7 @@ export interface McpTab {
 export type PersistedTab =
   | { kind: 'session'; id: string; title: string; cwd?: string; draft?: boolean }
   | { kind: 'mcp'; id: string; title: string }
+  | { kind: 'prompt'; id: string; title: string }
   | {
       kind: 'file';
       id: string;
@@ -99,6 +110,8 @@ const FILE_PREFIX = 'file:';
 const MENTION_PREFIX = 'mention:';
 /** There is one MCP editor tab, whatever the directory. */
 export const MCP_TAB_ID = 'mcp:servers';
+/** There is one prompt-template editor tab, whatever the directory. */
+export const PROMPT_TAB_ID = 'prompt:templates';
 
 /** The shape the host's `readFile` command resolves with. */
 interface FilePreviewPayload {
@@ -357,6 +370,9 @@ export class WorkspaceTabs {
       if (tab.kind === 'mcp') {
         return [{ kind: 'mcp', id: tab.id, title: tab.title }];
       }
+      if (tab.kind === 'prompt') {
+        return [{ kind: 'prompt', id: tab.id, title: tab.title }];
+      }
       if (tab.mention === true && (tab.sessionId === undefined || !sessionIds.has(tab.sessionId))) {
         return [];
       }
@@ -411,6 +427,9 @@ export class WorkspaceTabs {
       }
       if (tab.kind === 'mcp') {
         return [{ kind: 'mcp', id: tab.id, title: tab.title }];
+      }
+      if (tab.kind === 'prompt') {
+        return [{ kind: 'prompt', id: tab.id, title: tab.title }];
       }
       return [
         {
@@ -478,6 +497,23 @@ export class WorkspaceTabs {
       { kind: 'mcp', id: MCP_TAB_ID, title: 'MCP servers' },
     ]);
     this.active.set(MCP_TAB_ID);
+  }
+
+  /**
+   * Opens the one prompt-template editor tab, or brings it forward when it is
+   * already open — `/prompts` is a focus, never a second editor.
+   */
+  openPrompt(): void {
+    const existing = this.items().find((tab) => tab.id === PROMPT_TAB_ID);
+    if (existing !== undefined) {
+      this.active.set(PROMPT_TAB_ID);
+      return;
+    }
+    this.items.update((tabs) => [
+      ...tabs,
+      { kind: 'prompt', id: PROMPT_TAB_ID, title: 'Prompt templates' },
+    ]);
+    this.active.set(PROMPT_TAB_ID);
   }
 
   /**
@@ -762,7 +798,10 @@ export class WorkspaceTabs {
       );
     }
     return this.items().filter(
-      (tab) => tab.kind === 'mcp' || (tab.kind === 'file' && tab.mention !== true),
+      (tab) =>
+        tab.kind === 'mcp' ||
+        tab.kind === 'prompt' ||
+        (tab.kind === 'file' && tab.mention !== true),
     );
   }
 
@@ -1239,6 +1278,13 @@ function asPersistedTab(value: unknown): PersistedTab | undefined {
       return undefined;
     }
     return { kind: 'mcp', id, title };
+  }
+  if (candidate['kind'] === 'prompt') {
+    const title = candidate['title'];
+    if (typeof title !== 'string') {
+      return undefined;
+    }
+    return { kind: 'prompt', id, title };
   }
   if (candidate['kind'] !== 'file') {
     return undefined;

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/core';
 import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
-import { parseMcpServerInput, parseMcpServerSpec } from '@morse/adapter-pi-rpc';
+import { parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostCommandContext,
@@ -111,6 +111,9 @@ export class MorseSessionFactory {
       // Managing MCP servers runs the `pi` CLI, so this host offers it only when
       // it found one. A host without it hides the affordance.
       mcp: this.pi.describeCli() !== undefined,
+      // Editing prompt templates is plain file I/O into pi's prompt directories,
+      // which this host already owns. The editor works without the pi CLI.
+      promptEditor: true,
     };
   }
 
@@ -340,6 +343,21 @@ export class MorseSessionFactory {
         const cwd = this.requireWritableCwd(context);
         return this.pi.mcp.trustProject(cwd);
       }
+      case 'promptTemplates': {
+        // The user's prompts, plus this project's once it is trusted. No session
+        // is required: with no directory, the user templates still list.
+        return this.pi.prompts.list(this.optionalCwd(context, args));
+      }
+      case 'promptTemplateSave': {
+        return this.pi.prompts.save(parsePromptTemplateInput(args), this.optionalCwd(context, args));
+      }
+      case 'promptTemplateDelete': {
+        return this.pi.prompts.delete(
+          stringArg(args, 'name'),
+          promptScope(args),
+          this.optionalCwd(context, args),
+        );
+      }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);
     }
@@ -378,6 +396,21 @@ export class MorseSessionFactory {
     return this.requireWritableCwd(context);
   }
 
+  /**
+   * Like `commandCwd`, but an absent directory is not an error: `''` means "no
+   * project", which the prompt editor uses to edit only the user templates.
+   */
+  private optionalCwd(context?: HostCommandContext, args?: Record<string, unknown>): string {
+    // An explicit `cwd` is authoritative, even when empty: the editor sends `''`
+    // for "no project in front", which must not fall back to a default workspace.
+    if (args !== undefined && typeof args['cwd'] === 'string') {
+      const requested = args['cwd'];
+      return requested.length > 0 && this.policy.canOpen(requested) ? requested : '';
+    }
+    const active = context?.cwd ?? this.activeCwd();
+    return active && this.policy.canOpen(active) ? active : '';
+  }
+
   /** The cwd of the session this connection is showing. */
   private activeCwd(): string | undefined {
     const key = this.registry.activeKeyOf();
@@ -403,6 +436,11 @@ function stringArg(args: Record<string, unknown> | undefined, key: string): stri
 /** The scope a mutation edits, when the panel named one. */
 function mcpScope(args: Record<string, unknown> | undefined): 'global' | 'project' | undefined {
   return args?.scope === 'global' || args?.scope === 'project' ? args.scope : undefined;
+}
+
+/** The scope a prompt-template mutation targets; only an explicit "project" moves off global. */
+function promptScope(args: Record<string, unknown> | undefined): 'global' | 'project' {
+  return args?.scope === 'project' ? 'project' : 'global';
 }
 
 function describeError(error: unknown): string {

@@ -52,6 +52,8 @@ export type HostCommand =
   | 'mcpRemove'
   /** Turn an MCP server on or off in the `mcp.json` that defines it. */
   | 'mcpSetEnabled'
+  /** Open the host's prompt-template editor (VS Code's editor panel). */
+  | 'openPromptEditor'
   /** Mark the viewing project trusted, so pi loads its `.pi` resources. */
   | 'trustProject'
   /**
@@ -61,6 +63,15 @@ export type HostCommand =
   | 'mcpInspect'
   /** Open the host's MCP editor (VS Code's editor panel; the browser host tabs). */
   | 'openMcpEditor'
+  /**
+   * pi's prompt templates for the viewing directory: the user's and this
+   * project's, with their bodies and frontmatter, so the editor can rewrite them.
+   */
+  | 'promptTemplates'
+  /** Write one prompt template (create, update or move between scopes). */
+  | 'promptTemplateSave'
+  /** Remove one prompt template file. */
+  | 'promptTemplateDelete'
   /** Stage the named paths in the viewing session's repository. */
   | 'gitStage'
   /** Unstage the named paths (keep the working-tree change). */

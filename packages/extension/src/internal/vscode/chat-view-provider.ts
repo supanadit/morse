@@ -6,7 +6,7 @@ import {
   type EditorContextProvider,
   type MorseLogger,
 } from '@morse/core';
-import { parseMcpServerInput, parseMcpServerSpec, type McpInspector, type PiMcp } from '@morse/adapter-pi-rpc';
+import { parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostSessionServices,
@@ -27,6 +27,8 @@ import { workspaceFiles } from './workspace-index';
 
 /** The MCP editor panel's view type; also the `onWebviewPanel` activation event. */
 const MCP_EDITOR_VIEW_TYPE = 'morse.mcpEditor';
+/** The prompt-template editor panel's view type; also its activation event. */
+const PROMPT_EDITOR_VIEW_TYPE = 'morse.promptEditor';
 
 export interface ChatViewProviderDeps {
   registry: SessionRegistry;
@@ -43,6 +45,8 @@ export interface ChatViewProviderDeps {
   mcp: PiMcp;
   /** Probes an MCP server before it is added; Morse's own client. */
   inspector: McpInspector;
+  /** pi's prompt templates, read and written as the `.md` files pi loads. */
+  prompts: PiPrompts;
   mcpAvailable: boolean;
   /** The installed pi version, for the "a newer pi is out" notice. */
   piVersion?: string;
@@ -82,6 +86,9 @@ function buildCapabilities(mcp: boolean, piVersion: string | undefined): HostCap
     notify: true,
     // pi's MCP servers can be listed and edited through the `pi` CLI.
     mcp,
+    // Editing prompt templates is file I/O into pi's prompt directories, which
+    // this host can reach whether or not the `pi` CLI is on PATH.
+    promptEditor: true,
   };
 }
 
@@ -97,6 +104,8 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   private frontendConnected = false;
   /** The one MCP editor panel; "Add server" reveals it instead of opening a second. */
   private mcpPanel: vscode.WebviewPanel | undefined;
+  /** The one prompt-template editor panel; `/prompts` reveals it. */
+  private promptPanel: vscode.WebviewPanel | undefined;
 
   constructor(private readonly deps: ChatViewProviderDeps) {}
 
@@ -232,6 +241,30 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * The prompt-template editor as its own editor tab, the same shape as the MCP
+   * editor: the routed bundle with `#/prompts` and its own `HostSessionController`,
+   * so the panel's `promptTemplates` commands reach the same registry the sidebar
+   * does. At most one panel is open; `/prompts` reveals the one already up.
+   */
+  openPromptEditor(): void {
+    if (this.promptPanel !== undefined) {
+      this.promptPanel.reveal(vscode.ViewColumn.Active);
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      PROMPT_EDITOR_VIEW_TYPE,
+      'Prompt templates',
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.deps.webviewRoot],
+      },
+    );
+    this.attachPromptPanel(panel);
+  }
+
+  /**
    * Registers the panel serializer with the extension context, so a window
    * reload restores the MCP editor instead of closing it. VS Code passes back
    * the webview state it kept (the frontend's `setState`), which is how the
@@ -242,6 +275,12 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       vscode.window.registerWebviewPanelSerializer(MCP_EDITOR_VIEW_TYPE, {
         deserializeWebviewPanel: (panel: vscode.WebviewPanel) => {
           this.attachMcpPanel(panel);
+          return Promise.resolve();
+        },
+      }),
+      vscode.window.registerWebviewPanelSerializer(PROMPT_EDITOR_VIEW_TYPE, {
+        deserializeWebviewPanel: (panel: vscode.WebviewPanel) => {
+          this.attachPromptPanel(panel);
           return Promise.resolve();
         },
       }),
@@ -311,6 +350,68 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /**
+   * Wires a prompt-editor panel (fresh or restored) to a session controller and
+   * the routed bundle, exactly like the MCP editor's `attachMcpPanel`.
+   */
+  private attachPromptPanel(panel: vscode.WebviewPanel): void {
+    this.promptPanel = panel;
+
+    const services: HostSessionServices = {
+      registry: this.deps.registry,
+      chat: this.deps.chat,
+    };
+    const controller = new HostSessionController({
+      services,
+      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      emit: (message) => void panel.webview.postMessage(message),
+      logger: this.deps.logger,
+      dialogs: new VsCodeDialogs(),
+      transcripts: this.deps.transcripts,
+      ownsRegistry: false,
+      autoOpen: false,
+      policy: this.deps.policy,
+      scope: { kind: 'workspace', roots: this.deps.roots },
+      frontend: this.deps.frontend,
+      onHostCommand: (command, args, context) => this.runHostCommand(command, args, context),
+      agentHint: 'Set "morse.pi.path" or install the pi CLI so that it is on PATH.',
+    });
+
+    const subscription = panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const message = parseClientMessage(raw);
+      if (message) {
+        void controller.handleClientMessage(message);
+      }
+    });
+
+    panel.onDidDispose(() => {
+      subscription.dispose();
+      this.promptPanel = undefined;
+      void controller.dispose();
+    });
+
+    void renderWebviewHtml(panel.webview, this.deps.webviewRoot, {
+      title: 'Prompt templates',
+      frontend: this.deps.frontend,
+      route: '/prompts',
+    })
+      .then((html) => {
+        panel.webview.html = html;
+      })
+      .catch((error: unknown) => {
+        this.deps.logger.error('Could not load the Morse frontend bundle for the prompt editor', error);
+        panel.webview.html = renderFailureHtml(
+          'Morse could not load its frontend bundle.',
+          describeError(error),
+          'Run `npm run build:ui && npm run sync-webview` in packages/extension, then reload the window.',
+        );
+      });
+
+    void controller.start().catch((error: unknown) => {
+      this.deps.logger.error('Morse could not start the prompt editor controller', error);
+    });
+  }
+
   async newSession(): Promise<void> {
     await this.dispatch({ type: 'session/new', payload: {} });
   }
@@ -354,6 +455,18 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   /** The directory MCP commands run in: the folder the panel is viewing, then the first root. */
   private mcpCwd(context?: { cwd: string }): string {
     return context?.cwd || this.deps.roots[0] || process.cwd();
+  }
+
+  /**
+   * The directory prompt commands run in. An explicit `cwd` wins, even when it
+   * is empty: the editor sends `''` for "no project in front", which means the
+   * user prompts only rather than falling back to the first workspace folder.
+   */
+  private promptCwd(context: { cwd: string } | undefined, args: Record<string, unknown> | undefined): string {
+    if (args !== undefined && typeof args['cwd'] === 'string') {
+      return args['cwd'];
+    }
+    return this.mcpCwd(context);
   }
 
   private async runHostCommand(
@@ -437,6 +550,9 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         // a tab itself and never asks.
         this.openMcpEditor();
         return { ok: true };
+      case 'openPromptEditor':
+        this.openPromptEditor();
+        return { ok: true };
       case 'mcpRemove':
         return this.deps.mcp.remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
       case 'mcpSetEnabled':
@@ -448,6 +564,16 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         );
       case 'trustProject':
         return this.deps.mcp.trustProject(this.mcpCwd(context));
+      case 'promptTemplates':
+        return this.deps.prompts.list(this.promptCwd(context, args));
+      case 'promptTemplateSave':
+        return this.deps.prompts.save(parsePromptTemplateInput(args), this.promptCwd(context, args));
+      case 'promptTemplateDelete':
+        return this.deps.prompts.delete(
+          stringArg(args, 'name'),
+          args?.scope === 'project' ? 'project' : 'global',
+          this.promptCwd(context, args),
+        );
       case 'confirmDeleteSession': {
         // Deleting a stored conversation cannot be undone, so VS Code asks with
         // its own modal warning. The browser host has no native dialogs and

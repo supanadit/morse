@@ -13,10 +13,15 @@ import { DEFAULT_ROUTE, resolveAppRoute } from './app/routes';
  */
 async function bootstrap(): Promise<void> {
   const route = resolveAppRoute(typeof location !== 'undefined' ? location.hash : '');
+  const component = route.component ?? (route.load !== undefined ? await route.load() : undefined);
+  if (component === undefined) {
+    console.error(`No component for route ${route.path}`);
+    return;
+  }
   const shell = typeof document !== 'undefined' ? document.querySelector('app-root') : null;
 
   if (route === DEFAULT_ROUTE && shell !== null) {
-    await bootstrapApplication(route.component, appConfig);
+    await bootstrapApplication(component, appConfig);
     return;
   }
 
@@ -24,7 +29,7 @@ async function bootstrap(): Promise<void> {
   shell?.remove();
   document.body.appendChild(host);
   const app = await createApplication(appConfig);
-  app.bootstrap(route.component, host);
+  app.bootstrap(component, host);
 }
 
 bootstrap().catch((error) => console.error(error));

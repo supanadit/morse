@@ -96,6 +96,7 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     frontend: frontendIdentity(manifest),
     mcp: adapter.mcp,
     inspector: adapter.inspector,
+    prompts: adapter.prompts,
     mcpAvailable: adapter.describeCli() !== undefined,
     piVersion: adapter.version(),
   });

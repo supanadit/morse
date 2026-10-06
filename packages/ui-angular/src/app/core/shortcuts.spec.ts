@@ -54,6 +54,7 @@ describe('shortcut catalog', () => {
       'thinking.pick',
       'view.git',
       'view.mcp',
+      'view.prompts',
     ]);
     // Local rows (Enter, `/` in the prompt) are reference only, so ids are unique
     // across the whole list and none of them can be bound by accident.

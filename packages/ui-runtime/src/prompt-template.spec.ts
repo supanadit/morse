@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   composePromptTemplate,
   parseCommandArgs,
+  promptTemplateArgumentFields,
+  promptTemplateFields,
   promptTemplateForm,
   readPromptTemplate,
   substituteArgs,
@@ -92,7 +94,13 @@ describe('promptTemplateForm', () => {
   it('derives fields from the argument hint, marking angle brackets required', () => {
     const form = promptTemplateForm(REVIEW);
     expect(form?.arguments).toEqual([
-      { id: 'arg1', label: 'focus', required: false, index: 1 },
+      {
+        id: 'arg1',
+        label: 'focus',
+        required: false,
+        index: 1,
+        default: 'correctness, security, and error handling',
+      },
     ]);
     expect(form?.body).toContain('Review the staged changes.');
   });
@@ -116,8 +124,54 @@ describe('promptTemplateForm', () => {
     const raw = '---\nargument-hint: "<a> [b]"\n---\nUse ${1:-x} and $2';
     const form = promptTemplateForm(raw);
     expect(form?.arguments).toEqual([
-      { id: 'arg1', label: 'a', required: true, index: 1 },
+      { id: 'arg1', label: 'a', required: true, index: 1, default: 'x' },
       { id: 'arg2', label: 'b', required: false, index: 2 },
+    ]);
+  });
+});
+
+describe('promptTemplateFields', () => {
+  it('carries the catch-all default a body declares', () => {
+    expect(promptTemplateFields('Summarize ${@:-the whole repo}')).toEqual([
+      { id: 'arguments', label: 'Arguments', required: false, default: 'the whole repo' },
+    ]);
+  });
+
+  it('is empty for a template that takes no arguments', () => {
+    expect(promptTemplateFields('Explain this repository')).toEqual([]);
+  });
+});
+
+describe('promptTemplateArgumentFields', () => {
+  it('tracks the body: only referenced placeholders get a field', () => {
+    const fields = promptTemplateArgumentFields('Use $1 and $3', '<a> [b] [c]');
+
+    expect(fields).toEqual([
+      { id: 'arg1', label: 'a', required: true, index: 1 },
+      { id: 'arg3', label: 'c', required: false, index: 3 },
+    ]);
+  });
+
+  it('drops the field when its placeholder leaves the body', () => {
+    expect(promptTemplateArgumentFields('Use $1 only', '<a> [b] [c]')).toEqual([
+      { id: 'arg1', label: 'a', required: true, index: 1 },
+    ]);
+  });
+
+  it('keeps the default a placeholder declares', () => {
+    expect(promptTemplateArgumentFields('$1 ${2:-none}')).toEqual([
+      { id: 'arg1', label: 'Argument 1', required: false, index: 1 },
+      { id: 'arg2', label: 'Argument 2', required: false, index: 2, default: 'none' },
+    ]);
+  });
+
+  it('is empty for a template that takes no arguments', () => {
+    expect(promptTemplateArgumentFields('Explain this repository')).toEqual([]);
+  });
+
+  it('offers one raw-arguments field for a catch-all-only body', () => {
+    expect(promptTemplateArgumentFields('Run: $@')).toEqual([
+      { id: 'arguments', label: 'Arguments', required: false },
     ]);
   });
 });

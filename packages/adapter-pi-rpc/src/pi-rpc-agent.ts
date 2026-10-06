@@ -26,6 +26,7 @@ import {
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
 import { parsePromptTemplate, type PromptFrontmatter } from './internal/prompt-frontmatter.js';
+import { PromptWatcher } from './internal/prompt-watch.js';
 import { resolveAgentDir, readProjectTrust } from './internal/project-trust.js';
 import { PiRpcClient } from './internal/rpc-client.js';
 import {
@@ -69,6 +70,11 @@ export class PiRpcAgent implements AgentGateway {
   private sessionState: AgentSessionState;
   private ready = false;
   private disposed = false;
+  /**
+   * Watches this session's prompt directories so a template written outside
+   * Morse (the editor, `vim`, `nano`) reaches the palette without a reload.
+   */
+  private readonly promptWatcher: PromptWatcher;
   /** Full mapped history, fetched once and paged locally (see `history`). */
   private historyCache: AgentHistoryEntry[] | undefined;
 
@@ -108,6 +114,14 @@ export class PiRpcAgent implements AgentGateway {
         }
       },
     });
+    this.promptWatcher = new PromptWatcher(
+      () => [
+        join(resolveAgentDir(options.env), 'prompts'),
+        resolve(options.workspace.cwd, '.pi', 'prompts'),
+      ],
+      () => void this.refreshCommands(),
+    );
+    this.promptWatcher.start();
   }
 
   /** Spawns the subprocess and reads its initial state. Throws when pi is missing. */
@@ -317,6 +331,7 @@ export class PiRpcAgent implements AgentGateway {
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.promptWatcher.stop();
     this.listeners.clear();
     await this.client.dispose();
   }

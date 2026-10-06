@@ -73,6 +73,17 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('mcp:servers');
   });
 
+  it('opens one prompt editor tab and re-focuses it instead of stacking a second', () => {
+    const { tabs } = setup();
+
+    tabs.openPrompt();
+    tabs.openFile('README.md');
+    tabs.openPrompt();
+
+    expect(tabs.tabs().filter((tab) => tab.kind === 'prompt')).toHaveLength(1);
+    expect(tabs.activeId()).toBe('prompt:templates');
+  });
+
   it('reads a file once and does not re-read it on the next reveal', async () => {
     const { tabs, fake } = setup(() => preview());
 
