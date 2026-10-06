@@ -78,6 +78,17 @@ interface TabMenu {
         background: var(--morse-bubble, var(--morse-hover));
         font-size: 11.5px;
       }
+      /*
+       * A chip whose file name is shared with another open chip spends a second
+       * line on its directory. Two lines do not fit the pill, so it grows and
+       * squares off a little — the name stays on top, the folder under it.
+       */
+      .tab.mention.has-dir {
+        height: auto;
+        min-height: 30px;
+        padding: 3px 5px 3px 9px;
+        border-radius: 10px;
+      }
       .tab.mention:hover {
         background: var(--morse-hover);
         border-color: var(--morse-accent);
@@ -144,7 +155,8 @@ interface TabMenu {
         gap: 6px;
         box-sizing: border-box;
         max-width: 170px;
-        height: 30px;
+        min-height: 30px;
+        height: auto;
         padding: 0 8px 0 10px;
         border: 1px solid var(--morse-border);
         border-radius: var(--morse-radius-sm);
@@ -208,12 +220,42 @@ interface TabMenu {
       .tab.active .glyph {
         color: var(--morse-accent);
       }
-      .label {
+      .text {
         flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        line-height: 1.15;
+      }
+      .label {
+        display: block;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+      /*
+       * The directory line hides its own beginning, not its end: the folder
+       * nearest the file is what tells two same-named chips apart, so the
+       * ellipsis goes on the left (rtl direction plus a bdi so the path still
+       * reads left to right).
+       */
+      .dir {
+        display: block;
+        min-width: 0;
+        margin-top: 1px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        direction: rtl;
+        text-align: left;
+        color: var(--morse-fg-muted);
+        font-size: 10px;
+        line-height: 1.2;
+      }
+      .dir bdi {
+        direction: ltr;
       }
       .close {
         flex: none;
@@ -312,6 +354,9 @@ export class TabStrip {
   });
 
   protected glyph(tab: WorkspaceTab): string {
+    if (tab.kind === 'mcp') {
+      return '⚙';
+    }
     return tab.kind === 'session' ? '✦' : fileGlyph(tab.title);
   }
 
@@ -334,6 +379,45 @@ export class TabStrip {
 
   protected title(tab: WorkspaceTab): string {
     return tab.kind === 'file' ? tab.path : tab.title;
+  }
+
+  /**
+   * Whether any file name is shared by more than one chip in the row. When one
+   * is, the whole row goes two lines — a strip that mixes one-line and two-line
+   * chips reads as broken alignment, not as emphasis.
+   */
+  private readonly namesClash = computed(() => {
+    const seen = new Set<string>();
+    for (const tab of this.mentionTabs()) {
+      if (seen.has(tab.title)) {
+        return true;
+      }
+      seen.add(tab.title);
+    }
+    return false;
+  });
+
+  /**
+   * Whether a chip takes the taller two-line shape. The row is uniform: if one
+   * name is shared, every chip grows its second line (a root file keeps it
+   * empty and stays centred) so all chips share one height.
+   */
+  protected twoLineChip(tab: WorkspaceTab): boolean {
+    return tab.kind === 'file' && tab.mention === true && this.namesClash();
+  }
+
+  /** Whether a two-line chip has a folder to spell out on its second line. */
+  protected showsDirectory(tab: WorkspaceTab): boolean {
+    return this.twoLineChip(tab) && this.directoryOf(tab).length > 0;
+  }
+
+  /** The part of a chip's path before the file name, for the second line. */
+  protected directoryOf(tab: WorkspaceTab): string {
+    if (tab.kind !== 'file') {
+      return '';
+    }
+    const slash = Math.max(tab.path.lastIndexOf('/'), tab.path.lastIndexOf('\\'));
+    return slash <= 0 ? '' : tab.path.slice(0, slash);
   }
 
   protected select(id: string): void {

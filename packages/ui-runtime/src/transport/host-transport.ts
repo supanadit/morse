@@ -16,6 +16,14 @@ export interface HostTransport {
   onMessage(listener: (message: HostToClientMessage) => void): () => void;
   onStatus(listener: (status: TransportStatus, detail?: string) => void): () => void;
   dispose(): void;
+  /**
+   * Frontend-owned state the host can keep across a reload (the VS Code
+   * webview's `getState`/`setState`, the mock host's memory). Optional: a host
+   * with nowhere to keep it leaves these undefined and the frontend falls back
+   * to `localStorage` (see `ui-angular`'s `ViewState`).
+   */
+  readState?(): unknown;
+  writeState?(state: unknown): void;
 }
 
 export abstract class BaseHostTransport implements HostTransport {

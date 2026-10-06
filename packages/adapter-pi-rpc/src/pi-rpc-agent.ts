@@ -1,5 +1,4 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import {
   THINKING_LEVELS,
@@ -27,6 +26,7 @@ import {
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
 import { parsePromptTemplate, type PromptFrontmatter } from './internal/prompt-frontmatter.js';
+import { resolveAgentDir, readProjectTrust } from './internal/project-trust.js';
 import { PiRpcClient } from './internal/rpc-client.js';
 import {
   asRecord,
@@ -729,44 +729,11 @@ function parseTemplate(
  * pi gates project resources.
  */
 async function promptDirs(projectTrusted: boolean, context: CommandContext): Promise<string[]> {
-  const dirs = [join(agentDir(context.env), 'prompts')];
-  if (projectTrusted || (await isProjectTrusted(context.cwd, context.env))) {
+  const dirs = [join(resolveAgentDir(context.env), 'prompts')];
+  if (projectTrusted || readProjectTrust(context.cwd, resolveAgentDir(context.env))) {
     dirs.push(resolve(context.cwd, '.pi', 'prompts'));
   }
   return dirs;
-}
-
-/** pi's agent config directory (`PI_CODING_AGENT_DIR`, else `~/.pi/agent`). */
-function agentDir(env: NodeJS.ProcessEnv | undefined): string {
-  const configured = env?.PI_CODING_AGENT_DIR?.trim();
-  return configured && configured.length > 0
-    ? expandHome(configured)
-    : join(homedir(), '.pi', 'agent');
-}
-
-function expandHome(path: string): string {
-  if (path === '~') {
-    return homedir();
-  }
-  if (path.startsWith('~/') || path.startsWith('~\\')) {
-    return join(homedir(), path.slice(2));
-  }
-  return path;
-}
-
-/**
- * pi records project trust in `<agentDir>/trust.json` as `{ "<cwd>": true }`.
- * The project prompt directory is only scanned when that says yes, so an
- * untrusted checkout cannot inject a template into the palette.
- */
-async function isProjectTrusted(cwd: string, env: NodeJS.ProcessEnv | undefined): Promise<boolean> {
-  try {
-    const raw = await readFile(join(agentDir(env), 'trust.json'), 'utf8');
-    const decisions = JSON.parse(raw) as Record<string, unknown>;
-    return decisions[cwd] === true || decisions[resolve(cwd)] === true;
-  } catch {
-    return false;
-  }
 }
 
 /** Direct `.md` children of a prompt directory — pi loads direct children only. */

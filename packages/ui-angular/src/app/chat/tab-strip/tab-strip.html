@@ -17,6 +17,7 @@
         cdkDragLockAxis="x"
         [cdkDragData]="tab"
         [class.mention]="tab.kind === 'file' && tab.mention === true"
+        [class.has-dir]="twoLineChip(tab)"
         [class.active]="tab.id === activeId()"
         [class.parent]="tab.kind === 'session' && tab.id === activeChipOwner()"
         [class.running]="tab.kind === 'session' && isRunning(tab.id)"
@@ -33,7 +34,14 @@
         } @else {
           <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
         }
-        <span class="label">{{ tab.title }}</span>
+        <span class="text">
+          <span class="label">{{ tab.title }}</span>
+          @if (showsDirectory(tab)) {
+            <span class="dir" [title]="title(tab)">
+              <bdi>{{ directoryOf(tab) }}</bdi>
+            </span>
+          }
+        </span>
         <button
           type="button"
           class="close"

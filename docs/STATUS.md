@@ -82,14 +82,20 @@ turns them on so the panel stands on its own:
   touching ranges merge and can be edited by their handles.
 - **Tab strip**: sessions and files open side by side, quoted files get their own row, and right-click offers
   Close / Close Others / Close to the Right / Close All. A session's menu spans the whole strip; a file chip's
-  menu spans only its row, so closing a chip never closes the session tab that owns it.
+  menu spans only its row, so closing a chip never closes the session tab that owns it. When any file name in
+  the row is shared, the whole chip row goes two lines — every chip spells out its directory, clipped at the
+  front so the folder nearest the file stays visible, and all chips share one height (two `postgresql.yaml`
+  are told apart without a tooltip); with no shared name, every chip keeps its single row.
 - **Bottom panel**: a chip row below the composer that opens a tool and drags taller from its top edge. Its
   first tool is a **terminal** — one or more real PTYs (`node-pty`) per session, each in its own tab, in the
   viewing project, rendered with xterm.js (ANSI, colours, cursor, resize, full-screen programs). Terminals
   are never shared across sessions and close with their session tab; the shell itself lives in the host, not
   the page, so a reload reattaches and replays the scrollback, and the output survives a host restart from
   `<MORSE_HOME>/terminals/` (an idle shell is reclaimed after `MORSE_TERMINAL_IDLE_MS`, default 30 min). The
-  emulator is lazy-loaded. VS Code leaves `terminal` off and keeps its own.
+  emulator is lazy-loaded. The shell starts with the user's own environment, `MORSE_*` stripped, so running Morse
+  from inside Morse does not inherit the host's port or workspace. URLs in the output are clickable (a small
+  link provider, `chat/terminal/terminal-links.ts`, opens them in a new tab), so a dev-server banner is one
+  click, not a copy. VS Code leaves `terminal` off and keeps its own.
 
 ### MCP servers
 
@@ -99,15 +105,25 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 - **Indicator**: a dot whose colour is the active directory's MCP health — green when every enabled server
   connected, amber while one is connecting or needs sign-in, red when one failed or the config is malformed.
   The state comes from `pi mcp list --json`, cached for a minute per directory.
-- **Manage**: add a stdio or HTTP server, remove one, and enable or disable it. One scope control —
-  **This project** (default) or **Global** — decides which file every action writes. "This project"
-  writes `.pi/mcp.json`; disabling a user-level server there writes a **project override** (like pi's
-  "Disable in this project"), so other projects are unaffected. Enable/disable edits the same `mcp.json`
-  pi reads; every other key and entry is preserved.
-- Project config is trust-gated by pi. When the project is not trusted the panel shows pi's own note, since
-  a project server will not load until the folder is trusted.
-- The panel does not sign in: an OAuth server is reported as “needs sign-in”, and `pi mcp login` / pi's own
-  `/mcp` handle that.
+- **Manage**: remove a server and enable or disable it. One scope control — **This project** (default) or
+  **Global** — decides which file every action writes. "This project" writes `.pi/mcp.json`; disabling a
+  user-level server there writes a **project override** (like pi's "Disable in this project"), so other
+  projects are unaffected. Enable/disable edits the same `mcp.json` pi reads; every other key and entry is
+  preserved. The manager is the list; adding a server is a separate editor view.
+- **Add + inspect**: **Add server** opens the MCP editor — a tab in the browser host, a VS Code editor panel
+  (`WebviewPanel`, routed `#/mcp`) in the extension — one at a time, and a second click just re-focuses it.
+  The editor builds the entry and **Test connection** probes it with Morse's own MCP client (no Inspector
+  package): `initialize` + `tools/list` / `resources/list` / `prompts/list` over stdio or Streamable HTTP, so
+  the tools (or the exact failure: `auth`, `unreachable`, `timeout`, `protocol`, `spawn`) are visible before
+  anything is written to `mcp.json`. A half-filled entry survives a reload: the form is kept in the host's
+  own store (VS Code's webview state, restored by a panel serializer; `localStorage` in the browser), and the
+  browser host also restores the MCP tab itself.
+- Project config is trust-gated by pi. When the project is not trusted the panel shows pi's note and a
+  **Trust this project** button; that writes pi's own decision (`<agentDir>/trust.json`, the same "Trust" its
+  prompt records) and refreshes, so the project's `.pi/mcp.json` loads without leaving Morse. A folder trusted
+  as a parent covers its children, exactly as pi resolves it.
+- The editor does not sign in: an OAuth server is reported as **needs sign-in** with its protected-resource
+  metadata URL, and pi's own `/mcp` (or the reference Inspector) completes the flow.
 
 ### Keyboard, templates, updates, install
 

@@ -7,12 +7,11 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import type { McpConfigScope, McpExposure, McpServerStatus } from '@morse/protocol';
+import type { McpConfigScope, McpServerStatus } from '@morse/protocol';
 import { McpState } from '../../core/mcp-state';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
-
-type AddType = 'stdio' | 'http';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
 
 /** Where the panel's edits land; `project` writes a per-directory override for user servers. */
 type EditScope = McpConfigScope;
@@ -140,6 +139,21 @@ type EditScope = McpConfigScope;
         color: var(--morse-warn);
         font-size: 11.5px;
         line-height: 1.5;
+      }
+      .note .trust {
+        margin-top: 8px;
+        padding: 4px 10px;
+        border: 1px solid var(--morse-warn);
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-warn);
+        font: inherit;
+        font-size: 11.5px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .note .trust:hover:not(:disabled) {
+        background: var(--morse-hover);
       }
       .add-note {
         margin: 4px 0 0;
@@ -315,6 +329,7 @@ export class McpPanel {
   private readonly morse = inject(MorseService);
   private readonly mcp = inject(McpState);
   private readonly shell = inject(ShellState);
+  private readonly tabs = inject(WorkspaceTabs);
 
   protected readonly cwd = computed(() => this.morse.workspace().cwd);
   protected readonly status = computed(() => this.mcp.status(this.cwd()));
@@ -322,30 +337,25 @@ export class McpPanel {
   protected readonly servers = computed(() => this.status()?.servers ?? []);
   protected readonly errors = computed(() => this.status()?.errors ?? []);
   protected readonly note = computed(() => this.status()?.note);
+  /** pi is ignoring this project's `.pi` resources until it is trusted. */
+  protected readonly untrusted = computed(() => this.status()?.trusted === false);
+  protected readonly trusting = signal(false);
   protected readonly enabledServers = computed(() =>
     this.servers().filter((server) => server.enabled),
   );
 
   /** The row whose Remove button is waiting for a second click. */
   protected readonly pendingRemove = signal<string | null>(null);
-  protected readonly adding = signal(false);
   protected readonly busy = signal(false);
-  protected readonly formError = signal<string | null>(null);
   /** A refused enable/disable/remove, shown above the list. */
   protected readonly actionError = signal<string | null>(null);
 
-  protected readonly name = signal('');
-  protected readonly type = signal<AddType>('stdio');
-  protected readonly command = signal('');
-  protected readonly argsText = signal('');
-  protected readonly url = signal('');
   /**
-   * Where Add, Enable/Disable and Remove write. `project` is the default: the
-   * panel is opened for one session's directory, and a user-level server is
-   * turned off here with a project override rather than for every project.
+   * Where Enable/Disable and Remove write. `project` is the default: the panel
+   * is opened for one session's directory, and a user-level server is turned off
+   * here with a project override rather than for every project.
    */
   protected readonly editScope = signal<EditScope>('project');
-  protected readonly exposure = signal<McpExposure>('codemode');
 
   constructor() {
     // Opening the panel is what triggers the (slow) list; it refreshes again
@@ -360,10 +370,6 @@ export class McpPanel {
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
-    if (this.adding()) {
-      this.closeAdd();
-      return;
-    }
     this.shell.closeMcp();
   }
 
@@ -373,6 +379,26 @@ export class McpPanel {
 
   protected refresh(): void {
     void this.mcp.refresh(this.cwd(), true);
+  }
+
+  /**
+   * The trust prompt, answered from here: writes the same decision pi's own
+   * prompt would, so the project's `.pi/mcp.json` (and settings, skills,
+   * prompts) load without the reader going to a terminal. The refresh that
+   * follows shows the project servers pi was ignoring.
+   */
+  protected async trustProject(): Promise<void> {
+    if (this.trusting() || !this.cwd()) {
+      return;
+    }
+    this.trusting.set(true);
+    const result = await this.mcp.trustProject(this.cwd());
+    this.trusting.set(false);
+    if (!result.ok) {
+      this.actionError.set(result.message ?? 'The host could not trust the project.');
+    } else {
+      this.actionError.set(null);
+    }
   }
 
   protected stateLabel(server: McpServerStatus): string {
@@ -461,75 +487,21 @@ export class McpPanel {
     return '';
   }
 
+  /**
+   * Opens the MCP editor. The browser host has a tab strip, so the editor is a
+   * tab there; VS Code has no Morse tabs, so the host opens its own editor panel
+   * instead. Either way the manager closes — it is the list, not the form.
+   */
   protected openAdd(): void {
-    if (this.adding()) {
-      return;
-    }
-    this.resetForm();
-    this.adding.set(true);
-  }
-
-  protected closeAdd(): void {
-    this.adding.set(false);
-    this.resetForm();
-  }
-
-  protected async submitAdd(): Promise<void> {
-    if (this.busy()) {
-      return;
-    }
-    const name = this.name().trim();
-    if (name.length === 0) {
-      this.formError.set('Give the server a name.');
-      return;
-    }
-    const isHttp = this.type() === 'http';
-    const target = isHttp ? this.url().trim() : this.command().trim();
-    if (target.length === 0) {
-      this.formError.set(isHttp ? 'Enter the server URL.' : 'Enter the command to run.');
-      return;
-    }
-    this.formError.set(null);
-    this.busy.set(true);
-    const result = await this.mcp.add(
-      {
-        name,
-        scope: this.editScope(),
-        type: this.type(),
-        ...(isHttp
-          ? { url: target }
-          : { command: target, args: splitArgs(this.argsText()) }),
-        exposure: this.exposure(),
-      },
-      this.cwd(),
-    );
-    this.busy.set(false);
-    if (result.ok) {
-      this.closeAdd();
+    if (this.morse.capabilities()?.filePreview === true) {
+      this.tabs.openMcp();
     } else {
-      this.formError.set(result.message ?? 'The host did not add the server.');
+      void this.morse.requestHostCommand('openMcpEditor', {}).catch(() => undefined);
     }
-  }
-
-  private resetForm(): void {
-    this.name.set('');
-    this.type.set('stdio');
-    this.command.set('');
-    this.argsText.set('');
-    this.url.set('');
-    this.exposure.set('codemode');
-    this.formError.set(null);
+    this.shell.closeMcp();
   }
 
   private report(ok: boolean, message?: string): void {
     this.actionError.set(ok ? null : (message ?? 'The host did not apply the change.'));
   }
-}
-
-/** Split a command line the way a shell would for simple cases; quotes are not interpreted. */
-function splitArgs(value: string): string[] {
-  return value
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
 }

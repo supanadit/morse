@@ -62,6 +62,17 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('file:README.md');
   });
 
+  it('opens one MCP editor tab and re-focuses it instead of stacking a second', () => {
+    const { tabs } = setup();
+
+    tabs.openMcp();
+    tabs.openFile('README.md');
+    tabs.openMcp();
+
+    expect(tabs.tabs().filter((tab) => tab.kind === 'mcp')).toHaveLength(1);
+    expect(tabs.activeId()).toBe('mcp:servers');
+  });
+
   it('reads a file once and does not re-read it on the next reveal', async () => {
     const { tabs, fake } = setup(() => preview());
 
@@ -678,6 +689,26 @@ describe('WorkspaceTabs', () => {
       mention: true,
       sessionId: 's1',
     });
+  });
+
+  it('keeps the one MCP editor tab across a snapshot and restore', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.openMcp();
+
+    const snapshot = tabs.snapshot();
+    expect(snapshot.tabs.find((tab) => tab.id === 'mcp:servers')).toEqual({
+      kind: 'mcp',
+      id: 'mcp:servers',
+      title: 'MCP servers',
+    });
+    expect(snapshot.activeId).toBe('mcp:servers');
+
+    TestBed.resetTestingModule();
+    const { tabs: restored } = setup();
+    restored.restore(snapshot);
+    expect(restored.tabs().map((tab) => tab.id)).toEqual(['s1', 'mcp:servers']);
+    expect(restored.activeTab()?.kind).toBe('mcp');
   });
 
   it('restores a New session draft and promotes it on the first prompt', () => {

@@ -34,6 +34,9 @@ const xterm = vi.hoisted(() => {
     }
     open(): void {}
     loadAddon(): void {}
+    registerLinkProvider(): { dispose: () => void } {
+      return { dispose: () => undefined };
+    }
     onData(handler: DataHandler) {
       this.dataHandler = handler;
       return { dispose: () => undefined };

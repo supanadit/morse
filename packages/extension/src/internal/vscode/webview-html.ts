@@ -6,6 +6,12 @@ export interface WebviewHtmlOptions {
   title: string;
   /** Frontend identity to log, purely informational. */
   frontend?: { name: string; version: string };
+  /**
+   * A hash route to enter before the bundle boots (`/mcp` -> `#/mcp`). One
+   * Angular build serves several surfaces: the chat view and the MCP editor
+   * panel pick their root from the hash.
+   */
+  route?: string;
 }
 
 /**
@@ -43,12 +49,17 @@ export async function renderWebviewHtml(
     ? raw.replace(/<base\s+href="[^"]*"\s*>/i, `<base href="${base}/">`)
     : raw.replace(/<head>/i, `<head>\n  <base href="${base}/">`);
 
+  const routeScript =
+    options.route !== undefined && options.route.length > 0
+      ? `\n  <script nonce="${nonce}">window.location.hash = ${JSON.stringify(`#${options.route}`)};</script>`
+      : '';
+
   return withBase
     .replace(/<script\b/gi, `<script nonce="${nonce}"`)
     .replace(/<title>.*?<\/title>/i, `<title>${escapeHtml(options.title)}</title>`)
     .replace(
       /<head>/i,
-      `<head>\n  <meta http-equiv="Content-Security-Policy" content="${csp}">\n  <meta name="morse-protocol" content="${PROTOCOL_VERSION}">`,
+      `<head>\n  <meta http-equiv="Content-Security-Policy" content="${csp}">\n  <meta name="morse-protocol" content="${PROTOCOL_VERSION}">${routeScript}`,
     );
 }
 

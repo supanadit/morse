@@ -294,9 +294,16 @@ export class CommandPalette {
       id: `tab:${tab.id}`,
       kind: 'tab' as const,
       label: tab.title,
-      description: tab.kind === 'file' ? tab.path : tab.cwd,
-      badge: tab.kind === 'file' ? 'file' : tab.draft === true ? 'draft' : 'session',
-      icon: tab.kind === 'file' ? '≡' : '▸',
+      description: tab.kind === 'file' ? tab.path : tab.kind === 'session' ? tab.cwd : 'MCP servers',
+      badge:
+        tab.kind === 'file'
+          ? 'file'
+          : tab.kind === 'mcp'
+            ? 'mcp'
+            : tab.draft === true
+              ? 'draft'
+              : 'session',
+      icon: tab.kind === 'file' ? '≡' : tab.kind === 'mcp' ? '⚙' : '▸',
     }));
   });
 

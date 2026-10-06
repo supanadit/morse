@@ -29,6 +29,30 @@ function defaultShell(): string {
 }
 
 /**
+ * The environment a terminal's shell starts with: the user's own, with Morse's
+ * variables removed.
+ *
+ * The server is a child of `morse start` (or `npm run dev`) and inherits
+ * `MORSE_PORT`, `MORSE_WORKSPACE`, `MORSE_UI_DIR` and friends. Passing
+ * `process.env` straight to the PTY leaked them into every shell, so running
+ * Morse from inside Morse picked the host's port and tried to bind it again
+ * (`EADDRINUSE`). A shell here behaves as if opened from the user's desktop:
+ * `MORSE_*` is stripped, and so is the IPC channel `fork`/`node --watch` puts in
+ * the environment (a child Node would otherwise speak the parent's protocol).
+ */
+export function terminalShellEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key.startsWith('MORSE_') || key === 'NODE_CHANNEL_FD' || key === 'NODE_CHANNEL_SERIALIZATION_MODE') {
+      continue;
+    }
+    env[key] = value;
+  }
+  env.TERM = 'xterm-256color';
+  return env;
+}
+
+/**
  * One terminal the host is holding: the live shell (when it has one), the viewers
  * attached to it, and the scrollback.
  *
@@ -185,7 +209,7 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
       cols: options.cols,
       rows: options.rows,
       cwd: options.cwd,
-      env: { ...process.env, TERM: 'xterm-256color', MORSE_TERMINAL: '1' },
+      env: terminalShellEnv(),
     });
     entry.pty = pty;
     this.logger.info(`Terminal opened in ${options.cwd} (${shell}, pid ${pty.pid})`);

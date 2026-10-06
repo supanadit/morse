@@ -83,6 +83,45 @@ describe('TabStrip context menu', () => {
     expect(fixture.nativeElement.querySelector('.strip').textContent).toContain('STATUS.md');
   });
 
+  it('makes the whole chip row two lines when any file name is shared', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('overlays/production/service/postgresql.yaml');
+    tabs.openFile('overlays/production/persistence/postgresql.yaml');
+    // Unique, but the row it sits in has a clash: it still gets the second line,
+    // so every chip is the same height and the folders line up.
+    tabs.openFile('overlays/production/kustomization.yaml');
+    fixture.detectChanges();
+
+    const chips = [
+      ...fixture.nativeElement.querySelectorAll('.strip + .strip .tab.mention'),
+    ] as HTMLElement[];
+    expect(chips).toHaveLength(3);
+    expect(chips.every((chip) => chip.classList.contains('has-dir'))).toBe(true);
+    expect(
+      chips.map((chip) => chip.querySelector('.dir')?.textContent?.trim()).sort(),
+    ).toEqual([
+      'overlays/production',
+      'overlays/production/persistence',
+      'overlays/production/service',
+    ]);
+  });
+
+  it('keeps every chip one line when no file name is shared', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('overlays/production/service/postgresql.yaml');
+    tabs.openFile('overlays/production/kustomization.yaml');
+    fixture.detectChanges();
+
+    const chips = [
+      ...fixture.nativeElement.querySelectorAll('.strip + .strip .tab.mention'),
+    ] as HTMLElement[];
+    expect(chips).toHaveLength(2);
+    expect(chips.some((chip) => chip.classList.contains('has-dir'))).toBe(false);
+    expect(chips.every((chip) => chip.querySelector('.dir') === null)).toBe(true);
+  });
+
   it('marks the session a chip in front belongs to', () => {
     const { fixture, tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });

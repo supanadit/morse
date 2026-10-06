@@ -5,6 +5,7 @@ import { ChatComposer } from './chat/chat-composer/chat-composer';
 import { EmptySession } from './chat/empty-session/empty-session';
 import { ChatHeader } from './chat/chat-header/chat-header';
 import { McpPanel } from './chat/mcp-panel/mcp-panel';
+import { McpEditor } from './chat/mcp-editor/mcp-editor';
 import { ChatTranscript } from './chat/chat-transcript/chat-transcript';
 import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
@@ -54,6 +55,7 @@ function previewBoot(): boolean {
     ConfirmDialog,
     ChatHeader,
     McpPanel,
+    McpEditor,
     ChatTranscript,
     InteractionPanel,
     ChatComposer,
@@ -150,6 +152,8 @@ export class App {
     const tab = this.tabs.activeTab();
     return tab?.kind === 'file' ? tab : undefined;
   });
+  /** The MCP editor is in front, so the panel shows it instead of a conversation. */
+  protected readonly activeMcp = computed(() => this.tabs.activeTab()?.kind === 'mcp');
   /**
    * No session tab is in front, on the host that shows the strip. The panel shows
    * a placeholder instead of a conversation that does not exist, and the composer

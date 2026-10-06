@@ -1,0 +1,218 @@
+<div class="page">
+  <h2>Add an MCP server</h2>
+  <p class="lead">
+    Build the entry, then <strong>Test connection</strong> to check it before it is written to an
+    <code>mcp.json</code>. The probe connects the same way pi will, so a bad command, a dead URL or a
+    server that wants OAuth shows up here.
+  </p>
+
+  <div class="scope-bar">
+    <span class="scope-label">Save to</span>
+    <div class="segmented" role="group" aria-label="MCP config scope">
+      <button
+        type="button"
+        [class.active]="scope() === 'project'"
+        [attr.aria-pressed]="scope() === 'project'"
+        (click)="setScope('project')"
+      >
+        This project
+      </button>
+      <button
+        type="button"
+        [class.active]="scope() === 'global'"
+        [attr.aria-pressed]="scope() === 'global'"
+        (click)="setScope('global')"
+      >
+        Global
+      </button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="mcp-editor-name">Name</label>
+    <input
+      id="mcp-editor-name"
+      type="text"
+      placeholder="filesystem"
+      [value]="name()"
+      (input)="setName($any($event.target).value)"
+    />
+  </div>
+  <div class="field">
+    <label for="mcp-editor-type">Transport</label>
+    <select id="mcp-editor-type" [value]="type()" (change)="setType($any($event.target).value)">
+      <option value="stdio">stdio (command)</option>
+      <option value="http">HTTP (url)</option>
+    </select>
+  </div>
+
+  @if (isHttp()) {
+    <div class="field">
+      <label for="mcp-editor-url">URL</label>
+      <input
+        id="mcp-editor-url"
+        type="text"
+        placeholder="https://example.com/mcp"
+        [value]="url()"
+        (input)="setUrl($any($event.target).value)"
+      />
+    </div>
+  } @else {
+    <div class="field">
+      <label for="mcp-editor-command">Command</label>
+      <input
+        id="mcp-editor-command"
+        type="text"
+        placeholder="npx"
+        [value]="command()"
+        (input)="setCommand($any($event.target).value)"
+      />
+    </div>
+    <div class="field">
+      <label for="mcp-editor-args">Arguments</label>
+      <input
+        id="mcp-editor-args"
+        type="text"
+        placeholder="-y @modelcontextprotocol/server-filesystem ."
+        [value]="argsText()"
+        (input)="setArgs($any($event.target).value)"
+      />
+    </div>
+  }
+
+  <div class="field">
+    <label for="mcp-editor-exposure">Exposure</label>
+    <select
+      id="mcp-editor-exposure"
+      [value]="exposure()"
+      (change)="setExposure($any($event.target).value)"
+    >
+      <option value="codemode">codemode</option>
+      <option value="deferred">deferred</option>
+      <option value="direct">direct</option>
+      <option value="hidden">hidden</option>
+    </select>
+  </div>
+
+  <div class="actions">
+    <button type="button" [disabled]="testing() || adding()" (click)="test()">
+      {{ testing() ? 'Testing…' : 'Test connection' }}
+    </button>
+    <span class="spacer"></span>
+    <button type="button" [disabled]="adding() || testing()" (click)="add()">
+      {{ adding() ? 'Adding…' : 'Add server' }}
+    </button>
+  </div>
+
+  @if (formError(); as problem) {
+    <div class="error">{{ problem }}</div>
+  }
+  @if (added(); as done) {
+    <div class="result ok">
+      <div class="result-head">
+        <span class="dot" aria-hidden="true"></span>
+        <span>Added to {{ scope() === 'project' ? 'this project' : 'your user mcp.json' }}</span>
+      </div>
+      <div class="result-body">pi picks it up on the next session.</div>
+    </div>
+  } @else if (testing()) {
+    <div class="result">
+      <div class="result-head">
+        <span class="dot" aria-hidden="true"></span>
+        <span>Connecting…</span>
+      </div>
+    </div>
+  } @else if (inspected(); as result) {
+    @if (result.ok) {
+      <div class="result ok">
+        <div class="result-head">
+          <span class="dot" aria-hidden="true"></span>
+          <span>{{ result.serverInfo?.name || 'Connected' }}</span>
+          @if (result.serverInfo?.version; as version) {
+            <span class="muted">v{{ version }} · {{ result.durationMs }} ms</span>
+          } @else {
+            <span class="muted">{{ result.durationMs }} ms</span>
+          }
+        </div>
+        <div class="result-body">
+          @if (result.protocolVersion; as protocol) {
+            <div>Protocol {{ protocol }}</div>
+          }
+          @if (capabilities(result); as caps) {
+            <div class="caps">
+              @for (cap of caps; track cap) {
+                <span class="chip">{{ cap }}</span>
+              }
+            </div>
+          }
+          @if (result.instructions; as instructions) {
+            <p>{{ instructions }}</p>
+          }
+
+          @if (result.tools.length > 0) {
+            <div>{{ result.tools.length }} tool{{ result.tools.length === 1 ? '' : 's' }}</div>
+            <ul class="list">
+              @for (tool of result.tools; track tool.name) {
+                <li>
+                  <div class="item-name">{{ tool.title || tool.name }}</div>
+                  @if (tool.description; as description) {
+                    <div class="item-desc">{{ description }}</div>
+                  }
+                </li>
+              }
+            </ul>
+          }
+          @if (result.resources.length > 0) {
+            <div>{{ result.resources.length }} resource{{ result.resources.length === 1 ? '' : 's' }}</div>
+            <ul class="list">
+              @for (resource of result.resources; track resource.uri) {
+                <li>
+                  <div class="item-name">{{ resource.name || resource.uri }}</div>
+                  @if (resource.description; as description) {
+                    <div class="item-desc">{{ description }}</div>
+                  }
+                </li>
+              }
+            </ul>
+          }
+          @if (result.prompts.length > 0) {
+            <div>{{ result.prompts.length }} prompt{{ result.prompts.length === 1 ? '' : 's' }}</div>
+            <ul class="list">
+              @for (prompt of result.prompts; track prompt.name) {
+                <li>
+                  <div class="item-name">{{ prompt.title || prompt.name }}</div>
+                  @if (prompt.description; as description) {
+                    <div class="item-desc">{{ description }}</div>
+                  }
+                </li>
+              }
+            </ul>
+          }
+          @if (result.tools.length === 0 && result.resources.length === 0 && result.prompts.length === 0) {
+            <div>Connected, but the server offers no tools, resources or prompts.</div>
+          }
+
+          @if (result.logs?.length) {
+            <div class="logs">{{ result.logs.join('') }}</div>
+          }
+        </div>
+      </div>
+    } @else {
+      <div class="result bad">
+        <div class="result-head">
+          <span class="dot" aria-hidden="true"></span>
+          <span>{{ errorTitle(result) }}</span>
+        </div>
+        <div class="result-body">
+          <div>{{ result.error?.message }}</div>
+          @if (errorHint(result); as hint) {
+            <div class="item-desc">{{ hint }}</div>
+          }
+          @if (result.logs?.length) {
+            <div class="logs">{{ result.logs.join('') }}</div>
+          }
+        </div>
+      </div>
+    }
+  }
+</div>

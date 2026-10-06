@@ -34,7 +34,8 @@
     "copilot-alternative"
   ],
   "activationEvents": [
-    "onView:morse.chat"
+    "onView:morse.chat",
+    "onWebviewPanel:morse.mcpEditor"
   ],
   "main": "./dist/extension.js",
   "icon": "media/icon.png",

@@ -14,6 +14,7 @@ import {
 import type { FitAddon } from '@xterm/addon-fit';
 import type { ITheme, Terminal as XTermInstance } from '@xterm/xterm';
 import { MorseService } from '../../core/morse.service';
+import { registerTerminalLinks } from './terminal-links';
 
 /**
  * A real terminal: xterm.js renders the shell's stream (ANSI, colours, cursor,
@@ -164,6 +165,8 @@ export class Terminal {
     term.onResize(({ cols, rows }) => this.morse.resizeTerminal(this.id(), cols, rows));
     // OSC 0/2: the shell names the tab (its cwd, or the command it is running).
     term.onTitleChange((title) => this.titleChange.emit(title));
+    // `http://localhost:5199/` in a dev-server banner is one click, not a copy.
+    registerTerminalLinks(term, (url) => this.openExternal(url));
     this.fitNow();
     this.attachToHost();
     term.focus();
@@ -209,6 +212,17 @@ export class Terminal {
       webgl.onContextLoss(() => webgl.dispose());
     } catch {
       // No WebGL (or no addon): the default renderer is fine.
+    }
+  }
+
+  /**
+   * Opens a link found in the terminal output. This panel is the browser host's
+   * (VS Code keeps its own terminal), so a new tab is the way out; a webview
+   * would need a host command, but this emulator is never mounted there.
+   */
+  private openExternal(url: string): void {
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
 

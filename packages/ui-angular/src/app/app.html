@@ -160,7 +160,9 @@
       </div>
     }
 
-    @if (activeFile(); as file) {
+    @if (activeMcp()) {
+      <morse-mcp-editor />
+    } @else if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
     } @else {
       @if (lastError(); as error) {

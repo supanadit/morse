@@ -14,6 +14,7 @@ import {
   type McpFileServer,
 } from './internal/mcp-config.js';
 import { resolvePiCli } from './internal/resolve-pi.js';
+import { readProjectTrust, writeProjectTrust, type TrustResult } from './internal/project-trust.js';
 import { cleanSpawnEnv } from './internal/spawn-env.js';
 
 /** How a server reaches the model (pi's `McpExposure`). */
@@ -65,6 +66,11 @@ export interface McpStatus {
   servers: McpServerStatus[];
   errors: string[];
   note?: string;
+  /**
+   * Whether pi would load this project's `.pi` resources. False means the
+   * project files (including `.pi/mcp.json`) are ignored until it is trusted.
+   */
+  trusted?: boolean;
 }
 
 /** What `mcpAdd` takes. Exactly one of `command` (stdio) or `url` (http) is required. */
@@ -169,7 +175,15 @@ export class PiMcp {
         : stderr.trim() || (failed ? `\`pi mcp list\` exited with an error` : 'no output');
       throw new Error(`Could not read the MCP server list: ${detail}`);
     }
-    return parsed;
+    return { ...parsed, trusted: readProjectTrust(cwd, this.agentDir()) };
+  }
+
+  /**
+   * Marks the session's project trusted, so pi loads the project's `.pi`
+   * resources (mcp.json included). pi's plain "Trust", not a parent folder.
+   */
+  trustProject(cwd: string): TrustResult {
+    return writeProjectTrust(cwd, this.agentDir());
   }
 
   async add(input: McpServerInput, cwd: string): Promise<McpMutation> {

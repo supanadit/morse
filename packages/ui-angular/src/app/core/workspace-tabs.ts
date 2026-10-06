@@ -53,7 +53,17 @@ export interface FileTab {
   commitSubject?: string;
 }
 
-export type WorkspaceTab = SessionTab | FileTab;
+export type WorkspaceTab = SessionTab | FileTab | McpTab;
+
+/**
+ * The MCP editor, opened in the strip. There is exactly one (`MCP_TAB_ID`), so
+ * "Add server" re-focuses the open editor instead of stacking a second one.
+ */
+export interface McpTab {
+  kind: 'mcp';
+  id: string;
+  title: string;
+}
 
 /**
  * One tab as it is written to `<MORSE_HOME>/workbench.json`. Only the durable
@@ -64,6 +74,7 @@ export type WorkspaceTab = SessionTab | FileTab;
  */
 export type PersistedTab =
   | { kind: 'session'; id: string; title: string; cwd?: string; draft?: boolean }
+  | { kind: 'mcp'; id: string; title: string }
   | {
       kind: 'file';
       id: string;
@@ -86,6 +97,8 @@ export interface TabsSnapshot {
 const FILE_PREFIX = 'file:';
 /** Files opened from the `@` picker live in a second row, so the prefix differs. */
 const MENTION_PREFIX = 'mention:';
+/** There is one MCP editor tab, whatever the directory. */
+export const MCP_TAB_ID = 'mcp:servers';
 
 /** The shape the host's `readFile` command resolves with. */
 interface FilePreviewPayload {
@@ -144,7 +157,9 @@ export class WorkspaceTabs {
   readonly activeId = this.active.asReadonly();
   /** The first row: sessions, and files opened with no session in front. */
   readonly mainTabs = computed(() =>
-    this.items().filter((tab) => tab.kind === 'session' || tab.mention !== true),
+    this.items().filter(
+      (tab) => tab.kind !== 'file' || tab.mention !== true,
+    ),
   );
   readonly activeTab = computed<WorkspaceTab | undefined>(() =>
     this.items().find((tab) => tab.id === this.active()),
@@ -339,6 +354,9 @@ export class WorkspaceTabs {
           },
         ];
       }
+      if (tab.kind === 'mcp') {
+        return [{ kind: 'mcp', id: tab.id, title: tab.title }];
+      }
       if (tab.mention === true && (tab.sessionId === undefined || !sessionIds.has(tab.sessionId))) {
         return [];
       }
@@ -391,6 +409,9 @@ export class WorkspaceTabs {
           },
         ];
       }
+      if (tab.kind === 'mcp') {
+        return [{ kind: 'mcp', id: tab.id, title: tab.title }];
+      }
       return [
         {
           kind: 'file',
@@ -439,6 +460,24 @@ export class WorkspaceTabs {
    */
   endRestore(): void {
     this.restorePending = false;
+  }
+
+  /**
+   * Opens the one MCP editor tab, or brings it forward when it is already open.
+   * A single tab is the point: "Add server" while the editor is up is a focus,
+   * never a second editor holding a half-filled form.
+   */
+  openMcp(): void {
+    const existing = this.items().find((tab) => tab.id === MCP_TAB_ID);
+    if (existing !== undefined) {
+      this.active.set(MCP_TAB_ID);
+      return;
+    }
+    this.items.update((tabs) => [
+      ...tabs,
+      { kind: 'mcp', id: MCP_TAB_ID, title: 'MCP servers' },
+    ]);
+    this.active.set(MCP_TAB_ID);
   }
 
   /**
@@ -716,13 +755,15 @@ export class WorkspaceTabs {
     if (target === undefined || target.kind === 'session') {
       return this.items();
     }
-    if (target.mention === true) {
+    if (target.kind === 'file' && target.mention === true) {
       return this.items().filter(
         (tab): tab is FileTab =>
           tab.kind === 'file' && tab.mention === true && tab.sessionId === target.sessionId,
       );
     }
-    return this.items().filter((tab) => tab.kind === 'file' && tab.mention !== true);
+    return this.items().filter(
+      (tab) => tab.kind === 'mcp' || (tab.kind === 'file' && tab.mention !== true),
+    );
   }
 
   /** Whether a tab has anything to its right inside its own menu scope. */
@@ -1183,6 +1224,13 @@ function asPersistedTab(value: unknown): PersistedTab | undefined {
       ...(typeof cwd === 'string' ? { cwd } : {}),
       ...(candidate['draft'] === true ? { draft: true } : {}),
     };
+  }
+  if (candidate['kind'] === 'mcp') {
+    const title = candidate['title'];
+    if (typeof title !== 'string') {
+      return undefined;
+    }
+    return { kind: 'mcp', id, title };
   }
   if (candidate['kind'] !== 'file') {
     return undefined;

@@ -366,6 +366,12 @@ export interface McpStatus {
   /** Config-file problems pi could not attach to a server. */
   errors: string[];
   note?: string;
+  /**
+   * Whether pi would load this project's `.pi` resources. False means project
+   * files (including `.pi/mcp.json`) are ignored until the project is trusted,
+   * which the panel offers to change (`trustProject`).
+   */
+  trusted?: boolean;
 }
 
 /** What the `mcpAdd` host command takes. */
@@ -395,6 +401,99 @@ export interface McpMutation {
   scope?: McpConfigScope;
   /** True when a user-level server got a project override instead of a rewrite. */
   override?: boolean;
+}
+
+/** What the `trustProject` host command answers. */
+export interface ProjectTrustResult {
+  ok: boolean;
+  message?: string;
+  /** The `trust.json` that was written, for the panel to name. */
+  path?: string;
+}
+
+/** One tool a probed server offers. */
+export interface McpToolInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  /** The tool's JSON Schema, for the inspector's detail view. */
+  inputSchema?: unknown;
+}
+
+/** One resource a probed server offers. */
+export interface McpResourceInfo {
+  uri: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** One resource template a probed server offers. */
+export interface McpResourceTemplateInfo {
+  uriTemplate: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** One argument of a probed server's prompt. */
+export interface McpPromptArgumentInfo {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+/** One prompt a probed server offers. */
+export interface McpPromptInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: McpPromptArgumentInfo[];
+}
+
+/** The capabilities a probe reports; only the ones worth a card. */
+export interface McpServerCapabilitiesInfo {
+  tools?: boolean;
+  resources?: boolean;
+  prompts?: boolean;
+  logging?: boolean;
+  completions?: boolean;
+}
+
+/** Why a probe failed, as a class the inspector branches on. */
+export type McpInspectionErrorKind =
+  | 'auth'
+  | 'unreachable'
+  | 'timeout'
+  | 'protocol'
+  | 'spawn'
+  | 'unknown';
+
+export interface McpInspectionErrorInfo {
+  kind: McpInspectionErrorKind;
+  message: string;
+  status?: number;
+  /** OAuth protected-resource metadata URL, when the server advertised one. */
+  authUrl?: string;
+}
+
+/** What the `mcpInspect` host command answers: a server, probed before it is added. */
+export interface McpInspectionResult {
+  ok: boolean;
+  serverInfo?: { name: string; title?: string; version?: string };
+  protocolVersion?: string;
+  instructions?: string;
+  capabilities?: McpServerCapabilitiesInfo;
+  tools: McpToolInfo[];
+  resources: McpResourceInfo[];
+  resourceTemplates: McpResourceTemplateInfo[];
+  prompts: McpPromptInfo[];
+  /** A stdio server's stderr, capped. */
+  logs?: string[];
+  error?: McpInspectionErrorInfo;
+  durationMs: number;
 }
 
 /**

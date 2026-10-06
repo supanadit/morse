@@ -49,6 +49,7 @@ import {
             sessionDir: config.sessionDir,
             noSession: config.noSession,
             requestTimeoutMs: config.requestTimeoutMs,
+            clientVersion: config.frontend?.version,
           },
           logger,
         ),

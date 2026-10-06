@@ -52,6 +52,15 @@ export type HostCommand =
   | 'mcpRemove'
   /** Turn an MCP server on or off in the `mcp.json` that defines it. */
   | 'mcpSetEnabled'
+  /** Mark the viewing project trusted, so pi loads its `.pi` resources. */
+  | 'trustProject'
+  /**
+   * Connect to an MCP server *before* it is added, so the reader can see what it
+   * offers (or exactly why it will not connect). Writes nothing.
+   */
+  | 'mcpInspect'
+  /** Open the host's MCP editor (VS Code's editor panel; the browser host tabs). */
+  | 'openMcpEditor'
   /** Stage the named paths in the viewing session's repository. */
   | 'gitStage'
   /** Unstage the named paths (keep the working-tree change). */

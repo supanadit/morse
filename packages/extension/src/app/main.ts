@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
-import { createPiRpcAdapter } from '@morse/adapter-pi-rpc';
+import { createPiRpcAdapter, findOnPath, type PiRpcAdapterConfig } from '@morse/adapter-pi-rpc';
 import { ChatService, SessionRegistry } from '@morse/core';
 import { SessionTranscriptStore } from '@morse/host-runtime';
 import {
@@ -16,6 +16,7 @@ import { OutputChannelLogger } from '../internal/vscode/logger';
 import { VsCodeProjectPolicy } from '../internal/vscode/project-policy';
 import { VsCodeContextProvider } from '../internal/vscode/vscode-context-provider';
 import { deleteSessionFile } from '../internal/vscode/session-files';
+import { loginShellPath } from '../internal/vscode/shell-path';
 import { warmFileIndex } from '../internal/vscode/workspace-index';
 
 /**
@@ -58,8 +59,15 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
 
   // The catalog deletes a session the VS Code way (workspace filesystem, into
   // the OS trash); the browser host keeps the adapter's default `unlink`.
+  const piConfig = readPiAdapterConfig();
+  const env = await resolvePiEnv(piConfig, logger);
   const adapter = createPiRpcAdapter(
-    { ...readPiAdapterConfig(), removeSessionFile: deleteSessionFile },
+    {
+      ...piConfig,
+      removeSessionFile: deleteSessionFile,
+      clientVersion: frontendIdentity(manifest)?.version,
+      ...(env ? { env } : {}),
+    },
     logger,
   );
   const workspace = readWorkspaceRef();
@@ -87,6 +95,7 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     webviewRoot,
     frontend: frontendIdentity(manifest),
     mcp: adapter.mcp,
+    inspector: adapter.inspector,
     mcpAvailable: adapter.describeCli() !== undefined,
     piVersion: adapter.version(),
   });
@@ -103,6 +112,8 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     vscode.commands.registerCommand('morse.attachSelection', () => provider.attachSelection()),
     vscode.commands.registerCommand('morse.showOutput', () => logger.show()),
   );
+  // A window reload restores the MCP editor panel (and its half-filled form).
+  provider.registerSerializers(context);
 
   // Index the workspace while the user is still reading the panel, so the file
   // picker opens with its list ready.
@@ -125,6 +136,32 @@ function describePi(adapter: { describe(): { source: string; command: string } }
   } catch (error: unknown) {
     return `not found (${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'})`;
   }
+}
+
+/**
+ * The environment the pi adapter resolves and spawns with.
+ *
+ * VS Code started from the Dock/launcher does not source the user's profile, so
+ * a `pi` installed through nvm, asdf, volta or fnm is on the login shell's PATH
+ * but not the extension host's — the setup screen then claims pi is missing
+ * while it works in the integrated terminal. Only when pi is not already visible
+ * do we pay for running the login shell, and an explicit `morse.pi.path` always
+ * wins. The enriched PATH is handed to the adapter as `env`, so the spawned pi
+ * finds its own `node` too.
+ */
+async function resolvePiEnv(
+  config: Pick<PiRpcAdapterConfig, 'piPath'>,
+  logger: OutputChannelLogger,
+): Promise<NodeJS.ProcessEnv | undefined> {
+  if (config.piPath !== undefined || findOnPath('pi', process.env) !== undefined) {
+    return undefined;
+  }
+  const path = await loginShellPath(process.env);
+  if (path === undefined || findOnPath('pi', { ...process.env, PATH: path }) === undefined) {
+    return undefined;
+  }
+  logger.info('pi was not on the extension host PATH; using the login shell PATH instead');
+  return { ...process.env, PATH: path };
 }
 
 function describeError(error: unknown): string {

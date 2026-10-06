@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/core';
 import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
-import { parseMcpServerInput } from '@morse/adapter-pi-rpc';
+import { parseMcpServerInput, parseMcpServerSpec } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostCommandContext,
@@ -309,6 +309,17 @@ export class MorseSessionFactory {
         const cwd = this.requireWritableCwd(context);
         return this.pi.mcp.add(parseMcpServerInput(args), cwd);
       }
+      case 'mcpInspect': {
+        // Probing spawns the server, so its directory is policy-checked like a
+        // session's. Nothing is written: this answers "would it work?" before
+        // the reader commits an entry to `mcp.json`.
+        const spec = parseMcpServerSpec(args);
+        const cwd = this.commandCwd(context, { cwd: spec.cwd ?? '' });
+        if (spec.cwd === undefined) {
+          spec.cwd = cwd;
+        }
+        return this.pi.inspector.inspect(spec, { cwd });
+      }
       case 'mcpRemove': {
         const cwd = this.requireWritableCwd(context);
         return this.pi.mcp.remove(stringArg(args, 'name'), cwd, mcpScope(args));
@@ -321,6 +332,13 @@ export class MorseSessionFactory {
           cwd,
           mcpScope(args),
         );
+      }
+      case 'trustProject': {
+        // Trusting loads the project's `.pi` resources for every future pi
+        // process (mcp.json, settings, skills, prompts), the same decision pi's
+        // own prompt writes. Nothing else about the project is touched.
+        const cwd = this.requireWritableCwd(context);
+        return this.pi.mcp.trustProject(cwd);
       }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);

@@ -1,6 +1,7 @@
 import type { AgentGatewayFactory, MorseLogger, SessionCatalog } from '@morse/core';
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
 import { PiMcp } from './pi-mcp.js';
+import { McpInspector } from './internal/mcp-client.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 import { resolvePi, resolvePiCli, readPiVersion, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
 
@@ -9,6 +10,8 @@ export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
   maxSessions?: number;
   /** How session files are removed; the host supplies its own (see the catalog). */
   removeSessionFile?: (path: string) => Promise<void>;
+  /** The Morse build, reported to an MCP server as `clientInfo.version`. */
+  clientVersion?: string;
 }
 
 export interface PiRpcAdapter {
@@ -16,6 +19,11 @@ export interface PiRpcAdapter {
   catalog: SessionCatalog;
   /** pi's MCP configuration, read and written through the CLI and `mcp.json`. */
   mcp: PiMcp;
+  /**
+   * Connects to an MCP server before it is added, so the reader can see what it
+   * offers. A client Morse owns; no inspector package is installed.
+   */
+  inspector: McpInspector;
   /** Resolves the spawn command; throws with an actionable message when pi is missing. */
   describe(): PiSpawn;
   /**
@@ -46,6 +54,9 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
     env: config.env,
   };
   const mcp = new PiMcp(cliOptions);
+  const inspector = new McpInspector({
+    clientVersion: config.clientVersion,
+  });
   // Cached across connections: reading it touches the filesystem, and the
   // answer only changes when the host restarts with a new pi on disk.
   let cachedVersion: string | null | undefined;
@@ -53,6 +64,7 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
     factory,
     catalog,
     mcp,
+    inspector,
     describe: () =>
       resolvePi({
         piPath: config.piPath,

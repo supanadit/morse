@@ -138,6 +138,8 @@ export class MemoryHostTransport extends BaseHostTransport {
   private counter = 100;
   private disposed = false;
   private streaming = false;
+  /** What a frontend asked the host to keep (the `ViewState` service). */
+  private persistedState: unknown;
   private state: SessionViewState = {
     workspace: WORKSPACE,
     model: { provider: 'mock', id: 'mock-1', name: 'Mock Model', contextWindow: 1_000_000, maxTokens: 32_768 },
@@ -627,6 +629,14 @@ export class MemoryHostTransport extends BaseHostTransport {
     this.disposed = true;
     this.abortRun();
     this.emitStatus('closed');
+  }
+
+  readState(): unknown {
+    return this.persistedState;
+  }
+
+  writeState(state: unknown): void {
+    this.persistedState = state;
   }
 
   /**

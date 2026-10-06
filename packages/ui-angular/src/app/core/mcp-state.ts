@@ -1,10 +1,12 @@
 import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import type {
   McpConfigScope,
+  McpInspectionResult,
   McpServerInput,
   McpServerStatus,
   McpStatus,
   McpMutation,
+  ProjectTrustResult,
 } from '@morse/protocol';
 import { MorseService } from './morse.service';
 
@@ -20,6 +22,8 @@ const STATUS_TTL_MS = 60_000;
 /** The frontend's other host commands time out at 5 s; connecting to servers does not fit. */
 const STATUS_TIMEOUT_MS = 30_000;
 const MUTATION_TIMEOUT_MS = 15_000;
+/** A probe spawns or dials a server and runs a whole MCP lifecycle. */
+const INSPECT_TIMEOUT_MS = 45_000;
 
 /**
  * The MCP servers of every directory the reader has looked at, as the host last
@@ -170,6 +174,20 @@ export class McpState {
     return result;
   }
 
+  /**
+   * Connects to a server *before* it is added, so the reader can see its tools
+   * (or the exact reason it will not connect). The host writes nothing; the
+   * `cwd` scopes a spawn the same way a session does.
+   */
+  async inspect(input: McpServerInput, cwd: string): Promise<McpInspectionResult | undefined> {
+    const data = await this.morse.requestHostCommand(
+      'mcpInspect',
+      { ...input, cwd },
+      INSPECT_TIMEOUT_MS,
+    );
+    return asInspection(data);
+  }
+
   async remove(name: string, cwd: string, scope: McpConfigScope): Promise<McpMutation> {
     return this.mutate('mcpRemove', { name, scope }, cwd);
   }
@@ -181,6 +199,20 @@ export class McpState {
     scope: McpConfigScope,
   ): Promise<McpMutation> {
     return this.mutate('mcpSetEnabled', { name, enabled, scope }, cwd);
+  }
+
+  /**
+   * Marks the viewing project trusted, so pi loads its `.pi` resources (the
+   * project's `mcp.json` included). A status refresh follows, since the project
+   * servers pi was ignoring should appear.
+   */
+  async trustProject(cwd: string): Promise<ProjectTrustResult> {
+    const data = await this.morse.requestHostCommand('trustProject', { cwd }, MUTATION_TIMEOUT_MS);
+    const result = asTrustResult(data);
+    if (result.ok) {
+      await this.refresh(cwd, true);
+    }
+    return result;
   }
 
   private async mutate(
@@ -205,7 +237,7 @@ function asMcpStatus(value: unknown): McpStatus | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
-  const row = value as { servers?: unknown; errors?: unknown; note?: unknown };
+  const row = value as { servers?: unknown; errors?: unknown; note?: unknown; trusted?: unknown };
   if (!Array.isArray(row.servers)) {
     return undefined;
   }
@@ -213,6 +245,7 @@ function asMcpStatus(value: unknown): McpStatus | undefined {
     servers: row.servers.filter(isServerStatus),
     errors: Array.isArray(row.errors) ? row.errors.filter(isString) : [],
     ...(typeof row.note === 'string' ? { note: row.note } : {}),
+    ...(row.trusted === true ? { trusted: true } : row.trusted === false ? { trusted: false } : {}),
   };
 }
 
@@ -242,4 +275,56 @@ function asMcpMutation(value: unknown): McpMutation {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function asTrustResult(value: unknown): ProjectTrustResult {
+  if (typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === true) {
+    const row = value as { path?: unknown };
+    return { ok: true, ...(typeof row.path === 'string' ? { path: row.path } : {}) };
+  }
+  const message =
+    typeof (value as { message?: unknown } | null)?.message === 'string'
+      ? (value as { message: string }).message
+      : 'The host could not trust the project.';
+  return { ok: false, message };
+}
+
+/**
+ * A probe result, normalised just enough that a malformed answer renders as an
+ * empty card rather than crashing the editor.
+ */
+function asInspection(value: unknown): McpInspectionResult | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const row = value as Record<string, unknown>;
+  const lists = (key: string): unknown[] => (Array.isArray(row[key]) ? (row[key] as unknown[]) : []);
+  return {
+    ok: row['ok'] === true,
+    ...(isRecord(row['serverInfo'])
+      ? { serverInfo: row['serverInfo'] as unknown as McpInspectionResult['serverInfo'] }
+      : {}),
+    ...(typeof row['protocolVersion'] === 'string'
+      ? { protocolVersion: row['protocolVersion'] }
+      : {}),
+    ...(typeof row['instructions'] === 'string' ? { instructions: row['instructions'] } : {}),
+    ...(isRecord(row['capabilities'])
+      ? { capabilities: row['capabilities'] as unknown as McpInspectionResult['capabilities'] }
+      : {}),
+    tools: lists('tools') as McpInspectionResult['tools'],
+    resources: lists('resources') as McpInspectionResult['resources'],
+    resourceTemplates: lists('resourceTemplates') as McpInspectionResult['resourceTemplates'],
+    prompts: lists('prompts') as McpInspectionResult['prompts'],
+    ...(Array.isArray(row['logs']) ? { logs: row['logs'].filter(isString) } : {}),
+    ...(isInspectionError(row['error']) ? { error: row['error'] } : {}),
+    durationMs: typeof row['durationMs'] === 'number' ? row['durationMs'] : 0,
+  };
+}
+
+function isInspectionError(value: unknown): value is McpInspectionResult['error'] {
+  return isRecord(value) && typeof value['kind'] === 'string' && typeof value['message'] === 'string';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

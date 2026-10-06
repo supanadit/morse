@@ -6,7 +6,7 @@ import {
   type EditorContextProvider,
   type MorseLogger,
 } from '@morse/core';
-import { parseMcpServerInput, type PiMcp } from '@morse/adapter-pi-rpc';
+import { parseMcpServerInput, parseMcpServerSpec, type McpInspector, type PiMcp } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostSessionServices,
@@ -25,6 +25,9 @@ import { renderWebviewHtml } from './webview-html';
 import { SelectionPreviewTracker } from './selection-preview';
 import { workspaceFiles } from './workspace-index';
 
+/** The MCP editor panel's view type; also the `onWebviewPanel` activation event. */
+const MCP_EDITOR_VIEW_TYPE = 'morse.mcpEditor';
+
 export interface ChatViewProviderDeps {
   registry: SessionRegistry;
   transcripts: SessionTranscriptStore;
@@ -38,6 +41,8 @@ export interface ChatViewProviderDeps {
   frontend?: { name: string; version: string };
   /** pi's MCP configuration. The panel's MCP manager is hidden when the CLI is missing. */
   mcp: PiMcp;
+  /** Probes an MCP server before it is added; Morse's own client. */
+  inspector: McpInspector;
   mcpAvailable: boolean;
   /** The installed pi version, for the "a newer pi is out" notice. */
   piVersion?: string;
@@ -90,6 +95,8 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   private controller: HostSessionController | undefined;
   private view: vscode.WebviewView | undefined;
   private frontendConnected = false;
+  /** The one MCP editor panel; "Add server" reveals it instead of opening a second. */
+  private mcpPanel: vscode.WebviewPanel | undefined;
 
   constructor(private readonly deps: ChatViewProviderDeps) {}
 
@@ -197,6 +204,111 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
   async focus(): Promise<void> {
     await vscode.commands.executeCommand(`${MorseChatViewProvider.viewType}.focus`);
+  }
+
+  /**
+   * The MCP editor as its own editor tab. VS Code has no Morse tab strip, so the
+   * editor gets a `WebviewPanel` instead — the same Angular bundle, routed with
+   * `#/mcp`, and its own `HostSessionController` so the panel's `mcpInspect` /
+   * `mcpAdd` commands reach the same registry the sidebar does. At most one panel
+   * is open: a second "Add server" reveals the one already up.
+   */
+  openMcpEditor(): void {
+    if (this.mcpPanel !== undefined) {
+      this.mcpPanel.reveal(vscode.ViewColumn.Active);
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      MCP_EDITOR_VIEW_TYPE,
+      'MCP server',
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.deps.webviewRoot],
+      },
+    );
+    this.attachMcpPanel(panel);
+  }
+
+  /**
+   * Registers the panel serializer with the extension context, so a window
+   * reload restores the MCP editor instead of closing it. VS Code passes back
+   * the webview state it kept (the frontend's `setState`), which is how the
+   * half-filled entry survives.
+   */
+  registerSerializers(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(
+      vscode.window.registerWebviewPanelSerializer(MCP_EDITOR_VIEW_TYPE, {
+        deserializeWebviewPanel: (panel: vscode.WebviewPanel) => {
+          this.attachMcpPanel(panel);
+          return Promise.resolve();
+        },
+      }),
+    );
+  }
+
+  /**
+   * Wires a panel (fresh or restored) to a session controller and the routed
+   * bundle. Kept separate from `openMcpEditor` because the serializer hands us
+   * a panel we did not create.
+   */
+  private attachMcpPanel(panel: vscode.WebviewPanel): void {
+    this.mcpPanel = panel;
+
+    const services: HostSessionServices = {
+      registry: this.deps.registry,
+      chat: this.deps.chat,
+    };
+    const controller = new HostSessionController({
+      services,
+      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      emit: (message) => void panel.webview.postMessage(message),
+      logger: this.deps.logger,
+      dialogs: new VsCodeDialogs(),
+      transcripts: this.deps.transcripts,
+      ownsRegistry: false,
+      autoOpen: false,
+      policy: this.deps.policy,
+      scope: { kind: 'workspace', roots: this.deps.roots },
+      frontend: this.deps.frontend,
+      onHostCommand: (command, args, context) => this.runHostCommand(command, args, context),
+      agentHint: 'Set "morse.pi.path" or install the pi CLI so that it is on PATH.',
+    });
+
+    const subscription = panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const message = parseClientMessage(raw);
+      if (message) {
+        void controller.handleClientMessage(message);
+      }
+    });
+
+    panel.onDidDispose(() => {
+      subscription.dispose();
+      this.mcpPanel = undefined;
+      void controller.dispose();
+    });
+
+    void renderWebviewHtml(panel.webview, this.deps.webviewRoot, {
+      title: 'MCP server',
+      frontend: this.deps.frontend,
+      route: '/mcp',
+    })
+      .then((html) => {
+        panel.webview.html = html;
+      })
+      .catch((error: unknown) => {
+        this.deps.logger.error('Could not load the Morse frontend bundle for the MCP editor', error);
+        panel.webview.html = renderFailureHtml(
+          'Morse could not load its frontend bundle.',
+          describeError(error),
+          'Run `npm run build:ui && npm run sync-webview` in packages/extension, then reload the window.',
+        );
+      });
+
+    void controller.start().catch((error: unknown) => {
+      this.deps.logger.error('Morse could not start the MCP editor controller', error);
+    });
   }
 
   async newSession(): Promise<void> {
@@ -313,6 +425,18 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       }
       case 'mcpAdd':
         return this.deps.mcp.add(parseMcpServerInput(args), this.mcpCwd(context));
+      case 'mcpInspect': {
+        // Nothing is written: the reader checks a server before committing it.
+        const spec = parseMcpServerSpec(args);
+        const cwd = spec.cwd || this.mcpCwd(context);
+        spec.cwd = cwd;
+        return this.deps.inspector.inspect(spec, { cwd });
+      }
+      case 'openMcpEditor':
+        // The panel is the editor on this host; the browser host's frontend opens
+        // a tab itself and never asks.
+        this.openMcpEditor();
+        return { ok: true };
       case 'mcpRemove':
         return this.deps.mcp.remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
       case 'mcpSetEnabled':
@@ -322,6 +446,8 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
           this.mcpCwd(context),
           mcpScope(args),
         );
+      case 'trustProject':
+        return this.deps.mcp.trustProject(this.mcpCwd(context));
       case 'confirmDeleteSession': {
         // Deleting a stored conversation cannot be undone, so VS Code asks with
         // its own modal warning. The browser host has no native dialogs and

@@ -63,6 +63,14 @@ export class VsCodeHostTransport extends BaseHostTransport {
     this.api?.postMessage(message);
   }
 
+  readState(): unknown {
+    return this.api?.getState?.();
+  }
+
+  writeState(state: unknown): void {
+    this.api?.setState?.(state);
+  }
+
   dispose(): void {
     if (typeof window !== 'undefined') {
       window.removeEventListener('message', this.listener);

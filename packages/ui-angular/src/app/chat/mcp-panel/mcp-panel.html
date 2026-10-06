@@ -52,7 +52,16 @@
         <div class="errors">{{ message }}</div>
       }
 
-      @if (note(); as text) {
+      @if (untrusted()) {
+        <div class="note">
+          <div>
+            {{ note() || 'This project is not trusted, so pi ignores its .pi/mcp.json.' }}
+          </div>
+          <button type="button" class="trust" [disabled]="trusting()" (click)="trustProject()">
+            {{ trusting() ? 'Trusting…' : 'Trust this project' }}
+          </button>
+        </div>
+      } @else if (note(); as text) {
         <div class="note">{{ text }}</div>
       }
 
@@ -70,8 +79,9 @@
         <p class="hint">Checking the servers… this can take a few seconds.</p>
       } @else if (servers().length === 0 && errors().length === 0) {
         <p class="hint">
-          No MCP servers are configured for this directory. Add one below; it is written to the
-          chosen <code>mcp.json</code> and pi picks it up on the next session.
+          No MCP servers are configured for this directory. <strong>Add server</strong> builds one,
+          tests it, and writes it to the chosen <code>mcp.json</code>; pi picks it up on the next
+          session.
         </p>
       }
 
@@ -130,92 +140,6 @@
           </div>
         </div>
       }
-
-      @if (adding()) {
-        <div class="add">
-          <h3>Add a server</h3>
-          <div class="field">
-            <label for="mcp-name">Name</label>
-            <input
-              id="mcp-name"
-              type="text"
-              placeholder="filesystem"
-              [value]="name()"
-              (input)="name.set($any($event.target).value)"
-            />
-          </div>
-          <div class="field">
-            <label for="mcp-type">Transport</label>
-            <select
-              id="mcp-type"
-              [value]="type()"
-              (change)="type.set($any($event.target).value)"
-            >
-              <option value="stdio">stdio (command)</option>
-              <option value="http">HTTP (url)</option>
-            </select>
-          </div>
-          @if (type() === 'stdio') {
-            <div class="field">
-              <label for="mcp-command">Command</label>
-              <input
-                id="mcp-command"
-                type="text"
-                placeholder="npx"
-                [value]="command()"
-                (input)="command.set($any($event.target).value)"
-              />
-            </div>
-            <div class="field">
-              <label for="mcp-args">Arguments</label>
-              <input
-                id="mcp-args"
-                type="text"
-                placeholder="-y @modelcontextprotocol/server-filesystem ."
-                [value]="argsText()"
-                (input)="argsText.set($any($event.target).value)"
-              />
-            </div>
-          } @else {
-            <div class="field">
-              <label for="mcp-url">URL</label>
-              <input
-                id="mcp-url"
-                type="text"
-                placeholder="https://example.com/mcp"
-                [value]="url()"
-                (input)="url.set($any($event.target).value)"
-              />
-            </div>
-          }
-          <div class="field">
-            <label for="mcp-exposure">Exposure</label>
-            <select
-              id="mcp-exposure"
-              [value]="exposure()"
-              (change)="exposure.set($any($event.target).value)"
-            >
-              <option value="codemode">codemode</option>
-              <option value="deferred">deferred</option>
-              <option value="direct">direct</option>
-              <option value="hidden">hidden</option>
-            </select>
-          </div>
-          <p class="add-note">
-            Saves to
-            {{ editScope() === 'project' ? 'this project (.pi/mcp.json)' : 'your user mcp.json' }}.
-          </p>
-          @if (formError(); as problem) {
-            <div class="error">{{ problem }}</div>
-          }
-          <div class="add-actions">
-            <button type="button" class="secondary" (click)="closeAdd()">Cancel</button>
-            <button type="button" [disabled]="busy()" (click)="submitAdd()">
-              {{ busy() ? 'Adding…' : 'Add server' }}
-            </button>
-          </div>
-        </div>
-      }
     </div>
 
     <footer>
@@ -226,9 +150,7 @@
           {{ enabledServers().length }} of {{ servers().length }} enabled
         }
       </span>
-      @if (!adding()) {
-        <button type="button" (click)="openAdd()">Add server</button>
-      }
+      <button type="button" (click)="openAdd()">Add server</button>
     </footer>
   </div>
 </div>
