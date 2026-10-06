@@ -25,6 +25,8 @@ export interface MorseActions {
     mode?: PromptMode,
     images?: PromptImage[],
     pins?: ChatPin[],
+    /** Target a live session other than the active one (a queued follow-up). */
+    sessionKey?: string,
   ): void;
   /**
    * Replaces a past user message: the host forks the conversation before it and
@@ -244,8 +246,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
         type: 'client/ready',
         payload: { protocolVersion: PROTOCOL_VERSION, frontend: frontend ?? options.frontend },
       }),
-    prompt: (text, mode, images, pins) =>
-      send({ type: 'chat/prompt', payload: { text, mode, images, pins } }),
+    prompt: (text, mode, images, pins, sessionKey) =>
+      send({ type: 'chat/prompt', payload: { text, mode, images, pins, sessionKey } }),
     editMessage: (itemId, text) => send({ type: 'chat/edit', payload: { itemId, text } }),
     forkMessage: (itemId) => send({ type: 'chat/fork', payload: { itemId } }),
     hostCommand: (command, args, timeoutMs) => requestHostCommand(command, args, timeoutMs),

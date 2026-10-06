@@ -266,6 +266,7 @@ export class HostSessionController {
           message.payload.mode,
           message.payload.images,
           message.payload.pins,
+          message.payload.sessionKey,
         );
         return;
       case 'chat/edit':
@@ -782,7 +783,14 @@ export class HostSessionController {
     mode: PromptMode | undefined,
     images: PromptImage[] | undefined,
     pins: ChatPin[] | undefined,
+    sessionKey?: string,
   ): Promise<void> {
+    // An addressed prompt belongs to another session: it must not touch the draft
+    // or the active session's view state, and the panel must not switch to it.
+    if (sessionKey !== undefined && sessionKey !== this.activeKey) {
+      await this.promptInBackground(sessionKey, text, mode, images, pins);
+      return;
+    }
     if (!this.agentReady) {
       if (this.isDraft) {
         // The draft becomes the session it was waiting for: a fresh, recorded
@@ -834,6 +842,31 @@ export class HostSessionController {
       // instead of leaving it on "New session" until the next list request.
       void this.publishSessions();
     }
+  }
+
+  /**
+   * Delivers a prompt to a live session that is not the one in front: a queued
+   * follow-up draining while the reader looks at another tab. The target keeps
+   * its own transcript and activity; the open panel never switches to it.
+   */
+  private async promptInBackground(
+    sessionKey: string,
+    text: string,
+    mode: PromptMode | undefined,
+    images: PromptImage[] | undefined,
+    pins: ChatPin[] | undefined,
+  ): Promise<void> {
+    const result = await this.guard(() =>
+      this.options.services.chat.prompt(text, mode ?? 'new', images, pins, sessionKey),
+    );
+    if (!result.ok || !result.value.accepted) {
+      return;
+    }
+    // The transcript of that session gets the user item; its own events keep it
+    // warm through `onTaggedEvent`, and switching to it later replays them.
+    this.options.transcripts.userPrompt(sessionKey, text, images, pins);
+    // The first message names the session, so the navigator may need the title.
+    void this.publishSessions();
   }
 
   /**

@@ -40,7 +40,7 @@ class QueueHostTransport extends BaseHostTransport {
           availableThinkingLevels: [],
           availableCommands: [],
           // Busy, which is when a follow-up is queued instead of sent: an idle
-          // composer drains the queue at once, so the leak test needs a run.
+          // shell drains the queue at once, so the leak test needs a run.
           streaming: true,
           busy: false,
           agentReady: true,

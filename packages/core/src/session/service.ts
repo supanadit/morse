@@ -198,6 +198,15 @@ export class SessionRegistry {
     return this.activeKey === undefined ? undefined : this.hot.get(this.activeKey)?.gateway;
   }
 
+  /**
+   * The gateway of one hot session, so a prompt can be addressed to a session
+   * other than the active one — a queued follow-up draining while the reader
+   * looks at another tab. Undefined once the session is no longer hot.
+   */
+  agentFor(key: string): AgentGateway | undefined {
+    return this.hot.get(key)?.gateway;
+  }
+
   requireActive(): AgentGateway {
     const gateway = this.active();
     if (!gateway) {

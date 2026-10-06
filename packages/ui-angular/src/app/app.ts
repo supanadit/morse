@@ -23,6 +23,7 @@ import { PanelState } from './core/panel-state';
 import { ShellState } from './core/shell-state';
 import { WorkspaceTabs } from './core/workspace-tabs';
 import { WorkbenchPersistence } from './core/workbench-persistence';
+import { QueueDrain } from './core/queue-drain';
 import { EnterDirective } from './shared/enter.directive';
 import { SessionNav } from './nav/session-nav/session-nav';
 import { ProjectPicker } from './nav/project-picker/project-picker';
@@ -295,6 +296,9 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // The queue drain is shell state too: a queued follow-up must run when its
+    // own session settles, even if the reader is looking at another tab.
+    inject(QueueDrain);
     // The two shortcuts whose action belongs to the shell itself. The rest are
     // bound where their state lives: the sidebar owns the search field and the
     // project filter, the composer owns the model chooser, the thinking picker

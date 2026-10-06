@@ -145,8 +145,14 @@ export class MorseService {
     }
   }
 
-  prompt(text: string, mode: PromptMode = 'new', images?: PromptImage[], pins?: ChatPin[]): void {
-    this.actions.prompt(text, mode, images, pins);
+  prompt(
+    text: string,
+    mode: PromptMode = 'new',
+    images?: PromptImage[],
+    pins?: ChatPin[],
+    sessionKey?: string,
+  ): void {
+    this.actions.prompt(text, mode, images, pins, sessionKey);
   }
 
   /** Replaces a past user message by forking the conversation before it. */

@@ -24,6 +24,13 @@ export interface ChatAgent {
 /** Also satisfied structurally by `SessionRegistry`. */
 export interface ChatAgentHolder {
   requireActive(): ChatAgent;
+  /**
+   * The agent of one live session, when the host still has it hot. A prompt can
+   * then be addressed to a session other than the active one — a queued follow-up
+   * that must run while the reader looks elsewhere. Optional: a holder that only
+   * tracks the active session omits it, and such a prompt is dropped.
+   */
+  agentFor?(key: string): ChatAgent | undefined;
 }
 
 export interface PromptOutcome {
@@ -57,6 +64,7 @@ export class ChatService {
     mode: PromptMode = 'new',
     images?: PromptImage[],
     pins?: ChatPin[],
+    sessionKey?: string,
   ): Promise<PromptOutcome> {
     const trimmed = text.trim();
     // Attachments count as content: an image (or a pinned selection) is allowed
@@ -69,11 +77,22 @@ export class ChatService {
     }
 
     let agent: ChatAgent;
-    try {
-      agent = this.deps.agent.requireActive();
-    } catch (error: unknown) {
-      this.deps.logger.error('Prompt rejected: no active agent session', error);
-      return { accepted: false, reason: 'no-session' };
+    if (sessionKey !== undefined) {
+      // An addressed prompt goes to that session or nowhere: falling back to the
+      // active one would run it in the wrong conversation.
+      const target = this.deps.agent.agentFor?.(sessionKey);
+      if (!target) {
+        this.deps.logger.warn(`Prompt dropped: session ${sessionKey} is no longer hot.`);
+        return { accepted: false, reason: 'no-session' };
+      }
+      agent = target;
+    } else {
+      try {
+        agent = this.deps.agent.requireActive();
+      } catch (error: unknown) {
+        this.deps.logger.error('Prompt rejected: no active agent session', error);
+        return { accepted: false, reason: 'no-session' };
+      }
     }
 
     let effectiveMode = mode;

@@ -1161,3 +1161,50 @@ describe('HostSessionController terminal', () => {
     });
   });
 });
+describe('HostSessionController background prompts', () => {
+  it('runs a session-addressed prompt in that session without switching the view', async () => {
+    const messages: HostToClientMessage[] = [];
+    const sent: { sessionId: string; text: string }[] = [];
+    const factory: AgentGatewayFactory = {
+      create: (options) => {
+        const sessionId = options.sessionId ?? 'generated';
+        const gateway = fakeGateway({ sessionId });
+        return Promise.resolve({
+          ...gateway,
+          prompt: (text: string) => {
+            sent.push({ sessionId, text });
+            return Promise.resolve<PromptDisposition>('started');
+          },
+        });
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const host = connect(registry, chat, transcripts, messages);
+
+    // A background session first, then the one the panel shows.
+    await registry.open({ sessionId: 'sess-a' });
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
+    });
+
+    await host.handleClientMessage({
+      type: 'chat/prompt',
+      payload: { text: 'queued follow-up', sessionKey: 'sess-a' },
+    });
+
+    // It reached the addressed session, and only that one.
+    expect(sent).toEqual([{ sessionId: 'sess-a', text: 'queued follow-up' }]);
+    // Its transcript got the user item; the panel never switched to it.
+    expect(transcripts.items('sess-a')).toHaveLength(1);
+    expect(registry.activeKeyOf()).toBe('sess-b');
+    expect(lastStateOf(messages)?.sessionId).toBe('sess-b');
+  });
+});

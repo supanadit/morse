@@ -595,8 +595,6 @@ export class ChatComposer {
   private readonly uploads = inject(Uploader);
   private readonly promptInput = viewChild<ElementRef<HTMLTextAreaElement>>('promptInput');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
-  /** True between dispatching a queued prompt and the run it starts. */
-  private draining = false;
 
   protected readonly text = this.drafts.text;
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
@@ -846,30 +844,6 @@ export class ChatComposer {
         this.sampleThroughput();
       }, 500);
       onCleanup(() => clearInterval(handle));
-    });
-
-    // Follow-ups drain one run at a time: an item queued while the agent works
-    // waits for that run to settle, so the queue keeps its order instead of
-    // racing the turn it was typed during. `draining` stops the settle from
-    // dispatching the whole queue in one tick before `running` flips back on.
-    effect(() => {
-      const running = this.running();
-      const sessionId = this.tabs.composerKey();
-      const head = this.queue.head(sessionId);
-      untracked(() => {
-        if (running) {
-          this.draining = false;
-          return;
-        }
-        if (head === undefined || this.draining) {
-          return;
-        }
-        this.draining = true;
-        const next = this.queue.shift(sessionId);
-        if (next !== undefined) {
-          this.morse.prompt(next.text, 'new', next.images, next.pins);
-        }
-      });
     });
   }
 

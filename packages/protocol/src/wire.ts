@@ -168,7 +168,18 @@ export type ClientToHostMessage =
   | { type: 'client/ready'; payload: { protocolVersion: number; frontend?: FrontendIdentity } }
   | {
       type: 'chat/prompt';
-      payload: { text: string; mode?: PromptMode; images?: PromptImage[]; pins?: ChatPin[] };
+      payload: {
+        text: string;
+        mode?: PromptMode;
+        images?: PromptImage[];
+        pins?: ChatPin[];
+        /**
+         * A live session other than the host's active one, so a queued follow-up
+         * can run in the background without switching the panel to it. Omitted
+         * when the prompt belongs to the session in front (the common case).
+         */
+        sessionKey?: string;
+      };
     }
   /**
    * Replaces a past user message: the host forks the conversation before it,
