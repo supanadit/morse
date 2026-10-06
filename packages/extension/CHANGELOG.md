@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.17.0 — 6 October 2026
+
+Write and test pi's prompt templates without leaving the editor, and have a template written anywhere show up on
+its own.
+
+### New
+
+- **A prompt-template editor.** pi turns Markdown files into `/commands`; Morse now has a proper editor for them.
+  Run **Edit prompt templates** from the command palette (`Ctrl+Alt+E`) to open a tab — the browser host puts it next
+  to your sessions, VS Code opens its own editor panel. Browse the user templates and the open project's, create,
+  rename, move between user and project scope, or delete; the frontmatter (`description`, `argument-hint`) and the
+  body are fields, not a raw text dump.
+- **Test the arguments before you run it.** The editor expands the body against sample arguments with the same code
+  the composer uses, so the preview is exactly what the agent receives — `$1`, `${1:-default}`, `$@` / `$ARGUMENTS`,
+  `${@:2}` and `${@:2:3}`, with shell-like quoting. Fill the declared fields, or switch to **Raw** and type the whole
+  argument line. The tester tracks the body: delete `$3` and its input goes with it.
+- **Templates are picked up automatically.** A `.md` written or edited outside Morse — in `vim`, `nano`, or by hand —
+  is noticed within a moment and offered in the palette, without opening the editor or reloading. (A project's
+  `.pi/prompts` still has to be trusted, as pi requires.)
+
+### Fixed
+
+- **The prompt-template editor in VS Code lists your user prompts.** The panel booted before the host handshake
+  finished, so it used to come up empty; it now waits for the host's capabilities and loads the list. The workspace
+  folder counts as the project there, so project templates appear too.
+
 ## 0.16.1 — 6 October 2026
 
 A quick follow-up to 0.16.0: the browser host starts again.

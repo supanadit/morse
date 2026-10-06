@@ -2,7 +2,7 @@
   "name": "morse",
   "displayName": "Morse",
   "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "publisher": "supanadit",
   "author": "Supan Adit Pratama",
   "repository": {
@@ -35,7 +35,8 @@
   ],
   "activationEvents": [
     "onView:morse.chat",
-    "onWebviewPanel:morse.mcpEditor"
+    "onWebviewPanel:morse.mcpEditor",
+    "onWebviewPanel:morse.promptEditor"
   ],
   "main": "./dist/extension.js",
   "icon": "media/icon.png",

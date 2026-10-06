@@ -1,6 +1,6 @@
 {
   "name": "@morse/ui-runtime",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "private": true,
   "type": "module",
   "description": "Framework-free frontend core: host transports (VS Code postMessage, WebSocket, in-memory mock) and the Morse client that reduces wire messages into view state.",
