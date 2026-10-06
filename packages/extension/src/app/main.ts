@@ -88,6 +88,7 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     frontend: frontendIdentity(manifest),
     mcp: adapter.mcp,
     mcpAvailable: adapter.describeCli() !== undefined,
+    piVersion: adapter.version(),
   });
 
   context.subscriptions.push(

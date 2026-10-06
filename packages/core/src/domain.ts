@@ -105,6 +105,19 @@ export interface ProjectSummary {
   lastUsedAt: number;
 }
 
+/**
+ * A problem the agent's own resource loading reported, or Morse found while
+ * reading a resource the agent refuses. Carried on the session state (not an
+ * event) because it is known the moment the process starts — before the host
+ * has subscribed — and must reach the transcript anyway.
+ */
+export interface AgentDiagnostic {
+  /** Stable identity, so a repeated scan does not duplicate its notice. */
+  key: string;
+  level: NoticeLevel;
+  text: string;
+}
+
 export interface AgentSessionState {
   sessionId?: string;
   sessionTitle?: string;
@@ -115,6 +128,11 @@ export interface AgentSessionState {
   availableThinkingLevels: ThinkingLevel[];
   /** Commands pi exposes (`get_commands`): extensions, templates, skills. */
   availableCommands: AgentCommand[];
+  /**
+   * Warnings about pi's own configuration (a prompt template it refused, say).
+   * Optional: an agent backend with nothing to report leaves it out.
+   */
+  diagnostics?: AgentDiagnostic[];
   streaming: boolean;
   /** Cumulative session tokens (input/output/cache) reported by the agent. */
   usage?: TokenUsage;

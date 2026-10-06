@@ -85,7 +85,9 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    its own tab restoration and leaves it off), and `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
-   shows an update notice), `mcp`
+   shows an update notice). The same request covers pi, so a host that read the installed pi version also
+   advertises `piVersion`, and the panel then shows a second notice that names `pi update`; a host that could
+   not read it leaves `piVersion` off and the pi notice stays quiet. Then `mcp`
    whether the host can manage pi's MCP servers (`mcpStatus` / `mcpAdd` / `mcpRemove` / `mcpSetEnabled`) —
    on only when the host found the `pi` CLI, so a host that cannot run it hides the indicator instead of
    promising a manager it cannot use — and `notify`
@@ -372,7 +374,9 @@ npm run dev:ui                 # ng serve (or the framework's dev server)
 # http://localhost:4200/?mock=1&boot=1   hold the cold-start splash to review its animation
 # http://localhost:4200/?mock=1&boot=1&empty=1   blank transcript: the empty-state hero + handoff
 # http://localhost:4200/?mock=1&newer=0.3.0   the update notice, offline and without a release
-# http://localhost:4200/?mock=1&update=1     the notice the way it really runs: one request to the npm registry
+# http://localhost:4200/?mock=1&newer-pi=9.9.9   the pi update notice, same trick
+# http://localhost:4200/?mock=1&diagnostics=1   the pi configuration-warning row and its Details list
+# http://localhost:4200/?mock=1&update=1     both notices the way they really run: two requests to the npm registry
 # http://localhost:4200/            /ws + /api are proxied to 127.0.0.1:4399 by default
 # http://localhost:4200/?server=ws://host:port   one-off override
 # MORSE_SERVER_URL=http://host:port npm run dev:ui   change the proxy target

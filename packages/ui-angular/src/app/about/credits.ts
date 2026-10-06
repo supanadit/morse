@@ -162,6 +162,14 @@ export const CREDITS: readonly CreditGroup[] = [
         by: 'Ron Buckton',
       },
       {
+        name: 'yaml',
+        packages: ['yaml'],
+        license: 'ISC',
+        url: 'https://eemeli.org/yaml/',
+        role: 'Parses prompt-template frontmatter the same way pi does, so a template pi refuses is reported instead of offered.',
+        by: 'Eemeli Aro',
+      },
+      {
         name: 'Node.js',
         by: 'OpenJS Foundation',
         license: 'MIT',

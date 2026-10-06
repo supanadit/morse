@@ -44,6 +44,9 @@ const CAPABILITIES: HostCapabilities = {
   // for. `?mock=1&update=1` turns it on, and `?newer=<version>` (frontend side)
   // fakes the published version, so the notice is reviewable before a release.
   updateCheck: isUpdateCheckWanted(),
+  // A representative installed pi version, so the pi notice can be reviewed too
+  // (`?mock=1&update=1`, or `?newer-pi=<version>` without a request).
+  ...(isUpdateCheckWanted() ? { piVersion: '1.0.3' } : {}),
 };
 
 /** `?mock=1&update=1`: let the release check run against the real registry. */
@@ -52,6 +55,14 @@ function isUpdateCheckWanted(): boolean {
     return false;
   }
   return new URL(location.href, 'http://localhost/').searchParams.get('update') === '1';
+}
+
+/** `?mock=1&diagnostics=1`: show pi's configuration-warning row in the mock host. */
+function wantsDiagnosticsPreview(): boolean {
+  if (typeof location === 'undefined') {
+    return false;
+  }
+  return new URL(location.href, 'http://localhost/').searchParams.get('diagnostics') === '1';
 }
 
 /**
@@ -144,6 +155,22 @@ export class MemoryHostTransport extends BaseHostTransport {
       { name: 'skill:codebase-memory', description: 'Query the knowledge graph', source: 'skill' },
       { name: 'fix-tests', description: 'Fix failing tests', source: 'prompt' },
     ],
+    // `?mock=1&diagnostics=1`: review the configuration-warning row and the file
+    // list behind its Details button, with no pi and no server.
+    ...(wantsDiagnosticsPreview()
+      ? {
+          diagnostics: [
+            {
+              level: 'warn' as const,
+              text: 'Prompt template /home/u/.pi/agent/prompts/explain-path.md is not loaded by pi: Nested mappings are not allowed in compact mappings at line 1, column 14',
+            },
+            {
+              level: 'warn' as const,
+              text: 'Prompt template /home/u/.pi/agent/prompts/summarize-session.md is not loaded by pi: Nested mappings are not allowed in compact mappings at line 1, column 14',
+            },
+          ],
+        }
+      : {}),
     streaming: false,
     // A realistic footer: cumulative tokens, cache split and context window.
     usage: {

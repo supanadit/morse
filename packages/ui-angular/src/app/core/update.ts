@@ -8,12 +8,25 @@ import { MorseService } from './morse.service';
  */
 export const LATEST_VERSION_URL = 'https://registry.npmjs.org/@supanadit/morse-web/latest';
 
+/**
+ * pi is not published in this repo, so its notice reads its own package. The
+ * registry origin is the same one the Morse check already reaches, so a webview
+ * CSP that allows this notice needs no extra origin for pi.
+ */
+export const PI_LATEST_VERSION_URL =
+  'https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest';
+
 /** Release notes for a version, so the notice can be a link rather than a number. */
 export function releasePage(version: string): string {
   return `https://github.com/supanadit/morse/releases/tag/v${version}`;
 }
 
+/** Where pi's own "Update Available" block points. */
+export const PI_CHANGELOG_URL = 'https://pi.dev/changelog';
+
 export interface UpdateNotice {
+  /** Which of the two notices this is, so the UI can label it. */
+  product: 'morse' | 'pi';
   /** The build this host is serving — the number printed beside the notice. */
   current: string;
   latest: string;
@@ -86,6 +99,15 @@ export function updateHint(hostKind: string, latest: string): string {
 }
 
 /**
+ * pi is not this repo's package, so the notice only says what pi itself says:
+ * `pi update`. A pi supplied by another package manager has to say so, because
+ * `pi update` refuses to replace it.
+ */
+export function piUpdateHint(latest: string): string {
+  return `Run \`pi update\` to get ${latest} — or, when another package manager supplied pi, update it there.`;
+}
+
+/**
  * `?newer=<version>` reviews the notice without publishing a release: the badge
  * has to be visible before it matters, and the registry cannot be asked to fake a
  * version. Review only, like `?boot=1`.
@@ -95,6 +117,15 @@ function previewVersion(): string | undefined {
     return undefined;
   }
   const value = new URL(location.href, 'http://localhost/').searchParams.get('newer');
+  return value !== null && value.length > 0 ? value : undefined;
+}
+
+/** `?newer-pi=<version>` reviews the pi notice the same way `?newer=` does. */
+function previewPiVersion(): string | undefined {
+  if (typeof location === 'undefined') {
+    return undefined;
+  }
+  const value = new URL(location.href, 'http://localhost/').searchParams.get('newer-pi');
   return value !== null && value.length > 0 ? value : undefined;
 }
 
@@ -126,21 +157,40 @@ export class UpdateCheck {
   private readonly morse = inject(MorseService);
   private readonly loader = inject(UPDATE_LOADER);
   private readonly notice = signal<UpdateNotice | undefined>(undefined);
+  private readonly piNotice = signal<UpdateNotice | undefined>(undefined);
   private started = false;
 
-  /** The newer release, if there is one and the host allowed asking. */
+  /** The newer Morse release, if there is one and the host allowed asking. */
   readonly available = this.notice.asReadonly();
+
+  /** The newer pi release, when the host named its pi version. */
+  readonly piAvailable = this.piNotice.asReadonly();
 
   constructor() {
     effect(() => {
       const capabilities = this.morse.capabilities();
-      // The host decides whether the real check may run; the review-only
-      // `?newer=<version>` needs no permission because it fetches nothing.
-      if (this.started || (previewVersion() === undefined && capabilities?.updateCheck !== true)) {
+      const allowed = capabilities?.updateCheck === true;
+      const morsePreview = previewVersion();
+      const piPreview = previewPiVersion();
+      // The host decides whether the real check may run; a review-only query
+      // (`?newer=`/`?newer-pi=`) fetches nothing, so it needs no permission —
+      // and it runs only the product it previews, never a background fetch for
+      // the other one.
+      if (this.started || (!allowed && morsePreview === undefined && piPreview === undefined)) {
         return;
       }
       this.started = true;
-      void this.check(this.morse.version(), capabilities?.hostKind ?? 'server');
+      if (allowed || morsePreview !== undefined) {
+        void this.check(this.morse.version(), capabilities?.hostKind ?? 'server');
+      }
+      if (allowed || piPreview !== undefined) {
+        // pi is only checked when the host could read its installed version; a
+        // host without one (or an install with no readable package.json) stays
+        // quiet instead of guessing.
+        if (capabilities?.piVersion !== undefined || piPreview !== undefined) {
+          void this.checkPi(capabilities?.piVersion ?? '');
+        }
+      }
     });
   }
 
@@ -154,6 +204,7 @@ export class UpdateCheck {
         return;
       }
       this.notice.set({
+        product: 'morse',
         current,
         latest,
         hint: updateHint(hostKind, latest),
@@ -161,6 +212,30 @@ export class UpdateCheck {
       });
     } catch {
       // Nothing to say, and nothing worth breaking: the footer stays as it was.
+    }
+  }
+
+  /** The same check for pi, whose current version the host read from disk. */
+  async checkPi(current: string, load = this.loader): Promise<void> {
+    if (current.length === 0 && previewPiVersion() === undefined) {
+      return;
+    }
+    try {
+      const latest =
+        previewPiVersion() ??
+        (load === undefined ? undefined : latestFromRegistry(await load(PI_LATEST_VERSION_URL)));
+      if (latest === undefined || !isNewerRelease(latest, current)) {
+        return;
+      }
+      this.piNotice.set({
+        product: 'pi',
+        current,
+        latest,
+        hint: piUpdateHint(latest),
+        url: PI_CHANGELOG_URL,
+      });
+    } catch {
+      // Same silence as the Morse check.
     }
   }
 }

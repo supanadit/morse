@@ -31,7 +31,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_REQUEST_TIMEOUT_MS` | `30000` | Per-request RPC timeout |
 | `MORSE_UI_DIR` | bundled frontend | Override the served frontend directory |
 | `MORSE_UPLOAD_DIR` | `.morse/uploads` | Where browser uploads land (relative to a session cwd, or absolute) |
-| `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published version from the npm registry (`0`/`false`/`off` disables it) |
+| `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published Morse and pi versions from the npm registry (`0`/`false`/`off` disables both) |
 | `MORSE_TERMINAL_IDLE_MS` | `1800000` | How long a terminal's shell keeps running with no page attached before the host reclaims it (`0` disables the timeout) |
 
 `MORSE_PROJECTS` is the security boundary: when set, the agent may only work inside those roots. When unset,
@@ -41,10 +41,12 @@ any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for 
 whatever else your own pi configuration loads beside it (measured: 275–450 MB per session on the machine we
 tested, against ~110 MB for the host itself). On a small box, set it to 1 or 2.
 
-`MORSE_UPDATE_CHECK` controls the only request Morse makes to the internet: reading
-`registry.npmjs.org/@supanadit/morse-web/latest` once per page load, so the sidebar can say when a newer release
-is out. It carries nothing about you or your sessions, and an air-gapped host can turn it off — the panel then
-simply never mentions updates.
+`MORSE_UPDATE_CHECK` controls the only requests Morse makes to the internet: reading
+`registry.npmjs.org/@supanadit/morse-web/latest` and `.../@earendil-works/pi-coding-agent/latest` once per
+page load, so the sidebar can say when a newer Morse or a newer pi is out. They carry nothing about you or
+your sessions, and an air-gapped host can turn the check off — the panel then simply never mentions updates.
+The pi check only runs when the host could read the installed pi version (`capabilities.piVersion`), so a
+host that could not is quiet on its own.
 
 Files the browser uploads (drag-and-drop, paste, or the `+` button) land in `<session-cwd>/.morse/uploads/` and
 ride as `@mentions`; `MORSE_UPLOAD_DIR` moves that inbox. Consider adding it to the project's `.gitignore`.

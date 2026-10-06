@@ -114,12 +114,15 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 - One shortcut catalog (`packages/ui-angular/src/app/core/shortcuts.ts`) with a `?` list that prints exactly
   what is bound; an owner that is not mounted is shown as unavailable rather than promised.
 - Prompt templates run from a generated form with a live preview; a template file added or edited shows up
-  without restarting pi (`commands/refresh`).
+  without restarting pi (`commands/refresh`). A template pi refuses — bad YAML frontmatter, its own "Prompt
+  conflicts" — is dropped from the palette and shown as one warning row above the conversation (never inside
+  it), with the files and pi's message behind a **Details** click.
 - A model added to `models.json` shows up without restarting the host or the session: opening the model
   picker asks for a fresh catalog (`models/refresh`), and a reload re-reads the warm session's catalog.
   On a draft the session-less probe is re-run; on a warm session it is a plain RPC re-read.
-- A newer released Morse is read once from the npm registry when the host advertises
-  `capabilities.updateCheck` (`MORSE_UPDATE_CHECK=0` turns it off).
+- A newer released Morse **and a newer pi** are read once from the npm registry when the host advertises
+  `capabilities.updateCheck` (`MORSE_UPDATE_CHECK=0` turns both off). The pi notice appears when the host could
+  read the installed version (`capabilities.piVersion`) and says the one command pi itself prints, `pi update`.
 - The `@supanadit/morse-web` npm package ships the browser host as a daemon CLI
   (`morse start|status|logs|stop|restart`).
 

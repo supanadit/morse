@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import {
   THINKING_LEVELS,
+  type AgentDiagnostic,
   type AgentEvent,
   type AgentEventListener,
   type AgentForkMessage,
@@ -25,6 +26,7 @@ import {
   type WorkspaceRef,
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
+import { parsePromptTemplate, type PromptFrontmatter } from './internal/prompt-frontmatter.js';
 import { PiRpcClient } from './internal/rpc-client.js';
 import {
   asRecord,
@@ -336,6 +338,7 @@ export class PiRpcAgent implements AgentGateway {
       (levels?.levels ?? []).map(toThinkingLevel).filter(isDefined),
     );
     const thinkingLevel = toThinkingLevel(state.thinkingLevel);
+    const built = await buildCommandList(commands?.commands, this.commandContext());
 
     this.sessionState = {
       ...this.sessionState,
@@ -346,7 +349,8 @@ export class PiRpcAgent implements AgentGateway {
       availableModels,
       availableThinkingLevels:
         availableThinkingLevels.length > 0 ? availableThinkingLevels : [...THINKING_LEVELS],
-      availableCommands: await buildCommandList(commands?.commands, this.commandContext()),
+      availableCommands: built.commands,
+      diagnostics: built.diagnostics,
       streaming: state.isStreaming === true,
     };
     this.ready = true;
@@ -366,9 +370,11 @@ export class PiRpcAgent implements AgentGateway {
     const commands = await this.client
       .request<{ commands?: RpcCommandInfo[] }>({ type: 'get_commands' })
       .catch(() => undefined);
+    const built = await buildCommandList(commands?.commands, this.commandContext());
     this.sessionState = {
       ...this.sessionState,
-      availableCommands: await buildCommandList(commands?.commands, this.commandContext()),
+      availableCommands: built.commands,
+      diagnostics: built.diagnostics,
     };
     this.emit({ type: 'agent/state', at: this.now(), state: this.snapshotState() });
   }
@@ -497,6 +503,9 @@ export class PiRpcAgent implements AgentGateway {
       availableModels: [...this.sessionState.availableModels],
       availableThinkingLevels: [...this.sessionState.availableThinkingLevels],
       availableCommands: [...this.sessionState.availableCommands],
+      ...(this.sessionState.diagnostics
+        ? { diagnostics: [...this.sessionState.diagnostics] }
+        : {}),
     };
   }
 
@@ -602,6 +611,12 @@ export interface CommandListInput {
   sourceInfo?: { path?: string; scope?: string };
 }
 
+/** What a rebuild produced: the commands, and the templates pi refused. */
+export interface CommandListResult {
+  commands: AgentCommand[];
+  diagnostics: AgentDiagnostic[];
+}
+
 /**
  * The palette's command list, rebuilt from disk. pi only exposes the templates
  * it loaded at spawn (`get_commands` is a cache), so this also re-reads every
@@ -616,8 +631,9 @@ export interface CommandListInput {
 export async function buildCommandList(
   items: CommandListInput[] | undefined,
   context: CommandContext,
-): Promise<AgentCommand[]> {
+): Promise<CommandListResult> {
   const commands: AgentCommand[] = [];
+  const diagnostics: AgentDiagnostic[] = [];
   const seen = new Set<string>();
   let projectTrusted = false;
 
@@ -639,11 +655,15 @@ export async function buildCommandList(
       // The file pi listed is gone: hide it rather than offer a dead command.
       continue;
     }
+    const parsed = parseTemplate(template, item.sourceInfo?.path, diagnostics);
+    if (parsed === undefined) {
+      continue;
+    }
     commands.push({
       name: item.name,
       // Prefer the freshly parsed description so an edited frontmatter reflects
       // too; pi's cached description is the fallback.
-      description: promptDescription(template) ?? item.description,
+      description: promptDescription(parsed) ?? item.description,
       source,
       template,
     });
@@ -659,16 +679,48 @@ export async function buildCommandList(
       if (template === undefined) {
         continue;
       }
+      const parsed = parseTemplate(template, file.path, diagnostics);
+      if (parsed === undefined) {
+        continue;
+      }
       commands.push({
         name: file.name,
-        description: promptDescription(template),
+        description: promptDescription(parsed),
         source: 'prompt',
         template,
       });
       seen.add(file.name);
     }
   }
-  return commands;
+  return { commands, diagnostics };
+}
+
+/**
+ * pi's frontmatter validation, reported instead of swallowed. A template whose
+ * frontmatter pi cannot parse is dropped from the palette (offering a `/command`
+ * pi will not run is worse than hiding it) and named as a diagnostic, so the
+ * reader hears about the broken file in the chat instead of in the TUI only.
+ */
+function parseTemplate(
+  raw: string,
+  path: string | undefined,
+  diagnostics: AgentDiagnostic[],
+): PromptFrontmatter | undefined {
+  try {
+    return parsePromptTemplate(raw);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'the frontmatter could not be parsed';
+    const firstLine = message.split('\n').find((line) => line.trim().length > 0) ?? message;
+    // YAML's message ends with a colon before its code frame; a notice sentence
+    // reads better without it.
+    const reason = firstLine.trim().replace(/:$/, '');
+    diagnostics.push({
+      key: `prompt:${path ?? reason}`,
+      level: 'warn',
+      text: `Prompt template ${path ?? '(unnamed)'} is not loaded by pi: ${reason}`,
+    });
+    return undefined;
+  }
 }
 
 /**
@@ -742,33 +794,21 @@ async function listPromptFiles(dir: string): Promise<{ name: string; path: strin
 }
 
 /**
- * What the palette prints for a scanned template: pi's `description` frontmatter,
- * or the first non-empty body line, truncated the way pi truncates it.
+ * What the palette prints for a scanned template: pi's `description` frontmatter
+ * (already YAML-decoded, so quoting is handled), or the first non-empty body
+ * line, truncated the way pi truncates it.
  */
-function promptDescription(raw: string): string | undefined {
-  let body = raw;
-  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
-  if (frontmatter !== null) {
-    const described = /^description:[ \t]*(.*)$/m.exec(frontmatter[1]);
-    if (described !== null) {
-      const value = unquote(described[1].trim());
-      if (value.length > 0) {
-        return value;
-      }
-    }
-    body = raw.slice(frontmatter[0].length);
+function promptDescription(parsed: PromptFrontmatter): string | undefined {
+  const described = parsed.frontmatter['description'];
+  if (typeof described === 'string' && described.length > 0) {
+    return described;
   }
-  const firstLine = body.split('\n').find((line) => line.trim().length > 0);
+  const firstLine = parsed.body.split('\n').find((line) => line.trim().length > 0);
   if (firstLine === undefined) {
     return undefined;
   }
   const trimmed = firstLine.trim();
   return trimmed.length > 60 ? `${trimmed.slice(0, 60)}...` : trimmed;
-}
-
-function unquote(value: string): string {
-  const match = /^(['"])([\s\S]*)\1$/.exec(value);
-  return match === null ? value : match[2];
 }
 
 function toNoticeLevel(value: string | undefined): NoticeLevel {

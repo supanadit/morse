@@ -233,6 +233,19 @@ export class App {
   );
   protected readonly agentBanner = computed(() => this.agentBlocked() && !this.agentScreen());
   protected readonly lastError = this.morse.lastError;
+  /**
+   * Warnings pi reported about its own configuration (a prompt template it
+   * refused). They belong to the shell, not the conversation: one warning row
+   * above the transcript, with the files listed behind a click, so no session's
+   * history is rewritten by a configuration problem.
+   */
+  protected readonly diagnostics = computed(() => this.morse.state().diagnostics ?? []);
+  /** Whether the reader opened the warning's file list. */
+  protected readonly diagnosticsOpen = signal(false);
+
+  protected toggleDiagnostics(): void {
+    this.diagnosticsOpen.update((open) => !open);
+  }
   /** Highlight while files are dragged over the chat. */
   protected readonly dragging = this.dropZone.active;
   protected readonly toast = computed(() => {

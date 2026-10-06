@@ -5,6 +5,7 @@ import {
   SessionRegistry,
   silentLogger,
   type AgentEventListener,
+  type AgentDiagnostic,
   type AgentForkMessage,
   type AgentGateway,
   type AgentGatewayFactory,
@@ -68,6 +69,8 @@ function fakeGateway(
     refreshCommands?: () => Promise<void>;
     /** Counts model-catalog re-reads; omitted means the adapter can't. */
     refreshModels?: () => Promise<void>;
+    /** Warnings the agent carries on its state (pi's refused prompt templates). */
+    diagnostics?: AgentDiagnostic[];
   } = {},
 ): AgentGateway {
   let sessionId = options.sessionId;
@@ -77,6 +80,7 @@ function fakeGateway(
     availableModels: [],
     availableThinkingLevels: [],
     availableCommands: [],
+    ...(options.diagnostics ? { diagnostics: options.diagnostics } : {}),
     streaming: false,
   };
   return {
@@ -173,11 +177,14 @@ function harness(options: {
   refreshModels?: () => Promise<void>;
   /** Persisted sessions the catalog reports, so a test can seed a real title. */
   catalogSessions?: SessionSummary[];
+  /** Warnings the agent carries on its state (pi's refused prompt templates). */
+  diagnostics?: AgentDiagnostic[];
 } = {}): Harness {
   const messages: HostToClientMessage[] = [];
   const gateway = fakeGateway({
     compactError: options.compactError,
     sessionId: 'sess-1',
+    ...(options.diagnostics ? { diagnostics: options.diagnostics } : {}),
     ...(options.hold ? { hold: options.hold } : {}),
     ...(options.historyEntries ? { historyEntries: options.historyEntries } : {}),
     ...(options.forkMessages ? { forkMessages: options.forkMessages } : {}),
@@ -633,6 +640,21 @@ describe('HostSessionController failures', () => {
     expect(h.messages.some((message) => message.type === 'notice')).toBe(true);
     // Nothing spawned for the refused target.
     expect(h.spawns()).toBe(0);
+  });
+
+  it('carries a prompt template pi refused in the state, never in the transcript', async () => {
+    const diagnostic = {
+      key: 'prompt:/home/u/.pi/agent/prompts/explain-path.md',
+      level: 'warn' as const,
+      text: 'Prompt template /home/u/.pi/agent/prompts/explain-path.md is not loaded by pi: Nested mappings are not allowed in compact mappings at line 1, column 14',
+    };
+    const h = harness({ diagnostics: [diagnostic] });
+    await withOpenSession(h);
+
+    // The warning is a row above the conversation, so the conversation itself
+    // stays exactly as the reader left it.
+    expect(h.transcripts.items('sess-1').some((item) => item.kind === 'notice')).toBe(false);
+    expect(h.lastState()?.diagnostics).toEqual([{ level: 'warn', text: diagnostic.text }]);
   });
 
   it('a refused handshake still raises the wire error — the offline banner keeps its job', async () => {

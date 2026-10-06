@@ -104,6 +104,9 @@ export function toSessionViewState(
     agentFailure: meta.agentFailure,
     hasOlderHistory: meta.hasOlderHistory,
     loadingOlderHistory: meta.loadingOlderHistory,
+    ...(state.diagnostics
+      ? { diagnostics: state.diagnostics.map(({ level, text }) => ({ level, text })) }
+      : {}),
   };
 }
 

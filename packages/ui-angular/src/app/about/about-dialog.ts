@@ -226,6 +226,8 @@ export class AboutDialog {
   protected readonly protocolVersion = this.morse.protocolVersion;
   /** The newer release, when there is one: this is where a reader looks for versions. */
   protected readonly updateNotice = this.update.available;
+  /** A newer pi, for the same reason the Morse notice rides here. */
+  protected readonly piUpdateNotice = this.update.piAvailable;
 
   /** `name version` as the host read it from the frontend manifest. */
   protected readonly frontend = computed(() => {

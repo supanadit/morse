@@ -127,6 +127,39 @@
       </div>
     }
 
+    @if (diagnostics().length > 0) {
+      <!-- pi's own configuration warnings (a prompt template it refused). A row
+           above the conversation, never lines inside it: the details are a
+           click away, and no session's history is rewritten to carry them. -->
+      <div class="diagnostics" role="status">
+        <span class="diagnostics-glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16">
+            <path d="M8 2.4 1.6 13.4h12.8L8 2.4Z" />
+            <path d="M8 6.4v3.4" />
+            <path d="M8 11.6h.01" />
+          </svg>
+        </span>
+        <span class="diagnostics-text">
+          pi reported
+          <strong>
+            {{ diagnostics().length }}
+            {{ diagnostics().length === 1 ? 'configuration warning' : 'configuration warnings' }}
+          </strong>
+          while loading its files.
+        </span>
+        <button type="button" class="diagnostics-toggle" (click)="toggleDiagnostics()">
+          {{ diagnosticsOpen() ? 'Hide details' : 'Details' }}
+        </button>
+        @if (diagnosticsOpen()) {
+          <ul class="diagnostics-list">
+            @for (diagnostic of diagnostics(); track diagnostic.text) {
+              <li>{{ diagnostic.text }}</li>
+            }
+          </ul>
+        }
+      </div>
+    }
+
     @if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
     } @else {

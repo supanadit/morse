@@ -180,6 +180,12 @@ export interface HostCapabilities {
    */
   updateCheck?: boolean;
   /**
+   * The installed pi version, so the frontend can tell when a newer pi is out
+   * and say how this host updates it (`pi update`). Optional: a host that could
+   * not read pi's package leaves it off and the pi notice stays quiet.
+   */
+  piVersion?: string;
+  /**
    * Host can read the active project's git history (`gitLog`), so the frontend
    * can offer a git panel: a commit list and its branch graph. The browser host
    * serves a machine with no editor and turns it on; VS Code keeps its own
@@ -427,6 +433,16 @@ export interface AgentFailure {
   hint?: string;
 }
 
+/**
+ * A problem the agent reported loading its own configuration — a prompt
+ * template pi refused, say. The panel shows one warning row and lists these
+ * behind a click; they are never written into the conversation.
+ */
+export interface AgentDiagnosticMessage {
+  level: NoticeLevel;
+  text: string;
+}
+
 export interface SessionViewState {
   sessionId?: string;
   sessionTitle?: string;
@@ -463,6 +479,11 @@ export interface SessionViewState {
   hasOlderHistory?: boolean;
   /** True while the host is fetching the previous history page. */
   loadingOlderHistory?: boolean;
+  /**
+   * Configuration warnings from the agent itself, as a row above the
+   * conversation rather than lines inside it. Optional and usually absent.
+   */
+  diagnostics?: AgentDiagnosticMessage[];
 }
 
 export interface BaseTranscriptItem {

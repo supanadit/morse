@@ -1,5 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
+import { PROTOCOL_VERSION, type ClientToHostMessage, type SessionViewState } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
@@ -62,19 +62,7 @@ class TitledSessionTransport extends BaseHostTransport {
           filePreview: true,
           notify: this.hostCanNotify,
         },
-        state: {
-          sessionId: 'session-1',
-          sessionTitle: 'Sekarang tampilan tool',
-          workspace: { cwd: '/work/morse', name: 'morse' },
-          thinkingLevel: 'off',
-          availableModels: [],
-          availableThinkingLevels: [],
-          availableCommands: [],
-          streaming: false,
-          busy: false,
-          agentReady: true,
-          agentStarting: false,
-        },
+        state: this.activeState(),
       },
     });
     this.emitMessage({
@@ -85,6 +73,38 @@ class TitledSessionTransport extends BaseHostTransport {
         ],
       },
     });
+  }
+
+  /** A live state update that carries pi's configuration warnings. */
+  showDiagnostics(): void {
+    this.emitMessage({
+      type: 'session/state',
+      payload: {
+        ...this.activeState(),
+        diagnostics: [
+          {
+            level: 'warn',
+            text: 'Prompt template /home/u/.pi/agent/prompts/explain-path.md is not loaded by pi: Nested mappings are not allowed in compact mappings at line 1, column 14',
+          },
+        ],
+      },
+    });
+  }
+
+  private activeState(): SessionViewState {
+    return {
+      sessionId: 'session-1',
+      sessionTitle: 'Sekarang tampilan tool',
+      workspace: { cwd: '/work/morse', name: 'morse' },
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: false,
+      busy: false,
+      agentReady: true,
+      agentStarting: false,
+    };
   }
 }
 
@@ -187,6 +207,30 @@ describe('App session tabs', () => {
     fixture.detectChanges();
 
     expect(banner()?.textContent).toContain('blocked for this site');
+  });
+
+  it('shows pi configuration warnings as a row, with the files behind Details', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+    const row = () => fixture.nativeElement.querySelector('.diagnostics') as HTMLElement | null;
+
+    // Nothing to say until pi reports one.
+    expect(row()).toBeNull();
+
+    transport.showDiagnostics();
+    fixture.detectChanges();
+
+    expect(row()?.textContent).toContain('1 configuration warning');
+    // Collapsed: the file list is not painted until it is asked for.
+    expect(row()!.querySelector('.diagnostics-list')).toBeNull();
+
+    (row()!.querySelector('.diagnostics-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(row()!.querySelector('.diagnostics-list')?.textContent).toContain('explain-path.md');
   });
 
   it('hides the chat and offers a session when no tab is in front', () => {

@@ -269,6 +269,74 @@
   background: var(--morse-hover);
 }
 
+/*
+ * A configuration warning from pi. Same shell-slot as the notification nudge,
+ * but warning-coloured and collapsed: the reader clicks for the list of files,
+ * so the row never takes the room a transcript entry would.
+ */
+.diagnostics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--morse-border);
+  background: color-mix(in srgb, var(--morse-warn) 12%, transparent);
+  color: var(--morse-fg);
+  font-size: 12.5px;
+}
+
+.diagnostics-glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--morse-warn);
+}
+
+.diagnostics-glyph svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.diagnostics-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.diagnostics-toggle {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--morse-warn) 45%, var(--morse-border));
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.diagnostics-toggle:hover {
+  background: var(--morse-hover);
+}
+
+.diagnostics-list {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  padding: 0 0 0 22px;
+  list-style: disc;
+  color: var(--morse-fg-muted);
+}
+
+.diagnostics-list li {
+  margin: 3px 0;
+  word-break: break-word;
+}
+
 .alert {
   margin: 10px;
   padding: 10px 12px;

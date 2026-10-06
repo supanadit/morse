@@ -41,6 +41,16 @@
           </dd>
         </div>
       }
+      @if (piUpdateNotice(); as notice) {
+        <div>
+          <dt>pi</dt>
+          <dd>
+            <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
+              v{{ notice.current }} installed · v{{ notice.latest }} available
+            </a>
+          </dd>
+        </div>
+      }
     </dl>
 
     <div class="scroll">

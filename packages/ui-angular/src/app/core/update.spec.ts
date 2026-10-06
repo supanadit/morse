@@ -3,10 +3,13 @@ import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MORSE_TRANSPORT } from './transport.token';
 import {
+  PI_CHANGELOG_URL,
+  PI_LATEST_VERSION_URL,
   UPDATE_LOADER,
   UpdateCheck,
   isNewerRelease,
   latestFromRegistry,
+  piUpdateHint,
   releasePage,
   updateHint,
   type VersionLoader,
@@ -108,6 +111,66 @@ describe('where the reader goes next', () => {
     // VS Code has its own update path, and a hand-installed VSIX has to be named.
     expect(updateHint('vscode', '0.3.0')).toContain('VSIX');
     expect(updateHint('vscode', '0.3.0')).toContain('Marketplace');
+  });
+
+  it('tells the pi reader the one command pi itself prints', () => {
+    // pi's own notice says `pi update`; the hint repeats it and admits the
+    // package-manager case, where `pi update` refuses to replace the binary.
+    expect(piUpdateHint('1.0.4')).toContain('pi update');
+    expect(piUpdateHint('1.0.4')).toContain('1.0.4');
+    expect(piUpdateHint('1.0.4')).toContain('package manager');
+  });
+});
+
+describe('UpdateCheck pi', () => {
+  it('reads pi from its own package, on the same origin as the Morse check', () => {
+    expect(PI_LATEST_VERSION_URL).toBe(
+      'https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest',
+    );
+  });
+
+  it('records a newer pi with the keys the UI needs, and the changelog link', async () => {
+    const update = service();
+    expect(update.piAvailable()).toBeUndefined();
+
+    await update.checkPi('1.0.3', loader({ version: '1.0.4' }));
+
+    expect(update.piAvailable()).toMatchObject({
+      product: 'pi',
+      current: '1.0.3',
+      latest: '1.0.4',
+      url: PI_CHANGELOG_URL,
+    });
+    expect(update.piAvailable()?.hint).toContain('pi update');
+  });
+
+  it('says nothing when pi is current, unknown, or unreadable', async () => {
+    const update = service();
+
+    await update.checkPi('1.0.4', loader({ version: '1.0.4' }));
+    expect(update.piAvailable()).toBeUndefined();
+
+    // A host that could not read a version passes an empty string: no notice,
+    // and no request either.
+    const request = loader({ version: '9.9.9' });
+    await update.checkPi('', request);
+    expect(update.piAvailable()).toBeUndefined();
+    expect(request.mock.calls).toHaveLength(0);
+
+    const offline: VersionLoader = () => Promise.reject(new Error('offline'));
+    await update.checkPi('1.0.3', offline);
+    expect(update.piAvailable()).toBeUndefined();
+  });
+
+  it('can be reviewed with ?newer-pi, without a release and without a request', async () => {
+    const update = service();
+    const request = loader({ version: '1.0.3' });
+    window.history.replaceState({}, '', '/?newer-pi=9.9.9');
+
+    await update.checkPi('1.0.3', request);
+
+    expect(update.piAvailable()?.latest).toBe('9.9.9');
+    expect(request.mock.calls).toHaveLength(0);
   });
 });
 

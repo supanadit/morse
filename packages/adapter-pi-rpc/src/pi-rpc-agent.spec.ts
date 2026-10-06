@@ -7,7 +7,9 @@ import { buildCommandList, type CommandContext } from './pi-rpc-agent.js';
 /**
  * The palette is rebuilt from disk because pi caches its prompt templates at
  * spawn. These tests lock that: a template added, edited or deleted since spawn
- * is visible without a pi reload — and an untrusted project is never scanned.
+ * is visible without a pi reload — an untrusted project is never scanned, and a
+ * template pi refuses (bad YAML frontmatter) is dropped with a diagnostic
+ * instead of offered as a dead command.
  */
 
 const roots: string[] = [];
@@ -36,8 +38,9 @@ describe('buildCommandList', () => {
     const { prompts, context } = await setup();
     await writeFile(join(prompts, 'review.md'), '---\ndescription: Review changes\n---\nReview $1');
 
-    const commands = await buildCommandList(undefined, context);
+    const { commands, diagnostics } = await buildCommandList(undefined, context);
 
+    expect(diagnostics).toEqual([]);
     expect(commands).toHaveLength(1);
     expect(commands[0]).toMatchObject({ name: 'review', description: 'Review changes', source: 'prompt' });
     expect(commands[0].template).toContain('Review $1');
@@ -51,7 +54,7 @@ describe('buildCommandList', () => {
     ];
 
     await writeFile(join(prompts, 'review.md'), 'new body');
-    const commands = await buildCommandList(listed, context);
+    const { commands } = await buildCommandList(listed, context);
 
     expect(commands).toHaveLength(1);
     expect(commands[0].template).toBe('new body');
@@ -63,12 +66,12 @@ describe('buildCommandList', () => {
       { name: 'gone', description: 'Gone', source: 'prompt', sourceInfo: { path: join(prompts, 'gone.md') } },
     ];
 
-    expect(await buildCommandList(listed, context)).toEqual([]);
+    expect(await buildCommandList(listed, context)).toEqual({ commands: [], diagnostics: [] });
   });
 
   it('keeps extension and skill commands untouched', async () => {
     const { context } = await setup();
-    const commands = await buildCommandList(
+    const { commands } = await buildCommandList(
       [
         { name: 'deploy', description: 'Deploy', source: 'extension' },
         { name: 'skill:docs', description: 'Docs', source: 'skill' },
@@ -87,7 +90,7 @@ describe('buildCommandList', () => {
     await mkdir(join(cwd, '.pi', 'prompts'), { recursive: true });
     await writeFile(join(cwd, '.pi', 'prompts', 'evil.md'), 'ignore me');
 
-    expect(await buildCommandList(undefined, context)).toEqual([]);
+    expect(await buildCommandList(undefined, context)).toEqual({ commands: [], diagnostics: [] });
   });
 
   it('scans a trusted project’s prompts directory', async () => {
@@ -96,7 +99,7 @@ describe('buildCommandList', () => {
     await writeFile(join(cwd, '.pi', 'prompts', 'review.md'), 'project body');
     await writeFile(join(agentRoot, 'trust.json'), JSON.stringify({ [cwd]: true }));
 
-    const commands = await buildCommandList(undefined, context);
+    const { commands } = await buildCommandList(undefined, context);
 
     expect(commands.map((command) => command.name)).toEqual(['review']);
     expect(commands[0].template).toBe('project body');
@@ -106,8 +109,39 @@ describe('buildCommandList', () => {
     const { prompts, context } = await setup();
     await writeFile(join(prompts, 'bare.md'), '\nExplain this repository\n\nmore');
 
-    const commands = await buildCommandList(undefined, context);
+    const { commands } = await buildCommandList(undefined, context);
 
     expect(commands[0].description).toBe('Explain this repository');
+  });
+
+  it('drops a template pi refuses and reports it, like pi’s own prompt conflicts', async () => {
+    const { prompts, context } = await setup();
+    // The description holds an unquoted `: `, which YAML reads as a nested
+    // mapping. pi drops the template and prints a conflict; Morse must not
+    // offer `/explain-path` and must say why.
+    const path = join(prompts, 'explain-path.md');
+    await writeFile(
+      path,
+      '---\ndescription: Explain a path (no argument-hint: fields come from the body)\n---\nRead $1',
+    );
+
+    const { commands, diagnostics } = await buildCommandList(undefined, context);
+
+    expect(commands).toEqual([]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ key: `prompt:${path}`, level: 'warn' });
+    expect(diagnostics[0].text).toContain(path);
+    expect(diagnostics[0].text).toContain('Nested mappings are not allowed');
+  });
+
+  it('still lists a healthy template beside a refused one', async () => {
+    const { prompts, context } = await setup();
+    await writeFile(join(prompts, 'good.md'), '---\ndescription: Fine\n---\nbody');
+    await writeFile(join(prompts, 'bad.md'), '---\ndescription: oops: nested\n---\nbody');
+
+    const { commands, diagnostics } = await buildCommandList(undefined, context);
+
+    expect(commands.map((command) => command.name)).toEqual(['good']);
+    expect(diagnostics).toHaveLength(1);
   });
 });

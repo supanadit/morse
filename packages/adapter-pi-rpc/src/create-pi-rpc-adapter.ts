@@ -2,7 +2,7 @@ import type { AgentGatewayFactory, MorseLogger, SessionCatalog } from '@morse/co
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
 import { PiMcp } from './pi-mcp.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
-import { resolvePi, resolvePiCli, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
+import { resolvePi, resolvePiCli, readPiVersion, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
 
 export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
   sessionDir?: string;
@@ -18,6 +18,12 @@ export interface PiRpcAdapter {
   mcp: PiMcp;
   /** Resolves the spawn command; throws with an actionable message when pi is missing. */
   describe(): PiSpawn;
+  /**
+   * The installed pi version, for the "a newer pi is out" notice. Read once and
+   * cached: both hosts call this while building capabilities, on every
+   * connection. `undefined` when pi is missing or its package is unreadable.
+   */
+  version(): string | undefined;
   /** The `pi` CLI when it can be run, for host capabilities that need a subcommand. */
   describeCli(): PiCliSpawn | undefined;
 }
@@ -40,6 +46,9 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
     env: config.env,
   };
   const mcp = new PiMcp(cliOptions);
+  // Cached across connections: reading it touches the filesystem, and the
+  // answer only changes when the host restarts with a new pi on disk.
+  let cachedVersion: string | null | undefined;
   return {
     factory,
     catalog,
@@ -53,6 +62,23 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
         extraArgs: config.extraArgs,
         env: config.env,
       }),
+    version: () => {
+      if (cachedVersion === undefined) {
+        try {
+          cachedVersion =
+            readPiVersion(
+              resolvePi({
+                piPath: config.piPath,
+                nodeEntryPath: config.nodeEntryPath,
+                env: config.env,
+              }),
+            ) ?? null;
+        } catch {
+          cachedVersion = null;
+        }
+      }
+      return cachedVersion ?? undefined;
+    },
     describeCli: () => {
       try {
         return resolvePiCli(cliOptions);

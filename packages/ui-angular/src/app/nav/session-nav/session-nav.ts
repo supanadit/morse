@@ -472,6 +472,8 @@ export class SessionNav {
   protected readonly version = this.morse.version;
   /** A newer release, when the host allowed the check and the registry confirmed one. */
   protected readonly updateNotice = this.update.available;
+  /** A newer pi, when the host could read the one it runs and the registry had it. */
+  protected readonly piUpdateNotice = this.update.piAvailable;
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
 

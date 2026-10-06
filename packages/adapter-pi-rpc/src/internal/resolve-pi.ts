@@ -1,4 +1,4 @@
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { AgentUnavailableError } from '@morse/core';
@@ -151,6 +151,60 @@ export function findOnPath(binary: string, env: NodeJS.ProcessEnv = process.env)
         return candidate;
       }
     }
+  }
+  return undefined;
+}
+
+/**
+ * The installed pi version, read from the npm package that owns the resolved
+ * entry (`pi` is a symlink to `.../@earendil-works/pi-coding-agent/dist/bundle/cli.js`,
+ * so its `package.json` sits two directories up). Best effort: a pi installed by
+ * a package manager that does not leave a readable package.json next to the
+ * binary simply has no version, and the only cost is the frontend's "a newer pi
+ * is out" notice.
+ *
+ * Not `pi --version`: this runs while a host builds its capabilities, and a
+ * subprocess there would delay every connection. Reading one file does not.
+ */
+export function readPiVersion(spawn: PiSpawn): string | undefined {
+  const entry = spawn.source === 'node-entry' ? spawn.args.find((arg) => /\.(?:c|m)?js$/.test(arg)) : spawn.command;
+  if (entry === undefined || entry.length === 0) {
+    return undefined;
+  }
+  let directory: string | undefined;
+  try {
+    const resolved = realpathSync(entry);
+    directory = statSync(resolved).isDirectory() ? resolved : dirname(resolved);
+  } catch {
+    directory = dirname(entry);
+  }
+  // The package root is at most a couple of levels above the entry; walking a
+  // fixed few and stopping keeps this from climbing to the filesystem root.
+  for (let depth = 0; depth < 4 && directory !== undefined && directory !== dirname(directory); depth += 1) {
+    const manifest = join(directory, 'package.json');
+    if (existsSync(manifest)) {
+      const version = versionFromManifest(manifest);
+      if (version !== undefined) {
+        return version;
+      }
+    }
+    directory = dirname(directory);
+  }
+  return undefined;
+}
+
+/** The version of the package pi ships as, when this manifest is that package. */
+function versionFromManifest(path: string): string | undefined {
+  try {
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as {
+      name?: unknown;
+      version?: unknown;
+    };
+    if (manifest.name === '@earendil-works/pi-coding-agent' && typeof manifest.version === 'string') {
+      return manifest.version.trim() || undefined;
+    }
+  } catch {
+    // Unreadable or not JSON: keep walking.
   }
   return undefined;
 }

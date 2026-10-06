@@ -39,10 +39,12 @@ export interface ChatViewProviderDeps {
   /** pi's MCP configuration. The panel's MCP manager is hidden when the CLI is missing. */
   mcp: PiMcp;
   mcpAvailable: boolean;
+  /** The installed pi version, for the "a newer pi is out" notice. */
+  piVersion?: string;
 }
 
 /** What this host can do — the frontend reads this instead of guessing. */
-function buildCapabilities(mcp: boolean): HostCapabilities {
+function buildCapabilities(mcp: boolean, piVersion: string | undefined): HostCapabilities {
   return {
     hostKind: 'vscode',
     // VS Code is scoped to the folders this window has open:
@@ -65,8 +67,11 @@ function buildCapabilities(mcp: boolean): HostCapabilities {
     // The panel may ask the registry for the latest release, so a reader of a VSIX
     // installed by hand still hears about a newer one. VS Code itself only does
     // that for a Marketplace install. The webview's CSP names the registry origin
-    // for exactly this request (see `webview-html.ts`).
+    // for exactly this request (see `webview-html.ts`). The same request also
+    // covers pi (`@earendil-works/pi-coding-agent`), so one origin serves both.
     updateCheck: true,
+    // The pi this window runs, so the panel can say when a newer one is out.
+    piVersion,
     // A webview has no Web Notifications, so the panel asks the host to raise one
     // when a run finishes while the reader is looking elsewhere.
     notify: true,
@@ -119,7 +124,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(this.deps.mcpAvailable),
+      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
       emit: (message) => this.post(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),

@@ -105,6 +105,9 @@ export class MorseSessionFactory {
       // the sidebar can say when a newer Morse is out. A host without it stays
       // quiet; this one is on unless `MORSE_UPDATE_CHECK=0` says otherwise.
       updateCheck: this.config.updateCheck,
+      // The same notice covers pi itself: the version this host runs, so the
+      // frontend can compare it against the published one.
+      piVersion: this.pi.version(),
       // Managing MCP servers runs the `pi` CLI, so this host offers it only when
       // it found one. A host without it hides the affordance.
       mcp: this.pi.describeCli() !== undefined,

@@ -195,6 +195,21 @@
       <span class="stamp">v{{ notice.latest }}</span>
     </a>
   }
+  <!-- The same row for pi itself: the agent Morse drives, which the reader
+       updates from a terminal, not from VS Code's extension update. -->
+  @if (piUpdateNotice(); as notice) {
+    <a
+      class="notice"
+      [href]="notice.url"
+      target="_blank"
+      rel="noreferrer noopener"
+      [title]="notice.hint + ' You are on v' + notice.current + '.'"
+    >
+      <span class="notice-glyph" aria-hidden="true">↑</span>
+      <span>Pi update available</span>
+      <span class="stamp">v{{ notice.latest }}</span>
+    </a>
+  }
   <button type="button" (click)="openShortcuts()" title="Every key Morse understands">
     Keyboard shortcuts
     <span class="stamp">?</span>
