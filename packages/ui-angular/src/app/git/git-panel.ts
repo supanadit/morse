@@ -1333,17 +1333,28 @@ export class GitPanel {
     if (!body) {
       return;
     }
-    const top = body.getBoundingClientRect().top;
+    /*
+     * The height belongs to the Changes section, which is the divider's own
+     * previous sibling — not to the body. The body also holds the sync bar and
+     * the commit box above Changes, so measuring from the body's top made the
+     * divider jump down by exactly that offset the moment the drag started.
+     * The grab point is folded in too (start height + pointer delta), so the
+     * divider stays under the cursor wherever the handle was grabbed.
+     */
+    const changes = (handle.previousElementSibling as HTMLElement | null) ?? body;
+    const top = changes.getBoundingClientRect().top;
     const bottom = body.getBoundingClientRect().bottom;
+    const startY = event.clientY;
+    const startHeight = changes.getBoundingClientRect().height;
     handle.setPointerCapture(event.pointerId);
     let frame = 0;
-    let pending = 0;
+    let pending = startHeight;
     const apply = (): void => {
       frame = 0;
       this.shell.setGitChangesHeight(pending, false);
     };
     const move = (moveEvent: PointerEvent): void => {
-      pending = Math.min(bottom - top - 80, moveEvent.clientY - top);
+      pending = Math.min(bottom - top - 80, startHeight + (moveEvent.clientY - startY));
       if (frame === 0) {
         frame = requestAnimationFrame(apply);
       }
