@@ -213,14 +213,16 @@ describe('Terminal', () => {
     expect(morse.openTerminal).toHaveBeenCalledTimes(2);
   });
 
-  it('closes the shell when the terminal goes away', async () => {
+  it('leaves the shell running when the view goes away', async () => {
     const { fixture, morse } = setup();
     await fixture.whenStable();
     await tick();
-    const id = morse.openTerminal.mock.calls[0]?.[0] as string;
 
     fixture.destroy();
 
-    expect(morse.closeTerminal).toHaveBeenCalledWith(id);
+    // The host owns the shell: a hidden panel, a remount or a session switch must
+    // not end it, or a running command would die with the view. Only the reader
+    // closing the pane/chip/session sends `terminal/close` (see `TerminalView`).
+    expect(morse.closeTerminal).not.toHaveBeenCalled();
   });
 });

@@ -1004,10 +1004,22 @@ export class WorkspaceTabs {
       }
       this.drafts.forget(id);
       // A terminal belongs to its session tab: closing the tab kills its shells.
-      this.terminals.forgetOwner(id);
+      this.closeOwnerTerminals(id);
       // A queued follow-up belongs to the tab too: closing it drops its queue.
       this.queued.forgetOwner(id);
     }
+  }
+
+  /**
+   * Ends every shell an owner holds and forgets its layout. The store is layout
+   * only, so the `terminal/close` is sent from here — the same message the pane's
+   * own close button sends, just for a whole session at once.
+   */
+  private closeOwnerTerminals(owner: string): void {
+    for (const pane of this.terminals.panesOf(owner)) {
+      this.morse.closeTerminal(pane);
+    }
+    this.terminals.forgetOwner(owner);
   }
 
   /**
@@ -1147,7 +1159,12 @@ export class WorkspaceTabs {
   private discardEmptyDrafts(): void {
     const doomed = this.items().filter(
       (tab): tab is SessionTab =>
-        tab.kind === 'session' && tab.draft === true && this.drafts.isEmpty(tab.id),
+        tab.kind === 'session' &&
+        tab.draft === true &&
+        this.drafts.isEmpty(tab.id) &&
+        // A draft with a shell in it is not untouched: the reader may have run a
+        // command or `cd`'d, and dropping it would take the terminal with it.
+        !this.terminals.hasOwner(tab.id),
     );
     if (doomed.length === 0) {
       return;
@@ -1159,7 +1176,7 @@ export class WorkspaceTabs {
     }
     for (const id of ids) {
       this.drafts.forget(id);
-      this.terminals.forgetOwner(id);
+      this.closeOwnerTerminals(id);
       this.queued.forgetOwner(id);
     }
     this.pruneOrphanMentions();

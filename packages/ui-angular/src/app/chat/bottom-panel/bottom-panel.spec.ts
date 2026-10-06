@@ -109,6 +109,28 @@ describe('BottomPanel', () => {
     expect(host.querySelector('morse-terminal-view')).not.toBeNull();
   });
 
+  it('hides without unmounting when told to, so a running shell survives', async () => {
+    const { fixture, host } = setup();
+    (host.querySelector('.chip-label') as HTMLElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(host.querySelector('morse-terminal-view')).not.toBeNull();
+
+    // Hiding is a class, not an unmount: an unmounted terminal would close its
+    // host-owned shell (see `bottomPanelEnabled` in `app.ts`).
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+
+    expect(host.classList.contains('host-hidden')).toBe(true);
+    expect(host.querySelector('morse-terminal-view')).not.toBeNull();
+
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+
+    expect(host.classList.contains('host-hidden')).toBe(false);
+    expect(host.querySelector('morse-terminal-view')).not.toBeNull();
+  });
+
   it('renders the tool action next to its chip and opens a terminal', async () => {
     const { fixture, host } = setup();
     (host.querySelector('.chip-label') as HTMLElement).click();

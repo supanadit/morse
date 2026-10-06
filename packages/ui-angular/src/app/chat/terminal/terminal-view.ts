@@ -9,6 +9,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { MorseService } from '../../core/morse.service';
 import { PanelState } from '../../core/panel-state';
 import { TerminalStore, type TerminalGroup, type TerminalInstance } from '../../core/terminal-store';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
@@ -300,6 +301,7 @@ export class TerminalView {
   private readonly store = inject(TerminalStore);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly panel = inject(PanelState);
+  private readonly morse = inject(MorseService);
   private readonly destroyRef = inject(DestroyRef);
 
   /** The session the panel is showing; terminals belong to it, not to the app. */
@@ -415,11 +417,28 @@ export class TerminalView {
   }
   protected close(group: TerminalGroup, event: Event): void {
     event.stopPropagation();
-    this.store.close(group.id);
+    this.closeById(group.id);
+  }
+
+  /**
+   * Ends a terminal: every pane in its split, and its host shell with it. The
+   * store only holds the layout, so the `terminal/close` is sent here — never on
+   * unmount, which is what lets a hidden panel or a session switch keep the shell.
+   */
+  private closeById(id: string): void {
+    const group = this.allGroups().find((entry) => entry.id === id);
+    if (group === undefined) {
+      return;
+    }
+    for (const pane of group.panes) {
+      this.morse.closeTerminal(pane.id);
+    }
+    this.store.close(id);
   }
 
   protected closePane(pane: TerminalInstance, event: Event): void {
     event.stopPropagation();
+    this.morse.closeTerminal(pane.id);
     this.store.closePane(pane.id);
   }
 
@@ -431,7 +450,7 @@ export class TerminalView {
   protected onAuxClick(id: string, event: MouseEvent): void {
     if (event.button === 1) {
       event.preventDefault();
-      this.store.close(id);
+      this.closeById(id);
     }
   }
 

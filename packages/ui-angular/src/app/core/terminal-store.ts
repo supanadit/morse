@@ -241,6 +241,26 @@ export class TerminalStore {
     return this.activeByOwner()[keyOf(owner)];
   }
 
+  /**
+   * The pane ids that belong to an owner, in chip order. What ends a session's
+   * shells; the store itself only owns the layout, so the caller sends the
+   * `terminal/close` for each one.
+   */
+  panesOf(owner: string | undefined): string[] {
+    return this.items()
+      .filter((pane) => pane.owner === owner)
+      .map((pane) => pane.id);
+  }
+
+  /**
+   * True while an owner still holds a shell. A draft with a terminal in it is
+   * not empty noise: the reader may have `cd`'d somewhere, so it must survive the
+   * untouched-draft cleanup that a composer-only emptiness check would drop.
+   */
+  hasOwner(owner: string | undefined): boolean {
+    return this.items().some((pane) => pane.owner === owner);
+  }
+
   /** The pane in front inside a group; `undefined` when the group is gone. */
   activePaneFor(group: string): string | undefined {
     return this.activePaneByGroup()[group];

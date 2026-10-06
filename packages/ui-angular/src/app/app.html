@@ -229,9 +229,10 @@
     }
 
     <!-- The browser host's bottom panel: chips that open a tool (the terminal)
-         below the composer. VS Code has its own panel and never mounts it. -->
+         below the composer. VS Code has its own panel and never mounts it. It
+         stays mounted while hidden: unmounting it would kill every shell. -->
     @if (bottomPanelEnabled()) {
-      <morse-bottom-panel />
+      <morse-bottom-panel [visible]="bottomPanelVisible()" />
     }
 
     @if (toast(); as notice) {

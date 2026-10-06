@@ -26,6 +26,7 @@ function setup(
     }),
     activateSession: vi.fn(),
     newSession: vi.fn(),
+    closeTerminal: vi.fn(),
     requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) =>
       Promise.resolve(handler(command, args)),
     ),
@@ -270,6 +271,23 @@ describe('WorkspaceTabs', () => {
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
   });
 
+  it('keeps an untouched draft alive while it holds a terminal', () => {
+    const { tabs, fake } = setup();
+    const terminals = TestBed.inject(TerminalStore);
+
+    tabs.startDraft('/repo');
+    const draftId = tabs.tabs()[0]!.id;
+    const terminal = terminals.open(draftId);
+
+    // Picking a real session used to discard the untouched draft and its shell
+    // with it, losing a terminal the reader had already `cd`'d in.
+    tabs.focusSession({ id: 's1', title: 'One' });
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-1', 's1']);
+    expect(terminals.terminals().map((entry) => entry.id)).toEqual([terminal]);
+    expect(fake.closeTerminal).not.toHaveBeenCalled();
+  });
+
   it('refreshes a title but never resurrects a closed tab', () => {
     const { tabs } = setup();
 
@@ -397,7 +415,7 @@ describe('WorkspaceTabs', () => {
   });
 
   it("kills a session's terminals when its tab closes", () => {
-    const { tabs } = setup();
+    const { tabs, fake } = setup();
     const terminals = TestBed.inject(TerminalStore);
     tabs.focusSession({ id: 's1', title: 'One' });
     const terminal = terminals.open('s1');
@@ -405,6 +423,9 @@ describe('WorkspaceTabs', () => {
     tabs.close('s1');
 
     expect(terminals.terminals().some((entry) => entry.id === terminal)).toBe(false);
+    // The layout is gone, and the host-owned shell ends with it — an explicit
+    // `terminal/close`, never the component unmounting.
+    expect(fake.closeTerminal).toHaveBeenCalledWith(terminal);
   });
 
   it("moves a draft's terminals to the session it becomes", () => {

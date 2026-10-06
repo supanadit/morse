@@ -308,7 +308,9 @@ below the composer: a chip row that starts folded, opens the tool its chip names
 its top edge (height, chosen tool and fold remembered in `PanelState` and restored from the saved layout,
 like the other shell preferences).
 The panel keeps the chosen view mounted while folded, so a running terminal is not killed by a collapse;
-adding a tool is one line in the panel's `VIEWS` list plus its component.
+adding a tool is one line in the panel's `VIEWS` list plus its component. It is also kept mounted — hidden
+with a class — while no session is in front, because unmounting it would destroy every `Terminal` and end
+the host-owned shells.
 
 - The **Terminal** view runs a real shell on the host. `terminal/open` names an id (and optionally a `cwd`;
 the host defaults to the viewing session's directory), and the host streams `terminal/output` as the
@@ -317,8 +319,11 @@ shell writes and `terminal/exit` when it ends or cannot start. `terminal/input` 
 - **A terminal belongs to one session.** `TerminalStore` keys every terminal by the composer's session
 key, so the view's tab row shows the terminals of the session in front and `+` opens another for it.
 Switching sessions swaps the row while the other sessions' shells keep running (their emulators stay
-mounted, hidden); closing a session tab drops its terminals, which kills their shells. A draft's
-terminals follow it when it becomes a real session (`rekey`), exactly like its composer draft.
+mounted, hidden); closing a session tab drops its terminals, which kills their shells. A shell ends only
+on an explicit close — the pane's ×, the chip's ×, or its session tab — never because a component was
+destroyed, so a hidden panel, a remount or a reconnect cannot kill a running command. A draft's
+terminals follow it when it becomes a real session (`rekey`), exactly like its composer draft, and a draft
+that holds a terminal is not discarded as untouched (`TerminalStore.hasOwner`).
 - The backend is a port (`TerminalBackend`, `packages/host-runtime/src/terminal.ts`), so the controller
 owns the wire conversation and the host owns the process. The NestJS host implements it in
 `ServerTerminalBackend` with **`node-pty`** — a real pseudo-terminal in the viewing session's directory,

@@ -53,6 +53,12 @@ function setup(): {
   fixture: ComponentFixture<TerminalView>;
   host: HTMLElement;
   state: ReturnType<typeof signal<SessionState>>;
+  morse: {
+    openTerminal: ReturnType<typeof vi.fn>;
+    closeTerminal: ReturnType<typeof vi.fn>;
+    sendTerminal: ReturnType<typeof vi.fn>;
+    resizeTerminal: ReturnType<typeof vi.fn>;
+  };
 } {
   const state = signal<SessionState>({
     sessionId: 's1',
@@ -78,7 +84,7 @@ function setup(): {
   });
   const fixture = TestBed.createComponent(TerminalView);
   fixture.detectChanges();
-  return { fixture, host: fixture.nativeElement as HTMLElement, state };
+  return { fixture, host: fixture.nativeElement as HTMLElement, state, morse };
 }
 
 /** Opens a terminal the way the panel's `+` action does. */
@@ -131,7 +137,7 @@ describe('TerminalView', () => {
   });
 
   it("shows only the session's terminals, and keeps the others alive", async () => {
-    const { fixture, host, state } = setup();
+    const { fixture, host, state, morse } = setup();
     open();
     fixture.detectChanges();
     await fixture.whenStable();
@@ -146,6 +152,16 @@ describe('TerminalView', () => {
     // The other session's shell stays mounted, only its group loses the space.
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(1);
     expect(host.querySelector('.group')?.classList.contains('hidden')).toBe(true);
+    // Switching sessions must not end the hidden session's shell: it is the
+    // reader's running command, not a view state.
+    expect(morse.closeTerminal).not.toHaveBeenCalled();
+
+    // …and coming back shows the same terminal, shell intact.
+    state.set({ sessionId: 's1', workspace: { cwd: '/w', name: 'w' } });
+    fixture.detectChanges();
+    expect(chips(host)).toEqual(['Terminal 1']);
+    expect(host.querySelectorAll('morse-terminal')).toHaveLength(1);
+    expect(morse.closeTerminal).not.toHaveBeenCalled();
   });
 
   it('shows the shell title and renames a tab inline', async () => {
@@ -249,6 +265,27 @@ describe('TerminalView', () => {
     expect(sizes[1]).toBeCloseTo(0.35);
   });
 
+  it('ends a pane shell when one pane of a split is closed', async () => {
+    const { fixture, host, morse } = setup();
+    const store = TestBed.inject(TerminalStore);
+    const first = open();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    (host.querySelector('.split-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const second = store.groups()[0]!.panes[1]!.id;
+    expect(second).not.toBe(first);
+
+    // Closing one pane ends exactly its shell; the split's other shell lives.
+    (paneTabs(host)[1]!.querySelector('.close') as HTMLElement).click();
+    fixture.detectChanges();
+
+    expect(morse.closeTerminal).toHaveBeenCalledTimes(1);
+    expect(morse.closeTerminal).toHaveBeenCalledWith(second);
+    expect(store.terminals().map((pane) => pane.id)).toEqual([first]);
+  });
+
   it('closing a split chip takes every pane with it', async () => {
     const { fixture, host } = setup();
     const store = TestBed.inject(TerminalStore);
@@ -269,8 +306,8 @@ describe('TerminalView', () => {
   });
 
   it('closes a terminal from its chip', async () => {
-    const { fixture, host } = setup();
-    open();
+    const { fixture, host, morse } = setup();
+    const id = open();
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -280,11 +317,13 @@ describe('TerminalView', () => {
     expect(chips(host)).toEqual([]);
     expect(host.querySelector('.tabbar')).toBeNull();
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(0);
+    // The reader asked for it, so the host shell ends too.
+    expect(morse.closeTerminal).toHaveBeenCalledWith(id);
   });
 
-  it("drops the session's terminals when its session tab is closed", async () => {
-    const { fixture, host } = setup();
-    open();
+  it("drops the session's terminals and ends their shells when its tab is closed", async () => {
+    const { fixture, host, morse } = setup();
+    const id = open();
     fixture.detectChanges();
     await fixture.whenStable();
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(1);
@@ -296,5 +335,6 @@ describe('TerminalView', () => {
 
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(0);
     expect(host.querySelector('.empty')).not.toBeNull();
+    expect(morse.closeTerminal).toHaveBeenCalledWith(id);
   });
 });

@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   inject,
+  input,
   type Type,
 } from '@angular/core';
 import { PANEL_DEFAULT_HEIGHT, PanelState } from '../../core/panel-state';
@@ -30,14 +31,20 @@ const VIEWS: readonly BottomPanelView[] = [
  * host leaves `capabilities.terminal` off and keeps its own panel).
  *
  * The body stays mounted while folded, so a running terminal keeps its shell and
- * its scrollback instead of being killed by a collapse.
+ * its scrollback instead of being killed by a collapse. `visible` is the same
+ * idea for a whole-session hide: the host takes the space away with
+ * `display: none` instead of unmounting, because an unmount would close the
+ * host-owned shell (see `bottomPanelEnabled`).
  */
 @Component({
   selector: 'morse-bottom-panel',
   imports: [NgComponentOutlet],
   templateUrl: './bottom-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.full]': 'full()' },
+  host: {
+    '[class.full]': 'full()',
+    '[class.host-hidden]': '!visible()',
+  },
   styles: [
     `
       :host {
@@ -49,6 +56,13 @@ const VIEWS: readonly BottomPanelView[] = [
       :host(.full) {
         flex: 1;
         min-height: 0;
+      }
+      /*
+       * Hidden because no session is in front. The class, not an unmounted view,
+       * is what keeps the running shells alive.
+       */
+      :host(.host-hidden) {
+        display: none;
       }
       :host(.full) .panel {
         height: 100%;
@@ -227,6 +241,9 @@ const VIEWS: readonly BottomPanelView[] = [
 })
 export class BottomPanel {
   private readonly panel = inject(PanelState);
+
+  /** Whether the panel takes space at all; `false` hides it without unmounting. */
+  readonly visible = input(true);
 
   protected readonly views = VIEWS;
   protected readonly defaultHeight = PANEL_DEFAULT_HEIGHT;

@@ -147,6 +147,23 @@ describe('TerminalStore', () => {
     expect(store.activeFor('s1')).toBe(first);
   });
 
+  it('lists an owner’s panes and reports whether it still holds one', () => {
+    const store = TestBed.inject(TerminalStore);
+    const first = store.open('s1');
+    const second = store.split(first)!;
+    const other = store.open('s2');
+
+    expect(store.panesOf('s1')).toEqual([first, second]);
+    expect(store.panesOf('s2')).toEqual([other]);
+    expect(store.hasOwner('s1')).toBe(true);
+
+    store.forgetOwner('s1');
+
+    expect(store.panesOf('s1')).toEqual([]);
+    expect(store.hasOwner('s1')).toBe(false);
+    expect(store.hasOwner('s2')).toBe(true);
+  });
+
   it('sizes a split evenly and keeps a drag until the structure changes', () => {
     const store = TestBed.inject(TerminalStore);
     const first = store.open('s1');

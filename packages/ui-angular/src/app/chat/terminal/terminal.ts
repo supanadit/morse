@@ -112,7 +112,10 @@ export class Terminal {
       offExit();
       this.observer?.disconnect();
       this.term?.dispose();
-      this.morse.closeTerminal(this.id());
+      // Detach, do not kill: the shell and its scrollback belong to the host, so
+      // a hidden panel, a remount or a session switch must not end it. Only the
+      // reader closing the pane, the chip or its session sends `terminal/close`
+      // (see `TerminalView.close`/`closePane` and `WorkspaceTabs`).
     });
     // A restart or a reconnect hands the pane a *new* host that has never seen
     // this terminal, so keystrokes would go nowhere until it is attached again.

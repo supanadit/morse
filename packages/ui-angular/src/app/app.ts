@@ -122,16 +122,28 @@ export class App {
   /**
    * The browser host's bottom panel. VS Code leaves `terminal` off (its own
    * panel has the terminal), so this is only ever mounted by the server host.
+   *
+   * Mounted for the whole lifetime of a terminal-capable host, not gated on the
+   * session in front: unmounting it would destroy every `Terminal` and with it
+   * the host-owned shells. `bottomPanelVisible` is what hides it on the empty
+   * view while the panel — and its running shells — stay alive.
    */
   protected readonly bottomPanelEnabled = computed(
-    () => this.morse.capabilities()?.terminal === true && !this.tabs.noSessionInFront(),
+    () => this.morse.capabilities()?.terminal === true,
+  );
+  /**
+   * Whether the bottom panel takes space. `noSessionInFront` hides it, but the
+   * panel and its shells stay mounted (see `bottomPanelEnabled`).
+   */
+  protected readonly bottomPanelVisible = computed(
+    () => this.bottomPanelEnabled() && !this.tabs.noSessionInFront(),
   );
   /**
    * Full-screen bottom panel: the panel takes the whole chat column and the
    * conversation behind it steps aside, the way the git panel's full mode does.
    */
   protected readonly bottomPanelFull = computed(
-    () => this.bottomPanelEnabled() && this.panel.full(),
+    () => this.bottomPanelVisible() && this.panel.full(),
   );
   /**
    * The browser host's git panel: history and graph for the active project. VS
