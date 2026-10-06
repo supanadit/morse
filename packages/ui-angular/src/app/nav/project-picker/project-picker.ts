@@ -5,6 +5,7 @@ import {
   HostListener,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
   viewChild,
@@ -200,7 +201,8 @@ export interface DirectoryListing {
         cursor: pointer;
       }
       .project-row:hover,
-      .project-row:focus-visible {
+      .project-row:focus-visible,
+      .project-row.active {
         background: var(--morse-hover);
       }
       .project-name {
@@ -318,6 +320,8 @@ export class ProjectPicker {
 
   /** The projects screen's filter; created only while that screen is showing. */
   private readonly search = viewChild<ElementRef<HTMLInputElement>>('search');
+  /** The projects screen's list, scrolled by arrow keys. */
+  private readonly list = viewChild<ElementRef<HTMLElement>>('list');
   /** The folder browser's path field; created only while that screen is showing. */
   private readonly pathInput = viewChild<ElementRef<HTMLInputElement>>('pathInput');
 
@@ -342,6 +346,12 @@ export class ProjectPicker {
    */
   protected readonly mode = signal<'projects' | 'browse'>('projects');
   protected readonly projectQuery = signal('');
+  /**
+   * Which matched project row Enter would start the session in. Kept as an index
+   * into `matchedProjects()`, reset whenever the query does, so the highlight and
+   * the Enter target can never point at a row that is no longer on screen.
+   */
+  protected readonly active = signal(0);
   /** Every project pi knows, the same list the sidebar groups sessions by. */
   protected readonly projects = this.morse.projects;
   protected readonly matchedProjects = computed(() => {
@@ -399,10 +409,37 @@ export class ProjectPicker {
       this.mode.set('browse');
       this.load();
     }
+    // Arrow keys move the highlight; keep the row inside the list's viewport so
+    // the row Enter would pick is always one the reader can see.
+    effect(() => {
+      this.active();
+      this.matchedProjects();
+      setTimeout(() => this.revealActive(), 0);
+    });
+
     // The dialog exists to be typed into: opening it (the sidebar button, the
     // empty panel, or the command palette) must land the caret in the field for
     // the screen it shows, not leave it behind on the trigger that opened it.
     afterNextRender(() => this.focusField());
+  }
+
+  /** Nudges the highlighted project row into the list viewport. */
+  private revealActive(): void {
+    if (this.mode() !== 'projects') {
+      return;
+    }
+    const container = this.list()?.nativeElement;
+    const row = container?.querySelectorAll<HTMLElement>('.project-row')[this.active()];
+    if (!container || !row) {
+      return;
+    }
+    const view = container.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    if (rect.top < view.top) {
+      container.scrollTop -= view.top - rect.top;
+    } else if (rect.bottom > view.bottom) {
+      container.scrollTop += rect.bottom - view.bottom;
+    }
   }
 
   /** Puts the caret in the field the current screen is built around. */
@@ -453,11 +490,43 @@ export class ProjectPicker {
   protected backToProjects(): void {
     this.mode.set('projects');
     this.projectQuery.set('');
+    this.active.set(0);
     setTimeout(() => this.focusField(), 0);
   }
 
   protected onProjectQuery(event: Event): void {
     this.projectQuery.set((event.target as HTMLInputElement).value);
+    this.active.set(0);
+  }
+
+  /**
+   * The caret stays in the search field; the arrow keys move the highlight and
+   * Enter opens the highlighted project, so finding a project by typing does not
+   * force a detour through the mouse.
+   */
+  protected onSearchKeydown(event: KeyboardEvent): void {
+    const rows = this.matchedProjects();
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        this.active.update((index) => Math.min(index + 1, Math.max(0, rows.length - 1)));
+        return;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.active.update((index) => Math.max(0, index - 1));
+        return;
+      case 'Enter': {
+        const chosen = rows[this.active()] ?? rows[0];
+        if (!chosen) {
+          return;
+        }
+        event.preventDefault();
+        this.chooseProject(chosen.path);
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   /** Creates the session as a draft in the chosen folder. */

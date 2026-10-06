@@ -145,6 +145,24 @@ function typePath(host: HTMLElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** Types into the projects screen's search field, as a user would. */
+function typeProjectQuery(host: HTMLElement, value: string): void {
+  const input = host.querySelector('.search input') as HTMLInputElement;
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/** Presses a key in the projects search field, where the caret lives. */
+function pressInSearch(host: HTMLElement, key: string): void {
+  const input = host.querySelector('.search input') as HTMLInputElement;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+}
+
+/** The row currently highlighted as the Enter target. */
+function activeProjectName(host: HTMLElement): string | undefined {
+  return host.querySelector('.project-row.active .project-name')?.textContent?.trim();
+}
+
 function listRequests(transport: FolderHostTransport): number {
   return transport.sent.filter(
     (message) => message.type === 'host/command' && message.payload.command === 'listDirectories',
@@ -272,6 +290,69 @@ describe('ProjectPicker', () => {
 
       expect(host.querySelectorAll('.project-row')).toHaveLength(1);
       expect(host.querySelector('.project-row .project-name')?.textContent).toContain('beta');
+    });
+
+    it('starts a session in the first match when Enter is pressed in the search field', async () => {
+      const { host, fixture, transport } = await render(PROJECTS);
+
+      typeProjectQuery(host, 'beta');
+      pressInSearch(host, 'Enter');
+      fixture.detectChanges();
+
+      const created = transport.sent.filter((message) => message.type === 'session/new');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.payload).toEqual({ cwd: '/home/me/projects/beta' });
+    });
+
+    it('moves the highlight with the arrow keys and Enter picks the highlighted project', async () => {
+      const { host, fixture, transport } = await render(PROJECTS);
+
+      expect(activeProjectName(host)).toBe('alpha');
+
+      pressInSearch(host, 'ArrowDown');
+      fixture.detectChanges();
+      expect(activeProjectName(host)).toBe('beta');
+
+      pressInSearch(host, 'Enter');
+      fixture.detectChanges();
+
+      const created = transport.sent.filter((message) => message.type === 'session/new');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.payload).toEqual({ cwd: '/home/me/projects/beta' });
+    });
+
+    it('resets the highlight to the first match when the query changes', async () => {
+      const { host, fixture } = await render(PROJECTS);
+
+      pressInSearch(host, 'ArrowDown');
+      fixture.detectChanges();
+      expect(activeProjectName(host)).toBe('beta');
+
+      typeProjectQuery(host, 'alpha');
+      fixture.detectChanges();
+      expect(activeProjectName(host)).toBe('alpha');
+    });
+
+    it('starts the first known project when Enter is pressed with an empty search', async () => {
+      const { host, fixture, transport } = await render(PROJECTS);
+
+      pressInSearch(host, 'Enter');
+      fixture.detectChanges();
+
+      const created = transport.sent.filter((message) => message.type === 'session/new');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.payload).toEqual({ cwd: '/home/me/projects/alpha' });
+    });
+
+    it('does nothing on Enter when no project matches the query', async () => {
+      const { host, fixture, transport } = await render(PROJECTS);
+
+      typeProjectQuery(host, 'nothing-here');
+      pressInSearch(host, 'Enter');
+      fixture.detectChanges();
+
+      expect(host.querySelectorAll('.project-row')).toHaveLength(0);
+      expect(transport.sent.some((message) => message.type === 'session/new')).toBe(false);
     });
 
     it('puts the caret in the search field as soon as the dialog opens', async () => {

@@ -39,15 +39,20 @@
           aria-label="Search projects"
           [value]="projectQuery()"
           (input)="onProjectQuery($event)"
+          (keydown)="onSearchKeydown($event)"
         />
       </div>
 
-      <div class="listing">
-        @for (project of matchedProjects(); track project.path) {
+      <div class="listing" role="listbox" #list>
+        @for (project of matchedProjects(); track project.path; let index = $index) {
           <button
             type="button"
             class="project-row"
+            role="option"
+            [class.active]="index === active()"
+            [attr.aria-selected]="index === active()"
             [title]="project.path"
+            (mouseenter)="active.set(index)"
             (click)="chooseProject(project.path)"
           >
             <span class="project-name">{{ project.name }}</span>
