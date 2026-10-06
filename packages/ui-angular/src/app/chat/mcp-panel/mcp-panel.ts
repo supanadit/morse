@@ -331,7 +331,13 @@ export class McpPanel {
   private readonly shell = inject(ShellState);
   private readonly tabs = inject(WorkspaceTabs);
 
-  protected readonly cwd = computed(() => this.morse.workspace().cwd);
+  protected readonly cwd = this.mcp.cwd;
+  /** True when there is no project to scope to: the panel is global-only. */
+  protected readonly noProject = this.tabs.noSessionInFront;
+  /** What the header prints: the directory, or a plain "global" when there is none. */
+  protected readonly cwdLabel = computed(() =>
+    this.noProject() ? 'Global — user mcp.json' : this.cwd(),
+  );
   protected readonly status = computed(() => this.mcp.status(this.cwd()));
   protected readonly loading = computed(() => this.mcp.isLoading(this.cwd()));
   protected readonly servers = computed(() => this.status()?.servers ?? []);
@@ -359,11 +365,17 @@ export class McpPanel {
 
   constructor() {
     // Opening the panel is what triggers the (slow) list; it refreshes again
-    // when the panel is pointed at another directory.
+    // when the panel is pointed at another directory. With no session the
+    // directory is `''` (global only), which the host reads without a project —
+    // so the user's own servers stay manageable from the empty view.
     effect(() => {
-      const cwd = this.cwd();
-      if (cwd) {
-        void this.mcp.refresh(cwd);
+      void this.mcp.refresh(this.cwd());
+    });
+    // No session means no project scope: fold the choice back to Global so an
+    // enable/disable cannot land in the last project behind the reader's back.
+    effect(() => {
+      if (this.noProject()) {
+        this.editScope.set('global');
       }
     });
   }

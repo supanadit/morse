@@ -20,7 +20,10 @@ function setup(
 ) {
   const fake = {
     // A host showing a real session: closing its tab must fall back to an draft.
-    state: signal({ sessionId: 'sess-live', workspace: { cwd: '/repo', name: 'repo' } }),
+    state: signal<{ sessionId?: string; workspace: { cwd: string; name: string } }>({
+      sessionId: 'sess-live',
+      workspace: { cwd: '/repo', name: 'repo' },
+    }),
     activateSession: vi.fn(),
     newSession: vi.fn(),
     requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) =>

@@ -301,7 +301,9 @@ export class MorseSessionFactory {
         // The viewing session's MCP servers. `pi mcp list --json` connects every
         // enabled server, so a failure is reported as a value (the panel renders
         // it) rather than thrown — the panel has something to say either way.
-        const cwd = this.requireWritableCwd(context);
+        // `scope: 'global'` is the empty-session view: no project, so no session
+        // is required and only the user's `mcp.json` is read.
+        const cwd = args?.scope === 'global' ? undefined : this.requireWritableCwd(context);
         try {
           return await this.pi.mcp.status(cwd);
         } catch (error: unknown) {
@@ -309,31 +311,37 @@ export class MorseSessionFactory {
         }
       }
       case 'mcpAdd': {
-        const cwd = this.requireWritableCwd(context);
-        return this.pi.mcp.add(parseMcpServerInput(args), cwd);
+        const input = parseMcpServerInput(args);
+        const cwd = input.scope === 'project' ? this.requireWritableCwd(context) : undefined;
+        return this.pi.mcp.add(input, cwd);
       }
       case 'mcpInspect': {
         // Probing spawns the server, so its directory is policy-checked like a
         // session's. Nothing is written: this answers "would it work?" before
-        // the reader commits an entry to `mcp.json`.
+        // the reader commits an entry to `mcp.json`. With no project the probe
+        // runs in the host's default workspace.
         const spec = parseMcpServerSpec(args);
-        const cwd = this.commandCwd(context, { cwd: spec.cwd ?? '' });
-        if (spec.cwd === undefined) {
+        const cwd = this.optionalCwd(context, args);
+        if (spec.cwd === undefined && cwd.length > 0) {
           spec.cwd = cwd;
         }
-        return this.pi.inspector.inspect(spec, { cwd });
+        return this.pi.inspector.inspect(spec, {
+          cwd: spec.cwd ?? this.registry.defaultWorkspace.cwd,
+        });
       }
       case 'mcpRemove': {
-        const cwd = this.requireWritableCwd(context);
-        return this.pi.mcp.remove(stringArg(args, 'name'), cwd, mcpScope(args));
+        const scope = mcpScope(args);
+        const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
+        return this.pi.mcp.remove(stringArg(args, 'name'), cwd, scope);
       }
       case 'mcpSetEnabled': {
-        const cwd = this.requireWritableCwd(context);
+        const scope = mcpScope(args);
+        const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
         return this.pi.mcp.setEnabled(
           stringArg(args, 'name'),
           args?.enabled === true,
           cwd,
-          mcpScope(args),
+          scope,
         );
       }
       case 'trustProject': {

@@ -4,6 +4,7 @@ import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../core/morse.service';
 import { MORSE_TRANSPORT } from '../../core/transport.token';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { McpEditor } from './mcp-editor';
 
 /**
@@ -11,7 +12,7 @@ import { McpEditor } from './mcp-editor';
  * host's store (`ViewState`) on construction — the browser host's
  * `localStorage`, or VS Code's webview state that its panel serializer restores.
  */
-function render(saved?: unknown): HTMLElement {
+function render(saved?: unknown, noSession = false): HTMLElement {
   const transport = new MemoryHostTransport();
   const fake = {
     capabilities: signal({
@@ -32,6 +33,7 @@ function render(saved?: unknown): HTMLElement {
     providers: [
       { provide: MORSE_TRANSPORT, useValue: transport },
       { provide: MorseService, useValue: fake },
+      { provide: WorkspaceTabs, useValue: { noSessionInFront: signal(noSession) } },
     ],
   });
   if (saved !== undefined) {
@@ -67,5 +69,19 @@ describe('McpEditor', () => {
     const element = render();
     const name = element.querySelector('#mcp-editor-name') as HTMLInputElement | null;
     expect(name?.value).toBe('');
+  });
+
+  it('is global-only with no session: the project scope is disabled', () => {
+    const element = render(undefined, true);
+    const project = element.querySelector(
+      '.scope-bar button:first-of-type',
+    ) as HTMLButtonElement | null;
+    const global = element.querySelector(
+      '.scope-bar button:last-of-type',
+    ) as HTMLButtonElement | null;
+
+    // A project entry has nowhere to be written, so the choice stands down.
+    expect(project?.disabled).toBe(true);
+    expect(global?.classList.contains('active')).toBe(true);
   });
 });

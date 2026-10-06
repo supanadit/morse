@@ -217,4 +217,33 @@ describe('parseMcpServerInput', () => {
       headers: undefined,
     });
   });
+
+  it('writes a global server with no project at all', async () => {
+    const agentDir = await tempRoot();
+    const mcp = new PiMcp({ agentDir });
+
+    const result = await mcp.add(
+      { name: 'openviking', scope: 'global', command: 'npx', args: ['-y', 'pkg'], exposure: 'codemode' },
+      undefined,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readServers(join(agentDir, 'mcp.json'))['openviking']).toBeDefined();
+  });
+
+  it('refuses a project server when there is no project to write into', async () => {
+    const agentDir = await tempRoot();
+    const mcp = new PiMcp({ agentDir });
+
+    const result = await mcp.add(
+      { name: 'filesystem', scope: 'project', command: 'npx', args: [], exposure: 'codemode' },
+      undefined,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'Open a session to add a server to its project.',
+    });
+    expect(existsSync(join(agentDir, 'mcp.json'))).toBe(false);
+  });
 });

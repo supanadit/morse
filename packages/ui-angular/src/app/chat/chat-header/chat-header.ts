@@ -208,14 +208,21 @@ export class ChatHeader {
   protected readonly collapsed = this.shell.navigationCollapsed;
   /** The reader's chosen tool-call density, toggled from the toolbar. */
   protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
-  /** The git panel's button only exists where the host can answer `gitLog`. */
-  protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
+  /** The git panel's button only exists where the host can answer `gitLog`,
+   * and only when a session is in front — with none there is no project. */
+  protected readonly gitEnabled = computed(
+    () => this.morse.capabilities()?.gitPanel === true && !this.tabs.noSessionInFront(),
+  );
   protected readonly gitOpen = this.shell.gitPanelOpen;
-  /** The MCP indicator only exists where the host can run the `pi` CLI. */
+  /**
+   * The MCP indicator exists where the host can run the `pi` CLI. It is usable
+   * without a session too — the panel is then global-only (the user's own
+   * `mcp.json`), so this is not gated on a session being in front.
+   */
   protected readonly mcpEnabled = this.mcp.enabled;
-  protected readonly mcpOverall = computed(() => this.mcp.overall(this.workspace().cwd));
+  protected readonly mcpOverall = computed(() => this.mcp.overall(this.mcp.cwd()));
   protected readonly mcpTitle = computed(() => {
-    const label = this.mcp.label(this.workspace().cwd);
+    const label = this.mcp.label(this.mcp.cwd());
     return this.mcpEnabled() ? `${label} — click to manage` : label;
   });
 
@@ -278,11 +285,19 @@ export class ChatHeader {
   });
 
   /**
-   * True when no session is in front on a tabbed host — the empty placeholder.
+   * True when no session is in front on the tabbed host — the empty placeholder.
    * The host's workspace is still whatever it last was, so naming it here read as
-   * "this empty panel belongs to the previous project".
+   * "this empty panel belongs to the previous project". A host without the tab
+   * strip (VS Code) has its own workspace and is never in this state.
    */
-  private readonly noSessionInFront = this.tabs.noSessionInFront;
+  protected readonly noSessionInFront = this.tabs.noSessionInFront;
+
+  /** The compact button needs a conversation; with none it says so instead. */
+  protected readonly compactTitle = computed(() =>
+    this.noSessionInFront()
+      ? 'Open a session to compact the conversation'
+      : 'Compact the conversation (asks first)',
+  );
 
   protected readonly title = computed(() => {
     if (this.noSessionInFront()) {
@@ -302,7 +317,8 @@ export class ChatHeader {
     if (!this.noSessionInFront() && workspaceName && workspaceName !== this.title()) {
       parts.push(workspaceName);
     }
-    const model = this.state().model;
+    // The model belongs to the session; with none in front it is the last one's.
+    const model = this.noSessionInFront() ? undefined : this.state().model;
     if (model) {
       parts.push(model.name);
     }

@@ -157,13 +157,20 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 export class PiMcp {
   constructor(private readonly options: PiMcpOptions = {}) {}
 
-  /** Connect every enabled server and report what happened. */
-  async status(cwd: string): Promise<McpStatus> {
+  /** Connect every enabled server and report what happened.
+   *
+   * `cwd` is the session's project. Omitted means **global only**: the CLI runs
+   * in the agent directory, so it finds no project `.pi/mcp.json`, and no trust
+   * state is reported (there is no project to trust). That is what lets the MCP
+   * panel work from the empty-session view for the user's own servers.
+   */
+  async status(cwd?: string): Promise<McpStatus> {
+    const project = normalizeCwd(cwd);
     const spawn = resolvePiCli(this.options);
     const { stdout, stderr, failed, timedOut } = await run(
       spawn.command,
       [...spawn.baseArgs, 'mcp', 'list', '--json'],
-      cwd,
+      project ?? this.agentDir(),
       cleanSpawnEnv(this.env()),
       this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     );
@@ -175,7 +182,10 @@ export class PiMcp {
         : stderr.trim() || (failed ? `\`pi mcp list\` exited with an error` : 'no output');
       throw new Error(`Could not read the MCP server list: ${detail}`);
     }
-    return { ...parsed, trusted: readProjectTrust(cwd, this.agentDir()) };
+    return {
+      ...parsed,
+      ...(project ? { trusted: readProjectTrust(project, this.agentDir()) } : {}),
+    };
   }
 
   /**
@@ -186,12 +196,15 @@ export class PiMcp {
     return writeProjectTrust(cwd, this.agentDir());
   }
 
-  async add(input: McpServerInput, cwd: string): Promise<McpMutation> {
+  async add(input: McpServerInput, cwd?: string): Promise<McpMutation> {
     if (!isValidMcpServerName(input.name)) {
       return {
         ok: false,
         message: `"${input.name}" is not a valid server name (letters, digits, "_" and "-").`,
       };
+    }
+    if (input.scope === 'project' && normalizeCwd(cwd) === undefined) {
+      return { ok: false, message: 'Open a session to add a server to its project.' };
     }
     const isHttp = input.type === 'http' || (input.url !== undefined && input.command === undefined);
     const config = this.toConfig(input, isHttp);
@@ -207,12 +220,15 @@ export class PiMcp {
     return { ok: true, path };
   }
 
-  async remove(name: string, cwd: string, scope?: McpConfigScope): Promise<McpMutation> {
+  async remove(name: string, cwd?: string, scope?: McpConfigScope): Promise<McpMutation> {
     if (scope === 'global') {
       return this.removeFrom(this.globalPath(), name, 'global');
     }
     if (scope === 'project') {
-      return this.removeFrom(this.projectPath(cwd), name, 'project');
+      if (normalizeCwd(cwd) === undefined) {
+        return { ok: false, message: "Open a session to edit this project's MCP servers." };
+      }
+      return this.removeFrom(this.projectPath(cwd!), name, 'project');
     }
     // No scope named: the defining file first (a project definition wins), then
     // the user file — the behaviour before the editor exposed a scope.
@@ -256,14 +272,17 @@ export class PiMcp {
   async setEnabled(
     name: string,
     enabled: boolean,
-    cwd: string,
+    cwd?: string,
     scope?: McpConfigScope,
   ): Promise<McpMutation> {
     if (scope === 'global') {
       return this.setEnabledIn(this.globalPath(), name, enabled, 'global');
     }
     if (scope === 'project') {
-      const projectPath = this.projectPath(cwd);
+      if (normalizeCwd(cwd) === undefined) {
+        return { ok: false, message: "Open a session to edit this project's MCP servers." };
+      }
+      const projectPath = this.projectPath(cwd!);
       if (definesMcpServer(findMcpServer(projectPath, name))) {
         return this.setEnabledIn(projectPath, name, enabled, 'project');
       }
@@ -323,13 +342,16 @@ export class PiMcp {
     return { ok: true, path, scope };
   }
 
-  /** The user-level file first, then the project's — so a project definition wins. */
-  private configPaths(cwd: string): string[] {
-    return [this.projectPath(cwd), this.globalPath()];
+  /** The project's file first, then the user's — so a project definition wins. */
+  private configPaths(cwd?: string): string[] {
+    const project = normalizeCwd(cwd);
+    return project ? [this.projectPath(project), this.globalPath()] : [this.globalPath()];
   }
 
-  private configPath(cwd: string, scope: 'global' | 'project' | undefined): string {
-    return scope === 'project' ? this.projectPath(cwd) : this.globalPath();
+  private configPath(cwd: string | undefined, scope: 'global' | 'project' | undefined): string {
+    return scope === 'project' && normalizeCwd(cwd) !== undefined
+      ? this.projectPath(cwd!)
+      : this.globalPath();
   }
 
   private globalPath(): string {
@@ -535,6 +557,12 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** A real directory, or `undefined` for "no project" (global-only MCP). */
+function normalizeCwd(cwd: string | undefined): string | undefined {
+  const trimmed = cwd?.trim();
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function describe(error: unknown): string {

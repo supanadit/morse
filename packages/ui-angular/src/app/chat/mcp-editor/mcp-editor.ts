@@ -7,6 +7,7 @@ import type {
 } from '@morse/protocol';
 import { McpState } from '../../core/mcp-state';
 import { MorseService } from '../../core/morse.service';
+import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { ViewState } from '../../core/view-state';
 
 type AddType = 'stdio' | 'http';
@@ -234,8 +235,14 @@ export class McpEditor {
   private readonly morse = inject(MorseService);
   private readonly mcp = inject(McpState);
   private readonly viewState = inject(ViewState);
+  private readonly tabs = inject(WorkspaceTabs);
 
-  protected readonly cwd = computed(() => this.morse.workspace().cwd);
+  /** No session in front: the form is global-only (the user's `mcp.json`). */
+  protected readonly noProject = this.tabs.noSessionInFront;
+  /** No project means no directory: the probe runs where the host defaults to. */
+  protected readonly cwd = computed(() =>
+    this.noProject() ? '' : this.morse.workspace().cwd,
+  );
   protected readonly scope = signal<McpConfigScope>('project');
   protected readonly name = signal('');
   protected readonly type = signal<AddType>('stdio');
@@ -266,6 +273,13 @@ export class McpEditor {
       if (draft.scope === 'project' || draft.scope === 'global') this.scope.set(draft.scope);
       if (draft.inspected !== undefined) this.inspected.set(draft.inspected);
     }
+    // No project in front: a project entry has nowhere to be written, so the
+    // form starts (and stays) on Global rather than offering a dead choice.
+    effect(() => {
+      if (this.noProject()) {
+        this.scope.set('global');
+      }
+    });
     effect(() => {
       // Reading every field here is what re-runs this on a keystroke. Once the
       // server is saved the draft is cleared rather than kept as a stale form.

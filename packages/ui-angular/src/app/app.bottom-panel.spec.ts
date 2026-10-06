@@ -47,11 +47,13 @@ class TerminalHostTransport extends BaseHostTransport {
           revealFile: false,
           filePreview: true,
           terminal: true,
+          mcp: true,
           ...(this.gitPanel ? { gitPanel: true } : {}),
         },
         state: {
           ...(this.sessionId ? { sessionId: this.sessionId } : {}),
           workspace: { cwd: '/work/morse', name: 'morse' },
+          model: { provider: 'ollama', id: 'deepseek', name: 'DeepSeek V4.1 Flash' },
           thinkingLevel: 'off',
           availableModels: [],
           availableThinkingLevels: [],
@@ -121,6 +123,14 @@ describe('App bottom panel', () => {
     expect(host.querySelector('morse-file-explorer')).toBeNull();
     expect(host.querySelector('morse-git-panel')).toBeNull();
     expect(host.querySelector('morse-bottom-panel')).toBeNull();
+    // The header drops the session's model and the project-scoped buttons too.
+    expect(host.querySelector('.meta')?.textContent ?? '').not.toContain('DeepSeek');
+    expect(host.querySelector('[aria-label="Show the git panel"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Hide the git panel"]')).toBeNull();
+    // The tool-call density toggle is about a transcript, so it stands down…
+    expect(host.querySelector('[aria-label^="Tool call display"]')).toBeNull();
+    // …but MCP stays: with no session the panel edits the user's own servers.
+    expect(host.querySelector('[aria-label="MCP servers"]')).not.toBeNull();
   });
 
   it('keeps the project surfaces when a session is in front', () => {
@@ -139,5 +149,9 @@ describe('App bottom panel', () => {
     expect(host.querySelector('morse-file-explorer')).not.toBeNull();
     expect(host.querySelector('morse-git-panel')).not.toBeNull();
     expect(host.querySelector('morse-bottom-panel')).not.toBeNull();
+    // With a session in front the model and the project buttons are back.
+    expect(host.querySelector('.meta')?.textContent ?? '').toContain('DeepSeek V4.1 Flash');
+    expect(host.querySelector('[aria-label="MCP servers"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="Tool call display"]')).not.toBeNull();
   });
 });

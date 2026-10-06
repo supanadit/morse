@@ -8,7 +8,7 @@
   >
     <header>
       <h2 id="mcp-title">MCP servers</h2>
-      <span class="cwd" [title]="cwd()">{{ cwd() }}</span>
+      <span class="cwd" [title]="cwd()">{{ cwdLabel() }}</span>
       <button
         type="button"
         class="icon"
@@ -33,6 +33,8 @@
             type="button"
             [class.active]="editScope() === 'project'"
             [attr.aria-pressed]="editScope() === 'project'"
+            [disabled]="noProject()"
+            [title]="noProject() ? 'Open a session to change its project\u2019s MCP servers' : ''"
             (click)="editScope.set('project')"
           >
             This project

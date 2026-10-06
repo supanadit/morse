@@ -9,6 +9,7 @@ import type {
   ProjectTrustResult,
 } from '@morse/protocol';
 import { MorseService } from './morse.service';
+import { WorkspaceTabs } from './workspace-tabs';
 
 /** A one-glance read of a directory's MCP health, for the header's dot. */
 export type McpOverall = 'unknown' | 'loading' | 'ok' | 'warn' | 'error' | 'off';
@@ -34,6 +35,7 @@ const INSPECT_TIMEOUT_MS = 45_000;
 @Injectable({ providedIn: 'root' })
 export class McpState {
   private readonly morse = inject(MorseService);
+  private readonly tabs = inject(WorkspaceTabs);
 
   private readonly byCwd = signal<Record<string, McpStatus>>({});
   private readonly loadingByCwd = signal<Record<string, boolean>>({});
@@ -43,28 +45,34 @@ export class McpState {
   /** Only a host that can run the `pi` CLI advertises this. */
   readonly enabled = computed(() => this.morse.capabilities()?.mcp === true);
 
+  /**
+   * The directory the indicator and panel are about. `''` means **global only**:
+   * no session in front, so the user's own `mcp.json` is the whole subject, and
+   * the panel stays usable instead of showing another project's servers.
+   */
+  readonly cwd = computed(() =>
+    this.tabs.noSessionInFront() ? '' : this.morse.workspace().cwd,
+  );
+
   constructor() {
     // The header's indicator must mean something before the panel is opened, so
     // the active directory is probed in the background. The delay is a debounce:
     // switching tabs does not spawn a `pi mcp list` per step, and the TTL means
-    // a directory is asked about at most once a minute.
+    // a directory is asked about at most once a minute. With no session the probe
+    // is the global list (`''`).
     effect((onCleanup) => {
       if (!this.enabled()) {
         return;
       }
-      const cwd = this.morse.workspace().cwd;
-      if (!cwd) {
-        return;
-      }
       const timer = setTimeout(() => {
-        void this.refresh(cwd);
+        void this.refresh(this.cwd());
       }, 1_200);
       onCleanup(() => clearTimeout(timer));
     });
   }
 
   status(cwd: string): McpStatus | undefined {
-    return cwd ? this.byCwd()[cwd] : undefined;
+    return this.byCwd()[cwd];
   }
 
   isLoading(cwd: string): boolean {
@@ -73,9 +81,6 @@ export class McpState {
 
   /** The dot's colour: healthy, something to look at, broken, or nothing configured. */
   overall(cwd: string): McpOverall {
-    if (!cwd) {
-      return 'unknown';
-    }
     const status = this.byCwd()[cwd];
     if (!status) {
       return this.isLoading(cwd) ? 'loading' : 'unknown';
@@ -132,9 +137,6 @@ export class McpState {
    * Resolves `undefined` when the host did not answer (an older host, a timeout).
    */
   async refresh(cwd: string, force = false): Promise<McpStatus | undefined> {
-    if (!cwd) {
-      return undefined;
-    }
     const existing = this.inFlight.get(cwd);
     if (existing) {
       return existing;
@@ -155,7 +157,7 @@ export class McpState {
     try {
       const data = await this.morse.requestHostCommand(
         'mcpStatus',
-        { cwd },
+        cwd.length > 0 ? { cwd } : { scope: 'global' },
         STATUS_TIMEOUT_MS,
       );
       const status = asMcpStatus(data);
@@ -173,7 +175,6 @@ export class McpState {
     const result = await this.mutate('mcpAdd', { ...input }, cwd);
     return result;
   }
-
   /**
    * Connects to a server *before* it is added, so the reader can see its tools
    * (or the exact reason it will not connect). The host writes nothing; the
@@ -182,14 +183,14 @@ export class McpState {
   async inspect(input: McpServerInput, cwd: string): Promise<McpInspectionResult | undefined> {
     const data = await this.morse.requestHostCommand(
       'mcpInspect',
-      { ...input, cwd },
+      { ...input, ...(cwd.length > 0 ? { cwd } : {}) },
       INSPECT_TIMEOUT_MS,
     );
     return asInspection(data);
   }
 
   async remove(name: string, cwd: string, scope: McpConfigScope): Promise<McpMutation> {
-    return this.mutate('mcpRemove', { name, scope }, cwd);
+    return this.mutate('mcpRemove', { name, scope, ...(cwd.length > 0 ? { cwd } : {}) }, cwd);
   }
 
   async setEnabled(
@@ -198,7 +199,11 @@ export class McpState {
     cwd: string,
     scope: McpConfigScope,
   ): Promise<McpMutation> {
-    return this.mutate('mcpSetEnabled', { name, enabled, scope }, cwd);
+    return this.mutate(
+      'mcpSetEnabled',
+      { name, enabled, scope, ...(cwd.length > 0 ? { cwd } : {}) },
+      cwd,
+    );
   }
 
   /**
