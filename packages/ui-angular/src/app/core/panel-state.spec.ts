@@ -1,26 +1,40 @@
+import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PanelState } from './panel-state';
+import { WorkspaceTabs } from './workspace-tabs';
 
 /**
  * The bottom panel is a shell preference — folded first, then opened, moved and
- * resized — so what matters is that the fold, the chosen chip and the dragged
- * height all outlive a reload.
+ * resized — but the fold, the chosen tool and full screen belong to the session,
+ * because the terminals themselves do.
  */
-describe('PanelState', () => {
-  afterEach(() => {
-    localStorage.clear();
-    TestBed.resetTestingModule();
+function setup(owner = 's1'): {
+  panel: PanelState;
+  composerKey: WritableSignal<string | undefined>;
+} {
+  TestBed.resetTestingModule();
+  const composerKey = signal<string | undefined>(owner);
+  TestBed.configureTestingModule({
+    providers: [{ provide: WorkspaceTabs, useValue: { composerKey } }],
   });
+  return { panel: TestBed.inject(PanelState), composerKey };
+}
 
+afterEach(() => {
+  localStorage.clear();
+  TestBed.resetTestingModule();
+});
+
+describe('PanelState', () => {
   it('starts folded to its chip row with no tool chosen', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     expect(panel.expanded()).toBe(false);
     expect(panel.activeView()).toBeUndefined();
   });
 
   it('opens the clicked chip, and folds again when it is clicked once more', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
 
     panel.toggle('terminal');
     expect(panel.activeView()).toBe('terminal');
@@ -32,8 +46,31 @@ describe('PanelState', () => {
     expect(panel.activeView()).toBe('terminal');
   });
 
+  it('keeps the fold per session, so one opened panel does not open another', () => {
+    const { panel, composerKey } = setup('s1');
+
+    panel.toggle('terminal');
+    expect(panel.expanded()).toBe(true);
+
+    composerKey.set('s2');
+    expect(panel.expanded()).toBe(false);
+    expect(panel.activeView()).toBeUndefined();
+
+    // Back to s1: its own open state is still there.
+    composerKey.set('s1');
+    expect(panel.expanded()).toBe(true);
+    expect(panel.activeView()).toBe('terminal');
+
+    // s2 opens its own, independently of s1.
+    composerKey.set('s2');
+    panel.toggle('terminal');
+    expect(panel.expanded()).toBe(true);
+    composerKey.set('s1');
+    expect(panel.expanded()).toBe(true);
+  });
+
   it('clamps the dragged height to a usable range', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
 
     panel.setHeight(20);
     expect(panel.height()).toBe(120);
@@ -43,18 +80,17 @@ describe('PanelState', () => {
   });
 
   it('returns to the default height when the choice is reset', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     panel.setHeight(320);
 
     panel.resetHeight();
     expect(panel.height()).toBeUndefined();
 
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(PanelState).height()).toBeUndefined();
+    expect(setup().panel.height()).toBeUndefined();
   });
 
   it('goes full screen only with a tool open, and leaves it on collapse', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
 
     // Nothing open: there is no panel to hand the whole column to.
     panel.toggleFull();
@@ -71,18 +107,17 @@ describe('PanelState', () => {
   });
 
   it('remembers full screen across a reload', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     panel.toggle('terminal');
     panel.toggleFull();
 
-    TestBed.resetTestingModule();
-    const restored = TestBed.inject(PanelState);
+    const restored = setup().panel;
     expect(restored.expanded()).toBe(true);
     expect(restored.full()).toBe(true);
   });
 
   it('publishes the active tool’s bar actions', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     panel.registerActions('terminal', [
       { label: '+', title: 'New terminal', run: () => undefined },
     ]);
@@ -95,34 +130,34 @@ describe('PanelState', () => {
   });
 
   it('remembers the tool, the fold and the height across a reload', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     panel.toggle('terminal');
     panel.setHeight(320);
 
-    TestBed.resetTestingModule();
-    const restored = TestBed.inject(PanelState);
+    const restored = setup().panel;
     expect(restored.activeView()).toBe('terminal');
     expect(restored.expanded()).toBe(true);
     expect(restored.height()).toBe(320);
   });
 
   it('snapshots the open tool, its state and the dragged height', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     panel.toggle('terminal');
     panel.setHeight(320);
 
     expect(panel.snapshot()).toEqual({
-      view: 'terminal',
-      expanded: true,
-      full: false,
+      owners: { s1: { view: 'terminal', expanded: true, full: false } },
       height: 320,
     });
   });
 
   it('restores a saved panel, including full screen and the height', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
 
-    panel.restore({ view: 'terminal', expanded: true, full: true, height: 420 });
+    panel.restore({
+      owners: { s1: { view: 'terminal', expanded: true, full: true } },
+      height: 420,
+    });
 
     expect(panel.activeView()).toBe('terminal');
     expect(panel.expanded()).toBe(true);
@@ -130,14 +165,26 @@ describe('PanelState', () => {
     expect(panel.height()).toBe(420);
 
     // The choice is written to storage too, so a later host-less reload keeps it.
-    TestBed.resetTestingModule();
-    const restored = TestBed.inject(PanelState);
+    const restored = setup().panel;
+    expect(restored.expanded()).toBe(true);
     expect(restored.full()).toBe(true);
     expect(restored.height()).toBe(420);
   });
 
+  it('attributes a pre-per-session layout to the session in front', () => {
+    const { panel } = setup('s1');
+
+    panel.restore({ view: 'terminal', expanded: true, full: true, height: 300 });
+
+    // A flat layout has no owner; the conversation in front is the one it meant.
+    expect(panel.expanded()).toBe(true);
+    expect(panel.activeView()).toBe('terminal');
+    expect(panel.full()).toBe(true);
+    expect(panel.height()).toBe(300);
+  });
+
   it('ignores a malformed panel snapshot', () => {
-    const panel = TestBed.inject(PanelState);
+    const { panel } = setup();
     panel.restore('nope');
 
     expect(panel.expanded()).toBe(false);
