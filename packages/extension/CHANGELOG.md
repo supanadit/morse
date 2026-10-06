@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.1 — 6 October 2026
+
+A quick follow-up to 0.16.0: the browser host starts again.
+
+### Fixed
+
+- **`morse start` works after updating to 0.16.0.** The server bundle had inlined the YAML parser as CommonJS
+  code, so the daemon crashed on start with `Dynamic require of "process" is not supported` and the command only
+  seemed to hang. The parser is now loaded normally, and the build refuses to emit a bundle that cannot boot.
+
 ## 0.16.0 — 6 October 2026
 
 Check an MCP server before you add it, trust a project from the panel, and let a half-written entry survive a
