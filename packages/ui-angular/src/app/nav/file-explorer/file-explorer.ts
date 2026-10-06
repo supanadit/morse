@@ -76,7 +76,12 @@ interface ExplorerRow {
         align-items: center;
         gap: 4px;
         flex: none;
-        padding: 8px 10px 6px;
+        /*
+         * The toggle owns the row's padding, so its hover is a full-bleed,
+         * square row — the same shape as the git panel's section headers. Only
+         * padding-right survives, to keep the refresh icon off the edge.
+         */
+        padding: 0 10px 0 0;
       }
       .pane-toggle {
         display: flex;
@@ -84,7 +89,7 @@ interface ExplorerRow {
         gap: 5px;
         flex: 1;
         min-width: 0;
-        padding: 0;
+        padding: 5px 10px;
         border: 0;
         background: none;
         color: inherit;
@@ -92,7 +97,6 @@ interface ExplorerRow {
       }
       .pane-toggle:hover:not(:disabled) {
         background: var(--morse-hover);
-        border-radius: var(--morse-radius-sm);
       }
       .pane-title {
         font-size: 10.5px;
