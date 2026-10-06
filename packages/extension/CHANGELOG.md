@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.16.0 — 6 October 2026
+
+Check an MCP server before you add it, trust a project from the panel, and let a half-written entry survive a
+reload.
+
+### New
+
+- **Check an MCP server before you add it.** **Add server** now opens its own editor — a tab in the browser host, an
+  editor panel in VS Code — where you build the entry and press **Test connection**. Morse connects itself and shows
+  the tools, resources and prompts the server offers, or exactly why it would not (it wants a sign-in, it is
+  unreachable, the command is wrong), before anything is written to `mcp.json`. The manager behind the toolbar
+  indicator stays the list it should be: state, enable/disable and the project/global scope.
+- **Trust a project from the panel.** When pi is ignoring a project's `.pi/mcp.json` because the folder is not
+  trusted, the MCP panel shows pi's note with a **Trust this project** button, so the project's servers, settings,
+  skills and prompts load without running pi in a terminal.
+- **A warning when pi refuses a prompt template.** A `/command` whose frontmatter pi cannot parse is dropped from the
+  palette and named in a warning row above the chat, with the reason behind a **Details** click — instead of being
+  offered as a command pi will not run.
+- **A newer pi is announced, too.** The sidebar now shows an update notice for pi itself beside the Morse one, and
+  names the command that installs it, `pi update`.
+
+### Improved
+
+- **A half-written MCP entry survives a reload.** The editor keeps your form and its test result across a browser
+  refresh or a VS Code window reload, and the editor tab reopens where you left it.
+- **URLs in the terminal are one click.** A link printed in the terminal — a dev-server banner, a docs URL — opens in
+  a new tab instead of needing a copy.
+- **Same-named files are told apart.** When two open files share a name, the whole chip row adds each file's
+  directory on a second line, clipped at the front so the folder nearest the file stays visible.
+- **`pi` is found even when VS Code was launched from the Dock.** A `pi` installed through nvm, asdf or volta is
+  found through the login shell's `PATH`, instead of the setup screen claiming it is missing.
+
+### Fixed
+
+- **Closing the file chip in front returns to its session.** It used to jump to whichever file sat beside it — often
+  another session's — instead of the conversation the chip belonged to.
+- **A terminal no longer inherits Morse's own settings.** The shell starts with your environment only, so running
+  Morse from inside Morse no longer picks up the host's port or workspace and fails with `EADDRINUSE`.
+
 ## 0.15.0 — 6 October 2026
 
 A new session starts from a project you already have, the Explorer follows the file you open, and a terminal
