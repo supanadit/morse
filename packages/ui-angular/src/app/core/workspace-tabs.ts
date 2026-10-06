@@ -891,17 +891,25 @@ export class WorkspaceTabs {
     const ids = new Set(scope.map((tab) => tab.id));
     const closedSession = scope.some((tab) => tab.kind === 'session' && tab.draft !== true);
     const cwd = scope.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
+    // A chip scope is one session's context: when the chip in front goes with it,
+    // the reader lands on that session, not on whichever tab happens to sit last
+    // in the strip. The positional neighbour is only right for a whole-strip close.
+    const ownerSessionId = chipOwner(scope[0]);
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
     this.forgetDrafts(ids);
     this.pruneOrphanMentions();
     if (active !== undefined && ids.has(active)) {
-      const remaining = this.items();
-      const neighbour = remaining.at(-1) ?? remaining[0];
-      if (neighbour !== undefined) {
-        this.select(neighbour.id);
+      if (ownerSessionId !== undefined && this.findSession(ownerSessionId) !== undefined) {
+        this.select(ownerSessionId);
       } else {
-        this.active.set(undefined);
+        const remaining = this.items();
+        const neighbour = remaining.at(-1) ?? remaining[0];
+        if (neighbour !== undefined) {
+          this.select(neighbour.id);
+        } else {
+          this.active.set(undefined);
+        }
       }
     }
     if (closedSession) {

@@ -39,6 +39,14 @@ function preview(overrides: Partial<Preview> = {}): Preview {
   return { path: 'src/main.ts', content: 'const x = 1;\n', size: 13, truncated: false, binary: false, ...overrides };
 }
 
+/** The ids of the quoted-file chips in the strip, in row order. */
+function mentionIds(tabs: WorkspaceTabs): string[] {
+  return tabs
+    .tabs()
+    .filter((tab) => tab.kind === 'file' && tab.mention === true)
+    .map((tab) => tab.id);
+}
+
 describe('WorkspaceTabs', () => {
   afterEach(() => TestBed.resetTestingModule());
 
@@ -443,6 +451,61 @@ describe('WorkspaceTabs', () => {
     expect(tabs.tabs()).toEqual([]);
     expect(tabs.activeId()).toBeUndefined();
     expect(fake.newSession).toHaveBeenCalledWith('/repo');
+  });
+
+  /**
+   * A chip is context for its session, so the chip-row close actions land back in
+   * that conversation — never on whichever tab happens to sit last in the strip.
+   */
+  it('returns to the owning session when Close All empties a chip row', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.select('s1');
+    tabs.openMentionFile('a.ts');
+    tabs.openMentionFile('b.ts');
+    const chips = mentionIds(tabs);
+    // The chip just opened is in front, the way the menu is opened on one.
+    expect(tabs.activeId()).toBe(chips[1]);
+
+    tabs.closeAll(chips[0]!);
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 's2']);
+    // Back to s1 (the chips' session), not to the last session tab (s2).
+    expect(tabs.activeId()).toBe('s1');
+  });
+
+  it('keeps the clicked chip and its session with Close Others', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.select('s1');
+    tabs.openMentionFile('a.ts');
+    tabs.openMentionFile('b.ts');
+    const chips = mentionIds(tabs);
+
+    tabs.closeOthers(chips[0]!);
+
+    expect(mentionIds(tabs)).toEqual([chips[0]]);
+    expect(tabs.activeId()).toBe(chips[0]);
+    expect(tabs.tabs().some((tab) => tab.id === 's2')).toBe(true);
+  });
+
+  it('returns to the clicked chip when Close to the Right removes the one in front', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.select('s1');
+    tabs.openMentionFile('a.ts');
+    tabs.openMentionFile('b.ts');
+    tabs.openMentionFile('c.ts');
+    const chips = mentionIds(tabs);
+    tabs.select(chips[1]!);
+
+    tabs.closeToTheRight(chips[0]!);
+
+    expect(mentionIds(tabs)).toEqual([chips[0]]);
+    expect(tabs.activeId()).toBe(chips[0]);
   });
 
   it('forgets a tab the host was told to close, without sending actions', () => {
