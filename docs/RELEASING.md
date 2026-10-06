@@ -37,9 +37,13 @@ manifest disagrees with it, so the version in the tag, the VSIX and the npm pack
    ```bash
    git add -A
    git commit -m "chore(release): v0.2.0"
-   git tag v0.2.0
+   git tag -a v0.2.0 -m "Morse v0.2.0"
    git push origin master --follow-tags
    ```
+
+   The tag must be **annotated** (`git tag -a`): `--follow-tags` silently skips lightweight tags, so a
+   `git tag v0.2.0` would push the commit and never trigger the release. Verify with
+   `git ls-remote --tags origin | grep v0.2.0`.
 
 Pushing the tag starts [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
@@ -160,4 +164,4 @@ under `xvfb-run`. To rehearse the release locally, follow
 | A brand-new extension on Open VSX shows *Under review* (an earlier label was *Deactivated*) and its API answers *Extension not found* | Open VSX runs pre-publish security checks, so a new version is quarantined until they pass — normally minutes, longer when the automated checks flag something. Nothing to fix, and the workflow's warning is the expected state; still hidden after a day → `openvsx@eclipse-foundation.org` |
 | `ovsx` refuses to publish at all | no Eclipse account or Publisher Agreement for the namespace's owner (both are required on top of GitHub) |
 | A registry shows the old version right after a release | it holds a new version while it validates it — the publish steps warn instead of failing |
-| Tag pushed but no run | The tag must match `v*`; delete and re-push it (`git push origin :v0.2.0 && git push origin v0.2.0`) |
+| Tag pushed but no run | The tag must match `v*`; delete and re-push it (`git push origin :v0.2.0 && git push origin v0.2.0`). If `git push --follow-tags` printed no tag line, the tag is lightweight and was skipped — recreate it annotated (`git tag -a v0.2.0 -m "Morse v0.2.0"`) and push it |
