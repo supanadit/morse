@@ -16,3 +16,6 @@ packages/extension/media/webview/
 coverage/
 .vscode-test/
 .morse
+
+# codebase-memory-mcp index artifact
+.codebase-memory/
