@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.18.1 — 6 October 2026
+
+MCP config edits arrive on their own, and a background session no longer strands a dialog.
+
+### New
+
+- **MCP changes appear without reopening anything.** Adding, removing or toggling a server — in another window, or
+  with the `pi` CLI in a terminal — updates the MCP indicator and panel as soon as the `mcp.json` file changes on
+  disk, for both your user-level file and the project's.
+
+### Fixed
+
+- **A dialog from an extension in a background session is no longer lost.** An interaction raised while you were
+  looking at another tab used to be dropped, leaving that `pi` process waiting forever. Morse now tracks dialogs per
+  session, answers the process that asked, shows one at a time (switching tabs swaps it), and marks a waiting
+  session in the sidebar.
+- **The MCP indicator follows the session.** Switching conversations re-probes that project's servers instead of
+  leaving the previous project's dot, and coming back to the window re-reads it too.
+- **Deleting a session that is already gone no longer errors.** When its file had been removed out of band, Delete
+  failed after closing the agent; it is now idempotent.
+
+### Improved
+
+- **Long interaction dialogs.** Multi-line titles wrap, a tall dialog scrolls, and an empty answer can be submitted.
+
 ## 0.18.0 — 6 October 2026
 
 Pi's own extension chrome, follow-ups that run while you look elsewhere, and a cleaner empty view.

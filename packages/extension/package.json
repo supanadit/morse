@@ -2,7 +2,7 @@
   "name": "morse",
   "displayName": "Morse",
   "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "publisher": "supanadit",
   "author": "Supan Adit Pratama",
   "repository": {
