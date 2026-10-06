@@ -16,6 +16,13 @@ import { readTerminalLog, removeTerminalLog, writeTerminalLog } from './terminal
 
 /** How long a shell gets to exit on kill before it is killed outright. */
 const SIGKILL_AFTER_MS = 1_500;
+/**
+ * How long the shutdown waits for a shell's last words. A dev server prints its
+ * shutdown log *after* it gets the signal, so persisting the buffer before the
+ * kill would drop exactly the lines the reader is looking at. Well under the
+ * `morse stop` grace (5 s) before SIGKILL.
+ */
+const SHUTDOWN_GRACE_MS = 500;
 /** How often the streaming scrollback is written down. A shell can output fast. */
 const FLUSH_DEBOUNCE_MS = 2_000;
 
@@ -147,10 +154,24 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
     removeTerminalLog(this.config.dataDir, terminalId);
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     // The host is going away, so the shells cannot outlive it — but the
-    // scrollback can. Persist first, then kill; the next start replays the file.
-    for (const [terminalId, entry] of this.entries) {
+    // scrollback can. Signal first and let the shells finish their shutdown log
+    // (a dev server prints its last lines only after SIGTERM), then persist: the
+    // next start replays the file, shutdown messages included. `onExit` may
+    // persist during the wait; the pass after it is a no-op unless new output
+    // arrived.
+    const entries = [...this.entries];
+    for (const [, entry] of entries) {
+      this.stopFlush(entry);
+      this.cancelIdle(entry);
+      this.killPty(entry.pty);
+    }
+    if (entries.some(([, entry]) => entry.pty !== undefined)) {
+      await delay(SHUTDOWN_GRACE_MS);
+    }
+    for (const [terminalId, entry] of entries) {
+      // Nothing should append after this: the shutdown is the last writer.
       entry.generation += 1;
       this.persist(terminalId, entry);
       this.killPty(entry.pty);
@@ -317,4 +338,9 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
     entry.dirty = false;
     writeTerminalLog(this.config.dataDir, terminalId, entry.output);
   }
+}
+
+/** A beat for a shell's shutdown output to arrive before the buffer is frozen. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
