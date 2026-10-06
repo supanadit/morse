@@ -29,7 +29,7 @@
     "check-types": "npm run check-types --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:fast": "npm run test -w @morse/ui-runtime && npm run test -w @morse/ui-angular",
+    "test:fast": "npm run test -w @morse/host-runtime && npm run test -w @morse/ui-runtime && npm run test -w @morse/server && npm run test -w @morse/ui-angular",
     "package": "npm run build && npm run vsix -w morse",
     "clean": "rm -rf packages/*/dist packages/*/out node_modules/.cache"
   },
