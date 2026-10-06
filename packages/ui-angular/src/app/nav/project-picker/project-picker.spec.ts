@@ -274,6 +274,29 @@ describe('ProjectPicker', () => {
       expect(host.querySelector('.project-row .project-name')?.textContent).toContain('beta');
     });
 
+    it('puts the caret in the search field as soon as the dialog opens', async () => {
+      const { host } = await render(PROJECTS);
+      // The command palette hands off here after Enter; the reader must be able
+      // to keep typing the project name without clicking the field first.
+      expect(document.activeElement).toBe(host.querySelector('.search input'));
+    });
+
+    it('returns the caret to the search field when Escape steps back from the browser', async () => {
+      const { host, fixture } = await render(PROJECTS);
+
+      (host.querySelector('.modal-foot .primary') as HTMLElement).click();
+      fixture.detectChanges();
+      await settle(fixture);
+      expect(document.activeElement).toBe(host.querySelector('.path-row input'));
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(host.querySelectorAll('.project-row')).toHaveLength(2);
+      expect(document.activeElement).toBe(host.querySelector('.search input'));
+    });
+
     it('browses to a folder pi has not seen before', async () => {
       const { host, transport, fixture } = await render(PROJECTS);
 
@@ -315,6 +338,8 @@ describe('ProjectPicker', () => {
 
       expect(host.querySelector('.path-row')).toBeTruthy();
       expect(host.querySelector('.project-row')).toBeNull();
+      // With no projects to search, the folder path is the field to type into.
+      expect(document.activeElement).toBe(host.querySelector('.path-row input'));
     });
   });
 });

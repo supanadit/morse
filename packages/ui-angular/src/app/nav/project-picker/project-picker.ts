@@ -1,10 +1,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   HostListener,
+  afterNextRender,
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -313,6 +316,11 @@ export class ProjectPicker {
   private readonly shell = inject(ShellState);
   private readonly tabs = inject(WorkspaceTabs);
 
+  /** The projects screen's filter; created only while that screen is showing. */
+  private readonly search = viewChild<ElementRef<HTMLInputElement>>('search');
+  /** The folder browser's path field; created only while that screen is showing. */
+  private readonly pathInput = viewChild<ElementRef<HTMLInputElement>>('pathInput');
+
   protected readonly loading = signal(false);
   protected readonly error = signal<string | undefined>(undefined);
   /** The folder currently shown; the one a session will be created in. */
@@ -391,6 +399,19 @@ export class ProjectPicker {
       this.mode.set('browse');
       this.load();
     }
+    // The dialog exists to be typed into: opening it (the sidebar button, the
+    // empty panel, or the command palette) must land the caret in the field for
+    // the screen it shows, not leave it behind on the trigger that opened it.
+    afterNextRender(() => this.focusField());
+  }
+
+  /** Puts the caret in the field the current screen is built around. */
+  private focusField(): void {
+    if (this.mode() === 'projects') {
+      this.search()?.nativeElement.focus();
+      return;
+    }
+    this.pathInput()?.nativeElement.focus();
   }
 
   /** `path` undefined means "whatever the host considers the starting folder". */
@@ -425,11 +446,14 @@ export class ProjectPicker {
     if (this.path().length === 0) {
       this.load();
     }
+    // The screen changed: hand the caret to the field it shows once it renders.
+    setTimeout(() => this.focusField(), 0);
   }
 
   protected backToProjects(): void {
     this.mode.set('projects');
     this.projectQuery.set('');
+    setTimeout(() => this.focusField(), 0);
   }
 
   protected onProjectQuery(event: Event): void {
