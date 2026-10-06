@@ -261,6 +261,23 @@ export class TerminalStore {
     return this.items().some((pane) => pane.owner === owner);
   }
 
+  /**
+   * Stores the directory the shell reported (OSC 7), so a pane restored after a
+   * host restart opens where the reader `cd`'d to, not at the session's root.
+   * An empty value is ignored: it would wipe a known directory for nothing.
+   */
+  setCwd(id: string, cwd: string): void {
+    const normalized = cwd.trim();
+    if (normalized.length === 0) {
+      return;
+    }
+    this.items.update((list) =>
+      list.map((pane) =>
+        pane.id === id && pane.cwd !== normalized ? { ...pane, cwd: normalized } : pane,
+      ),
+    );
+  }
+
   /** The pane in front inside a group; `undefined` when the group is gone. */
   activePaneFor(group: string): string | undefined {
     return this.activePaneByGroup()[group];

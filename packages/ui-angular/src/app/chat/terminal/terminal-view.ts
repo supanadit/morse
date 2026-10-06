@@ -463,6 +463,14 @@ export class TerminalView {
     this.store.setAutoTitle(paneId, title);
   }
 
+  /**
+   * The shell reported its directory (OSC 7): remember it on the pane, so a
+   * restored shell reopens where the reader `cd`'d instead of the session root.
+   */
+  protected onCwdChange(paneId: string, cwd: string): void {
+    this.store.setCwd(paneId, cwd);
+  }
+
   /** Double-clicking a chip opens its rename field, like a tab strip. */
   protected beginRename(id: string, event: Event): void {
     event.stopPropagation();

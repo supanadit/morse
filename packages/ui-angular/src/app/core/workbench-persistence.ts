@@ -259,8 +259,9 @@ export class WorkbenchPersistence {
 }
 
 /**
- * A terminal pane gains its owner session's directory, taken from the saved
- * tabs. A pane with no owner (the empty draft) keeps whatever it had.
+ * A terminal pane keeps its own directory when it has one — the shell reported
+ * it with OSC 7, so it is where the reader actually `cd`'d — and falls back to
+ * its owner session's directory for a pane saved before that was tracked.
  */
 function terminalsWithOwnerCwd(
   terminals: TerminalsSnapshot,
@@ -278,7 +279,7 @@ function terminalsWithOwnerCwd(
       if (pane.owner === undefined) {
         return pane;
       }
-      const cwd = cwdByOwner.get(pane.owner) ?? pane.cwd;
+      const cwd = pane.cwd ?? cwdByOwner.get(pane.owner);
       return cwd === undefined ? pane : { ...pane, cwd };
     }),
   };

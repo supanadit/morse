@@ -113,6 +113,23 @@ describe('WorkbenchPersistence', () => {
     expect(terminals.terminals()[0]!.cwd).toBe('/repo');
   });
 
+  it("keeps a pane's own directory (where the shell `cd`'d) over the session root", async () => {
+    const layout = storedLayout();
+    (layout.data.terminals as { panes: Array<Record<string, unknown>> }).panes[0]!['cwd'] =
+      '/repo/packages/api';
+    const { connection } = setup(layout);
+    const terminals = TestBed.inject(TerminalStore);
+
+    connection.set('ready');
+    TestBed.tick();
+    await flush();
+    await flush();
+
+    // The shell reported `/repo/packages/api` with OSC 7, so the restored shell
+    // reopens where the reader `cd`'d, not at the session's project root.
+    expect(terminals.terminals()[0]!.cwd).toBe('/repo/packages/api');
+  });
+
   it('asks the host for the session the layout left in front', async () => {
     const layout = storedLayout();
     (layout.data.tabs as { activeId?: string }).activeId = 's1';

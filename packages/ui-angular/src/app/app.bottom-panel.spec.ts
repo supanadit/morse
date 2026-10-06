@@ -11,8 +11,12 @@ vi.mock('@xterm/xterm', () => ({
     Terminal: class {
       cols = 80;
       rows = 24;
+      readonly parser = { registerOscHandler: () => ({ dispose: () => undefined }) };
       open(): void {}
       loadAddon(): void {}
+      registerLinkProvider() {
+        return { dispose: () => undefined };
+      }
       onData() {
         return { dispose: () => undefined };
       }

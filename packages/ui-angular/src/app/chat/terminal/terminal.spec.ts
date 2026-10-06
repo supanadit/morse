@@ -20,6 +20,7 @@ const xterm = vi.hoisted(() => {
     dataHandler?: DataHandler;
     resizeHandler?: ResizeHandler;
     titleHandler?: TitleHandler;
+    oscHandlers: Map<number, (data: string) => boolean>;
   }> = [];
   class FakeTerminal {
     cols = 100;
@@ -29,6 +30,13 @@ const xterm = vi.hoisted(() => {
     dataHandler: DataHandler | undefined;
     resizeHandler: ResizeHandler | undefined;
     titleHandler: TitleHandler | undefined;
+    readonly oscHandlers = new Map<number, (data: string) => boolean>();
+    readonly parser = {
+      registerOscHandler: (ident: number, handler: (data: string) => boolean) => {
+        this.oscHandlers.set(ident, handler);
+        return { dispose: () => this.oscHandlers.delete(ident) };
+      },
+    };
     constructor() {
       instances.push(this);
     }
@@ -153,7 +161,7 @@ describe('Terminal', () => {
   });
 
   it('re-attaches to a new host after a reconnect', async () => {
-    const { fixture, morse } = setup();
+    const { fixture, morse, emitOutput } = setup();
     await fixture.whenStable();
     await tick();
     expect(morse.openTerminal).toHaveBeenCalledTimes(1);
@@ -169,6 +177,12 @@ describe('Terminal', () => {
 
     expect(term.resets).toBe(1);
     expect(morse.openTerminal).toHaveBeenCalledTimes(2);
+
+    // The new host replays the scrollback it kept on disk. That is what makes a
+    // `morse stop`/`start` land on the old output instead of a blank terminal.
+    const id = morse.openTerminal.mock.calls[1]?.[0] as string;
+    emitOutput({ terminalId: id, data: 'replayed after restart\r\n' });
+    expect(term.writes).toContain('replayed after restart\r\n');
   });
 
   it('forwards raw keystrokes and resizes to the host', async () => {
@@ -195,6 +209,35 @@ describe('Terminal', () => {
     xterm.instances.at(-1)?.titleHandler?.('npm run dev');
 
     expect(titles).toEqual(['npm run dev']);
+  });
+
+  it('reports the shell directory from OSC 7', async () => {
+    const { fixture } = setup();
+    await fixture.whenStable();
+    await tick();
+    const dirs: string[] = [];
+    fixture.componentInstance.cwdChange.subscribe((cwd) => dirs.push(cwd));
+    const osc = xterm.instances.at(-1)?.oscHandlers.get(7);
+
+    osc?.('file://host/home/me/project%20a');
+    // Not a file URL: not a directory.
+    osc?.('https://example.com/x');
+
+    expect(dirs).toEqual(['/home/me/project a']);
+  });
+
+  it('flushes output that arrived before the emulator was ready', async () => {
+    const { fixture, emitOutput } = setup();
+    // The lazy xterm import has not resolved yet, so the host's first flush (a
+    // restart replay) has no emulator to write into. The pane's id is `term-1`.
+    emitOutput({ terminalId: 'other', data: 'not mine' });
+    emitOutput({ terminalId: 'term-1', data: 'the replay' });
+
+    await fixture.whenStable();
+    await tick();
+
+    expect(xterm.instances.at(-1)?.writes).toContain('the replay');
+    expect(xterm.instances.at(-1)?.writes).not.toContain('not mine');
   });
 
   it('offers a restart once the shell has ended', async () => {

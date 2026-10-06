@@ -81,11 +81,22 @@ export class Terminal {
   readonly cwd = input<string | undefined>(undefined);
   /** The shell's own title (OSC 0/2), so the tab can follow the running command. */
   readonly titleChange = output<string>();
+  /**
+   * The directory the shell reports (OSC 7, `file://host/path`), so the pane can
+   * remember where the reader `cd`'d and a restored shell can reopen there.
+   */
+  readonly cwdChange = output<string>();
 
   private term: XTermInstance | undefined;
   private fit: FitAddon | undefined;
   private observer: ResizeObserver | undefined;
   private destroyed = false;
+  /**
+   * Output that arrived before the emulator finished loading. The lazy import of
+   * xterm is a tick long, and the host can flush a replay inside it; dropping
+   * those bytes would show a blank terminal until the shell's next prompt.
+   */
+  private pending = '';
   /**
    * The host epoch this pane last attached to. `-1` until the emulator is ready;
    * a later value than the current epoch means the host was replaced and the
@@ -98,7 +109,11 @@ export class Terminal {
   constructor() {
     const offOutput = this.morse.onTerminalOutput((event) => {
       if (event.terminalId === this.id()) {
-        this.term?.write(event.data);
+        if (this.term !== undefined) {
+          this.term.write(event.data);
+        } else {
+          this.pending += event.data;
+        }
       }
     });
     const offExit = this.morse.onTerminalExit((event) => {
@@ -110,6 +125,7 @@ export class Terminal {
       this.destroyed = true;
       offOutput();
       offExit();
+      this.pending = '';
       this.observer?.disconnect();
       this.term?.dispose();
       // Detach, do not kill: the shell and its scrollback belong to the host, so
@@ -168,8 +184,22 @@ export class Terminal {
     term.onResize(({ cols, rows }) => this.morse.resizeTerminal(this.id(), cols, rows));
     // OSC 0/2: the shell names the tab (its cwd, or the command it is running).
     term.onTitleChange((title) => this.titleChange.emit(title));
+    // OSC 7: the shell names its current directory on every prompt, which is how
+    // a restored pane reopens where the reader left it (not the session's root).
+    term.parser.registerOscHandler(7, (data) => {
+      const cwd = parseOsc7(data);
+      if (cwd !== undefined) {
+        this.cwdChange.emit(cwd);
+      }
+      return true;
+    });
     // `http://localhost:5199/` in a dev-server banner is one click, not a copy.
     registerTerminalLinks(term, (url) => this.openExternal(url));
+    // Whatever the host flushed before the emulator existed (a restart replay).
+    if (this.pending.length > 0) {
+      term.write(this.pending);
+      this.pending = '';
+    }
     this.fitNow();
     this.attachToHost();
     term.focus();
@@ -295,4 +325,21 @@ export class Terminal {
 async function importCjs<T>(module: Promise<T>): Promise<T> {
   const loaded = (await module) as T & { default?: T };
   return loaded.default ?? loaded;
+}
+
+/**
+ * The directory in an OSC 7 payload (`file://host/path`, percent-encoded). An
+ * empty host is the usual form a local shell emits; anything that is not a file
+ * URL is not a directory and is ignored rather than guessed at.
+ */
+export function parseOsc7(data: string): string | undefined {
+  const match = /^file:\/\/[^/]*(\/.*)$/.exec(data);
+  if (match === null) {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return undefined;
+  }
 }

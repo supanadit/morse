@@ -147,6 +147,19 @@ describe('TerminalStore', () => {
     expect(store.activeFor('s1')).toBe(first);
   });
 
+  it('keeps a shell directory reported by OSC 7, and ignores an empty one', () => {
+    const store = TestBed.inject(TerminalStore);
+    const id = store.open('s1');
+    expect(store.terminals()[0]?.cwd).toBeUndefined();
+
+    store.setCwd(id, '/repo/packages/api');
+    expect(store.terminals()[0]?.cwd).toBe('/repo/packages/api');
+
+    // An empty report is not a directory: it must not wipe the known one.
+    store.setCwd(id, '   ');
+    expect(store.terminals()[0]?.cwd).toBe('/repo/packages/api');
+  });
+
   it('lists an owner’s panes and reports whether it still holds one', () => {
     const store = TestBed.inject(TerminalStore);
     const first = store.open('s1');

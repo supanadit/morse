@@ -85,6 +85,7 @@
               [id]="pane.id"
               [cwd]="pane.cwd"
               (titleChange)="onTitleChange(pane.id, $event)"
+              (cwdChange)="onCwdChange(pane.id, $event)"
             />
           </div>
         }

@@ -6,29 +6,43 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // has no layout or canvas, so the emulator is mocked here. The mocks carry the
 // production shape — the CJS module under `default` — so the lazy import's
 // unwrapping is exercised, not bypassed.
-vi.mock('@xterm/xterm', () => ({
-  default: {
-    Terminal: class {
-      cols = 80;
-      rows = 24;
-      open(): void {}
-      loadAddon(): void {}
-      onData() {
-        return { dispose: () => undefined };
-      }
-      onResize() {
-        return { dispose: () => undefined };
-      }
-      onTitleChange() {
-        return { dispose: () => undefined };
-      }
-      write(): void {}
-      reset(): void {}
-      focus(): void {}
-      dispose(): void {}
-    },
-  },
-}));
+const xterm = vi.hoisted(() => {
+  const instances: Array<{ oscHandlers: Map<number, (data: string) => boolean> }> = [];
+  class Terminal {
+    cols = 80;
+    rows = 24;
+    readonly oscHandlers = new Map<number, (data: string) => boolean>();
+    readonly parser = {
+      registerOscHandler: (ident: number, handler: (data: string) => boolean) => {
+        this.oscHandlers.set(ident, handler);
+        return { dispose: () => this.oscHandlers.delete(ident) };
+      },
+    };
+    constructor() {
+      instances.push(this);
+    }
+    open(): void {}
+    loadAddon(): void {}
+    registerLinkProvider() {
+      return { dispose: () => undefined };
+    }
+    onData() {
+      return { dispose: () => undefined };
+    }
+    onResize() {
+      return { dispose: () => undefined };
+    }
+    onTitleChange() {
+      return { dispose: () => undefined };
+    }
+    write(): void {}
+    reset(): void {}
+    focus(): void {}
+    dispose(): void {}
+  }
+  return { instances, Terminal };
+});
+vi.mock('@xterm/xterm', () => ({ default: { Terminal: xterm.Terminal } }));
 vi.mock('@xterm/addon-fit', () => ({ default: { FitAddon: class { fit(): void {} } } }));
 vi.mock('@xterm/addon-webgl', () => ({
   default: {
@@ -43,6 +57,11 @@ import { MorseService } from '../../core/morse.service';
 import { TerminalStore } from '../../core/terminal-store';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { TerminalView } from './terminal-view';
+
+/** The emulator is imported lazily; one tick lets that import resolve. */
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 type SessionState = {
   sessionId: string | undefined;
@@ -60,6 +79,7 @@ function setup(): {
     resizeTerminal: ReturnType<typeof vi.fn>;
   };
 } {
+  xterm.instances.length = 0;
   const state = signal<SessionState>({
     sessionId: 's1',
     workspace: { cwd: '/w', name: 'w' },
@@ -162,6 +182,23 @@ describe('TerminalView', () => {
     expect(chips(host)).toEqual(['Terminal 1']);
     expect(host.querySelectorAll('morse-terminal')).toHaveLength(1);
     expect(morse.closeTerminal).not.toHaveBeenCalled();
+  });
+
+  it('remembers the directory the shell reports (OSC 7) on the pane', async () => {
+    const { fixture, host } = setup();
+    const store = TestBed.inject(TerminalStore);
+    const id = open();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await tick();
+
+    const osc = xterm.instances.at(-1)?.oscHandlers.get(7);
+    expect(osc).toBeDefined();
+    osc?.('file://host/home/me/project');
+
+    // The pane carries the `cd`'d directory, so a restored shell reopens there.
+    expect(store.terminals().find((pane) => pane.id === id)?.cwd).toBe('/home/me/project');
+    expect(host.querySelectorAll('morse-terminal')).toHaveLength(1);
   });
 
   it('shows the shell title and renames a tab inline', async () => {

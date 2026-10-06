@@ -323,7 +323,10 @@ mounted, hidden); closing a session tab drops its terminals, which kills their s
 on an explicit close — the pane's ×, the chip's ×, or its session tab — never because a component was
 destroyed, so a hidden panel, a remount or a reconnect cannot kill a running command. A draft's
 terminals follow it when it becomes a real session (`rekey`), exactly like its composer draft, and a draft
-that holds a terminal is not discarded as untouched (`TerminalStore.hasOwner`).
+that holds a terminal is not discarded as untouched (`TerminalStore.hasOwner`). A pane remembers the
+directory the shell reported over **OSC 7** (`cwdChange` → `TerminalStore.setCwd`), so a shell restored
+after `morse stop`/`start` reopens where the reader `cd`'d instead of at the session root; the pane's own
+directory wins over its owner's in `terminalsWithOwnerCwd`.
 - The backend is a port (`TerminalBackend`, `packages/host-runtime/src/terminal.ts`), so the controller
 owns the wire conversation and the host owns the process. The NestJS host implements it in
 `ServerTerminalBackend` with **`node-pty`** — a real pseudo-terminal in the viewing session's directory,
