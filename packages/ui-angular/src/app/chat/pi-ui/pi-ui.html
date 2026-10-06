@@ -1,0 +1,18 @@
+@if (visible()) {
+  <section class="pi-ui" aria-label="Pi extension output">
+    @for (widget of widgets(); track widget.key) {
+      <div class="widget" [title]="widget.key">
+        @for (line of widget.lines; track $index) {
+          <div class="line">{{ line }}</div>
+        }
+      </div>
+    }
+    @if (statuses().length > 0) {
+      <div class="status">
+        @for (status of statuses(); track status.key) {
+          <span class="entry" [title]="status.key">{{ status.text }}</span>
+        }
+      </div>
+    }
+  </section>
+}

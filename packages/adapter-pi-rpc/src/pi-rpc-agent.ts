@@ -12,6 +12,8 @@ import {
   type AgentInteractionRequest,
   type AgentInteractionResponse,
   type AgentSessionState,
+  type AgentStatus,
+  type AgentWidget,
   type AgentCommand,
   type AgentCommandSource,
   type ChatPin,
@@ -488,13 +490,25 @@ export class PiRpcAgent implements AgentGateway {
       });
       return;
     }
+    // The TUI chrome an extension can set over RPC: a text widget and a footer
+    // status line. Both are fire-and-forget and per session, so they ride on the
+    // session state and reach every frontend that renders it (the browser panel
+    // and the VS Code webview alike).
+    if (method === 'setWidget') {
+      this.patchState({ widgets: upsertWidget(this.sessionState.widgets ?? [], request) });
+      return;
+    }
+    if (method === 'setStatus') {
+      this.patchState({ statuses: upsertStatus(this.sessionState.statuses ?? [], request) });
+      return;
+    }
     if (
       method !== 'select' &&
       method !== 'confirm' &&
       method !== 'input' &&
       method !== 'editor'
     ) {
-      // Fire-and-forget terminal concerns (setTitle/setStatus/setWidget/...):
+      // Other fire-and-forget terminal concerns (setTitle/set_editor_text/...):
       // nothing to answer, and Morse has no terminal chrome to update.
       this.options.logger.debug(`pi requested unsupported UI method "${method}"; ignoring.`);
       return;
@@ -520,6 +534,17 @@ export class PiRpcAgent implements AgentGateway {
       availableCommands: [...this.sessionState.availableCommands],
       ...(this.sessionState.diagnostics
         ? { diagnostics: [...this.sessionState.diagnostics] }
+        : {}),
+      ...(this.sessionState.widgets
+        ? {
+            widgets: this.sessionState.widgets.map((widget) => ({
+              ...widget,
+              lines: [...widget.lines],
+            })),
+          }
+        : {}),
+      ...(this.sessionState.statuses
+        ? { statuses: this.sessionState.statuses.map((status) => ({ ...status })) }
         : {}),
     };
   }
@@ -559,6 +584,54 @@ function toInteractionRequest(
     case 'editor':
       return { requestId: request.id, kind: 'editor', title, value: request.prefill };
   }
+}
+
+/**
+ * Applies one `setWidget`: a new key appends (pi paints widgets in set order), an
+ * existing key replaces in place, and a missing/empty `widgetLines` clears it.
+ * RPC mode forwards only string lines, so a component factory never arrives.
+ */
+export function upsertWidget(current: AgentWidget[], request: RpcExtensionUiRequest): AgentWidget[] {
+  const key = request.widgetKey;
+  if (key === undefined || key.length === 0) {
+    return current;
+  }
+  const lines = request.widgetLines;
+  const index = current.findIndex((widget) => widget.key === key);
+  if (lines === undefined || lines.length === 0) {
+    return index === -1 ? current : current.filter((widget) => widget.key !== key);
+  }
+  const next: AgentWidget = {
+    key,
+    lines: [...lines],
+    placement: request.widgetPlacement === 'belowEditor' ? 'belowEditor' : 'aboveEditor',
+  };
+  if (index === -1) {
+    return [...current, next];
+  }
+  const copy = [...current];
+  copy[index] = next;
+  return copy;
+}
+
+/** Applies one `setStatus`: set or replace by key, clear when the text is gone. */
+export function upsertStatus(current: AgentStatus[], request: RpcExtensionUiRequest): AgentStatus[] {
+  const key = request.statusKey;
+  if (key === undefined || key.length === 0) {
+    return current;
+  }
+  const text = request.statusText;
+  const index = current.findIndex((status) => status.key === key);
+  if (text === undefined || text.length === 0) {
+    return index === -1 ? current : current.filter((status) => status.key !== key);
+  }
+  const next: AgentStatus = { key, text };
+  if (index === -1) {
+    return [...current, next];
+  }
+  const copy = [...current];
+  copy[index] = next;
+  return copy;
 }
 
 function toModelRef(model: RpcModel): ModelRef {

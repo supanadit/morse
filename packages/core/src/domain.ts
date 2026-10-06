@@ -118,6 +118,26 @@ export interface AgentDiagnostic {
   text: string;
 }
 
+/**
+ * A block of text an extension asked the TUI to show (pi `ctx.ui.setWidget`).
+ * RPC mode forwards only string lines, never component factories, so a frontend
+ * can render it but not an arbitrary terminal component.
+ */
+export interface AgentWidget {
+  /** The extension's own key: a later `setWidget` with the same key replaces it. */
+  key: string;
+  lines: string[];
+  /** Where pi would place it relative to the editor; kept so a host can order it. */
+  placement: 'aboveEditor' | 'belowEditor';
+}
+
+/** A footer status line an extension set (pi `ctx.ui.setStatus`). */
+export interface AgentStatus {
+  /** A later `setStatus` with the same key replaces it. */
+  key: string;
+  text: string;
+}
+
 export interface AgentSessionState {
   sessionId?: string;
   sessionTitle?: string;
@@ -133,6 +153,13 @@ export interface AgentSessionState {
    * Optional: an agent backend with nothing to report leaves it out.
    */
   diagnostics?: AgentDiagnostic[];
+  /**
+   * Text blocks extensions asked the TUI to show (pi `setWidget`). Optional:
+   * present only while an extension has one set for this session.
+   */
+  widgets?: AgentWidget[];
+  /** Footer status lines extensions set (pi `setStatus`). Optional, as above. */
+  statuses?: AgentStatus[];
   streaming: boolean;
   /** Cumulative session tokens (input/output/cache) reported by the agent. */
   usage?: TokenUsage;

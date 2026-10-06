@@ -107,6 +107,16 @@ export function toSessionViewState(
     ...(state.diagnostics
       ? { diagnostics: state.diagnostics.map(({ level, text }) => ({ level, text })) }
       : {}),
+    ...(state.widgets
+      ? {
+          widgets: state.widgets.map(({ key, lines, placement }) => ({
+            key,
+            lines: [...lines],
+            placement,
+          })),
+        }
+      : {}),
+    ...(state.statuses ? { statuses: state.statuses.map(({ key, text }) => ({ key, text })) } : {}),
   };
 }
 

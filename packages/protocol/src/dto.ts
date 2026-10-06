@@ -609,6 +609,23 @@ export interface AgentDiagnosticMessage {
   text: string;
 }
 
+/**
+ * A block of text an extension asked pi's TUI to show (pi `ctx.ui.setWidget`).
+ * RPC forwards string lines only, so a frontend can render it as text, not as a
+ * terminal component.
+ */
+export interface WidgetBlock {
+  key: string;
+  lines: string[];
+  placement: 'aboveEditor' | 'belowEditor';
+}
+
+/** A footer status line an extension set (pi `ctx.ui.setStatus`). */
+export interface StatusLine {
+  key: string;
+  text: string;
+}
+
 export interface SessionViewState {
   sessionId?: string;
   sessionTitle?: string;
@@ -650,6 +667,13 @@ export interface SessionViewState {
    * conversation rather than lines inside it. Optional and usually absent.
    */
   diagnostics?: AgentDiagnosticMessage[];
+  /**
+   * Text blocks extensions asked pi's TUI to show. Optional: present only while
+   * an extension has one set. A frontend renders them as text, per session.
+   */
+  widgets?: WidgetBlock[];
+  /** Footer status lines extensions set. Optional, as above. */
+  statuses?: StatusLine[];
 }
 
 export interface BaseTranscriptItem {

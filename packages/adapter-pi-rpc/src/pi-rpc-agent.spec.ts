@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildCommandList, type CommandContext } from './pi-rpc-agent.js';
+import { buildCommandList, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
 
 /**
  * The palette is rebuilt from disk because pi caches its prompt templates at
@@ -143,5 +143,123 @@ describe('buildCommandList', () => {
 
     expect(commands.map((command) => command.name)).toEqual(['good']);
     expect(diagnostics).toHaveLength(1);
+  });
+});
+
+/**
+ * The extension UI a frontend renders: `setWidget` and `setStatus` are
+ * fire-and-forget, keyed, and per session, so applying them is a small state
+ * machine — replace by key, clear when the value is gone, append otherwise.
+ */
+describe('upsertWidget', () => {
+  it('appends a widget, defaulting to above the editor', () => {
+    const widgets = upsertWidget([], {
+      type: 'extension_ui_request',
+      id: 'u1',
+      method: 'setWidget',
+      widgetKey: 'demo',
+      widgetLines: ['--- Demo ---', 'line'],
+    });
+
+    expect(widgets).toEqual([
+      { key: 'demo', lines: ['--- Demo ---', 'line'], placement: 'aboveEditor' },
+    ]);
+  });
+
+  it('keeps pi\u2019s below-editor placement', () => {
+    const widgets = upsertWidget([], {
+      type: 'extension_ui_request',
+      id: 'u2',
+      method: 'setWidget',
+      widgetKey: 'demo',
+      widgetLines: ['x'],
+      widgetPlacement: 'belowEditor',
+    });
+
+    expect(widgets[0]?.placement).toBe('belowEditor');
+  });
+
+  it('replaces a key in place, keeping the set order', () => {
+    const first = upsertWidget([], {
+      type: 'extension_ui_request',
+      id: 'u3',
+      method: 'setWidget',
+      widgetKey: 'a',
+      widgetLines: ['a1'],
+    });
+    const both = upsertWidget(first, {
+      type: 'extension_ui_request',
+      id: 'u4',
+      method: 'setWidget',
+      widgetKey: 'b',
+      widgetLines: ['b1'],
+    });
+
+    const replaced = upsertWidget(both, {
+      type: 'extension_ui_request',
+      id: 'u5',
+      method: 'setWidget',
+      widgetKey: 'a',
+      widgetLines: ['a2', 'a3'],
+    });
+
+    expect(replaced.map((widget) => widget.key)).toEqual(['a', 'b']);
+    expect(replaced[0]?.lines).toEqual(['a2', 'a3']);
+  });
+
+  it('clears a widget when its lines are gone', () => {
+    const set = upsertWidget([], {
+      type: 'extension_ui_request',
+      id: 'u6',
+      method: 'setWidget',
+      widgetKey: 'demo',
+      widgetLines: ['x'],
+    });
+
+    expect(upsertWidget(set, {
+      type: 'extension_ui_request',
+      id: 'u7',
+      method: 'setWidget',
+      widgetKey: 'demo',
+    })).toEqual([]);
+  });
+
+  it('ignores a widget without a key', () => {
+    const set = upsertWidget([], {
+      type: 'extension_ui_request',
+      id: 'u8',
+      method: 'setWidget',
+      widgetLines: ['x'],
+    });
+
+    expect(set).toEqual([]);
+  });
+});
+
+describe('upsertStatus', () => {
+  it('sets, replaces and clears a status by key', () => {
+    const a = upsertStatus([], {
+      type: 'extension_ui_request',
+      id: 's1',
+      method: 'setStatus',
+      statusKey: 'ext',
+      statusText: 'Turn 1 running',
+    });
+    const b = upsertStatus(a, {
+      type: 'extension_ui_request',
+      id: 's2',
+      method: 'setStatus',
+      statusKey: 'ext',
+      statusText: 'Turn 1 done',
+    });
+    expect(b).toEqual([{ key: 'ext', text: 'Turn 1 done' }]);
+
+    const cleared = upsertStatus(b, {
+      type: 'extension_ui_request',
+      id: 's3',
+      method: 'setStatus',
+      statusKey: 'ext',
+    });
+    expect(cleared).toEqual([]);
   });
 });

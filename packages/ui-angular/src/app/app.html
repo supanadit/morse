@@ -221,6 +221,13 @@
       }
     }
 
+    <!-- Pi's own TUI chrome (extension widgets and status lines), above the
+         bottom panel in the browser host and at the foot of the chat in VS Code.
+         Mounted only while an extension has set something. -->
+    @if (piUiVisible()) {
+      <morse-pi-ui />
+    }
+
     <!-- The browser host's bottom panel: chips that open a tool (the terminal)
          below the composer. VS Code has its own panel and never mounts it. -->
     @if (bottomPanelEnabled()) {

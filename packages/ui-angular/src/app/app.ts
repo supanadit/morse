@@ -11,6 +11,7 @@ import type { PromptEditor } from './chat/prompt-editor/prompt-editor';import { 
 import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
 import { BottomPanel } from './chat/bottom-panel/bottom-panel';
+import { PiUi } from './chat/pi-ui/pi-ui';
 import { TabStrip } from './chat/tab-strip/tab-strip';
 import { GitPanel } from './git/git-panel';
 import { AnimationService } from './core/animation.service';
@@ -65,6 +66,7 @@ function previewBoot(): boolean {
     EmptySession,
     TabStrip,
     BottomPanel,
+    PiUi,
     FilePreview,
     GitPanel,
     EnterDirective,
@@ -168,6 +170,15 @@ export class App {
    * one. The shared signal lives on `WorkspaceTabs` so the header reads it too.
    */
   protected readonly noSessionSelected = this.tabs.noSessionInFront;
+  /**
+   * Pi's extension chrome is worth mounting only while an extension has set a
+   * widget or status for the session in front; an empty host stays out of the
+   * layout entirely.
+   */
+  protected readonly piUiVisible = computed(() => {
+    const state = this.morse.state();
+    return (state.widgets?.length ?? 0) + (state.statuses?.length ?? 0) > 0;
+  });
 
   /**
    * The notification banner, or nothing when there is no channel to fix:

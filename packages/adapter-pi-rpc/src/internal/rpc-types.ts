@@ -136,6 +136,7 @@ export interface RpcExtensionUiRequest {
   statusText?: string;
   widgetKey?: string;
   widgetLines?: string[];
+  widgetPlacement?: string;
   text?: string;
 }
 
