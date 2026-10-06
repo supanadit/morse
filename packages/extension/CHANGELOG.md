@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.2 — 6 October 2026
+
+The last lines a terminal printed before `morse stop` now survive it.
+
+### Fixed
+
+- **A dev server's shutdown log is in the restored terminal.** The host used to write a terminal's scrollback
+  before it stopped the shell, so the lines a process prints after receiving the signal — `Worker events
+  consumer stopped`, `Kafka producer disconnected` — were lost. It now signals first, gives the shell a beat to
+  finish, then saves, so a restart replays those lines too.
+
 ## 0.19.1 — 6 October 2026
 
 A terminal that comes back where you left it after `morse stop` and `morse start`.
