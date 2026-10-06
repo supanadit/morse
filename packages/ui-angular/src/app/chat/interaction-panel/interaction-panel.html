@@ -25,7 +25,7 @@
       @case ('input') {
         <input
           type="text"
-          [value]="value() || prefillOf(req)"
+          [value]="value()"
           [placeholder]="placeholderOf(req)"
           (input)="onInput($event)"
         />
@@ -35,7 +35,7 @@
         </div>
       }
       @case ('editor') {
-        <textarea rows="5" [value]="value() || prefillOf(req)" (input)="onInput($event)"></textarea>
+        <textarea rows="5" [value]="value()" (input)="onInput($event)"></textarea>
         <div class="options">
           <button type="button" (click)="submit()">Submit</button>
           <button type="button" class="secondary" (click)="cancel()">Cancel</button>

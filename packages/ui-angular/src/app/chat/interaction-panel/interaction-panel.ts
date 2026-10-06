@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import type { InteractionRequest, SelectOption } from '@morse/protocol';
 import { MorseService } from '../../core/morse.service';
 
@@ -22,9 +22,12 @@ import { MorseService } from '../../core/morse.service';
         display: flex;
         flex-direction: column;
         gap: 8px;
+        max-height: 60vh;
+        overflow: auto;
       }
       header {
         font-weight: 600;
+        white-space: pre-wrap;
       }
       p {
         margin: 0;
@@ -46,6 +49,16 @@ export class InteractionPanel {
   protected readonly visible = computed(
     () => this.request() !== null && this.morse.capabilities()?.nativeDialogs !== true,
   );
+
+  constructor() {
+    // Seed the field from the request's prefill each time a dialog arrives. The
+    // old `[value]="value() || prefillOf(req)"` binding fell back to the prefill
+    // whenever the field was empty, so an intentionally empty answer could never
+    // be submitted. Seeding once keeps that possible.
+    effect(() => {
+      this.value.set(this.prefillOf(this.request()));
+    });
+  }
 
   protected onInput(event: Event): void {
     this.value.set((event.target as HTMLInputElement | HTMLTextAreaElement).value);
@@ -81,8 +94,8 @@ export class InteractionPanel {
     return request.kind === 'input' ? (request.placeholder ?? '') : '';
   }
 
-  protected prefillOf(request: InteractionRequest): string {
-    return request.kind === 'editor' || request.kind === 'input' ? (request.value ?? '') : '';
+  protected prefillOf(request: InteractionRequest | null | undefined): string {
+    return request?.kind === 'editor' || request?.kind === 'input' ? (request.value ?? '') : '';
   }
 
   private respond(partial: { value?: string; confirmed?: boolean; cancelled?: boolean }): void {

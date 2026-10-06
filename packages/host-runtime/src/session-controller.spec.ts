@@ -6,10 +6,12 @@ import {
   silentLogger,
   type AgentEventListener,
   type AgentDiagnostic,
+  type AgentEvent,
   type AgentForkMessage,
   type AgentGateway,
   type AgentGatewayFactory,
   type AgentHistoryEntry,
+  type AgentInteractionRequest,
   type AgentSessionState,
   type ModelRef,
   type PromptDisposition,
@@ -1206,5 +1208,169 @@ describe('HostSessionController background prompts', () => {
     expect(transcripts.items('sess-a')).toHaveLength(1);
     expect(registry.activeKeyOf()).toBe('sess-b');
     expect(lastStateOf(messages)?.sessionId).toBe('sess-b');
+  });
+});
+
+/**
+ * An extension dialog (`ui.select`/`input`) belongs to the session that raised
+ * it. The bug: it was routed through whatever session happened to be in front,
+ * and a dialog raised in a background conversation was dropped entirely — its
+ * pi process then waited forever. These tests drive a real per-session gateway
+ * that can emit events, so both halves are checked.
+ */
+describe('HostSessionController session-scoped dialogs', () => {
+  interface Controlled {
+    gateway: AgentGateway;
+    emit(event: AgentEvent): void;
+    respond: ReturnType<typeof vi.fn>;
+  }
+
+  function controlled(sessionId: string): Controlled {
+    const listeners: AgentEventListener[] = [];
+    const respond = vi.fn(async () => undefined);
+    const state: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: true,
+      sessionId,
+    };
+    const gateway: AgentGateway = {
+      subscribe(listener) {
+        listeners.push(listener);
+        return () => {
+          const index = listeners.indexOf(listener);
+          if (index >= 0) {
+            listeners.splice(index, 1);
+          }
+        };
+      },
+      state: () => Promise.resolve(state),
+      history: () => Promise.resolve({ entries: [], hasOlder: false }),
+      prompt: () => Promise.resolve<PromptDisposition>('started'),
+      forkMessages: () => Promise.resolve([]),
+      fork: () => Promise.resolve({ text: '', cancelled: true }),
+      abort: () => Promise.resolve(),
+      setModel: () => Promise.resolve(),
+      setThinkingLevel: () => Promise.resolve(),
+      compact: () => Promise.resolve(),
+      respondToInteraction: respond,
+      dispose: () => Promise.resolve(),
+    };
+    return {
+      gateway,
+      emit: (event) => {
+        for (const listener of [...listeners]) {
+          listener(event);
+        }
+      },
+      respond,
+    };
+  }
+
+  async function twoSessions(): Promise<{
+    host: HostSessionController;
+    messages: HostToClientMessage[];
+    created: Controlled[];
+  }> {
+    const messages: HostToClientMessage[] = [];
+    const created: Controlled[] = [];
+    const factory: AgentGatewayFactory = {
+      create: (options) => {
+        const sessionId = options.sessionId ?? `generated-${created.length + 1}`;
+        const session = controlled(sessionId);
+        created.push(session);
+        return Promise.resolve(session.gateway);
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const host = connect(registry, chat, transcripts, messages);
+    await host.start();
+    // sess-a is the one in front; sess-b stays hot in the background.
+    await registry.open({ sessionId: 'sess-a' });
+    await registry.open({ sessionId: 'sess-b' });
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+    return { host, messages, created };
+  }
+
+  it('holds a background dialog until its session is in front, then answers there', async () => {
+    const { host, messages, created } = await twoSessions();
+    const request: AgentInteractionRequest = {
+      requestId: 'req-1',
+      kind: 'input',
+      title: 'What is your name?',
+      placeholder: 'name',
+    };
+
+    created[1].emit({ type: 'agent/interaction', at: Date.now(), request });
+    await Promise.resolve();
+
+    // The background dialog did not steal the panel's single slot...
+    expect(messages.some((message) => message.type === 'interaction/request')).toBe(false);
+    // ...but the navigator can mark the session that is waiting on it.
+    const activity = messages
+      .filter((message) => message.type === 'session/activity')
+      .at(-1);
+    const waiting = activity?.payload.sessions.find((s) => s.sessionKey === 'sess-b');
+    expect(waiting?.needsInput).toBe(true);
+
+    // Switching to it puts the dialog back in the slot...
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
+    });
+    const shown = messages.filter((message) => message.type === 'interaction/request').at(-1);
+    expect(shown?.payload.requestId).toBe('req-1');
+
+    // ...and the answer goes to the session that asked, not the previous one.
+    await host.handleClientMessage({
+      type: 'interaction/respond',
+      payload: { requestId: 'req-1', value: 'Ada' },
+    });
+    expect(created[1].respond).toHaveBeenCalledTimes(1);
+    expect(created[0].respond).not.toHaveBeenCalled();
+    expect(
+      messages.some(
+        (message) =>
+          message.type === 'interaction/dismiss' && message.payload.requestId === 'req-1',
+      ),
+    ).toBe(true);
+  });
+
+  it('dismisses a dialog when the reader switches away from its session', async () => {
+    const { host, messages, created } = await twoSessions();
+    const request: AgentInteractionRequest = {
+      requestId: 'req-2',
+      kind: 'confirm',
+      title: 'Proceed?',
+      message: 'Continue with the change?',
+    };
+    created[1].emit({ type: 'agent/interaction', at: Date.now(), request });
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
+    });
+
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+
+    const dismissed = messages
+      .filter((message) => message.type === 'interaction/dismiss')
+      .at(-1);
+    expect(dismissed?.payload.requestId).toBe('req-2');
   });
 });

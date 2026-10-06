@@ -154,6 +154,12 @@ export interface SessionActivity {
   agentReady: boolean;
   agentStarting: boolean;
   agentError?: string;
+  /**
+   * An extension dialog in this session is waiting for the reader. It is true
+   * for a background conversation too, so the navigator can mark the tab that
+   * is blocked instead of letting the agent wait without a visible cue.
+   */
+  needsInput?: boolean;
 }
 
 /** A project is a directory the agent has worked in (one pi session bucket). */

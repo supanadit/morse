@@ -519,6 +519,12 @@ export class SessionNav {
 
   /** The "what is happening now" line, for the rows in the In progress section. */
   protected activityLabel(session: SessionSummary): string {
+    // An extension dialog blocks that agent until it is answered. Naming it
+    // beats a generic "Working…", especially for a background conversation the
+    // reader cannot see waiting.
+    if (this.sessionActivity().get(session.id)?.needsInput === true) {
+      return 'Waiting for your answer';
+    }
     // The active session's transcript is the only one this frontend holds, so
     // only it can name the exact step; a background run stays generic.
     if (session.id === this.activeSessionId()) {

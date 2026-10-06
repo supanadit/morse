@@ -133,7 +133,18 @@ export class HostSessionController {
   private disposed = false;
   private hasOpenedOnce = false;
   private hostReadyEmitted = false;
-  private readonly pendingInteractions = new Set<string>();
+  /**
+   * Browser dialogs the agent is waiting on, keyed by request id. The value
+   * carries the owning session, so the answer is routed back to the pi process
+   * that asked — a dialog in a background conversation must not be answered by
+   * whichever session happens to be in front.
+   */
+  private readonly pendingInteractions = new Map<
+    string,
+    { sessionKey: string; request: AgentInteractionRequest }
+  >();
+  /** The one pending request this client is showing, so a session switch swaps it. */
+  private shownInteractionId: string | undefined;
   /** Cursor of the oldest history page loaded for the active session. */
   private historyBefore: string | undefined;
   private hasOlderHistory = false;
@@ -497,6 +508,7 @@ export class HostSessionController {
     this.activeKey = undefined;
     this.isDraft = true;
     this.draftWorkspace = workspace;
+    this.syncInteraction();
     this.resetViewState();
     this.options.emit({ type: 'transcript/replace', payload: { items: [] } });
     this.emitState();
@@ -679,6 +691,9 @@ export class HostSessionController {
     this.clearAgentFailure();
     this.emitTranscript(opened.key);
     this.emitState();
+    // A session can have been waiting on a dialog while it was in the
+    // background; adopting it puts that dialog back in this client's slot.
+    this.syncInteraction();
     // A new/activated session must show up in the list immediately; otherwise
     // the user picks "New session" and it is nowhere to be seen.
     void this.publishSessions();
@@ -1057,14 +1072,21 @@ export class HostSessionController {
     }
   }
 
-  private async respondToInteraction(response: InteractionResponse): Promise<void> {
+  private async respondToInteraction(response: InteractionResponse, owner?: string): Promise<void> {
+    const sessionKey =
+      owner ?? this.pendingInteractions.get(response.requestId)?.sessionKey ?? this.activeKey;
     this.pendingInteractions.delete(response.requestId);
-    this.options.emit({ type: 'interaction/dismiss', payload: { requestId: response.requestId } });
-    const gateway = this.options.services.registry.active();
+    this.syncInteraction();
+    // A session that is no longer hot has no process left to answer; the dialog
+    // it was waiting on is already gone with it.
+    const gateway =
+      sessionKey === undefined ? undefined : this.options.services.registry.agentFor(sessionKey);
     if (!gateway) {
+      this.publishActivity();
       return;
     }
     await this.guard(() => gateway.respondToInteraction(response));
+    this.publishActivity();
   }
 
   /**
@@ -1144,6 +1166,13 @@ export class HostSessionController {
   }
 
   private async onTaggedEvent(sessionKey: string, event: AgentEvent): Promise<void> {
+    // A dialog can arrive in any live session, not only the one in front. It is
+    // tracked per session either way; only the active session's owns this
+    // client's single dialog slot (see `syncInteraction`).
+    if (event.type === 'agent/interaction') {
+      await this.handleInteraction(sessionKey, event.request);
+      return;
+    }
     if (sessionKey !== this.activeKey) {
       // Keep inactive sessions' transcripts warm without streaming them, and
       // still report their activity: that is what makes several sessions show
@@ -1175,9 +1204,6 @@ export class HostSessionController {
         // replace the placeholder "New session" in the navigator.
         void this.publishSessions();
         return;
-      case 'agent/interaction':
-        await this.handleInteraction(event.request);
-        return;
       case 'agent/fatal':
         this.agentReady = false;
         this.agentError = event.message;
@@ -1195,19 +1221,56 @@ export class HostSessionController {
     }
   }
 
-  private async handleInteraction(request: AgentInteractionRequest): Promise<void> {
+  private async handleInteraction(
+    sessionKey: string,
+    request: AgentInteractionRequest,
+  ): Promise<void> {
     const dialogs = this.options.dialogs;
     if (!dialogs) {
-      this.pendingInteractions.add(request.requestId);
-      this.options.emit({ type: 'interaction/request', payload: toInteractionRequest(request) });
+      this.pendingInteractions.set(request.requestId, { sessionKey, request });
+      this.syncInteraction();
+      this.publishActivity();
       return;
     }
+    // A host with native dialogs (VS Code QuickPick/InputBox) answers directly,
+    // and the answer goes back to the session that asked.
     const response = await this.askNatively(dialogs, request);
-    const gateway = this.options.services.registry.active();
-    if (!gateway) {
-      return;
+    await this.respondToInteraction(response, sessionKey);
+  }
+
+  /** The pending dialog the active session owns, if any. */
+  private pendingFor(sessionKey: string | undefined): AgentInteractionRequest | undefined {
+    if (sessionKey === undefined) {
+      return undefined;
     }
-    await this.guard(() => gateway.respondToInteraction(response));
+    for (const entry of this.pendingInteractions.values()) {
+      if (entry.sessionKey === sessionKey) {
+        return entry.request;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Points this client's single dialog slot at the active session. Switching
+   * tabs swaps the dialog with the tab: the one that was shown is dismissed and
+   * the new session's pending request (if it has one) is emitted, so a background
+   * conversation never answers a dialog that belongs to another session.
+   */
+  private syncInteraction(): void {
+    const next = this.pendingFor(this.activeKey);
+    const nextId = next?.requestId;
+    if (this.shownInteractionId !== undefined && this.shownInteractionId !== nextId) {
+      this.options.emit({
+        type: 'interaction/dismiss',
+        payload: { requestId: this.shownInteractionId },
+      });
+      this.shownInteractionId = undefined;
+    }
+    if (next && this.shownInteractionId !== nextId) {
+      this.options.emit({ type: 'interaction/request', payload: toInteractionRequest(next) });
+      this.shownInteractionId = nextId;
+    }
   }
 
   private async askNatively(
@@ -1353,12 +1416,14 @@ export class HostSessionController {
       .map((key) => {
         const state = this.options.services.registry.stateOf(key);
         const isActive = key === this.activeKey;
+        const needsInput = this.pendingFor(key) !== undefined;
         return {
           sessionKey: key,
           streaming: state?.streaming ?? false,
           busy: isActive ? this.busy : false,
           agentReady: isActive ? this.agentReady : state !== undefined,
           agentStarting: isActive ? this.agentStarting : false,
+          needsInput,
           ...(isActive && this.agentError !== undefined ? { agentError: this.agentError } : {}),
         };
       });
