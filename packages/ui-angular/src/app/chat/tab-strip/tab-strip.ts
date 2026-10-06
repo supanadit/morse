@@ -84,10 +84,20 @@ interface TabMenu {
         color: var(--morse-fg);
       }
       .tab.mention.active {
+        /* Expanded: an active chip is the document in front, so its full name
+           matters more than the row's tidiness — no max-width, no ellipsis. */
+        max-width: none;
         border-color: var(--morse-accent);
         background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
         color: var(--morse-fg);
-        box-shadow: none;
+        font-weight: 600;
+        /* Highlighted and focused: the accent ring says "this one", on top of the
+           tint and the underline the shared hover/active rules would give it. */
+        box-shadow: 0 0 0 1.5px var(--morse-accent);
+      }
+      .tab.mention.active .label {
+        overflow: visible;
+        text-overflow: clip;
       }
       .tab.mention .close {
         width: 15px;
@@ -150,6 +160,12 @@ interface TabMenu {
       .tab:hover {
         background: var(--morse-hover);
         color: var(--morse-fg);
+      }
+      /* A tab reached by keyboard, including a chip: same ring as the active chip,
+         so "focused" reads the same however it was arrived at. */
+      .tab:focus-visible {
+        outline: 2px solid var(--morse-accent);
+        outline-offset: -2px;
       }
       .tab.active {
         background: var(--morse-panel, var(--morse-badge-bg));

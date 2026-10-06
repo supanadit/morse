@@ -1,5 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
+import { PROTOCOL_VERSION, type ClientToHostMessage, type ProjectSummary } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from '../../core/transport.token';
 import { ShellState } from '../../core/shell-state';
@@ -18,6 +18,8 @@ class FolderHostTransport extends BaseHostTransport {
   readonly sent: ClientToHostMessage[] = [];
   /** Whether the last folder may host a session (`ProjectPolicy`). */
   canOpen = true;
+  /** Projects pi already knows; empty means the picker opens on the browser. */
+  projects: ProjectSummary[] = [];
 
   connect(): void {
     this.emitStatus('open');
@@ -52,6 +54,9 @@ class FolderHostTransport extends BaseHostTransport {
           },
         },
       });
+      if (this.projects.length > 0) {
+        this.emitMessage({ type: 'project/list', payload: { projects: this.projects } });
+      }
       return;
     }
     if (
@@ -88,13 +93,14 @@ class FolderHostTransport extends BaseHostTransport {
   }
 }
 
-async function render(): Promise<{
+async function render(projects: ProjectSummary[] = []): Promise<{
   host: HTMLElement;
   transport: FolderHostTransport;
   fixture: ComponentFixture<ProjectPicker>;
 }> {
   TestBed.resetTestingModule();
   const transport = new FolderHostTransport();
+  transport.projects = projects;
   await TestBed.configureTestingModule({
     imports: [ProjectPicker],
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
@@ -117,6 +123,17 @@ function rowNamed(host: HTMLElement, name: string): HTMLElement {
   const row = rows.find((candidate) => candidate.textContent?.trim().endsWith(name));
   if (!row) {
     throw new Error(`No folder row named ${name}`);
+  }
+  return row;
+}
+
+function projectRowNamed(host: HTMLElement, name: string): HTMLElement {
+  const rows = [...host.querySelectorAll<HTMLElement>('.project-row')];
+  const row = rows.find(
+    (candidate) => candidate.querySelector('.project-name')?.textContent?.trim() === name,
+  );
+  if (!row) {
+    throw new Error(`No project row named ${name}`);
   }
   return row;
 }
@@ -223,5 +240,81 @@ describe('ProjectPicker', () => {
 
     expect(host.querySelector('.selected')?.textContent).toContain('/home/me/projects');
     expect(host.querySelector('.selected')?.textContent).not.toContain('alpha');
+  });
+
+  describe('existing projects', () => {
+    const PROJECTS: ProjectSummary[] = [
+      { path: '/home/me/projects/alpha', name: 'alpha', sessionCount: 3, lastUsedAt: 1 },
+      { path: '/home/me/projects/beta', name: 'beta', sessionCount: 1, lastUsedAt: 2 },
+    ];
+
+    it('opens on the known projects and starts a session in the one picked', async () => {
+      const { host, transport } = await render(PROJECTS);
+
+      // The first question is "which project?" — not "which folder?".
+      expect(host.querySelectorAll('.project-row')).toHaveLength(2);
+      expect(host.querySelector('.path-row')).toBeNull();
+
+      projectRowNamed(host, 'beta').click();
+
+      const created = transport.sent.filter((message) => message.type === 'session/new');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.payload).toEqual({ cwd: '/home/me/projects/beta' });
+    });
+
+    it('narrows the project list as the reader types', async () => {
+      const { host, fixture } = await render(PROJECTS);
+      const input = host.querySelector('.search input') as HTMLInputElement;
+
+      input.value = 'beta';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+
+      expect(host.querySelectorAll('.project-row')).toHaveLength(1);
+      expect(host.querySelector('.project-row .project-name')?.textContent).toContain('beta');
+    });
+
+    it('browses to a folder pi has not seen before', async () => {
+      const { host, transport, fixture } = await render(PROJECTS);
+
+      (host.querySelector('.modal-foot .primary') as HTMLElement).click();
+      fixture.detectChanges();
+      await settle(fixture);
+
+      // It swapped to the folder browser, starting at the host's default.
+      expect(host.querySelector('.path-row')).toBeTruthy();
+      expect(host.querySelector('.selected')?.textContent).toContain('/home/me');
+
+      rowNamed(host, 'projects').click();
+      await settle(fixture);
+      const chosen = '/home/me/projects';
+      expect(host.querySelector('.selected')?.textContent).toContain(chosen);
+
+      (host.querySelector('.modal-foot .primary') as HTMLElement).click();
+      const created = transport.sent.filter((message) => message.type === 'session/new');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.payload).toEqual({ cwd: chosen });
+    });
+
+    it('Escape steps back from the browser to the project list', async () => {
+      const { host, fixture } = await render(PROJECTS);
+
+      (host.querySelector('.modal-foot .primary') as HTMLElement).click();
+      fixture.detectChanges();
+      await settle(fixture);
+      expect(host.querySelector('.path-row')).toBeTruthy();
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+
+      expect(host.querySelectorAll('.project-row')).toHaveLength(2);
+    });
+
+    it('opens on the browser when pi knows no projects', async () => {
+      const { host } = await render();
+
+      expect(host.querySelector('.path-row')).toBeTruthy();
+      expect(host.querySelector('.project-row')).toBeNull();
+    });
   });
 });

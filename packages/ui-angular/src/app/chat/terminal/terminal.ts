@@ -4,6 +4,7 @@ import {
   DestroyRef,
   ElementRef,
   afterNextRender,
+  effect,
   inject,
   input,
   output,
@@ -84,6 +85,12 @@ export class Terminal {
   private fit: FitAddon | undefined;
   private observer: ResizeObserver | undefined;
   private destroyed = false;
+  /**
+   * The host epoch this pane last attached to. `-1` until the emulator is ready;
+   * a later value than the current epoch means the host was replaced and the
+   * shell has to be attached again (see `attachToHost`).
+   */
+  private openedEpoch = -1;
 
   protected readonly ended = signal<{ code?: number; error?: string } | undefined>(undefined);
 
@@ -105,6 +112,14 @@ export class Terminal {
       this.observer?.disconnect();
       this.term?.dispose();
       this.morse.closeTerminal(this.id());
+    });
+    // A restart or a reconnect hands the pane a *new* host that has never seen
+    // this terminal, so keystrokes would go nowhere until it is attached again.
+    // The epoch is read even before the emulator exists, so this effect keeps
+    // watching it and `start()` attaches once the lazy import resolves.
+    effect(() => {
+      this.morse.hostEpoch();
+      this.attachToHost();
     });
     // The screen element exists only after the first render.
     afterNextRender(() => {
@@ -150,13 +165,37 @@ export class Terminal {
     // OSC 0/2: the shell names the tab (its cwd, or the command it is running).
     term.onTitleChange((title) => this.titleChange.emit(title));
     this.fitNow();
-    this.morse.openTerminal(this.id(), { cwd: this.cwd(), cols: term.cols, rows: term.rows });
+    this.attachToHost();
     term.focus();
 
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(() => this.fitNow());
       this.observer.observe(host);
     }
+  }
+
+  /**
+   * Attaches the emulator to a shell on the current host. Called once when the
+   * emulator is ready, and again whenever the host epoch moves. A re-attach
+   * clears the emulator first: the host replays its whole scrollback, and
+   * painting that over what is already on screen would double it.
+   */
+  private attachToHost(): void {
+    const term = this.term;
+    if (term === undefined) {
+      return;
+    }
+    const epoch = this.morse.hostEpoch();
+    if (epoch === this.openedEpoch) {
+      return;
+    }
+    const reattach = this.openedEpoch >= 0;
+    this.openedEpoch = epoch;
+    if (reattach) {
+      term.reset();
+      this.ended.set(undefined);
+    }
+    this.morse.openTerminal(this.id(), { cwd: this.cwd(), cols: term.cols, rows: term.rows });
   }
 
   private async enableWebgl(term: XTermInstance): Promise<void> {

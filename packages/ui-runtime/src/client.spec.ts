@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createInitialView, reduceSessionView } from '@morse/protocol';
-import type { ClientToHostMessage, ComposerSeed, HostToClientMessage } from '@morse/protocol';
+import { createInitialView, reduceConnection, reduceSessionView, PROTOCOL_VERSION } from '@morse/protocol';
+import type {
+  ClientToHostMessage,
+  ComposerSeed,
+  HostCapabilities,
+  HostToClientMessage,
+  SessionView,
+} from '@morse/protocol';
 import { createMorseClient } from './client.js';
 import type { HostTransport, TransportStatus } from './transport/host-transport.js';
 import { MemoryHostTransport } from './transport/memory-transport.js';
@@ -204,6 +210,29 @@ function stubTransport(): HostTransport & { emit(message: HostToClientMessage): 
 }
 
 describe('reduceSessionView', () => {
+  it('keeps the host epoch steady and advances it only on a reconnect', () => {
+    const ready = (view: SessionView): SessionView =>
+      reduceSessionView(view, {
+        type: 'host/ready',
+        payload: {
+          protocolVersion: PROTOCOL_VERSION,
+          capabilities: {} as HostCapabilities,
+          state: view.state,
+        },
+      });
+
+    // The first ready is the initial handshake, not a reconnect.
+    const first = ready(createInitialView());
+    expect(first.hostEpoch).toBe(0);
+    // A manual re-handshake on a live socket is not a new host either, so a
+    // terminal watching this must not re-attach (and kill its shell) for nothing.
+    expect(ready(first).hostEpoch).toBe(0);
+
+    // A ready that follows a dropped connection *is* a new host.
+    const dropped = reduceConnection(first, 'closed', 'Connection lost');
+    expect(ready(dropped).hostEpoch).toBe(1);
+  });
+
   it('appends text and thinking deltas to the same item', () => {
     const view = createInitialView();
     const withItem = reduceSessionView(view, {

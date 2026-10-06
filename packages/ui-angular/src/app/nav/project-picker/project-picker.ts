@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -37,13 +38,19 @@ export interface DirectoryListing {
 }
 
 /**
- * The browser host's "New session" folder browser.
+ * The browser host's "New session" picker.
  *
  * VS Code has a workspace folder, so its New session already knows where the
  * agent runs. The browser host has none: it serves a machine, and the user has
- * to say which project the session belongs to. This is that question, rendered
- * as an overlay (capabilities.directoryPicker). Browsing is read-only; the host
- * still applies `ProjectPolicy` when the session is actually opened.
+ * to say which project the session belongs to.
+ *
+ * The question is answered in two steps. The common case is an existing project —
+ * the same ones the sidebar groups sessions by — so that is the first screen, and
+ * picking one starts the session at once. The folder browser (the folder the host
+ * offers, its subfolders, and `ProjectPolicy`'s `canOpen`) is the second step, for
+ * a project pi has never seen. A host with no known projects skips straight to it.
+ * Browsing is read-only; the host still applies `ProjectPolicy` when the session
+ * is actually opened.
  */
 @Component({
   selector: 'morse-project-picker',
@@ -98,6 +105,20 @@ export interface DirectoryListing {
       .modal-head .close:hover {
         color: var(--morse-fg);
       }
+      .modal-head .back {
+        padding: 2px 8px 3px;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .modal-head .back:hover {
+        background: var(--morse-hover);
+        color: var(--morse-fg);
+      }
       .modal-sub {
         margin: 0;
         padding: 8px 14px 0;
@@ -149,6 +170,59 @@ export interface DirectoryListing {
         overflow-y: auto;
         border-top: 1px solid var(--morse-border);
         padding: 4px 6px;
+      }
+      .search {
+        padding: 0 14px 10px;
+      }
+      .search input {
+        width: 100%;
+        font-size: 12.5px;
+      }
+      /*
+       * An existing project row. Name first (that is what the sidebar calls it),
+       * path as context, count trailing — same reading order as the filter panel,
+       * so the two lists of projects do not disagree about what a project is.
+       */
+      .project-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 8px;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg);
+        text-align: left;
+        cursor: pointer;
+      }
+      .project-row:hover,
+      .project-row:focus-visible {
+        background: var(--morse-hover);
+      }
+      .project-name {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      .project-path {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+      }
+      .project-count {
+        flex: none;
+        color: var(--morse-fg-muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
       }
       .row {
         display: flex;
@@ -219,6 +293,13 @@ export interface DirectoryListing {
         color: var(--morse-warn, var(--morse-error));
         font-style: normal;
       }
+      /* The projects screen's footer line: a sentence, so no RTL path treatment. */
+      .foot-note {
+        flex: 1;
+        min-width: 0;
+        color: var(--morse-fg-muted);
+        font-size: 11.5px;
+      }
       .actions {
         display: flex;
         flex: none;
@@ -243,6 +324,28 @@ export class ProjectPicker {
   protected readonly roots = signal<DirectoryEntry[]>([]);
   protected readonly isGitRepo = signal(false);
   protected readonly canOpen = signal(false);
+
+  /**
+   * Which half of the dialog is showing. `projects` answers the common case —
+   * "a session in one of the projects I already have" — without making the user
+   * navigate the filesystem to find it; `browse` is the folder browser for a
+   * project pi has never seen. A host with no known projects has nothing to list,
+   * so it opens straight into `browse`.
+   */
+  protected readonly mode = signal<'projects' | 'browse'>('projects');
+  protected readonly projectQuery = signal('');
+  /** Every project pi knows, the same list the sidebar groups sessions by. */
+  protected readonly projects = this.morse.projects;
+  protected readonly matchedProjects = computed(() => {
+    const needle = this.projectQuery().trim().toLowerCase();
+    if (needle.length === 0) {
+      return this.projects();
+    }
+    return this.projects().filter((project) =>
+      `${project.name} ${project.path}`.toLowerCase().includes(needle),
+    );
+  });
+  protected readonly hasProjects = computed(() => this.projects().length > 0);
 
   /**
    * Navigation (a click, a parent, a root chip) is answered at once; typing is
@@ -283,7 +386,11 @@ export class ProjectPicker {
       )
       .subscribe(({ request, listing }) => this.apply(listing, request.live));
 
-    this.load();
+    // Nothing to pick from means the folder browser is the only useful screen.
+    if (!this.hasProjects()) {
+      this.mode.set('browse');
+      this.load();
+    }
   }
 
   /** `path` undefined means "whatever the host considers the starting folder". */
@@ -307,10 +414,38 @@ export class ProjectPicker {
     this.shell.closeProjectPicker();
   }
 
+  /** An existing project: a session there needs no filesystem detour. */
+  protected chooseProject(path: string): void {
+    this.confirmPath(path);
+  }
+
+  /** "Choose a folder…": the other half of the question, for a new project. */
+  protected browseForFolder(): void {
+    this.mode.set('browse');
+    if (this.path().length === 0) {
+      this.load();
+    }
+  }
+
+  protected backToProjects(): void {
+    this.mode.set('projects');
+    this.projectQuery.set('');
+  }
+
+  protected onProjectQuery(event: Event): void {
+    this.projectQuery.set((event.target as HTMLInputElement).value);
+  }
+
   /** Creates the session as a draft in the chosen folder. */
   protected confirm(): void {
-    const path = this.path();
-    if (path.length === 0 || !this.canOpen()) {
+    if (this.path().length === 0 || !this.canOpen()) {
+      return;
+    }
+    this.confirmPath(this.path());
+  }
+
+  private confirmPath(path: string): void {
+    if (path.length === 0) {
       return;
     }
     this.tabs.startDraft(path);
@@ -320,6 +455,12 @@ export class ProjectPicker {
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
+    // Escape steps back through the dialog before it closes it: a reader who
+    // opened the browser to look around should not lose the project list.
+    if (this.mode() === 'browse' && this.hasProjects()) {
+      this.backToProjects();
+      return;
+    }
     this.close();
   }
 

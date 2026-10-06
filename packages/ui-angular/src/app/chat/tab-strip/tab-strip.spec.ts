@@ -102,6 +102,27 @@ describe('TabStrip context menu', () => {
     expect(s1?.classList.contains('parent')).toBe(false);
   });
 
+  it('marks the file chip in front as the active, focused one', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('packages/ui-angular/src/app/nav/project-picker/project-picker.spec.ts');
+    fixture.detectChanges();
+
+    // The chip row's active class is what the stylesheet expands, highlights and
+    // rings, so it has to be on exactly the chip in front — full name, not the
+    // truncated one a chip gets when it is only context.
+    const chips = [
+      ...fixture.nativeElement.querySelectorAll('.strip + .strip .tab.mention'),
+    ] as HTMLElement[];
+    expect(chips).toHaveLength(1);
+    expect(chips[0].classList.contains('active')).toBe(true);
+    expect(chips[0].getAttribute('aria-selected')).toBe('true');
+    expect(chips[0].querySelector('.label')?.textContent?.trim()).toBe('project-picker.spec.ts');
+    expect(chips[0].getAttribute('title')).toBe(
+      'packages/ui-angular/src/app/nav/project-picker/project-picker.spec.ts',
+    );
+  });
+
   it('marks a running session tab, even when another tab is in front', () => {
     const { fixture, tabs, morse } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });

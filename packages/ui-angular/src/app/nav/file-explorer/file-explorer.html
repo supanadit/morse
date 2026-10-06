@@ -25,7 +25,7 @@
 </div>
 
 @if (!collapsed()) {
-  <div class="rows">
+  <div class="rows" #rowsBox>
     @if (isLoading() && rows().length === 0) {
       <p class="hint">Loading files…</p>
     } @else if (errorMessage(); as message) {
@@ -38,6 +38,8 @@
           type="button"
           class="row"
           [class.dir]="row.node.kind === 'dir'"
+          [class.active]="selected() === row.node.path"
+          [attr.aria-current]="selected() === row.node.path ? 'true' : null"
           [style.paddingLeft.px]="6 + row.depth * 12"
           [title]="row.node.path"
           (click)="onRow(row.node)"

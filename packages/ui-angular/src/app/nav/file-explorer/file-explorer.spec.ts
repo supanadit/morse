@@ -20,7 +20,7 @@ function setup(files: string[], status?: unknown) {
       Promise.resolve(command === 'gitStatus' ? status : { files }),
     ),
   };
-  const tabs = { openFile: vi.fn() };
+  const tabs = { openFile: vi.fn(), activeTab: signal<{ kind: 'file'; id: string; path: string; title: string } | undefined>(undefined) };
   TestBed.configureTestingModule({
     imports: [FileExplorer],
     providers: [
@@ -114,6 +114,69 @@ describe('FileExplorer', () => {
     expect(rows(fixture)).toEqual(['src', 'package.json', 'README.md']);
     expect(badges(fixture)).toEqual(['U', 'M']);
     expect(fixture.nativeElement.querySelector('.row.dir .dot')).not.toBeNull();
+  });
+
+  it('reveals the file in front, and follows the active chip', async () => {
+    const { fixture, tabs } = setup([
+      'src/app/main.ts',
+      'src/app/other.ts',
+      'README.md',
+    ]);
+    await flush();
+    fixture.detectChanges();
+
+    // Nothing is in front yet, so the tree stays folded.
+    expect(rows(fixture)).toEqual(['src', 'README.md']);
+
+    tabs.activeTab.set({
+      kind: 'file',
+      id: 'file:src/app/main.ts',
+      path: 'src/app/main.ts',
+      title: 'main.ts',
+    });
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    // Every folder on the way to the file is open, and its row is marked.
+    expect(rows(fixture)).toEqual(['src', 'app', 'main.ts', 'other.ts', 'README.md']);
+    expect(fixture.nativeElement.querySelector('.row.active')?.textContent).toContain('main.ts');
+    expect(
+      fixture.nativeElement.querySelector('.row.active')?.getAttribute('aria-current'),
+    ).toBe('true');
+
+    // Switching chips moves the Explorer's focus too, not only the preview.
+    tabs.activeTab.set({
+      kind: 'file',
+      id: 'file:README.md',
+      path: 'README.md',
+      title: 'README.md',
+    });
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.row.active')?.textContent).toContain('README.md');
+  });
+
+  it('does not reveal a file the active project does not list', async () => {
+    const { fixture, tabs } = setup(['src/main.ts']);
+    await flush();
+    fixture.detectChanges();
+
+    // A chip from another project: expanding this tree for it would be wrong.
+    tabs.activeTab.set({
+      kind: 'file',
+      id: 'file:../other/secret.ts',
+      path: '../other/secret.ts',
+      title: 'secret.ts',
+    });
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    expect(rows(fixture)).toEqual(['src']);
+    expect(fixture.nativeElement.querySelector('.row.active')).toBeNull();
   });
 
   it('offers a resize handle only while the pane is open', async () => {

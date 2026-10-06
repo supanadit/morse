@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.15.0 — 6 October 2026
+
+A new session starts from a project you already have, the Explorer follows the file you open, and a terminal
+survives a host restart.
+
+### New
+
+- **New session: pick the project first.** In the browser host, **New session** now lists the projects pi already
+  knows — the same ones the sidebar groups sessions by — so a session starts in one of them without navigating the
+  filesystem. **Choose a folder…** opens the folder browser for a project pi has never seen, and Escape steps back to
+  the list.
+- **The Explorer follows the file you open.** A file opened from the Explorer, the git panel or a `@` mention expands
+  the folders down to it, highlights its row and scrolls it into view. Switching chips moves the Explorer's focus
+  with it.
+
+### Improved
+
+- **The file chip in front reads at a glance.** The active chip below the tabs expands to its full filename and
+  carries the accent tint plus a focus ring, instead of truncating at a fixed width.
+
+### Fixed
+
+- **A terminal keeps working after the host restarts.** After `morse stop` and `morse start`, the pane re-attaches to
+  the new host when the connection returns; before, it kept showing the old screen while every keystroke was dropped
+  by the fresh host, which had never seen the terminal.
+
 ## 0.14.1 — 5 October 2026
 
 A model change and its thinking levels now arrive together, so the thinking picker never shows the previous

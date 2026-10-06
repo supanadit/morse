@@ -7,6 +7,7 @@ import {
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { buildFileTree, fileGlyph, type FileNode } from '../../core/file-tree';
 import { statusByPath, type ChangeKind } from '../../core/git-status';
@@ -169,6 +170,17 @@ interface ExplorerRow {
       .row.dir .name {
         font-weight: 600;
       }
+      /*
+       * The file in front. Same mark as the sidebar's active session, so "this is
+       * the one" reads the same everywhere: a tinted row with a left rule.
+       */
+      .row.active {
+        background: var(--morse-active, var(--morse-hover));
+        box-shadow: inset 2px 0 0 var(--morse-accent);
+      }
+      .row.active .name {
+        font-weight: 600;
+      }
       /* The git badge: one letter, coloured by the kind of change, VS Code's way. */
       .badge {
         flex: none;
@@ -218,12 +230,24 @@ export class FileExplorer {
   private readonly shell = inject(ShellState);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly rowsEl = viewChild<ElementRef<HTMLElement>>('rowsBox');
 
   /** The persisted pane height, `undefined` while the CSS default applies. */
   protected readonly height = this.shell.explorerHeight;
 
   private readonly expanded = signal<ReadonlySet<string>>(new Set());
   private readonly folded = signal(false);
+  /** The file in front, when the active tab is a file: the row the tree follows. */
+  private readonly activePath = computed(() => {
+    const tab = this.tabs.activeTab();
+    return tab?.kind === 'file' ? tab.path : undefined;
+  });
+  /**
+   * The row the tree highlights. It follows the active file chip — from the
+   * Explorer, the git panel or the `@` picker — so switching chips moves the
+   * Explorer's focus too, not just the preview.
+   */
+  protected readonly selected = signal<string | undefined>(undefined);
   /** The project the expanded set belongs to, so switching projects folds it. */
   private expandedFor = '';
 
@@ -259,6 +283,68 @@ export class FileExplorer {
         }
       });
     });
+
+    // Follow the file in front: open its folders and mark its row. Reading the
+    // file list as well means a file opened before the tree loaded still gets
+    // revealed when the list arrives.
+    effect(() => {
+      const path = this.activePath();
+      const files = this.workspace.files();
+      untracked(() => this.revealActive(path, files));
+    });
+
+    // Bring the marked row into view once it has rendered: the reveal above
+    // expands folders, which changes `rows`, so this runs after the tree grew.
+    effect(() => {
+      this.rows();
+      this.selected();
+      this.collapsed();
+      setTimeout(() => this.revealSelected(), 0);
+    });
+  }
+
+  /**
+   * Opens every folder on the way to `path` and marks its row. A path the active
+   * project does not list is ignored, so a file chip belonging to another
+   * project does not expand a tree that cannot contain it.
+   */
+  private revealActive(path: string | undefined, files: readonly string[]): void {
+    if (path === undefined || !files.includes(path)) {
+      this.selected.set(undefined);
+      return;
+    }
+    this.selected.set(path);
+    const ancestors = ancestorsOf(path);
+    if (ancestors.length === 0) {
+      return;
+    }
+    this.expanded.update((set) => {
+      const next = new Set(set);
+      let changed = false;
+      for (const dir of ancestors) {
+        if (!next.has(dir)) {
+          next.add(dir);
+          changed = true;
+        }
+      }
+      return changed ? next : set;
+    });
+  }
+
+  /** Scrolls the highlighted row into the pane's viewport, VS Code's behaviour. */
+  private revealSelected(): void {
+    const container = this.rowsEl()?.nativeElement;
+    const row = container?.querySelector<HTMLElement>('.row.active');
+    if (container === undefined || row === null || row === undefined) {
+      return;
+    }
+    const view = container.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    if (rect.top < view.top) {
+      container.scrollTop -= view.top - rect.top;
+    } else if (rect.bottom > view.bottom) {
+      container.scrollTop += rect.bottom - view.bottom;
+    }
   }
 
   protected glyph(node: FileNode): string {
@@ -368,4 +454,14 @@ function countFiles(nodes: readonly FileNode[]): number {
     count += node.kind === 'file' ? 1 : countFiles(node.children);
   }
   return count;
+}
+
+/** Every directory above `path`, outermost first (`a/b/c.ts` -> `a`, `a/b`). */
+function ancestorsOf(path: string): string[] {
+  const parts = path.split('/');
+  const ancestors: string[] = [];
+  for (let depth = 1; depth < parts.length; depth += 1) {
+    ancestors.push(parts.slice(0, depth).join('/'));
+  }
+  return ancestors;
 }

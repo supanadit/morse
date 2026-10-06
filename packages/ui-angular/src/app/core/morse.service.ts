@@ -22,7 +22,7 @@ import { MORSE_TRANSPORT } from './transport.token';
  * manifest to read at runtime, and `core/frontend-identity.spec.ts` fails when it
  * drifts from `package.json`.
  */
-export const FRONTEND_IDENTITY = { name: '@morse/ui-angular', version: '0.14.1' };
+export const FRONTEND_IDENTITY = { name: '@morse/ui-angular', version: '0.15.0' };
 const SLOW_CONNECTION_MS = 6_000;
 
 /**
@@ -62,6 +62,11 @@ export class MorseService {
   readonly state = computed(() => this.view().state);
   readonly items = computed(() => this.view().items);
   readonly projects = computed(() => this.view().projects);
+  /**
+   * Which host instance this view is talking to. A restart or a reconnect bumps
+   * it, which is how the terminal knows to re-attach to the new host's PTYs.
+   */
+  readonly hostEpoch = computed(() => this.view().hostEpoch);
   readonly sessions = computed(() => this.view().sessions);
   /** Every live agent session (not only the selected one). */
   readonly activity = computed(() => this.view().activity);

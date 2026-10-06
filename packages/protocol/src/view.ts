@@ -23,6 +23,13 @@ export interface SessionView {
   protocolVersion: number;
   connection: ConnectionStatus;
   connectionDetail?: string;
+  /**
+   * Bumped every time the client reaches a *new* host instance (`host/ready`
+   * after a drop). A fresh page starts at 0; a reconnection moves it. Stateful
+   * frontends that hold resources the *host* owns — the terminal's PTYs — watch
+   * this to re-attach, because the new host has never seen them.
+   */
+  hostEpoch: number;
   frontend?: FrontendIdentity;
   capabilities: HostCapabilities | null;
   state: SessionViewState;
@@ -43,6 +50,7 @@ export function createInitialView(
   return {
     protocolVersion: PROTOCOL_VERSION,
     connection: 'connecting',
+    hostEpoch: 0,
     capabilities: null,
     state: {
       workspace,
@@ -74,15 +82,22 @@ export function reduceConnection(
 /** Pure reducer: no clocks, no I/O — every timestamp comes from the host message. */
 export function reduceSessionView(view: SessionView, message: HostToClientMessage): SessionView {
   switch (message.type) {
-    case 'host/ready':
+    case 'host/ready': {
+      // The first ready is the initial handshake; a later one, on a connection
+      // that had dropped, is a *new* host (or a restarted one). Only the latter
+      // advances the epoch, so a manual re-handshake on a live socket does not
+      // make a terminal re-attach (and kill its shell) for nothing.
+      const reconnected = view.capabilities !== null && view.connection !== 'ready';
       return {
         ...view,
         connection: 'ready',
+        hostEpoch: reconnected ? view.hostEpoch + 1 : view.hostEpoch,
         protocolVersion: message.payload.protocolVersion,
         capabilities: message.payload.capabilities,
         state: message.payload.state,
         frontend: message.payload.frontend ?? view.frontend,
       };
+    }
     case 'session/state':
       return { ...view, state: message.payload };
     case 'transcript/append':

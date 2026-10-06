@@ -60,6 +60,7 @@ function morseStub() {
     sendTerminal: vi.fn(),
     closeTerminal: vi.fn(),
     resizeTerminal: vi.fn(),
+    hostEpoch: signal(0),
     onTerminalOutput: () => () => undefined,
     onTerminalExit: () => () => undefined,
   };

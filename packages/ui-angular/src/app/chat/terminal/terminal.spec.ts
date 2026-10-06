@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +16,7 @@ const xterm = vi.hoisted(() => {
     cols: number;
     rows: number;
     writes: string[];
+    resets: number;
     dataHandler?: DataHandler;
     resizeHandler?: ResizeHandler;
     titleHandler?: TitleHandler;
@@ -23,6 +25,7 @@ const xterm = vi.hoisted(() => {
     cols = 100;
     rows = 30;
     writes: string[] = [];
+    resets = 0;
     dataHandler: DataHandler | undefined;
     resizeHandler: ResizeHandler | undefined;
     titleHandler: TitleHandler | undefined;
@@ -46,7 +49,9 @@ const xterm = vi.hoisted(() => {
     write(data: string): void {
       this.writes.push(data);
     }
-    reset(): void {}
+    reset(): void {
+      this.resets += 1;
+    }
     focus(): void {}
     dispose(): void {}
   }
@@ -80,6 +85,7 @@ function setup() {
     sendTerminal: vi.fn(),
     resizeTerminal: vi.fn(),
     closeTerminal: vi.fn(),
+    hostEpoch: signal(0),
     onTerminalOutput: (listener: (event: { terminalId: string; data: string }) => void) => {
       outputListeners.add(listener);
       return () => outputListeners.delete(listener);
@@ -141,6 +147,25 @@ describe('Terminal', () => {
     emitOutput({ terminalId: id, data: '\u001b[32mgreen\u001b[0m\r\n' });
 
     expect(xterm.instances.at(-1)?.writes).toContain('\u001b[32mgreen\u001b[0m\r\n');
+  });
+
+  it('re-attaches to a new host after a reconnect', async () => {
+    const { fixture, morse } = setup();
+    await fixture.whenStable();
+    await tick();
+    expect(morse.openTerminal).toHaveBeenCalledTimes(1);
+    const term = xterm.instances.at(-1)!;
+
+    // The host was replaced (a restart or a reconnect): the same socket is gone,
+    // so the pane must clear the stale buffer and attach to the new host, or the
+    // shell there never hears a keystroke.
+    morse.hostEpoch.set(1);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await tick();
+
+    expect(term.resets).toBe(1);
+    expect(morse.openTerminal).toHaveBeenCalledTimes(2);
   });
 
   it('forwards raw keystrokes and resizes to the host', async () => {
