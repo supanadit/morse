@@ -172,8 +172,9 @@
   }
 </div>
 
-<!-- The browser host's file tree; VS Code has its own Explorer and skips this. -->
-@if (filePreview()) {
+<!-- The browser host's file tree; VS Code has its own Explorer and skips this.
+     With no tab in front there is no project to browse, so it stays out. -->
+@if (filePreview() && !noSessionInFront()) {
   <morse-file-explorer />
 }
 

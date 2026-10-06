@@ -484,6 +484,11 @@ export class SessionNav {
   protected readonly filePreview = computed(
     () => this.morse.capabilities()?.filePreview === true,
   );
+  /**
+   * No tab is in front, so there is no project to browse: the Explorer stays out
+   * of the sidebar instead of showing the last project's tree.
+   */
+  protected readonly noSessionInFront = this.tabs.noSessionInFront;
   /** The browser host opens a folder modal for "New session" (see ProjectPicker). */
   private readonly directoryPicker = computed(
     () => this.morse.capabilities()?.directoryPicker === true,

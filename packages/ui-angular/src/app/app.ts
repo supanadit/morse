@@ -122,7 +122,7 @@ export class App {
    * panel has the terminal), so this is only ever mounted by the server host.
    */
   protected readonly bottomPanelEnabled = computed(
-    () => this.morse.capabilities()?.terminal === true,
+    () => this.morse.capabilities()?.terminal === true && !this.tabs.noSessionInFront(),
   );
   /**
    * Full-screen bottom panel: the panel takes the whole chat column and the
@@ -137,7 +137,9 @@ export class App {
    */
   protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
   /** The panel is a layout column, so it is only mounted (and refreshed) when shown. */
-  protected readonly gitOpen = computed(() => this.gitEnabled() && this.shell.gitPanelOpen());
+  protected readonly gitOpen = computed(
+    () => this.gitEnabled() && this.shell.gitPanelOpen() && !this.tabs.noSessionInFront(),
+  );
   /** Expanded: the git view spans the conversation area instead of the sidebar. */
   protected readonly gitExpanded = computed(
     () => this.gitOpen() && this.shell.gitPanelExpanded(),

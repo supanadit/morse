@@ -359,7 +359,9 @@ export class CommandPalette {
   });
 
   private readonly fileEntries = computed<PaletteEntry[]>(() => {
-    if (!this.workspace.available()) {
+    // With no session in front there is no project whose files these are, and
+    // the cached tree belongs to the last one — offer nothing rather than that.
+    if (!this.workspace.available() || this.tabs.noSessionInFront()) {
       return [];
     }
     return this.workspace
