@@ -26,6 +26,7 @@ function render(saved?: unknown, noSession = false): HTMLElement {
     }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
+    onMcpChanged: () => () => undefined,
   };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({

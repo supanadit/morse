@@ -123,6 +123,13 @@ export type HostToClientMessage =
   /** A page of older history, inserted in front of what the client already has. */
   | { type: 'transcript/prepend'; payload: { items: TranscriptItem[] } }
   | { type: 'session/list'; payload: { sessions: SessionSummary[] } }
+  /**
+   * A watched `mcp.json` changed on disk, so the reader's MCP indicator and
+   * panel should re-read that directory. `cwd` is `''` for the user-level file,
+   * which every project inherits. Pushed because pi's own status is too
+   * expensive to poll: the host watches file signatures instead.
+   */
+  | { type: 'mcp/changed'; payload: { cwd: string } }
   | { type: 'interaction/request'; payload: InteractionRequest }
   | { type: 'interaction/dismiss'; payload: { requestId: string } }
   | { type: 'notice'; payload: { level: NoticeLevel; text: string; at: number } }
@@ -257,6 +264,7 @@ export const HOST_MESSAGE_TYPES = [
   'transcript/replace',
   'transcript/prepend',
   'session/list',
+  'mcp/changed',
   'interaction/request',
   'interaction/dismiss',
   'notice',

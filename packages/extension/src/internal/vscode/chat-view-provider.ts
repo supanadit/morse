@@ -6,7 +6,7 @@ import {
   type EditorContextProvider,
   type MorseLogger,
 } from '@morse/core';
-import { parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/adapter-pi-rpc';
+import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostSessionServices,
@@ -106,8 +106,28 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   private mcpPanel: vscode.WebviewPanel | undefined;
   /** The one prompt-template editor panel; `/prompts` reveals it. */
   private promptPanel: vscode.WebviewPanel | undefined;
+  /** The window's one MCP config watcher; shared by every panel that shows it. */
+  private mcpWatcher: McpWatcher | undefined;
 
   constructor(private readonly deps: ChatViewProviderDeps) {}
+
+  /**
+   * One watcher per window, created on first use. Every panel that subscribes
+   * shares it, and it polls nothing once the last one is disposed.
+   */
+  private mcpWatch(): McpWatcher {
+    this.mcpWatcher ??= new McpWatcher({
+      signature: (cwd) => this.deps.mcp.configSignature(cwd),
+      // The global file always; a project file only while one of its sessions is
+      // warm — exactly when the indicator can show it.
+      cwds: () =>
+        this.deps.registry
+          .hotKeys()
+          .map((key) => this.deps.registry.stateOf(key)?.workspace.cwd ?? '')
+          .filter((cwd) => cwd.length > 0),
+    });
+    return this.mcpWatcher;
+  }
 
   async resolveWebviewView(view: vscode.WebviewView): Promise<void> {
     this.view = view;
@@ -136,6 +156,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
+      mcpWatch: this.mcpWatch(),
     };
 
     const controller = new HostSessionController({
@@ -298,6 +319,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
+      mcpWatch: this.mcpWatch(),
     };
     const controller = new HostSessionController({
       services,

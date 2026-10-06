@@ -322,4 +322,12 @@ export class MorseService {
   ): () => void {
     return this.client.onTerminalExit(listener);
   }
+
+  /**
+   * A watched `mcp.json` changed on disk (`cwd` is `''` for the user-level
+   * file). The MCP store re-reads instead of waiting out its cache.
+   */
+  onMcpChanged(listener: (event: { cwd: string }) => void): () => void {
+    return this.client.onMcpChanged(listener);
+  }
 }

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/core';
 import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
-import { parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/adapter-pi-rpc';
+import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
   type HostCommandContext,
@@ -51,6 +51,8 @@ import { ServerTerminalBackend } from '../terminal/terminal.service.js';
  */
 @Injectable()
 export class MorseSessionFactory {
+  private readonly mcpWatch: McpWatcher;
+
   constructor(
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
     @Inject(MORSE_TRANSCRIPT_STORE) private readonly transcripts: SessionTranscriptStore,
@@ -59,7 +61,21 @@ export class MorseSessionFactory {
     @Inject(MORSE_CONFIG) private readonly config: MorseServerConfig,
     @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
     @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
-  ) {}
+  ) {
+    // One watcher for the whole host: every connected client subscribes, so a
+    // config edited in a terminal (or by another window) reaches all of them.
+    // It polls nothing until a controller is subscribed.
+    this.mcpWatch = new McpWatcher({
+      signature: (cwd) => this.pi.mcp.configSignature(cwd),
+      // The global file always; a project file only while one of its sessions is
+      // warm — exactly when the indicator can show it.
+      cwds: () =>
+        this.registry
+          .hotKeys()
+          .map((key) => this.registry.stateOf(key)?.workspace.cwd ?? '')
+          .filter((cwd) => cwd.length > 0),
+    });
+  }
 
   capabilities(): HostCapabilities {
     return {
@@ -121,6 +137,7 @@ export class MorseSessionFactory {
     const services: HostSessionServices = {
       registry: this.registry,
       chat: new ChatService({ agent: this.registry, logger: this.logger }),
+      mcpWatch: this.mcpWatch,
     };
 
     return new HostSessionController({

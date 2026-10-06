@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -340,6 +341,23 @@ export class PiMcp {
       return { ok: false, message: describe(error) };
     }
     return { ok: true, path, scope };
+  }
+
+  /**
+   * A fingerprint of the `mcp.json` files that decide this directory's servers:
+   * the project file when there is one, then the user-wide one. Cheap enough to
+   * poll (two `stat`s), and it moves whenever a server is added, removed,
+   * toggled or hand-edited — which is what an external watcher needs.
+   */
+  async configSignature(cwd?: string): Promise<string> {
+    const paths = this.configPaths(cwd);
+    const parts = await Promise.all(
+      paths.map(async (path) => {
+        const info = await stat(path).catch(() => undefined);
+        return info ? `${info.size}:${info.mtimeMs}` : '-';
+      }),
+    );
+    return parts.join('|');
   }
 
   /** The project's file first, then the user's — so a project definition wins. */

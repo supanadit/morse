@@ -45,6 +45,18 @@ import {
 export interface HostSessionServices {
   registry: SessionRegistry;
   chat: ChatService;
+  /**
+   * A host-side watch over the `mcp.json` files pi reads. When one moves, this
+   * client is told (`mcp/changed`) and re-reads the affected directory instead
+   * of waiting out its cache. Optional: a host without an MCP CLI, or a test
+   * double, simply never pushes.
+   */
+  mcpWatch?: McpWatch;
+}
+
+/** A subscription to a directory's MCP config changing on disk. */
+export interface McpWatch {
+  subscribe(listener: (cwd: string) => void): () => void;
 }
 
 /**
@@ -114,6 +126,7 @@ export class HostSessionController {
   private summaries = new Map<string, SessionSummary>();
   private detachRegistry: (() => void) | undefined;
   private detachTranscripts: (() => void) | undefined;
+  private detachMcpWatch: (() => void) | undefined;
   private activeKey: string | undefined;
   /** True while the panel shows the intentional no-session draft state. */
   private isDraft = false;
@@ -180,6 +193,12 @@ export class HostSessionController {
         this.options.emit(update.message);
       }
     });
+    // A host watch over pi's `mcp.json` files: a config edited in a terminal (or
+    // by another window) reaches this client without it having to poll the
+    // expensive `pi mcp list` itself.
+    this.detachMcpWatch = this.options.services.mcpWatch?.subscribe((cwd) => {
+      this.options.emit({ type: 'mcp/changed', payload: { cwd } });
+    });
     if (this.options.autoOpen !== false) {
       // Answer the handshake immediately with a truthful state: the agent is
       // starting. Otherwise the client renders its defaults for the whole spawn.
@@ -238,6 +257,8 @@ export class HostSessionController {
     this.detachRegistry = undefined;
     this.detachTranscripts?.();
     this.detachTranscripts = undefined;
+    this.detachMcpWatch?.();
+    this.detachMcpWatch = undefined;
     if (this.options.ownsRegistry === true) {
       await this.options.services.registry.dispose();
     }

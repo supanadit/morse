@@ -26,6 +26,8 @@ export type {
   PromptTemplatesResult,
 } from './pi-prompts.js';
 export { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
+export { McpWatcher } from './internal/mcp-watch.js';
+export type { McpWatchOptions } from './internal/mcp-watch.js';
 export { McpInspector, classify, parseMcpServerSpec } from './internal/mcp-client.js';
 export type {
   McpInspectOptions,

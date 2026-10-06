@@ -111,6 +111,12 @@ export interface MorseClient {
   onTerminalExit(
     listener: (event: { terminalId: string; code?: number; error?: string }) => void,
   ): () => void;
+  /**
+   * A watched `mcp.json` changed on disk (`cwd` is `''` for the user-level
+   * file). The MCP store re-reads the affected directory; nothing in the view
+   * state changes, so this is a side channel like a terminal stream.
+   */
+  onMcpChanged(listener: (event: { cwd: string }) => void): () => void;
   readonly actions: MorseActions;
   dispose(): void;
 }
@@ -166,6 +172,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
   const terminalExitListeners = new Set<
     (event: { terminalId: string; code?: number; error?: string }) => void
   >();
+  /** Listeners for a watched `mcp.json` changing (`mcp/changed`). */
+  const mcpChangedListeners = new Set<(event: { cwd: string }) => void>();
 
   const requestHostCommand = (
     command: HostCommand,
@@ -220,6 +228,12 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     }
     if (message.type === 'terminal/exit') {
       for (const listener of [...terminalExitListeners]) {
+        listener(message.payload);
+      }
+      return;
+    }
+    if (message.type === 'mcp/changed') {
+      for (const listener of [...mcpChangedListeners]) {
         listener(message.payload);
       }
       return;
@@ -317,6 +331,12 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       terminalExitListeners.add(listener);
       return () => {
         terminalExitListeners.delete(listener);
+      };
+    },
+    onMcpChanged: (listener) => {
+      mcpChangedListeners.add(listener);
+      return () => {
+        mcpChangedListeners.delete(listener);
       };
     },
     actions,

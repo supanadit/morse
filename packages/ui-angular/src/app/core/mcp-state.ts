@@ -1,4 +1,4 @@
-import { computed, effect, inject, Injectable, signal } from '@angular/core';
+import { computed, DestroyRef, effect, inject, Injectable, signal } from '@angular/core';
 import type {
   McpConfigScope,
   McpInspectionResult,
@@ -20,6 +20,12 @@ export type McpOverall = 'unknown' | 'loading' | 'ok' | 'warn' | 'error' | 'off'
  * directory share one round trip, and a mutation forces the next one.
  */
 const STATUS_TTL_MS = 60_000;
+/**
+ * A window regaining focus forces a fresh list, but not a `pi mcp list` per
+ * alt-tab: a fetch this recent is close enough that the reader has not edited
+ * `mcp.json` in between.
+ */
+const FOCUS_MIN_INTERVAL_MS = 10_000;
 /** The frontend's other host commands time out at 5 s; connecting to servers does not fit. */
 const STATUS_TIMEOUT_MS = 30_000;
 const MUTATION_TIMEOUT_MS = 15_000;
@@ -36,6 +42,7 @@ const INSPECT_TIMEOUT_MS = 45_000;
 export class McpState {
   private readonly morse = inject(MorseService);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly byCwd = signal<Record<string, McpStatus>>({});
   private readonly loadingByCwd = signal<Record<string, boolean>>({});
@@ -56,19 +63,53 @@ export class McpState {
 
   constructor() {
     // The header's indicator must mean something before the panel is opened, so
-    // the active directory is probed in the background. The delay is a debounce:
-    // switching tabs does not spawn a `pi mcp list` per step, and the TTL means
-    // a directory is asked about at most once a minute. With no session the probe
-    // is the global list (`''`).
+    // the active directory is probed in the background. `cwd()` is read here, in
+    // the effect body, so the probe follows the directory: opening or switching a
+    // session re-runs it. (Read inside the timeout it was untracked, so the dot
+    // stayed on the global list until the panel was clicked.) The delay is a
+    // debounce: switching tabs does not spawn a `pi mcp list` per step, and the
+    // TTL means a directory is asked about at most once a minute. With no session
+    // the probe is the global list (`''`).
     effect((onCleanup) => {
       if (!this.enabled()) {
         return;
       }
-      const timer = setTimeout(() => {
-        void this.refresh(this.cwd());
-      }, 1_200);
+      const target = this.cwd();
+      const timer = setTimeout(() => void this.refresh(target), 1_200);
       onCleanup(() => clearTimeout(timer));
     });
+    // Coming back to the window is when an `mcp.json` edited elsewhere — in a
+    // terminal, or by pi's own `/mcp` — should be picked up, instead of waiting
+    // out the TTL. `focus` is the browser window, `visibilitychange` the VS Code
+    // webview being re-shown.
+    const onAwake = (): void => {
+      if (!this.enabled()) {
+        return;
+      }
+      const dir = this.cwd();
+      if (Date.now() - (this.fetchedAt.get(dir) ?? 0) < FOCUS_MIN_INTERVAL_MS) {
+        return;
+      }
+      void this.refresh(dir, true);
+    };
+    const doc = (globalThis as { document?: Document }).document;
+    const win = globalThis as {
+      addEventListener?: (type: string, listener: () => void) => void;
+      removeEventListener?: (type: string, listener: () => void) => void;
+    };
+    doc?.addEventListener('visibilitychange', onAwake);
+    win.addEventListener?.('focus', onAwake);
+    this.destroyRef.onDestroy(() => {
+      doc?.removeEventListener('visibilitychange', onAwake);
+      win.removeEventListener?.('focus', onAwake);
+    });
+    // The host watches the `mcp.json` files pi reads and pushes when one moves,
+    // so an edit made in a terminal (or by another window) reaches the dot
+    // without opening the manager. `''` is the user-level file, which every
+    // project inherits, so it invalidates every cached directory.
+    this.destroyRef.onDestroy(
+      this.morse.onMcpChanged((event) => this.onExternalChange(event.cwd)),
+    );
   }
 
   status(cwd: string): McpStatus | undefined {
@@ -130,6 +171,22 @@ export class McpState {
     return (this.byCwd()[cwd]?.servers ?? []).filter(
       (server) => server.enabled && server.state === 'connected',
     ).length;
+  }
+
+  /**
+   * The host saw an `mcp.json` move on disk: drop that directory's cache (or
+   * every directory's, for the user-level file) and re-read what is in front.
+   */
+  private onExternalChange(cwd: string): void {
+    if (cwd.length === 0) {
+      this.fetchedAt.clear();
+    } else {
+      this.fetchedAt.delete(cwd);
+    }
+    const current = this.cwd();
+    if (cwd.length === 0 || cwd === current) {
+      void this.refresh(current, true);
+    }
   }
 
   /**
