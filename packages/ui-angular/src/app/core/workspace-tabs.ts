@@ -708,7 +708,7 @@ export class WorkspaceTabs {
     const tab = this.items()[index];
     const closedSession = tab.kind === 'session' && tab.draft !== true;
     const cwd = tab.kind === 'session' ? tab.cwd : undefined;
-    this.remove(this.doomedWith(id), index);
+    this.remove(this.doomedWith(id), index, chipOwner(tab));
     if (closedSession) {
       this.fallBackToEmptySession(cwd);
     }
@@ -724,7 +724,7 @@ export class WorkspaceTabs {
     if (index === -1) {
       return;
     }
-    this.remove(this.doomedWith(id), index);
+    this.remove(this.doomedWith(id), index, chipOwner(this.items()[index]));
   }
 
   /**
@@ -925,11 +925,19 @@ export class WorkspaceTabs {
    * survivor forward — the index is the closed tab's, so the fallback lands where
    * the user was looking rather than at the end of the strip.
    */
-  private remove(doomed: Set<string>, index: number): void {
+  private remove(doomed: Set<string>, index: number, ownerSessionId?: string): void {
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !doomed.has(tab.id)));
     this.forgetDrafts(doomed);
     if (active === undefined || !doomed.has(active)) {
+      return;
+    }
+    // A chip is context for its session, so closing the one in front goes back to
+    // that conversation — not to whichever file happens to sit beside it in the
+    // list (a chip of another session, usually). The positional neighbour is only
+    // the fallback when the owner is gone or this was not a chip.
+    if (ownerSessionId !== undefined && this.findSession(ownerSessionId) !== undefined) {
+      this.select(ownerSessionId);
       return;
     }
     const remaining = this.items();
@@ -1299,4 +1307,9 @@ function clearedPreview(): Partial<FileTab> {
 /** The row a tab renders in: files attached to a session get their own, below the sessions. */
 function tabRow(tab: WorkspaceTab): 'main' | 'mention' {
   return tab.kind === 'file' && tab.mention === true ? 'mention' : 'main';
+}
+
+/** The session a chip belongs to, so closing the chip in front can return there. */
+function chipOwner(tab: WorkspaceTab | undefined): string | undefined {
+  return tab?.kind === 'file' && tab.mention === true ? tab.sessionId : undefined;
 }

@@ -113,6 +113,25 @@ describe('WorkspaceTabs', () => {
     expect(fake.activateSession).toHaveBeenCalledWith('s1', undefined);
   });
 
+  it('returns to the chip’s own session when the chip in front closes', () => {
+    const { tabs, fake } = setup();
+
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('a.ts');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.openFile('b.ts');
+    expect(tabs.activeId()).toBe('mention:s2:b.ts');
+    fake.activateSession.mockClear();
+
+    tabs.close('mention:s2:b.ts');
+
+    // The chip is s2's context, so closing it goes back to s2 — not to s1's
+    // chip, which is what the positional neighbour would have been.
+    expect(tabs.activeId()).toBe('s2');
+    expect(fake.activateSession).toHaveBeenCalledWith('s2', undefined);
+    expect(tabs.tabs().some((tab) => tab.id === 'mention:s1:a.ts')).toBe(true);
+  });
+
   it('does not activate a file tab', () => {
     const { tabs, fake } = setup();
 

@@ -82,7 +82,8 @@ turns them on so the panel stands on its own:
   touching ranges merge and can be edited by their handles.
 - **Tab strip**: sessions and files open side by side, quoted files get their own row, and right-click offers
   Close / Close Others / Close to the Right / Close All. A session's menu spans the whole strip; a file chip's
-  menu spans only its row, so closing a chip never closes the session tab that owns it. When any file name in
+  menu spans only its row, so closing a chip never closes the session tab that owns it, and closing the chip in
+  front returns to that session rather than the file beside it. When any file name in
   the row is shared, the whole chip row goes two lines — every chip spells out its directory, clipped at the
   front so the folder nearest the file stays visible, and all chips share one height (two `postgresql.yaml`
   are told apart without a tooltip); with no shared name, every chip keeps its single row.
