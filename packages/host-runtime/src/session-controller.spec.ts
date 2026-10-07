@@ -176,6 +176,12 @@ function harness(options: {
   probeError?: Error;
   /** A successful session-less probe whose catalog depends on the requested model. */
   probeState?: (model?: ModelRef) => AgentSessionState | undefined;
+  /**
+   * Parks a draft probe until a test says so, to look at the panel mid-probe.
+   * `call` is 1-based, so a test can let the load-time probe through and park
+   * the model pick's one.
+   */
+  probeGate?: (call: number) => Promise<void>;
   agentHint?: string;
   refreshCommands?: () => Promise<void>;
   /** Counts model-catalog re-reads; omitted means the adapter can't. */
@@ -215,7 +221,8 @@ function harness(options: {
               return Promise.reject(new Error('no probe state'));
             }
             const gateway = fakeGateway({ sessionId: 'probe-1' });
-            return Promise.resolve({ ...gateway, state: () => Promise.resolve(state) });
+            const gate = options.probeGate?.(probes.count) ?? Promise.resolve();
+            return gate.then(() => ({ ...gateway, state: () => Promise.resolve(state) }));
           },
         }
       : options.probeError
@@ -563,6 +570,98 @@ describe('HostSessionController failures', () => {
     );
     expect(h.probes()).toBe(2);
     expect(h.lastState()?.model?.id).toBe('plain');
+  });
+
+  it('says it is reading the picked model\'s levels while the draft re-probe runs', async () => {
+    const base: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'low',
+      availableModels: [
+        { provider: 'mock', id: 'reasoner', name: 'Reasoner' },
+        { provider: 'mock', id: 'plain', name: 'Plain' },
+      ],
+      availableThinkingLevels: ['off', 'low', 'high', 'max'],
+      availableCommands: [],
+      streaming: false,
+    };
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = harness({
+      probeState: (model) =>
+        model?.id === 'plain'
+          ? { ...base, model, thinkingLevel: 'off', availableThinkingLevels: ['off'] }
+          : base,
+      // The first probe is the load-time one. Only the model pick's probe parks.
+      probeGate: (call) => (call > 1 ? gate : Promise.resolve()),
+    });
+    await h.controller.start();
+    await vi.waitFor(() => expect(h.probes()).toBe(1));
+    await vi.waitFor(() =>
+      expect(h.lastState()?.availableThinkingLevels).toEqual(['off', 'low', 'high', 'max']),
+    );
+
+    let settled = false;
+    const picked = (async () => {
+      await h.controller.handleClientMessage({
+        type: 'model/set',
+        payload: { provider: 'mock', id: 'plain' },
+      });
+      settled = true;
+    })();
+    await vi.waitFor(() => expect(h.probes()).toBe(2));
+
+    // pi scopes the levels to the current model, so the new model's list cannot
+    // be known yet: the panel names the model already and admits it is reading
+    // instead of showing the previous model's levels as if they still applied.
+    expect(settled).toBe(false);
+    expect(h.lastState()?.model?.id).toBe('plain');
+    expect(h.lastState()?.loadingThinkingLevels).toBe(true);
+    expect(h.lastState()?.availableThinkingLevels).toEqual(['off', 'low', 'high', 'max']);
+
+    release?.();
+    await picked;
+    expect(h.lastState()?.loadingThinkingLevels).toBe(false);
+    expect(h.lastState()?.availableThinkingLevels).toEqual(['off']);
+  });
+
+  it('applies a draft model the host already probed without a loading row', async () => {
+    const base: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'low',
+      availableModels: [
+        { provider: 'mock', id: 'reasoner', name: 'Reasoner' },
+        { provider: 'mock', id: 'plain', name: 'Plain' },
+      ],
+      availableThinkingLevels: ['off', 'low', 'high'],
+      availableCommands: [],
+      streaming: false,
+    };
+    const h = harness({
+      probeState: (model) =>
+        model?.id === 'plain'
+          ? { ...base, model, thinkingLevel: 'off', availableThinkingLevels: ['off'] }
+          : base,
+    });
+    await h.controller.start();
+    await vi.waitFor(() => expect(h.probes()).toBe(1));
+
+    await h.controller.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'mock', id: 'plain' },
+    });
+    expect(h.probes()).toBe(2);
+    // Switching to the same model again is not a probe: the cached catalog
+    // applies in the same frame, so the picker never flickers through a loading
+    // row for an answer the host already has.
+    await h.controller.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'mock', id: 'plain' },
+    });
+    expect(h.probes()).toBe(2);
+    expect(h.lastState()?.loadingThinkingLevels).toBe(false);
+    expect(h.lastState()?.availableThinkingLevels).toEqual(['off']);
   });
 
   it('re-probes the draft catalog on models/refresh, so a new model shows up', async () => {

@@ -714,6 +714,14 @@ export interface SessionViewState {
   /** True while the host is fetching the previous history page. */
   loadingOlderHistory?: boolean;
   /**
+   * True while the host is re-reading the thinking levels of the model the
+   * reader just picked. pi scopes the levels to the *current* model, so they
+   * can only be re-read after the switch (over RPC for a live session, by
+   * re-probing pi on a draft) — the picker shows this instead of the previous
+   * model's list meanwhile.
+   */
+  loadingThinkingLevels?: boolean;
+  /**
    * Configuration warnings from the agent itself, as a row above the
    * conversation rather than lines inside it. Optional and usually absent.
    */

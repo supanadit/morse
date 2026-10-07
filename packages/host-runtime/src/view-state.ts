@@ -27,6 +27,8 @@ export interface SessionStateMeta {
   hasOlderHistory?: boolean;
   /** True while the host is fetching the previous history page. */
   loadingOlderHistory?: boolean;
+  /** True while the host re-reads the picked model's thinking levels. */
+  loadingThinkingLevels?: boolean;
 }
 
 export function emptySessionViewState(
@@ -47,6 +49,7 @@ export function emptySessionViewState(
     agentFailure: meta.agentFailure,
     hasOlderHistory: meta.hasOlderHistory,
     loadingOlderHistory: meta.loadingOlderHistory,
+    loadingThinkingLevels: meta.loadingThinkingLevels,
   };
 }
 
@@ -104,6 +107,7 @@ export function toSessionViewState(
     agentFailure: meta.agentFailure,
     hasOlderHistory: meta.hasOlderHistory,
     loadingOlderHistory: meta.loadingOlderHistory,
+    loadingThinkingLevels: meta.loadingThinkingLevels,
     ...(state.diagnostics
       ? { diagnostics: state.diagnostics.map(({ level, text }) => ({ level, text })) }
       : {}),

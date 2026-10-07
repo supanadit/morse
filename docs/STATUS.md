@@ -30,6 +30,10 @@ Morse **v0.9.2**. This page is the honest inventory of what ships. Everything el
   levels to the model, so switching models re-reads them (and the level pi settled on — a model without
   reasoning resets it to `off`). The same re-probe runs for a model picked on a draft, before any session
   exists.
+- The picker **says so while it waits** (`loadingThinkingLevels` on the view state): the trigger spins and the
+  list shows a `Reading this model's levels…` row, with the previous model's rows on screen but not pickable —
+  they may name a level this model does not have. A model the host has already probed applies in the same frame
+  as the pick, with no loading row at all.
 - This **is** the per-session model override. A session records its own model and thinking-level changes, and
   resuming it restores them, so the choice follows that session across eviction, resume and host restart
   without touching pi's defaults for new sessions.

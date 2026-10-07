@@ -234,6 +234,16 @@ export class SessionRegistry {
   }
 
   /**
+   * The catalog already probed for a model, when there is one. Synchronous on
+   * purpose: a reader switching back to a model Morse has already read the
+   * levels of gets them in the same frame as the pick instead of watching a
+   * loading row for a probe that is not needed.
+   */
+  cachedDraftDefaults(model?: ModelRef): AgentSessionState | undefined {
+    return this.draftCache.get(model ? `${model.provider}/${model.id}` : '');
+  }
+
+  /**
    * What the backend offers before any session exists: the model catalog,
    * thinking levels and commands of an untouched spawn. Probed once per model —
    * never per client — from a gateway that never records itself (pi

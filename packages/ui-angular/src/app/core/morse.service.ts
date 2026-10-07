@@ -92,6 +92,10 @@ export class MorseService {
   readonly thinkingLevel = computed(() => this.view().state.thinkingLevel);
   readonly availableModels = computed(() => this.view().state.availableModels);
   readonly availableThinkingLevels = computed(() => this.view().state.availableThinkingLevels);
+  /** True while the host re-reads the picked model's thinking levels. */
+  readonly loadingThinkingLevels = computed(
+    () => this.view().state.loadingThinkingLevels === true,
+  );
   /** Commands pi exposes (`get_commands`); the frontend merges its own built-ins. */
   readonly availableCommands = computed(() => this.view().state.availableCommands);
   readonly usage = computed(() => this.view().state.usage);

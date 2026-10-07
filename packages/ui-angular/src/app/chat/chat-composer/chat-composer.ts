@@ -657,6 +657,8 @@ export class ChatComposer {
   protected readonly thinkingLevel = computed(() => this.morse.state().thinkingLevel);
   protected readonly models = this.morse.availableModels;
   protected readonly levels = this.morse.availableThinkingLevels;
+  /** True while the host re-reads the picked model's levels (see the picker). */
+  protected readonly loadingThinkingLevels = this.morse.loadingThinkingLevels;
   protected readonly modelKey = computed(() => {
     const model = this.morse.state().model;
     return model ? `${model.provider}/${model.id}` : '';

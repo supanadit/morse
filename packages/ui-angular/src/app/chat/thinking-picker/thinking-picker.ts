@@ -69,6 +69,23 @@ import { ThinkingBrain } from './thinking-brain';
         color: var(--morse-fg-muted);
         font-size: 10px;
       }
+      /* Reading the picked model's levels: the trigger keeps the level it has
+         and spins where the caret sits, so the wait is visible without the
+         dropdown having to be open. */
+      .spinner {
+        flex: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 1.5px solid color-mix(in srgb, var(--morse-accent) 30%, transparent);
+        border-top-color: var(--morse-accent);
+        animation: thinking-spin 0.8s linear infinite;
+      }
+      @keyframes thinking-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
       .panel {
         position: absolute;
         left: 0;
@@ -120,12 +137,38 @@ import { ThinkingBrain } from './thinking-brain';
         color: var(--morse-accent);
         font-size: 12px;
       }
+      /* The levels on screen belong to the previous model until the host
+         answers: named as reading, and not pickable. */
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--morse-border);
+        color: var(--morse-fg-muted);
+        font-size: 11.5px;
+      }
+      .status + .row,
+      .panel[aria-busy='true'] .row {
+        opacity: 0.55;
+      }
+      .row:disabled {
+        cursor: default;
+      }
     `,
   ],
 })
 export class ThinkingPicker {
   readonly levels = input.required<ThinkingLevel[]>();
   readonly current = input.required<ThinkingLevel>();
+  /**
+   * True while the host re-reads the levels of a model the reader just picked.
+   * pi scopes them to the current model, so the list on screen is the previous
+   * model's until the answer lands — a pick would apply a level this model may
+   * not have. The rows stay (the panel must not jump under the pointer) and say
+   * they are being re-read.
+   */
+  readonly loading = input(false);
   readonly pick = output<ThinkingLevel>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
@@ -173,6 +216,9 @@ export class ThinkingPicker {
   }
 
   protected choose(level: ThinkingLevel): void {
+    if (this.loading()) {
+      return;
+    }
     this.pick.emit(level);
     this.close();
   }
@@ -193,7 +239,7 @@ export class ThinkingPicker {
         this.active.update((index) => Math.max(0, index - 1));
         return;
       case 'Enter': {
-        const chosen = levels[this.active()];
+        const chosen = this.loading() ? undefined : levels[this.active()];
         if (chosen) {
           event.preventDefault();
           this.choose(chosen);

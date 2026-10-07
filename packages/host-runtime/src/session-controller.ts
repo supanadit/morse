@@ -176,6 +176,19 @@ export class HostSessionController {
   private historyBefore: string | undefined;
   private hasOlderHistory = false;
   private loadingOlderHistory = false;
+  /**
+   * True while the thinking levels of a just-picked model are being re-read.
+   * pi scopes the levels to the *current* model, so they can only follow the
+   * switch (see `setModel`); until they land the picker would be showing the
+   * previous model's list, which is worse than saying it is reading.
+   */
+  private loadingThinkingLevels = false;
+  /**
+   * Identifies the newest thinking-levels refresh. A slower, superseded probe
+   * compares its ticket before clearing the flag, so a second pick keeps its
+   * own loading row instead of the first one's answer.
+   */
+  private thinkingLevelsRefresh = 0;
   /** Discriminates history item ids across pages (see `historyItems`). */
   private historyPageSeq = 0;
   /** This client's live attachments to shells, keyed by the terminal id it named. */
@@ -1115,19 +1128,53 @@ export class HostSessionController {
       const match = this.draftCatalog?.availableModels.find(
         (model) => model.provider === provider && model.id === id,
       );
-      this.draftModel = match ?? { provider, id, name: id };
-      this.emitState();
+      const picked = match ?? { provider, id, name: id };
+      this.draftModel = picked;
       // pi reports thinking levels per *current* model, so the picker has to be
-      // re-probed for the model the reader just chose before a session exists.
-      void this.refreshDraftCatalog(this.draftModel);
+      // re-probed for the model the reader just chose before a session exists —
+      // unless that model was probed before, in which case its levels are
+      // already known and land in the same frame as the pick.
+      const cached = this.options.services.registry.cachedDraftDefaults(picked);
+      if (cached) {
+        this.draftCatalog = cached;
+        this.emitState();
+        return;
+      }
+      const ticket = this.beginThinkingLevelsRefresh();
+      await this.refreshDraftCatalog(picked, ticket);
       return;
     }
-    const result = await this.guard(() =>
+    const ticket = this.beginThinkingLevelsRefresh();
+    await this.guard(() =>
       this.options.services.chat.setModel({ provider, id, name: id }, this.promptTarget()),
     );
-    if (result.ok) {
-      this.emitState();
+    this.endThinkingLevelsRefresh(ticket);
+  }
+
+  /**
+   * Announces on the wire that the levels of the picked model are being read,
+   * and returns the ticket that identifies this refresh (see
+   * `endThinkingLevelsRefresh`). The state is emitted either way, so the picker
+   * names the model it is about to describe instead of sitting on the previous
+   * one while it waits.
+   */
+  private beginThinkingLevelsRefresh(): number {
+    const ticket = ++this.thinkingLevelsRefresh;
+    this.loadingThinkingLevels = true;
+    this.emitState();
+    return ticket;
+  }
+
+  /** Clears the loading row, unless a newer pick has taken the flag over. */
+  private endThinkingLevelsRefresh(ticket: number): void {
+    if (ticket !== this.thinkingLevelsRefresh) {
+      return;
     }
+    this.loadingThinkingLevels = false;
+    // Emitted here, after the new catalog is in `draftCatalog`, so the levels and
+    // the end of the loading row reach the picker as one state: a message with
+    // the old list and no spinner would read as "this model has no reasoning".
+    this.emitState();
   }
 
   /**
@@ -1136,7 +1183,7 @@ export class HostSessionController {
    * model's. The request is dropped when the reader picks again or a session
    * opens while the probe is in flight.
    */
-  private async refreshDraftCatalog(model: ModelRef): Promise<void> {
+  private async refreshDraftCatalog(model: ModelRef, ticket: number): Promise<void> {
     try {
       const catalog = await this.options.services.registry.draftDefaults(model);
       if (
@@ -1146,11 +1193,11 @@ export class HostSessionController {
         this.draftModel === model
       ) {
         this.draftCatalog = catalog;
-        this.emitState();
       }
     } catch (error: unknown) {
       this.options.logger.warn('Could not probe the draft catalog for the picked model', error);
     }
+    this.endThinkingLevelsRefresh(ticket);
   }
 
   private async setThinkingLevel(level: SessionViewState['thinkingLevel']): Promise<void> {
@@ -1534,6 +1581,7 @@ export class HostSessionController {
       busy: this.busy,
       hasOlderHistory: this.hasOlderHistory,
       loadingOlderHistory: this.loadingOlderHistory,
+      loadingThinkingLevels: this.loadingThinkingLevels,
     };
     const state = this.activeKey === undefined
       ? undefined

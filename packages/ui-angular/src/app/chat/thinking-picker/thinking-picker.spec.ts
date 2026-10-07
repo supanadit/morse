@@ -65,6 +65,44 @@ describe('ThinkingPicker', () => {
     expect(fixture.nativeElement.querySelector('.panel')).toBeNull();
   });
 
+  it('says it is reading the picked model\'s levels, and refuses a pick until they land', () => {
+    const fixture = create('medium');
+    const picked: ThinkingLevel[] = [];
+    fixture.componentInstance.pick.subscribe((level) => picked.push(level));
+    fixture.componentRef.setInput('loading', true);
+    fixture.detectChanges();
+
+    // The wait is visible without opening anything: the trigger spins where the
+    // caret was, and says what it is waiting for.
+    const trigger = fixture.nativeElement.querySelector('.trigger') as HTMLElement;
+    expect(trigger.querySelector('.spinner')).toBeTruthy();
+    expect(trigger.querySelector('.caret')).toBeNull();
+    expect(trigger.getAttribute('aria-busy')).toBe('true');
+
+    trigger.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.status')?.textContent).toContain(
+      'Reading this model',
+    );
+
+    // The previous model's rows stay on screen (the panel must not jump under the
+    // pointer) but they are not pickable: that level may not exist on this model.
+    const rows = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+      '.row',
+    );
+    expect(rows).toHaveLength(LEVELS.length);
+    expect([...rows].every((row) => row.disabled)).toBe(true);
+    rows[4]?.click();
+    fixture.detectChanges();
+    expect(picked).toEqual([]);
+    expect(fixture.nativeElement.querySelector('.panel')).not.toBeNull();
+
+    const panel = fixture.nativeElement.querySelector('.panel') as HTMLElement;
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+    expect(picked).toEqual([]);
+  });
+
   it('picks with the keyboard', () => {
     const fixture = create('off');
     const picked: ThinkingLevel[] = [];
