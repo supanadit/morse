@@ -95,6 +95,16 @@ export type HostCommand =
    */
   | 'readDrafts'
   | 'saveDrafts'
+  /**
+   * The language server's answers for a file the frontend is displaying. All
+   * four name the file with `path` (relative to the viewing session) plus a
+   * zero-based `line`/`character`, and answer `undefined` when no server covers
+   * the language — `capabilities.lsp` says whether to ask at all.
+   */
+  | 'lspHover'
+  | 'lspDefinition'
+  | 'lspReferences'
+  | 'lspDiagnostics'
   | 'openSettings'
   | 'showOutput'
   | 'copyToClipboard'

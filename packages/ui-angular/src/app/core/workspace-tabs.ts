@@ -30,6 +30,12 @@ export interface FileTab {
    */
   sessionId?: string;
   language?: string;
+  /**
+   * The line a language-server jump sent this tab to (1-based, as it renders).
+   * The preview scrolls to it and flashes it; a plain Explorer click leaves it
+   * unset and the file opens at the top.
+   */
+  line?: number;
   content?: string;
   size?: number;
   truncated?: boolean;
@@ -521,9 +527,29 @@ export class WorkspaceTabs {
    * file is that session's **chip** (the row that never pushes a session tab
    * aside); with no session it stands on its own, like a session.
    */
-  openFile(path: string): void {
+  openFile(path: string, line?: number): void {
     const owner = this.focusedOwner();
-    this.placeFileTab(`${FILE_PREFIX}${path}`, path, path, owner.id !== undefined, owner.id, owner.cwd);
+    this.placeFileTab(
+      `${FILE_PREFIX}${path}`,
+      path,
+      path,
+      owner.id !== undefined,
+      owner.id,
+      owner.cwd,
+      line === undefined ? {} : { line },
+    );
+  }
+
+  /**
+   * Sends an already-open file tab to a line — the preview's jump when the target
+   * is the file it is already showing. The tab is replaced rather than mutated so
+   * the preview's effect fires even when the same line is asked for twice.
+   */
+  revealLine(id: string, line: number): void {
+    this.items.update((tabs) =>
+      tabs.map((tab) => (tab.id === id && tab.kind === 'file' ? { ...tab, line } : tab)),
+    );
+    this.active.set(id);
   }
 
   /**

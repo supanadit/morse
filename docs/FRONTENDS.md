@@ -79,7 +79,11 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    whether the host can read the active project's git history (`gitLog`) for the frontend's own
    git panel (the browser host; VS Code keeps its Source Control view and leaves it off), `terminal`
    whether the host can run an interactive shell (`terminal/open` and its siblings) for the bottom
-   panel's terminal (again the browser host; VS Code keeps its integrated terminal), `workbench`
+   panel's terminal (again the browser host; VS Code keeps its integrated terminal), `lsp`
+   whether the host can run a language server for the preview's code (`lspHover`/`lspDefinition`/
+   `lspReferences`/`lspDiagnostics`) so a file can be hovered and jumped through — a browser cannot spawn
+   one, and VS Code's own LSP already owns its files, so it is the browser host that turns this on (and it
+   reports per file whether a server actually covers that language), `workbench`
    whether the host can store the shell layout (`readWorkbench` / `saveWorkbench`) so the tabs, panel
    and terminals come back on the next visit (the browser host keeps it under `MORSE_HOME`; VS Code has
    its own tab restoration and leaves it off), `sessionTabs`

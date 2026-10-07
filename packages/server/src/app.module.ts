@@ -7,6 +7,7 @@ import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
 import { ServerTerminalBackend } from './internal/terminal/terminal.service.js';
+import { ServerLanguageServers } from './internal/lsp/lsp.service.js';
 import { createSessionRegistry, MorseRegistryLifecycle } from './internal/registry.js';
 import { MorseGateway } from './internal/ws/morse.gateway.js';
 import { MorseSessionFactory } from './internal/ws/session-factory.service.js';
@@ -76,6 +77,9 @@ import {
     },
     MorseRegistryLifecycle,
     ServerTerminalBackend,
+    // The browser host's language servers: a singleton, like the terminal
+    // backend, because starting one is the expensive part.
+    ServerLanguageServers,
     MorseSessionFactory,
     MorseGateway,
   ],

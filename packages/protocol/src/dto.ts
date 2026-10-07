@@ -301,6 +301,13 @@ export interface HostCapabilities {
    */
   terminal?: boolean;
   /**
+   * Host runs a language server for the preview's code (`lspHover`,
+   * `lspDefinition`, `lspReferences`, `lspDiagnostics`), so a file opened in the
+   * browser host can be hovered and jumped through like an editor. A browser
+   * cannot spawn a server; VS Code already has its own LSP and leaves this off.
+   */
+  lsp?: boolean;
+  /**
    * Host can read and write the frontend's shell layout (`readWorkbench` /
    * `saveWorkbench`), so the tabs and terminal a reader had open come back on
    * the next visit. The browser host keeps it under `~/.morse`; VS Code has its

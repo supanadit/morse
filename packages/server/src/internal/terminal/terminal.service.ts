@@ -11,6 +11,7 @@ import {
 } from '@morse/host-runtime';
 import type { MorseServerConfig } from '../../app/config.js';
 import { MORSE_CONFIG, MORSE_LOGGER, MORSE_PROJECT_POLICY } from '../../app/tokens.js';
+import { childProcessEnv } from '../child-env.js';
 import type { ServerProjectPolicy } from '../projects/project-policy.js';
 import { readTerminalLog, removeTerminalLog, writeTerminalLog } from './terminal-log.js';
 
@@ -26,7 +27,9 @@ const SHUTDOWN_GRACE_MS = 500;
 /** How often the streaming scrollback is written down. A shell can output fast. */
 const FLUSH_DEBOUNCE_MS = 2_000;
 
-/** The user's shell, falling back per platform when `$SHELL` is not set. */
+/**
+ * The user's shell, falling back per platform when `$SHELL` is not set.
+ */
 function defaultShell(): string {
   const configured = process.env.SHELL?.trim();
   if (configured !== undefined && configured.length > 0) {
@@ -36,27 +39,12 @@ function defaultShell(): string {
 }
 
 /**
- * The environment a terminal's shell starts with: the user's own, with Morse's
- * variables removed.
- *
- * The server is a child of `morse start` (or `npm run dev`) and inherits
- * `MORSE_PORT`, `MORSE_WORKSPACE`, `MORSE_UI_DIR` and friends. Passing
- * `process.env` straight to the PTY leaked them into every shell, so running
- * Morse from inside Morse picked the host's port and tried to bind it again
- * (`EADDRINUSE`). A shell here behaves as if opened from the user's desktop:
- * `MORSE_*` is stripped, and so is the IPC channel `fork`/`node --watch` puts in
- * the environment (a child Node would otherwise speak the parent's protocol).
+ * The environment a shell starts with: `childProcessEnv` (the user's own, with
+ * Morse's variables and the IPC channel stripped — see that file for why) plus
+ * the terminal capability every interactive program expects.
  */
 export function terminalShellEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(source)) {
-    if (key.startsWith('MORSE_') || key === 'NODE_CHANNEL_FD' || key === 'NODE_CHANNEL_SERIALIZATION_MODE') {
-      continue;
-    }
-    env[key] = value;
-  }
-  env.TERM = 'xterm-256color';
-  return env;
+  return { ...childProcessEnv(source), TERM: 'xterm-256color' };
 }
 
 /**

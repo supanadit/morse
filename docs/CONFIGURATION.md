@@ -33,6 +33,8 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_UPLOAD_DIR` | `.morse/uploads` | Where browser uploads land (relative to a session cwd, or absolute) |
 | `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published Morse and pi versions from the npm registry (`0`/`false`/`off` disables both) |
 | `MORSE_TERMINAL_IDLE_MS` | `1800000` | How long a terminal's shell keeps running with no page attached before the host reclaims it (`0` disables the timeout) |
+| `MORSE_LSP_IDLE_MS` | `600000` | How long a language server keeps running after the last request that used it (`0` disables the timeout) |
+| `MORSE_LSP_TS`, `MORSE_LSP_JSON`, `MORSE_LSP_YAML`, `MORSE_LSP_SH`, `MORSE_LSP_GO`, `MORSE_LSP_PY` | unset | Path to the server for that language, overriding the lookup order below |
 
 `MORSE_PROJECTS` is the security boundary: when set, the agent may only work inside those roots. When unset,
 any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for one you expose.

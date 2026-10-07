@@ -37,6 +37,13 @@ export interface MorseServerConfig {
    */
   terminalIdleMs: number;
   /**
+   * How long a language server keeps running after the last request that used
+   * it. Starting one is expensive (the TypeScript server indexes a project
+   * before it answers), so it is worth keeping across a few files; only the idle
+   * clock — or the host shutting down — ends one. `0` disables the timeout.
+   */
+  lspIdleMs: number;
+  /**
    * Whether the frontend may ask the registry for the latest release. On unless
    * `MORSE_UPDATE_CHECK=0`; an air-gapped host turns it off rather than letting
    * the panel try and fail.
@@ -94,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
     dataDir: resolveDataDir(env),
     terminalIdleMs: parsePositiveInt(env.MORSE_TERMINAL_IDLE_MS, 30 * 60_000),
+    lspIdleMs: parsePositiveInt(env.MORSE_LSP_IDLE_MS, 10 * 60_000),
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
     instance: env.MORSE_INSTANCE?.trim() || undefined,
   };

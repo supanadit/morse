@@ -39,12 +39,30 @@
     }
     @if (rangeLabel(); as range) {
       <span class="range" [title]="'Pinned to the next prompt'">{{ range }}</span>
-    } @else if (pinnedCount() > 0) {
+    } @else if (pinnedCount()) {
       <span class="range" [title]="'Pinned to the next prompt'">{{
         pinnedCount() === 1 ? '1 range' : pinnedCount() + ' ranges'
       }}</span>
     }
     <span class="badge">{{ language() }}</span>
+    @if (lspReady() && mode() === 'file' && !tab().binary) {
+      @if (lspAvailable() === false) {
+        <span class="lsp-none" title="No language server covers this file">LSP —</span>
+      } @else if (problemCounts().total) {
+        <button
+          type="button"
+          class="problems"
+          [class.errors]="problemCounts().errors > 0"
+          [attr.aria-expanded]="problemsOpen()"
+          [title]="problemTitle() + ' — click to list them'"
+          (click)="toggleProblems()"
+        >
+          <span aria-hidden="true">▲</span>{{ problemCounts().total }}
+        </button>
+      } @else if (diagnosticsBusy()) {
+        <span class="lsp-busy" title="Asking the language server…">⋯</span>
+      }
+    }
     <span class="stat">{{ size() }}</span>
     <button type="button" class="icon" title="Reload from disk" aria-label="Reload from disk" (click)="reload()">
       ⟳
@@ -130,26 +148,125 @@
   <p class="hint">Binary file · {{ size() }} · no text preview.</p>
 } @else {
   <!--
+    What the language server said, in one slot under the header: the problems it
+    found, or the places the symbol under the pointer is used.
+  -->
+  @if (referencesOpen() && references(); as refs) {
+    <div class="lsp-panel">
+      <div class="lsp-panel-head">
+        <span class="lsp-panel-title">
+          @if (refs.locations.length === 0) {
+            No references
+          } @else {
+            {{ refs.locations.length }}
+            {{ refs.locations.length === 1 ? 'reference' : 'references' }}
+          }
+        </span>
+        <button
+          type="button"
+          class="icon"
+          title="Close"
+          aria-label="Close references"
+          (click)="closeReferences()"
+        >
+          ✕
+        </button>
+      </div>
+      @for (location of refs.locations; track $index) {
+        <button type="button" class="lsp-row" [title]="location.path" (click)="jump(location)">
+          <span class="lsp-row-path">{{ location.path }}</span>
+          <span class="lsp-row-line">{{ location.range.start.line + 1 }}</span>
+        </button>
+      }
+    </div>
+  } @else if (referencesOpen()) {
+    <!-- Open, but nothing to list yet (a cold server) or nothing came back. -->
+    <div class="lsp-panel">
+      <div class="lsp-panel-head">
+        <span class="lsp-panel-title">{{ referencesNote() }}</span>
+        <button
+          type="button"
+          class="icon"
+          title="Close"
+          aria-label="Close references"
+          (click)="closeReferences()"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  } @else if (problemsOpen()) {
+    <div class="lsp-panel">
+      <div class="lsp-panel-head">
+        <span class="lsp-panel-title">{{ problemTitle() || 'No problems' }}</span>
+        <button
+          type="button"
+          class="icon"
+          title="Close"
+          aria-label="Close problems"
+          (click)="toggleProblems()"
+        >
+          ✕
+        </button>
+      </div>
+      @for (problem of problems(); track $index) {
+        <button
+          type="button"
+          [class]="'lsp-row problem ' + problem.severity"
+          [title]="problem.message"
+          (click)="jumpToLine(problem.range.start.line + 1)"
+        >
+          <span class="lsp-row-path">{{ problem.message }}</span>
+          <span class="lsp-row-line">{{ problem.range.start.line + 1 }}</span>
+        </button>
+      }
+    </div>
+  }
+
+  <!--
     Drag across the line numbers to pin a range (`path:start-end`) to the next
     prompt — the browser host's version of VS Code's "add selection to chat".
+
+    The code surface also carries the language server's half: moving over an
+    identifier asks for a hover, clicking one follows it to its definition.
   -->
-  <div class="code">
+  <div class="code" #code>
     <div
       #gutter
       class="gutter"
-      title="Drag line numbers to pin a range to your next message"
+      title="Drag line numbers to pin a range to your next message; click a highlighted one to remove it"
     >
       @for (line of lines(); track line) {
         <span
           class="num"
           [class.selected]="isSelected(line)"
           [attr.data-line]="line"
+          [attr.title]="isSelected(line) ? 'Click to remove this highlight' : null"
           (pointerdown)="startSelection($event, line)"
         >{{ line }}</span>
       }
     </div>
-    <div class="source-wrap">
-      <pre class="source" #source><code class="hljs" [innerHTML]="highlighted()"></code></pre>
+    <div class="source-wrap" #wrap>
+      <pre
+        class="source"
+        #source
+        (pointermove)="onSourceMove($event)"
+        (pointerleave)="onSourceLeave()"
+        (click)="onSourceClick($event)"
+      ><code class="hljs" [innerHTML]="highlighted()"></code></pre>
+      @for (mark of marks(); track mark.id) {
+        <span
+          [class]="'mark ' + mark.severity"
+          [style.top.px]="mark.top"
+          [style.left.px]="mark.left"
+          [style.width.px]="mark.width"
+          [style.height.px]="mark.height"
+          [attr.title]="mark.message"
+        ></span>
+      }
+      @if (flash(); as jumped) {
+        <span class="flash" [style.top.px]="lineTop(jumped)" aria-hidden="true"></span>
+      }
       @for (highlight of highlights(); track highlight.id) {
         <span
           class="selection"
@@ -169,10 +286,67 @@
             aria-hidden="true"
             (pointerdown)="startResizeEdge($event, highlight, 'end')"
           ></span>
+          <!-- Each band carries its own way out, in the corner it ends in. -->
+          <button
+            type="button"
+            class="cancel"
+            title="Remove this highlight"
+            (click)="removeHighlight($event, highlight)"
+          >
+            Cancel
+          </button>
         </span>
       }
     </div>
   </div>
+  @if (hoverCard(); as card) {
+    <div
+      #hoverCard
+      class="hover-card"
+      [class.locked]="hoverLocked()"
+      [style.top.px]="card.top"
+      [style.left.px]="card.left"
+      (pointerenter)="cancelHoverClose()"
+      (pointerleave)="onSourceLeave()"
+    >
+      <div class="hover-body">
+        <morse-markdown [text]="card.contents" />
+      </div>
+      <!--
+        The card's own controls. The ring counts down to a pinned card: stay on
+        the symbol (or on the card) and it locks, so reaching for "Find
+        references" can no longer dismiss the card that offers it.
+      -->
+      <div class="hover-foot">
+        <button type="button" class="hover-refs" (click)="showReferences(card)">
+          Find references
+        </button>
+        @if (hoverLocked()) {
+          <button
+            type="button"
+            class="hover-close"
+            title="Close (Esc)"
+            aria-label="Close the hover card"
+            (click)="closeHover()"
+          >
+            ✕
+          </button>
+        } @else {
+          <span
+            class="lock-ring"
+            [style.--morse-lock-ms]="hoverLockMs + 'ms'"
+            title="Keep hovering to pin this card"
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 16 16">
+              <circle class="track" cx="8" cy="8" r="6" />
+              <circle class="sweep" cx="8" cy="8" r="6" />
+            </svg>
+          </span>
+        }
+      </div>
+    </div>
+  }
   @if (tab().truncated) {
     <p class="hint">Showing the first 512 KB of {{ size() }}.</p>
   }

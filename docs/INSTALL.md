@@ -227,7 +227,13 @@ agent is unavailable — set `MORSE_PI_PATH` in the environment you launch from.
 
 `MORSE_HOME`, `MORSE_PORT`, `MORSE_HOST`, `MORSE_WORKSPACE`, `MORSE_PROJECTS`, `MORSE_HOT_SESSIONS` (4),
 `MORSE_PI_PATH`, `MORSE_PI_ENTRY`, `MORSE_SESSION_DIR`, `MORSE_NO_SESSION`, `MORSE_REQUEST_TIMEOUT_MS`,
-`MORSE_UPLOAD_DIR`, `MORSE_UI_DIR`, `MORSE_TERMINAL_IDLE_MS`.
+`MORSE_UPLOAD_DIR`, `MORSE_UI_DIR`, `MORSE_TERMINAL_IDLE_MS`, `MORSE_LSP_IDLE_MS`, `MORSE_LSP_TS`,
+`MORSE_LSP_JSON`, `MORSE_LSP_YAML`, `MORSE_LSP_SH`, `MORSE_LSP_GO`, `MORSE_LSP_PY`.
+
+The language servers the preview uses are resolved per language: an explicit `MORSE_LSP_<KEY>` path first, then
+the project's own `node_modules/.bin`, then `PATH`, and finally `npx -y <package>` (which downloads once). A
+host where none of those resolve simply reports that no server covers the file, and the preview says so instead
+of showing a clean file.
 
 `MORSE_PROJECTS` is the security boundary: when set (`/a:/b`), the agent only works inside those roots. Unset
 means any absolute path is accepted — fine for `127.0.0.1`, not for `--lan`.
