@@ -307,16 +307,6 @@ export class App {
    * A toast is transient, so it dismisses itself: an info note goes quickly, a
    * warning lingers a little. The manual close stays for "I read it, go away".
    */
-  private readonly autoDismiss = effect(() => {
-    const notice = this.toast();
-    this.clearNoticeTimer();
-    if (!notice) {
-      return;
-    }
-    const ttl = notice.level === 'warn' || notice.level === 'error' ? 6_000 : 3_200;
-    this.noticeTimer = setTimeout(() => this.dismissedNoticeAt.set(notice.at), ttl);
-  });
-
   constructor() {
     // The browser host persists the shell layout (open/focused tabs, panel and
     // terminals). Constructing the service loads what the reader had open and
@@ -372,6 +362,47 @@ export class App {
     this.destroyRef.onDestroy(() => {
       this.clearNoticeTimer();
       this.clearBootTimer();
+    });
+    // A toast is transient, so it dismisses itself: an info note goes quickly, a
+    // warning lingers a little. The manual close stays for "I read it, go away".
+    effect(() => {
+      const notice = this.toast();
+      this.clearNoticeTimer();
+      if (!notice) {
+        return;
+      }
+      const ttl = notice.level === 'warn' || notice.level === 'error' ? 6_000 : 3_200;
+      this.noticeTimer = setTimeout(() => this.dismissedNoticeAt.set(notice.at), ttl);
+    });
+    // While files hover the chat, the target is alive: the ring pings outwards,
+    // the card breathes and the icon bobs. Stopped as soon as the drag ends, so
+    // nothing animates off screen.
+    effect(() => {
+      const dragging = this.dragging();
+      this.stopDropzoneLoops();
+      if (!dragging) {
+        return;
+      }
+      // The overlay is created by this change, so it is measured after the DOM
+      // settles.
+      setTimeout(() => {
+        if (!this.dragging()) {
+          return;
+        }
+        const host: HTMLElement | undefined =
+          (globalThis as { document?: Document }).document?.querySelector('.dropzone') ?? undefined;
+        if (!host) {
+          return;
+        }
+        const card = host.querySelector('.dropzone-card');
+        const icon = host.querySelector('.dropzone-icon');
+        const ring = host.querySelector('.dropzone-ring');
+        this.dropzoneStops = [
+          this.animation.loop(ring, { scale: [1, 1.035], opacity: [0.9, 0.25] }, { duration: 1100 }),
+          this.animation.loop(card, { scale: [1, 1.03] }, { duration: 700 }),
+          this.animation.loop(icon, { translateY: [1.5, -3] }, { duration: 520 }),
+        ];
+      }, 0);
     });
     // The strip follows the host's active session: a resume or a fresh session
     // brings its tab forward, while a file tab stays put as the agent streams.
@@ -480,9 +511,18 @@ export class App {
     if (typeof location === 'undefined') {
       return;
     }
-    const next = new URL(location.href);
-    next.searchParams.set('server', url);
-    location.href = next.toString();
+    try {
+      // Rebuilt from the page's own origin+path (never the raw `location.href`),
+      // so the navigation target can only be this same document with a changed
+      // `server` query parameter — it can never become a redirect elsewhere.
+      const current = new URL(location.href);
+      const next = new URL(`${current.origin}${current.pathname}`);
+      next.search = current.search;
+      next.searchParams.set('server', url);
+      location.assign(next.toString());
+    } catch {
+      // The page's own URL was not parseable: there is nothing to reload into.
+    }
   }
 
   private clearBootTimer(): void {
@@ -644,34 +684,6 @@ export class App {
    * card breathes and the icon bobs. Stopped as soon as the drag ends, so nothing
    * animates off screen.
    */
-  private readonly liveDropzone = effect(() => {
-    const dragging = this.dragging();
-    this.stopDropzoneLoops();
-    if (!dragging) {
-      return;
-    }
-    // The overlay is created by this change, so it is measured after the DOM
-    // settles.
-    setTimeout(() => {
-      if (!this.dragging()) {
-        return;
-      }
-      const host: HTMLElement | undefined =
-        (globalThis as { document?: Document }).document?.querySelector('.dropzone') ?? undefined;
-      if (!host) {
-        return;
-      }
-      const card = host.querySelector('.dropzone-card');
-      const icon = host.querySelector('.dropzone-icon');
-      const ring = host.querySelector('.dropzone-ring');
-      this.dropzoneStops = [
-        this.animation.loop(ring, { scale: [1, 1.035], opacity: [0.9, 0.25] }, { duration: 1100 }),
-        this.animation.loop(card, { scale: [1, 1.03] }, { duration: 700 }),
-        this.animation.loop(icon, { translateY: [1.5, -3] }, { duration: 520 }),
-      ];
-    }, 0);
-  });
-
   private dropzoneStops: Array<() => void> = [];
 
   private stopDropzoneLoops(): void {
