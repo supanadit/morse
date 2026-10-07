@@ -33,6 +33,24 @@ node packages/server/scripts/ws-lease-check.mjs                    # refresh reu
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the layout and layering rules, and
 [`PACKAGING.md`](PACKAGING.md) for how the browser host becomes one npm package.
 
+## Build configuration
+
+`packages/ui-angular/angular.json` is strict JSON (no comments), so any tool can parse it. The decisions it
+encodes, and why:
+
+- **Initial bundle budget** (`maximumWarning` 750 kB, `maximumError` 1.1 MB). The initial bundle is ~1.1 MB raw
+  (~245 kB over the wire): markdown, highlight.js, DOMPurify, anime.js and Angular are all in it, while the
+  code-split editors (prompt templates, session pages) stay out. The ceiling tracks the app's growth (1 MB was
+  set when it was ~600 kB, 1.05 MB before the preview's language-server surface) and is meant to warn about
+  growth, not to freeze the size.
+- **`anyComponentStyle` budget** (`maximumWarning` 12 kB, `maximumError` 16 kB): the transcript's own stylesheet
+  is the largest at ~10.6 kB.
+- **`allowedCommonJsDependencies`** lists the three `@xterm/*` packages because xterm.js ships CommonJS only.
+  It is lazy-loaded, so its size and format never touch the initial bundle.
+- **`serve.options.prebundle.exclude`** lists `@morse/protocol` and `@morse/ui-runtime`: the workspace libraries
+  are linked packages, and prebundling them makes a long-running dev server (and the browser) serve a stale copy
+  after they are rebuilt. Excluding them keeps every reload authoritative.
+
 ## Performance notes
 
 Measured on a Linux box against a real `pi` (Node 24, 155 session files / 199 MB) with the host running from

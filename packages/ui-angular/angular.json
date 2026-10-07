@@ -35,8 +35,6 @@
             "allowedCommonJsDependencies": [
               "@morse/protocol",
               "@morse/ui-runtime",
-              // xterm.js ships CommonJS only; it is lazy-loaded, so its size and
-              // format never touch the initial bundle.
               "@xterm/xterm",
               "@xterm/addon-fit",
               "@xterm/addon-webgl"
@@ -47,17 +45,11 @@
               "budgets": [
                 {
                   "type": "initial",
-                  // ~1 MB raw (~230 kB over the wire) today: markdown, highlight.js,
-                  // DOMPurify, anime.js and Angular are all in the initial bundle; the
-                  // code-split editors (prompt templates) stay out of it. The ceiling
-                  // tracks the app's growth (1 MB was set when it was ~600 kB) and is
-                  // meant to warn about growth, not to freeze the size.
                   "maximumWarning": "750kB",
-                  "maximumError": "1.05MB"
+                  "maximumError": "1.1MB"
                 },
                 {
                   "type": "anyComponentStyle",
-                  // The transcript's own stylesheet is the largest at ~10.6 kB.
                   "maximumWarning": "12kB",
                   "maximumError": "16kB"
                 }
@@ -76,9 +68,6 @@
           "builder": "@angular/build:dev-server",
           "options": {
             "proxyConfig": "proxy.conf.mjs",
-            // Workspace libraries are linked packages: prebundling them makes a
-            // long-running dev server (and the browser) serve a stale copy after
-            // they are rebuilt. Excluding them keeps every reload authoritative.
             "prebundle": {
               "exclude": ["@morse/protocol", "@morse/ui-runtime"]
             }
