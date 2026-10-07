@@ -12,7 +12,7 @@ export interface PiRpcClientOptions {
   requestTimeoutMs?: number;
   onRecord: (record: RpcRecord) => void;
   onStderr?: (text: string) => void;
-  onExit?: (info: { code: number | null; signal: NodeJS.Signals | null }) => void;
+  onExit?: (info: { code: number | null; signal: NodeJS.Signals | null; stderr?: string }) => void;
 }
 
 interface PendingRequest {
@@ -24,6 +24,15 @@ interface PendingRequest {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 2_000;
+
+/**
+ * How much of pi's stderr to remember for a crash report. pi prints its
+ * uncaught-exception trace there, and the last lines name the real cause; the
+ * bound keeps a chatty extension from holding the whole session's output in
+ * memory. Applied to newline count and characters, whichever bites first.
+ */
+const STDERR_TAIL_LINES = 40;
+const STDERR_TAIL_CHARS = 4_000;
 
 /**
  * Minimal JSONL RPC client for `pi --mode rpc`.
@@ -38,6 +47,13 @@ export class PiRpcClient {
   private nextId = 1;
   private readonly pending = new Map<string, PendingRequest>();
   private failed: Error | undefined;
+  /**
+   * The tail of pi's stderr, kept so an exit can 	say *why* it crashed.
+   * pi writes its uncaught-exception trace to stderr, which the JSONL stream
+   * (stdout) never carries — without this the host could only report
+   * "exited (code=1)" and the real error was discarded to a debug log.
+   */
+  private stderrTail: string[] = [];
 
   constructor(private readonly options: PiRpcClientOptions) {}
 
@@ -59,7 +75,9 @@ export class PiRpcClient {
     this.child = child;
     child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk));
     child.stderr.on('data', (chunk: Buffer) => {
-      this.options.onStderr?.(chunk.toString('utf8'));
+      const text = chunk.toString('utf8');
+      this.appendStderr(text);
+      this.options.onStderr?.(text);
     });
     child.on('error', (error: Error) => {
       this.failAll(
@@ -71,13 +89,41 @@ export class PiRpcClient {
     });
     child.on('exit', (code, signal) => {
       this.child = undefined;
+      const stderr = this.stderrText();
       this.failAll(
         new AgentUnavailableError(
-          `The pi agent exited (code=${code === null ? 'null' : code}, signal=${signal ?? 'null'}).`,
+          `The pi agent exited (code=${code === null ? 'null' : code}, signal=${signal ?? 'null'}).` +
+            (stderr.length > 0 ? `\n${stderr}` : ''),
         ),
       );
-      this.options.onExit?.({ code, signal });
+      this.options.onExit?.({
+        code,
+        signal,
+        ...(stderr.length > 0 ? { stderr } : {}),
+      });
     });
+  }
+
+  /**
+   * Appends a stderr chunk to the bounded tail. Chunks are not line-aligned, so
+   * they are kept verbatim and trimmed by line count after a split — a partial
+   * last line is still useful in a crash report.
+   */
+  private appendStderr(text: string): void {
+    this.stderrTail.push(text);
+    // Join and re-split only when the buffer grows past the line budget, so the
+    // common small chunk does no work beyond an array push.
+    if (this.stderrTail.length <= STDERR_TAIL_LINES) {
+      return;
+    }
+    const lines = this.stderrTail.join('').split('\n');
+    this.stderrTail = lines.slice(-STDERR_TAIL_LINES);
+  }
+
+  /** The remembered stderr tail, as one trimmed string (empty when pi was quiet). */
+  private stderrText(): string {
+    const text = this.stderrTail.join('').trim();
+    return text.length > STDERR_TAIL_CHARS ? text.slice(-STDERR_TAIL_CHARS) : text;
   }
 
   async request<T>(

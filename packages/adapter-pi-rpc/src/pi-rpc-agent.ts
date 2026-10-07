@@ -111,10 +111,17 @@ export class PiRpcAgent implements AgentGateway {
       onExit: (info) => {
         this.ready = false;
         if (!this.disposed) {
+          // pi writes its uncaught-exception trace to stderr, which the JSONL
+          // stream never carries. Passing the tail along as `detail` is what
+          // turns "exited (code=1)" into an error the reader can act on (the
+          // `agent/fatal` row shows it under the message; see the transcript).
           this.emit({
             type: 'agent/fatal',
             at: this.now(),
             message: `The pi agent stopped (code=${info.code === null ? 'null' : info.code}).`,
+            ...(info.stderr !== undefined && info.stderr.length > 0
+              ? { detail: info.stderr }
+              : {}),
           });
         }
       },
@@ -442,6 +449,9 @@ export class PiRpcAgent implements AgentGateway {
 
   private onRecord(record: RpcRecord): void {
     if (record['type'] === 'extension_ui_request') {
+      // SAFETY: pi only sends this shape under the `extension_ui_request` type,
+      // and the handler reads each field defensively; the cast just picks the
+      // narrower interface for a record the wire cannot type for us.
       this.onUiRequest(record as unknown as RpcExtensionUiRequest);
       return;
     }

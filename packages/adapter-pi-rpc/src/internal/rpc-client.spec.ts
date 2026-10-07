@@ -70,3 +70,67 @@ describe('PiRpcClient request timeouts', () => {
     );
   });
 });
+
+/**
+ * pi writes its uncaught-exception trace to stderr, never to the JSONL stream,
+ * so a crash used to reach the UI as a bare "exited (code=1)". These lock the
+ * tail that is now carried on `onExit` and in the rejected request.
+ */
+describe('PiRpcClient crash reporting', () => {
+  it('carries the stderr tail on exit, so a crash names its cause', async () => {
+    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr?: string }>(
+      (resolve) => {
+        const client = new PiRpcClient({
+          command: process.execPath,
+          args: [
+            '-e',
+            "process.stderr.write('TypeError: boom\\n    at x\\n'); process.exit(1);",
+          ],
+          cwd: process.cwd(),
+          onRecord: () => undefined,
+          onExit: (info) => resolve(info),
+        });
+        client.start();
+      },
+    );
+
+    const info = await exit;
+    expect(info.code).toBe(1);
+    expect(info.stderr).toContain('TypeError: boom');
+    expect(info.stderr).toContain('at x');
+  });
+
+  it('omits the detail when pi died silently', async () => {
+    const exit = new Promise<{ stderr?: string }>((resolve) => {
+      const client = new PiRpcClient({
+        command: process.execPath,
+        args: ['-e', 'process.exit(1);'],
+        cwd: process.cwd(),
+        onRecord: () => undefined,
+        onExit: (info) => resolve(info),
+      });
+      client.start();
+    });
+
+    const info = await exit;
+    expect(info.stderr).toBeUndefined();
+  });
+
+  it('rejects a pending request with the crash message including the stderr tail', async () => {
+    const client = new PiRpcClient({
+      command: process.execPath,
+      args: [
+        '-e',
+        "setTimeout(() => { process.stderr.write('Error: worker died\\n'); process.exit(1); }, 60);",
+      ],
+      cwd: process.cwd(),
+      onRecord: () => undefined,
+    });
+    client.start();
+
+    await expect(client.request({ type: 'get_state' }, 2_000)).rejects.toMatchObject({
+      message: expect.stringContaining('Error: worker died'),
+    });
+    await client.dispose();
+  });
+});
