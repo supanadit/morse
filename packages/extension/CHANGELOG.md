@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.22.0 — 8 October 2026
+
+A session gets its own editor tab, and the browser's preview gets a language server.
+
+### New
+
+- **A session opens as its own editor tab.** A conversation could only be read inside the sidebar panel, which
+  is narrow and follows whatever session is in front. "Open in editor tab" now puts one session in an editor
+  tab beside any file, and running it again re-focuses the tab it already opened instead of making a second.
+  The tab is pinned to the conversation it names, so the sidebar switching sessions cannot pull the tab's next
+  prompt into another chat.
+- **The browser host's preview reads code through a language server.** Hover a symbol for its type, click a
+  name to follow its definition with a jump to the line, see errors and warnings underlined with a count in the
+  header and a problem list, and find every reference to a symbol in a panel. The server runs on the host's
+  machine, is kept warm per project and language, and is found from `MORSE_LSP_<KEY>`, the project's own
+  `node_modules/.bin`, your `PATH`, then `npx`. A file whose language has no server says so, instead of
+  showing a clean zero.
+- **pi's own TUI slash commands are in the palette.** `/settings`, `/model`, `/reload` and the rest were
+  missing because pi's RPC lists only extension commands, prompt templates and skills. Morse now reads them
+  from the pi install the session runs, so a `pi update` shows up on the next palette refresh. The ones Morse
+  can route — `/model`, `/thinking`, `/new`, `/compact`, `/settings`, `/hotkeys`, `/quit` — open the matching
+  surface, and the rest say they are pi's own instead of being sent as literal prompt text.
+- **The thinking picker says so while it reads.** pi scopes the levels to the current model, so a model pick
+  has to re-read them. The trigger now spins and the list shows `Reading this model's levels…`, with the
+  previous model's rows still on screen but not selectable — they may name a level this model does not have.
+  A model the host has already probed applies in the same frame as the pick, with no wait at all.
+
+### Fixed
+
+- **The Explorer stays where you put it.** The reveal ran on every file list, including the 4-second poll, so
+  the pane kept re-opening the active file's folders and scrolling back to it — a directory could not be
+  browsed without closing the file first. A file is now revealed only when it newly comes forward.
+- **A code-split view no longer opens blank.** The webview's policy trusted only scripts carrying a nonce, and
+  a lazily imported chunk carries none of them, so the request was blocked and the panel stayed empty. The
+  prompt editor was broken the same way. Trusting what the entry itself loads is what fixes it.
+- **A folded sidebar no longer collapses an embedded surface.** Inside a session tab the embedded column lost
+  to the persisted "sidebar collapsed" rule, so anyone who had ever folded the sidebar got a tab with no width.
+
 ## 0.21.0 — 7 October 2026
 
 A tool's task list is on screen, and the chrome extensions send arrives as clean text.
