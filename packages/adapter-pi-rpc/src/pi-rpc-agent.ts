@@ -29,6 +29,7 @@ import {
   type WorkspaceRef,
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
+import { stripAnsi } from './internal/ansi-text.js';
 import { parsePromptTemplate, type PromptFrontmatter } from './internal/prompt-frontmatter.js';
 import { PromptWatcher } from './internal/prompt-watch.js';
 import { resolveAgentDir, readProjectTrust } from './internal/project-trust.js';
@@ -488,7 +489,9 @@ export class PiRpcAgent implements AgentGateway {
         type: 'agent/notice',
         at: this.now(),
         level: toNoticeLevel(request.notifyType),
-        text: request.message ?? '',
+        // Same boundary as the widget/status chrome: a notice is shown as DOM,
+        // so any theme coloring pi forwarded is stripped here too.
+        text: stripAnsi(request.message ?? ''),
       });
       return;
     }
@@ -592,6 +595,10 @@ function toInteractionRequest(
  * Applies one `setWidget`: a new key appends (pi paints widgets in set order), an
  * existing key replaces in place, and a missing/empty `widgetLines` clears it.
  * RPC mode forwards only string lines, so a component factory never arrives.
+ *
+ * Widget text is theme-colored by the extension (`theme.fg`), and pi forwards
+ * the SGR escapes verbatim; strip them here so an extension-agnostic frontend
+ * renders text rather than literal `\u001b[38;2;...m`.
  */
 export function upsertWidget(current: AgentWidget[], request: RpcExtensionUiRequest): AgentWidget[] {
   const key = request.widgetKey;
@@ -605,7 +612,7 @@ export function upsertWidget(current: AgentWidget[], request: RpcExtensionUiRequ
   }
   const next: AgentWidget = {
     key,
-    lines: [...lines],
+    lines: lines.map(stripAnsi),
     placement: request.widgetPlacement === 'belowEditor' ? 'belowEditor' : 'aboveEditor',
   };
   if (index === -1) {
@@ -616,7 +623,11 @@ export function upsertWidget(current: AgentWidget[], request: RpcExtensionUiRequ
   return copy;
 }
 
-/** Applies one `setStatus`: set or replace by key, clear when the text is gone. */
+/**
+ * Applies one `setStatus`: set or replace by key, clear when the text is gone.
+ * Status text is theme-colored by the extension and forwarded verbatim by pi
+ * (see `upsertWidget`), so it is stripped at the same boundary.
+ */
 export function upsertStatus(current: AgentStatus[], request: RpcExtensionUiRequest): AgentStatus[] {
   const key = request.statusKey;
   if (key === undefined || key.length === 0) {
@@ -624,10 +635,13 @@ export function upsertStatus(current: AgentStatus[], request: RpcExtensionUiRequ
   }
   const text = request.statusText;
   const index = current.findIndex((status) => status.key === key);
+  // A theme-colored line is never empty once stripped only of *visible* text:
+  // an extension that clears a status sends no text at all, so emptiness is
+  // judged before stripping, on the raw value.
   if (text === undefined || text.length === 0) {
     return index === -1 ? current : current.filter((status) => status.key !== key);
   }
-  const next: AgentStatus = { key, text };
+  const next: AgentStatus = { key, text: stripAnsi(text) };
   if (index === -1) {
     return [...current, next];
   }

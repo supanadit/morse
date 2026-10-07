@@ -234,6 +234,18 @@ describe('upsertWidget', () => {
 
     expect(set).toEqual([]);
   });
+
+  it('strips the theme coloring pi forwards verbatim, without touching the text', () => {
+    const widgets = upsertWidget([], {
+      type: 'extension_ui_request',
+      id: 'u9',
+      method: 'setWidget',
+      widgetKey: 'demo',
+      widgetLines: ['\u001b[38;2;126;136;142mline\u001b[39m'],
+    });
+
+    expect(widgets[0]?.lines).toEqual(['line']);
+  });
 });
 
 describe('toModelInputs', () => {
@@ -275,6 +287,37 @@ describe('upsertStatus', () => {
       id: 's3',
       method: 'setStatus',
       statusKey: 'ext',
+    });
+    expect(cleared).toEqual([]);
+  });
+
+  it('strips the theme coloring that produced the raw escape in the UI', () => {
+    const set = upsertStatus([], {
+      type: 'extension_ui_request',
+      id: 's4',
+      method: 'setStatus',
+      statusKey: 'pi-lens-lsp',
+      statusText: '\u001b[38;2;126;136;142mLSP Inactive\u001b[39m',
+    });
+
+    expect(set).toEqual([{ key: 'pi-lens-lsp', text: 'LSP Inactive' }]);
+  });
+
+  it('clears on empty raw text even though a stripped colored line is never empty', () => {
+    const colored = upsertStatus([], {
+      type: 'extension_ui_request',
+      id: 's5',
+      method: 'setStatus',
+      statusKey: 'ext',
+      statusText: '\u001b[32mok\u001b[39m',
+    });
+
+    const cleared = upsertStatus(colored, {
+      type: 'extension_ui_request',
+      id: 's6',
+      method: 'setStatus',
+      statusKey: 'ext',
+      statusText: '',
     });
     expect(cleared).toEqual([]);
   });
