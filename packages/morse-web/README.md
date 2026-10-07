@@ -14,7 +14,7 @@ npm install -g @supanadit/morse-web
 morse start
 ```
 
-```
+```text
   ▲  Morse started
   │
   ◆  port 4399 (PID: 20880)
@@ -31,12 +31,13 @@ Then open <http://127.0.0.1:4399/>. The server keeps running in the background; 
 
 ## Why
 
-- **Your Pi, not a hosted service.** Morse spawns `pi --mode rpc` on your machine and reads the same `~/.pi`
-  sessions. Nothing is re-implemented and no API key is stored by Morse.
+- **Your Pi, not a hosted service.** Morse spawns `pi --mode rpc` on your machine and reads and writes the same
+  `~/.pi` sessions. Nothing is re-implemented and no API key is stored by Morse.
 - **No editor needed.** A small NestJS host serves the UI on `127.0.0.1`, so you can drive the agent from any
   browser — on a headless box, over SSH port-forwarding, or beside a remote dev machine.
 - **One package.** The frontend is prebuilt and the `@morse/*` libraries are inlined into a single bundle, so
   there is nothing else to install beyond Node and `pi`.
+- **Free, and it stays free.** No account, no paid tier, no plan for one.
 
 ## Features
 
@@ -77,7 +78,7 @@ Then open <http://127.0.0.1:4399/>. The server keeps running in the background; 
 
 ### Options
 
-```
+```text
 -p, --port <n>       Web server port (default: 4399, next free if taken)
 --host <addr>        Bind address (default: 127.0.0.1)
 --lan                Bind 0.0.0.0 so the LAN can reach it
@@ -90,7 +91,7 @@ Then open <http://127.0.0.1:4399/>. The server keeps running in the background; 
 
 ### Environment
 
-```
+```text
 MORSE_HOME             Data directory (default: ~/.morse)
 MORSE_PORT             Default port
 MORSE_HOST             Default bind address
@@ -102,6 +103,9 @@ MORSE_PI_ENTRY         Run a pi RPC entry with node instead of the binary
 MORSE_UI_DIR           Override the served frontend directory
 ```
 
+The full list, including the language-server, terminal and upload knobs, is in
+[Configuration](https://github.com/supanadit/morse/blob/master/docs/CONFIGURATION.md).
+
 ## Security
 
 `morse start` binds `127.0.0.1` by default. `--lan` exposes an **unauthenticated** chat UI to your network: only
@@ -111,7 +115,7 @@ do it on a trusted network, or put a TLS reverse proxy with auth in front of it.
 
 Everything lives in one tarball:
 
-```
+```text
 dist/server.mjs   NestJS host, with every @morse/* workspace package inlined
 dist/cli.mjs      the `morse` lifecycle CLI
 dist/ui/          the built Angular frontend, served as static assets

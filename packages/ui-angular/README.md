@@ -36,7 +36,7 @@ npm run test -w @morse/ui-angular      # vitest + jsdom, using the in-memory tra
 
 ## Structure
 
-```
+```text
 src/app/core/            transport token, MorseService (Angular <-> protocol), shell state, tabs,
                          workbench persistence, MCP state, git panel state, attachments, shortcuts
 src/app/chat/            transcript, composer, tab strip, header, bottom panel + terminal,
@@ -49,5 +49,5 @@ src/styles.css           VS Code theme variables with browser fallbacks
 scripts/write-manifest.mjs  writes the frontend manifest hosts validate against
 ```
 
-See `docs/FRONTENDS.md` in the repository root for what a frontend must implement, and how to add a
+See [`docs/FRONTENDS.md`](../../docs/FRONTENDS.md) for what a frontend must implement, and how to add a
 React or Svelte alternative without touching any host.

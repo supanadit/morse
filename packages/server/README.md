@@ -35,3 +35,6 @@ explicit `@Inject(...)`**. The agent runs wherever `MORSE_WORKSPACE` (or the wor
 ```bash
 node packages/server/scripts/ws-smoke.mjs ws://127.0.0.1:4399/ws   # pipeline check, no model call
 ```
+
+See [`docs/CONFIGURATION.md`](../../docs/CONFIGURATION.md) for every `MORSE_*` variable, and
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the host's place in the layers.

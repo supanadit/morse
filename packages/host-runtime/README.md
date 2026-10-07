@@ -26,3 +26,5 @@ and the `@morse/core` types, never on `vscode` or NestJS.
 npm run test -w @morse/host-runtime
 npm run build -w @morse/host-runtime
 ```
+
+See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for where this sits between a host and the core.

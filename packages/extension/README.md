@@ -20,6 +20,7 @@ stored by the extension, and a session started in the terminal shows up here (an
   only to the local `pi` process.
 - **Two hosts, one behaviour.** The same chat runs in a browser served by a small NestJS host — the same core,
   protocol and frontend, maintained once. (See **Without VS Code** below.)
+- **Free, and it stays free.** No account, no paid tier, no plan for one.
 
 ## Features
 

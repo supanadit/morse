@@ -4,7 +4,7 @@ The **driven adapter** that runs the [pi](https://github.com/earendil-works/pi) 
 subprocess and implements the `@morse/core` ports against it.
 
 Part of the [Morse](../../README.md) monorepo. It spawns `pi --mode rpc`; it never imports `pi` at
-runtime (the agent and its ~400 MB of dependencies stay pi's own process).
+runtime (the agent and its ~436 MB of dependencies stay pi's own process).
 
 ## What is in here
 
@@ -30,3 +30,6 @@ for `pi mcp …`, which must run the real CLI rather than the RPC entry. Every e
 npm run test -w @morse/adapter-pi-rpc
 npm run check-types -w @morse/adapter-pi-rpc
 ```
+
+See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the RPC framing rules and why Morse spawns pi
+instead of importing it.
