@@ -1,0 +1,125 @@
+<!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
+<!-- Managed by agent: keep sections and order; edit content, not structure -->
+<!-- Last updated: 2026-10-07 | Last verified: 2026-10-07 -->
+
+# packages/ui-angular — AGENTS.md
+
+**Precedence:** the closest `AGENTS.md` wins. This file overrides the root for files under `packages/ui-angular/`.
+
+## Overview
+
+The Angular frontend: views over `SessionView`, plus the app-local state that is not host state (tabs, panel, explorer, drafts, preferences). It is one frontend of a swappable pair — everything it renders it gets from the protocol.
+
+| Path | Holds |
+| --- | --- |
+| `src/app/core/` | state services + pure helpers: `morse.service.ts` (the client), `shell-state.ts`, `workspace-tabs.ts`, `terminal-store.ts`, `panel-state.ts`, `workbench-persistence.ts`, `composer-drafts.ts`, `shortcuts.ts`, `markdown.ts`, `lsp.ts` |
+| `src/app/chat/` | one directory per feature: transcript, composer, model/thinking pickers, file preview, terminal, bottom panel, session page, MCP + prompt editors |
+| `src/app/nav/`, `git/`, `palette/`, `shortcuts/`, `connection/`, `agent/`, `boot/`, `about/` | the shell around the chat |
+| `src/app/routes.ts`, `src/main.ts` | hash route → root component, bootstrapped into an element `main.ts` creates |
+| `src/styles.css` | the theme, `--morse-head-height`, and the rules VS Code's injected layer must not win |
+
+## Setup
+
+`npm install` at the root, then `npm run dev:ui` (`ng serve`; :4200 may be taken → `--port 4321`). `proxy.conf.mjs` forwards `/ws`; `MORSE_SERVER_URL` or `?server=` points at another host, and `?mock=1` needs no host at all.
+
+## Build / tests
+
+| Task | Command |
+| --- | --- |
+| Build | `npm run build -w @morse/ui-angular` (`ng build` + `write-manifest.mjs`) |
+| Type-check | none of its own — there is no `check-types` script here; `ng build` is the type-check |
+| Tests | `npm run test -w @morse/ui-angular` (`ng test` → `@angular/build:unit-test`, vitest + jsdom, no display) — part of `npm run test:fast` |
+| Sync into the extension | `npm run sync-webview` after any UI change |
+
+## Code style
+
+- **UI state comes only from `reduceSessionView`** (`@morse/protocol`); a component reads `state.capabilities` instead of guessing what the host can do.
+- **A shortcut is one entry in `core/shortcuts.ts` plus a `bind()` by whoever owns the state it acts on** (the composer binds the model chooser, the thinking picker its own panel) — never a second key handler per component, so the `?` help list prints exactly what the service matches, and an unowned action shows as unavailable rather than promised.
+- Only a spec marked `whileTyping` may fire with the caret in an input/textarea; only a spec marked `overlay` may open while `ShellState.modalOpen()`.
+- CSS: a custom control that paints a hover state on a global `button` rule needs the same specificity to win (`.row:hover:not(:disabled)`, likewise `.group-title`, `.context-menu-item`, …). Both header rows read `--morse-head-height`; never give one its own padding.
+- App-local state that must survive a reload goes through `core/workbench-persistence.ts` (and `view-state.ts` for a single value), not ad-hoc `localStorage`.
+
+## Security
+
+Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in `core/markdown.ts` with DOMPurify before it reaches the DOM — a new renderer must go through it, and untrusted text never becomes `innerHTML`. The view layer holds no credentials and no tokens: a stored preference is a preference, and a capability it did not verify (for example the `Notification` permission) must be re-read, never assumed.
+
+## Commit / PR
+
+- Conventional commits (`feat(ui): …`, `fix(ui): …`), one logical change per commit.
+- A UI change is not done until `npm run build` (+ `npm run sync-webview`) ran — the VS Code host serves the copied bundle, not this source tree.
+- Add or fix a spec beside the state it covers (`core/*.spec.ts`); the UI has no other test surface.
+
+## Examples
+
+- `core/markdown.ts` — parse, sanitize, highlight, and the render cadence, in one place.
+- `core/workspace-tabs.ts` — the tab/chip ownership model (owner session, menu scope, chip owner); read it before touching tab behaviour.
+- `core/shortcuts.ts` + `shortcuts/shortcuts-dialog.ts` — the registry and the list that prints it are the same data.
+- `core/shell-state.ts` — signals for the shell's persisted knobs and the confirm dialog.
+
+## Gotchas
+
+| Symptom | Cause / fix |
+| --- | --- |
+| Browser UI stuck on `connecting` / `no model` | the dev server is not proxying `/ws` — check `packages/ui-angular/proxy.conf.mjs`, `MORSE_SERVER_URL` or the `?server=` override |
+| UI shows `Starting the Pi agent…` | normal (cold start ~1.5 s): lifecycle is the badge (`connecting` → `starting` → `ready`), not a banner |
+| UI shows one group and no project switcher | that host is `scope: 'workspace'` (VS Code) — intended, not a bug |
+| `pi: No session found matching 'draft'`, agent exits code=1 | a draft tab was activated as a real session: never send `session/activate` for a tab whose `draft` flag is set (`packages/ui-angular/src/app/core/workspace-tabs.ts`); the host is already showing it |
+| A banner flashes on every load | it must not: banners render only for a refused handshake, `error`/`closed`, or a handshake stalled > 6 s (`slowConnection`). The first such state after the cold start is the friendly `ConnectionScreen`, not a banner |
+| A setup screen instead of the chat | `pi` is not on the host's `PATH`; the screen names the command to install and the setting/env var that host reads (`state.agentFailure`) |
+| Panel has ~20px left/right margin in VS Code only | VS Code injects `@layer vscode-default { body { padding: 0 20px } }` into every webview; Morse must declare an unlayered `body { padding: 0 }` in `styles.css` to win |
+| Sidebar comes back folded after a reload | intended: `ShellState` keeps the wide-layout fold in `localStorage` (`morse.navigation.collapsed`); clear that key to reset it |
+| Compact (or `/compact`) seems to do nothing | it asks first: `ShellState.requestCompact()` opens `morse-confirm-dialog`, where Cancel is focused on purpose |
+| Typing a project name in the sidebar finds no sessions | that box searches session titles only — the project button above it opens the searchable filter; the empty state offers the matching project as a jump |
+| Sidebar and chat headers out of line | both rows read `--morse-head-height`; giving one of them its own padding/`min-height` is how they drift apart |
+| A shortcut does nothing | no owner bound it: the action is registered by the component that owns the state (the composer, the sidebar), so a `?` list row marked "not in this host" is the honest answer — bind it there, not in `App` |
+| No hover, no squiggles, no jump in the file preview | either `capabilities.lsp` is off (VS Code: its own LSP owns those files) or no server resolved for that language — the header then shows `LSP —` rather than a clean file. Install `typescript-language-server` (or set `MORSE_LSP_TS`); the resolution order is env → the project's `node_modules/.bin` → `PATH` → `npx -y` |
+| The first hover over a file does nothing | by design: the host answers only from a server that is already answering, and starts a cold one in the background instead of making the request wait on `npx` (the preview's own diagnostics request is what warms it). The second hover works |
+| A problem is in the list but has no squiggle | `Range.getClientRects` is missing in that DOM (jsdom, older WebKit), so the overlay measures nothing; `measureMarks` degrades to the header list on purpose instead of throwing |
+| A jump opens the file but not the line | `FileTab.line` is only set by a jump (`openFile(path, line)`) and consumed once; a plain Explorer click opens at the top, and a tab already open is moved with `revealLine` |
+| The hover card vanishes when reaching for "Find references" | it pins itself after `HOVER_LOCK_MS` (900 ms, the ring counts that down), and is then taken over by a hover that *settles* on another symbol, or ended by its ✕, Escape, or a press anywhere *outside* it (a press on the card is its own controls: Copy, Find references, ✕). Everything the pointer does is decided after `HOVER_DEBOUNCE_MS` (140 ms): a cursor crossing a word or a bracket on its way elsewhere changes nothing — it neither dismisses a card nor asks for one — while resting on a new symbol replaces the card and restarts the countdown; resting on the *same* symbol keeps the card and its clock. Before the pin, a 260 ms grace (`HOVER_CLOSE_DELAY_MS`) covers the pointer crossing to the card. Clicking **Find references** closes the card and opens the panel at once (it reads `Reading references…`, then `The language server did not answer.` if nothing comes back), so the card never sits on top of the list it asked for |
+| A highlighted range cannot be removed from the preview | it can, two ways: the band's own **Cancel** button (bottom right of every highlight, including the band of a drag in progress) or a click on a highlighted line number (the toggle the diff view's change blocks use). Either way the composer's chip goes with it — the bands are derived from the pins. A *drag* inside a highlight still redefines it, and Escape only abandons a drag in progress |
+| `/` or `?` fires while typing a prompt | characters belong to the field: only specs marked `whileTyping` may run with the caret in an input/textarea |
+| A character typed with AltGr triggers an action | Windows reports AltGr as Ctrl+Alt; `ShortcutService` skips `getModifierState('AltGraph')` |
+| An overlay opens behind a dialog | specs marked `overlay` stand down while `ShellState.modalOpen()`; mark the new one or it will stack |
+| The update notice never appears | the host must advertise `capabilities.updateCheck` (`MORSE_UPDATE_CHECK=0` disables it, and the VS Code webview CSP must list `https://registry.npmjs.org`); review it offline with `?mock=1&newer=0.3.0` |
+| No pi update notice (the Morse one shows) | the host could not read the installed pi version, so it advertised no `capabilities.piVersion`; `readPiVersion` needs pi's own `package.json` (a symlinked `pi` is followed). Review it offline with `?mock=1&newer-pi=9.9.9` |
+| `/prompts` is missing, or the editor says it cannot load | the entry is the Morse command **Edit prompt templates** (`view.prompts`, `Ctrl+Alt+E`) in the command palette, not a pi slash command; it is hidden when `capabilities.promptEditor` is off (the host could not reach pi's prompt directories) |
+| The argument tester lags a keystroke behind the body | intended: the body/hint parse is debounced 200 ms (RxJS `debounceTime` in `prompt-editor.ts`), so the field list does not flicker on a half-typed `$`. Selecting a template and saving read the signals directly, not the debounced copy |
+| No notification when a run finishes | it is **off by default**: turn it on from the one-time `.notify-prompt` nudge or the palette (`Turn on completion notifications`). `core/notification-prefs.ts` also picks the mode (`away` by default, so it stays quiet while the panel is focused; `always` speaks every time). VS Code raises it through `capabilities.notify` → the `notify` host command; the browser host uses the `Notification` API and needs the permission granted. If the permission is revoked later, `RunNotifier.permission` re-reads it on focus / `navigator.permissions` and the banner returns as **blocked** — the stored preference alone must not claim it works |
+| The thinking dropdown keeps the previous model's levels after a model pick | intended, and now visible: pi scopes the levels to the *current* model, so they can only be re-read after the switch — RPC for a live session, a re-probe of pi for a draft. `HostSessionController.setModel` sets `loadingThinkingLevels`, so the picker spins in the trigger, shows `Reading this model's levels…`, and disables the rows (they belong to the previous model). A model the registry already probed applies in the same frame via `SessionRegistry.cachedDraftDefaults`; a newer pick keeps its own loading row (`thinkingLevelsRefresh`) |
+| Streamed prose lags the model by a beat | intended: `Markdown` re-renders at most every 90 ms instead of per delta; measure `docs/DEVELOPMENT.md` before removing it |
+| A session tab shows a different conversation after a while | it is pinned: a pinned controller ignores another surface's `session/activate` and returns to the empty draft when its session is closed or deleted, instead of adopting a hot one. If a tab follows the sidebar, the controller was built without `pinnedSessionId` |
+| A session tab is one empty column | `.shell.embedded` must outrank `.shell.collapsed`: the fold is persisted (`morse.navigation.collapsed`), so a reader who once folded the sidebar would otherwise collapse the tab's only column to zero. The embedded rule carries both classes (`.shell.embedded.collapsed`) because the fold rule sits later in the file |
+| The chat shows the Morse hero with no tab in front | intended: the browser host renders `morse-empty-session` and does **not** mount the composer when `tabs.activeId()` is undefined (`app.html` `noSessionSelected`), so a prompt cannot silently open a session. Create one from the placeholder, the sidebar, or `Ctrl+Alt+N`; the lazy "type to start" path is only for a host without a tab strip (VS Code) |
+| The header names the previous project when no session is open | intended: `WorkspaceTabs.noSessionInFront` (the same signal `App` uses) is true, so `ChatHeader` shows `Morse` and drops the workspace from its meta line instead of claiming `state.workspace.name`. The workspace is still whatever the host last had; only a session tab in front makes it the subject |
+| A file opens as its own tab instead of a chip, or a pin lands in another session | the row follows the session in front: `WorkspaceTabs.openFile`/`openCommitFile` attach the file to `focusedOwner()` (a chip keyed by that session) when a session tab exists, and stand alone only when none does. `contextSessionId` uses the owner so the composer/preview pin stays with it; a chip is removed with its session |
+| A file chip's context menu closes the session tab | a menu's scope is the clicked tab's own: `WorkspaceTabs.menuScope(id)` returns the whole strip for a session but only the chip's row for a file. `closeOthers`/`closeToTheRight`/`closeAll` must read that scope, never `items()` directly — a chip is context, and closing it must not take a session with it |
+| Closing the last chip jumps to another session’s file | `WorkspaceTabs.remove` takes the closed chip's owner session and selects it (`chipOwner`), instead of the positional neighbour in `items` — a chip is context for its session, so closing the chip in front returns to that conversation |
+| Two file chips look identical | intended: when any file name in the row is shared, the whole chip row goes two lines and every chip shows its directory, clipped at the front (`.dir` with `direction: rtl` and a `<bdi>` in `tab-strip`, so the folder nearest the file stays visible). With no shared name every chip is one row. If two still look identical, their names are not in the same row — `namesClash` counts chips per session row |
+| A new file is missing from the Explorer | it polls `listFiles` (`fresh: true`) every 4 s plus `gitStatus`; a hidden tab pauses the poll. No host push — the tree changes on disk |
+| File/session tabs vanish on reload | intended only in VS Code (its own editor restores tabs). The browser host persists the open/focused tabs, panel and terminals to `<MORSE_HOME>/workbench.json` — check `capabilities.workbench` and `core/workbench-persistence.ts`; a snapshot from another `version` is ignored on purpose |
+| Terminal dies on a tab switch, a hidden panel, or after `morse stop`/`start` | the shell must outlive the view: a `Terminal` never sends `terminal/close` on destroy — only an explicit reader close does (`TerminalView.close`/`closePane`, `WorkspaceTabs.closeOwnerTerminals`), and the bottom panel is hidden with a class rather than `@if`-unmounted (`app.ts` `bottomPanelEnabled` mounts, `bottomPanelVisible` hides). A draft holding a terminal is not discarded as "untouched" (`TerminalStore.hasOwner`) |
+| A long prompt or its attachments vanish on reload / `morse stop` / a closed laptop | intended only in VS Code. The browser host saves every tab's draft — text, pins, mentions and inline images — to `<MORSE_HOME>/drafts.json` (`core/composer-drafts.ts`, `core/attachments.ts` via `WorkbenchPersistence`); the tab itself, a "New session" draft included, lives in `workbench.json` |
+| Terminal pane stays blank and no shell is ever spawned | the xterm packages are CommonJS: a production bundle's lazy chunk exports only `default`, so `core.Terminal` is `undefined` and the pane silently never calls `terminal/open` — go through `importCjs` in `chat/terminal/terminal.ts`. A unit mock with named exports hides this, so the specs mirror the `default`-only shape |
+| A custom button paints the theme accent on hover | the global `button:hover:not(:disabled)` (specificity 0,2,1) beats a plain `.row:hover` (0,2,0); write the override as `.row:hover:not(:disabled)` (same for `.group-title`, `.context-menu-item`, …) |
+| The Explorer cannot be resized | it can: drag its top edge (`.resize`); the height persists in `morse.explorer.height` via `ShellState` |
+
+## When stuck
+
+| Need | File |
+| --- | --- |
+| keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/core/shortcuts.ts` ← `shortcuts/shortcuts-dialog.ts` |
+| a model's input modalities (text/vision/audio/…) | `packages/ui-angular/src/app/chat/model-picker/model-inputs.ts` ← pi's `input` on `ModelOption.input` |
+| "a newer release is out" notice (Morse or pi) | `packages/ui-angular/src/app/core/update.ts` ← `capabilities.updateCheck`/`piVersion`, `docs/CONFIGURATION.md` |
+| "a run finished" notice while the window is elsewhere | `packages/ui-angular/src/app/core/notifications.ts` + `notification-prefs.ts` ← `capabilities.notify` |
+| git history + graph panel (browser host) | `packages/ui-angular/src/app/git/git-panel.ts` ← `core/git-graph.ts`, `packages/server/src/internal/workspace/git-log.ts` |
+| MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/chat/mcp-panel/` ← `core/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
+| prompt-template editor + argument tester | `packages/ui-angular/src/app/chat/prompt-editor/` ← `core/prompt-templates-state.ts`, `packages/ui-runtime/src/prompt-template.ts` (the same expansion the composer uses); host file I/O in `packages/adapter-pi-rpc/src/pi-prompts.ts`; code-split, and scoped to the session in front |
+| who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |
+| pi is not installed (setup screen) | `packages/ui-angular/src/app/agent/agent-screen.ts` ← `state.agentFailure` |
+| cold-start splash → empty-state handoff | `packages/ui-angular/src/app/boot/boot-splash.ts`, `packages/ui-angular/src/app/core/boot-handoff.ts` |
+| offline / no-host screen | `packages/ui-angular/src/app/connection/connection-screen.ts` |
+| frontend state that must survive a reload | `packages/ui-angular/src/app/core/view-state.ts` ← `HostTransport.readState/writeState` (VS Code webview state, mock memory), `localStorage` fallback; VS Code panels also need `registerWebviewPanelSerializer` |
+| measured performance baseline | `docs/DEVELOPMENT.md` ← session catalog cache, markdown render cadence |
+| interface preferences a user can change | `docs/CONFIGURATION.md` §Interface preferences |
+| reviewing a view with no host | `docs/FRONTENDS.md` §Developing a frontend without any host |
