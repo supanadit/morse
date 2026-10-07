@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.20.0 — 7 October 2026
+
+What a model accepts is on the badge, and pi's dialogs arrive as a card.
+
+### New
+
+- **See what a model accepts before you pick it.** The model picker now badges each model's input
+  modalities — text, vision, audio, video, PDF — with an icon and a tooltip, and typing `vision` in
+  the search finds the image-capable ones. A model with no badge is one pi said nothing about, never a
+  claim that it is text-only.
+- **pi's dialogs open as a proper card.** A question, confirmation, text prompt or multi-line editor
+  now shares one card shape: an icon per kind, a numbered option list, and a footer that puts Cancel
+  before the action, with a destructive one marked. Escape cancels any of them, Enter submits the input
+  and editor kinds, and the arrow keys move between options without pulling focus away while you scroll
+  the transcript.
+
+### Fixed
+
+- **The Changes divider stays under your cursor.** Grabbing the handle between the commit box and the
+  changed files used to make the divider jump down by the height of everything above it. It now measures
+  from the Changes section itself and folds in the grab point, so the drag starts where you grabbed it.
+- **The Explorer's header hover is a full-width row.** It matches the git panel's section headers instead
+  of a small rounded patch behind the label.
+
 ## 0.19.2 — 6 October 2026
 
 The last lines a terminal printed before `morse stop` now survive it.
