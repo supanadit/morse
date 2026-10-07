@@ -1,46 +1,113 @@
 @if (visible() && request(); as req) {
-  <section class="dialog" role="dialog" aria-live="polite">
-    <header>{{ req.title }}</header>
+  <section
+    class="card"
+    [class.danger]="dangerOf(req)"
+    role="dialog"
+    aria-live="polite"
+    [morseEnter]="0"
+    [morseEnterY]="8"
+  >
+    <header>
+      <span class="glyph" aria-hidden="true">
+        <svg viewBox="0 0 16 16">
+          <path d="M8 2.4a5.6 5.6 0 0 0-4.9 8.4L2.4 13.6l3-.7A5.6 5.6 0 1 0 8 2.4Z" />
+          <path d="M6 7.2h4" />
+          <path d="M6 9.6h2.6" />
+        </svg>
+      </span>
+      <div class="titles">
+        <h2 [class.flow]="overflowTitle().length > 0">{{ heading() }}</h2>
+        <span class="kind">{{ kindOf(req) }}</span>
+      </div>
+    </header>
 
-    @switch (req.kind) {
-      @case ('select') {
-        @if (messageOf(req); as message) {
-          <p class="muted">{{ message }}</p>
-        }
-        <div class="options">
-          @for (option of optionsOf(req); track option.value) {
-            <button type="button" class="secondary" (click)="choose(option.value)">
-              {{ option.label }}
-            </button>
+    <div class="body">
+      @switch (req.kind) {
+        @case ('select') {
+          @if (overflowTitle(); as text) {
+            <p class="message">{{ text }}</p>
           }
-        </div>
+          @if (messageOf(req); as message) {
+            <p class="message">{{ message }}</p>
+          }
+          <div class="options">
+            @for (option of options(); track $index) {
+              <button type="button" class="option" (click)="choose(option)">
+                <span class="option-ordinal" aria-hidden="true">{{ option.ordinal }}</span>
+                <span class="option-text">
+                  <span class="option-label">{{ option.label }}</span>
+                  @if (option.description) {
+                    <span class="option-description">{{ option.description }}</span>
+                  }
+                </span>
+              </button>
+            }
+          </div>
+        }
+        @case ('confirm') {
+          @if (overflowTitle(); as text) {
+            <p class="message">{{ text }}</p>
+          }
+          @if (messageOf(req); as message) {
+            <p class="message">{{ message }}</p>
+          }
+          <div class="actions">
+            <button type="button" class="secondary" (click)="decide(false)">No</button>
+            <button type="button" (click)="decide(true)">Yes</button>
+          </div>
+        }
+        @case ('input') {
+          @if (overflowTitle(); as text) {
+            <p class="message">{{ text }}</p>
+          }
+          <input
+            class="field"
+            type="text"
+            [value]="value()"
+            [placeholder]="placeholderOf(req)"
+            (input)="onInput($event)"
+            (keydown.enter)="$event.preventDefault(); submit()"
+          />
+          <div class="actions">
+            <button type="button" class="secondary" (click)="cancel()">Cancel</button>
+            <button type="button" (click)="submit()">Submit</button>
+          </div>
+        }
+        @case ('editor') {
+          @if (overflowTitle(); as text) {
+            <p class="message">{{ text }}</p>
+          }
+          <textarea
+            class="field"
+            rows="5"
+            [value]="value()"
+            (input)="onInput($event)"
+            (keydown.control.enter)="$event.preventDefault(); submit()"
+            (keydown.meta.enter)="$event.preventDefault(); submit()"
+          ></textarea>
+          <div class="actions">
+            <button type="button" class="secondary" (click)="cancel()">Cancel</button>
+            <button type="button" (click)="submit()">Submit</button>
+          </div>
+        }
       }
-      @case ('confirm') {
-        <p>{{ messageOf(req) }}</p>
-        <div class="options">
-          <button type="button" (click)="decide(true)">Yes</button>
-          <button type="button" class="secondary" (click)="decide(false)">No</button>
-        </div>
+    </div>
+
+    <div class="hint">
+      @switch (req.kind) {
+        @case ('select') {
+          <kbd>↑</kbd><kbd>↓</kbd><span>move</span>
+          <kbd>Enter</kbd><span>pick</span>
+        }
+        @case ('input') {
+          <kbd>Enter</kbd><span>submit</span>
+        }
+        @case ('editor') {
+          <kbd>Ctrl</kbd><kbd>Enter</kbd><span>submit</span>
+        }
       }
-      @case ('input') {
-        <input
-          type="text"
-          [value]="value()"
-          [placeholder]="placeholderOf(req)"
-          (input)="onInput($event)"
-        />
-        <div class="options">
-          <button type="button" (click)="submit()">Submit</button>
-          <button type="button" class="secondary" (click)="cancel()">Cancel</button>
-        </div>
-      }
-      @case ('editor') {
-        <textarea rows="5" [value]="value()" (input)="onInput($event)"></textarea>
-        <div class="options">
-          <button type="button" (click)="submit()">Submit</button>
-          <button type="button" class="secondary" (click)="cancel()">Cancel</button>
-        </div>
-      }
-    }
+      <span class="spacer"></span>
+      <kbd>Esc</kbd><span>cancel</span>
+    </div>
   </section>
 }
