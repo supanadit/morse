@@ -13,6 +13,25 @@ export type HostKind = 'vscode' | 'server';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
+/** A JSON value as it crosses the wire — what structured data can actually be. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/**
+ * The structured result a tool returned (pi `AgentToolResult.details`),
+ * carried verbatim across the wire so a frontend can probe its shape.
+ *
+ * A JSON object with no fixed keys: Morse renders structured tool output by
+ * *shape*, not by tool name, so an unrecognized key is carried rather than
+ * dropped.
+ */
+export type ToolResultDetails = { [key: string]: JsonValue };
+
 /**
  * What a model accepts as input — pi's `input` array. pi itself ships `text`
  * and `image` today; the wider union covers the modalities the picker has an
@@ -752,6 +771,13 @@ export interface ToolTranscriptItem extends BaseTranscriptItem {
   status: ToolStatus;
   input?: string;
   output?: string;
+  /**
+   * The tool's structured result, when it returned one. A frontend probes this
+   * by shape (see the task-list probe) instead of matching a tool by name, so
+   * any conforming extension renders without a Morse change. Optional: most
+   * tools return only text, and the JSON is omitted for them.
+   */
+  details?: ToolResultDetails;
   durationMs?: number;
 }
 

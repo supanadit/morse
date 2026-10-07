@@ -105,4 +105,48 @@ describe('TranscriptProjector tool elapsed', () => {
       durationMs: 42,
     });
   });
+
+  it('carries a tool\u2019s structured details so a frontend can probe its shape', () => {
+    const projector = new TranscriptProjector({ emit: () => {}, now: () => 0 });
+    projector.apply({
+      type: 'agent/tool-start',
+      at: 0,
+      toolCallId: 'c1',
+      name: 'anything',
+      title: 'anything',
+    });
+    projector.apply({
+      type: 'agent/tool-end',
+      at: 0,
+      toolCallId: 'c1',
+      status: 'ok',
+      details: { tasks: [{ id: 1, subject: 'Do it', status: 'pending' }] },
+    });
+
+    const item = projector.snapshot().find((entry) => entry.kind === 'tool');
+    expect(item).toMatchObject({
+      details: { tasks: [{ id: 1, subject: 'Do it', status: 'pending' }] },
+    });
+  });
+
+  it('leaves details absent when a tool returned only text', () => {
+    const projector = new TranscriptProjector({ emit: () => {}, now: () => 0 });
+    projector.apply({
+      type: 'agent/tool-start',
+      at: 0,
+      toolCallId: 'c1',
+      name: 'bash',
+      title: 'bash: ls',
+    });
+    projector.apply({
+      type: 'agent/tool-end',
+      at: 0,
+      toolCallId: 'c1',
+      status: 'ok',
+      output: 'a.ts',
+    });
+
+    const item = projector.snapshot().find((entry) => entry.kind === 'tool');
+    expect(item && 'details' in item ? item.details : undefined).toBeUndefined();
+  });
 });

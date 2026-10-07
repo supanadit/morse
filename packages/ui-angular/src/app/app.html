@@ -217,6 +217,12 @@
       } @else {
         <morse-chat-transcript />
         <morse-interaction-panel />
+        <!-- The session's todo list, docked just above the composer: pi's TUI
+             shows a todo widget there, and RPC cannot carry it (the extension
+             registers a component factory, which RPC mode drops). Rebuilt from
+             the transcript's task-shaped tool results instead. Self-hiding: with
+             no open work left it renders nothing. -->
+        <morse-task-overlay />
         <morse-chat-composer />
       }
     }

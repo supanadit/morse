@@ -6,6 +6,7 @@ import type {
   NoticeLevel,
   PromptImage,
   TokenUsage,
+  ToolResultDetails,
 } from '@morse/core';
 import {
   asArray,
@@ -194,6 +195,12 @@ function collectMessage(
         entry.output = output;
       }
       entry.status = message['isError'] === true ? 'error' : 'ok';
+      // The persisted tool result carries the same structured `details` a live
+      // event does, so a resumed session can render it identically.
+      const details = message['details']; // SAFETY: pi round-trips the tool's own JSON details here; a shape probe validates it downstream.
+      if (typeof details === 'object' && details !== null && !Array.isArray(details)) {
+        entry.details = details as ToolResultDetails;
+      }
     }
     return;
   }
@@ -381,9 +388,22 @@ function mapToolEnd(record: RpcRecord, now: () => number): MappedRecord {
         toolCallId,
         status: record['isError'] === true ? 'error' : 'ok',
         output: resultToText(record['result']),
+        details: toolResultDetails(record['result']),
       },
     ],
   };
+}
+
+/**
+ * The `details` a tool returned, passed through untouched. pi's
+ * `AgentToolResult` carries `content` (what the row already shows) and
+ * `details` (structured data for a UI); Morse keeps the latter so a frontend
+ * can probe its shape. Deliberately unparsed beyond "is it an object" —
+ * interpreting it is the renderer's job, and doing it at the boundary would
+ * tie Morse to a particular extension's schema.
+ */
+function toolResultDetails(result: unknown): ToolResultDetails | undefined {
+  return asRecord(result)?.['details'] as ToolResultDetails | undefined;
 }
 
 function mapCompactionEnd(record: RpcRecord, now: () => number): MappedRecord {

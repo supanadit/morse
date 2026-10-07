@@ -148,6 +148,59 @@ describe('mapSessionEvent compaction_end', () => {
   });
 });
 
+describe('mapSessionEvent tool_execution_end', () => {
+  it('carries the tool\u2019s structured details through verbatim, with the text output', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'tool_execution_end',
+        toolCallId: 'c1',
+        toolName: 'anything',
+        isError: false,
+        result: {
+          content: [{ type: 'text', text: 'Created #1: Do it (pending)' }],
+          details: { tasks: [{ id: 1, subject: 'Do it', status: 'pending' }], nextId: 2 },
+        },
+      },
+      () => 7,
+    );
+
+    expect(mapped.events).toEqual([
+      {
+        type: 'agent/tool-end',
+        at: 7,
+        toolCallId: 'c1',
+        status: 'ok',
+        output: 'Created #1: Do it (pending)',
+        details: { tasks: [{ id: 1, subject: 'Do it', status: 'pending' }], nextId: 2 },
+      },
+    ]);
+  });
+
+  it('omits details when the result carries none, so a text-only tool is unchanged', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'tool_execution_end',
+        toolCallId: 'c2',
+        toolName: 'bash',
+        isError: false,
+        result: { content: [{ type: 'text', text: 'a.ts' }] },
+      },
+      () => 7,
+    );
+
+    expect(mapped.events[0]).toMatchObject({ output: 'a.ts' });
+    expect(mapped.events[0] && 'details' in mapped.events[0] ? mapped.events[0].details : undefined).toBeUndefined();
+  });
+
+  it('does not invent details when the whole result is a bare string', () => {
+    const mapped = mapSessionEvent(
+      { type: 'tool_execution_end', toolCallId: 'c3', toolName: 'x', isError: false, result: 'plain' },
+      () => 7,
+    );
+    expect(mapped.events[0]).toMatchObject({ output: 'plain' });
+  });
+});
+
 describe('toHistory (a flat `get_messages` list)', () => {
   it('still pairs tool results with their calls', () => {
     const history = toHistory([
@@ -161,5 +214,30 @@ describe('toHistory (a flat `get_messages` list)', () => {
     ]);
     expect(history).toHaveLength(1);
     expect(history[0]).toMatchObject({ role: 'tool', output: 'contents' });
+  });
+
+  it('carries a persisted tool result\u2019s details into history, so a resumed session renders it', () => {
+    const history = toHistory([
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'c1', name: 'todo' }], timestamp: 1_000 },
+      {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        content: [{ type: 'text', text: 'Created #1' }],
+        details: { tasks: [{ id: 1, subject: 'Do it', status: 'pending' }] },
+        isError: false,
+      },
+    ]);
+    expect(history[0]).toMatchObject({
+      details: { tasks: [{ id: 1, subject: 'Do it', status: 'pending' }] },
+    });
+  });
+
+  it('leaves details absent on a history tool entry that has none', () => {
+    const history = toHistory([
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'c1', name: 'bash' }], timestamp: 1_000 },
+      { role: 'toolResult', toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }], isError: false },
+    ]);
+    const entry = history[0];
+    expect(entry && 'details' in entry ? entry.details : undefined).toBeUndefined();
   });
 });

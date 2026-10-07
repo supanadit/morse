@@ -5,6 +5,7 @@ import type {
   HostToClientMessage,
   NoticeLevel,
   PromptImage,
+  ToolResultDetails,
   ToolTranscriptItem,
   TranscriptItem,
   UserTranscriptItem,
@@ -146,7 +147,7 @@ export class TranscriptProjector {
         this.applyToolUpdate(event.toolCallId, event.output, event.status);
         break;
       case 'agent/tool-end':
-        this.applyToolEnd(event.toolCallId, event.status, event.output, event.durationMs);
+        this.applyToolEnd(event.toolCallId, event.status, event.output, event.details, event.durationMs);
         break;
       case 'agent/run-end':
         this.finishAssistant(event.reason === 'error' ? undefined : event.reason);
@@ -243,6 +244,7 @@ export class TranscriptProjector {
     toolCallId: string,
     status: 'ok' | 'error',
     output: string | undefined,
+    details: ToolResultDetails | undefined,
     durationMs: number | undefined,
   ): void {
     const item = this.toolItem(toolCallId);
@@ -252,6 +254,12 @@ export class TranscriptProjector {
     item.status = status;
     if (output !== undefined) {
       item.output = output;
+    }
+    // The tool's own structured result, for a frontend to probe by shape. Only
+    // set when a tool actually returned one, so a text-only result keeps the
+    // item (and its serialized form) exactly as before.
+    if (details !== undefined) {
+      item.details = details;
     }
     // pi's `tool_execution_end` carries no duration, and a finished turn can
     // only show "Worked for Ns" if one is recorded. Measure it from the start

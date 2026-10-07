@@ -1,0 +1,25 @@
+@if (tasks().length) {
+  <div class="board">
+    @if (!headless()) {
+      <div class="head">
+        <b>Tasks</b>
+        <span>{{ counts().done }}/{{ counts().total }} done</span>
+      </div>
+    }
+    <div class="list">
+      @for (task of tasks(); track task.id) {
+        <div class="task" [class]="'task ' + task.status">
+          <span class="glyph" aria-hidden="true">{{ glyph(task.status) }}</span>
+          <span class="id">#{{ task.id }}</span>
+          <span class="subject">{{ task.subject }}</span>
+          @if (task.status === 'in_progress' && task.activeForm) {
+            <span class="form">({{ task.activeForm }})</span>
+          }
+          @if (task.blockedBy?.length) {
+            <span class="deps">⛓ {{ blockList(task.blockedBy) }}</span>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}

@@ -1568,6 +1568,7 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
         status: entry.status,
         input: entry.input,
         output: entry.output,
+        ...(entry.details !== undefined ? { details: entry.details } : {}),
       };
     }
     if (entry.role === 'compaction') {

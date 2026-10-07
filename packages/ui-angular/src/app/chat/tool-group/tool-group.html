@@ -50,10 +50,10 @@
 
               @if (diff(step.item); as changes) {
                 <span class="diff">
-                  @if (changes.added > 0) {
+                  @if (changes.added) {
                     <span class="add">+{{ changes.added }}</span>
                   }
-                  @if (changes.removed > 0) {
+                  @if (changes.removed) {
                     <span class="del">−{{ changes.removed }}</span>
                   }
                 </span>
@@ -84,16 +84,20 @@
 
             @if (isStepOpen(step.key)) {
               <div class="body" [attr.data-body]="step.key">
-                @if (step.item.input) {
-                  <span class="label-small">input</span>
-                  <pre>{{ step.item.input }}</pre>
-                }
-                @if (step.item.output) {
-                  <span class="label-small">output</span>
-                  <pre>{{ step.item.output }}</pre>
-                }
-                @if (!step.item.input && !step.item.output) {
-                  <span class="label-small">no details reported</span>
+                @if (taskBoard(step.item); as board) {
+                  <morse-task-board [tasks]="board" />
+                } @else {
+                  @if (step.item.input) {
+                    <span class="label-small">input</span>
+                    <pre>{{ step.item.input }}</pre>
+                  }
+                  @if (step.item.output) {
+                    <span class="label-small">output</span>
+                    <pre>{{ step.item.output }}</pre>
+                  }
+                  @if (!step.item.input && !step.item.output) {
+                    <span class="label-small">no details reported</span>
+                  }
                 }
               </div>
             }
@@ -154,10 +158,10 @@
 
                 @if (diff(step.item); as changes) {
                   <span class="diff">
-                    @if (changes.added > 0) {
+                    @if (changes.added) {
                       <span class="add">+{{ changes.added }}</span>
                     }
-                    @if (changes.removed > 0) {
+                    @if (changes.removed) {
                       <span class="del">−{{ changes.removed }}</span>
                     }
                   </span>
@@ -177,16 +181,20 @@
 
               @if (isStepOpen(step.key)) {
                 <div class="body" [attr.data-body]="step.key">
-                  @if (step.item.input) {
-                    <span class="label-small">input</span>
-                    <pre>{{ step.item.input }}</pre>
-                  }
-                  @if (step.item.output) {
-                    <span class="label-small">output</span>
-                    <pre>{{ step.item.output }}</pre>
-                  }
-                  @if (!step.item.input && !step.item.output) {
-                    <span class="label-small">no details reported</span>
+                  @if (taskBoard(step.item); as board) {
+                    <morse-task-board [tasks]="board" />
+                  } @else {
+                    @if (step.item.input) {
+                      <span class="label-small">input</span>
+                      <pre>{{ step.item.input }}</pre>
+                    }
+                    @if (step.item.output) {
+                      <span class="label-small">output</span>
+                      <pre>{{ step.item.output }}</pre>
+                    }
+                    @if (!step.item.input && !step.item.output) {
+                      <span class="label-small">no details reported</span>
+                    }
                   }
                 </div>
               }

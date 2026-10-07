@@ -1,0 +1,24 @@
+@if (visible()) {
+  <section class="card" aria-label="Session tasks">
+    <button
+      type="button"
+      class="head"
+      [attr.aria-expanded]="!collapsed()"
+      (click)="toggle()"
+    >
+      <span class="glyph" [class.done]="list()!.open === 0" aria-hidden="true">☑</span>
+      <span class="title">Tasks</span>
+      <span class="count">{{ list()!.done }}/{{ list()!.total }} done</span>
+      <span class="grow"></span>
+      @if (list()!.open) {
+        <span class="open">{{ list()!.open }} left</span>
+      }
+      <span class="chev" [class.open]="!collapsed()">›</span>
+    </button>
+    @if (!collapsed()) {
+      <div class="body">
+        <morse-task-board [tasks]="tasks()" [headless]="true" />
+      </div>
+    }
+  </section>
+}

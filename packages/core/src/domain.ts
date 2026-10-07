@@ -155,6 +155,28 @@ export interface AgentStatus {
   text: string;
 }
 
+/**
+ * A JSON value as it arrives from pi — what structured tool data can be.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/**
+ * The structured result a tool returned (pi `AgentToolResult.details`).
+ *
+ * Deliberately an open JSON object: Morse carries it verbatim and a frontend
+ * probes its *shape* to decide whether it can render it (a task list, say),
+ * rather than matching an extension by name. Any tool that returns a
+ * recognizable object is therefore renderable with no Morse change and no
+ * plugin registry.
+ */
+export type ToolResultDetails = { [key: string]: JsonValue };
+
 export interface AgentSessionState {
   sessionId?: string;
   sessionTitle?: string;
@@ -220,6 +242,8 @@ export type AgentHistoryEntry =
       input?: string;
       output?: string;
       status: 'ok' | 'error';
+      /** The tool's structured result, when it returned one (see `agent/tool-end`). */
+      details?: ToolResultDetails;
       at?: number;
     }
   /**
@@ -292,6 +316,13 @@ export type AgentEvent =
       toolCallId: string;
       status: 'ok' | 'error';
       output?: string;
+      /**
+       * The tool's structured result (pi `AgentToolResult.details`), carried
+       * through verbatim for a frontend to inspect. Morse never interprets it —
+       * a renderer probes the *shape* (see the UI probe), so any extension's
+       * structured output can light up without Morse knowing its name.
+       */
+      details?: ToolResultDetails;
       durationMs?: number;
     }
   | { type: 'agent/run-end'; at: number; reason: 'settled' | 'aborted' | 'error'; error?: string }

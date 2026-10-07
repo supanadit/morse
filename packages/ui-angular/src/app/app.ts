@@ -12,6 +12,7 @@ import { FilePreview } from './chat/file-preview/file-preview';
 import { InteractionPanel } from './chat/interaction-panel/interaction-panel';
 import { BottomPanel } from './chat/bottom-panel/bottom-panel';
 import { PiUi } from './chat/pi-ui/pi-ui';
+import { TaskOverlay } from './chat/task-overlay/task-overlay';
 import { TabStrip } from './chat/tab-strip/tab-strip';
 import { GitPanel } from './git/git-panel';
 import { AnimationService } from './core/animation.service';
@@ -67,6 +68,7 @@ function previewBoot(): boolean {
     TabStrip,
     BottomPanel,
     PiUi,
+    TaskOverlay,
     FilePreview,
     GitPanel,
     EnterDirective,

@@ -12,6 +12,7 @@ import {
 import type { ToolTranscriptItem } from '@morse/protocol';
 import { AnimationService } from '../../core/animation.service';
 import { DisplayPrefs } from '../../core/display-prefs';
+import { asTaskList, type TaskRow } from '../../core/task-list';
 import {
   toolChangedFile,
   toolFileName,
@@ -22,6 +23,7 @@ import {
 } from '../../core/tool-describe';
 import { EnterDirective } from '../../shared/enter.directive';
 import type { ProcessStep } from '../transcript-rows';
+import { TaskBoard } from './task-board';
 
 interface ToolTarget {
   dir: string;
@@ -52,7 +54,7 @@ interface ToolDiff {
  */
 @Component({
   selector: 'morse-tool-group',
-  imports: [EnterDirective],
+  imports: [EnterDirective, TaskBoard],
   templateUrl: './tool-group.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -702,6 +704,16 @@ export class ToolGroup {
   /** The file a step changed, for the child row under it (see `toolChangedFile`). */
   protected fileOf(item: ToolTranscriptItem): string | null {
     return toolChangedFile(item);
+  }
+
+  /**
+   * The task list a step's structured result carries, or `null` when it carries
+   * none. Decided by shape alone (`asTaskList`) — no tool name is consulted — so
+   * any extension returning a task list gets the board, and every other tool
+   * keeps its ordinary input/output body.
+   */
+  protected taskBoard(item: ToolTranscriptItem): TaskRow[] | null {
+    return asTaskList(item.details) ?? null;
   }
 
   /** The file name alone, so a long path does not push the row out of view. */
