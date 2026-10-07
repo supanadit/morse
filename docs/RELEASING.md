@@ -27,12 +27,16 @@ manifest disagrees with it, so the version in the tag, the VSIX and the npm pack
    `core/frontend-identity.spec.ts` compares it with `packages/ui-angular/package.json`, which means a forgotten
    bump fails `test:fast` before the tag is pushed.
 
-3. Write the `## <version>` section of [`CHANGELOG.md`](../packages/extension/CHANGELOG.md). It is two things at
+3. Bump the version stamped in [`STATUS.md`](STATUS.md) — its first line names the release the page describes.
+   It is prose, not a manifest, so nothing in the pipeline compares it, and a version nobody checks drifts:
+   it read `v0.9.2` through twelve releases before this step existed.
+
+4. Write the `## <version>` section of [`CHANGELOG.md`](../packages/extension/CHANGELOG.md). It is two things at
    once: what a VS Code user reads in the extension's changelog, and the body of the GitHub Release — the
    workflow extracts that section, and only falls back to the notes GitHub generates from commit subjects when a
    version has no section. Keep it about what a user gets: bold lead-in, one sentence, no commit hashes.
 
-4. Commit, tag, and push:
+5. Commit, tag, and push:
 
    ```bash
    git add -A
