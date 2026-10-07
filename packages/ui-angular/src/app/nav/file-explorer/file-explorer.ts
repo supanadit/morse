@@ -254,6 +254,14 @@ export class FileExplorer {
   protected readonly selected = signal<string | undefined>(undefined);
   /** The project the expanded set belongs to, so switching projects folds it. */
   private expandedFor = '';
+  /**
+   * The path the tree last revealed. A poll, a refresh or the reader's own
+   * expand/collapse changes `rows` too, and none of them may scroll the pane
+   * back to the file in front — only a *new* file in front earns a reveal.
+   */
+  private revealedPath: string | undefined;
+  /** Set by a reveal, cleared by the single scroll it schedules. */
+  private scrollPending = false;
 
   private readonly tree = computed(() => buildFileTree(this.workspace.files()));
   protected readonly rows = computed(() => flatten(this.tree(), this.expanded()));
@@ -283,44 +291,66 @@ export class FileExplorer {
         // deserves a fresh expanded set.
         if (cwd.length > 0 && cwd !== this.expandedFor) {
           this.expanded.set(new Set());
+          this.revealedPath = undefined;
           this.expandedFor = cwd;
         }
       });
     });
 
-    // Follow the file in front: open its folders and mark its row. Reading the
-    // file list as well means a file opened before the tree loaded still gets
-    // revealed when the list arrives.
+    // Follow the file in front: open its folders and mark its row — but only the
+    // first time it comes forward. Reading the file list as well means a file
+    // opened before the tree loaded still gets revealed when the list arrives.
     effect(() => {
       const path = this.activePath();
       const files = this.workspace.files();
-      untracked(() => this.revealActive(path, files));
+      untracked(() => {
+        if (path === this.revealedPath) {
+          return;
+        }
+        if (this.revealActive(path, files)) {
+          this.revealedPath = path;
+          this.scrollPending = true;
+        } else {
+          // Not ours (or not listed yet): forget it, so a later poll can reveal
+          // the path once the project answers with it.
+          this.revealedPath = undefined;
+        }
+      });
     });
 
     // Bring the marked row into view once it has rendered: the reveal above
     // expands folders, which changes `rows`, so this runs after the tree grew.
+    // Only a pending reveal may scroll — a poll or the reader's own
+    // expand/collapse changes `rows` too, and must leave the pane where it is.
     effect(() => {
       this.rows();
       this.selected();
       this.collapsed();
-      setTimeout(() => this.revealSelected(), 0);
+      untracked(() => {
+        if (!this.scrollPending) {
+          return;
+        }
+        this.scrollPending = false;
+        setTimeout(() => this.revealSelected(), 0);
+      });
     });
   }
 
   /**
-   * Opens every folder on the way to `path` and marks its row. A path the active
-   * project does not list is ignored, so a file chip belonging to another
-   * project does not expand a tree that cannot contain it.
+   * Opens every folder on the way to `path` and marks its row, reporting whether
+   * the active project lists it. A path the active project does not list is
+   * ignored, so a file chip belonging to another project does not expand a tree
+   * that cannot contain it.
    */
-  private revealActive(path: string | undefined, files: readonly string[]): void {
+  private revealActive(path: string | undefined, files: readonly string[]): boolean {
     if (path === undefined || !files.includes(path)) {
       this.selected.set(undefined);
-      return;
+      return false;
     }
     this.selected.set(path);
     const ancestors = ancestorsOf(path);
     if (ancestors.length === 0) {
-      return;
+      return true;
     }
     this.expanded.update((set) => {
       const next = new Set(set);
@@ -333,6 +363,7 @@ export class FileExplorer {
       }
       return changed ? next : set;
     });
+    return true;
   }
 
   /** Scrolls the highlighted row into the pane's viewport, VS Code's behaviour. */

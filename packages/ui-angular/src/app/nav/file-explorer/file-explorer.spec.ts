@@ -159,6 +159,39 @@ describe('FileExplorer', () => {
     expect(fixture.nativeElement.querySelector('.row.active')?.textContent).toContain('README.md');
   });
 
+  it('does not re-open the folders the reader folded when the list is re-read', async () => {
+    const { fixture, tabs, morse } = setup(['src/app/main.ts', 'README.md']);
+    await flush();
+    fixture.detectChanges();
+
+    tabs.activeTab.set({
+      kind: 'file',
+      id: 'file:src/app/main.ts',
+      path: 'src/app/main.ts',
+      title: 'main.ts',
+    });
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(rows(fixture)).toEqual(['src', 'app', 'main.ts', 'README.md']);
+
+    // The reader folds the folder to reach something else further down...
+    fixture.nativeElement.querySelector('.row').click();
+    fixture.detectChanges();
+    expect(rows(fixture)).toEqual(['src', 'README.md']);
+
+    // ...and the 4s poll lands. It must not re-open (or scroll back to) it.
+    const before = morse.requestHostCommand.mock.calls.length;
+    fixture.nativeElement.querySelector('.icon').click();
+    await flush();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    expect(morse.requestHostCommand.mock.calls.length).toBeGreaterThan(before);
+    expect(rows(fixture)).toEqual(['src', 'README.md']);
+  });
+
   it('does not reveal a file the active project does not list', async () => {
     const { fixture, tabs } = setup(['src/main.ts']);
     await flush();
