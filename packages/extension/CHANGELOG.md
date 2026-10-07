@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.21.0 — 7 October 2026
+
+A tool's task list is on screen, and the chrome extensions send arrives as clean text.
+
+### New
+
+- **A tool's task list shows up in Morse.** pi's terminal draws a todo widget above the editor, but the RPC channel cannot carry it — so Morse rebuilds the list from the data the tool already returned. A tool result shaped like a task list draws a board inside its expanded row, and the session's newest one docks above the composer, hiding itself once there is no work left. Any extension returning that shape works with no Morse change and no plugin registry.
+
+### Fixed
+
+- **No more `[38;2;…m` garbage where status text should be.** An extension that colors a widget line, footer status or notice with a theme color sends terminal escape codes, and the UI painted them literally. They are stripped at the boundary now — status, notices and widget lines render as the text you were meant to see, while any literal brackets a tool prints survive.
+- **A pi crash now names its cause.** When the agent died, the UI showed only "the pi agent stopped (code=1)" and the real error went to a host log that is off by default. The last lines pi wrote to stderr are attached to the failure, so the message itself says what went wrong.
+- **Running Morse from inside pi no longer hijacks the spawned session.** Morse started from a pi session — or a shell pi exported into — inherited that session's identity, so every agent it launched tried to resume the wrong conversation. Those session variables are now dropped before a `pi` process is spawned, exactly as pi does for its own children.
+
 ## 0.20.0 — 7 October 2026
 
 What a model accepts is on the badge, and pi's dialogs arrive as a card.
