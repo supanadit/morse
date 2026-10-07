@@ -1,28 +1,30 @@
 <header class="head">
-  <button
-    type="button"
-    class="icon menu"
-    title="Sessions and projects"
-    aria-label="Toggle navigation"
-    [attr.aria-expanded]="navigationOpen()"
-    (click)="toggleNavigation()"
-  >
-    ☰
-  </button>
+  @if (!embedded()) {
+    <button
+      type="button"
+      class="icon menu"
+      title="Sessions and projects"
+      aria-label="Toggle navigation"
+      [attr.aria-expanded]="navigationOpen()"
+      (click)="toggleNavigation()"
+    >
+      ☰
+    </button>
 
-  <button
-    type="button"
-    class="icon collapse"
-    [title]="collapsed() ? 'Show the sidebar' : 'Hide the sidebar'"
-    [attr.aria-label]="collapsed() ? 'Show the sidebar' : 'Hide the sidebar'"
-    [attr.aria-expanded]="!collapsed()"
-    (click)="toggleSidebar()"
-  >
-    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-      <rect x="2" y="3.5" width="12" height="9" rx="1.5" />
-      <path d="M6.5 3.5v9" />
-    </svg>
-  </button>
+    <button
+      type="button"
+      class="icon collapse"
+      [title]="collapsed() ? 'Show the sidebar' : 'Hide the sidebar'"
+      [attr.aria-label]="collapsed() ? 'Show the sidebar' : 'Hide the sidebar'"
+      [attr.aria-expanded]="!collapsed()"
+      (click)="toggleSidebar()"
+    >
+      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="3.5" width="12" height="9" rx="1.5" />
+        <path d="M6.5 3.5v9" />
+      </svg>
+    </button>
+  }
 
   <div class="titles">
     <div class="title" [title]="state().sessionId ?? workspace().cwd">{{ title() }}</div>

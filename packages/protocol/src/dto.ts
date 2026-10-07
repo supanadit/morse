@@ -321,6 +321,14 @@ export interface HostCapabilities {
    * agent directory leaves it off and the editor stays hidden.
    */
   promptEditor?: boolean;
+  /**
+   * Host can show one session in an editor tab of its own (`openSessionTab`)
+   * and drop it again (`closeSessionTab`), so a VS Code window can hold a whole
+   * conversation beside the sidebar panel instead of only inside it. Optional:
+   * a host with no editor surface (the browser host) leaves it off and the
+   * sidebar's session menu keeps its two entries.
+   */
+  sessionTabs?: boolean;
 }
 
 /**

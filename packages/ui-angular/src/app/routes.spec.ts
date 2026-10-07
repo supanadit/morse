@@ -26,4 +26,11 @@ describe('app routes', () => {
     expect(route.component).toBeUndefined();
     expect(route.load).toBeTypeOf('function');
   });
+
+  it('resolves the code-split session route with a lazy loader', () => {
+    const route = resolveAppRoute('#/session?id=s1');
+    expect(route.path).toBe('/session');
+    expect(route.component).toBeUndefined();
+    expect(route.load).toBeTypeOf('function');
+  });
 });

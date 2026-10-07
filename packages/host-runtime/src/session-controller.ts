@@ -2,6 +2,7 @@ import { AgentUnavailableError, MorseError } from '@morse/core';
 import type {
   AgentEvent,
   AgentForkMessage,
+  AgentGateway,
   AgentHistoryEntry,
   AgentInteractionRequest,
   AgentInteractionResponse,
@@ -100,6 +101,19 @@ export interface HostSessionControllerOptions {
    * Defaults to false: registries outlive a client so a refresh reattaches.
    */
   ownsRegistry?: boolean;
+  /**
+   * The one session this client shows, when it is not the host's shared "session
+   * in front". A VS Code editor tab is exactly that: a client pinned to one
+   * conversation, opened from the sidebar and closed with its tab.
+   *
+   * A pinned controller always activates its own session on start (reusing the
+   * warm process, or resuming it by id), and addresses every command at it —
+   * Stop, a prompt, the model, compaction — so a sidebar that has since switched
+   * to another session cannot receive this tab's next prompt. The registry's own
+   * `activeKey` is still moved by that activation: one window has one session in
+   * front, and the sidebar reattaches to whichever one was last activated.
+   */
+  pinnedSessionId?: string;
   /** Shown to the user when the agent backend cannot be started. */
   agentHint?: string;
   policy?: ProjectPolicy;
@@ -199,13 +213,24 @@ export class HostSessionController {
     this.detachMcpWatch = this.options.services.mcpWatch?.subscribe((cwd) => {
       this.options.emit({ type: 'mcp/changed', payload: { cwd } });
     });
-    if (this.options.autoOpen !== false) {
+    if (this.options.autoOpen !== false || this.options.pinnedSessionId !== undefined) {
       // Answer the handshake immediately with a truthful state: the agent is
       // starting. Otherwise the client renders its defaults for the whole spawn.
       this.agentStarting = true;
     }
     this.emitReady();
-    if (this.options.autoOpen !== false) {
+    const pinned = this.options.pinnedSessionId;
+    if (pinned !== undefined) {
+      // A pinned client (a VS Code editor tab) shows one session and only that
+      // one. Activate it whatever the registry's host-wide `activeKey` is now:
+      // `activate` reuses a warm process, or resumes the session by id, so this
+      // spawns nothing it does not have to — and the sidebar's own session in
+      // front is left exactly where it was until the reader acts in this tab.
+      await this.runSessionChange(() => this.options.services.registry.activate(pinned));
+      // Re-read the model catalog so a model added while the panel was away
+      // shows up without restarting the host.
+      void this.refreshModels();
+    } else if (this.options.autoOpen !== false) {
       await this.openDefaultSession();
     } else {
       // A reconnecting client (webview reload, browser refresh) must reattach
@@ -308,7 +333,7 @@ export class HostSessionController {
         await this.forkPrompt(message.payload.itemId);
         return;
       case 'chat/abort':
-        await this.guard(() => this.options.services.chat.abort());
+        await this.guard(() => this.options.services.chat.abort(this.promptTarget()));
         return;
       case 'session/new':
         // "New session" is an empty draft, not a spawn: no agent process, no
@@ -335,7 +360,9 @@ export class HostSessionController {
         // compaction must hand the composer back, not wedge it on "Working".
         this.setBusy(true);
         try {
-          await this.guard(() => this.options.services.chat.compact(message.payload.instructions));
+          await this.guard(() =>
+            this.options.services.chat.compact(message.payload.instructions, this.promptTarget()),
+          );
         } finally {
           this.setBusy(false);
         }
@@ -513,6 +540,26 @@ export class HostSessionController {
   }
 
   /**
+   * The session this client addresses: the one it is showing. Every command that
+   * belongs to "the conversation in front" (Stop, a prompt, the model, thinking,
+   * compaction) names this key instead of reaching for the registry's host-wide
+   * `activeKey` — otherwise a pinning client (a VS Code editor tab holding one
+   * conversation) would act on whichever session some other panel last activated.
+   * `undefined` still means "whatever the host has active", which is the shared
+   * panel's own behaviour.
+   */
+  private promptTarget(): string | undefined {
+    return this.activeKey;
+  }
+
+  /** The gateway of the session this client addresses, if it is still hot. */
+  private addressedGateway(): AgentGateway | undefined {
+    return this.activeKey === undefined
+      ? undefined
+      : this.options.services.registry.agentFor(this.activeKey);
+  }
+
+  /**
    * The empty panel is an intentional draft: no agent process, no session
    * file, no navigator entry — "New session" becomes real only once the first
    * prompt runs. A pending project and pending picks (model, thinking) wait
@@ -579,6 +626,14 @@ export class HostSessionController {
   }
 
   private async activateSession(sessionId: string, cwd?: string): Promise<void> {
+    const pinned = this.options.pinnedSessionId;
+    if (pinned !== undefined && sessionId !== pinned) {
+      // A pinned client is bound to its own conversation, so it must not follow
+      // some other surface's `session/activate` — the registry's active pointer
+      // is host-wide, and two tabs watching each other's switches is a bug, not
+      // a feature. A tab is re-pointed by opening a different session there.
+      return;
+    }
     const known = this.summaries.get(sessionId);
     const path = cwd ?? known?.cwd;
     if (path && !this.canOpen(path)) {
@@ -649,7 +704,13 @@ export class HostSessionController {
     this.agentReady = false;
     this.clearAgentFailure();
     const next = this.options.services.registry.hotKeys().at(-1);
-    if (next) {
+    if (this.options.pinnedSessionId !== undefined) {
+      // A pinned client's session is gone: showing it another hot session would
+      // silently turn this tab into a different conversation. It returns to the
+      // empty draft instead, which is the honest thing for a tab whose session
+      // was closed or deleted from the sidebar.
+      await this.enterDraft();
+    } else if (next) {
       await this.runSessionChange(() => this.options.services.registry.activate(next));
     } else {
       // Return to the draft the way session/new made it: no replacement
@@ -740,7 +801,7 @@ export class HostSessionController {
     if (this.activeKey !== key) {
       return;
     }
-    const gateway = this.options.services.registry.active();
+    const gateway = this.addressedGateway();
     if (!gateway) {
       return;
     }
@@ -774,7 +835,7 @@ export class HostSessionController {
       return;
     }
     const key = this.activeKey;
-    const gateway = this.options.services.registry.active();
+    const gateway = this.addressedGateway();
     if (key === undefined || !gateway) {
       return;
     }
@@ -852,18 +913,29 @@ export class HostSessionController {
     this.draftThinking = undefined;
     if (pendingModel) {
       await this.guard(() =>
-        this.options.services.chat.setModel({
-          provider: pendingModel.provider,
-          id: pendingModel.id,
-          name: pendingModel.name,
-        }),
+        this.options.services.chat.setModel(
+          {
+            provider: pendingModel.provider,
+            id: pendingModel.id,
+            name: pendingModel.name,
+          },
+          this.promptTarget(),
+        ),
       );
     }
     if (pendingThinking) {
-      await this.guard(() => this.options.services.chat.setThinkingLevel(pendingThinking));
+      await this.guard(() =>
+        this.options.services.chat.setThinkingLevel(pendingThinking, this.promptTarget()),
+      );
     }
     const result = await this.guard(() =>
-      this.options.services.chat.prompt(text, mode ?? 'new', images, pins),
+      this.options.services.chat.prompt(
+        text,
+        mode ?? 'new',
+        images,
+        pins,
+        this.promptTarget(),
+      ),
     );
     if (!result.ok || !result.value.accepted) {
       return;
@@ -972,7 +1044,7 @@ export class HostSessionController {
       }
     }
     const key = this.activeKey;
-    const gateway = this.options.services.registry.active();
+    const gateway = this.addressedGateway();
     if (key === undefined || !gateway) {
       this.options.emit(noticeMessage('warn', `No session to ${action}.`, Date.now()));
       return undefined;
@@ -1051,7 +1123,7 @@ export class HostSessionController {
       return;
     }
     const result = await this.guard(() =>
-      this.options.services.chat.setModel({ provider, id, name: id }),
+      this.options.services.chat.setModel({ provider, id, name: id }, this.promptTarget()),
     );
     if (result.ok) {
       this.emitState();
@@ -1087,7 +1159,9 @@ export class HostSessionController {
       this.emitState();
       return;
     }
-    const result = await this.guard(() => this.options.services.chat.setThinkingLevel(level));
+    const result = await this.guard(() =>
+      this.options.services.chat.setThinkingLevel(level, this.promptTarget()),
+    );
     if (result.ok) {
       this.emitState();
     }
@@ -1116,7 +1190,7 @@ export class HostSessionController {
    * added, changed or deleted since the session started — without a pi reload.
    */
   private async refreshCommands(): Promise<void> {
-    const gateway = this.options.services.registry.active();
+    const gateway = this.addressedGateway();
     if (gateway?.refreshCommands === undefined) {
       return;
     }
@@ -1135,7 +1209,7 @@ export class HostSessionController {
       await this.warmDraft();
       return;
     }
-    const gateway = this.options.services.registry.active();
+    const gateway = this.addressedGateway();
     if (gateway?.refreshModels === undefined) {
       return;
     }

@@ -37,7 +37,17 @@ export async function renderWebviewHtml(
     `font-src ${cspSource}`,
     // Angular injects component styles at runtime, so inline styles are required.
     `style-src ${cspSource} 'unsafe-inline'`,
-    `script-src 'nonce-${nonce}'`,
+    // `'strict-dynamic'` is what lets the nonced entry script load the
+    // code-split chunks it `import()`s. Without it a lazy route — the prompt
+    // editor, a session tab — is a runtime `import()` that VS Code's nonce does
+    // not cover, so the request is blocked and the panel renders blank. Only
+    // scripts the entry itself loads are trusted; an inline script elsewhere in
+    // the document still needs the nonce.
+    //
+    // `cspSource` is the fallback for an engine that ignores `strict-dynamic`:
+    // it ignores that keyword and uses the host list instead, which is this
+    // webview's own bundle and nothing else.
+    `script-src 'nonce-${nonce}' 'strict-dynamic' ${cspSource}`,
     // The only request the frontend makes off-machine: reading the published
     // version so the sidebar can name a newer release (see
     // `ui-angular/src/app/core/update.ts`). Read-only, public data, and the

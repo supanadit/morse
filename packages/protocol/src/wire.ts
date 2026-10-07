@@ -64,6 +64,14 @@ export type HostCommand =
   /** Open the host's MCP editor (VS Code's editor panel; the browser host tabs). */
   | 'openMcpEditor'
   /**
+   * Show one session as its own editor tab (VS Code), revealing the tab when it
+   * is already open instead of opening a second one. Only offered where
+   * `capabilities.sessionTabs` is set.
+   */
+  | 'openSessionTab'
+  /** Drop a session's editor tab; the session itself stays open and resumable. */
+  | 'closeSessionTab'
+  /**
    * pi's prompt templates for the viewing directory: the user's and this
    * project's, with their bodies and frontmatter, so the editor can rewrite them.
    */
@@ -319,25 +327,35 @@ export function isClientToHostMessage(value: unknown): value is ClientToHostMess
 
 /** Accepts a JSON string or an already parsed object; returns undefined when invalid. */
 export function parseHostMessage(raw: unknown): HostToClientMessage | undefined {
-  const value = decode(raw);
-  return isHostToClientMessage(value) ? value : undefined;
+  return parseFrame(raw, isHostToClientMessage);
 }
 
 export function parseClientMessage(raw: unknown): ClientToHostMessage | undefined {
-  const value = decode(raw);
-  return isClientToHostMessage(value) ? value : undefined;
+  return parseFrame(raw, isClientToHostMessage);
 }
 
 /**
- * Transport-agnostic decode: WebSocket frames may arrive as Buffer/Uint8Array,
- * the VS Code webview passes objects, tests pass strings.
+ * One inbound frame after transport decoding: either the JSON value a frame
+ * carried, or nothing when the bytes were not valid JSON. It is deliberately not
+ * `unknown`: every caller here hands the result straight to a type guard
+ * (`parseClientMessage` / `parseHostMessage`), so the only two states that reach
+ * them are "a value to inspect" and "nothing to inspect", and naming that says
+ * so at the boundary instead of pushing an unparsed `unknown` outward.
  */
-export function decode(raw: unknown): unknown {
+export type DecodedFrame = { ok: true; value: unknown } | { ok: false };
+
+/**
+ * Transport-agnostic decode: WebSocket frames may arrive as Buffer/Uint8Array,
+ * the VS Code webview passes objects, tests pass strings. The result is a
+ * discriminated `DecodedFrame`, so a malformed frame is a value callers can see
+ * rather than `undefined` smuggled through an `unknown`.
+ */
+export function decode(raw: unknown): DecodedFrame {
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw);
+      return { ok: true, value: JSON.parse(raw) };
     } catch {
-      return undefined;
+      return { ok: false };
     }
   }
   if (raw instanceof Uint8Array) {
@@ -346,7 +364,20 @@ export function decode(raw: unknown): unknown {
   if (raw instanceof ArrayBuffer) {
     return decode(new TextDecoder().decode(new Uint8Array(raw)));
   }
-  return raw;
+  return { ok: true, value: raw };
+}
+
+/**
+ * The single frame helper the wire entry points share: decode, then hand the
+ * value to a type guard. A frame that decodes to something the guard rejects
+ * (or that never decoded) is `undefined`, which is how a bad frame is ignored.
+ */
+function parseFrame<T>(
+  raw: unknown,
+  guard: (value: unknown) => value is T,
+): T | undefined {
+  const frame = decode(raw);
+  return frame.ok && guard(frame.value) ? frame.value : undefined;
 }
 
 function hasKnownType(value: unknown, allowed: readonly string[]): boolean {

@@ -29,6 +29,41 @@ import { workspaceFiles } from './workspace-index';
 const MCP_EDITOR_VIEW_TYPE = 'morse.mcpEditor';
 /** The prompt-template editor panel's view type; also its activation event. */
 const PROMPT_EDITOR_VIEW_TYPE = 'morse.promptEditor';
+/**
+ * The session-tab view type. One type for every session (VS Code registers one
+ * serializer per view type, and a window reload must be able to restore each
+ * restored panel), so which session a tab is travels in the webview state the
+ * pinned surface wrote — see `SESSION_TAB_STATE_KEY`.
+ */
+const SESSION_TAB_VIEW_TYPE = 'morse.sessionTab';
+/**
+ * Where the pinned surface records which session its tab is, so a reload can
+ * restore the tab to the same conversation. Namespaced the way `ViewState`
+ * writes it (`morse.view.`), because the frontend is what writes it.
+ */
+const SESSION_TAB_STATE_KEY = 'morse.view.sessionTab';
+/**
+ * The hash route a session tab boots. The session id is the only thing the
+ * surface needs from its host: the tab is pinned to it, so it never learns the
+ * id from `session/state` and never has to be told which conversation it is.
+ */
+function sessionRoute(sessionId: string): string {
+  return `/session?id=${encodeURIComponent(sessionId)}`;
+}
+
+/**
+ * The session id a restored session tab was pinned to, or `undefined` when the
+ * state carries none. The frontend writes it under `SESSION_TAB_STATE_KEY` via
+ * the webview's `setState`; anything else in the blob is the surface's own
+ * business and is left alone.
+ */
+function readSessionTabState(state: unknown): string | undefined {
+  if (typeof state !== 'object' || state === null) {
+    return undefined;
+  }
+  const value = (state as Record<string, unknown>)[SESSION_TAB_STATE_KEY];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
 
 export interface ChatViewProviderDeps {
   registry: SessionRegistry;
@@ -89,6 +124,9 @@ function buildCapabilities(mcp: boolean, piVersion: string | undefined): HostCap
     // Editing prompt templates is file I/O into pi's prompt directories, which
     // this host can reach whether or not the `pi` CLI is on PATH.
     promptEditor: true,
+    // A whole conversation can be shown as its own editor tab, pinned to that
+    // session, and revealed again instead of opened twice.
+    sessionTabs: true,
   };
 }
 
@@ -106,6 +144,12 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   private mcpPanel: vscode.WebviewPanel | undefined;
   /** The one prompt-template editor panel; `/prompts` reveals it. */
   private promptPanel: vscode.WebviewPanel | undefined;
+  /**
+   * One editor tab per session, keyed by session id. A second request for the
+   * same session reveals the tab that is already open instead of opening a
+   * second one, which is what makes "open it again" mean *re-focus*.
+   */
+  private readonly sessionPanels = new Map<string, vscode.WebviewPanel>();
   /** The window's one MCP config watcher; shared by every panel that shows it. */
   private mcpWatcher: McpWatcher | undefined;
 
@@ -286,6 +330,158 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * One session as its own editor tab: the pinned controller, so the tab holds
+   * exactly that conversation whatever the sidebar is showing. Reveals the tab
+   * when this session already has one — the same session must not be open twice.
+   */
+  openSessionTab(sessionId: string, title?: string): void {
+    const existing = this.sessionPanels.get(sessionId);
+    if (existing !== undefined) {
+      existing.reveal(vscode.ViewColumn.Active);
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      SESSION_TAB_VIEW_TYPE,
+      title !== undefined && title.length > 0 ? title : 'Morse session',
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.deps.webviewRoot],
+      },
+    );
+    this.attachSessionPanel(panel, sessionId, title);
+  }
+
+  /**
+   * Every open session tab, for the palette's QuickPick when the command is run
+   * without naming a session. Sorted newest-first by the catalog itself.
+   */
+  async pickSessionTab(): Promise<void> {
+    const sessions = await this.deps.registry.listSessions().catch(() => []);
+    const roots = this.deps.roots;
+    const scoped = sessions.filter(
+      (session) =>
+        roots.length === 0 ||
+        roots.some(
+          (root) => session.cwd === root || session.cwd.startsWith(`${root}/`) || session.cwd.startsWith(`${root}\\`),
+        ),
+    );
+    if (scoped.length === 0) {
+      void vscode.window.showInformationMessage('Morse: no sessions in this window yet.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      scoped.map((session) => ({
+        label: session.title || 'New session',
+        description: this.sessionPanels.has(session.id) ? 'open in a tab' : session.cwd,
+        sessionId: session.id,
+      })),
+      { title: 'Open a Morse session in an editor tab', placeHolder: 'Which session?' },
+    );
+    if (picked !== undefined) {
+      this.openSessionTab(picked.sessionId, picked.label);
+    }
+  }
+
+  /**
+   * Wires a session tab (fresh or restored) to a controller pinned to that one
+   * session. Mirrors `attachMcpPanel`, with the one difference that matters: the
+   * controller is told which session it shows, so its prompts, Stop and model
+   * picks stay in this conversation.
+   */
+  private attachSessionPanel(
+    panel: vscode.WebviewPanel,
+    sessionId: string,
+    preferredTitle?: string,
+  ): void {
+    this.sessionPanels.set(sessionId, panel);
+    // The tab keeps the session's own title once the catalog knows it; the tab
+    // is a place, and a place that renames itself to "New session" is noise.
+    void this.labelSessionTab(panel, sessionId, preferredTitle);
+
+    const services: HostSessionServices = {
+      registry: this.deps.registry,
+      chat: this.deps.chat,
+      mcpWatch: this.mcpWatch(),
+    };
+    const controller = new HostSessionController({
+      services,
+      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      emit: (message) => void panel.webview.postMessage(message),
+      logger: this.deps.logger,
+      dialogs: new VsCodeDialogs(),
+      transcripts: this.deps.transcripts,
+      ownsRegistry: false,
+      autoOpen: false,
+      // The session this tab is: activated on start (reusing the warm process
+      // when the sidebar already holds it) and addressed by every command.
+      pinnedSessionId: sessionId,
+      policy: this.deps.policy,
+      scope: { kind: 'workspace', roots: this.deps.roots },
+      frontend: this.deps.frontend,
+      onHostCommand: (command, args, context) => this.runHostCommand(command, args, context),
+      agentHint: 'Set "morse.pi.path" or install the pi CLI so that it is on PATH.',
+    });
+
+    const subscription = panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const message = parseClientMessage(raw);
+      if (message) {
+        void controller.handleClientMessage(message);
+      }
+    });
+
+    panel.onDidDispose(() => {
+      subscription.dispose();
+      // Only drop the mapping this panel owns: a replaced panel for the same
+      // session must not delete the new one's entry.
+      if (this.sessionPanels.get(sessionId) === panel) {
+        this.sessionPanels.delete(sessionId);
+      }
+      void controller.dispose();
+    });
+
+    void renderWebviewHtml(panel.webview, this.deps.webviewRoot, {
+      title: 'Morse session',
+      frontend: this.deps.frontend,
+      route: sessionRoute(sessionId),
+    })
+      .then((html) => {
+        panel.webview.html = html;
+      })
+      .catch((error: unknown) => {
+        this.deps.logger.error('Could not load the Morse frontend bundle for a session tab', error);
+        panel.webview.html = renderFailureHtml(
+          'Morse could not load its frontend bundle.',
+          describeError(error),
+          'Run `npm run build:ui && npm run sync-webview` in packages/extension, then reload the window.',
+        );
+      });
+
+    void controller.start().catch((error: unknown) => {
+      this.deps.logger.error('Morse could not start a session tab controller', error);
+    });
+  }
+
+  private async labelSessionTab(
+    panel: vscode.WebviewPanel,
+    sessionId: string,
+    preferred?: string,
+  ): Promise<void> {
+    if (preferred !== undefined && preferred.length > 0) {
+      panel.title = preferred;
+      return;
+    }
+    // The caller (a restored tab) had no title to offer, so ask the catalog. A
+    // failure just leaves the panel's own default title in place.
+    const sessions = await this.deps.registry.listSessions().catch(() => []);
+    const found = sessions.find((session) => session.id === sessionId);
+    if (found !== undefined && found.title.length > 0) {
+      panel.title = found.title;
+    }
+  }
+
+  /**
    * Registers the panel serializer with the extension context, so a window
    * reload restores the MCP editor instead of closing it. VS Code passes back
    * the webview state it kept (the frontend's `setState`), which is how the
@@ -302,6 +498,21 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       vscode.window.registerWebviewPanelSerializer(PROMPT_EDITOR_VIEW_TYPE, {
         deserializeWebviewPanel: (panel: vscode.WebviewPanel) => {
           this.attachPromptPanel(panel);
+          return Promise.resolve();
+        },
+      }),
+      vscode.window.registerWebviewPanelSerializer(SESSION_TAB_VIEW_TYPE, {
+        deserializeWebviewPanel: (panel: vscode.WebviewPanel, state: unknown) => {
+          // Which session this tab was lives in the webview state the pinned
+          // surface wrote (`SESSION_TAB_STATE_KEY`). A tab restored without it
+          // cannot be re-pinned to a conversation, so it is closed rather than
+          // silently becoming an unrelated session.
+          const sessionId = readSessionTabState(state);
+          if (sessionId === undefined) {
+            panel.dispose();
+            return Promise.resolve();
+          }
+          this.attachSessionPanel(panel, sessionId);
           return Promise.resolve();
         },
       }),
@@ -575,6 +786,21 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       case 'openPromptEditor':
         this.openPromptEditor();
         return { ok: true };
+      case 'openSessionTab': {
+        const sessionId = stringArg(args, 'sessionId');
+        if (sessionId.length === 0) {
+          throw new UnsupportedByHostError('openSessionTab needs a "sessionId" argument.');
+        }
+        this.openSessionTab(sessionId, stringArg(args, 'title') || undefined);
+        return { ok: true };
+      }
+      case 'closeSessionTab': {
+        const sessionId = stringArg(args, 'sessionId');
+        // Closing the tab is not closing the session: the conversation stays
+        // open and resumable in the sidebar, which is what a tab means.
+        this.sessionPanels.get(sessionId)?.dispose();
+        return { ok: true };
+      }
       case 'mcpRemove':
         return this.deps.mcp.remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
       case 'mcpSetEnabled':

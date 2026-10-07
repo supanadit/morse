@@ -467,6 +467,14 @@ export class SessionNav {
   private readonly nativeDialogs = computed(
     () => this.morse.capabilities()?.nativeDialogs === true,
   );
+  /**
+   * The host can show a session as its own editor tab (VS Code). The row's menu
+   * only offers it where that is true: a menu item that does nothing is worse
+   * than an absent one.
+   */
+  protected readonly sessionTabs = computed(
+    () => this.morse.capabilities()?.sessionTabs === true,
+  );
   protected readonly activeSessionId = computed(() => this.morse.state().sessionId);
   /** The build this host is serving, printed beside the notice it explains. */
   protected readonly version = this.morse.version;
@@ -707,7 +715,37 @@ export class SessionNav {
     // The tab goes with the session: closing only the host's agent would leave a
     // tab pointing at a conversation the host no longer shows.
     this.tabs.forget(session.id);
+    this.closeHostTab(session.id);
     this.morse.closeSession(session.id);
+  }
+
+  /**
+   * Opens this session in the host's own editor tab (VS Code): the same
+   * conversation, in a full editor surface rather than the narrow sidebar. The
+   * host reveals the tab when it is already open, so this doubles as "go back to
+   * it". A host without the capability never offers the menu row.
+   */
+  protected openInEditorTab(session: SessionSummary): void {
+    this.closeMenu();
+    void this.morse
+      .requestHostCommand('openSessionTab', {
+        sessionId: session.id,
+        title: session.title,
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Drops the host's editor tab for a session. A host that shows no session tabs
+   * ignores the command; there is nothing to synchronize in that case.
+   */
+  private closeHostTab(sessionId: string): void {
+    if (!this.sessionTabs()) {
+      return;
+    }
+    void this.morse
+      .requestHostCommand('closeSessionTab', { sessionId })
+      .catch(() => undefined);
   }
 
   /**
@@ -742,6 +780,7 @@ export class SessionNav {
   protected deleteNow(session: SessionSummary): void {
     this.closeMenu();
     this.tabs.forget(session.id);
+    this.closeHostTab(session.id);
     this.morse.deleteSession(session.id);
   }
 

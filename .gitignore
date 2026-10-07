@@ -19,3 +19,6 @@ coverage/
 
 # codebase-memory-mcp index artifact
 .codebase-memory/
+
+# Vitest JSON reporter output from ad-hoc local runs
+.vitest/

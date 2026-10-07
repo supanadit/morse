@@ -252,6 +252,15 @@
       <button type="button" class="context-menu-item" (click)="closeNow(open.session)">
         Close session
       </button>
+      @if (sessionTabs()) {
+        <button
+          type="button"
+          class="context-menu-item"
+          (click)="openInEditorTab(open.session)"
+        >
+          Open in editor tab
+        </button>
+      }
       <button type="button" class="context-menu-item danger" (click)="askDelete(open)">
         Delete session…
       </button>

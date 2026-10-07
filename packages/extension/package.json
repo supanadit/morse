@@ -36,7 +36,8 @@
   "activationEvents": [
     "onView:morse.chat",
     "onWebviewPanel:morse.mcpEditor",
-    "onWebviewPanel:morse.promptEditor"
+    "onWebviewPanel:morse.promptEditor",
+    "onWebviewPanel:morse.sessionTab"
   ],
   "main": "./dist/extension.js",
   "icon": "media/icon.png",
@@ -76,6 +77,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "morse.openSessionTab",
+        "title": "Morse: Open Session in Editor Tab",
+        "icon": "$(open-preview)"
+      },
+      {
         "command": "morse.attachSelection",
         "title": "Morse: Attach Selection to Next Prompt",
         "icon": "$(selection)"
@@ -96,6 +102,17 @@
           "command": "morse.attachSelection",
           "when": "view == morse.chat",
           "group": "navigation"
+        },
+        {
+          "command": "morse.openSessionTab",
+          "when": "view == morse.chat",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "morse.openSessionTab",
+          "when": "view == morse.chat"
         }
       ]
     },

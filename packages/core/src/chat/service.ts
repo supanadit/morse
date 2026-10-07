@@ -1,4 +1,5 @@
 import type { AgentSessionState, ChatPin, ModelRef, NoticeLevel, ThinkingLevel } from '../domain.js';
+import { AgentUnavailableError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import type { PromptDisposition, PromptImage, PromptMode } from '../session/service.js';
 
@@ -106,25 +107,45 @@ export class ChatService {
     return { accepted: true, disposition };
   }
 
-  async abort(): Promise<void> {
-    await this.deps.agent.requireActive().abort();
+  async abort(sessionKey?: string): Promise<void> {
+    await this.chatAgent(sessionKey).abort();
   }
 
-  async setModel(model: ModelRef): Promise<void> {
-    await this.deps.agent.requireActive().setModel(model);
+  /**
+   * The agent a command belongs to: the session it names, or the host's active
+   * one. A client that shows a session of its own (a VS Code editor tab pinned
+   * to one conversation) names it, so its Stop, model and compaction land in
+   * the conversation it is looking at rather than in whichever session the
+   * host-wide active pointer happens to hold.
+   */
+  private chatAgent(sessionKey?: string): ChatAgent {
+    if (sessionKey === undefined) {
+      return this.deps.agent.requireActive();
+    }
+    const agent = this.deps.agent.agentFor?.(sessionKey);
+    if (!agent) {
+      throw new AgentUnavailableError(
+        `Session ${sessionKey} is no longer open. Open it again before sending a command.`,
+      );
+    }
+    return agent;
   }
 
-  async setThinkingLevel(level: ThinkingLevel): Promise<void> {
-    await this.deps.agent.requireActive().setThinkingLevel(level);
+  async setModel(model: ModelRef, sessionKey?: string): Promise<void> {
+    await this.chatAgent(sessionKey).setModel(model);
+  }
+
+  async setThinkingLevel(level: ThinkingLevel, sessionKey?: string): Promise<void> {
+    await this.chatAgent(sessionKey).setThinkingLevel(level);
   }
 
   /** Shrinks the conversation context (`/compact` in the TUI). */
-  async compact(customInstructions?: string): Promise<void> {
-    await this.deps.agent.requireActive().compact(customInstructions);
+  async compact(customInstructions?: string, sessionKey?: string): Promise<void> {
+    await this.chatAgent(sessionKey).compact(customInstructions);
   }
 
-  async state(): Promise<AgentSessionState> {
-    return this.deps.agent.requireActive().state();
+  async state(sessionKey?: string): Promise<AgentSessionState> {
+    return this.chatAgent(sessionKey).state();
   }
 
   private notice(level: NoticeLevel, text: string): void {

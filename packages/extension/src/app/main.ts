@@ -111,6 +111,14 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     vscode.commands.registerCommand('morse.openChat', () => provider.focus()),
     vscode.commands.registerCommand('morse.newSession', () => provider.newSession()),
     vscode.commands.registerCommand('morse.attachSelection', () => provider.attachSelection()),
+    // A whole session in an editor tab. With no session named (the palette, a
+    // keybinding) it asks which one; the sidebar's own session menu passes the
+    // id it was opened on, so that click never asks.
+    vscode.commands.registerCommand('morse.openSessionTab', (sessionId?: string, title?: string) =>
+      typeof sessionId === 'string' && sessionId.length > 0
+        ? provider.openSessionTab(sessionId, title)
+        : provider.pickSessionTab(),
+    ),
     vscode.commands.registerCommand('morse.showOutput', () => logger.show()),
   );
   // A window reload restores the MCP editor panel (and its half-filled form).

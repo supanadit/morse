@@ -1,4 +1,4 @@
-<div class="shell" [class.collapsed]="navigationCollapsed()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()" [style.--morse-git-width]="gitWidth()">
+<div class="shell" [class.collapsed]="navigationCollapsed()" [class.embedded]="embedded()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()" [style.--morse-git-width]="gitWidth()">
   @if (bootVisible()) {
     <morse-boot-splash
       [ready]="bootReady()"
@@ -19,7 +19,9 @@
     />
   }
 
-  <morse-session-nav class="nav" [class.open]="navigationOpen()" />
+  @if (!embedded()) {
+    <morse-session-nav class="nav" [class.open]="navigationOpen()" />
+  }
 
   @if (projectPickerOpen()) {
     <morse-project-picker />
@@ -54,7 +56,7 @@
     />
   }
 
-  @if (navigationOpen()) {
+  @if (navigationOpen() && !embedded()) {
     <button
       type="button"
       class="scrim"
@@ -83,7 +85,7 @@
       </div>
     }
 
-    <morse-chat-header />
+    <morse-chat-header [embedded]="embedded()" />
 
     <!-- The browser host's tabs: sessions and files side by side, below the
          session header so that header keeps the same place in both hosts. VS

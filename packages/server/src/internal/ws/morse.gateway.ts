@@ -7,7 +7,6 @@ import { Inject } from '@nestjs/common';
 import type { RawData, WebSocket } from 'ws';
 import {
   DEFAULT_WS_PATH,
-  decode,
   encodeWireMessage,
   parseClientMessage,
   type HostToClientMessage,
@@ -65,7 +64,7 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   private async onMessage(controller: HostSessionController, data: RawData): Promise<void> {
-    const message = parseClientMessage(decode(data));
+    const message = parseClientMessage(data);
     if (!message) {
       this.logger.warn('Ignoring an unrecognised client message');
       return;

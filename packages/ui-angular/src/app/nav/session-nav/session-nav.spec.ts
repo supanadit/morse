@@ -25,6 +25,8 @@ class ScopedHostTransport extends BaseHostTransport {
     private readonly scope: 'global' | 'workspace',
     private readonly directoryPicker = false,
     private readonly updateCheck = false,
+    /** The host shows a session as its own editor tab (VS Code). */
+    private readonly sessionTabs = false,
   ) {
     super();
   }
@@ -52,6 +54,7 @@ class ScopedHostTransport extends BaseHostTransport {
           revealFile: false,
           directoryPicker: this.directoryPicker,
           updateCheck: this.updateCheck,
+          sessionTabs: this.sessionTabs,
         },
         state: {
           workspace: { cwd: '/work/morse', name: 'morse' },
@@ -149,6 +152,8 @@ class ScopedHostTransport extends BaseHostTransport {
 interface RenderOptions {
   updateCheck?: boolean;
   loader?: VersionLoader;
+  /** The host shows a session as its own editor tab (VS Code). */
+  sessionTabs?: boolean;
 }
 
 async function render(
@@ -157,7 +162,12 @@ async function render(
   options: RenderOptions = {},
 ): Promise<{ host: HTMLElement; transport: ScopedHostTransport; fixture: ComponentFixture<SessionNav> }> {
   TestBed.resetTestingModule();
-  const transport = new ScopedHostTransport(scope, directoryPicker, options.updateCheck === true);
+  const transport = new ScopedHostTransport(
+    scope,
+    directoryPicker,
+    options.updateCheck === true,
+    options.sessionTabs === true,
+  );
   await TestBed.configureTestingModule({
     imports: [SessionNav],
     providers: [
@@ -286,6 +296,39 @@ describe('SessionNav', () => {
     const deleted = transport.sent.filter((message) => message.type === 'session/delete');
     expect(deleted).toHaveLength(1);
     expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('offers the editor tab only where the host has one', async () => {
+    // The browser host has no editor surface, so the row must be absent rather
+    // than a menu entry that does nothing.
+    const { host: browser, fixture: browserFixture } = await render('global');
+    (browser.querySelector('.session') as HTMLElement).dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 60 }),
+    );
+    browserFixture.detectChanges();
+    expect(browser.textContent).toContain('Close session');
+    expect(browser.textContent).not.toContain('Open in editor tab');
+
+    // VS Code advertises `sessionTabs`, so the row is there and asks the host to
+    // open that session in an editor tab.
+    const { host, transport, fixture } = await render('workspace', false, { sessionTabs: true });
+    (host.querySelector('.session') as HTMLElement).dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 60 }),
+    );
+    fixture.detectChanges();
+    const row = [...host.querySelectorAll('.context-menu-item')].find(
+      (item) => item.textContent?.trim() === 'Open in editor tab',
+    ) as HTMLElement;
+    row.click();
+    fixture.detectChanges();
+
+    const opened = transport.sent.filter(
+      (message) => message.type === 'host/command' && message.payload.command === 'openSessionTab',
+    );
+    expect(opened).toHaveLength(1);
+    expect((opened[0] as { payload: { args?: { sessionId?: string } } }).payload.args?.sessionId).toBe(
+      's1',
+    );
   });
 
   it('asks for a folder instead of guessing when the host can browse directories', async () => {

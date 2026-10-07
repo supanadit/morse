@@ -28,6 +28,30 @@
 }
 
 /*
+ * Embedded (a host surface that is a whole document on its own — a VS Code
+ * editor tab holding one session): the window already has a sidebar, its own
+ * tab strip and its own git view, so this app is one column. The nav is not
+ * rendered at all above; this pins the grid so no empty track is left behind,
+ * whatever the surrounding window's width is.
+ *
+ * `.shell.collapsed` is deliberately outranked: the fold preference is shared
+ * and persisted (`morse.navigation.collapsed`), so a reader who once folded the
+ * sidebar in the panel would otherwise collapse this surface's only column to
+ * zero and get a blank tab.
+ */
+.shell.embedded,
+.shell.embedded.collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell.embedded.with-git,
+.shell.embedded.git-expanded,
+.shell.embedded.collapsed.with-git,
+.shell.embedded.collapsed.git-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/*
  * The browser host's git panel is a third column. The track only exists while
  * the panel is mounted, so the conversation keeps the full width when it is
  * closed and the fold toggle still folds only the navigation.

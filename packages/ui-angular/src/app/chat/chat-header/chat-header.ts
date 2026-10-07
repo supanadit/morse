@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
 import { McpState } from '../../core/mcp-state';
 import { DisplayPrefs } from '../../core/display-prefs';
@@ -200,6 +200,13 @@ export class ChatHeader {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly state = this.morse.state;
+  /**
+   * This header belongs to an embedded surface (a VS Code session tab), where
+   * there is no Morse sidebar to fold or reveal. The two navigation buttons are
+   * hidden rather than left inert — they would toggle a preference shared with
+   * the panel and change nothing here.
+   */
+  readonly embedded = input(false);
   protected readonly connection = this.morse.connection;
   protected readonly connectionDetail = this.morse.connectionDetail;
   protected readonly workspace = this.morse.workspace;

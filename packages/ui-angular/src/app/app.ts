@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
 import { BootSplash } from './boot/boot-splash';
 import { ConnectionScreen } from './connection/connection-screen';
@@ -80,6 +80,14 @@ function previewBoot(): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {
+  /**
+   * This app is the whole document inside a host surface that already has a
+   * surrounding UI — a VS Code editor tab showing one session. There is no
+   * Morse sidebar to show (the window has its own), no tab strip, and the shell
+   * is one column. Read as an input so the same component serves both surfaces;
+   * the default `false` is the standalone app.
+   */
+  readonly embedded = input(false);
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
   private readonly panel = inject(PanelState);

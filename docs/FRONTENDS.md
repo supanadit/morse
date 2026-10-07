@@ -82,7 +82,11 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    panel's terminal (again the browser host; VS Code keeps its integrated terminal), `workbench`
    whether the host can store the shell layout (`readWorkbench` / `saveWorkbench`) so the tabs, panel
    and terminals come back on the next visit (the browser host keeps it under `MORSE_HOME`; VS Code has
-   its own tab restoration and leaves it off), and `updateCheck`
+   its own tab restoration and leaves it off), `sessionTabs`
+   whether the host can show one session as its own editor tab (`openSessionTab` / `closeSessionTab`) — on
+   for VS Code, which then offers "Open in editor tab" in a session's sidebar menu and pins a
+   `HostSessionController` per tab; the browser host has no editor surface and leaves it off — and
+   `updateCheck`
    whether the frontend may ask the registry for the latest release (it is the only request a frontend ever
    makes off-machine; a host that leaves it off — or a webview whose CSP forbids the registry origin — never
    shows an update notice). The same request covers pi, so a host that read the installed pi version also
@@ -97,6 +101,33 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    `agentError` — the adapter knows pi's package name, the host knows which setting it reads, and a frontend
    that guessed would offer the wrong remedy. A host that could not classify the failure sends no `code`,
    which is the signal to fall back to generic wording.
+
+### A session as an editor tab (VS Code only)
+
+The sidebar panel shows one session and follows the host's active pointer. A VS Code window can also open a
+whole conversation as its own editor tab, the way the MCP and prompt editors already do — `capabilities.sessionTabs`
+is what the frontend checks before offering it, and the session's right-click menu grows one row ("Open in
+editor tab") when it is on. The command `morse.openSessionTab` opens the same thing from the palette, asking
+which session first when it is run without one.
+
+What makes a tab more than a second view is that it is **pinned**:
+
+- The extension opens the bundle routed `#/session?id=<sessionId>` (`chat/session-page/session-page.ts`) and
+  builds its `HostSessionController` with `pinnedSessionId`. That controller activates exactly that session
+  (reusing a warm process, or resuming it by id) and addresses every command at it — a prompt, Stop, the
+  model pick, thinking, compaction, a fork — so the sidebar switching sessions cannot pull the tab's next
+  prompt into another conversation. The one thing it does share is the registry's session-in-front pointer,
+  because a window has one: activating the tab's session moves it, which is what the sidebar reattaches to.
+- A session's `session/activate` from another surface is ignored by a pinned controller, so two tabs never
+  ping-pong each other's switches. Opening a different session in a given tab is how it is re-pointed.
+- When a tab's session is closed or deleted out from under it, the tab returns to the empty draft rather than
+  adopting another hot session — silently becoming a different conversation is the failure worth avoiding.
+- Every session tab shares one VS Code view type (`morse.sessionTab`) because a restore registers one
+  serializer per type; which session a tab was travels in the webview state the surface writes
+  (`morse.view.sessionTab`, read by `readSessionTabState`). A tab restored without it is closed.
+
+The browser host has no editor tabs and leaves `sessionTabs` off; its tab strip is a separate, wire-driven
+feature (`core/workspace-tabs.ts`, gated on `filePreview`).
 
 ### Attachments, by host
 

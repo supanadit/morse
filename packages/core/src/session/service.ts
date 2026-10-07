@@ -319,9 +319,13 @@ export class SessionRegistry {
    * *new* session file while reusing the same subprocess, so the hot entry is
    * re-keyed to the new session id instead of respawning the agent. The
    * controller truncates its transcript to match, then sends the edited prompt.
+   *
+   * `sessionKey` names the session to fork when the caller is not the host's
+   * shared "session in front" — a VS Code editor tab pinned to one conversation
+   * forks its own branch, not whichever session some other panel last activated.
    */
-  async forkActive(entryId: string): Promise<ForkedSession> {
-    const previousKey = this.activeKey;
+  async forkActive(entryId: string, sessionKey?: string): Promise<ForkedSession> {
+    const previousKey = sessionKey ?? this.activeKey;
     const hot = previousKey === undefined ? undefined : this.hot.get(previousKey);
     if (previousKey === undefined || !hot) {
       throw new AgentUnavailableError('No active Morse session. Open a session first.');
@@ -354,7 +358,12 @@ export class SessionRegistry {
     } else {
       this.recency.push(key);
     }
-    this.activeKey = key;
+    // Only adopt the fork as the host-wide session in front when this call was
+    // for it: a pinned tab forking its own conversation must not steal the
+    // sidebar's pointer.
+    if (sessionKey === undefined || sessionKey === this.activeKey) {
+      this.activeKey = key;
+    }
     return { key, previousKey, state, text: result.text, cancelled: false };
   }
 

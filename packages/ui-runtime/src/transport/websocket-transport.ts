@@ -1,4 +1,4 @@
-import { decode, encodeWireMessage, parseHostMessage, type ClientToHostMessage } from '@morse/protocol';
+import { encodeWireMessage, parseHostMessage, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from './host-transport.js';
 
 export interface WebSocketHostTransportOptions {
@@ -70,7 +70,7 @@ export class WebSocketHostTransport extends BaseHostTransport {
     };
 
     socket.onmessage = (event: MessageEvent) => {
-      const message = parseHostMessage(decode(event.data));
+      const message = parseHostMessage(event.data);
       if (message) {
         this.emitMessage(message);
       }
@@ -105,6 +105,8 @@ export class WebSocketHostTransport extends BaseHostTransport {
       }
     }, delay);
     // `unref` exists on Node timers only; browsers return a number.
+    // SAFETY: the timer a browser returns is a number, and `unref` is absent from
+    // it, so the optional call is a no-op there; on Node it is the real timer.
     (this.timer as unknown as { unref?: () => void }).unref?.();
   }
 }

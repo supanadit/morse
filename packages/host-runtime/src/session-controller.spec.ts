@@ -147,6 +147,7 @@ function connect(
   sink: HostToClientMessage[],
   scope?: HostScopeOptions,
   agentHint?: string,
+  pinnedSessionId?: string,
 ): HostSessionController {
   return new HostSessionController({
     services: { registry, chat },
@@ -159,6 +160,8 @@ function connect(
     ...(scope ? { scope } : {}),
     // Both shipping hosts pass this too: the one line a user can act on.
     ...(agentHint ? { agentHint } : {}),
+    // A VS Code editor tab shows exactly one session and addresses it.
+    ...(pinnedSessionId ? { pinnedSessionId } : {}),
   });
 }
 
@@ -1372,5 +1375,114 @@ describe('HostSessionController session-scoped dialogs', () => {
       .filter((message) => message.type === 'interaction/dismiss')
       .at(-1);
     expect(dismissed?.payload.requestId).toBe('req-2');
+  });
+});
+
+/**
+ * A pinned client is a VS Code editor tab: it shows one session and must keep
+ * addressing it. These lock the two ways that could go wrong — following some
+ * other surface's `session/activate`, and acting on the host-wide active pointer.
+ */
+describe('HostSessionController (pinned to one session)', () => {
+  /** A factory whose gateways record the prompts each session was sent. */
+  function recordingRegistry(): {
+    registry: SessionRegistry;
+    promptsFor(sessionId: string): string[];
+  } {
+    const prompts = new Map<string, string[]>();
+    const factory: AgentGatewayFactory = {
+      create: (options) => {
+        const sessionId = options.sessionId ?? `generated-${prompts.size + 1}`;
+        const sent = prompts.get(sessionId) ?? [];
+        prompts.set(sessionId, sent);
+        const gateway = fakeGateway({ sessionId });
+        return Promise.resolve({
+          ...gateway,
+          prompt: (text: string) => {
+            sent.push(text);
+            return Promise.resolve<PromptDisposition>('started');
+          },
+        });
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    return { registry, promptsFor: (id) => prompts.get(id) ?? [] };
+  }
+
+  /** Two sessions opened by a sidebar client, then a client pinned to sess-b. */
+  async function pinned(): Promise<{
+    host: HostSessionController;
+    messages: HostToClientMessage[];
+    registry: SessionRegistry;
+    promptsFor(sessionId: string): string[];
+  }> {
+    const { registry, promptsFor } = recordingRegistry();
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const sidebar = connect(registry, chat, transcripts, []);
+    await sidebar.start();
+    await registry.open({ sessionId: 'sess-a' });
+    await registry.open({ sessionId: 'sess-b' });
+    await sidebar.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+
+    const messages: HostToClientMessage[] = [];
+    const host = connect(registry, chat, transcripts, messages, undefined, undefined, 'sess-b');
+    await host.start();
+    return { host, messages, registry, promptsFor };
+  }
+
+  it('adopts its own session on start, and shows it', async () => {
+    const { messages } = await pinned();
+    // Starting activates the pinned session (reusing a warm process), so the
+    // host-wide pointer follows it — that is intended: one window has one
+    // session in front, and the sidebar reattaches to whatever was last
+    // activated. What matters is that this tab shows its own session.
+    expect(lastStateOf(messages)?.sessionId).toBe('sess-b');
+  });
+
+  it('keeps its session after another surface activates a different one', async () => {
+    const { host, messages } = await pinned();
+
+    // The sidebar switches to sess-a; this tab must not follow it.
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+
+    expect(lastStateOf(messages)?.sessionId).toBe('sess-b');
+  });
+
+  it('sends its prompt to its own session, not the host-wide active one', async () => {
+    const { host, registry, promptsFor } = await pinned();
+    // The sidebar moved the host-wide pointer away from this tab's session.
+    await registry.activate('sess-a');
+
+    await host.handleClientMessage({ type: 'chat/prompt', payload: { text: 'only here' } });
+
+    expect(promptsFor('sess-b')).toEqual(['only here']);
+    expect(promptsFor('sess-a')).toEqual([]);
+  });
+
+  it('falls back to the empty draft when its session is gone instead of adopting another', async () => {
+    const { host, messages, registry } = await pinned();
+
+    // The sidebar closes this tab's session out from under it.
+    await registry.close('sess-b');
+    await host.handleClientMessage({
+      type: 'session/close',
+      payload: { sessionId: 'sess-b' },
+    });
+
+    // Another live session exists, but showing it here would silently turn this
+    // tab into a different conversation.
+    expect(lastStateOf(messages)?.sessionId).toBeUndefined();
   });
 });

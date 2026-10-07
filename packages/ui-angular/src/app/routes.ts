@@ -29,6 +29,14 @@ export const APP_ROUTES: readonly AppRoute[] = [
     path: '/prompts',
     load: () => import('./chat/prompt-editor/prompt-editor-page').then((m) => m.PromptEditorPage),
   },
+  // One session as a whole editor tab (VS Code). Code-split like the prompt
+  // editor: a session tab is not the chat app's own bundle, and loading it only
+  // when the route is actually booted keeps the sidebar panel's first paint out
+  // of it.
+  {
+    path: '/session',
+    load: () => import('./chat/session-page/session-page').then((m) => m.SessionPage),
+  },
 ];
 
 /** What an unknown or empty hash boots: the chat app (also the shell's `<app-root>`). */
