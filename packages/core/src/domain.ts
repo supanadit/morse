@@ -43,13 +43,23 @@ export interface ModelRef {
   input?: ModelInput[];
 }
 
-export type AgentCommandSource = 'extension' | 'prompt' | 'skill';
+/**
+ * `'builtin'` is pi's own TUI slash commands, sourced live from the installed
+ * pi binary's `dist/core/slash-commands.js` at spawn (and re-read whenever that
+ * file changes on disk), so the list can never drift from a pi upgrade.
+ */
+export type AgentCommandSource = 'builtin' | 'extension' | 'prompt' | 'skill';
 
 /** A command the agent exposes to the composer (pi `get_commands`). */
 export interface AgentCommand {
   name: string;
   description?: string;
   source: AgentCommandSource;
+  /**
+   * pi's argument placeholder (`<provider/model>` for `/model`), as the TUI
+   * shows it next to the command name. Only builtins declare one.
+   */
+  argumentHint?: string;
   /**
    * Raw Markdown of a prompt template, for `source: 'prompt'` only. pi does not
    * send the body over RPC, so the adapter reads the file `get_commands` named

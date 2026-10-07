@@ -49,7 +49,7 @@ export interface ModelOption {
   input?: ModelInput[];
 }
 
-export type CommandSource = 'extension' | 'prompt' | 'skill';
+export type CommandSource = 'builtin' | 'extension' | 'prompt' | 'skill';
 
 /**
  * A command the agent session offers in the composer: an extension command, a
@@ -61,6 +61,8 @@ export interface CommandOption {
   name: string;
   description?: string;
   source: CommandSource;
+  /** pi's argument placeholder (`<provider/model>` for `/model`); builtins only. */
+  argumentHint?: string;
   /** Raw prompt-template Markdown, for `source: 'prompt'` only (see `AgentCommand`). */
   template?: string;
 }

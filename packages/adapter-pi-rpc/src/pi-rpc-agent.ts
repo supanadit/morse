@@ -30,6 +30,7 @@ import {
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
 import { stripAnsi } from './internal/ansi-text.js';
+import { getBuiltinSlashCommands } from './internal/pi-builtins.js';
 import { parsePromptTemplate, type PromptFrontmatter } from './internal/prompt-frontmatter.js';
 import { PromptWatcher } from './internal/prompt-watch.js';
 import { resolveAgentDir, readProjectTrust } from './internal/project-trust.js';
@@ -408,7 +409,7 @@ export class PiRpcAgent implements AgentGateway {
 
   /** Where a command list is rebuilt from: the session's workspace and env. */
   private commandContext(): CommandContext {
-    return { cwd: this.options.workspace.cwd, env: this.options.env };
+    return { cwd: this.options.workspace.cwd, env: this.options.env, spawn: this.options.spawn };
   }
 
   /**
@@ -728,6 +729,13 @@ async function readTemplateFile(path: string | undefined): Promise<string | unde
 export interface CommandContext {
   cwd: string;
   env: NodeJS.ProcessEnv | undefined;
+  /**
+   * The resolved pi spawn, so the palette can source pi's own TUI builtins
+   * (`/settings`, `/model`, `/reload`, ...) from the very install this session
+   * runs. Optional: without it the palette carries only what `get_commands`
+   * returned plus prompt templates on disk.
+   */
+  spawn?: PiSpawn;
 }
 
 /** The subset of a `get_commands` entry the command list cares about. */
@@ -763,6 +771,37 @@ export async function buildCommandList(
   const diagnostics: AgentDiagnostic[] = [];
   const seen = new Set<string>();
   let projectTrusted = false;
+  // First source recorded per name, so a same-name later command knows what it
+  // was hidden behind (a pi builtin earns an explanatory diagnostic; other
+  // collisions keep the previous first-wins behaviour).
+  const shadowedBy = new Map<string, AgentCommandSource>();
+  // pi's TUI lists its builtins (`/settings`, `/model`, `/reload`, ...) alongside
+  // the extensible commands; `get_commands` deliberately carries only the
+  // extensible three. Sourcing them from the install this session runs (and
+  // re-reading whenever that install's file changes) keeps the palette identical
+  // to the TUI's with nothing hardcoded — a `pi update` is picked up on the
+  // next palette refresh instead of surviving until pi is re-resolved.
+  const builtins = getBuiltinSlashCommands(context.spawn);
+  if (builtins) {
+    for (const builtin of builtins.commands) {
+      commands.push({
+        name: builtin.name,
+        description: builtin.description,
+        source: 'builtin',
+        argumentHint: builtin.argumentHint,
+      });
+      seen.add(builtin.name);
+      shadowedBy.set(builtin.name, 'builtin');
+    }
+  } else if (context.spawn) {
+    // Only warn when a pi install was involved but could not be read; a context
+    // without a spawn (tests, hosts that never resolved pi) simply has not one.
+    diagnostics.push({
+      key: 'pi-builtins:unreadable',
+      level: 'info',
+      text: 'Morse could not read the built-in slash commands in the installed pi; the palette shows extension commands, prompt templates and skills.',
+    });
+  }
 
   for (const item of items ?? []) {
     if (typeof item.name !== 'string' || item.name.trim().length === 0) {
@@ -770,7 +809,19 @@ export async function buildCommandList(
     }
     const source = toCommandSource(item.source);
     if (source !== 'prompt') {
-      commands.push({ name: item.name, description: item.description, source });
+      // pi's TUI gives builtins precedence over an extension command registered
+      // under the same name (its own conflict diagnostics check for exactly
+      // this); mirror it here so a row cannot silently lose the shadow.
+      if (shadowedBy.get(item.name) === 'builtin') {
+        diagnostics.push({
+          key: `pi-command-shadow:${item.name}`,
+          level: 'warn',
+          text: `/${item.name} is a pi built-in; the extension command registered for that name was hidden, as pi's own TUI does.`,
+        });
+      } else {
+        commands.push({ name: item.name, description: item.description, source });
+        shadowedBy.set(item.name, source);
+      }
       seen.add(item.name);
       continue;
     }
@@ -786,20 +837,25 @@ export async function buildCommandList(
     if (parsed === undefined) {
       continue;
     }
-    commands.push({
-      name: item.name,
-      // Prefer the freshly parsed description so an edited frontmatter reflects
-      // too; pi's cached description is the fallback.
-      description: promptDescription(parsed) ?? item.description,
-      source,
-      template,
-    });
+    if (shadowedBy.get(item.name) === undefined) {
+      commands.push({
+        name: item.name,
+        // Prefer the freshly parsed description so an edited frontmatter reflects
+        // too; pi's cached description is the fallback.
+        description: promptDescription(parsed) ?? item.description,
+        source,
+        template,
+      });
+      shadowedBy.set(item.name, source);
+    }
     seen.add(item.name);
   }
 
   for (const dir of await promptDirs(projectTrusted, context)) {
     for (const file of await listPromptFiles(dir)) {
       if (seen.has(file.name)) {
+        // pi's builtin list is authoritative; a same-name shadow only warms the
+        // palette reader (as below) when it hides an extensible command.
         continue;
       }
       const template = await readTemplateFile(file.path);

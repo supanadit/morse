@@ -10,7 +10,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
+import type { CommandOption, ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import {
   parseCommandArgs,
@@ -285,6 +285,40 @@ import { UsageIndicator } from '../usage/usage-indicator';
         right: 0;
         bottom: calc(100% + 4px);
         z-index: 20;
+      }
+      /* The scoped hint class is nowrap for toolbar/status one-liners; the notice
+         text is a sentence and must wrap inside the box — otherwise the flex
+         child's min-content pushes the dismiss button out of it. */
+      .pi-builtin-notice {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 5px 10px;
+        border: 1px solid var(--morse-border);
+        border-radius: var(--morse-radius-md);
+        background: var(--morse-panel, var(--morse-hover));
+        color: var(--morse-fg-muted);
+      }
+      .pi-builtin-notice .hint {
+        min-width: 0;
+        flex: 1;
+        white-space: normal;
+      }
+      .pi-builtin-notice code {
+        color: var(--morse-fg);
+      }
+      .pi-builtin-notice code {
+        color: var(--morse-fg);
+      }
+      .notice-dismiss {
+        background: none;
+        border: none;
+        color: var(--morse-fg-muted);
+        cursor: pointer;
+        padding: 0;
+        font-size: 14px;
+        line-height: 1;
       }
       .attachments {
         display: flex;
@@ -724,23 +758,33 @@ export class ChatComposer {
   protected readonly availableCommands = this.morse.availableCommands;
   /** Rows for the open palette, already ranked; the composer owns the keyboard. */
   protected readonly paletteItems = computed<PaletteItem[]>(() => {
-    const commands: PaletteItem[] = [
-      ...BUILTIN_COMMANDS.map((command) => ({
+    // Morse's own rows are registered first and win on a name collision:
+    // `/settings`, `/model`, `/new`, `/compact` route to Morse's UI and pi now
+    // lists same-name builtins in its catalog (sourced from the installed pi),
+    // so one palette row per name keeps the picker honest.
+    const items = new Map<string, PaletteItem>();
+    for (const command of BUILTIN_COMMANDS) {
+      items.set(command.name, {
         id: `builtin:${command.name}`,
         label: `/${command.name}`,
         description: command.description,
         badge: 'built-in',
         icon: '›',
-      })),
-      ...this.availableCommands().map((command) => ({
+      });
+    }
+    for (const command of this.availableCommands()) {
+      if (items.has(command.name)) {
+        continue;
+      }
+      items.set(command.name, {
         id: `command:${command.name}`,
         label: `/${command.name}`,
         description: command.description,
-        badge: command.source,
+        badge: command.source === 'builtin' ? 'pi built-in' : command.source,
         icon: '⁄',
-      })),
-    ];
-    return rankPalette(commands, this.paletteFilter());
+      });
+    }
+    return rankPalette([...items.values()], this.paletteFilter());
   });
 
   /** The model chooser popover; `/model` and the footer trigger share it. */
@@ -943,6 +987,7 @@ export class ChatComposer {
 
   protected sendWith(mode: PromptMode): void {
     let value = this.drafts.text().trim();
+    this.unroutedPiBuiltin.set(undefined);
     // `/compact <instructions>` is the same destructive action as the bare built-in,
     // only with the user's words attached — it must not slip past the confirmation by
     // riding along as a prompt.
@@ -959,6 +1004,22 @@ export class ChatComposer {
       this.drafts.setText('');
       this.runBuiltin(builtin);
       return;
+    }
+    // A `/name` (or `/name <arg>`) naming a pi builtin: routed — model and
+    // thinking through the same services the footer uses — or, for ones Morse
+    // does not route yet, the notice chip. pi's RPC would run a bare `/name` as
+    // literal prompt text, so none of it reaches the wire.
+    const typedSlash = /^\/([\w:-]+)(?:[ \t]+(.*))?$/.exec(value);
+    if (typedSlash !== null) {
+      const [typedName, typedArgument] = [typedSlash[1] ?? '', typedSlash[2]?.trim() || undefined];
+      const piBuiltin = this.availableCommands().find(
+        (candidate) => candidate.source === 'builtin' && candidate.name === typedName,
+      );
+      if (piBuiltin) {
+        this.drafts.setText('');
+        this.runPiBuiltin(piBuiltin, typedArgument);
+        return;
+      }
     }
     // A `/template` draft is expanded before it leaves the composer, so the agent
     // and the transcript get the body, never the bare token. The palette already
@@ -1246,6 +1307,9 @@ export class ChatComposer {
       this.morse.refreshCommands();
     }
     this.paletteOpen.set(true);
+    // A stale notice for an earlier pick should not outlive the reader going
+    // back to the palette.
+    this.unroutedPiBuiltin.set(undefined);
   }
 
   /** Runs (`run`) or inserts (`insert`) the highlighted palette row. */
@@ -1267,6 +1331,12 @@ export class ChatComposer {
       const name = id.slice('command:'.length);
       if (intent === 'run') {
         const command = this.availableCommands().find((candidate) => candidate.name === name);
+        if (command?.source === 'builtin') {
+          this.stripSlashToken();
+          this.closePalette();
+          this.runPiBuiltin(command);
+          return;
+        }
         if (command?.template !== undefined) {
           const form = promptTemplateForm(command.template);
           if (form !== undefined) {
@@ -1341,7 +1411,8 @@ export class ChatComposer {
     this.shell.setPromptTemplateOpen(true);
   }
 
-  private closeTemplate(): void {
+  /** Template-bound (`(cancelled)` on the template dialog); protected for that. */
+  protected closeTemplate(): void {
     this.templateRequest.set(undefined);
     this.shell.setPromptTemplateOpen(false);
     this.promptInput()?.nativeElement.focus();
@@ -1433,6 +1504,133 @@ export class ChatComposer {
         this.shell.openShortcuts();
         break;
     }
+  }
+
+  /**
+   * pi builtins the catalog carries (sourced from the installed pi) but whose
+   * execution lives in pi's own TUI process: the RPC protocol exposes no way to
+   * run them (`get_commands` deliberately carries only extensions, prompt
+   * templates and skills). Morse routes the ones that map to an existing Morse
+   * surface — model and thinking go through the same services the footer uses,
+   * with pi's argument shapes — and says so out loud for the rest instead of
+   * sending a bare `/name` that would reach pi as prompt text.
+   */
+  private runPiBuiltin(command: CommandOption, argument?: string): void {
+    const arg = argument?.trim();
+    switch (command.name) {
+      case 'model':
+        if (arg === undefined) {
+          this.openModelPicker();
+          return;
+        }
+        this.setModelArgument(arg);
+        return;
+      case 'thinking': {
+        if (arg === undefined) {
+          // The picker is always rendered in this composer, so a bare
+          // `/thinking` points at the live control instead of opening nothing.
+          this.setNotice(command, undefined, [
+            'The thinking picker in the composer footer is always live —',
+            'or type the level: `/thinking low`, `/thinking high`, and so on.',
+          ]);
+          return;
+        }
+        const level = this.levels().find(
+          (candidate: string) => candidate.toLowerCase() === arg.toLowerCase(),
+        ) as ThinkingLevel | undefined;
+        if (level === undefined) {
+          this.setNotice(command, arg, [
+            'is not a thinking level this model offers — available here:',
+            `${this.levels().join(', ')}.`,
+          ]);
+          return;
+        }
+        this.morse.setThinkingLevel(level);
+        return;
+      }
+      case 'new':
+        this.tabs.startDraft(this.morse.workspace().cwd);
+        return;
+      case 'compact':
+        // The same confirmation as the header button: `/compact` must not
+        // summarize a conversation on its own.
+        this.shell.requestCompact();
+        return;
+      case 'settings':
+        this.morse.hostCommand('openSettings');
+        return;
+      case 'hotkeys':
+        // pi's TUI hotkeys sheet covers the same reader need as Morse's panel;
+        // what this app binds is what this reader is actually working with.
+        this.shell.openShortcuts();
+        return;
+      case 'quit':
+        // Desktop shells and script-opened windows honor this; a normal
+        // browser tab does not, and the notice is the honest fallback.
+        window.close();
+        if (!window.closed) {
+          this.setNotice(command, arg);
+        }
+        return;
+      default:
+        this.setNotice(command, arg);
+    }
+  }
+
+  /** `/model <provider>/<id>` with the same validation the picker applies. */
+  private setModelArgument(arg: string): void {
+    const sep = arg.indexOf('/');
+    const provider = sep === -1 ? undefined : arg.slice(0, sep);
+    const id = sep === -1 ? undefined : arg.slice(sep + 1);
+    const match =
+      provider !== undefined &&
+      id !== undefined &&
+      this.models().find((model) => model.provider === provider && model.id === id);
+    if (!match) {
+      this.setNotice(
+        { name: 'model' },
+        arg,
+        [
+          'The model was not set:',
+          'expect `/model provider/id` from the available-model list, or run bare `/model` for the picker.',
+        ],
+      );
+      return;
+    }
+    this.morse.setModel(match.provider, match.id);
+  }
+
+  /**
+   * The pi builtin the reader last picked that needs an explanation, shown as a
+   * chip above the input so nothing fails silently: either a command Morse does
+   * not route (the default sentence) or an argument that did not validate. Both
+   * are one cleared-by-send message, never wire traffic.
+   */
+  protected readonly unroutedPiBuiltin = signal<
+    { name: string; hint?: string; text: string } | undefined
+  >(undefined);
+
+  protected dismissUnrouted(): void {
+    this.unroutedPiBuiltin.set(undefined);
+  }
+
+  /**
+   * `parts` composes the message; without it the chip says the command is
+   * un-routed here. A hint rides after the command name.
+   */
+  private setNotice(
+    command: { name: string; argumentHint?: string },
+    argument: string | undefined,
+    parts?: string[],
+  ): void {
+    const hint = command.argumentHint ? ` ${command.argumentHint}` : undefined;
+    this.unroutedPiBuiltin.set({
+      name: command.name,
+      hint: argument ? ` ${argument}` : hint,
+      text:
+        parts?.join(' ') ??
+        "is one of pi's TUI commands, tracked from the installed pi. Morse does not route it here, so nothing was sent.",
+    });
   }
 
   /** Removes the trailing `/command` token the palette opened on. */
