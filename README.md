@@ -23,12 +23,30 @@ Browser host:
 
 Both clips run the same agent, transcript and protocol; only the host differs.
 
-## A note on how this is built
+## How this is built
 
-Morse is **vibe coded**: it was written with an AI, and it exists to drive an AI. This is an agent harness,
-not a product with a roadmap — it is only worth maintaining while the agent it drives is worth running. I do
-not have the time to maintain it full-time, and paying someone to maintain a harness for an agent you already
-pay to run makes little sense. Using AI here is not a shortcut; it is the point.
+Morse started as a **vibe-coded prototype**: unengineered on purpose, written fast with an AI to answer
+one question — is a real GUI around the Pi agent actually better than the terminal? It is, by a lot. That
+is why the prototype is gone and this repository exists.
+
+It also taught me the thing I build on now. AI writes code faster than I do and it does not think — not at
+the maximum thinking level, not with the best model available. It cannot hold a goal for a week, weigh a
+trade-off nobody told it about, or notice that the feature being asked for is the wrong feature. It is
+extremely good at the part of the job that is typing, and typing was never the job.
+
+I have tried the memory tooling that promises to fix that: context stores, note graphs, agents that
+remember you. They help at the margins. What still beats all of it is one person who knows what they are
+building and why, because a goal is not a fact you retrieve — it is a judgement you keep making.
+
+So this is what Morse is built around: **change the way developers use AI, rather than depend on it**. You
+can use Morse as a vibecoder and let an agent run a whole feature while you watch. But it is built for the
+engineer who wants the controls — steer a running turn, abort it, edit a prompt the agent already answered
+and send it again, read the diff before it is committed, watch the branch. The fundamentals stay yours and
+AI multiplies them; it does not replace them, and it never takes the wheel.
+
+That is not a licence for slop. Every layer has an owner and a contract, the purity rules are enforced
+rather than aspirational, a wire change is a `protocolVersion` bump, and nothing lands without `build`,
+`check-types` and `test:fast`. It stays free, and it will: no price, no paid tier, no plan for one.
 
 ## Highlights
 
@@ -52,9 +70,10 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
   with `+` or by typing `@`, with markdown formatting in your own prompts too.
 - **Native interactions in VS Code** — pi's interaction requests become QuickPick/InputBox there, and are
   rendered inline in the browser.
-- **Git and files where there is no editor** — on the browser host, a git panel (commit list, branch graph,
-  uncommitted changes) and an Explorer, with read-only previews, diff views, and line ranges you drag to pin
-  into your next message. VS Code keeps its own Explorer, editor and Source Control.
+- **Git, files and a terminal where there is no editor** — on the browser host, a git panel (commit list,
+  branch graph, uncommitted changes), an Explorer and a terminal, with read-only previews, diff views, and
+  line ranges you drag to pin into your next message. VS Code keeps its own Explorer, editor, Source Control
+  and terminal.
 - **Manage MCP servers** — an indicator in the chat toolbar opens a manager for the servers pi sees for the
   session's directory: their state, tools and errors, plus add, remove, enable and disable. In project scope,
   disabling a user-level server writes a project override — the same file pi's own `/mcp` writes.
@@ -64,31 +83,28 @@ pay to run makes little sense. Using AI here is not a shortcut; it is the point.
   changes the model or the thinking level, toggles the git panel (browser host), and opens the compaction
   question; `/` jumps to the session search and `?` prints the whole list.
 
-## Light, and honest about what is not
+## Pi stays yours
 
-Morse is an interface, not another agent: it spawns `pi --mode rpc` and never imports it (`pi` and its own
-footprint — hundreds of megabytes — stay pi's problem, not Morse's). What is left is small, and measured
-rather than claimed:
+Morse is a frontend, not a fork: it drives the `pi` you already have installed, over pi's own `--mode rpc`,
+and that is a deliberate choice rather than an implementation detail.
 
-| Piece | Measured |
-|---|---|
-| Frontend, over the wire | **221 kB** compressed (950 kB raw, 14 kB CSS) |
-| Host bundle (`@morse/server`, the NestJS app) | **53 kB** of JS |
-| Host, nothing happening | **0.000% CPU**, ~110 MB RSS — no polling, no heartbeat, nothing to wake up for |
-| One prompt in a warm session | **2.3%** of one core of *host* CPU |
-| Refreshing the session list | **2 ms** warm (it was 624 ms of CPU before it was cached) |
-| A live session | **275–450 MB** |
+- **It never imports pi, bundles it or patches it** — no vendored SDK, no forked CLI, no plugin added to
+  your pi, no change to how pi behaves. Your models, credentials, tools, MCP servers and sessions stay where
+  pi put them, which is why a chat started in the terminal resumes here — and one started here resumes in
+  the terminal.
+- **Trying it costs you nothing you do not already have** — pi's SDK is about 436 MB installed, and a
+  frontend that vendors it pays that again for every such app on your machine. Morse spawns the one `pi` on
+  your `PATH`, so any number of RPC-based frontends can live side by side on a single pi — and uninstalling
+  Morse leaves your pi exactly as it was.
+- **Everything else here is Morse's own work** — the browser host adds an Explorer, a git panel and real
+  terminal tabs; both hosts add an MCP manager, a template editor and previews backed by a real language
+  server. Some of it goes well past what pi's TUI offers. None of it is asked of pi, and none of it changes
+  it.
 
-That last row is the honest one: a live session is a `pi` process (about 150 MB) plus whatever your own pi
-configuration loads beside it — on the machine we measured, that reached 450 MB before a single prompt was sent.
-Morse caps how many stay alive (`MORSE_HOT_SESSIONS`, default 4) and retires the idle ones, so the number to size
-a box by is this one, not the 110 MB above.
-
-Both numbers were measured against a real `pi` with the host built for production; the method and the before/after
-are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), so you can reproduce them — or watch them not be true.
-
-The panel's only request to the internet of its own is the version check behind "update available": one read of
-the npm registry per load, public data only, and a host can turn it off (`MORSE_UPDATE_CHECK=0`).
+Pi's own files are the exception, and there are three: `mcp.json` for the MCP manager, `prompts/*.md` for
+the template editor and `trust.json` for the project-trust prompt. Morse edits them in pi's formats, only
+when you use the feature that owns them. The reasoning in full, with numbers, is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#why-rpc-subprocesses-and-not-the-sdk).
 
 ## Requirements
 
@@ -107,10 +123,14 @@ npm install -g @supanadit/morse-web
 morse start
 ```
 
-```
+```text
   ▲  Morse started
+  │
   ◆  port 4399 (PID: 20880)
+  │
   ●  visit: http://127.0.0.1:4399/
+  ●  logs:  morse logs
+  │
   └  daemon running — the terminal can be closed
 ```
 
