@@ -28,6 +28,7 @@ import { BranchPicker } from '../branch-picker/branch-picker';
 import { WorkspaceFiles } from '../../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../../state/workspace-tabs';
+import { startResize } from '../../../ui/resize-drag';
 
 /** One uncommitted file, ready for the Changes section. */
 interface ChangeView {
@@ -454,7 +455,6 @@ export class GitPanel {
    * squeezed out of existence.
    */
   protected startResize(event: PointerEvent): void {
-    event.preventDefault();
     const handle = event.currentTarget as HTMLElement;
     const body = handle.parentElement;
     if (!body) {
@@ -473,33 +473,12 @@ export class GitPanel {
     const bottom = body.getBoundingClientRect().bottom;
     const startY = event.clientY;
     const startHeight = changes.getBoundingClientRect().height;
-    handle.setPointerCapture(event.pointerId);
-    let frame = 0;
-    let pending = startHeight;
-    const apply = (): void => {
-      frame = 0;
-      this.shell.setGitChangesHeight(pending, false);
-    };
-    const move = (moveEvent: PointerEvent): void => {
-      pending = Math.min(bottom - top - 80, startHeight + (moveEvent.clientY - startY));
-      if (frame === 0) {
-        frame = requestAnimationFrame(apply);
-      }
-    };
-    const stop = (): void => {
-      if (frame !== 0) {
-        cancelAnimationFrame(frame);
-        apply();
-      }
-      // Write the choice once, when the drag ends, not on every frame.
-      this.shell.setGitChangesHeight(pending);
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
+    startResize(event, {
+      // 80px of History stays visible, so the section cannot be squeezed out.
+      value: (pointer) => Math.min(bottom - top - 80, startHeight + (pointer.clientY - startY)),
+      preview: (height) => this.shell.setGitChangesHeight(height, false),
+      commit: (height) => this.shell.setGitChangesHeight(height),
+    });
   }
 
   /**
@@ -510,7 +489,6 @@ export class GitPanel {
    * the expand button is still the way to hand the graph everything.
    */
   protected startWidthResize(event: PointerEvent): void {
-    event.preventDefault();
     if (this.shell.gitPanelExpanded()) {
       this.shell.toggleGitPanelExpanded();
     }
@@ -525,44 +503,26 @@ export class GitPanel {
       ? 0
       : (nav?.getBoundingClientRect().width ?? 240);
     const max = Math.max(320, shellWidth - navWidth - GIT_RESIZE_MIN_CHAT);
-    handle.setPointerCapture(event.pointerId);
-    /*
-     * Resizing has to follow the pointer, not the shell's 160ms column
-     * transition: retargeting that animation on every move made the drag feel
-     * heavy. It is also frame-coalesced, so one layout runs per paint, and the
-     * graph's flow is paused because repainting hundreds of animated dashes
-     * during a resize is the other half of the cost.
-     */
-    shell?.style.setProperty('transition', 'none');
-    panel?.classList.add('resizing');
-    let frame = 0;
-    let pending = this.layout.rightSize() ?? Math.round(startWidth);
-    const apply = (): void => {
-      frame = 0;
-      this.layout.setSize('right', pending, false);
-    };
-    const move = (moveEvent: PointerEvent): void => {
-      pending = Math.min(max, startWidth + (startX - moveEvent.clientX));
-      if (frame === 0) {
-        frame = requestAnimationFrame(apply);
-      }
-    };
-    const stop = (): void => {
-      if (frame !== 0) {
-        cancelAnimationFrame(frame);
-        apply();
-      }
-      shell?.style.removeProperty('transition');
-      panel?.classList.remove('resizing');
-      // Write the choice once, when the drag ends, not on every frame.
-      this.layout.setSize('right', pending);
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
+    startResize(event, {
+      /*
+       * Resizing has to follow the pointer, not the shell's 160ms column transition:
+       * retargeting that animation on every move made the drag feel heavy. The graph's flow
+       * is paused for the other half of the cost — repainting hundreds of animated dashes
+       * while the column moves.
+       */
+      begin: () => {
+        shell?.style.setProperty('transition', 'none');
+        panel?.classList.add('resizing');
+      },
+      end: () => {
+        shell?.style.removeProperty('transition');
+        panel?.classList.remove('resizing');
+      },
+      // Pulling left (a negative delta) widens the panel, so the column is what changes.
+      value: (pointer) => Math.min(max, startWidth + (startX - pointer.clientX)),
+      preview: (width) => this.layout.setSize('right', width, false),
+      commit: (width) => this.layout.setSize('right', width),
+    });
   }
 
   /** Double-clicking the edge restores the default column width. */

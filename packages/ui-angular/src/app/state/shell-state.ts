@@ -288,11 +288,17 @@ export class ShellState {
     }
   }
 
-  /** Drag-to-resize from the Explorer's top edge; clamped to a usable range. */
-  setExplorerHeight(px: number): void {
+  /**
+   * Drag-to-resize from the Explorer's top edge; clamped to a usable range. `persist` is
+   * false while the drag runs: the height is applied on every frame and written once, when
+   * the drag ends.
+   */
+  setExplorerHeight(px: number, persist = true): void {
     const next = clampExplorerHeight(px);
     this.explorer.set(next);
-    storeExplorerHeight(next);
+    if (persist) {
+      storeExplorerHeight(next);
+    }
   }
 
   openAbout(): void {

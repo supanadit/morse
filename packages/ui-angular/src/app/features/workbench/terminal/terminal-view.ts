@@ -13,6 +13,7 @@ import { MorseService } from '../../../host/morse.service';
 import { PanelState } from '../../../state/panel-state';
 import { TerminalStore, type TerminalGroup, type TerminalInstance } from '../../../state/terminal-store';
 import { WorkspaceTabs } from '../../../state/workspace-tabs';
+import { startResize } from '../../../ui/resize-drag';
 import { Terminal } from './terminal';
 
 /**
@@ -99,52 +100,27 @@ export class TerminalView {
    * the choice is written once when the drag ends.
    */
   protected startResize(group: TerminalGroup, index: number, event: PointerEvent): void {
-    event.preventDefault();
     const handle = event.currentTarget as HTMLElement;
     const container = handle.parentElement;
     const width = container?.getBoundingClientRect().width ?? 0;
     if (container === null || width <= 0) {
       return;
     }
-    try {
-      handle.setPointerCapture(event.pointerId);
-    } catch {
-      // A synthetic event (a test) has no pointer to capture; the listeners on
-      // the handle still see the moves.
-    }
     const startX = event.clientX;
     const start = [...group.sizes];
     const min = 0.08;
-    let frame = 0;
-    let pending = start;
-    const apply = (): void => {
-      frame = 0;
-      this.store.setSizes(group.id, pending);
-    };
-    const move = (moveEvent: PointerEvent): void => {
-      const pair = start[index]! + start[index + 1]!;
-      const delta = (moveEvent.clientX - startX) / width;
-      const left = Math.min(pair - min, Math.max(min, start[index]! + delta));
-      pending = start.map((size, i) =>
-        i === index ? left : i === index + 1 ? pair - left : size,
-      );
-      if (frame === 0) {
-        frame = requestAnimationFrame(apply);
-      }
-    };
-    const stop = (): void => {
-      if (frame !== 0) {
-        cancelAnimationFrame(frame);
-        apply();
-      }
-      this.store.setSizes(group.id, pending);
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
+    const pair = start[index]! + start[index + 1]!;
+    startResize(event, {
+      // The two panes either side trade width and keep their sum, so the rest of the split
+      // never moves.
+      value: (pointer) => {
+        const delta = (pointer.clientX - startX) / width;
+        const left = Math.min(pair - min, Math.max(min, start[index]! + delta));
+        return start.map((size, i) => (i === index ? left : i === index + 1 ? pair - left : size));
+      },
+      preview: (sizes) => this.store.setSizes(group.id, sizes),
+      commit: (sizes) => this.store.setSizes(group.id, sizes),
+    });
   }
 
   /** A terminal chip was clicked: bring its active pane in front. */

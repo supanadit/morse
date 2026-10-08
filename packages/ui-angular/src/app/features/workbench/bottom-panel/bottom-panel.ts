@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { PANEL_DEFAULT_HEIGHT, PanelState } from '../../../state/panel-state';
 import { TerminalView } from '../terminal/terminal-view';
+import { startResize } from '../../../ui/resize-drag';
 
 /**
  * A tool the bottom panel offers. Adding one is a line here plus its component —
@@ -60,9 +61,6 @@ export class BottomPanel {
   protected readonly height = this.panel.height;
   protected readonly full = this.panel.full;
   protected readonly actions = this.panel.actions;
-  /** Where the pointer started and how tall the panel was, for the drag. */
-  private resizeStartY = 0;
-  private resizeStartHeight = 0;
 
   /** A chip: opens its tool, or folds the panel if it was already open. */
   protected select(id: string): void {
@@ -98,43 +96,16 @@ export class BottomPanel {
   protected onResizeStart(event: PointerEvent): void {
     const handle = event.currentTarget as HTMLElement;
     const panel = handle.parentElement;
-    try {
-      handle.setPointerCapture(event.pointerId);
-    } catch {
-      // A synthetic event (a test) has no pointer to capture; the listeners
-      // below still see the moves while the pointer is over the handle.
-    }
-    this.resizeStartY = event.clientY;
-    this.resizeStartHeight = this.height() ?? PANEL_DEFAULT_HEIGHT;
-    let frame = 0;
-    let pending = this.resizeStartHeight;
-    const apply = (): void => {
-      frame = 0;
-      this.panel.setHeight(pending, false);
-    };
-    const move = (moveEvent: PointerEvent): void => {
+    const startY = event.clientY;
+    const startHeight = this.height() ?? PANEL_DEFAULT_HEIGHT;
+    startResize(event, {
+      begin: () => panel?.classList.add('resizing'),
+      end: () => panel?.classList.remove('resizing'),
       // Dragging up grows the panel: distance above the start adds to the height.
-      pending = this.resizeStartHeight + (this.resizeStartY - moveEvent.clientY);
-      if (frame === 0) {
-        frame = requestAnimationFrame(apply);
-      }
-    };
-    const stop = (): void => {
-      if (frame !== 0) {
-        cancelAnimationFrame(frame);
-        apply();
-      }
-      panel?.classList.remove('resizing');
-      // Write the choice once, when the drag ends, not on every frame.
-      this.panel.setHeight(pending);
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-    };
-    panel?.classList.add('resizing');
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
+      value: (pointer) => startHeight + (startY - pointer.clientY),
+      preview: (height) => this.panel.setHeight(height, false),
+      commit: (height) => this.panel.setHeight(height),
+    });
   }
 
   /** Double-clicking the edge restores the default height. */

@@ -21,6 +21,7 @@ import { ShellState } from '../../../state/shell-state';
 import { WorkspaceFiles } from '../../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../../state/workspace-tabs';
+import { startResize } from '../../../ui/resize-drag';
 
 const MIN_EXPLORER_HEIGHT = 140;
 
@@ -273,24 +274,17 @@ export class FileExplorer {
    * bottom, so the list above gives way exactly as much as the pointer moves.
    */
   protected startResize(event: PointerEvent): void {
-    event.preventDefault();
     const host = this.host.nativeElement;
     const bottom = host.getBoundingClientRect().bottom;
     const navTop = host.parentElement?.getBoundingClientRect().top ?? 0;
     const max = Math.max(MIN_EXPLORER_HEIGHT, bottom - navTop - 120);
-    const handle = event.currentTarget as HTMLElement;
-    handle.setPointerCapture(event.pointerId);
-    const move = (moveEvent: PointerEvent): void => {
-      this.shell.setExplorerHeight(Math.min(max, bottom - moveEvent.clientY));
-    };
-    const stop = (): void => {
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
+    startResize(event, {
+      // The height is measured from the pane's fixed bottom, so the list above gives way
+      // exactly as much as the pointer moves.
+      value: (pointer) => Math.min(max, bottom - pointer.clientY),
+      preview: (height) => this.shell.setExplorerHeight(height, false),
+      commit: (height) => this.shell.setExplorerHeight(height),
+    });
   }
 }
 
