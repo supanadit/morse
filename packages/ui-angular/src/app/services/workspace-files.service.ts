@@ -87,11 +87,13 @@ export class WorkspaceFiles {
     if (doc?.hidden === true) {
       return;
     }
-    this.load(this.needsFreshList(), true);
+    // No verdict from the previous tick: `read` judges the status it just read.
+    this.load(undefined, true);
   }
 
   /**
-   * Whether the file list has to be re-indexed this tick.
+   * Whether the file list has to be re-indexed, judged from `status` — the
+   * working tree this tick just read, not the one the last tick left behind.
    *
    * The polled working tree is the change signal: adding, editing, deleting or
    * renaming a path moves git's porcelain listing, which the host answers in one
@@ -101,11 +103,10 @@ export class WorkspaceFiles {
    * directory that is not a repository (there the list comes from a walk), and a
    * status the host did not answer.
    */
-  private needsFreshList(): boolean {
+  private needsFreshList(status: GitStatus | undefined): boolean {
     if (!this.gitAvailable()) {
       return true;
     }
-    const status = this.store.status();
     if (status?.isRepo !== true) {
       return true;
     }
@@ -169,11 +170,11 @@ export class WorkspaceFiles {
   }
 
   /**
-   * Reads the working tree and, when `listFresh`, the file list as it is on disk
-   * right now — otherwise the host may answer the list from its own index. Both
-   * are asked together, so the list and the badges describe the same moment.
+   * Starts one round trip with the host. `listFresh` is the caller's verdict — a
+   * reader opening a picker or pressing refresh already knows what it wants — or
+   * `undefined` to let the working tree decide, which is what a poll tick wants.
    */
-  private load(listFresh: boolean, background: boolean): void {
+  private load(listFresh: boolean | undefined, background: boolean): void {
     const cwd = this.morse.workspace().cwd;
     if (cwd.length === 0 || this.inFlight) {
       return;
@@ -183,45 +184,65 @@ export class WorkspaceFiles {
       this.store.setBusy(true);
       this.store.setError(undefined);
     }
-    void Promise.all([
-      this.morse.requestHostCommand('listFiles', listFresh ? { fresh: true } : undefined),
+    void this.read(cwd, listFresh, background);
+  }
+
+  /**
+   * Reads the working tree and then the file list, so the list and the badges
+   * describe the same moment.
+   *
+   * The order matters. The status is the change signal, so it is asked for
+   * first: a tick that issued both commands together had to decide before the
+   * status it was comparing had arrived, which made the list follow the tree a
+   * whole tick — four seconds — after the tree had already moved.
+   */
+  private async read(
+    cwd: string,
+    listFresh: boolean | undefined,
+    background: boolean,
+  ): Promise<void> {
+    try {
       // A host without git (VS Code) is never asked: it would answer with an
       // error, and a background poll must not fill the transcript with those.
-      this.gitAvailable()
-        ? this.morse.requestHostCommand('gitStatus')
-        : Promise.resolve(undefined),
-    ])
-      .then(([listData, statusData]) => {
-        if (this.morse.workspace().cwd !== cwd) {
-          // The project changed while this request was in flight; the next poll
-          // (or the effect) asks again for the directory the user is in.
-          return;
-        }
-        const files = asFiles(listData);
-        if (files === undefined) {
-          this.store.setError('Could not list this project.');
-          return;
-        }
-        const status = asGitStatus(statusData);
-        this.loadedFor = cwd;
-        this.store.setFiles(files);
-        this.store.setStatus(status);
-        if (listFresh) {
-          this.listReadAt = Date.now();
-        }
-        // Recorded from what was just read, so the next tick compares against
-        // the tree this answer described.
-        this.statusSignature = status === undefined ? undefined : workingTreeSignature(status);
-      })
-      .finally(() => {
-        this.inFlight = false;
-        if (!background) {
-          this.store.setBusy(false);
-        }
-        if (this.morse.workspace().cwd !== cwd) {
-          this.ensureLoaded(true);
-        }
-      });
+      const status = this.gitAvailable()
+        ? asGitStatus(await this.morse.requestHostCommand('gitStatus'))
+        : undefined;
+      if (this.morse.workspace().cwd !== cwd) {
+        // The project changed while this request was in flight; the next poll
+        // (or the effect) asks again for the directory the user is in.
+        return;
+      }
+      const fresh = listFresh ?? this.needsFreshList(status);
+      const listData = await this.morse.requestHostCommand(
+        'listFiles',
+        fresh ? { fresh: true } : undefined,
+      );
+      if (this.morse.workspace().cwd !== cwd) {
+        return;
+      }
+      const files = asFiles(listData);
+      if (files === undefined) {
+        this.store.setError('Could not list this project.');
+        return;
+      }
+      this.loadedFor = cwd;
+      this.store.setFiles(files);
+      this.store.setStatus(status);
+      if (fresh) {
+        this.listReadAt = Date.now();
+      }
+      // Recorded from what was just read, so the next tick compares against
+      // the tree this answer described.
+      this.statusSignature = status === undefined ? undefined : workingTreeSignature(status);
+    } finally {
+      this.inFlight = false;
+      if (!background) {
+        this.store.setBusy(false);
+      }
+      if (this.morse.workspace().cwd !== cwd) {
+        this.ensureLoaded(true);
+      }
+    }
   }
 }
 
