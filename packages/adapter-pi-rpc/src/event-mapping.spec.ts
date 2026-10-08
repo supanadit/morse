@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentHistoryEntry } from '@morse/core';
-import { activePathEntries, mapSessionEvent, toHistory, toEntryHistory } from './event-mapping.js';
+import { appendPinMentions } from './pi-rpc-agent.js';
+import { activePathEntries, mapSessionEvent, splitTrailingMentions, toHistory, toEntryHistory } from './event-mapping.js';
 
 const ISO_1 = '2026-01-01T00:00:01.000Z';
 const ISO_2 = '2026-01-01T00:00:02.000Z';
@@ -239,5 +240,84 @@ describe('toHistory (a flat `get_messages` list)', () => {
     ]);
     const entry = history[0];
     expect(entry && 'details' in entry ? entry.details : undefined).toBeUndefined();
+  });
+});
+
+describe('splitTrailingMentions', () => {
+  it('lifts the plain mention lines an unannotated prompt was sent with (old sessions)', () => {
+    const split = splitTrailingMentions('check the loop please\n\n@src/index.ts:30-31\n@README.md');
+    expect(split.text).toBe('check the loop please');
+    expect(split.pins).toEqual([
+      { path: 'src/index.ts', startLine: 30, endLine: 31 },
+      { path: 'README.md' },
+    ]);
+  });
+
+  it('carries the `  > ` lines a pin was annotated with onto that pin', () => {
+    const split = splitTrailingMentions(
+      ['check the loop please', '', '@src/index.ts:30-31', '  > fix the fallback loop', '  > and guard the empty case'].join(
+        '\n',
+      ),
+    );
+    expect(split.text).toBe('check the loop please');
+    expect(split.pins).toEqual([
+      {
+        path: 'src/index.ts',
+        startLine: 30,
+        endLine: 31,
+        note: 'fix the fallback loop\nand guard the empty case',
+      },
+    ]);
+  });
+
+  it('gives each pin its own note, in order', () => {
+    const split = splitTrailingMentions(
+      [
+        '',
+        '@src/a.ts',
+        '@src/b.ts:5-8',
+        '  > the helper loses its guard',
+      ].join('\n'),
+    );
+    expect(split.pins).toEqual([
+      { path: 'src/a.ts' },
+      { path: 'src/b.ts', startLine: 5, endLine: 8, note: 'the helper loses its guard' },
+    ]);
+  });
+
+  it('round-trips appendPinMentions, prose and annotations included', () => {
+    const pins = [
+      { path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+      { path: 'README.md' },
+      { path: 'docs/notes.md', note: 'first line\nsecond line' },
+    ];
+    const sent = appendPinMentions('what is going on here', pins);
+    const split = splitTrailingMentions(sent);
+    expect(split.text).toBe('what is going on here');
+    expect(split.pins).toEqual(pins);
+  });
+
+  it('keeps a pins-only message pins-only', () => {
+    const sent = appendPinMentions('   ', [
+      { path: 'src/index.ts', startLine: 30, note: 'focus here' },
+    ]);
+    const split = splitTrailingMentions(sent);
+    expect(split.text).toBe('');
+    // A single-line pin is written as 30-30 and reads back closed: the UI's
+    // `pinRange` then renders L30 again, so nothing is lost in the round trip.
+    expect(split.pins).toEqual([
+      { path: 'src/index.ts', startLine: 30, endLine: 30, note: 'focus here' },
+    ]);
+  });
+
+  it('leaves prose alone when no pin block ends the message', () => {
+    const text = ['thoughts:', '  > an indented aside of my own', ''].join('\n');
+    expect(splitTrailingMentions(text)).toEqual({ text, pins: [] });
+  });
+
+  it('keeps a prose blockquote above mention lines in the prose (old sessions)', () => {
+    const split = splitTrailingMentions(['> what I meant', '@src/index.ts:30-31'].join('\n'));
+    expect(split.text).toBe('> what I meant');
+    expect(split.pins).toEqual([{ path: 'src/index.ts', startLine: 30, endLine: 31 }]);
   });
 });

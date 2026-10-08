@@ -563,25 +563,48 @@ export function contentToImages(content: unknown): PromptImage[] {
 }
 
 const PIN_MENTION = /^@([^\s]+?)(?::(\d+)-(\d+))?$/;
+/**
+ * A pin's annotation line as appendPinMentions wrote it: `  > the note`, two
+ * spaces deep so it can never be read as the user's own prose blockquote, and
+ * captured with at most one separating space consumed — a note that starts with
+ * a space keeps it on the way back out.
+ */
+const PIN_NOTE_LINE = /^ {2}>(?: (.*))?$/;
 
 /**
  * Inverse of the adapter's `appendPinMentions`: the trailing `@path[:s-e]`
- * lines a prompt was sent with come back out, so a resumed session renders the
- * pins as attachment chips and the bubble keeps the user's own words only.
+ * blocks a prompt was sent with come back out, so a resumed session renders the
+ * pins as attachment chips and the bubble keeps the user's own words only. Each
+ * block is the mention line followed by zero or more `  > ` annotation lines
+ * that belong to the pin directly above them; walking bottom-up, a buffered run
+ * of note lines is handed to the next pin line met, and a run whose pin never
+ * comes (a stray indented blockquote, nothing Morse generates) is simply left
+ * in the prose where it always was.
  */
 export function splitTrailingMentions(
   text: string,
-): { text: string; pins: Array<{ path: string; startLine?: number; endLine?: number }> } {
+): {
+  text: string;
+  pins: Array<{ path: string; startLine?: number; endLine?: number; note?: string }>;
+} {
   const lines = text.split('\n');
   let cursor = lines.length;
-  const pins: Array<{ path: string; startLine?: number; endLine?: number }> = [];
+  const pins: Array<{ path: string; startLine?: number; endLine?: number; note?: string }> = [];
+  const notes: string[] = [];
   while (cursor > 0) {
+    const note = PIN_NOTE_LINE.exec(lines[cursor - 1] ?? '');
+    if (note !== null) {
+      notes.unshift(note[1] ?? '');
+      cursor -= 1;
+      continue;
+    }
     const match = PIN_MENTION.exec(lines[cursor - 1] ?? '');
     const record = match
       ? {
           path: match[1] ?? '',
           ...(match[2] !== undefined ? { startLine: Number(match[2]) } : {}),
           ...(match[3] !== undefined ? { endLine: Number(match[3]) } : {}),
+          ...(notes.length > 0 ? { note: notes.join('\n') } : {}),
         }
       : undefined;
     // A pin path is a plain file path; a prose sentence with an `@` in the
@@ -589,6 +612,7 @@ export function splitTrailingMentions(
     if (!record || record.path.length === 0) {
       break;
     }
+    notes.length = 0;
     pins.unshift(record);
     cursor -= 1;
   }

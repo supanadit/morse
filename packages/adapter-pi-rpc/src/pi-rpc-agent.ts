@@ -981,9 +981,12 @@ function toPiImages(images: PromptImage[]): Array<{ type: 'image'; data: string;
 }
 
 /**
- * Apples the pin mentions after the user's words: `@path` for a whole file,
- * `@path:start-end` for an editor selection. When the message is pins only (an
- * image with no caption, say), the message is the mentions.
+ * Appends the pin mentions after the user's words: `@path` for a whole file,
+ * `@path:start-end` for an editor selection. A pin with an annotation carries
+ * it as `> `-prefixed lines under its mention line (one per line of the note,
+ * indented so it can never be mistaken for the user's own prose blockquote).
+ * When the message is pins only (an image with no caption, say), the message is
+ * the mention blocks.
  */
 export function appendPinMentions(text: string, pins: ChatPin[] | undefined): string {
   if (!pins || pins.length === 0) {
@@ -992,12 +995,20 @@ export function appendPinMentions(text: string, pins: ChatPin[] | undefined): st
   const mentions = pins
     .map((pin) => {
       if (pin.startLine === undefined) {
-        return `@${pin.path}`;
+        return [`@${pin.path}`, ...noteLines(pin.note)].join('\n');
       }
       const end = pin.endLine ?? pin.startLine;
-      return `@${pin.path}:${pin.startLine}-${end}`;
+      return [`@${pin.path}:${pin.startLine}-${end}`, ...noteLines(pin.note)].join('\n');
     })
     .join('\n');
   const prose = text.trim();
   return prose.length > 0 ? `${prose}\n\n${mentions}` : mentions;
+}
+
+/** A pin's annotation as wire lines: `  > one`, `  > per`, `  > line`. */
+function noteLines(note: string | undefined): string[] {
+  const trimmed = note?.trim();
+  return trimmed === undefined || trimmed.length === 0
+    ? []
+    : trimmed.split('\n').map((line) => `  > ${line}`);
 }

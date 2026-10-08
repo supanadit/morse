@@ -754,11 +754,14 @@ export interface PromptImage {
  * A file (or an editor selection) pinned to a message as an attachment chip.
  * The agent is meant to read it — the wire mentions `@path[:start-end]`, never
  * the inlined content, so the prompt keeps the words the user actually typed.
+ * An optional `note` (the pin's annotation) rides under the mention on the wire
+ * as `> `-prefixed lines, one per line of the note.
  */
 export interface ChatPin {
   path: string;
   startLine?: number;
   endLine?: number;
+  note?: string;
 }
 
 /**

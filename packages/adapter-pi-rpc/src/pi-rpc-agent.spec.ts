@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildCommandList, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
+import { appendPinMentions, buildCommandList, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
 
 /**
  * The palette is rebuilt from disk because pi caches its prompt templates at
@@ -320,5 +320,52 @@ describe('upsertStatus', () => {
       statusText: '',
     });
     expect(cleared).toEqual([]);
+  });
+});
+
+describe('appendPinMentions', () => {
+  it('leaves a prompt with no pins alone', () => {
+    expect(appendPinMentions('just words', undefined)).toBe('just words');
+    expect(appendPinMentions('just words', [])).toBe('just words');
+  });
+
+  it('appends the mention lines after the words, one blank line apart', () => {
+    expect(appendPinMentions('check the loop please', [
+      { path: 'src/index.ts', startLine: 30, endLine: 31 },
+    ])).toBe(['check the loop please', '', '@src/index.ts:30-31'].join('\n'));
+  });
+
+  it('takes a whole-file pin without any lines', () => {
+    expect(appendPinMentions('look here', [{ path: 'README.md' }])).toBe(
+      ['look here', '', '@README.md'].join('\n'),
+    );
+  });
+
+  it('writes one `  > ` line per line of the annotation, under its pin', () => {
+    expect(
+      appendPinMentions('look here', [
+        { path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop\nand guard the empty case' },
+      ]),
+    ).toBe(
+      [
+        'look here',
+        '',
+        '@src/index.ts:30-31',
+        '  > fix the fallback loop',
+        '  > and guard the empty case',
+      ].join('\n'),
+    );
+  });
+
+  it('writes nothing extra for a blank annotation', () => {
+    expect(appendPinMentions('look here', [{ path: 'README.md', note: '   ' }])).toBe(
+      ['look here', '', '@README.md'].join('\n'),
+    );
+  });
+
+  it('is the mentions themselves when there are no words', () => {
+    expect(appendPinMentions('', [{ path: 'README.md', note: 'focus' }])).toBe(
+      ['@README.md', '  > focus'].join('\n'),
+    );
   });
 });

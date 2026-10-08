@@ -80,6 +80,13 @@ export interface ChatPin {
   path: string;
   startLine?: number;
   endLine?: number;
+  /**
+   * The pin's annotation, the user's own words about this range. On the wire it
+   * rides under the mention line as `> `-prefixed lines (one per note line), so
+   * a pin without a note is byte-identical to the pre-annotation prompt and old
+   * sessions keep rendering untouched.
+   */
+  note?: string;
 }
 
 export interface TokenUsage {
