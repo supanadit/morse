@@ -1,9 +1,9 @@
 import { bootstrapApplication, createApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
-import { DEFAULT_ROUTE, resolveAppRoute } from './app/routes';
+import { appConfig } from './app/routing/app.config';
+import { DEFAULT_ROUTE, resolveAppRoute } from './app/routing/routes';
 
 /**
- * One bundle, several surfaces. The route table (`app/routes.ts`) maps a URL
+ * One bundle, several surfaces. The route table (`app/routing/routes.ts`) maps a URL
  * hash to a component; the shell HTML ships `<app-root>` for the default chat
  * app, so that case bootstraps by selector. Any other route is bootstrapped into
  * an element created here, which is why a route component never has to match a

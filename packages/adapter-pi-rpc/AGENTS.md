@@ -75,6 +75,6 @@ This adapter reads pi's configuration and spawns a process, so treat both as tru
 | pi event mapping | `packages/adapter-pi-rpc/src/event-mapping.ts` |
 | a prompt template pi refuses (its "Prompt conflicts") | `packages/adapter-pi-rpc/src/internal/prompt-frontmatter.ts` ← `buildCommandList` in `pi-rpc-agent.ts`, reported via `AgentSessionState.diagnostics` |
 | project trust (pi's `trust.json`) | `packages/adapter-pi-rpc/src/internal/project-trust.ts` ← `PiMcp.trustProject`, host command `trustProject`, the panel's “Trust this project” button |
-| MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/chat/mcp-panel/` ← `core/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
-| MCP add editor + connect-before-add probe | `packages/ui-angular/src/app/chat/mcp-editor/` ← `core/mcp-state.ts` (`mcpInspect`), `packages/adapter-pi-rpc/src/internal/mcp-client.ts`; VS Code opens it as a `WebviewPanel` routed `#/mcp` (`chat-view-provider.ts` → `openMcpEditor`) |
+| MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/features/overlays/mcp-panel/` ← `state/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
+| MCP add editor + connect-before-add probe | `packages/ui-angular/src/app/features/surfaces/mcp-editor/` ← `state/mcp-state.ts` (`mcpInspect`), `packages/adapter-pi-rpc/src/internal/mcp-client.ts`; VS Code opens it as a `WebviewPanel` routed `#/mcp` (`chat-view-provider.ts` → `openMcpEditor`) |
 | why a subprocess and not the SDK | `docs/ARCHITECTURE.md` §Why RPC subprocesses (and not the SDK) |

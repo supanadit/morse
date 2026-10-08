@@ -22,9 +22,9 @@ manifest disagrees with it, so the version in the tag, the VSIX and the npm pack
    explicit version — a `patch`/`minor` bump would update each package relative to its *own* current version
    and leave them out of sync.
 
-2. Bump the version the frontend announces, in `packages/ui-angular/src/app/core/morse.service.ts`
+2. Bump the version the frontend announces, in `packages/ui-angular/src/app/host/morse.service.ts`
    (`FRONTEND_IDENTITY`). The panel cannot read its own manifest at runtime, so the number is a literal — and
-   `core/frontend-identity.spec.ts` compares it with `packages/ui-angular/package.json`, which means a forgotten
+   `host/frontend-identity.spec.ts` compares it with `packages/ui-angular/package.json`, which means a forgotten
    bump fails `test:fast` before the tag is pushed.
 
 3. Bump the version stamped in [`STATUS.md`](STATUS.md) — its first line names the release the page describes.

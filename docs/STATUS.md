@@ -99,7 +99,7 @@ turns them on so the panel stands on its own:
   `<MORSE_HOME>/terminals/` (an idle shell is reclaimed after `MORSE_TERMINAL_IDLE_MS`, default 30 min). The
   emulator is lazy-loaded. The shell starts with the user's own environment, `MORSE_*` stripped, so running Morse
   from inside Morse does not inherit the host's port or workspace. URLs in the output are clickable (a small
-  link provider, `chat/terminal/terminal-links.ts`, opens them in a new tab), so a dev-server banner is one
+  link provider, `features/workbench/terminal/terminal-links.ts`, opens them in a new tab), so a dev-server banner is one
   click, not a copy. VS Code leaves `terminal` off and keeps its own.
 
 ### MCP servers
@@ -132,7 +132,7 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 
 ### Keyboard, templates, updates, install
 
-- One shortcut catalog (`packages/ui-angular/src/app/core/shortcuts.ts`) with a `?` list that prints exactly
+- One shortcut catalog (`packages/ui-angular/src/app/services/shortcut.service.ts`) with a `?` list that prints exactly
   what is bound; an owner that is not mounted is shown as unavailable rather than promised.
 - Prompt templates run from a generated form with a live preview; a template file added or edited shows up
   without restarting pi (`commands/refresh`). A template pi refuses — bad YAML frontmatter, its own "Prompt

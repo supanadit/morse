@@ -70,7 +70,7 @@ What keeps them cheap:
   one build between concurrent callers, reads a line's `type` with a string search instead of `JSON.parse` on
   every one of tens of thousands of lines, and resumes a file that only grew from the byte offset the last scan
   stopped at. Re-reading files per list, or parsing every line again, brings the 600 ms back.
-- `packages/ui-angular/src/app/shared/markdown/markdown.ts` re-renders streamed prose at most every 90 ms. Every
+- `packages/ui-angular/src/app/ui/markdown/markdown.ts` re-renders streamed prose at most every 90 ms. Every
   delta used to mean a full `marked` + DOMPurify + highlight.js pass over the whole growing answer.
 
 Idle is genuinely idle: no polling anywhere (no `setInterval` in the host, no heartbeat), and the whole tree

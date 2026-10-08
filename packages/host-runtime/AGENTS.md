@@ -64,6 +64,6 @@ The controller is a policy boundary: it filters projects and sessions to the wor
 | Need | File |
 | --- | --- |
 | client message routing | `packages/host-runtime/src/session-controller.ts` |
-| a session as its own VS Code editor tab (pinned controller, restore) | `packages/ui-angular/src/app/chat/session-page/session-page.ts` ← `HostSessionController` option `pinnedSessionId`, `capabilities.sessionTabs`, `openSessionTab`/`closeSessionTab`, the `morse.openSessionTab` command; the sidebar row is `nav/session-nav` |
-| bottom panel + terminal (browser host) | `packages/ui-angular/src/app/chat/bottom-panel/`, `chat/terminal/` ← `core/panel-state.ts`, `packages/host-runtime/src/terminal.ts`, `packages/server/src/internal/terminal/terminal.service.ts`; clickable URLs are `chat/terminal/terminal-links.ts` |
+| a session as its own VS Code editor tab (pinned controller, restore) | `packages/ui-angular/src/app/features/surfaces/session-page/session-page.ts` ← `HostSessionController` option `pinnedSessionId`, `capabilities.sessionTabs`, `openSessionTab`/`closeSessionTab`, the `morse.openSessionTab` command; the sidebar row is `features/nav/session-nav` |
+| bottom panel + terminal (browser host) | `packages/ui-angular/src/app/features/workbench/bottom-panel/`, `features/workbench/terminal/` ← `state/panel-state.ts`, `packages/host-runtime/src/terminal.ts`, `packages/server/src/internal/terminal/terminal.service.ts`; clickable URLs are `features/workbench/terminal/terminal-links.ts` |
 | what each host must implement | `docs/ARCHITECTURE.md` §Two hosts, one behaviour |

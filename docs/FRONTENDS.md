@@ -42,7 +42,13 @@ replays another one when the client activates it, so a frontend only renders `vi
 
 A framework binding is therefore thin: hold the `SessionView` in whatever reactivity primitive the framework
 has (Angular signals, React state/SWR, Svelte stores) and call `client.actions.*` from events. In Angular that
-is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
+is one file: `packages/ui-angular/src/app/host/morse.service.ts`.
+
+A second frontend should keep the same internal shape as `ui-angular` (`docs/ARCHITECTURE.md` § *Inside a
+frontend*): a layered backbone — the host seam and its client binding, app-local state, use-cases/adapters,
+DOM primitives — with the views in one folder per surface domain, and imports pointing only inward. Only the
+view layer changes between frameworks; everything below it is `@morse/ui-runtime` plus the layers the seam
+needs.
 
 ## Rules a frontend must follow
 
@@ -59,7 +65,7 @@ is one file: `packages/ui-angular/src/app/core/morse.service.ts`.
    `openProject(path)`, `activateSession(id, cwd?)`, `closeSession(id)`, `compactSession()`,
    `requestSessions()`, `requestProjects()`, `setModel(provider, id)`, `setThinkingLevel(level)`.
    When the agent is streaming, a prompt uses `steer` for an immediate course-correction; a **follow-up**
-   is queued in the frontend (`core/queued-prompts.ts`), shown above the composer as `Queued messages`
+   is queued in the frontend (`state/queued-prompts.ts`), shown above the composer as `Queued messages`
    with edit / send / remove and a drag handle to reorder (`QueuedPrompts.move`, the same CDK drop the
    tab strip uses — the queue dispatches `shift`, so the order is which follow-up runs first), and
    dispatched one prompt per settled run — the reader's queue, not pi's invisible one. The core also
@@ -117,7 +123,7 @@ which session first when it is run without one.
 
 What makes a tab more than a second view is that it is **pinned**:
 
-- The extension opens the bundle routed `#/session?id=<sessionId>` (`chat/session-page/session-page.ts`) and
+- The extension opens the bundle routed `#/session?id=<sessionId>` (`features/surfaces/session-page/session-page.ts`) and
   builds its `HostSessionController` with `pinnedSessionId`. That controller activates exactly that session
   (reusing a warm process, or resuming it by id) and addresses every command at it — a prompt, Stop, the
   model pick, thinking, compaction, a fork — so the sidebar switching sessions cannot pull the tab's next
@@ -132,7 +138,7 @@ What makes a tab more than a second view is that it is **pinned**:
   (`morse.view.sessionTab`, read by `readSessionTabState`). A tab restored without it is closed.
 
 The browser host has no editor tabs and leaves `sessionTabs` off; its tab strip is a separate, wire-driven
-feature (`core/workspace-tabs.ts`, gated on `filePreview`).
+feature (`state/workspace-tabs.ts`, gated on `filePreview`).
 
 ### Attachments, by host
 
@@ -201,22 +207,22 @@ strip above the conversation, where sessions and files open side by side.
   a tab for it itself and promotes it to the real session on the first prompt; every "New session" is its
   own tab, and a tab can be closed to an empty strip, and a closed tab is never reopened by the host's state.
   With **no session tab in front** the browser host shows no conversation at all:
-  `packages/ui-angular/src/app/chat/empty-session/` is a placeholder that says so and offers the sidebar's
+  `packages/ui-angular/src/app/features/chat/empty/` is a placeholder that says so and offers the sidebar's
   own "New session" (through `ShortcutService.run('session.new')`, so the button and the key cannot drift), and
   the composer is not mounted — a prompt typed with nothing open used to quietly start a session. `ChatHeader`
   reads the same `WorkspaceTabs.noSessionInFront` signal and shows `Morse` instead of the host's last
   workspace, so the empty panel does not claim the previous project. A host without a tab strip (VS Code)
   keeps the lazy start and its folder line.
-- The composer is **per tab**. A half-typed message and its attachments live in `core/composer-drafts.ts`
-  (`core/attachments.ts` scopes its pending pieces the same way), keyed by the session or draft tab id in
+- The composer is **per tab**. A half-typed message and its attachments live in `state/composer-drafts.ts`
+  (`state/attachments.ts` scopes its pending pieces the same way), keyed by the session or draft tab id in
   front, so switching tabs shows that tab's draft and never carries the words into another session. An
   untouched "New session" tab is dropped when a real session is picked; one with text in it stays until the
   reader closes it. The browser host also persists every tab's draft — text, pins, mentions and inline
   images — to `<MORSE_HOME>/drafts.json`, so a long prompt with attachments survives a reload, a `morse
   stop` or a closed laptop. It stays isolated per tab; a draft tab keeps its own placeholder too.
-- A run **finishing while the reader is elsewhere** raises a notification: `core/notifications.ts` watches
+- A run **finishing while the reader is elsewhere** raises a notification: `services/run-notifier.ts` watches
   `sessionActivity` and, on a `streaming` true → false, speaks per the reader's preference in
-  `core/notification-prefs.ts` (`morse.notifications.*` in `localStorage`): **off by default**, and when on,
+  `state/notification-prefs.ts` (`morse.notifications.*` in `localStorage`): **off by default**, and when on,
   either `away` (only when `document.hidden` or the document has no focus) or `always`. A host with its own
   notifications (`capabilities.notify`, VS Code, whose webview has no Web Notifications) raises one through
   the `notify` command; the browser host uses the `Notification` API, with an in-app toast as the last resort.
@@ -228,7 +234,7 @@ strip above the conversation, where sessions and files open side by side.
   browser's permission is re-read on focus and through `navigator.permissions`, so revoking it after opting in
   brings the banner back as a **blocked** warning (with a way to turn the preference off) instead of silently
   never delivering.
-- The **layout is restored** where the host advertises `workbench`: `core/workbench-persistence.ts` reads
+- The **layout is restored** where the host advertises `workbench`: `services/workbench-persistence.ts` reads
   `readWorkbench` / `readDrafts` once the handshake is ready and writes `saveWorkbench` / `saveDrafts`
   (debounced, plus a flush when the page is hidden). `workbench.json` holds the open tabs and the one in
   front (a "New session" draft included), the bottom panel's state and every terminal; `drafts.json` holds
@@ -314,7 +320,7 @@ session's directory and returns each server's `name`, `scope`, `source`, `enable
 `transport`, `state` (`connecting` / `connected` / `disconnected` / `needs-auth` / `failed` / `closed` /
 `disabled`), `tools`, per-tool `toolExposure` and any connection `error`, plus the config-file `errors`.
 Connecting to every enabled server is not instant, so the frontend reuses an answer for a minute
-(`core/mcp-state.ts`), shares one round trip per directory, and shows a tooltip that names the state.
+(`state/mcp-state.ts`), shares one round trip per directory, and shows a tooltip that names the state.
 - **Edits go to the same file pi reads.** The panel has one scope control — *Changes apply to*: **This project**
 (default) or **Global** — and Add, Enable/Disable and Remove all honour it. `mcpAdd` writes an entry to the
 chosen file; **This project** writes `.pi/mcp.json`. `setEnabled` is why Morse edits `mcp.json` directly:
@@ -384,11 +390,11 @@ lazily imported CJS module as `{ default: exports }`, so `importCjs` unwraps `de
 7. **CSP** — inside a webview there is no `eval`/`new Function` and scripts only run with the host-provided
    nonce. Keep the bundle relative (`<base href>` is rewritten) and avoid inline event handlers.
 8. **Attribution travels with the frontend.** The About dialog is frontend data, not a host message:
-   `packages/ui-angular/src/app/about/credits.ts` lists every technology the workspace depends on (its spec
+   `packages/ui-angular/src/app/features/overlays/about/credits.ts` lists every technology the workspace depends on (its spec
    fails when one is missing, stale, or changes its licence), and the bundled font licence ships beside the
    bundle (`public/fonts/LICENSE.txt`). A replacement frontend reuses both instead of dropping them — no host
    work, no protocol change.
-9. **Keys are the frontend's own.** No host message carries a shortcut: `packages/ui-angular/src/app/core/shortcuts.ts`
+9. **Keys are the frontend's own.** No host message carries a shortcut: `packages/ui-angular/src/app/services/shortcut.service.ts`
    is the catalog (matching, matching display, and the help dialog all read the one list), and owners bind the
    action they own through `ShortcutService`. A replacement frontend binds the same keys — the key a user learns
    is part of the product, not of the wire — and keeps the help honest about which ones this host can run.

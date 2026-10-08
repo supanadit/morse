@@ -64,6 +64,31 @@ Arrows point inward only:
 extension / server ──> adapter-pi-rpc ──> core <── host-runtime ──> protocol <── ui-runtime <── ui-angular
 ```
 
+## Inside a frontend
+
+R1 stops at the package boundary, so `packages/ui-angular` carries its own map. Its layers, inner → outer:
+
+```
+routing → shell → features → ui → services → state → host
+```
+
+An arrow means *depends on*: a layer may depend only on layers to its right, and may skip the ones in
+between. `host` is the seam to a host — the `MORSE_TRANSPORT` port and the client binding over it — and it
+sits *below* `state` so that a store can read host state without a cycle (state stores do need the client).
+
+- **R-U1** — an import points only to the right.
+- **R-U2** — `features/x` never imports `features/y`; share through `state/`, `services/`, `ui/` or
+  `@morse/ui-runtime`.
+- **R-U3** — `ui/` imports nothing from `features/`, `shell/` or `routing/`.
+- **R-U4** — `services/` imports nothing from `ui/`.
+- **R-U5** — `state/` imports nothing from `services/`.
+- **R-U6** — `host/` imports only `@morse/protocol`, `@morse/ui-runtime` and itself.
+- **R-U7** — only `shell/` and `routing/` import from more than one feature.
+- **R-U8** — any layer may import `@morse/protocol` and `@morse/ui-runtime` freely.
+
+The rules are written for review, not enforced by tooling; `packages/ui-angular/AGENTS.md` § *Layers* is the
+working copy of the same list.
+
 ## Ports and who owns them (R2 / R10)
 
 | Port | Declared in (consumer) | Implementations |
@@ -73,7 +98,7 @@ extension / server ──> adapter-pi-rpc ──> core <── host-runtime ─�
 | `EditorContextProvider` | `core/src/context/service.ts` | `VsCodeContextProvider` (real editor), `ClientContextProvider` (fed by `context/attach`) |
 | `NativeDialogs`, `HostCommandHandler` | `host-runtime/src/native-dialogs.ts` | `VsCodeDialogs` (QuickPick/InputBox); absent in the NestJS host, which forwards to the frontend |
 | `HostTransport` | `ui-runtime/src/transport/host-transport.ts` | `VsCodeHostTransport`, `WebSocketHostTransport`, `MemoryHostTransport` |
-| `MORSE_TRANSPORT` (DI token) | `ui-angular/src/app/core/transport.token.ts` | resolved per runtime |
+| `MORSE_TRANSPORT` (DI token) | `ui-angular/src/app/host/transport.token.ts` | resolved per runtime |
 
 Port types never leak `vscode`, NestJS or child-process types: `pi`'s protocol records are translated into
 `AgentEvent` inside the adapter, and `AgentEvent` becomes wire DTOs inside `host-runtime`.
