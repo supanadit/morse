@@ -256,3 +256,19 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/**
+ * One chip's annotation, shortened for display: the first line only, cut to a
+ * hint — the whole note lives in the chip's tooltip. `undefined` when there is
+ * nothing, which keeps an `@if (pin.note)` call site plain.
+ */
+export function pinNoteHint(note: string | undefined, max = 26): string | undefined {
+  if (note === undefined) {
+    return undefined;
+  }
+  const [first = ''] = note.split('\n');
+  if (first.length > max) {
+    return `${first.slice(0, max)}…`;
+  }
+  return note.includes('\n') ? `${first}…` : first;
+}

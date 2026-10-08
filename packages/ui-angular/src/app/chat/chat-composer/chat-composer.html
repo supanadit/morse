@@ -188,6 +188,35 @@
               <span class="chip-lines">{{ pinRange(pin) }}</span>
             }
           </button>
+          <!--
+            The range's annotation: its first line here, the whole text as
+            rendered markdown on hover, and clicking it opens the popover editor.
+            A pin with no note yet shows the ghost one, so there is always a
+            visible way in — not only a way to see what got written.
+          -->
+          @if (pin.note !== undefined) {
+            <button
+              type="button"
+              class="chip-note"
+              [morseNoteHover]="pin.note"
+              [attr.aria-label]="'Edit the annotation on ' + pin.path"
+              (click)="openAnnotation(pin, $event)"
+            >
+              <span aria-hidden="true">✎</span>
+              <span class="chip-note-text">{{ noteHint(pin.note) }}</span>
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="chip-note ghost"
+              title="Add an annotation — your words about this range ride the prompt too"
+              [attr.aria-label]="'Add an annotation on ' + pin.path"
+              (click)="openAnnotation(pin, $event)"
+            >
+              <span aria-hidden="true">✎</span>
+              <span class="chip-note-text">note</span>
+            </button>
+          }
           <button
             type="button"
             class="chip-remove"
@@ -337,5 +366,21 @@
       (submitted)="onTemplateSubmit($event)"
       (cancelled)="closeTemplate()"
     />
+  }
+
+  <!--
+    The annotation editor, anchored to the ✎ that opened it. It renders here
+    rather than inside the chip so the card is never clipped by the chip row.
+  -->
+  @if (annotationTarget(); as target) {
+    @if (annotationAnchor(); as anchor) {
+      <morse-pin-annotation
+        [anchor]="anchor"
+        [target]="target"
+        [note]="annotationNote()"
+        (save)="onAnnotationSave($event)"
+        (cancel)="closeAnnotation()"
+      />
+    }
   }
 </footer>

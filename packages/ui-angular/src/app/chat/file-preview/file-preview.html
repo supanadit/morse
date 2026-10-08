@@ -99,6 +99,22 @@
               <span class="dnum">{{ pair.left?.oldLine ?? '' }}</span>
               <span class="dsign">{{ diffSign(pair.left) }}</span>
               <span class="dtext" [innerHTML]="pair.left?.html"></span>
+              <!-- Deletion blocks whose line the new file no longer has live
+                   only on the old side; the affordance falls back here when the
+                   new-file side has no row to carry it. -->
+              @if (splitOldNotePin(pair.left, pair.right); as noted) {
+                <button
+                  type="button"
+                  class="dnote"
+                  [class.has-note]="noted.note !== undefined"
+                  [morseNoteHover]="noted.note ?? ''"
+                  [attr.title]="noted.note !== undefined ? null : 'Add an annotation — your words about this change ride the prompt with the lines'"
+                  [attr.aria-label]="(noted.note !== undefined ? 'Edit the annotation on this change of ' : 'Add an annotation on this change of ') + tab().title"
+                  (click)="$event.stopPropagation(); openAnnotation(noted, $event)"
+                >
+                  ✎ @if (noted.note !== undefined) {<span class="dnote-text">{{ pinNoteHint(noted.note) }}</span>}
+                </button>
+              }
             </div>
             <div
               class="side"
@@ -111,6 +127,21 @@
               <span class="dnum">{{ pair.right?.newLine ?? '' }}</span>
               <span class="dsign">{{ diffSign(pair.right) }}</span>
               <span class="dtext" [innerHTML]="pair.right?.html"></span>
+              <!-- The annotation affordance lives on the new-file side, where a
+                   pin's lines point; the old side only when it must. -->
+              @if (notePinAt(pair.right?.newAnchor); as noted) {
+                <button
+                  type="button"
+                  class="dnote"
+                  [class.has-note]="noted.note !== undefined"
+                  [morseNoteHover]="noted.note ?? ''"
+                  [attr.title]="noted.note !== undefined ? null : 'Add an annotation — your words about this change ride the prompt with the lines'"
+                  [attr.aria-label]="(noted.note !== undefined ? 'Edit the annotation on this change of ' : 'Add an annotation on this change of ') + tab().title"
+                  (click)="$event.stopPropagation(); openAnnotation(noted, $event)"
+                >
+                  ✎ @if (noted.note !== undefined) {<span class="dnote-text">{{ pinNoteHint(noted.note) }}</span>}
+                </button>
+              }
             </div>
           </div>
         }
@@ -135,6 +166,25 @@
             <span class="dnum">{{ row.newLine ?? '' }}</span>
             <span class="dsign">{{ diffSign(row) }}</span>
             <span class="dtext" [innerHTML]="row.html"></span>
+            <!--
+              The row a pinned range ends on carries its annotation affordance:
+              ✎ opens the small editor in the row; a written note shows as a
+              hint. One click target, and a click that is not the editor's is
+              pinned/unpinned as before.
+            -->
+            @if (notePinAt(row.newAnchor); as noted) {
+              <button
+                type="button"
+                class="dnote"
+                [class.has-note]="noted.note !== undefined"
+                [morseNoteHover]="noted.note ?? ''"
+                [attr.title]="noted.note !== undefined ? null : 'Add an annotation — your words about this change ride the prompt with the lines'"
+                [attr.aria-label]="(noted.note !== undefined ? 'Edit the annotation on this change of ' : 'Add an annotation on this change of ') + tab().title"
+                (click)="$event.stopPropagation(); openAnnotation(noted, $event)"
+              >
+                ✎ @if (noted.note !== undefined) {<span class="dnote-text">{{ pinNoteHint(noted.note) }}</span>}
+              </button>
+            }
           </div>
         }
       }
@@ -286,15 +336,45 @@
             aria-hidden="true"
             (pointerdown)="startResizeEdge($event, highlight, 'end')"
           ></span>
-          <!-- Each band carries its own way out, in the corner it ends in. -->
-          <button
-            type="button"
-            class="cancel"
-            title="Remove this highlight"
-            (click)="removeHighlight($event, highlight)"
-          >
-            Cancel
-          </button>
+          <!--
+            Each band ends in one corner cluster: the ✎ opens a small editor
+            for the range's annotation (the band shows a hint once it has one);
+            Cancel is the way out. The drag in progress shows no ✎ — it is not
+            a pin yet, so there is nothing to annotate.
+          -->
+          <div class="corner">
+            @if (highlight.id !== 'live') {
+              @if (highlight.note !== undefined) {
+                <button
+                  type="button"
+                  class="note has-note"
+                  [morseNoteHover]="highlight.note"
+                  [attr.aria-label]="'Edit the annotation on this range of ' + tab().title"
+                  (click)="openBandAnnotation(highlight, $event)"
+                >
+                  ✎ {{ pinNoteHint(highlight.note) }}
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="note"
+                  title="Add an annotation — your words about this range ride the prompt with the lines"
+                  [attr.aria-label]="'Add an annotation on this range of ' + tab().title"
+                  (click)="openBandAnnotation(highlight, $event)"
+                >
+                  ✎ note
+                </button>
+              }
+            }
+            <button
+              type="button"
+              class="cancel"
+              title="Remove this highlight"
+              (click)="removeHighlight($event, highlight)"
+            >
+              Cancel
+            </button>
+          </div>
         </span>
       }
     </div>
@@ -349,5 +429,22 @@
   }
   @if (tab().truncated) {
     <p class="hint">Showing the first 512 KB of {{ size() }}.</p>
+  }
+}
+
+<!--
+  The annotation editor, anchored to the ✎ that opened it (a band's corner, or
+  the change row the pin ends on). It lives outside the code pane so a band's
+  overflow never clips the card.
+-->
+@if (annotationTarget(); as target) {
+  @if (annotationAnchor(); as anchor) {
+    <morse-pin-annotation
+      [anchor]="anchor"
+      [target]="target"
+      [note]="annotationNote()"
+      (save)="onAnnotationSave($event)"
+      (cancel)="closeAnnotation()"
+    />
   }
 }

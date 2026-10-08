@@ -25,6 +25,7 @@ function render(
   attachments: {
     pin: ReturnType<typeof vi.fn>;
     setPinRange: ReturnType<typeof vi.fn>;
+    setPinNote: ReturnType<typeof vi.fn>;
     removePin: ReturnType<typeof vi.fn>;
     say: ReturnType<typeof vi.fn>;
   };
@@ -80,6 +81,24 @@ function render(
     setPinRange: vi.fn((id: string, range: { startLine: number; endLine?: number }) => {
       pins.update((list) =>
         list.map((item) => (item.id === id ? { ...item, ...range } : item)),
+      );
+    }),
+    // Mirrors the real store's note rule: empty means clear the note.
+    setPinNote: vi.fn((id: string, note: string | undefined) => {
+      pins.update((list) =>
+        list.map((item) => {
+          if (item.id !== id) {
+            return item;
+          }
+          const clean = note?.trim();
+          const next = { ...item };
+          if (clean !== undefined && clean.length > 0) {
+            next.note = clean;
+          } else {
+            delete next.note;
+          }
+          return next;
+        }),
       );
     }),
     removePin: vi.fn((id: string) => {
@@ -518,6 +537,143 @@ describe('FilePreview', () => {
     pins.set([{ id: 'p2', path: 'src/main.ts', startLine: 4, endLine: 4 }]);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.selection')).toHaveLength(1);
+  });
+});
+
+describe('FilePreview annotations', () => {
+  it('offers the ✎ on every pinned band, written note or not', () => {
+    const { fixture, pins } = render({ content: 'a\nb\nc\nd\n' });
+    pins.set([
+      { id: 'p1', path: 'src/main.ts', startLine: 1, endLine: 2 },
+      { id: 'p2', path: 'src/main.ts', startLine: 4, endLine: 4, note: 'the fallback' },
+    ]);
+    fixture.detectChanges();
+
+    const note = fixture.nativeElement.querySelectorAll('.corner .note');
+    expect(note).toHaveLength(2);
+    // The ghost says what it is even before anything was written.
+    expect(note[0]?.textContent).toContain('note');
+    // The written one shows a hint; the whole note is on the hover card.
+    expect(note[1]?.classList.contains('has-note')).toBe(true);
+    expect(note[1]?.textContent).toContain('the fallback');
+  });
+
+  it('opens the popover editor on the band and saves the words onto the pin', () => {
+    const { fixture, attachments, pins } = render({ content: 'a\nb\nc\nd\n' });
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 1, endLine: 2 }]);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLButtonElement>('.corner .note')?.click();
+    fixture.detectChanges();
+    // The editor is the popover, not an inline field, and it names the range.
+    const card = host.querySelector('morse-pin-annotation') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.querySelector('.range')?.textContent).toContain('L1-2');
+
+    const area = card.querySelector('.input') as HTMLTextAreaElement;
+    area.value = '**fix** the fallback loop';
+    area.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (card.querySelector('footer button:not(.secondary)') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(attachments.setPinNote).toHaveBeenCalledWith('p1', '**fix** the fallback loop');
+    expect(attachments.removePin).not.toHaveBeenCalledWith('p1');
+    expect(pins()[0]).toMatchObject({ note: '**fix** the fallback loop' });
+    // Saved: the card is gone and the band reads its own hint.
+    expect(host.querySelector('morse-pin-annotation')).toBeNull();
+    expect(host.querySelector('.corner .note')?.textContent).toContain('fix');
+  });
+
+  it('saves nothing as no annotation when the editor is emptied', () => {
+    const { fixture, attachments, pins } = render({ content: 'a\nb\nc\nd\n' });
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 1, endLine: 2, note: 'old words' }]);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLButtonElement>('.corner .note')?.click();
+    fixture.detectChanges();
+    const card = host.querySelector('morse-pin-annotation') as HTMLElement;
+    // It opens on what the pin already carries.
+    const area = card.querySelector('.input') as HTMLTextAreaElement;
+    expect(area.value).toBe('old words');
+
+    area.value = '   ';
+    area.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (card.querySelector('footer button:not(.secondary)') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(attachments.setPinNote).toHaveBeenCalledWith('p1', '   ');
+    expect(pins()[0].note).toBeUndefined();
+  });
+
+  it('cancelling the editor leaves the pin alone', () => {
+    const { fixture, attachments, pins } = render({ content: 'a\nb\nc\nd\n' });
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 1, endLine: 2, note: 'as it was' }]);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLButtonElement>('.corner .note')?.click();
+    fixture.detectChanges();
+    (host.querySelector('morse-pin-annotation button.secondary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(attachments.setPinNote).not.toHaveBeenCalled();
+    expect(pins()[0].note).toBe('as it was');
+    expect(host.querySelector('morse-pin-annotation')).toBeNull();
+  });
+
+  it('sits the ✎ on the unified-diff row the pinned range ends on', () => {
+    const { fixture, pins, attachments } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\nconst c = 4;\n',
+        diff: '@@ -1,2 +1,3 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 3, note: 'the block' }]);
+    fixture.detectChanges();
+    setDiffMode(fixture, 'Unified diff');
+
+    // Last add row of the block is where the affordance ends up — one row, one ✎.
+    const noted = fixture.nativeElement.querySelectorAll('.drow.add .dnote');
+    expect(noted).toHaveLength(1);
+    expect(noted[0]?.textContent).toContain('the block');
+
+    // Opening it must not read as “unpin this block”.
+    noted[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(attachments.removePin).not.toHaveBeenCalled();
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector('morse-pin-annotation') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.querySelector('.range')?.textContent).toContain('L2-3');
+  });
+
+  it('hosts the deletion pin’s ✎ on the old side when there is no new row', () => {
+    const { fixture, pins } = render(
+      {
+        content: 'const a = 1;\nconst c = 3;\n',
+        diff: '@@ -1,3 +1,2 @@\n const a = 1;\n-const b = 2;\n const c = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    // The deletion at the end of its hunk: in the split view the new side never
+    // shows line 2, so the old (deleted) side hosts the affordance instead.
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
+    fixture.detectChanges();
+
+    // Unified diff first: the row is the deletion itself, so it carries it.
+    setDiffMode(fixture, 'Unified diff');
+    expect(fixture.nativeElement.querySelectorAll('.drow.del .dnote')).toHaveLength(1);
+
+    // Side by side: the new side has rows only for lines 1 and 3 — the ✎ falls
+    // to the old side's last deleted row, never alongside the new side's.
+    setDiffMode(fixture, 'Side-by-side diff');
+    expect(fixture.nativeElement.querySelectorAll('.side.add .dnote')).toHaveLength(0);
+    expect(fixture.nativeElement.querySelectorAll('.side.del .dnote')).toHaveLength(1);
   });
 });
 

@@ -17,6 +17,8 @@ export interface PendingPin {
   path: string;
   startLine?: number;
   endLine?: number;
+  /** The range's annotation, the user's words about what these lines are for. */
+  note?: string;
 }
 
 export interface AcceptReport {
@@ -255,7 +257,7 @@ export class AttachmentStore {
       );
     }
     for (const pin of pins) {
-      this.pin({ path: pin.path, startLine: pin.startLine, endLine: pin.endLine });
+      this.pin({ path: pin.path, startLine: pin.startLine, endLine: pin.endLine, note: pin.note });
     }
   }
 
@@ -272,6 +274,34 @@ export class AttachmentStore {
           ? { ...item, startLine: range.startLine, endLine: range.endLine }
           : item,
       ),
+    });
+  }
+
+  /**
+   * Sets — or, with nothing meaningful, clears — one pin's annotation. The range
+   * is untouched, so editing the words never moves the lines they describe.
+   */
+  setPinNote(id: string, note: string | undefined): void {
+    const clean = note?.trim();
+    this.patch({
+      pins: this.current().pins.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+        // Rebuilt field by field (the takePins pattern) so a cleared note is
+        // omitted outright instead of carried around as an empty string.
+        const next: PendingPin = { id: item.id, path: item.path };
+        if (item.startLine !== undefined) {
+          next.startLine = item.startLine;
+        }
+        if (item.endLine !== undefined) {
+          next.endLine = item.endLine;
+        }
+        if (clean !== undefined && clean.length > 0) {
+          next.note = clean;
+        }
+        return next;
+      }),
     });
   }
 
@@ -341,6 +371,12 @@ export class AttachmentStore {
       startLine: start,
       endLine: end > start ? end : undefined,
     };
+    // The union keeps everyone's words: the surviving annotation first, then the
+    // absorbed ones in range order, duplicates collapsed, blank ones dropped.
+    const note = mergedNote(pin.note, list.filter((item) => absorbed.has(item.id)));
+    if (note !== undefined) {
+      merged.note = note;
+    }
 
     // Emit the merged chip once, where the first absorbed chip sat, so editing a
     // chip does not reshuffle the composer.
@@ -421,13 +457,17 @@ export class AttachmentStore {
 
   /** The pins to send as the message's attachments, then cleared. */
   takePins(): ChatPin[] {
-    const pins = this.current().pins.map(({ path, startLine, endLine }) => {
+    const pins = this.current().pins.map(({ path, startLine, endLine, note }) => {
       const wire: ChatPin = { path };
       if (startLine !== undefined) {
         wire.startLine = startLine;
       }
       if (endLine !== undefined) {
         wire.endLine = endLine;
+      }
+      const annotation = note?.trim();
+      if (annotation !== undefined && annotation.length > 0) {
+        wire.note = annotation;
       }
       return wire;
     });
@@ -550,16 +590,38 @@ function asPendingPin(value: unknown): PendingPin[] {
   }
   const startLine = candidate['startLine'];
   const endLine = candidate['endLine'];
+  const note = candidate['note'];
   return [
     {
       id,
       path,
       ...(typeof startLine === 'number' ? { startLine } : {}),
       ...(typeof endLine === 'number' ? { endLine } : {}),
+      ...(typeof note === 'string' && note.length > 0 ? { note } : {}),
     },
   ];
 }
 
 function isEmptySet(set: PendingSet): boolean {
   return set.images.length === 0 && set.pins.length === 0 && set.mentions.length === 0;
+}
+
+/**
+ * The annotation a merged chip carries: every non-blank note in the union — the
+ * incoming one first, then the absorbed chips' in range order — with duplicate
+ * texts collapsed, so a merge neither loses words nor stutters them.
+ */
+function mergedNote(incoming: string | undefined, absorbed: readonly PendingPin[]): string | undefined {
+  const texts: string[] = [];
+  const add = (note: string | undefined): void => {
+    const clean = note?.trim();
+    if (clean !== undefined && clean.length > 0 && !texts.includes(clean)) {
+      texts.push(clean);
+    }
+  };
+  add(incoming);
+  for (const item of [...absorbed].sort((a, b) => a.startLine ?? 0 - ((b.startLine ?? 0)))) {
+    add(item.note);
+  }
+  return texts.length > 0 ? texts.join('\n') : undefined;
 }

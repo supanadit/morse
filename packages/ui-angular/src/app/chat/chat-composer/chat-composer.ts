@@ -27,6 +27,7 @@ import { ShortcutService } from '../../core/shortcuts';
 import { Uploader } from '../../core/uploads';
 import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
+import { pinNoteHint } from '../transcript-rows';
 import { PopoverFit } from '../../core/popover-fit.directive';
 import { EnterDirective } from '../../shared/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
@@ -37,6 +38,9 @@ import {
 } from '../prompt-template-dialog/prompt-template-dialog';
 import { ModelPicker } from '../model-picker/model-picker';
 import { ModelInputs } from '../model-picker/model-inputs';
+import { NoteHoverDirective } from '../pin-annotation/note-hover.directive';
+import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
+import type { PopoverAnchor } from '../pin-annotation/placement';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
 
@@ -52,6 +56,8 @@ import { UsageIndicator } from '../usage/usage-indicator';
     ModelInputs,
     ThinkingPicker,
     PromptTemplateDialog,
+    PinAnnotation,
+    NoteHoverDirective,
     PopoverFit,
     CdkDropList,
     CdkDrag,
@@ -435,6 +441,44 @@ import { UsageIndicator } from '../usage/usage-indicator';
         background: transparent;
         color: color-mix(in srgb, var(--morse-accent) 70%, var(--morse-fg));
       }
+      /*
+       * The range's annotation rides on the chip after the lines pill. It is a
+       * button only because clicking it re-opens the text for editing; the ✎ is
+       * what says "this is user-added words", not a file name.
+       */
+      .chip-note {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 3px;
+        min-width: 0;
+        max-width: 150px;
+        padding: 1px 5px;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: var(--morse-hover);
+        color: var(--morse-fg-muted);
+        font: inherit;
+        font-size: 10.5px;
+        line-height: 1.4;
+        cursor: text;
+      }
+      .chip-note-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        /* The ✎ stays put; only the words shrink away. */
+        flex: 0 1 auto;
+      }
+      .chip-note:hover,
+      .chip-note:focus-visible {
+        color: var(--morse-fg);
+        background: var(--morse-active);
+      }
+      /* A pin with nothing to say yet: the affordance must be visible anyway,
+         so adding a note needs no discovery step — the ghost is the way in. */
+      .chip-note.ghost {
+        opacity: 0.62;
+      }
       @keyframes spin {
         to {
           transform: rotate(360deg);
@@ -714,6 +758,57 @@ export class ChatComposer {
       this.tabs.openMentionFile(pin.path);
     }
   }
+
+  /**
+   * The pin whose annotation the popover editor is open for, and where its ✎ sits
+   * on screen — the card is anchored there rather than in a fixed spot.
+   */
+  protected readonly annotationPin = signal<PendingPin | undefined>(undefined);
+  protected readonly annotationAnchor = signal<PopoverAnchor | undefined>(undefined);
+
+  /** What the editor's header names, derived from the pin being edited. */
+  protected readonly annotationTarget = computed<AnnotationTarget | undefined>(() => {
+    const pin = this.annotationPin();
+    return pin === undefined
+      ? undefined
+      : { path: pin.path, range: this.pinRange(pin) || undefined };
+  });
+
+  /** The markdown the editor opens with (the pin's own note, if it has one). */
+  protected readonly annotationNote = computed(() => this.annotationPin()?.note ?? '');
+
+  /** The ✎ was pressed: open the editor anchored to it. */
+  protected openAnnotation(pin: PendingPin, event: Event): void {
+    const element = event.currentTarget;
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    this.annotationAnchor.set({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    });
+    this.annotationPin.set(pin);
+  }
+
+  /** The editor saved: the markdown (an empty one clears) goes onto the pin. */
+  protected onAnnotationSave(note: string): void {
+    const pin = this.annotationPin();
+    if (pin !== undefined) {
+      this.attachments.setPinNote(pin.id, note);
+    }
+    this.closeAnnotation();
+  }
+
+  protected closeAnnotation(): void {
+    this.annotationPin.set(undefined);
+    this.annotationAnchor.set(undefined);
+  }
+
+  /** The annotation hint on a chip: the first line, kept short. */
+  protected readonly noteHint = pinNoteHint;
 
   /**
    * The editor selection the host reports live: it is unlocked until the user
@@ -1129,6 +1224,11 @@ export class ChatComposer {
   }
 
   protected removePin(id: string): void {
+    // A removed chip must not leave its annotation editor behind pointing at a
+    // pin that no longer exists.
+    if (this.annotationPin()?.id === id) {
+      this.closeAnnotation();
+    }
     this.attachments.removePin(id);
   }
 

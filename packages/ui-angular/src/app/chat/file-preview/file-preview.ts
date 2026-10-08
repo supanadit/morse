@@ -14,7 +14,7 @@ import {
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import type { LspDiagnostics, LspLocation, LspReferences, LspSeverity } from '@morse/protocol';
 import { AnimationService } from '../../core/animation.service';
-import { AttachmentStore } from '../../core/attachments';
+import { AttachmentStore, type PendingPin } from '../../core/attachments';
 import { DisplayPrefs, type DiffView } from '../../core/display-prefs';
 import { statusByPath } from '../../core/git-status';
 import { highlightCode } from '../../core/highlight';
@@ -22,6 +22,10 @@ import { asDiagnostics, asHover, asLocation, asReferences } from '../../core/lsp
 import { MorseService } from '../../core/morse.service';
 import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
+import { NoteHoverDirective } from '../pin-annotation/note-hover.directive';
+import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
+import type { PopoverAnchor } from '../pin-annotation/placement';
+import { pinNoteHint } from '../transcript-rows';
 import { Markdown } from '../../shared/markdown/markdown';
 import {
   domRangeFor,
@@ -46,6 +50,20 @@ interface Highlight {
   id: string;
   start: number;
   end: number;
+  /** The range's annotation, when the chip carries one. The live band has none. */
+  note?: string;
+}
+
+/**
+ * What the annotation editor needs from whatever carries a note: the pin's id,
+ * the note itself, and the range for its header. A `Highlight` maps onto it
+ * through `openBandAnnotation`, a store pin satisfies it as-is.
+ */
+interface AnnotationPinRef {
+  id: string;
+  note?: string;
+  startLine?: number;
+  endLine?: number;
 }
 
 /** The hover card: what the language server said, and where to pin it. */
@@ -153,7 +171,7 @@ const FLASH_MS = 900;
   },
   // A hover card carries the server's markdown, so it goes through the same
   // sanitised renderer the transcript uses rather than a second pipeline.
-  imports: [Markdown],
+  imports: [Markdown, PinAnnotation, NoteHoverDirective],
   styles: [
     `
       :host {
@@ -533,6 +551,98 @@ const FLASH_MS = 900;
         opacity: 1;
         color: var(--morse-fg);
         border-color: color-mix(in srgb, var(--morse-error) 45%, var(--morse-border));
+      }
+      /*
+       * The band's corner: the annotation affordance and the Cancel sit
+       * together where the band ends in (was: the Cancel alone, absolutely
+       * placed — the cluster takes that spot and lays both out).
+       */
+      .corner {
+        position: absolute;
+        right: 8px;
+        bottom: -9px;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 60%;
+        pointer-events: none;
+      }
+      /* The Cancel keeps its look; inside the cluster it is just laid out. */
+      .corner .cancel {
+        position: static;
+      }
+      .corner .cancel,
+      .corner .note {
+        pointer-events: auto;
+      }
+      /*
+       * The band's way IN: ✎ opens the annotation editor; written notes read
+       * as their first line here (the whole text on hover), the ghost means
+       * "nothing written yet". Same visual family as the Cancel beside it.
+       */
+      .note {
+        padding: 1px 7px;
+        border: 1px solid var(--morse-border);
+        border-radius: 6px;
+        background: var(--morse-panel, var(--morse-bg));
+        color: var(--morse-fg-muted);
+        font: inherit;
+        font-size: 10.5px;
+        line-height: 15px;
+        cursor: pointer;
+        white-space: nowrap;
+        opacity: 0.72;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .note.has-note {
+        color: var(--morse-fg);
+        border-color: color-mix(in srgb, var(--morse-accent) 45%, var(--morse-border));
+      }
+      .note:hover:not(:disabled),
+      .note:focus-visible {
+        opacity: 1;
+        color: var(--morse-fg);
+        border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+      }
+      /*
+       * A pinned row's annotation affordance in the diff views: the same ✎ the
+       * bands use, parked at the end of the row it covers so it claims no
+       * extra row of its own.
+       */
+      .dnote {
+        flex: none;
+        padding: 0 4px;
+        border: 0;
+        border-radius: var(--morse-radius-sm);
+        background: transparent;
+        color: var(--morse-fg-muted);
+        font: inherit;
+        font-size: 10.5px;
+        line-height: 1.6;
+        cursor: pointer;
+        white-space: nowrap;
+        opacity: 0.65;
+        min-width: 0;
+      }
+      .dnote.has-note {
+        opacity: 1;
+        color: var(--morse-fg);
+        background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dnote:hover:not(:disabled),
+      .dnote:focus-visible {
+        opacity: 1;
+        color: var(--morse-fg);
+        background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+      }
+      .dnote-text {
+        margin-left: 2px;
       }
       .edge:hover {
         background: color-mix(in srgb, var(--morse-accent) 70%, transparent);
@@ -973,6 +1083,7 @@ export class FilePreview {
         id: pin.id,
         start: pin.startLine as number,
         end: pin.endLine ?? (pin.startLine as number),
+        note: pin.note,
       }));
     const live = this.selected();
     return live === undefined
@@ -991,6 +1102,111 @@ export class FilePreview {
   /** The y-offset a line's top sits at, in the overlay's own space. */
   protected lineTop(line: number): number {
     return (line - 1) * this.lineHeight();
+  }
+
+  // --- the range annotations -------------------------------------------------
+
+  /**
+   * The pin whose annotation editor is open, and where the ✎ that opened it sits
+   * on screen — the card is anchored there, wherever the trigger happened to be.
+   */
+  protected readonly annotationPin = signal<AnnotationPinRef | undefined>(undefined);
+  protected readonly annotationAnchor = signal<PopoverAnchor | undefined>(undefined);
+
+  /** What the editor's header names: this file, and the range being annotated. */
+  protected readonly annotationTarget = computed<AnnotationTarget | undefined>(() => {
+    const pin = this.annotationPin();
+    return pin === undefined
+      ? undefined
+      : { path: this.tab().path, range: this.rangeOf(pin) };
+  });
+
+  /** The markdown the editor opens with (the pin's own note, if it has one). */
+  protected readonly annotationNote = computed(() => this.annotationPin()?.note ?? '');
+
+  /** The ✎ on a band: the highlight maps onto the pin shape the editor wants. */
+  protected openBandAnnotation(highlight: Highlight, event: Event): void {
+    this.openAnnotation(
+      { id: highlight.id, note: highlight.note, startLine: highlight.start, endLine: highlight.end },
+      event,
+    );
+  }
+
+  /** The ✎ on a diff row, or on a band: open the editor anchored to it. */
+  protected openAnnotation(pin: AnnotationPinRef, event: Event): void {
+    const element = event.currentTarget;
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    this.annotationAnchor.set({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    });
+    this.annotationPin.set(pin);
+  }
+
+  /** The editor saved: the markdown (an empty one clears) goes onto the pin. */
+  protected onAnnotationSave(note: string): void {
+    const pin = this.annotationPin();
+    if (pin !== undefined) {
+      this.attachments.setPinNote(pin.id, note);
+    }
+    this.closeAnnotation();
+  }
+
+  protected closeAnnotation(): void {
+    this.annotationPin.set(undefined);
+    this.annotationAnchor.set(undefined);
+  }
+
+  /** The `L30-31` label the editor's header shows (absent for a whole-file pin). */
+  private rangeOf(pin: AnnotationPinRef): string | undefined {
+    if (pin.startLine === undefined) {
+      return undefined;
+    }
+    const end = pin.endLine ?? pin.startLine;
+    return end !== pin.startLine ? `L${pin.startLine}-${end}` : `L${pin.startLine}`;
+  }
+
+  /** A chip's annotation hint: first line, cut short — the hover card has the rest. */
+  protected readonly pinNoteHint = pinNoteHint;
+
+  /**
+   * The pin whose range **ends** on this new-file anchor, so the one annotation
+   * affordance per pin lands at the last row of what it covers (unified and
+   * split alike; split looks only at the new-file anchor the rows already
+   * carry). `undefined` when no pin of this file ends here.
+   */
+  protected notePinAt(anchor: number | undefined): PendingPin | undefined {
+    if (anchor === undefined) {
+      return undefined;
+    }
+    const path = this.tab().path;
+    return (
+      this.attachments
+        .pins()
+        .find(
+          (pin) =>
+            pin.path === path &&
+            pin.startLine !== undefined &&
+            (pin.endLine ?? pin.startLine) === anchor,
+        )
+    );
+  }
+
+  /**
+   * The old side's affordance in the split view: it hosts the ✎ only when the
+   * new side has **no** row at the pin's end — a deletion at the end of its
+   * hunk leaves no new-file row behind — and never as a second button beside
+   * the new side's.
+   */
+  protected splitOldNotePin(side: DiffRow | undefined, other: DiffRow | undefined): PendingPin | undefined {
+    return this.notePinAt(other?.newAnchor) !== undefined
+      ? undefined
+      : this.notePinAt(side?.newAnchor);
   }
 
   /** Every problem the server reported for this file, in its own order. */
@@ -1023,6 +1239,8 @@ export class FilePreview {
       this.tab();
       untracked(() => {
         this.selected.set(undefined);
+        this.annotationPin.set(undefined);
+        this.annotationAnchor.set(undefined);
         this.diagnostics.set(undefined);
         this.marks.set([]);
         this.hoverCard.set(undefined);
@@ -1228,6 +1446,11 @@ export class FilePreview {
     // should never be read as "follow this identifier".
     event.stopPropagation();
     this.clearSelection();
+    // A removed band must not leave its annotation editor behind pointing at a
+    // pin that no longer exists.
+    if (this.annotationPin()?.id === highlight.id) {
+      this.closeAnnotation();
+    }
     if (highlight.id === 'live') {
       return;
     }

@@ -3,6 +3,7 @@ import type { AssistantTranscriptItem, PromptImage, UserTranscriptItem } from '@
 import {
   activeProcessKey,
   groupTranscriptItems,
+  pinNoteHint,
   userMessageMarkdown,
   type TranscriptRow,
 } from '../transcript-rows';
@@ -12,6 +13,7 @@ import { Markdown } from '../../shared/markdown/markdown';
 import { EnterDirective } from '../../shared/enter.directive';
 import { ToolGroup } from '../tool-group/tool-group';
 import { PromptRail, type RailPrompt } from '../prompt-rail/prompt-rail';
+import { NoteHoverDirective } from '../pin-annotation/note-hover.directive';
 import { MorseService } from '../../core/morse.service';
 
 /** Mime subtype -> file extension, for the chip label of a persisted image. */
@@ -35,7 +37,7 @@ function previewPrompt(text: string): string {
 
 @Component({
   selector: 'morse-chat-transcript',
-  imports: [Markdown, ToolGroup, EnterDirective, PromptRail],
+  imports: [Markdown, ToolGroup, EnterDirective, PromptRail, NoteHoverDirective],
   templateUrl: './chat-transcript.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -378,6 +380,17 @@ function previewPrompt(text: string): string {
         flex: none;
         font-size: 11px;
         color: var(--morse-accent);
+      }
+      /* A pin chip's annotation: the first line only, cut to a hint — the full
+         note is on the span's tooltip. The ✎ separates it from the file name. */
+      .user-attachments .mention-pin .note {
+        flex: none;
+        max-width: 90px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--morse-fg-muted);
+        font-size: 10.5px;
       }
       /*
        * Image attachments read as thumbnails, not labeled chips: a compact
@@ -1040,6 +1053,9 @@ export class ChatTranscript {
       ? `L${pin.startLine}-${pin.endLine}`
       : `L${pin.startLine}`;
   }
+
+  /** A pin chip's annotation: first line only as a hint, full text on hover. */
+  protected readonly pinNoteHint = pinNoteHint;
 
   /**
    * A chip label carries the file name only — in a transcript, a directory chain

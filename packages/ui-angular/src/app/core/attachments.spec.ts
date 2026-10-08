@@ -268,3 +268,79 @@ describe('AttachmentStore snapshot', () => {
     expect(store.mentions()).toEqual([]);
   });
 });
+describe('AttachmentStore annotations', () => {
+  it('sends the note with the pin and drops blank ones', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.pin({ path: 'src/index.ts', startLine: 30, endLine: 31, note: ' fix the fallback loop ' });
+    store.pin({ path: 'README.md', note: '   ' });
+
+    expect(store.takePins()).toEqual([
+      { path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+      { path: 'README.md' },
+    ]);
+    // Sent pins are spent: the strip is empty for the next prompt.
+    expect(store.pins()).toHaveLength(0);
+  });
+
+  it('sets one pin\u2019s annotation without touching its range', () => {
+    const store = freshStore();
+    store.use('s1');
+    const id = store.pin({ path: 'src/index.ts', startLine: 30, endLine: 31 });
+
+    store.setPinNote(id, 'fix the fallback loop');
+    expect(store.pins()).toEqual([
+      { id, path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+    ]);
+
+    store.setPinNote(id, '   ');
+    expect(store.pins()).toEqual([{ id, path: 'src/index.ts', startLine: 30, endLine: 31 }]);
+  });
+
+  it('keeps a range edit\u2019s annotation when the chip is dragged again', () => {
+    const store = freshStore();
+    store.use('s1');
+    const id = store.pin({ path: 'src/index.ts', startLine: 20, endLine: 40, note: 'the helper' });
+
+    // Editing the same chip in place (the preview's drag) grows the range but
+    // must not lose the words that already ride on it.
+    store.setPinRange(id, { startLine: 15, endLine: 45 });
+    expect(store.pins()[0]).toMatchObject({ startLine: 15, endLine: 45, note: 'the helper' });
+  });
+
+  it('unions the notes of coalesced chips in range order, without stutters', () => {
+    const store = freshStore();
+    store.use('s1');
+    const first = store.pin({ path: 'src/index.ts', startLine: 5, endLine: 10, note: 'guards the top' });
+    store.pin({ path: 'src/index.ts', startLine: 12, endLine: 20, note: 'guards the bottom' });
+    const merged = store.pin({ path: 'src/index.ts', startLine: 5, endLine: 12, note: 'guards the top' });
+
+    // The new pin touches the first chip and overlaps past it, so the merge has
+    // to pull in the second one too (11..20 is reachable only on a second pass).
+    const chip = store.pins().find((pin) => pin.id === first)!;
+    expect(chip).toMatchObject({ startLine: 5, endLine: 20 });
+    expect(chip.note).toBe('guards the top\nguards the bottom');
+    expect(merged).toBe(first);
+  });
+
+  it('restores annotations with the pins a fork handed back', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.seed([], [
+      { path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+    ]);
+    expect(store.pins()).toEqual([
+      { id: 'pin-1', path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+    ]);
+  });
+
+  it('round-trips an annotation through the saved-state snapshot', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.pin({ path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' });
+    const restored = freshStore();
+    restored.restore(store.snapshot());
+    restored.use('s1');
+    expect(restored.pins()).toEqual(store.pins());
+  });
+});

@@ -1,0 +1,138 @@
+<div
+  #card
+  class="pin-annotation"
+  [class.above]="spot().placement === 'above'"
+  [style.top.px]="spot().top"
+  [style.left.px]="spot().left"
+  role="dialog"
+  aria-label="Annotate the pinned range"
+>
+  <header class="head">
+    <span class="glyph" aria-hidden="true">✎</span>
+    <span class="title">Annotation</span>
+    <span class="target" [title]="target().path">{{ target().path }}</span>
+    @if (target().range; as range) {
+      <span class="range">{{ range }}</span>
+    }
+    <span class="grow"></span>
+    <button
+      type="button"
+      class="icon"
+      title="Close without saving"
+      aria-label="Close without saving"
+      (click)="close()"
+    >
+      ✕
+    </button>
+  </header>
+
+  <!--
+    Every button cancels its own mousedown: a toolbar press must not take the
+    caret out of the textarea, or the selection the tool acts on is gone.
+  -->
+  <div class="toolbar" role="toolbar" aria-label="Markdown formatting">
+    <button
+      type="button"
+      title="Bold (⌘/Ctrl+B)"
+      aria-label="Bold"
+      (mousedown)="$event.preventDefault()"
+      (click)="bold()"
+    >
+      B
+    </button>
+    <button
+      type="button"
+      title="Italic (⌘/Ctrl+I)"
+      aria-label="Italic"
+      (mousedown)="$event.preventDefault()"
+      (click)="italic()"
+    >
+      I
+    </button>
+    <button
+      type="button"
+      title="Inline code (⌘/Ctrl+E)"
+      aria-label="Inline code"
+      (mousedown)="$event.preventDefault()"
+      (click)="inlineCode()"
+    >
+      &lt;/&gt;
+    </button>
+    <button
+      type="button"
+      title="Code block"
+      aria-label="Code block"
+      (mousedown)="$event.preventDefault()"
+      (click)="codeBlock()"
+    >
+      ```
+    </button>
+    <button
+      type="button"
+      title="Link (⌘/Ctrl+K)"
+      aria-label="Link"
+      (mousedown)="$event.preventDefault()"
+      (click)="link()"
+    >
+      🔗
+    </button>
+    <button
+      type="button"
+      title="Bulleted list"
+      aria-label="Bulleted list"
+      (mousedown)="$event.preventDefault()"
+      (click)="bullet()"
+    >
+      •
+    </button>
+    <button
+      type="button"
+      title="Numbered list"
+      aria-label="Numbered list"
+      (mousedown)="$event.preventDefault()"
+      (click)="ordered()"
+    >
+      1.
+    </button>
+    <button
+      type="button"
+      title="Heading"
+      aria-label="Heading"
+      (mousedown)="$event.preventDefault()"
+      (click)="heading()"
+    >
+      H
+    </button>
+    <button
+      type="button"
+      title="Quote"
+      aria-label="Quote"
+      (mousedown)="$event.preventDefault()"
+      (click)="quote()"
+    >
+      ❝
+    </button>
+  </div>
+
+  <div class="editor">
+    <!-- The mirror is what the eye sees; the textarea over it is what you type. -->
+    <pre class="mirror" #mirror aria-hidden="true"><code [innerHTML]="mirrorHtml()"></code></pre>
+    <textarea
+      #input
+      class="input"
+      spellcheck="false"
+      [value]="note()"
+      [attr.aria-label]="'Annotation for ' + target().path"
+      (input)="onInput($event)"
+      (scroll)="onScroll()"
+      (keydown)="onKeydown($event)"
+    ></textarea>
+  </div>
+
+  <footer>
+    <span class="hint">{{ shortcutHint }}</span>
+    <span class="grow"></span>
+    <button type="button" class="secondary" (click)="close()">Cancel</button>
+    <button type="button" (click)="commit()">Save annotation</button>
+  </footer>
+</div>

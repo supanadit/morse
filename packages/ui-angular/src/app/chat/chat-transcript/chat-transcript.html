@@ -10,7 +10,7 @@
           </button>
         }
       </div>
-    } @else if (rows().length > 0) {
+    } @else if (rows().length) {
       <div class="start"><span>Start of conversation</span></div>
     }
     @for (row of rows(); track row.key) {
@@ -25,6 +25,12 @@
                     <span class="name">{{ basename(pin.path) }}</span>
                     @if (pin.startLine !== undefined) {
                       <span class="lines">{{ pinRange(pin) }}</span>
+                    }
+                    <!-- The range's annotation: first line as a hint, the whole
+                         note as rendered markdown on hover. Old sessions have
+                         none and stay as they are. -->
+                    @if (pin.note !== undefined) {
+                      <span class="note" [morseNoteHover]="pin.note">✎ {{ pinNoteHint(pin.note) }}</span>
                     }
                   </li>
                 }
@@ -210,7 +216,7 @@
   (pick)="scrollToPrompt($event)"
 />
 
-@if (!pinned() && rows().length > 0) {
+@if (!pinned() && rows().length) {
   <button type="button" class="latest" (click)="jumpToLatest()">↓ Latest</button>
 }
 

@@ -5,7 +5,7 @@ import type {
   ToolTranscriptItem,
   TranscriptItem,
 } from '@morse/protocol';
-import { activeProcessKey, groupTranscriptItems, parseMentionToken, splitMentionTokens, userMessageMarkdown } from './transcript-rows';
+import { activeProcessKey, groupTranscriptItems, parseMentionToken, pinNoteHint, splitMentionTokens, userMessageMarkdown } from './transcript-rows';
 
 function tool(id: string, status: ToolTranscriptItem['status'] = 'ok'): ToolTranscriptItem {
   return { kind: 'tool', id, at: 0, name: 'read', title: `read: ${id}`, status };
@@ -182,5 +182,23 @@ describe('userMessageMarkdown', () => {
 
   it('leaves mentions inside an inline code span alone', () => {
     expect(userMessageMarkdown('run `@README.md` now')).toBe('run `@README.md` now');
+  });
+});
+
+describe('pinNoteHint', () => {
+  it('is undefined without a note', () => {
+    expect(pinNoteHint(undefined)).toBeUndefined();
+  });
+
+  it('keeps a short single-line note whole', () => {
+    expect(pinNoteHint('fix the loop')).toBe('fix the loop');
+  });
+
+  it('cuts a long first line to the hint cap', () => {
+    expect(pinNoteHint('a'.repeat(30))).toBe(`${'a'.repeat(26)}…`);
+  });
+
+  it('shows the first line and hints there is more', () => {
+    expect(pinNoteHint('fix the loop\nand guard the empty case')).toBe('fix the loop…');
   });
 });
