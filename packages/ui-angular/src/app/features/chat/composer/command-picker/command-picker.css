@@ -1,0 +1,88 @@
+:host {
+  display: block;
+}
+.picker {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--morse-popover-max-height, 320px);
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 10px 28px rgb(0 0 0 / 30%);
+  overflow: hidden;
+}
+ul {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+}
+li button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+li button.active {
+  background: var(--morse-active);
+}
+.icon {
+  flex: none;
+  width: 14px;
+  color: var(--morse-fg-muted);
+  text-align: center;
+}
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--morse-font-mono);
+}
+.description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--morse-badge-bg);
+  color: var(--morse-badge-fg);
+  font-size: 10px;
+}
+.empty {
+  padding: 8px 10px;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+}
+.hint {
+  padding: 5px 10px;
+  border-top: 1px solid var(--morse-border);
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+kbd {
+  font-family: var(--morse-font-mono);
+  font-size: 10px;
+  padding: 0 3px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+}

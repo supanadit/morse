@@ -37,17 +37,9 @@ const RENDER_INTERVAL_MS = 90;
  */
 @Component({
   selector: 'morse-markdown',
-  template: `
-    <div class="md" [innerHTML]="html()" (click)="onClick($event)"></div>
-  `,
+  templateUrl: './markdown.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-    `,
-  ],
+  styleUrl: './markdown.css',
 })
 export class Markdown {
   readonly text = input.required<string>();

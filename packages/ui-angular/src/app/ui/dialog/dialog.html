@@ -1,0 +1,13 @@
+<div class="modal-layer" (click)="dismiss.emit()">
+  <div
+    class="modal-card"
+    [attr.role]="role()"
+    aria-modal="true"
+    [attr.aria-labelledby]="labelledBy()"
+    [attr.aria-label]="labelledBy() ? undefined : label()"
+    [attr.aria-describedby]="describedBy()"
+    (click)="$event.stopPropagation()"
+  >
+    <ng-content />
+  </div>
+</div>

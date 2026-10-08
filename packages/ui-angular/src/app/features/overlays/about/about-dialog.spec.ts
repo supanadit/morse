@@ -3,6 +3,7 @@ import { MemoryHostTransport } from '@morse/ui-runtime';
 import { PROTOCOL_VERSION } from '@morse/protocol';
 import { describe, expect, it } from 'vitest';
 import { AboutDialog } from './about-dialog';
+import { OverlayEscape } from '../../../ui/overlay-escape';
 import { CREDITS } from './credits';
 import { ShellState } from '../../../state/shell-state';
 import { UPDATE_LOADER, UpdateCheck } from '../../../services/update';
@@ -20,6 +21,9 @@ async function render(): Promise<{ host: HTMLElement; fixture: ReturnType<typeof
       { provide: UPDATE_LOADER, useValue: undefined },
     ],
   }).compileComponents();
+  // The dialog no longer listens for Escape itself: the shell owns that one
+  // listener (`ui/overlay-escape.ts`), so a spec that presses Escape mounts it.
+  TestBed.inject(OverlayEscape);
   const fixture = TestBed.createComponent(AboutDialog);
   fixture.detectChanges();
   return { host: fixture.nativeElement as HTMLElement, fixture };

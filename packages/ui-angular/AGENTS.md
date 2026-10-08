@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-10-08 | Last verified: 2026-10-07 -->
+<!-- Last updated: 2026-10-08 | Last verified: 2026-10-08 -->
 
 # packages/ui-angular — AGENTS.md
 
@@ -13,12 +13,12 @@ The Angular frontend: views over `SessionView`, plus the app-local state that is
 | Path | Holds |
 | --- | --- |
 | `src/app/host/` | the seam to a host: `transport.token.ts` (the port), `morse.service.ts` (the client binding over it) and `view-state.ts` (one value persisted through the transport) |
-| `src/app/state/` | app-local reactive state, no I/O and no DOM: `shell-state.ts`, `workspace-tabs.ts`, `workspace-files.store.ts`, `terminal-store.ts`, `panel-state.ts`, `mcp-state.ts`, `composer-drafts.ts`, `queued-prompts.ts`, `prompt-templates-state.ts`, `attachments.ts`, `display-prefs.ts`, `notification-prefs.ts`, `boot-handoff.ts` |
+| `src/app/state/` | app-local reactive state, no I/O and no DOM: `shell-state.ts`, `overlay-stack.ts`, `workspace-tabs.ts`, `workspace-files.store.ts`, `terminal-store.ts`, `panel-state.ts`, `mcp-state.ts`, `composer-drafts.ts`, `queued-prompts.ts`, `prompt-templates-state.ts`, `attachments.ts`, `display-prefs.ts`, `notification-prefs.ts`, `boot-handoff.ts` |
 | `src/app/services/` | use-cases and adapters: `queue-drain.ts`, `workbench-persistence.ts`, `workspace-files.service.ts`, `git-panel-state.ts`, `update.ts`, `uploads.ts`, `shortcut.service.ts`, `shortcuts.catalog.ts`, `run-notifier.ts`, `notification-channel.ts` |
-| `src/app/ui/` | Angular/DOM primitives and presentational atoms: `animation.service.ts`, `drop-zone.ts`, `drop-flight.ts`, `popover-fit.directive.ts`, `enter.directive.ts`, `shortcut-keys.ts`, `confirm-dialog.ts`, `markdown/markdown.ts`, `pin-annotation/` |
-| `src/app/features/` | the view layer, one folder per surface domain: `chat/` (transcript, composer, header, empty, interaction, tasks, pi-ui), `workbench/` (tabs, preview, bottom panel, terminal), `surfaces/` (the code-split route surfaces), `nav/`, `git/`, `overlays/`, `screens/` |
-| `src/app/shell/` | the `App`: layout composition — `app.ts`, `app.html`, `app.css` |
-| `src/app/routing/` | `routes.ts` (hash route → root component) and `app.config.ts`; `src/main.ts` bootstraps a route into an element it creates |
+| `src/app/ui/` | Angular/DOM primitives and presentational atoms: `dialog/` (the shell every dialog is built on), `animation.service.ts`, `drop-zone.ts`, `drop-flight.ts`, `popover-fit.directive.ts`, `enter.directive.ts`, `shortcut-keys.ts`, `overlay-escape.ts`, `confirm-dialog.ts`, `markdown/markdown.ts`, `pin-annotation/` |
+| `src/app/features/` | the view layer, one folder per surface domain: `chat/` (transcript, composer, header, empty, interaction, tasks, pi-ui), `workbench/` (tabs, preview, bottom panel, terminal), `surfaces/` (the code-split editor views: the prompt template editor and the MCP editor), `nav/`, `git/`, `overlays/`, `screens/` |
+| `src/app/shell/` | the `App`: layout composition — `app.ts`, `app.html`, `app.css`, and the rules as a test (`conventions.spec.ts`) |
+| `src/app/routing/` | the route table and its targets: `routes.ts` (hash route → root component), `app.config.ts`, and `session-page/` (the `/session` target, which mounts the shell embedded); `src/main.ts` bootstraps a route into an element it creates |
 | `src/styles.css` | the theme, `--morse-head-height`, and the rules VS Code's injected layer must not win |
 
 ## Layers
@@ -34,11 +34,11 @@ routing → shell → features → ui → services → state → host
 - **R-U3** — `ui/` imports nothing from `features/`, `shell/` or `routing/`.
 - **R-U4** — `services/` imports nothing from `ui/` (this is what keeps the chain acyclic).
 - **R-U5** — `state/` imports nothing from `services/`; it talks to the host through `host/`.
-- **R-U6** — `host/` imports only `@morse/protocol`, `@morse/ui-runtime` and files in `host/`.
+- **R-U6** — `host/` imports no other layer and, of the Morse packages, only `@morse/protocol` and `@morse/ui-runtime`. (A framework package is not a Morse package: every service injects `@angular/core`.)
 - **R-U7** — Only `shell/` and `routing/` may import from more than one feature.
 - **R-U8** — Any layer may import `@morse/protocol` and `@morse/ui-runtime` freely: those are the framework-free core, which sits below `host`.
 
-Enforced by review, not by tooling — `docs/ARCHITECTURE.md` § *Inside a frontend* carries the same list.
+Enforced by `shell/conventions.spec.ts` on every run, which applies R-U1, R-U2, R-U6, R-U7 and the stylesheet rule below to every production file — a broken arrow fails there with the file and the specifier. `docs/ARCHITECTURE.md` § *Inside a frontend* carries the same list.
 
 ## Setup
 
@@ -58,6 +58,8 @@ Enforced by review, not by tooling — `docs/ARCHITECTURE.md` § *Inside a front
 - **UI state comes only from `reduceSessionView`** (`@morse/protocol`); a component reads `state.capabilities` instead of guessing what the host can do.
 - **A shortcut is one entry in `services/shortcut.service.ts` plus a `bind()` by whoever owns the state it acts on** (the composer binds the model chooser, the thinking picker its own panel) — never a second key handler per component, so the `?` help list prints exactly what the service matches, and an unowned action shows as unavailable rather than promised.
 - Only a spec marked `whileTyping` may fire with the caret in an input/textarea; only a spec marked `overlay` may open while `ShellState.modalOpen()`.
+- **A dialog is built on `morse-dialog`** (`ui/dialog`), never on a hand-written `.modal-layer`: the shell owns the layer, the card, the click outside, `aria-modal` and the registration that makes it the overlay Escape is talking about. A dialog passes its own measurements as `--morse-card-*` on `morse-dialog` and adds no document key listener of its own.
+- **CSS lives beside its component**, never inside it: `styleUrl: './x.css'` and `templateUrl: './x.html'`, no inline `styles: [...]` or `template:` in the class. A stylesheet buried in the class is what made `git-panel.ts` 1570 lines, 879 of them CSS; the class is about behaviour, the stylesheet about the look. `shell/conventions.spec.ts` fails an inline block. A `*.spec.ts` host may keep its throwaway inline template.
 - CSS: a custom control that paints a hover state on a global `button` rule needs the same specificity to win (`.row:hover:not(:disabled)`, likewise `.group-title`, `.context-menu-item`, …). Both header rows read `--morse-head-height`; never give one its own padding.
 - App-local state that must survive a reload goes through `services/workbench-persistence.ts` (and `host/view-state.ts` for a single value), not ad-hoc `localStorage`.
 
@@ -103,6 +105,9 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | `/` or `?` fires while typing a prompt | characters belong to the field: only specs marked `whileTyping` may run with the caret in an input/textarea |
 | A character typed with AltGr triggers an action | Windows reports AltGr as Ctrl+Alt; `ShortcutService` skips `getModifierState('AltGraph')` |
 | An overlay opens behind a dialog | specs marked `overlay` stand down while `ShellState.modalOpen()`; mark the new one or it will stack |
+| Two dialogs close on one press of Escape | it must not: the shell owns the only Escape listener (`ui/overlay-escape.ts`) and hands the press to the top of `state/overlay-stack.ts`, which `ui/dialog` joins while it is up. A dialog that adds its own `document:keydown.escape` puts the bug back |
+| A shortcut fires behind a dialog that is up | `ShellState.modalOpen()` is `OverlayStack.depth()`, not the list of dialog flags: a dialog (or a panel) built without `ui/dialog` never registers, so the stack cannot see it |
+| A dialog's card is the wrong size, or does not scroll | the shell owns `.modal-layer`/`.modal-card`; the dialog sets `--morse-card-width`, `--morse-card-max-height`, `--morse-card-padding`, `--morse-card-gap` or `--morse-card-overflow` on `morse-dialog` in its own stylesheet (the defaults are in `ui/dialog/dialog.css`) |
 | The update notice never appears | the host must advertise `capabilities.updateCheck` (`MORSE_UPDATE_CHECK=0` disables it, and the VS Code webview CSP must list `https://registry.npmjs.org`); review it offline with `?mock=1&newer=0.3.0` |
 | No pi update notice (the Morse one shows) | the host could not read the installed pi version, so it advertised no `capabilities.piVersion`; `readPiVersion` needs pi's own `package.json` (a symlinked `pi` is followed). Review it offline with `?mock=1&newer-pi=9.9.9` |
 | `/prompts` is missing, or the editor says it cannot load | the entry is the Morse command **Edit prompt templates** (`view.prompts`, `Ctrl+Alt+E`) in the command palette, not a pi slash command; it is hidden when `capabilities.promptEditor` is off (the host could not reach pi's prompt directories) |
@@ -118,7 +123,8 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | A file chip's context menu closes the session tab | a menu's scope is the clicked tab's own: `WorkspaceTabs.menuScope(id)` returns the whole strip for a session but only the chip's row for a file. `closeOthers`/`closeToTheRight`/`closeAll` must read that scope, never `items()` directly — a chip is context, and closing it must not take a session with it |
 | Closing the last chip jumps to another session’s file | `WorkspaceTabs.remove` takes the closed chip's owner session and selects it (`chipOwner`), instead of the positional neighbour in `items` — a chip is context for its session, so closing the chip in front returns to that conversation |
 | Two file chips look identical | intended: when any file name in the row is shared, the whole chip row goes two lines and every chip shows its directory, clipped at the front (`.dir` with `direction: rtl` and a `<bdi>` in `tab-strip`, so the folder nearest the file stays visible). With no shared name every chip is one row. If two still look identical, their names are not in the same row — `namesClash` counts chips per session row |
-| A new file is missing from the Explorer | it polls `gitStatus` every 4 s, and re-reads `listFiles{fresh: true}` only when that working tree moved (or every 60 s regardless, and always on a project switch); a hidden tab pauses the poll. No host push — the tree changes on disk |
+| A new file is missing from the Explorer | it polls `gitStatus` every 4 s, and re-reads `listFiles{fresh: true}` only when that working tree moved (or every 60 s regardless, and always on a project switch); a hidden tab pauses the poll. No host push — the tree changes on disk. The status is asked for **before** the list, because the decision has to come from the tree this tick just read: a tick that issued both commands together decided from the previous tick's status and re-read the list one tick (4 s) after the tree had already moved |
+| Editing a component's look means editing TypeScript | it should not: the stylesheet is a sibling `x.css` (`styleUrl`) and the template a sibling `x.html` (`templateUrl`). `shell/conventions.spec.ts` fails an inline `styles:`/`template:` — the CSS belongs to the file, the class to the behaviour |
 | File/session tabs vanish on reload | intended only in VS Code (its own editor restores tabs). The browser host persists the open/focused tabs, panel and terminals to `<MORSE_HOME>/workbench.json` — check `capabilities.workbench` and `services/workbench-persistence.ts`; a snapshot from another `version` is ignored on purpose |
 | Terminal dies on a tab switch, a hidden panel, or after `morse stop`/`start` | the shell must outlive the view: a `Terminal` never sends `terminal/close` on destroy — only an explicit reader close does (`TerminalView.close`/`closePane`, `WorkspaceTabs.closeOwnerTerminals`), and the bottom panel is hidden with a class rather than `@if`-unmounted (`app.ts` `bottomPanelEnabled` mounts, `bottomPanelVisible` hides). A draft holding a terminal is not discarded as "untouched" (`TerminalStore.hasOwner`) |
 | A long prompt or its attachments vanish on reload / `morse stop` / a closed laptop | intended only in VS Code. The browser host saves every tab's draft — text, pins, mentions and inline images — to `<MORSE_HOME>/drafts.json` (`state/composer-drafts.ts`, `state/attachments.ts` via `WorkbenchPersistence`); the tab itself, a "New session" draft included, lives in `workbench.json` |
@@ -134,7 +140,9 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | a model's input modalities (text/vision/audio/…) | `packages/ui-angular/src/app/features/chat/composer/model-picker/model-inputs.ts` ← pi's `input` on `ModelOption.input` |
 | "a newer release is out" notice (Morse or pi) | `packages/ui-angular/src/app/services/update.ts` ← `capabilities.updateCheck`/`piVersion`, `docs/CONFIGURATION.md` |
 | "a run finished" notice while the window is elsewhere | `packages/ui-angular/src/app/services/run-notifier.ts` + `notification-prefs.ts` ← `capabilities.notify` |
-| git history + graph panel (browser host) | `packages/ui-angular/src/app/features/git/git-panel/git-panel.ts` ← `git/graph.ts`/`status.ts`/`diff.ts` in @morse/ui-runtime in `@morse/ui-runtime`, `packages/server/src/internal/workspace/git-log.ts` |
+| git history + graph panel (browser host) | `packages/ui-angular/src/app/features/git/git-panel/git-panel.ts` ← `git/graph.ts`, `git/status.ts`, `git/diff.ts` in `@morse/ui-runtime`, `packages/server/src/internal/workspace/git-log.ts` |
+| the layer rules, or the stylesheet rule — as a test rather than a promise | `packages/ui-angular/src/app/shell/conventions.spec.ts` |
+| a dialog: the card, the Escape order, who is on top | `packages/ui-angular/src/app/ui/dialog/dialog.ts` ← `state/overlay-stack.ts` + `ui/overlay-escape.ts` |
 | MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/features/overlays/mcp-panel/` ← `state/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
 | prompt-template editor + argument tester | `packages/ui-angular/src/app/features/surfaces/prompt-editor/` ← `state/prompt-templates-state.ts`, `packages/ui-runtime/src/prompt-template.ts` (the same expansion the composer uses); host file I/O in `packages/adapter-pi-rpc/src/pi-prompts.ts`; code-split, and scoped to the session in front |
 | who is credited, and where | `packages/ui-angular/src/app/features/overlays/about/credits.ts` (guarded by `credits.spec.ts`) |

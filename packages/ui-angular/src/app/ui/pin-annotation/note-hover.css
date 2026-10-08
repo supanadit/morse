@@ -1,0 +1,17 @@
+:host {
+  display: contents;
+}
+.note-card {
+  position: fixed;
+  z-index: 79;
+  width: min(360px, calc(100vw - 16px));
+  max-height: 40vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 12px 32px rgb(0 0 0 / 36%);
+  font-size: 12px;
+  pointer-events: none;
+}

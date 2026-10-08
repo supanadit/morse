@@ -88,6 +88,12 @@
   --morse-nav-width: 272px;
   /* The browser host's git panel width (the shell's third column). */
   --morse-git-width: 340px;
+  /*
+   * Every dialog shares one layer, so the stacking is the DOM order — the order
+   * `app.html` declares them — rather than ten hand-picked numbers that agreed with
+   * it only by accident. `ui/dialog` is the only thing that reads it.
+   */
+  --morse-z-dialog: 70;
 
   --morse-fg: var(--vscode-foreground, #d4d4d4);
   --morse-fg-muted: var(--vscode-descriptionForeground, #9d9d9d);

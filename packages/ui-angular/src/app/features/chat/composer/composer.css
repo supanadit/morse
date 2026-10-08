@@ -1,0 +1,593 @@
+:host {
+  display: block;
+  position: relative;
+  padding: 10px;
+}
+.box {
+  position: relative;
+  container-type: inline-size;
+  max-width: 780px;
+  margin: 0 auto;
+  border: 1px solid var(--morse-input-border);
+  border-radius: var(--morse-radius-lg);
+  background: var(--morse-input-bg);
+  padding: 8px;
+  transition: border-color 120ms ease;
+}
+/*
+ * Follow-ups waiting their turn, above the composer. They stay the reader's
+ * to see and change until the run that queued them settles.
+ */
+.queue {
+  max-width: 780px;
+  margin: 0 auto 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-hover));
+  overflow: hidden;
+}
+.queue-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--morse-border);
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.queue-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--morse-badge-bg);
+  color: var(--morse-fg-muted);
+  text-align: center;
+  font-size: 10px;
+}
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 10px;
+}
+.queue-row + .queue-row {
+  border-top: 1px solid var(--morse-hover);
+}
+.queue-grip {
+  flex: none;
+  color: var(--morse-fg-muted);
+  opacity: 0.5;
+  cursor: grab;
+  touch-action: none;
+}
+.queue-grip:active {
+  cursor: grabbing;
+}
+/* Angular CDK drag: the row in hand floats in a preview and the rest slide
+   aside, exactly like the session strip's tabs. */
+.queue-list.cdk-drop-list-dragging .queue-row:not(.cdk-drag-placeholder) {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+.queue-row.cdk-drag-animating {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+.queue-row.cdk-drag-placeholder {
+  opacity: 0.3;
+}
+.cdk-drag-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+.queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.queue-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.queue-action:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.queue-remove {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.queue-remove:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 4px;
+}
+.toolbar .hint {
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+}
+.icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.icon:hover:not(:disabled) {
+  background: var(--morse-hover);
+}
+.icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.icon.send {
+  background: var(--morse-accent);
+  border-color: var(--morse-accent);
+  color: #fff;
+  font-size: 15px;
+}
+.icon.stop {
+  color: var(--morse-error);
+  border-color: var(--morse-error);
+}
+.working {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+  white-space: nowrap;
+}
+.working .spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--morse-border);
+  border-top-color: var(--morse-accent);
+  animation: spin 0.8s linear infinite;
+}
+.working .dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.working .dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dot 1.2s ease-in-out infinite;
+}
+.working .dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.working .dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.picker-host,
+.palette-host {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+}
+/* The scoped hint class is nowrap for toolbar/status one-liners; the notice
+   text is a sentence and must wrap inside the box — otherwise the flex
+   child's min-content pushes the dismiss button out of it. */
+.pi-builtin-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-hover));
+  color: var(--morse-fg-muted);
+}
+.pi-builtin-notice .hint {
+  min-width: 0;
+  flex: 1;
+  white-space: normal;
+}
+.pi-builtin-notice code {
+  color: var(--morse-fg);
+}
+.pi-builtin-notice code {
+  color: var(--morse-fg);
+}
+.notice-dismiss {
+  background: none;
+  border: none;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 2px 6px;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-hover);
+  font-size: 11.5px;
+}
+.chip img {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: var(--morse-radius-sm);
+}
+.chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /*
+   * All chips trim from the left, so a truncated path keeps its tail:
+   * "…/vscode/selection-preview.ts" instead of a directory prefix that
+   * no longer distinguishes anything. Workspace-relative paths are LTR,
+   * so the bidi flip of this classic breadcrumb trick is safe.
+   */
+  direction: rtl;
+  text-align: left;
+}
+.pin-icon {
+  font-size: 12px;
+  color: var(--morse-accent);
+  line-height: 1;
+}
+.chip-lines {
+  padding: 1px 5px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  font-family: var(--morse-font-mono);
+  white-space: nowrap;
+}
+.chip-remove {
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  line-height: 1.4;
+  cursor: pointer;
+}
+.chip-remove:hover {
+  color: var(--morse-fg);
+  background: var(--morse-active);
+}
+/*
+ * The live selection chip is a preview, not a pin: no surface (a
+ * filled chip would swallow the numbers' inset pill and read as one big
+ * highlight), just a dashed accent outline meaning "still following the
+ * editor". One visual layer, one alignment — nothing floats above it.
+ */
+.chip.live {
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--morse-accent) 55%, transparent);
+}
+/*
+ * A real <button>, so it is keyboard-reachable — and reset hard, at base
+ * and in every state, because VS Code's injected vscode-default layer
+ * paints buttons with the theme's accent background otherwise.
+ */
+button.chip-body {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.chip-body:hover,
+button.chip-body:active {
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+}
+button.chip-body:focus-visible {
+  outline: 1px solid var(--morse-focus);
+  outline-offset: -1px;
+}
+/*
+ * The live numbers have an accent tint and no inset background, so they
+ * sit on the same layer as the name — on locked chips the inset pill
+ * stays, which is where it belongs.
+ */
+.chip.live .chip-lines {
+  padding: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--morse-accent) 70%, var(--morse-fg));
+}
+/*
+ * The range's annotation rides on the chip after the lines pill. It is a
+ * button only because clicking it re-opens the text for editing; the ✎ is
+ * what says "this is user-added words", not a file name.
+ */
+.chip-note {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  max-width: 150px;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  cursor: text;
+}
+.chip-note-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* The ✎ stays put; only the words shrink away. */
+  flex: 0 1 auto;
+}
+.chip-note:hover,
+.chip-note:focus-visible {
+  color: var(--morse-fg);
+  background: var(--morse-active);
+}
+/* A pin with nothing to say yet: the affordance must be visible anyway,
+   so adding a note needs no discovery step — the ghost is the way in. */
+.chip-note.ghost {
+  opacity: 0.62;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+.box:focus-within {
+  border-color: var(--morse-focus);
+}
+textarea {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  resize: none;
+  min-height: 44px;
+  max-height: 220px;
+  padding: 4px 6px;
+  line-height: 1.5;
+}
+textarea:focus-visible {
+  outline: none;
+}
+/*
+ * The footer is a fixed scaffold: a shrinkable metrics group on the left
+ * and a rigid action group on the right. Where the row breaks is decided
+ * by the container width (see the @container rules at the end), never by
+ * the width of a model name or a live token counter — that is what used
+ * to rewrap the row mid-run and make the controls jump lines.
+ */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  margin-top: 6px;
+}
+.controls-metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+}
+.controls-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
+}
+/*
+ * Row 1 is status only: live throughput on the left, run progress and the
+ * context indicator on the right. Row 2 stays pure controls (dropdowns +
+ * send/steer), so the buttons never move around while the numbers tick.
+ */
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.status-live,
+.status-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.status-live {
+  flex: 0 1 auto;
+}
+.status-end {
+  flex: 0 0 auto;
+}
+/*
+ * The model trigger replaces a native <select>, whose flat list hid which
+ * provider a model belongs to. It opens the grouped, searchable picker.
+ */
+.model-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--morse-input-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-input-bg);
+  color: var(--morse-input-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.model-button:hover:not(:disabled) {
+  border-color: var(--morse-fg-muted);
+}
+.model-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.model-button .provider {
+  flex: none;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  color: var(--morse-fg-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.model-button .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-button .caret {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+}
+.model-picker-host {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  width: min(360px, 100%);
+}
+.hint {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.throughput {
+  color: var(--morse-accent);
+  font-family: var(--morse-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * Responsive but deterministic: each breakpoint is pinned to the box
+ * width so the same width always gives the same layout. Status metrics
+ * live on their own row now, so they are only dropped when the box is
+ * genuinely too narrow — a ~580px composer has room for the live rate.
+ */
+@container (max-width: 380px) {
+  .usage-host {
+    display: none;
+  }
+}
+@container (max-width: 460px) {
+  .controls {
+    flex-wrap: wrap;
+  }
+  .controls-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+}
+@container (max-width: 360px) {
+  .thinking-host {
+    display: none;
+  }
+}

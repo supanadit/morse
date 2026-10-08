@@ -72,54 +72,8 @@ export function modelInputKeywords(input: readonly ModelInput[] | undefined): st
 @Component({
   selector: 'morse-model-inputs',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @for (badge of badges(); track badge.modality) {
-      <span class="badge" [attr.data-modality]="badge.modality" [title]="badge.label">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-          @for (path of badge.paths; track path) {
-            <path [attr.d]="path" />
-          }
-        </svg>
-      </span>
-    }
-  `,
-  styles: [
-    `
-      :host {
-        display: inline-flex;
-        align-items: center;
-        gap: 2px;
-        flex: none;
-      }
-      /*
-       * Muted by default so a text-only model stays quiet; colour is what makes
-       * vision (and the rarer audio/video) readable at a glance.
-       */
-      .badge {
-        display: inline-flex;
-        color: var(--morse-fg-muted);
-      }
-      .badge svg {
-        width: 11px;
-        height: 11px;
-        stroke-width: 1.7;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-      .badge[data-modality='image'] {
-        color: var(--morse-info);
-      }
-      .badge[data-modality='audio'] {
-        color: var(--morse-success);
-      }
-      .badge[data-modality='video'] {
-        color: var(--morse-typename);
-      }
-      .badge[data-modality='pdf'] {
-        color: var(--morse-warn);
-      }
-    `,
-  ],
+  templateUrl: './model-inputs.html',
+  styleUrl: './model-inputs.css',
 })
 export class ModelInputs {
   readonly input = input<readonly ModelInput[] | undefined>(undefined);

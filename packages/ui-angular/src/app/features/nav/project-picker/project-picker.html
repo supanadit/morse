@@ -1,160 +1,155 @@
-<div class="modal-layer" (click)="close()">
-  <div
-    class="modal-card"
-    role="dialog"
-    aria-modal="true"
-    aria-label="New session"
-    (click)="$event.stopPropagation()"
-  >
-    <header class="modal-head">
-      @if (mode() === 'browse' && hasProjects()) {
+<morse-dialog
+  label="New session"
+  (dismiss)="leave()"
+>
+  <header class="modal-head">
+    @if (mode() === 'browse' && hasProjects()) {
+      <button
+        type="button"
+        class="back"
+        title="Back to projects"
+        aria-label="Back to projects"
+        (click)="backToProjects()"
+      >
+        ‹
+      </button>
+    }
+    <strong>New session</strong>
+    <button type="button" class="close" title="Close" aria-label="Close" (click)="close()">
+      ×
+    </button>
+  </header>
+
+  @if (mode() === 'projects') {
+    <p class="modal-sub">
+      Choose the project the agent should run in, or open a folder pi has not seen before.
+    </p>
+
+    <div class="search">
+      <input
+        #search
+        type="search"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="Search projects"
+        aria-label="Search projects"
+        [value]="projectQuery()"
+        (input)="onProjectQuery($event)"
+        (keydown)="onSearchKeydown($event)"
+      />
+    </div>
+
+    <div class="listing" role="listbox" #list>
+      @for (project of matchedProjects(); track project.path; let index = $index) {
         <button
           type="button"
-          class="back"
-          title="Back to projects"
-          aria-label="Back to projects"
-          (click)="backToProjects()"
+          class="project-row"
+          role="option"
+          [class.active]="index === active()"
+          [attr.aria-selected]="index === active()"
+          [title]="project.path"
+          (mouseenter)="active.set(index)"
+          (click)="chooseProject(project.path)"
         >
-          ‹
+          <span class="project-name">{{ project.name }}</span>
+          <span class="project-path">{{ project.path }}</span>
+          <span class="project-count">{{ project.sessionCount }}</span>
         </button>
+      } @empty {
+        <p class="state">No project matches “{{ projectQuery() }}”.</p>
       }
-      <strong>New session</strong>
-      <button type="button" class="close" title="Close" aria-label="Close" (click)="close()">
-        ×
-      </button>
-    </header>
+    </div>
 
-    @if (mode() === 'projects') {
-      <p class="modal-sub">
-        Choose the project the agent should run in, or open a folder pi has not seen before.
-      </p>
-
-      <div class="search">
-        <input
-          #search
-          type="search"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="Search projects"
-          aria-label="Search projects"
-          [value]="projectQuery()"
-          (input)="onProjectQuery($event)"
-          (keydown)="onSearchKeydown($event)"
-        />
+    <footer class="modal-foot">
+      <span class="foot-note">Pick a project to start in.</span>
+      <div class="actions">
+        <button type="button" class="secondary" (click)="close()">Cancel</button>
+        <button type="button" class="primary" (click)="browseForFolder()">
+          Choose a folder…
+        </button>
       </div>
+    </footer>
+  } @else {
+    <p class="modal-sub">
+      Choose the project folder the agent should run in. It starts only after your first prompt.
+    </p>
 
-      <div class="listing" role="listbox" #list>
-        @for (project of matchedProjects(); track project.path; let index = $index) {
-          <button
-            type="button"
-            class="project-row"
-            role="option"
-            [class.active]="index === active()"
-            [attr.aria-selected]="index === active()"
-            [title]="project.path"
-            (mouseenter)="active.set(index)"
-            (click)="chooseProject(project.path)"
-          >
-            <span class="project-name">{{ project.name }}</span>
-            <span class="project-path">{{ project.path }}</span>
-            <span class="project-count">{{ project.sessionCount }}</span>
+    <div class="path-row">
+      <button
+        type="button"
+        title="Parent folder"
+        aria-label="Parent folder"
+        [disabled]="parent() === undefined"
+        (click)="go(parent())"
+      >
+        ↑
+      </button>
+      <input
+        #pathInput
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        aria-label="Folder path"
+        [value]="draftPath()"
+        (input)="onPathInput($event)"
+        (keydown.enter)="go(draftPath())"
+      />
+      <button type="button" [disabled]="draftPath().trim().length === 0" (click)="go(draftPath())">
+        Go
+      </button>
+    </div>
+
+    @if (roots().length > 0) {
+      <div class="roots">
+        @for (root of roots(); track root.path) {
+          <button type="button" class="chip" [title]="root.path" (click)="go(root.path)">
+            {{ root.name }}
+          </button>
+        }
+      </div>
+    }
+
+    <div class="listing">
+      @if (loading()) {
+        <p class="state">Reading folder…</p>
+      } @else if (error(); as message) {
+        <p class="state error">{{ message }}</p>
+      } @else {
+        @if (parent(); as up) {
+          <button type="button" class="row" [title]="up" (click)="go(up)">
+            <span class="folder" aria-hidden="true">↰</span>
+            <span class="name">..</span>
+          </button>
+        }
+        @for (dir of directories(); track dir.path) {
+          <button type="button" class="row" [title]="dir.path" (click)="go(dir.path)">
+            <span class="folder" aria-hidden="true">▸</span>
+            <span class="name">{{ dir.name }}</span>
           </button>
         } @empty {
-          <p class="state">No project matches “{{ projectQuery() }}”.</p>
-        }
-      </div>
-
-      <footer class="modal-foot">
-        <span class="foot-note">Pick a project to start in.</span>
-        <div class="actions">
-          <button type="button" class="secondary" (click)="close()">Cancel</button>
-          <button type="button" class="primary" (click)="browseForFolder()">
-            Choose a folder…
-          </button>
-        </div>
-      </footer>
-    } @else {
-      <p class="modal-sub">
-        Choose the project folder the agent should run in. It starts only after your first prompt.
-      </p>
-
-      <div class="path-row">
-        <button
-          type="button"
-          title="Parent folder"
-          aria-label="Parent folder"
-          [disabled]="parent() === undefined"
-          (click)="go(parent())"
-        >
-          ↑
-        </button>
-        <input
-          #pathInput
-          type="text"
-          spellcheck="false"
-          autocomplete="off"
-          aria-label="Folder path"
-          [value]="draftPath()"
-          (input)="onPathInput($event)"
-          (keydown.enter)="go(draftPath())"
-        />
-        <button type="button" [disabled]="draftPath().trim().length === 0" (click)="go(draftPath())">
-          Go
-        </button>
-      </div>
-
-      @if (roots().length > 0) {
-        <div class="roots">
-          @for (root of roots(); track root.path) {
-            <button type="button" class="chip" [title]="root.path" (click)="go(root.path)">
-              {{ root.name }}
-            </button>
+          @if (parent() === undefined && directories().length === 0) {
+            <p class="state">No subfolders here.</p>
           }
-        </div>
+        }
       }
+    </div>
 
-      <div class="listing">
-        @if (loading()) {
-          <p class="state">Reading folder…</p>
-        } @else if (error(); as message) {
-          <p class="state error">{{ message }}</p>
-        } @else {
-          @if (parent(); as up) {
-            <button type="button" class="row" [title]="up" (click)="go(up)">
-              <span class="folder" aria-hidden="true">↰</span>
-              <span class="name">..</span>
-            </button>
-          }
-          @for (dir of directories(); track dir.path) {
-            <button type="button" class="row" [title]="dir.path" (click)="go(dir.path)">
-              <span class="folder" aria-hidden="true">▸</span>
-              <span class="name">{{ dir.name }}</span>
-            </button>
-          } @empty {
-            @if (parent() === undefined && directories().length === 0) {
-              <p class="state">No subfolders here.</p>
-            }
-          }
+    <footer class="modal-foot">
+      <span class="selected" [title]="path()">
+        {{ path() }}
+        @if (!canOpen()) {
+          <em> · not in MORSE_PROJECTS</em>
         }
+        @if (isGitRepo()) {
+          <em class="ok"> · git</em>
+        }
+      </span>
+      <div class="actions">
+        <button type="button" class="secondary" (click)="close()">Cancel</button>
+        <button type="button" class="primary" [disabled]="!canOpen() || loading()" (click)="confirm()">
+          New session here
+        </button>
       </div>
-
-      <footer class="modal-foot">
-        <span class="selected" [title]="path()">
-          {{ path() }}
-          @if (!canOpen()) {
-            <em> · not in MORSE_PROJECTS</em>
-          }
-          @if (isGitRepo()) {
-            <em class="ok"> · git</em>
-          }
-        </span>
-        <div class="actions">
-          <button type="button" class="secondary" (click)="close()">Cancel</button>
-          <button type="button" class="primary" [disabled]="!canOpen() || loading()" (click)="confirm()">
-            New session here
-          </button>
-        </div>
-      </footer>
-    }
-  </div>
-</div>
+    </footer>
+  }
+</morse-dialog>

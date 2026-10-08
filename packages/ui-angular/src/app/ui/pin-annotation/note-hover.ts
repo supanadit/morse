@@ -28,39 +28,9 @@ const VIEWPORT_FALLBACK: PopoverSize = { width: 1_024, height: 768 };
 @Component({
   selector: 'morse-note-hover',
   imports: [Markdown],
-  template: `
-    <div
-      #card
-      class="note-card"
-      [style.top.px]="spot().top"
-      [style.left.px]="spot().left"
-      role="tooltip"
-    >
-      <morse-markdown [text]="note()" />
-    </div>
-  `,
+  templateUrl: './note-hover.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: contents;
-      }
-      .note-card {
-        position: fixed;
-        z-index: 79;
-        width: min(360px, calc(100vw - 16px));
-        max-height: 40vh;
-        overflow: auto;
-        padding: 8px 10px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-md);
-        background: var(--morse-panel, var(--morse-bg));
-        box-shadow: 0 12px 32px rgb(0 0 0 / 36%);
-        font-size: 12px;
-        pointer-events: none;
-      }
-    `,
-  ],
+  styleUrl: './note-hover.css',
 })
 export class NoteHover {
   /** Where the trigger is, in viewport coordinates. */

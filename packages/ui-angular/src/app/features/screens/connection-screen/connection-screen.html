@@ -1,0 +1,74 @@
+<div class="screen" role="alertdialog" aria-labelledby="morse-conn-title">
+  <span class="veil" aria-hidden="true"></span>
+  <span class="aura" aria-hidden="true"></span>
+  <span class="grid" aria-hidden="true"></span>
+
+  <div class="panel">
+    <div class="stage" aria-hidden="true">
+      <span class="halo"></span>
+      <span class="wave wave-a"></span>
+      <span class="wave wave-b"></span>
+      <svg class="scanner" viewBox="0 0 140 140">
+        <circle class="track" cx="70" cy="70" r="58" />
+        <circle class="sweep" cx="70" cy="70" r="58" />
+      </svg>
+      <span class="mark">
+        <span class="glyph dot"></span>
+        <span class="glyph dot"></span>
+        <span class="glyph dash"></span>
+      </span>
+    </div>
+
+    <p class="eyebrow"><span class="pip" aria-hidden="true"></span>{{ eyebrow() }}</p>
+    <h1 id="morse-conn-title" class="title">{{ title() }}</h1>
+    <p class="body">{{ body() }}</p>
+    @if (detail(); as line) {
+      <p class="detail">{{ line }}</p>
+    }
+
+    <div class="actions">
+      <button type="button" class="primary" (click)="retry.emit()">Retry now</button>
+      <button type="button" class="ghost" (click)="explore.emit()">Explore the app</button>
+    </div>
+
+    @if (isBrowser) {
+      <div class="help">
+        <p class="help-title">Start a Morse host</p>
+        <!--
+          Two audiences, one screen. A production user who installed the CLI
+          must not be told to run a monorepo script, and a contributor must not
+          be told to install a package they are already developing — so both
+          commands are named, and the install path with them.
+        -->
+        <div class="help-cmd">
+          <span class="help-label">installed CLI</span>
+          <code>morse start</code>
+        </div>
+        <div class="help-cmd">
+          <span class="help-label">from the repo</span>
+          <code>npm run dev:server</code>
+        </div>
+        <p class="help-or">
+          Not installed? <code>npm install -g @supanadit/morse-web</code>.
+        </p>
+        <p class="help-or">
+          Stopped it with <code>morse stop</code>? <code>morse start</code> brings it back —
+          <code>morse logs</code> says what happened.
+        </p>
+        <p class="help-or">or point this window at a host that is already running</p>
+        <form class="server" (submit)="submit($event)">
+          <input
+            type="text"
+            name="server"
+            placeholder="ws://host:port"
+            autocomplete="off"
+            spellcheck="false"
+            [value]="server()"
+            (input)="onInput($event)"
+          />
+          <button type="submit" [disabled]="server().trim().length === 0">Connect</button>
+        </form>
+      </div>
+    }
+  </div>
+</div>

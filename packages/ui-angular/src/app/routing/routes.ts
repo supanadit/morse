@@ -35,7 +35,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   // of it.
   {
     path: '/session',
-    load: () => import('../features/surfaces/session-page/session-page').then((m) => m.SessionPage),
+    load: () => import('./session-page/session-page').then((m) => m.SessionPage),
   },
 ];
 

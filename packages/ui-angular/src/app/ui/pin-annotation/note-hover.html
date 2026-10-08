@@ -1,0 +1,9 @@
+<div
+  #card
+  class="note-card"
+  [style.top.px]="spot().top"
+  [style.left.px]="spot().left"
+  role="tooltip"
+>
+  <morse-markdown [text]="note()" />
+</div>

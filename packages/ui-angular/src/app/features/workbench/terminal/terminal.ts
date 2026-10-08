@@ -33,39 +33,7 @@ import { registerTerminalLinks } from './terminal-links';
   selector: 'morse-terminal',
   templateUrl: './terminal.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        position: relative;
-        display: flex;
-        flex: 1;
-        min-width: 0;
-        min-height: 0;
-      }
-      .screen {
-        position: relative;
-        flex: 1;
-        min-width: 0;
-        min-height: 0;
-        overflow: hidden;
-      }
-      .restart {
-        position: absolute;
-        right: 10px;
-        bottom: 10px;
-        padding: 3px 10px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-sm);
-        background: var(--morse-panel, var(--morse-bg));
-        color: var(--morse-fg);
-        font-size: 11px;
-        cursor: pointer;
-      }
-      .restart:hover {
-        background: var(--morse-hover);
-      }
-    `,
-  ],
+  styleUrl: './terminal.css',
 })
 export class Terminal {
   private readonly morse = inject(MorseService);

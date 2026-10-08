@@ -1,26 +1,22 @@
-<div class="modal-layer" (click)="cancelled.emit()">
-  <div
-    class="modal-card"
-    role="alertdialog"
-    aria-modal="true"
-    aria-labelledby="confirm-title"
-    [attr.aria-describedby]="body().length > 0 ? 'confirm-body' : null"
-    (click)="$event.stopPropagation()"
-  >
-    <h2 id="confirm-title">{{ title() }}</h2>
-    @if (body(); as text) {
-      <p class="body" id="confirm-body">{{ text }}</p>
-    }
-    @if (note(); as text) {
-      <p class="note">{{ text }}</p>
-    }
+<morse-dialog
+  labelledBy="confirm-title"
+  [describedBy]="body().length > 0 ? 'confirm-body' : undefined"
+  role="alertdialog"
+  (dismiss)="cancelled.emit()"
+>
+  <h2 id="confirm-title">{{ title() }}</h2>
+  @if (body(); as text) {
+    <p class="body" id="confirm-body">{{ text }}</p>
+  }
+  @if (note(); as text) {
+    <p class="note">{{ text }}</p>
+  }
 
-    <div class="actions">
-      <!-- Cancel first in the DOM *and* focused: the safe choice is the default. -->
-      <button type="button" class="secondary" #cancel (click)="cancelled.emit()">
-        {{ cancelLabel() }}
-      </button>
-      <button type="button" (click)="confirmed.emit()">{{ confirmLabel() }}</button>
-    </div>
+  <div class="actions">
+    <!-- Cancel first in the DOM *and* focused: the safe choice is the default. -->
+    <button type="button" class="secondary" #cancel (click)="cancelled.emit()">
+      {{ cancelLabel() }}
+    </button>
+    <button type="button" (click)="confirmed.emit()">{{ confirmLabel() }}</button>
   </div>
-</div>
+</morse-dialog>

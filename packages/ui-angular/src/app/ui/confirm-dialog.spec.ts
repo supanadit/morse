@@ -1,6 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from './confirm-dialog';
+import { OverlayEscape } from './overlay-escape';
 
 /**
  * The point of this dialog is that a stray click cannot confirm it. The tests lock
@@ -16,6 +17,9 @@ interface Rendered {
 function render(): Rendered {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ imports: [ConfirmDialog] });
+  // The dialog no longer listens for Escape itself: the shell owns that one
+  // listener (`ui/overlay-escape.ts`), so a spec that presses Escape mounts it.
+  TestBed.inject(OverlayEscape);
   const fixture = TestBed.createComponent(ConfirmDialog);
   fixture.componentRef.setInput('title', 'Compact the conversation?');
   fixture.componentRef.setInput('body', 'pi replaces what it is holding with a summary.');

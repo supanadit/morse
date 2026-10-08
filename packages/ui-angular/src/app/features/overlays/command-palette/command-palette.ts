@@ -22,6 +22,7 @@ import { WorkspaceTabs } from '../../../state/workspace-tabs';
 import { NotificationPrefs } from '../../../state/notification-prefs';
 import { RunNotifier } from '../../../services/run-notifier';
 import { paletteGroups, parsePaletteQuery, type PaletteEntry } from '@morse/ui-runtime';
+import { Dialog } from '../../../ui/dialog/dialog';
 
 /**
  * The command palette: one field over the whole app.
@@ -36,154 +37,9 @@ import { paletteGroups, parsePaletteQuery, type PaletteEntry } from '@morse/ui-r
 @Component({
   selector: 'morse-command-palette',
   templateUrl: './command-palette.html',
+  imports: [Dialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: contents;
-      }
-      .modal-layer {
-        position: fixed;
-        inset: 0;
-        z-index: 67;
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        padding: 12vh 24px 24px;
-        background: rgb(0 0 0 / 45%);
-      }
-      .modal-card {
-        display: flex;
-        flex-direction: column;
-        width: min(640px, 100%);
-        max-height: min(560px, 80vh);
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-lg);
-        background: var(--morse-panel, var(--morse-bg));
-        box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
-        overflow: hidden;
-      }
-      .search {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--morse-border);
-      }
-      .search input {
-        flex: 1;
-        min-width: 0;
-        padding-left: 0;
-        font-size: 13px;
-      }
-      .esc {
-        flex: none;
-      }
-      .list {
-        flex: 1;
-        min-height: 120px;
-        overflow-y: auto;
-        padding: 4px 6px 8px;
-      }
-      .group-title {
-        padding: 8px 8px 3px;
-        color: var(--morse-fg-muted);
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-      }
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 5px 8px;
-        border: 0;
-        border-radius: var(--morse-radius-sm);
-        background: transparent;
-        color: var(--morse-fg);
-        font: inherit;
-        font-size: 12.5px;
-        text-align: left;
-        cursor: pointer;
-      }
-      /* The :not(:disabled) form keeps the global button hover from painting the row. */
-      .row.active:hover:not(:disabled),
-      .row.active:not(:disabled) {
-        background: var(--morse-hover);
-      }
-      .row:hover:not(:disabled) {
-        background: var(--morse-hover);
-      }
-      .icon {
-        flex: none;
-        width: 14px;
-        color: var(--morse-fg-muted);
-        text-align: center;
-      }
-      .text {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-      }
-      .label {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .description {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-        font-family: var(--morse-font-mono);
-      }
-      .badge {
-        flex: none;
-        padding: 1px 6px;
-        border-radius: 999px;
-        background: var(--morse-badge-bg);
-        color: var(--morse-badge-fg);
-        font-size: 10px;
-      }
-      .empty {
-        padding: 16px 10px;
-        color: var(--morse-fg-muted);
-        font-size: 12px;
-        text-align: center;
-      }
-      .hint {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        border-top: 1px solid var(--morse-border);
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-        overflow: hidden;
-        white-space: nowrap;
-      }
-      .hint .spacer {
-        flex: 1;
-        min-width: 8px;
-      }
-      .hint .prefixes {
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      kbd {
-        padding: 0 3px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-sm);
-        font-family: var(--morse-font-mono);
-        font-size: 10px;
-      }
-    `,
-  ],
+  styleUrl: './command-palette.css',
 })
 export class CommandPalette {
   private readonly morse = inject(MorseService);
@@ -539,10 +395,6 @@ export class CommandPalette {
     }
     const rows = this.rows();
     switch (event.key) {
-      case 'Escape':
-        event.preventDefault();
-        this.dismiss();
-        return;
       case 'ArrowDown':
         event.preventDefault();
         this.active.update((index) => Math.min(index + 1, Math.max(0, rows.length - 1)));

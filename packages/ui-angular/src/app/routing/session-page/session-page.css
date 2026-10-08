@@ -1,0 +1,17 @@
+:host {
+  display: block;
+  height: 100vh;
+  background: var(--morse-bg);
+}
+app-root {
+  display: block;
+  height: 100%;
+}
+.missing {
+  padding: 16px;
+  font-family: var(--vscode-font-family, system-ui);
+  color: var(--vscode-foreground, #ccc);
+}
+.missing p {
+  color: var(--vscode-descriptionForeground, #999);
+}

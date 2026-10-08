@@ -1,0 +1,21 @@
+<svg
+  #brain
+  class="brain"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.7"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  @for (path of paths; track path) {
+    <path [attr.d]="path" />
+  }
+</svg>
+@if (intensity() >= 3) {
+  <span #halo class="wave wave-a" aria-hidden="true"></span>
+}
+@if (intensity() >= 4) {
+  <span #halo class="wave wave-b" aria-hidden="true"></span>
+}

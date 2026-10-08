@@ -1,0 +1,116 @@
+:host {
+  display: block;
+}
+.picker {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--morse-popover-max-height, 300px);
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 10px 28px rgb(0 0 0 / 30%);
+  overflow: hidden;
+}
+ul {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+}
+li {
+  display: flex;
+  align-items: center;
+}
+li .row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+li.active .row {
+  background: var(--morse-active);
+}
+/*
+ * The quote affordance: the row is a plain mention, and this second
+ * target opens the file so a line range can be dragged into the prompt.
+ */
+.quote {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.quote:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+  opacity: 1;
+}
+.icon {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--morse-font-mono);
+}
+.dir {
+  color: var(--morse-fg-muted);
+}
+.empty,
+.busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+}
+.reload {
+  padding: 1px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 11px;
+  cursor: pointer;
+}
+.reload:hover {
+  background: var(--morse-hover);
+}
+.hint {
+  padding: 5px 10px;
+  border-top: 1px solid var(--morse-border);
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+kbd {
+  font-family: var(--morse-font-mono);
+  font-size: 10px;
+  padding: 0 3px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+}

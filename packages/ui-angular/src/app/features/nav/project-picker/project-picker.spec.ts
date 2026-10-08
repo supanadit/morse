@@ -4,6 +4,7 @@ import { BaseHostTransport } from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from '../../../host/transport.token';
 import { ShellState } from '../../../state/shell-state';
 import { ProjectPicker } from './project-picker';
+import { OverlayEscape } from '../../../ui/overlay-escape';
 
 /** A tiny filesystem the fake host answers `listDirectories` from. */
 const TREE: Record<string, string[]> = {
@@ -106,6 +107,9 @@ async function render(projects: ProjectSummary[] = []): Promise<{
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
   }).compileComponents();
 
+  // The dialog no longer listens for Escape itself: the shell owns that one
+  // listener (`ui/overlay-escape.ts`), so a spec that presses Escape mounts it.
+  TestBed.inject(OverlayEscape);
   const fixture = TestBed.createComponent(ProjectPicker);
   fixture.detectChanges();
   await settle(fixture);

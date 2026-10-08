@@ -82,12 +82,15 @@ sits *below* `state` so that a store can read host state without a cycle (state 
 - **R-U3** — `ui/` imports nothing from `features/`, `shell/` or `routing/`.
 - **R-U4** — `services/` imports nothing from `ui/`.
 - **R-U5** — `state/` imports nothing from `services/`.
-- **R-U6** — `host/` imports only `@morse/protocol`, `@morse/ui-runtime` and itself.
+- **R-U6** — `host/` imports no other layer and, of the Morse packages, only `@morse/protocol` and
+  `@morse/ui-runtime`. A framework is not a Morse package: every service injects `@angular/core`.
 - **R-U7** — only `shell/` and `routing/` import from more than one feature.
 - **R-U8** — any layer may import `@morse/protocol` and `@morse/ui-runtime` freely.
 
-The rules are written for review, not enforced by tooling; `packages/ui-angular/AGENTS.md` § *Layers* is the
-working copy of the same list.
+`packages/ui-angular/src/app/shell/conventions.spec.ts` is this list as a test: it applies R-U1, R-U2, R-U6
+and R-U7 — plus the rule that a component's styles and template live in a sibling `.css`/`.html` — to every
+production file of that package, so a broken arrow or a buried stylesheet fails there instead of waiting for a
+reviewer. `packages/ui-angular/AGENTS.md` § *Layers* is the working copy of the same list.
 
 ## Ports and who owns them (R2 / R10)
 

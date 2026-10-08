@@ -1,92 +1,87 @@
-<div class="modal-layer" (click)="close()">
-  <div
-    class="modal-card"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="about-title"
-    (click)="$event.stopPropagation()"
-  >
-    <div class="modal-head">
-      <strong id="about-title">About Morse</strong>
-      <span class="stamp">a comfortable Pi interface · MIT</span>
-      <button type="button" class="close" aria-label="Close" (click)="close()">×</button>
-    </div>
-
-    <p class="intro">
-      One chat frontend for the pi coding agent: a VS Code panel, or a browser served by the Morse
-      host. Morse never imports pi — it drives <code>pi --mode rpc</code> — and never talks to a
-      model provider itself. Below is what it stands on, and the licence each piece asks for.
-    </p>
-
-    <dl class="identity">
-      <div>
-        <dt>frontend</dt>
-        <dd>{{ frontend() }}</dd>
-      </div>
-      <div>
-        <dt>protocol</dt>
-        <dd>{{ protocolVersion() }}</dd>
-      </div>
-      <div>
-        <dt>host</dt>
-        <dd>{{ host() }}</dd>
-      </div>
-      @if (updateNotice(); as notice) {
-        <div>
-          <dt>update</dt>
-          <dd>
-            <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
-              v{{ notice.latest }} available
-            </a>
-          </dd>
-        </div>
-      }
-      @if (piUpdateNotice(); as notice) {
-        <div>
-          <dt>pi</dt>
-          <dd>
-            <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
-              v{{ notice.current }} installed · v{{ notice.latest }} available
-            </a>
-          </dd>
-        </div>
-      }
-    </dl>
-
-    <div class="scroll">
-      @for (group of groups; track group.title) {
-        <section class="group">
-          <h3>{{ group.title }}</h3>
-          @if (group.blurb; as blurb) {
-            <p class="blurb">{{ blurb }}</p>
-          }
-          <ul>
-            @for (credit of group.entries; track credit.name) {
-              <li>
-                <a class="name" [href]="credit.url" target="_blank" rel="noreferrer noopener">
-                  {{ credit.name }}
-                  @if (credit.by; as by) {
-                    <span class="by">by {{ by }}</span>
-                  }
-                </a>
-                <span class="license">{{ credit.license }}</span>
-                <p class="role">{{ credit.role }}</p>
-              </li>
-            }
-          </ul>
-        </section>
-      }
-    </div>
-
-    <div class="modal-foot">
-      <!-- The licence files themselves ship inside this bundle, next to them
-           `3rdpartylicenses.txt` for everything esbuild inlined. -->
-      <span>Licence texts ship with this build. Morse is MIT · © 2026 Supan Adit Pratama.</span>
-      <span class="spacer"></span>
-      <a href="https://github.com/supanadit/morse" target="_blank" rel="noreferrer noopener">
-        Source
-      </a>
-      <button type="button" class="secondary" (click)="close()">Close</button>
-    </div>
+<morse-dialog
+  labelledBy="about-title"
+  (dismiss)="close()"
+>
+  <div class="modal-head">
+    <strong id="about-title">About Morse</strong>
+    <span class="stamp">a comfortable Pi interface · MIT</span>
+    <button type="button" class="close" aria-label="Close" (click)="close()">×</button>
   </div>
-</div>
+
+  <p class="intro">
+    One chat frontend for the pi coding agent: a VS Code panel, or a browser served by the Morse
+    host. Morse never imports pi — it drives <code>pi --mode rpc</code> — and never talks to a
+    model provider itself. Below is what it stands on, and the licence each piece asks for.
+  </p>
+
+  <dl class="identity">
+    <div>
+      <dt>frontend</dt>
+      <dd>{{ frontend() }}</dd>
+    </div>
+    <div>
+      <dt>protocol</dt>
+      <dd>{{ protocolVersion() }}</dd>
+    </div>
+    <div>
+      <dt>host</dt>
+      <dd>{{ host() }}</dd>
+    </div>
+    @if (updateNotice(); as notice) {
+      <div>
+        <dt>update</dt>
+        <dd>
+          <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
+            v{{ notice.latest }} available
+          </a>
+        </dd>
+      </div>
+    }
+    @if (piUpdateNotice(); as notice) {
+      <div>
+        <dt>pi</dt>
+        <dd>
+          <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
+            v{{ notice.current }} installed · v{{ notice.latest }} available
+          </a>
+        </dd>
+      </div>
+    }
+  </dl>
+
+  <div class="scroll">
+    @for (group of groups; track group.title) {
+      <section class="group">
+        <h3>{{ group.title }}</h3>
+        @if (group.blurb; as blurb) {
+          <p class="blurb">{{ blurb }}</p>
+        }
+        <ul>
+          @for (credit of group.entries; track credit.name) {
+            <li>
+              <a class="name" [href]="credit.url" target="_blank" rel="noreferrer noopener">
+                {{ credit.name }}
+                @if (credit.by; as by) {
+                  <span class="by">by {{ by }}</span>
+                }
+              </a>
+              <span class="license">{{ credit.license }}</span>
+              <p class="role">{{ credit.role }}</p>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  </div>
+
+  <div class="modal-foot">
+    <!-- The licence files themselves ship inside this bundle, next to them
+         `3rdpartylicenses.txt` for everything esbuild inlined. -->
+    <span>Licence texts ship with this build. Morse is MIT · © 2026 Supan Adit Pratama.</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/supanadit/morse" target="_blank" rel="noreferrer noopener">
+      Source
+    </a>
+    <button type="button" class="secondary" (click)="close()">Close</button>
+  </div>
+</morse-dialog>

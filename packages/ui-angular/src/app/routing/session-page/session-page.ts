@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { App } from '../../../shell/app';
-import { ViewState } from '../../../host/view-state';
+import { App } from '../../shell/app';
+import { ViewState } from '../../host/view-state';
 
 /**
  * One session as a whole document: the chat app embedded, with the Morse
@@ -19,37 +19,8 @@ import { ViewState } from '../../../host/view-state';
   selector: 'morse-session-page',
   imports: [App],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @if (sessionId() === undefined) {
-      <div class="missing" role="alert">
-        <strong>This tab is not bound to a session.</strong>
-        <p>Open one from the Morse sidebar's session menu instead.</p>
-      </div>
-    } @else {
-      <app-root [embedded]="true" />
-    }
-  `,
-  styles: [
-    `
-      :host {
-        display: block;
-        height: 100vh;
-        background: var(--morse-bg);
-      }
-      app-root {
-        display: block;
-        height: 100%;
-      }
-      .missing {
-        padding: 16px;
-        font-family: var(--vscode-font-family, system-ui);
-        color: var(--vscode-foreground, #ccc);
-      }
-      .missing p {
-        color: var(--vscode-descriptionForeground, #999);
-      }
-    `,
-  ],
+  templateUrl: './session-page.html',
+  styleUrl: './session-page.css',
 })
 export class SessionPage {
   /**

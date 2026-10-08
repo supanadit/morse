@@ -2,12 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  HostListener,
   effect,
   input,
   output,
   viewChild,
 } from '@angular/core';
+import { Dialog } from './dialog/dialog';
 
 /**
  * A yes/no gate for an action that cannot be taken back.
@@ -25,71 +25,9 @@ import {
 @Component({
   selector: 'morse-confirm-dialog',
   templateUrl: './confirm-dialog.html',
+  imports: [Dialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: contents;
-      }
-      .modal-layer {
-        position: fixed;
-        inset: 0;
-        z-index: 70;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        background: rgb(0 0 0 / 45%);
-      }
-      .modal-card {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        width: min(420px, 100%);
-        padding: 16px 18px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-lg);
-        background: var(--morse-panel, var(--morse-bg));
-        box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
-        animation: confirm-in 140ms ease-out;
-      }
-      h2 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-      }
-      .body {
-        margin: 0;
-        font-size: 12.5px;
-        line-height: 1.6;
-      }
-      /* The consequence gets its own line, in warning colours: it is the reason
-         the question is being asked at all. */
-      .note {
-        margin: 0;
-        color: var(--morse-warn);
-        font-size: 11.5px;
-        line-height: 1.55;
-      }
-      .actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 6px;
-        margin-top: 2px;
-      }
-      @keyframes confirm-in {
-        from {
-          opacity: 0;
-          transform: translateY(6px);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .modal-card {
-          animation: none;
-        }
-      }
-    `,
-  ],
+  styleUrl: './confirm-dialog.css',
 })
 export class ConfirmDialog {
   /** The question itself, e.g. "Compact the conversation?". */
@@ -116,10 +54,5 @@ export class ConfirmDialog {
         setTimeout(() => button.focus(), 0);
       }
     });
-  }
-
-  @HostListener('document:keydown.escape')
-  protected onEscape(): void {
-    this.cancelled.emit();
   }
 }

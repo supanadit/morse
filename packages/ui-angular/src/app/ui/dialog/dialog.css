@@ -1,0 +1,54 @@
+/*
+ * The one place a dialog's shell is written: the backdrop that dims the app, and
+ * the card that sits on it. Eight dialogs used to carry a copy of these rules, and
+ * six carried a copy of the entry animation under a name of its own.
+ *
+ * The card's measurements come from the dialog using it, as custom properties set
+ * on `morse-dialog` — they inherit down to the card even though Angular scopes the
+ * two stylesheets apart (see each dialog's own stylesheet). The defaults are the
+ * common panel: a list or a form inside the card scrolls, the card itself is fixed.
+ */
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  /*
+   * One token for every dialog, so the order is the DOM order — the order `app.html`
+   * declares them in — rather than ten hand-picked numbers (50, 60, 65, 66, 67, 70,
+   * 70, 75) that agreed with it only by accident.
+   */
+  z-index: var(--morse-z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--morse-card-gap, 0);
+  width: var(--morse-card-width, min(560px, 100%));
+  max-height: var(--morse-card-max-height, min(640px, 90vh));
+  padding: var(--morse-card-padding, 0);
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-lg);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
+  overflow: var(--morse-card-overflow, hidden);
+  animation: dialog-in 140ms ease-out;
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* The shell owns the entrance, so it owns standing down for it too. */
+@media (prefers-reduced-motion: reduce) {
+  .modal-card {
+    animation: none;
+  }
+}

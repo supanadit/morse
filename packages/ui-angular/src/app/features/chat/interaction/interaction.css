@@ -1,0 +1,200 @@
+:host {
+  display: block;
+  flex: none;
+  padding: 0 10px 10px;
+}
+.card {
+  max-width: 780px;
+  margin: 0 auto;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-lg);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 6px 22px rgb(0 0 0 / 22%);
+  overflow: hidden;
+}
+/* The agent is waiting on you: one accent hairline says so before any text. */
+.card::before {
+  content: '';
+  display: block;
+  height: 2px;
+  background: var(--morse-accent);
+}
+.card.danger::before {
+  background: var(--morse-warn);
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px 0;
+}
+.glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--morse-accent);
+}
+.card.danger .glyph {
+  color: var(--morse-warn);
+}
+.glyph svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+.titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+/*
+ * A title carrying newlines is not a heading — it is the question plus the
+ * list a plugin folded into it (pi's select has no separate body field).
+ * Set as text, not as a headline, so the list it contains stays a list.
+ */
+h2.flow {
+  font-weight: 500;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  font-variant-numeric: tabular-nums;
+}
+.kind {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--morse-badge-bg);
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.body {
+  /* A long option list scrolls inside the card instead of squeezing the
+     transcript above it. */
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 8px 14px 12px;
+}
+.message {
+  margin: 0 0 8px;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/*
+ * One row per choice, the same reading order the model picker uses: a
+ * number in the gutter, the label, then what it costs. Full-width rows beat
+ * a wrapping row of pills for a written-out option.
+ */
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* The :not(:disabled) form keeps the global button hover from painting the row. */
+.option:hover:not(:disabled),
+.option:focus-visible:not(:disabled) {
+  background: var(--morse-hover);
+}
+.option-ordinal {
+  flex: none;
+  width: 18px;
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: right;
+}
+.option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.option-label {
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.option-description {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.field {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 12.5px;
+}
+textarea.field {
+  min-height: 96px;
+  resize: vertical;
+  font-family: var(--morse-font-mono);
+  line-height: 1.5;
+}
+.note {
+  margin: 8px 0 0;
+  color: var(--morse-warn);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+.actions button {
+  padding: 5px 12px;
+}
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px 7px;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+.hint .spacer {
+  flex: 1;
+  min-width: 8px;
+}
+.hint kbd {
+  padding: 0 3px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  font-family: var(--morse-font-mono);
+  font-size: 10px;
+}

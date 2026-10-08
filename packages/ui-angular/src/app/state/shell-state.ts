@@ -1,4 +1,5 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { OverlayStack } from './overlay-stack';
 
 /**
  * Where the wide-layout preference is remembered. A webview or a browser with
@@ -173,6 +174,13 @@ function storeExplorerHeight(px: number): void {
  */
 @Injectable({ providedIn: 'root' })
 export class ShellState {
+  /**
+   * The dialogs that are open, in the order they opened. The overlay flags below say
+   * *which* dialog, which their own callers need; this says whether any is up at all,
+   * which is what `modalOpen` answers.
+   */
+  private readonly stack = inject(OverlayStack);
+
   private readonly navigationVisible = signal(false);
   readonly navigationOpen = this.navigationVisible.asReadonly();
 
@@ -295,18 +303,13 @@ export class ShellState {
   /**
    * True while a dialog owns the screen. Overlay shortcuts stand down on this:
    * opening a picker behind a modal reads as a bug, not as a feature.
+   *
+   * Read from the overlay stack rather than from the flags above, one per dialog:
+   * that list had to be kept by hand, and the dialog that was forgotten let a shortcut
+   * fire behind it. `ui/dialog` registers while it is up and releases on destroy, so
+   * this is true exactly while one is.
    */
-  readonly modalOpen = computed(
-    () =>
-      this.about() ||
-      this.shortcuts() ||
-      this.palette() ||
-      this.projectPicker() ||
-      this.projectFilter() ||
-      this.promptTemplate() ||
-      this.mcp() ||
-      this.compactPrompt() !== undefined,
-  );
+  readonly modalOpen = computed(() => this.stack.depth() > 0);
 
   toggleNavigation(): void {
     this.navigationVisible.update((open) => !open);

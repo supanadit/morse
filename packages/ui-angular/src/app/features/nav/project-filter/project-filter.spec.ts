@@ -1,6 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { ALL_PROJECTS, ProjectFilter, projectRows, type ProjectOption } from './project-filter';
+import { OverlayEscape } from '../../../ui/overlay-escape';
 
 const PROJECTS: ProjectOption[] = [
   { path: '/work/morse', name: 'morse', sessionCount: 12 },
@@ -43,6 +44,9 @@ interface Rendered {
 function render(selected = ''): Rendered {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ imports: [ProjectFilter] });
+  // The dialog no longer listens for Escape itself: the shell owns that one
+  // listener (`ui/overlay-escape.ts`), so a spec that presses Escape mounts it.
+  TestBed.inject(OverlayEscape);
   const fixture = TestBed.createComponent(ProjectFilter);
   fixture.componentRef.setInput('projects', PROJECTS);
   fixture.componentRef.setInput('totalSessions', 56);

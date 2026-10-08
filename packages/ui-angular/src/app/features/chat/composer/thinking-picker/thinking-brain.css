@@ -1,0 +1,46 @@
+:host {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--morse-accent);
+}
+.brain {
+  width: 100%;
+  height: 100%;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.wave {
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* One colour per level: the louder the mode, the warmer the mark. */
+:host([data-level='off']) {
+  color: var(--morse-fg-muted);
+}
+:host([data-level='minimal']) {
+  color: var(--morse-info);
+}
+:host([data-level='low']) {
+  color: var(--morse-success);
+}
+:host([data-level='medium']) {
+  color: var(--morse-warn);
+}
+:host([data-level='high']) {
+  color: var(--morse-error);
+}
+:host([data-level='xhigh']) {
+  /* Red on its way to purple, so it stays distinct from high. */
+  color: var(--morse-error);
+  color: color-mix(in srgb, var(--morse-error) 55%, var(--morse-typename));
+}
+:host([data-level='max']) {
+  color: var(--morse-typename);
+}

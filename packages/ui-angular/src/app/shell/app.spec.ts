@@ -361,4 +361,26 @@ describe('App · compaction asks first', () => {
     expect(compactions(sent)).toHaveLength(0);
     expect(host.querySelector('morse-confirm-dialog')).toBeNull();
   });
+
+  it('takes down only the dialog on top, so one Escape cannot close two', async () => {
+    const { host, fixture } = await renderApp();
+
+    // Two dialogs at once, the way the app really gets them: the palette, and the
+    // compaction question asked over it. Each one registers while it is up, and the
+    // press belongs to the last of them.
+    press('k', { ctrl: true, alt: true });
+    fixture.detectChanges();
+    expect(host.querySelector('morse-command-palette')).not.toBeNull();
+
+    TestBed.inject(ShellState).requestCompact('keep the schema');
+    fixture.detectChanges();
+    expect(host.querySelector('morse-confirm-dialog')).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    // The question went; the palette that asked it did not.
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+    expect(host.querySelector('morse-command-palette')).not.toBeNull();
+  });
 });

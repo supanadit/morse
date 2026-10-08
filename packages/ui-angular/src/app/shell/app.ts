@@ -34,6 +34,7 @@ import { ShortcutsDialog } from '../features/overlays/shortcuts-dialog/shortcuts
 import { CommandPalette } from '../features/overlays/command-palette/command-palette';
 import { ShortcutService } from '../services/shortcut.service';
 import { ShortcutKeys } from '../ui/shortcut-keys';
+import { OverlayEscape } from '../ui/overlay-escape';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { AgentScreen } from '../features/screens/agent-screen/agent-screen';
 
@@ -328,6 +329,10 @@ export class App {
     // The keyboard's DOM half: constructing it attaches the one document keydown
     // listener the registry is decided by (`ui/shortcut-keys.ts`).
     inject(ShortcutKeys);
+    // And the other DOM half: one document Escape listener that hands the press to
+    // the topmost dialog, so two open dialogs cannot close on one press
+    // (`ui/overlay-escape.ts`).
+    inject(OverlayEscape);
     // The two shortcuts whose action belongs to the shell itself. The rest are
     // bound where their state lives: the sidebar owns the search field and the
     // project filter, the composer owns the model chooser, the thinking picker

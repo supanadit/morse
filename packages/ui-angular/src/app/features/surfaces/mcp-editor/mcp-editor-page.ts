@@ -10,7 +10,7 @@ import { McpEditor } from './mcp-editor';
   selector: 'morse-mcp-editor-page',
   imports: [McpEditor],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '<morse-mcp-editor />',
-  styles: [':host { display: block; height: 100vh; }'],
+  templateUrl: './mcp-editor-page.html',
+  styleUrl: './mcp-editor-page.css',
 })
 export class McpEditorPage {}

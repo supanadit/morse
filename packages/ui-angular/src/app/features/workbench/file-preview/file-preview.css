@@ -1,0 +1,708 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  /* The hover card is positioned against the pane, not the scrolled code. */
+  position: relative;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: var(--morse-head-height);
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--morse-border);
+}
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+  color: var(--morse-fg);
+}
+/* The commit a file's diff belongs to, beside its path. */
+.commit-ref {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--morse-fg-muted) 12%, transparent);
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 10px;
+  line-height: 16px;
+}
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--morse-badge-bg, var(--morse-hover));
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stat {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+/* The pinned range, right where the drag happened. */
+.range {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+  color: var(--morse-fg);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: none;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+}
+.icon:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+/* The File / Unified / Split switch, shown only for a changed file. */
+.modes {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  overflow: hidden;
+}
+.modes button {
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.modes button + button {
+  border-left: 1px solid var(--morse-border);
+}
+.modes button:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.modes button.on {
+  background: color-mix(in srgb, var(--morse-accent) 24%, transparent);
+  color: var(--morse-fg);
+}
+/* The two diff layouts share the code surface and its metrics. */
+.diff {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+  background: var(--morse-code-bg, var(--morse-bg));
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.drow,
+.srow {
+  display: flex;
+  align-items: stretch;
+  min-height: 1.6em;
+}
+.dtext {
+  flex: 1;
+  min-width: 0;
+  padding: 0 16px 0 6px;
+  /*
+   * A long diff line wraps onto the next visual line instead of running
+   * under the neighbouring side. Both sides of a .srow grow together
+   * (align-items: stretch), so the old/new pairing stays one row.
+   */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dnum {
+  flex: none;
+  min-width: 44px;
+  padding: 0 8px 0 10px;
+  color: var(--morse-fg-muted);
+  text-align: right;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.dsign {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--morse-fg-muted);
+  user-select: none;
+}
+.drow.add,
+.side.add {
+  background: color-mix(in srgb, var(--morse-success) 14%, transparent);
+}
+.drow.del,
+.side.del {
+  background: color-mix(in srgb, var(--morse-error) 14%, transparent);
+}
+.drow.add .dsign,
+.side.add .dsign {
+  color: var(--morse-success);
+}
+.drow.del .dsign,
+.side.del .dsign {
+  color: var(--morse-error);
+}
+/*
+ * A change block is clickable: one click pins its new-file range to the
+ * next prompt, the same chip a dragged range makes in the File view.
+ */
+.drow.clickable,
+.side.clickable {
+  cursor: pointer;
+}
+.drow.clickable:hover,
+.side.clickable:hover {
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+}
+.drow.pinned,
+.side.pinned {
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--morse-accent) 70%, transparent);
+}
+.drow.hunk {
+  margin: 6px 0 2px;
+  padding: 2px 12px;
+  background: var(--morse-code-head, var(--morse-hover));
+  color: var(--morse-fg-muted);
+}
+.srow .side {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid var(--morse-border);
+}
+.srow .side:first-child {
+  border-left: 0;
+}
+.code {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0;
+  background: var(--morse-code-bg, var(--morse-bg));
+}
+pre,
+.gutter {
+  margin: 0;
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+/*
+ * The gutter is the drag surface. It stays put while the source scrolls
+ * sideways, so the numbers a drag started on do not slide away.
+ */
+.gutter {
+  flex: none;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding: 0 10px 0 14px;
+  color: var(--morse-fg-muted);
+  text-align: right;
+  user-select: none;
+  background: var(--morse-code-bg, var(--morse-bg));
+  opacity: 0.7;
+}
+.gutter .num {
+  display: block;
+  height: 1.6em;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.gutter .num.selected {
+  color: var(--morse-fg);
+  background: color-mix(in srgb, var(--morse-accent) 34%, transparent);
+  opacity: 1;
+}
+.source-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.source {
+  position: relative;
+  z-index: 1;
+  padding: 0 16px 0 4px;
+  white-space: pre;
+}
+.selection {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--morse-accent) 70%, transparent);
+}
+/* A merge flashes the band, so the union is seen even if the particles are. */
+.selection.merged {
+  animation: selection-merged 620ms ease-out;
+}
+@keyframes selection-merged {
+  0% {
+    background: color-mix(in srgb, var(--morse-accent) 60%, transparent);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--morse-accent) 80%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+}
+/*
+ * A rainbow ring that spins once around the merged band — border only, so
+ * the text underneath stays readable. The angle is a registered custom
+ * property, which is what lets a conic gradient animate at all.
+ */
+@property --morse-rainbow {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.selection.merged::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--morse-rainbow),
+    #f43f5e,
+    #fb923c,
+    #facc15,
+    #4ade80,
+    #38bdf8,
+    #a78bfa,
+    #f43f5e
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: morse-rainbow-spin 700ms linear;
+}
+@keyframes morse-rainbow-spin {
+  from {
+    --morse-rainbow: 0deg;
+  }
+  to {
+    --morse-rainbow: 360deg;
+  }
+}
+/* The band's top and bottom edges are drag handles, like the Explorer pane's
+   top edge: pull one to move that boundary. */
+.edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  pointer-events: auto;
+  cursor: ns-resize;
+}
+.edge.top {
+  top: -3px;
+}
+.edge.bottom {
+  bottom: -3px;
+}
+/*
+ * Each band's own way out, at the corner it ends in. It sits above the
+ * bottom resize edge (z-index) so a click near the corner cancels rather
+ * than starting a resize, and it is the one part of the band that takes
+ * pointer events — the band itself stays inert so text can still be
+ * selected and identifiers clicked through it.
+ */
+.cancel {
+  position: absolute;
+  right: 8px;
+  bottom: -9px;
+  z-index: 3;
+  padding: 1px 7px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.72;
+}
+/*
+ * The same specificity the global button:hover:not(:disabled) has, so the
+ * band's button does not paint the theme accent on hover (see AGENTS.md).
+ */
+.cancel:hover:not(:disabled),
+.cancel:focus-visible {
+  opacity: 1;
+  color: var(--morse-fg);
+  border-color: color-mix(in srgb, var(--morse-error) 45%, var(--morse-border));
+}
+/*
+ * The band's corner: the annotation affordance and the Cancel sit
+ * together where the band ends in (was: the Cancel alone, absolutely
+ * placed — the cluster takes that spot and lays both out).
+ */
+.corner {
+  position: absolute;
+  right: 8px;
+  bottom: -9px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 60%;
+  pointer-events: none;
+}
+/* The Cancel keeps its look; inside the cluster it is just laid out. */
+.corner .cancel {
+  position: static;
+}
+.corner .cancel,
+.corner .note {
+  pointer-events: auto;
+}
+/*
+ * The band's way IN: ✎ opens the annotation editor; written notes read
+ * as their first line here (the whole text on hover), the ghost means
+ * "nothing written yet". Same visual family as the Cancel beside it.
+ */
+.note {
+  padding: 1px 7px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.72;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.note.has-note {
+  color: var(--morse-fg);
+  border-color: color-mix(in srgb, var(--morse-accent) 45%, var(--morse-border));
+}
+.note:hover:not(:disabled),
+.note:focus-visible {
+  opacity: 1;
+  color: var(--morse-fg);
+  border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+}
+/*
+ * A pinned row's annotation affordance in the diff views: the same ✎ the
+ * bands use, parked at the end of the row it covers so it claims no
+ * extra row of its own.
+ */
+.dnote {
+  flex: none;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.65;
+  min-width: 0;
+}
+.dnote.has-note {
+  opacity: 1;
+  color: var(--morse-fg);
+  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dnote:hover:not(:disabled),
+.dnote:focus-visible {
+  opacity: 1;
+  color: var(--morse-fg);
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+}
+.dnote-text {
+  margin-left: 2px;
+}
+.edge:hover {
+  background: color-mix(in srgb, var(--morse-accent) 70%, transparent);
+}
+.hint {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+}
+.hint.error {
+  color: var(--morse-warn);
+}
+/* The header's problem count: a click opens the list below it. */
+.problems {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--morse-warn) 16%, transparent);
+  color: var(--morse-warn);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.problems.errors {
+  background: color-mix(in srgb, var(--morse-error) 16%, transparent);
+  color: var(--morse-error);
+}
+.problems:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 26%, transparent);
+}
+.lsp-none,
+.lsp-busy {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--morse-fg-muted);
+}
+/*
+ * The problem list and the references panel share one slot under the header:
+ * both answer "what did the server say", and only one at a time is useful.
+ */
+.lsp-panel {
+  flex: none;
+  max-height: 30vh;
+  overflow: auto;
+  border-bottom: 1px solid var(--morse-border);
+  background: var(--morse-panel, var(--morse-bg));
+}
+.lsp-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--morse-border);
+}
+.lsp-panel-title {
+  flex: 1;
+  font-size: 11px;
+  color: var(--morse-fg-muted);
+}
+.lsp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.lsp-row:hover:not(:disabled) {
+  background: var(--morse-hover);
+}
+.lsp-row-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsp-row-line {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 10.5px;
+}
+.lsp-row.problem.error .lsp-row-path {
+  color: var(--morse-error);
+}
+.lsp-row.problem.warning .lsp-row-path {
+  color: var(--morse-warn);
+}
+/*
+ * A diagnostic is an overlay, not markup in the code: the HTML comes from
+ * highlight.js, and the mark's rect is measured from a real Range, so it
+ * underlines exactly the characters the server named.
+ */
+.mark {
+  position: absolute;
+  z-index: 2;
+  pointer-events: auto;
+  border-bottom: 2px solid currentColor;
+  color: var(--morse-warn);
+  opacity: 0.85;
+  cursor: help;
+}
+.mark.error {
+  color: var(--morse-error);
+}
+.mark.warning {
+  color: var(--morse-warn);
+}
+.mark.information,
+.mark.hint {
+  color: var(--morse-info, var(--morse-fg-muted));
+  border-bottom-style: dotted;
+}
+/* The line a jump landed on, lit once so the eye can find it. */
+.flash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 1.6em;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+  animation: flash-line 900ms ease-out;
+}
+@keyframes flash-line {
+  0% {
+    background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+/*
+ * The hover card sits on the host, not inside the scrolling source: a card
+ * that scrolled with the text would drift away from the symbol it explains.
+ */
+.hover-card {
+  position: absolute;
+  z-index: 6;
+  width: 380px;
+  max-height: 40vh;
+  overflow: auto;
+  padding: 6px 10px 4px;
+  border: 1px solid var(--morse-border);
+  border-radius: 8px;
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  font-size: 11.5px;
+}
+.hover-body {
+  /* The server's markdown: code blocks keep their own scroll, prose wraps. */
+  overflow-wrap: anywhere;
+}
+.hover-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  border-top: 1px solid var(--morse-border);
+}
+.hover-refs {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--morse-accent);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.hover-refs:hover:not(:disabled) {
+  text-decoration: underline;
+}
+/* The countdown to a pinned card: a ring that closes as the clock runs. */
+.lock-ring {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.lock-ring svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.lock-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+.lock-ring .track {
+  stroke: color-mix(in srgb, var(--morse-border) 80%, transparent);
+}
+.lock-ring .sweep {
+  stroke: var(--morse-accent);
+  stroke-linecap: round;
+  /* 2πr, for r = 6. */
+  stroke-dasharray: 37.7;
+  stroke-dashoffset: 37.7;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  animation: lock-sweep var(--morse-lock-ms, 900ms) linear forwards;
+}
+@keyframes lock-sweep {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.hover-close {
+  flex: none;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.hover-close:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+/* Pinned: the card reads as deliberate, not as something about to vanish. */
+.hover-card.locked {
+  border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+}

@@ -1,158 +1,153 @@
-<div class="modal-layer" (click)="close()">
-  <div
-    class="modal-card"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="mcp-title"
-    (click)="$event.stopPropagation()"
-  >
-    <header>
-      <h2 id="mcp-title">MCP servers</h2>
-      <span class="cwd" [title]="cwd()">{{ cwdLabel() }}</span>
-      <button
-        type="button"
-        class="icon"
-        title="Refresh"
-        aria-label="Refresh MCP servers"
-        [disabled]="loading()"
-        (click)="refresh()"
-      >
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M13 8a5 5 0 1 1-1.5-3.5" />
-          <path d="M13 2.5V5h-2.5" />
-        </svg>
-      </button>
-      <button type="button" class="icon" title="Close" aria-label="Close" (click)="close()">✕</button>
-    </header>
+<morse-dialog
+  labelledBy="mcp-title"
+  (dismiss)="close()"
+>
+  <header>
+    <h2 id="mcp-title">MCP servers</h2>
+    <span class="cwd" [title]="cwd()">{{ cwdLabel() }}</span>
+    <button
+      type="button"
+      class="icon"
+      title="Refresh"
+      aria-label="Refresh MCP servers"
+      [disabled]="loading()"
+      (click)="refresh()"
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M13 8a5 5 0 1 1-1.5-3.5" />
+        <path d="M13 2.5V5h-2.5" />
+      </svg>
+    </button>
+    <button type="button" class="icon" title="Close" aria-label="Close" (click)="close()">✕</button>
+  </header>
 
-    <div class="body">
-      <div class="scope-bar">
-        <span class="scope-label">Changes apply to</span>
-        <div class="segmented" role="group" aria-label="MCP edit scope">
-          <button
-            type="button"
-            [class.active]="editScope() === 'project'"
-            [attr.aria-pressed]="editScope() === 'project'"
-            [disabled]="noProject()"
-            [title]="noProject() ? 'Open a session to change its project\u2019s MCP servers' : ''"
-            (click)="editScope.set('project')"
-          >
-            This project
-          </button>
-          <button
-            type="button"
-            [class.active]="editScope() === 'global'"
-            [attr.aria-pressed]="editScope() === 'global'"
-            (click)="editScope.set('global')"
-          >
-            Global
-          </button>
-        </div>
+  <div class="body">
+    <div class="scope-bar">
+      <span class="scope-label">Changes apply to</span>
+      <div class="segmented" role="group" aria-label="MCP edit scope">
+        <button
+          type="button"
+          [class.active]="editScope() === 'project'"
+          [attr.aria-pressed]="editScope() === 'project'"
+          [disabled]="noProject()"
+          [title]="noProject() ? 'Open a session to change its project\u2019s MCP servers' : ''"
+          (click)="editScope.set('project')"
+        >
+          This project
+        </button>
+        <button
+          type="button"
+          [class.active]="editScope() === 'global'"
+          [attr.aria-pressed]="editScope() === 'global'"
+          (click)="editScope.set('global')"
+        >
+          Global
+        </button>
       </div>
-
-      @if (actionError(); as message) {
-        <div class="errors">{{ message }}</div>
-      }
-
-      @if (untrusted()) {
-        <div class="note">
-          <div>
-            {{ note() || 'This project is not trusted, so pi ignores its .pi/mcp.json.' }}
-          </div>
-          <button type="button" class="trust" [disabled]="trusting()" (click)="trustProject()">
-            {{ trusting() ? 'Trusting…' : 'Trust this project' }}
-          </button>
-        </div>
-      } @else if (note(); as text) {
-        <div class="note">{{ text }}</div>
-      }
-
-      @if (errors(); as list) {
-        @if (list.length > 0) {
-          <div class="errors">
-            @for (problem of list; track problem) {
-              <div>{{ problem }}</div>
-            }
-          </div>
-        }
-      }
-
-      @if (loading() && servers().length === 0) {
-        <p class="hint">Checking the servers… this can take a few seconds.</p>
-      } @else if (servers().length === 0 && errors().length === 0) {
-        <p class="hint">
-          No MCP servers are configured for this directory. <strong>Add server</strong> builds one,
-          tests it, and writes it to the chosen <code>mcp.json</code>; pi picks it up on the next
-          session.
-        </p>
-      }
-
-      @for (server of servers(); track server.name) {
-        <div class="row">
-          <span [class]="'dot ' + server.state" aria-hidden="true"></span>
-          <div class="info">
-            <div class="name">
-              <span class="server">{{ server.name }}</span>
-              <span class="chip">{{ server.scope }}</span>
-              @if (server.override) {
-                <span class="chip override">{{ server.enabled ? 'enabled here' : 'disabled here' }}</span>
-              }
-              @if (server.exposure !== 'codemode') {
-                <span class="chip">{{ server.exposure }}</span>
-              }
-            </div>
-            <div class="meta" [title]="server.override ?? server.source">
-              {{ server.enabled ? stateLabel(server) : 'disabled' }}
-              @if (server.transport) {
-                · {{ server.transport }}
-              }
-            </div>
-            @if (server.error; as problem) {
-              <div class="error">{{ problem }}</div>
-            }
-          </div>
-          <div class="actions">
-            @if (pendingRemove() === server.name) {
-              <button type="button" class="danger" [disabled]="busy()" (click)="remove(server)">
-                Remove?
-              </button>
-              <button type="button" class="secondary" (click)="pendingRemove.set(null)">
-                Cancel
-              </button>
-            } @else {
-              <button
-                type="button"
-                [disabled]="busy() || !canEdit(server)"
-                [title]="editHint(server)"
-                (click)="toggleEnabled(server)"
-              >
-                {{ toggleLabel(server) }}
-              </button>
-              @if (canRemove(server)) {
-                <button
-                  type="button"
-                  class="danger"
-                  [disabled]="busy()"
-                  (click)="remove(server)"
-                >
-                  Remove
-                </button>
-              }
-            }
-          </div>
-        </div>
-      }
     </div>
 
-    <footer>
-      <span class="spinner">
-        @if (loading()) {
-          Updating…
-        } @else {
-          {{ enabledServers().length }} of {{ servers().length }} enabled
-        }
-      </span>
-      <button type="button" (click)="openAdd()">Add server</button>
-    </footer>
+    @if (actionError(); as message) {
+      <div class="errors">{{ message }}</div>
+    }
+
+    @if (untrusted()) {
+      <div class="note">
+        <div>
+          {{ note() || 'This project is not trusted, so pi ignores its .pi/mcp.json.' }}
+        </div>
+        <button type="button" class="trust" [disabled]="trusting()" (click)="trustProject()">
+          {{ trusting() ? 'Trusting…' : 'Trust this project' }}
+        </button>
+      </div>
+    } @else if (note(); as text) {
+      <div class="note">{{ text }}</div>
+    }
+
+    @if (errors(); as list) {
+      @if (list.length > 0) {
+        <div class="errors">
+          @for (problem of list; track problem) {
+            <div>{{ problem }}</div>
+          }
+        </div>
+      }
+    }
+
+    @if (loading() && servers().length === 0) {
+      <p class="hint">Checking the servers… this can take a few seconds.</p>
+    } @else if (servers().length === 0 && errors().length === 0) {
+      <p class="hint">
+        No MCP servers are configured for this directory. <strong>Add server</strong> builds one,
+        tests it, and writes it to the chosen <code>mcp.json</code>; pi picks it up on the next
+        session.
+      </p>
+    }
+
+    @for (server of servers(); track server.name) {
+      <div class="row">
+        <span [class]="'dot ' + server.state" aria-hidden="true"></span>
+        <div class="info">
+          <div class="name">
+            <span class="server">{{ server.name }}</span>
+            <span class="chip">{{ server.scope }}</span>
+            @if (server.override) {
+              <span class="chip override">{{ server.enabled ? 'enabled here' : 'disabled here' }}</span>
+            }
+            @if (server.exposure !== 'codemode') {
+              <span class="chip">{{ server.exposure }}</span>
+            }
+          </div>
+          <div class="meta" [title]="server.override ?? server.source">
+            {{ server.enabled ? stateLabel(server) : 'disabled' }}
+            @if (server.transport) {
+              · {{ server.transport }}
+            }
+          </div>
+          @if (server.error; as problem) {
+            <div class="error">{{ problem }}</div>
+          }
+        </div>
+        <div class="actions">
+          @if (pendingRemove() === server.name) {
+            <button type="button" class="danger" [disabled]="busy()" (click)="remove(server)">
+              Remove?
+            </button>
+            <button type="button" class="secondary" (click)="pendingRemove.set(null)">
+              Cancel
+            </button>
+          } @else {
+            <button
+              type="button"
+              [disabled]="busy() || !canEdit(server)"
+              [title]="editHint(server)"
+              (click)="toggleEnabled(server)"
+            >
+              {{ toggleLabel(server) }}
+            </button>
+            @if (canRemove(server)) {
+              <button
+                type="button"
+                class="danger"
+                [disabled]="busy()"
+                (click)="remove(server)"
+              >
+                Remove
+              </button>
+            }
+          }
+        </div>
+      </div>
+    }
   </div>
-</div>
+
+  <footer>
+    <span class="spinner">
+      @if (loading()) {
+        Updating…
+      } @else {
+        {{ enabledServers().length }} of {{ servers().length }} enabled
+      }
+    </span>
+    <button type="button" (click)="openAdd()">Add server</button>
+  </footer>
+</morse-dialog>

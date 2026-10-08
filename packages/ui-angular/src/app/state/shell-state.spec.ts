@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ShellState } from './shell-state';
+import { OverlayStack } from './overlay-stack';
 
 /**
  * The wide-layout fold is a preference, so it outlives a reload — that is the
@@ -134,32 +135,34 @@ describe('ShellState', () => {
 
   it('knows when a dialog owns the screen', () => {
     const shell = TestBed.inject(ShellState);
+    const stack = TestBed.inject(OverlayStack);
     expect(shell.modalOpen()).toBe(false);
 
+    // A flag says *which* dialog was asked for; the stack says one is on screen. In the
+    // app the two move together — `app.html` mounts the dialog on that flag, and
+    // `ui/dialog` registers on create — so what `modalOpen` follows is the registration.
     shell.openProjectFilter();
     expect(shell.projectFilterOpen()).toBe(true);
+    const release = stack.open(() => undefined);
     expect(shell.modalOpen()).toBe(true);
-    shell.closeProjectFilter();
+    release();
     expect(shell.modalOpen()).toBe(false);
+    shell.closeProjectFilter();
 
     shell.toggleShortcuts();
     expect(shell.shortcutsOpen()).toBe(true);
-    expect(shell.modalOpen()).toBe(true);
     shell.toggleShortcuts();
     expect(shell.shortcutsOpen()).toBe(false);
-    expect(shell.modalOpen()).toBe(false);
 
     shell.togglePalette();
     expect(shell.paletteOpen()).toBe(true);
-    expect(shell.modalOpen()).toBe(true);
     shell.closePalette();
     expect(shell.paletteOpen()).toBe(false);
-    expect(shell.modalOpen()).toBe(false);
 
     shell.requestCompact('keep the schema');
-    expect(shell.modalOpen()).toBe(true);
+    expect(shell.compactConfirmOpen()).toBe(true);
     shell.closeCompactPrompt();
-    expect(shell.modalOpen()).toBe(false);
+    expect(shell.compactConfirmOpen()).toBe(false);
   });
 
   it('shares the project the sidebar is narrowed to', () => {

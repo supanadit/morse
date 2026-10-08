@@ -123,7 +123,7 @@ which session first when it is run without one.
 
 What makes a tab more than a second view is that it is **pinned**:
 
-- The extension opens the bundle routed `#/session?id=<sessionId>` (`features/surfaces/session-page/session-page.ts`) and
+- The extension opens the bundle routed `#/session?id=<sessionId>` (`routing/session-page/session-page.ts`) and
   builds its `HostSessionController` with `pinnedSessionId`. That controller activates exactly that session
   (reusing a warm process, or resuming it by id) and addresses every command at it — a prompt, Stop, the
   model pick, thinking, compaction, a fork — so the sidebar switching sessions cannot pull the tab's next

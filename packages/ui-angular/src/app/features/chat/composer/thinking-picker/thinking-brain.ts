@@ -112,79 +112,8 @@ function levelMotion(level: ThinkingLevel): LevelMotion {
     '[attr.data-level]': 'level()',
     '[class.bumped]': 'bumped()',
   },
-  template: `
-    <svg
-      #brain
-      class="brain"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.7"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      @for (path of paths; track path) {
-        <path [attr.d]="path" />
-      }
-    </svg>
-    @if (intensity() >= 3) {
-      <span #halo class="wave wave-a" aria-hidden="true"></span>
-    }
-    @if (intensity() >= 4) {
-      <span #halo class="wave wave-b" aria-hidden="true"></span>
-    }
-  `,
-  styles: [
-    `
-      :host {
-        position: relative;
-        display: inline-flex;
-        width: 16px;
-        height: 16px;
-        color: var(--morse-accent);
-      }
-      .brain {
-        width: 100%;
-        height: 100%;
-        transform-box: fill-box;
-        transform-origin: center;
-      }
-      .wave {
-        position: absolute;
-        inset: -1px;
-        border-radius: 50%;
-        border: 1px solid currentColor;
-        opacity: 0;
-        pointer-events: none;
-      }
-
-      /* One colour per level: the louder the mode, the warmer the mark. */
-      :host([data-level='off']) {
-        color: var(--morse-fg-muted);
-      }
-      :host([data-level='minimal']) {
-        color: var(--morse-info);
-      }
-      :host([data-level='low']) {
-        color: var(--morse-success);
-      }
-      :host([data-level='medium']) {
-        color: var(--morse-warn);
-      }
-      :host([data-level='high']) {
-        color: var(--morse-error);
-      }
-      :host([data-level='xhigh']) {
-        /* Red on its way to purple, so it stays distinct from high. */
-        color: var(--morse-error);
-        color: color-mix(in srgb, var(--morse-error) 55%, var(--morse-typename));
-      }
-      :host([data-level='max']) {
-        color: var(--morse-typename);
-      }
-    `,
-  ],
+  templateUrl: './thinking-brain.html',
+  styleUrl: './thinking-brain.css',
 })
 export class ThinkingBrain {
   readonly level = input.required<ThinkingLevel>();

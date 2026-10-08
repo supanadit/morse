@@ -14,7 +14,7 @@ import { PromptEditor } from './prompt-editor';
   selector: 'morse-prompt-editor-page',
   imports: [PromptEditor],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '<morse-prompt-editor />',
-  styles: [':host { display: block; height: 100vh; }'],
+  templateUrl: './prompt-editor-page.html',
+  styleUrl: './prompt-editor-page.css',
 })
 export class PromptEditorPage {}

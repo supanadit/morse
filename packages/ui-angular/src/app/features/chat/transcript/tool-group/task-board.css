@@ -1,0 +1,66 @@
+:host {
+  display: block;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--morse-fg-muted);
+  margin-bottom: 3px;
+}
+.head b {
+  color: var(--morse-fg);
+  font-weight: 600;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.task {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--morse-fg);
+  line-height: 1.5;
+}
+.task.completed .subject {
+  color: var(--morse-fg-muted);
+  text-decoration: line-through;
+}
+.task.deleted {
+  opacity: 0.55;
+}
+.glyph {
+  flex: none;
+}
+.task.pending .glyph {
+  color: var(--morse-fg-muted);
+}
+.task.in_progress .glyph {
+  color: var(--morse-accent, var(--morse-fg));
+}
+.task.completed .glyph {
+  color: var(--morse-success, var(--morse-fg-muted));
+}
+.id {
+  flex: none;
+  color: var(--morse-fg-muted);
+  opacity: 0.75;
+}
+.subject {
+  overflow-wrap: anywhere;
+}
+.task.in_progress .subject {
+  font-weight: 600;
+}
+.form {
+  color: var(--morse-fg-muted);
+  font-style: italic;
+}
+.deps {
+  color: var(--morse-fg-muted);
+  flex: none;
+}

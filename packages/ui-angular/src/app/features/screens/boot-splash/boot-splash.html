@@ -1,0 +1,46 @@
+<div class="boot" [class.leaving]="leaving()">
+  <span class="veil" aria-hidden="true"></span>
+  <span class="aura" aria-hidden="true"></span>
+  <span class="grid" aria-hidden="true"></span>
+
+  <div class="center">
+    <div class="stage">
+      <span class="halo" aria-hidden="true"></span>
+      <span class="wave wave-a" aria-hidden="true"></span>
+      <span class="wave wave-b" aria-hidden="true"></span>
+
+      <svg class="rings" viewBox="0 0 140 140" aria-hidden="true">
+        <g class="spin spin-a">
+          <circle class="ring ring-a" cx="70" cy="70" r="58" />
+        </g>
+        <g class="spin spin-b">
+          <circle class="ring ring-b" cx="70" cy="70" r="45" />
+        </g>
+        <g class="orbit">
+          <circle class="spark" cx="70" cy="12" r="3" />
+        </g>
+      </svg>
+
+      <span class="mark" aria-hidden="true">
+        <span class="dot dot-a"></span>
+        <span class="dot dot-b"></span>
+        <span class="dash"></span>
+      </span>
+    </div>
+
+    <div class="words">
+      <div class="wordmark" aria-label="Morse">
+        @for (letter of letters; track $index) {
+          <span class="letter" aria-hidden="true">{{ letter }}</span>
+        }
+      </div>
+      <div class="tagline">the pi coding agent</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="pulse" aria-hidden="true"></span>
+    <span class="status" role="status" aria-live="polite">{{ status() }}</span>
+    <span class="ellipsis" aria-hidden="true"><i></i><i></i><i></i></span>
+  </div>
+</div>

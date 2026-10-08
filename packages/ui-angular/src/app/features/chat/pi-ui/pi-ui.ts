@@ -17,41 +17,7 @@ import { MorseService } from '../../../host/morse.service';
   selector: 'morse-pi-ui',
   templateUrl: './pi-ui.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-      .pi-ui {
-        max-height: 180px;
-        overflow-y: auto;
-        padding: 5px 10px;
-        border-top: 1px solid var(--morse-border);
-        background: var(--morse-panel, var(--morse-bg));
-        color: var(--morse-fg-muted);
-        font-family: var(--morse-font-mono);
-        font-size: 11.5px;
-        line-height: 1.35;
-      }
-      .widget + .widget {
-        margin-top: 4px;
-      }
-      .line {
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-      .status {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px 12px;
-        margin-top: 4px;
-      }
-      .entry {
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-    `,
-  ],
+  styleUrl: './pi-ui.css',
 })
 export class PiUi {
   private readonly morse = inject(MorseService);

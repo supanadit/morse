@@ -2,6 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { promptTemplateForm } from '@morse/ui-runtime';
 import { PromptTemplateDialog, type PromptTemplateRequest } from './prompt-template-dialog';
+import { OverlayEscape } from '../../../../ui/overlay-escape';
 
 const REVIEW = `---
 description: Review staged git changes
@@ -25,6 +26,9 @@ interface Rendered {
 function render(input: PromptTemplateRequest = request()): Rendered {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ imports: [PromptTemplateDialog] });
+  // The dialog no longer listens for Escape itself: the shell owns that one
+  // listener (`ui/overlay-escape.ts`), so a spec that presses Escape mounts it.
+  TestBed.inject(OverlayEscape);
   const fixture = TestBed.createComponent(PromptTemplateDialog);
   fixture.componentRef.setInput('request', input);
   fixture.detectChanges();

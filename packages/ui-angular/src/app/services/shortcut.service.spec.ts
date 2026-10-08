@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShellState } from '../state/shell-state';
+import { OverlayStack } from '../state/overlay-stack';
 import { ShortcutKeys } from '../ui/shortcut-keys';
 import { ShortcutService } from './shortcut.service';
 
@@ -117,6 +118,9 @@ describe('ShortcutService', () => {
 
     const shell = TestBed.inject(ShellState);
     shell.openAbout();
+    // A dialog is up because it registered, which in the app happens when `app.html`
+    // mounts it (`ui/dialog`); the flag above only says which one was asked for.
+    TestBed.inject(OverlayStack).open(() => undefined);
     expect(shell.modalOpen()).toBe(true);
 
     press({ key: 'm', ctrl: true, alt: true });
@@ -200,6 +204,7 @@ describe('ShortcutService', () => {
     const shell = TestBed.inject(ShellState);
 
     shell.openPalette();
+    TestBed.inject(OverlayStack).open(() => undefined);
     press({ key: 'k', ctrl: true, alt: true });
     expect(toggle).toHaveBeenCalledTimes(1);
 

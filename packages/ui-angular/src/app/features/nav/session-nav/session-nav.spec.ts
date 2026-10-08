@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 import { FRONTEND_IDENTITY } from '../../../host/morse.service';
 import { MORSE_TRANSPORT } from '../../../host/transport.token';
 import { ShellState } from '../../../state/shell-state';
+import { OverlayStack } from '../../../state/overlay-stack';
 import { ShortcutService } from '../../../services/shortcut.service';
 import { ShortcutKeys } from '../../../ui/shortcut-keys';
 import { UPDATE_LOADER, type VersionLoader } from '../../../services/update';
@@ -368,6 +369,9 @@ describe('SessionNav', () => {
     fixture.detectChanges();
 
     expect(shell.shortcutsOpen()).toBe(true);
+    // `app.html` mounts the dialog on that flag, and mounting is what registers. This
+    // fixture is the sidebar alone, so stand in for the mount.
+    TestBed.inject(OverlayStack).open(() => undefined);
     expect(shell.modalOpen()).toBe(true);
   });
 

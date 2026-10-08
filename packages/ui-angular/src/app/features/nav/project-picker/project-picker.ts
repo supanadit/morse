@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  HostListener,
   afterNextRender,
   computed,
   effect,
@@ -24,6 +23,7 @@ import {
 import { MorseService } from '../../../host/morse.service';
 import { ShellState } from '../../../state/shell-state';
 import { WorkspaceTabs } from '../../../state/workspace-tabs';
+import { Dialog } from '../../../ui/dialog/dialog';
 
 /** One subdirectory row, as the host reports it. */
 export interface DirectoryEntry {
@@ -59,259 +59,9 @@ export interface DirectoryListing {
 @Component({
   selector: 'morse-project-picker',
   templateUrl: './project-picker.html',
+  imports: [Dialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: contents;
-      }
-      .modal-layer {
-        position: fixed;
-        inset: 0;
-        z-index: 50;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        background: rgb(0 0 0 / 45%);
-      }
-      .modal-card {
-        display: flex;
-        flex-direction: column;
-        width: min(560px, 100%);
-        max-height: min(640px, 90vh);
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-lg);
-        background: var(--morse-panel, var(--morse-bg));
-        box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
-        overflow: hidden;
-      }
-      .modal-head {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 14px;
-        border-bottom: 1px solid var(--morse-border);
-      }
-      .modal-head strong {
-        flex: 1;
-        font-size: 13px;
-      }
-      .modal-head .close {
-        padding: 2px 8px;
-        border: 0;
-        background: transparent;
-        color: var(--morse-fg-muted);
-        font-size: 16px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      .modal-head .close:hover {
-        color: var(--morse-fg);
-      }
-      .modal-head .back {
-        padding: 2px 8px 3px;
-        border: 0;
-        border-radius: var(--morse-radius-sm);
-        background: transparent;
-        color: var(--morse-fg-muted);
-        font-size: 16px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      .modal-head .back:hover {
-        background: var(--morse-hover);
-        color: var(--morse-fg);
-      }
-      .modal-sub {
-        margin: 0;
-        padding: 8px 14px 0;
-        color: var(--morse-fg-muted);
-        font-size: 11.5px;
-      }
-      .path-row {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 10px 14px;
-      }
-      .path-row input {
-        flex: 1;
-        min-width: 0;
-        font-family: var(--morse-font-mono);
-        font-size: 12px;
-      }
-      .path-row button {
-        flex: none;
-        padding: 4px 10px;
-      }
-      .roots {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 0 14px 8px;
-      }
-      .chip {
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        padding: 2px 9px;
-        border: 1px solid var(--morse-border);
-        border-radius: 999px;
-        background: transparent;
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-        cursor: pointer;
-      }
-      .chip:hover {
-        background: var(--morse-hover);
-        color: var(--morse-fg);
-      }
-      .listing {
-        flex: 1;
-        min-height: 160px;
-        overflow-y: auto;
-        border-top: 1px solid var(--morse-border);
-        padding: 4px 6px;
-      }
-      .search {
-        padding: 0 14px 10px;
-      }
-      .search input {
-        width: 100%;
-        font-size: 12.5px;
-      }
-      /*
-       * An existing project row. Name first (that is what the sidebar calls it),
-       * path as context, count trailing — same reading order as the filter panel,
-       * so the two lists of projects do not disagree about what a project is.
-       */
-      .project-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 7px 8px;
-        border: 0;
-        border-radius: var(--morse-radius-sm);
-        background: transparent;
-        color: var(--morse-fg);
-        text-align: left;
-        cursor: pointer;
-      }
-      .project-row:hover,
-      .project-row:focus-visible,
-      .project-row.active {
-        background: var(--morse-hover);
-      }
-      .project-name {
-        flex: 0 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 12.5px;
-        font-weight: 500;
-      }
-      .project-path {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-      }
-      .project-count {
-        flex: none;
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-        font-variant-numeric: tabular-nums;
-      }
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 6px 8px;
-        border: 0;
-        border-radius: var(--morse-radius-sm);
-        background: transparent;
-        color: var(--morse-fg);
-        text-align: left;
-        cursor: pointer;
-      }
-      .row:hover,
-      .row:focus-visible {
-        background: var(--morse-hover);
-      }
-      .row .folder {
-        flex: none;
-        width: 14px;
-        color: var(--morse-fg-muted);
-        text-align: center;
-      }
-      .row .name {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .row .mark {
-        flex: none;
-        padding: 0 6px;
-        border-radius: 999px;
-        background: var(--morse-badge-bg);
-        color: var(--morse-badge-fg);
-        font-size: 10px;
-      }
-      .state {
-        margin: 8px;
-        color: var(--morse-fg-muted);
-        font-size: 12px;
-      }
-      .state.error {
-        color: var(--morse-error);
-      }
-      .modal-foot {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 12px 14px;
-        border-top: 1px solid var(--morse-border);
-      }
-      .selected {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        direction: rtl;
-        text-align: left;
-        color: var(--morse-fg-muted);
-        font-family: var(--morse-font-mono);
-        font-size: 11px;
-      }
-      .selected em {
-        color: var(--morse-warn, var(--morse-error));
-        font-style: normal;
-      }
-      /* The projects screen's footer line: a sentence, so no RTL path treatment. */
-      .foot-note {
-        flex: 1;
-        min-width: 0;
-        color: var(--morse-fg-muted);
-        font-size: 11.5px;
-      }
-      .actions {
-        display: flex;
-        flex: none;
-        gap: 6px;
-      }
-    `,
-  ],
+  styleUrl: './project-picker.css',
 })
 export class ProjectPicker {
   private readonly morse = inject(MorseService);
@@ -546,10 +296,12 @@ export class ProjectPicker {
     this.close();
   }
 
-  @HostListener('document:keydown.escape')
-  protected onEscape(): void {
-    // Escape steps back through the dialog before it closes it: a reader who
-    // opened the browser to look around should not lose the project list.
+  /**
+   * The user asked to leave — Escape, or a click on the backdrop. Both step back
+   * through the dialog before they close it: a reader who opened the browser to look
+   * around should not lose the project list.
+   */
+  protected leave(): void {
     if (this.mode() === 'browse' && this.hasProjects()) {
       this.backToProjects();
       return;

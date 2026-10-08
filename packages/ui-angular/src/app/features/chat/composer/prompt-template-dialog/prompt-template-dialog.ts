@@ -2,15 +2,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  HostListener,
   computed,
   effect,
+  inject,
   input,
   output,
   signal,
-  viewChild,
 } from '@angular/core';
 import { composePromptTemplate, type PromptTemplateForm } from '@morse/ui-runtime';
+import { Dialog } from '../../../../ui/dialog/dialog';
 
 /** What opens the form: the prompt template the palette picked. */
 export interface PromptTemplateRequest {
@@ -32,135 +32,9 @@ export interface PromptTemplateRequest {
 @Component({
   selector: 'morse-prompt-template-dialog',
   templateUrl: './prompt-template-dialog.html',
+  imports: [Dialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: contents;
-      }
-      .modal-layer {
-        position: fixed;
-        inset: 0;
-        z-index: 75;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        background: rgb(0 0 0 / 45%);
-      }
-      .modal-card {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        width: min(560px, 100%);
-        max-height: min(84vh, 760px);
-        overflow: auto;
-        padding: 16px 18px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-lg);
-        background: var(--morse-panel, var(--morse-bg));
-        box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
-        animation: template-in 140ms ease-out;
-      }
-      .head {
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-      }
-      h2 {
-        margin: 0;
-        font-family: var(--morse-font-mono);
-        font-size: 14px;
-        font-weight: 600;
-      }
-      .description {
-        margin: 0;
-        font-size: 12px;
-        color: var(--morse-fg-muted);
-      }
-      form,
-      .fields {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      .field-label {
-        font-size: 11.5px;
-        font-weight: 600;
-        color: var(--morse-fg-muted);
-      }
-      .required,
-      .optional {
-        margin-left: 4px;
-        font-weight: 400;
-        font-size: 10.5px;
-      }
-      .required {
-        color: var(--morse-warn);
-      }
-      .optional {
-        color: var(--morse-fg-muted);
-      }
-      input,
-      textarea {
-        width: 100%;
-        padding: 6px 8px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-sm);
-        background: var(--morse-input-bg, transparent);
-        color: var(--morse-fg);
-        font-family: inherit;
-        font-size: 12.5px;
-        resize: vertical;
-      }
-      input:focus,
-      textarea:focus {
-        outline: none;
-        border-color: var(--morse-accent);
-      }
-      .preview {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      pre {
-        margin: 0;
-        max-height: 180px;
-        overflow: auto;
-        padding: 8px 10px;
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-sm);
-        background: var(--morse-code-bg, rgb(0 0 0 / 18%));
-        color: var(--morse-fg);
-        font-family: var(--morse-font-mono);
-        font-size: 11.5px;
-        line-height: 1.55;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 6px;
-      }
-      @keyframes template-in {
-        from {
-          opacity: 0;
-          transform: translateY(6px);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .modal-card {
-          animation: none;
-        }
-      }
-    `,
-  ],
+  styleUrl: './prompt-template-dialog.css',
 })
 export class PromptTemplateDialog {
   readonly request = input.required<PromptTemplateRequest>();
@@ -168,7 +42,12 @@ export class PromptTemplateDialog {
   readonly submitted = output<string>();
   readonly cancelled = output<void>();
 
-  private readonly card = viewChild<ElementRef<HTMLElement>>('card');
+  /**
+   * This dialog's own element. What it projects ends up inside the shared shell, which
+   * is inside this host, so this is how the caret finds the first field when the dialog
+   * opens — a template ref on `<morse-dialog>` would name the component, not its DOM.
+   */
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   protected readonly values = signal<Record<string, string>>({});
   protected readonly extra = signal('');
@@ -192,7 +71,7 @@ export class PromptTemplateDialog {
       this.values.set({});
       this.extra.set('');
       setTimeout(() => {
-        this.card()?.nativeElement.querySelector<HTMLElement>('input, textarea')?.focus();
+        this.host.nativeElement.querySelector<HTMLElement>('input, textarea')?.focus();
       }, 0);
     });
   }
@@ -223,10 +102,5 @@ export class PromptTemplateDialog {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       this.submit(event);
     }
-  }
-
-  @HostListener('document:keydown.escape')
-  protected onEscape(): void {
-    this.cancelled.emit();
   }
 }

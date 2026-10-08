@@ -1,0 +1,381 @@
+:host {
+  display: block;
+}
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 8px 2px 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.summary:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+}
+.state.ok {
+  color: var(--morse-success);
+}
+.state.error {
+  color: var(--morse-error);
+}
+.spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--morse-border);
+  border-top-color: var(--morse-accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.chev {
+  display: inline-block;
+  transition: transform 170ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.chev.open {
+  transform: rotate(90deg);
+}
+.dots {
+  display: inline-flex;
+  gap: 2px;
+  color: currentColor;
+}
+.dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dot 1.2s ease-in-out infinite;
+}
+.dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+}
+/*
+ * Compact turns are a tree, not a stack of cards. The guide line is what
+ * makes a step read as a child of the turn summary instead of a sibling
+ * at the same level, and each node hangs a file child off it.
+ */
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 2px 6px;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--morse-guide);
+  list-style: none;
+}
+.node {
+  position: relative;
+  min-width: 0;
+}
+/* The horizontal tick that joins a node to the guide line above it. */
+.node::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 11px;
+  width: 8px;
+  height: 1px;
+  background: var(--morse-guide);
+}
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 6px 2px 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.node-row:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+/* A tree body is a nested detail fold under its node, not a card body. */
+.node .body {
+  margin: 2px 0;
+  padding: 2px 6px 6px 14px;
+  border-left: 1px solid var(--morse-guide);
+}
+.node-row .verb {
+  flex: none;
+  color: var(--morse-fg);
+}
+.node-row .target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+}
+/* A thinking preview is prose, not a command or a path. */
+.node-row .target.thought {
+  font-family: var(--morse-font);
+  font-size: 12px;
+}
+.glyph.thinking {
+  color: var(--morse-typename);
+}
+/* The purple star breathes while the note is still streaming in. */
+.glyph.thinking,
+.status .bulb {
+  display: inline-block;
+  transform-origin: center;
+}
+.glyph.thinking.live,
+.status .bulb.live {
+  animation: think-breathe 1.1s ease-in-out infinite;
+}
+@keyframes think-breathe {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glyph.thinking.live,
+  .status .bulb.live {
+    animation: none;
+  }
+}
+/* The files a step touched, indented under it behind a second guide line. */
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--morse-guide);
+  list-style: none;
+}
+.child {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* 14px from the guide line plus this 6px lands the icon exactly under
+     the parent row's glyph, not under its status tick. */
+  padding: 1px 0 1px 6px;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+}
+.child::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  width: 14px;
+  height: 1px;
+  background: var(--morse-guide);
+}
+.child .file-icon {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: var(--morse-number);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.child .file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--morse-font-mono);
+}
+.card {
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-panel) 55%, transparent);
+  overflow: hidden;
+}
+.card.running {
+  border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+}
+.card.failed {
+  border-color: color-mix(in srgb, var(--morse-error) 55%, var(--morse-border));
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.head:hover {
+  background: var(--morse-hover);
+}
+/* Per-step indicator shown next to each step. */
+.status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+}
+.status .ok {
+  color: var(--morse-success);
+  font-size: 10px;
+}
+.status .fail {
+  color: var(--morse-error);
+  font-size: 11px;
+}
+.status .bulb {
+  color: var(--morse-typename);
+  font-size: 11px;
+}
+.glyph {
+  flex: none;
+  width: 13px;
+  text-align: center;
+  font-size: 12px;
+}
+.glyph.edit {
+  color: var(--morse-keyword);
+}
+.glyph.read {
+  color: var(--morse-number);
+}
+.glyph.search {
+  color: var(--morse-typename);
+}
+.glyph.shell {
+  color: var(--morse-success);
+}
+.chip {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+}
+.args {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+}
+.args .dir {
+  color: var(--morse-fg-muted);
+}
+.preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+}
+.diff {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+}
+.diff .add {
+  color: var(--morse-success);
+}
+.diff .del {
+  color: var(--morse-error);
+}
+.meta {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.grow {
+  flex: 1;
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 8px 30px;
+  overflow: hidden;
+}
+.body .label-small {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--morse-fg-muted);
+}
+.body pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-panel);
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

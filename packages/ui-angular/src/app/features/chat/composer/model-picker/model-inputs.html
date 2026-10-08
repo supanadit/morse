@@ -1,0 +1,9 @@
+@for (badge of badges(); track badge.modality) {
+  <span class="badge" [attr.data-modality]="badge.modality" [title]="badge.label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+      @for (path of badge.paths; track path) {
+        <path [attr.d]="path" />
+      }
+    </svg>
+  </span>
+}

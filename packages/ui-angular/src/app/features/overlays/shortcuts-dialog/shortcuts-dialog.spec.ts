@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { ShortcutsDialog } from './shortcuts-dialog';
+import { OverlayEscape } from '../../../ui/overlay-escape';
 import { ShortcutService } from '../../../services/shortcut.service';
 import { SHORTCUTS, bindingLabel, isManagedShortcut } from '../../../services/shortcuts.catalog';
 import { ShellState } from '../../../state/shell-state';
@@ -8,6 +9,9 @@ import { ShellState } from '../../../state/shell-state';
 async function render(): Promise<{ host: HTMLElement; fixture: ReturnType<typeof TestBed.createComponent<ShortcutsDialog>> }> {
   TestBed.resetTestingModule();
   await TestBed.configureTestingModule({ imports: [ShortcutsDialog] }).compileComponents();
+  // The dialog no longer listens for Escape itself: the shell owns that one
+  // listener (`ui/overlay-escape.ts`), so a spec that presses Escape mounts it.
+  TestBed.inject(OverlayEscape);
   const fixture = TestBed.createComponent(ShortcutsDialog);
   fixture.detectChanges();
   return { host: fixture.nativeElement as HTMLElement, fixture };

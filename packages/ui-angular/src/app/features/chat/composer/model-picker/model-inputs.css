@@ -1,0 +1,33 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+/*
+ * Muted by default so a text-only model stays quiet; colour is what makes
+ * vision (and the rarer audio/video) readable at a glance.
+ */
+.badge {
+  display: inline-flex;
+  color: var(--morse-fg-muted);
+}
+.badge svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.badge[data-modality='image'] {
+  color: var(--morse-info);
+}
+.badge[data-modality='audio'] {
+  color: var(--morse-success);
+}
+.badge[data-modality='video'] {
+  color: var(--morse-typename);
+}
+.badge[data-modality='pdf'] {
+  color: var(--morse-warn);
+}

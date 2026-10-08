@@ -1,0 +1,8 @@
+@if (sessionId() === undefined) {
+  <div class="missing" role="alert">
+    <strong>This tab is not bound to a session.</strong>
+    <p>Open one from the Morse sidebar's session menu instead.</p>
+  </div>
+} @else {
+  <app-root [embedded]="true" />
+}

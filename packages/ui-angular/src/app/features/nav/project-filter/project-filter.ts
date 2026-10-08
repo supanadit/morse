@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  HostListener,
   afterNextRender,
   computed,
   effect,
@@ -12,6 +11,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { Dialog } from '../../../ui/dialog/dialog';
 
 /** One project as the filter needs it: what to show, and how much is inside. */
 export interface ProjectOption {
@@ -69,164 +69,9 @@ export function projectRows(
 @Component({
   selector: 'morse-project-filter',
   templateUrl: './project-filter.html',
+  imports: [Dialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        display: contents;
-      }
-      .modal-layer {
-        position: fixed;
-        inset: 0;
-        z-index: 65;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        background: rgb(0 0 0 / 45%);
-      }
-      .modal-card {
-        display: flex;
-        flex-direction: column;
-        width: min(520px, 100%);
-        max-height: min(640px, 90vh);
-        border: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-lg);
-        background: var(--morse-panel, var(--morse-bg));
-        box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
-        overflow: hidden;
-      }
-      .modal-head {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 14px;
-        border-bottom: 1px solid var(--morse-border);
-      }
-      .modal-head strong {
-        flex: 1;
-        min-width: 0;
-        font-size: 13px;
-      }
-      .modal-head .close {
-        padding: 2px 8px;
-        border: 0;
-        background: transparent;
-        color: var(--morse-fg-muted);
-        font-size: 16px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      .modal-head .close:hover {
-        color: var(--morse-fg);
-      }
-      .search {
-        position: relative;
-        display: flex;
-        align-items: center;
-        padding: 10px 14px;
-        border-bottom: 1px solid var(--morse-border);
-      }
-      /* Inside the field, where a search icon belongs. */
-      .search-icon {
-        position: absolute;
-        left: 23px;
-        display: inline-flex;
-        color: var(--morse-fg-muted);
-        pointer-events: none;
-      }
-      .search-icon svg {
-        width: 14px;
-        height: 14px;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.4;
-        stroke-linecap: round;
-      }
-      /* Room for the icon, so the text never starts underneath it. */
-      .search input {
-        flex: 1;
-        min-width: 0;
-        padding-left: 30px;
-        font-size: 12.5px;
-      }
-      .list {
-        flex: 1;
-        min-height: 120px;
-        overflow-y: auto;
-        padding: 4px 6px;
-      }
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 6px 8px;
-        border: 0;
-        border-radius: var(--morse-radius-sm);
-        background: transparent;
-        color: var(--morse-fg);
-        font: inherit;
-        font-size: 12.5px;
-        text-align: left;
-        cursor: pointer;
-      }
-      .row.active,
-      .row:hover {
-        background: var(--morse-hover);
-      }
-      .row.selected {
-        background: var(--morse-active);
-      }
-      /*
-       * The "all projects" row is the exit from a filter, so it is separated from
-       * the projects by a hairline instead of blending into the list.
-       */
-      .row.all {
-        margin-bottom: 4px;
-        border-bottom: 1px solid var(--morse-border);
-        border-radius: var(--morse-radius-sm) var(--morse-radius-sm) 0 0;
-      }
-      .name {
-        /* Natural width: the project name is short, the path is not. */
-        flex: 0 1 auto;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      /*
-       * The path takes the rest of the row, truncated at the end. It used to be
-       * direction: rtl (to keep the tail — the folder name — visible), but with a
-       * leading slash the mirroring moved it to the end, so /work/morse read as
-       * work/morse/. The name column already says which project this is; the path
-       * is only context, so it reads normally and loses its tail.
-       */
-      .path {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-      }
-      .count {
-        flex: none;
-        color: var(--morse-fg-muted);
-        font-size: 11px;
-      }
-      .check {
-        flex: none;
-        color: var(--morse-accent);
-        font-size: 12px;
-      }
-      .empty {
-        padding: 12px 8px;
-        color: var(--morse-fg-muted);
-        font-size: 12px;
-      }
-    `,
-  ],
+  styleUrl: './project-filter.css',
 })
 export class ProjectFilter {
   /** Every project the host knows, in the order the sidebar shows them. */
@@ -321,11 +166,5 @@ export class ProjectFilter {
       default:
         return;
     }
-  }
-
-  /** Click anywhere outside the card closes it, like every other dialog. */
-  @HostListener('document:keydown.escape')
-  protected onEscape(): void {
-    this.close.emit();
   }
 }
