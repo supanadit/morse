@@ -3,6 +3,7 @@ import { MorseService } from '../../../host/morse.service';
 import { McpState } from '../../../state/mcp-state';
 import { DisplayPrefs } from '../../../state/display-prefs';
 import { ShellState } from '../../../state/shell-state';
+import { LayoutState } from '../../../state/layout-state';
 import { ShortcutService } from '../../../services/shortcut.service';
 import { WorkspaceTabs } from '../../../state/workspace-tabs';
 
@@ -16,6 +17,7 @@ export class ChatHeader {
   private readonly morse = inject(MorseService);
   private readonly mcp = inject(McpState);
   private readonly shell = inject(ShellState);
+  private readonly layout = inject(LayoutState);
   private readonly display = inject(DisplayPrefs);
   private readonly shortcuts = inject(ShortcutService);
   private readonly tabs = inject(WorkspaceTabs);
@@ -34,7 +36,7 @@ export class ChatHeader {
   protected readonly workspace = this.morse.workspace;
   protected readonly navigationOpen = this.shell.navigationOpen;
   /** Wide layouts: the sidebar is folded away and this button brings it back. */
-  protected readonly collapsed = this.shell.navigationCollapsed;
+  protected readonly collapsed = this.layout.leftCollapsed;
   /** The reader's chosen tool-call density, toggled from the toolbar. */
   protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
   /** The git panel's button only exists where the host can answer `gitLog`,
@@ -42,7 +44,7 @@ export class ChatHeader {
   protected readonly gitEnabled = computed(
     () => this.morse.capabilities()?.gitPanel === true && !this.tabs.noSessionInFront(),
   );
-  protected readonly gitOpen = this.shell.gitPanelOpen;
+  protected readonly gitOpen = this.layout.rightVisible;
   /**
    * The MCP indicator exists where the host can run the `pi` CLI. It is usable
    * without a session too — the panel is then global-only (the user's own
@@ -61,7 +63,7 @@ export class ChatHeader {
     // than promised.
     const unbind = this.shortcuts.bind(
       'view.git',
-      () => this.shell.toggleGitPanel(),
+      () => this.layout.toggleVisible('right'),
       () => this.gitEnabled(),
     );
     const unbindMcp = this.shortcuts.bind(
@@ -160,7 +162,7 @@ export class ChatHeader {
 
   /** The wide-layout twin of `toggleNavigation`: fold the column, not the drawer. */
   protected toggleSidebar(): void {
-    this.shell.toggleNavigationCollapsed();
+    this.layout.toggleVisible('left');
   }
 
   protected compact(): void {
@@ -175,7 +177,7 @@ export class ChatHeader {
 
   /** Shows or hides the browser host's git panel. */
   protected toggleGit(): void {
-    this.shell.toggleGitPanel();
+    this.layout.toggleVisible('right');
   }
 
   /** Opens the MCP manager; the panel fetches the status when it mounts. */

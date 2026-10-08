@@ -46,6 +46,7 @@ vi.mock('@xterm/addon-webgl', () => ({
 import { App } from './app';
 import { PanelState } from '../state/panel-state';
 import { ShellState } from '../state/shell-state';
+import { LayoutState } from '../state/layout-state';
 import { TerminalStore } from '../state/terminal-store';
 import { MORSE_TRANSPORT } from '../host/transport.token';
 
@@ -160,7 +161,7 @@ describe('App bottom panel', () => {
       ],
     });
     const fixture = TestBed.createComponent(App);
-    TestBed.inject(ShellState).toggleGitPanel();
+    TestBed.inject(LayoutState).setVisible('right', true);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
 
@@ -191,7 +192,7 @@ describe('App bottom panel', () => {
       ],
     });
     const fixture = TestBed.createComponent(App);
-    TestBed.inject(ShellState).toggleGitPanel();
+    TestBed.inject(LayoutState).setVisible('right', true);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
 

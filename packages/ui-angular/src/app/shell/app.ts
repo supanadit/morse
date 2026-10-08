@@ -17,6 +17,7 @@ import { TabStrip } from '../features/workbench/tab-strip/tab-strip';
 import { GitPanel } from '../features/git/git-panel/git-panel';
 import { AnimationService } from '../ui/animation.service';
 import { AttachmentStore } from '../state/attachments';
+import { LayoutState } from '../state/layout-state';
 import { DropZone } from '../ui/drop-zone';
 import { MorseService } from '../host/morse.service';
 import { RunNotifier } from '../services/run-notifier';
@@ -92,6 +93,7 @@ export class App {
   readonly embedded = input(false);
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly notifier = inject(RunNotifier);
@@ -164,7 +166,7 @@ export class App {
   protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
   /** The panel is a layout column, so it is only mounted (and refreshed) when shown. */
   protected readonly gitOpen = computed(
-    () => this.gitEnabled() && this.shell.gitPanelOpen() && !this.tabs.noSessionInFront(),
+    () => this.gitEnabled() && this.layout.rightVisible() && !this.tabs.noSessionInFront(),
   );
   /** Expanded: the git view spans the conversation area instead of the sidebar. */
   protected readonly gitExpanded = computed(
@@ -175,7 +177,7 @@ export class App {
    * `null` (never dragged) leaves the default from `styles.css` in charge.
    */
   protected readonly gitWidth = computed(() => {
-    const width = this.shell.gitPanelWidth();
+    const width = this.layout.rightSize();
     return width === undefined ? null : `${width}px`;
   });
   /** The file the strip is showing, or `undefined` when a session tab is in front. */
@@ -246,7 +248,7 @@ export class App {
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
   protected readonly mcpOpen = this.shell.mcpOpen;
   protected readonly paletteOpen = this.shell.paletteOpen;
-  protected readonly navigationCollapsed = this.shell.navigationCollapsed;
+  protected readonly navigationCollapsed = this.layout.leftCollapsed;
   protected readonly compactConfirmOpen = this.shell.compactConfirmOpen;
   /**
    * The question, with the user's own instructions echoed back when they typed

@@ -10,6 +10,7 @@ import {
 import type { GitCommit } from '@morse/protocol';
 import { MorseService } from '../../../host/morse.service';
 import { ShellState } from '../../../state/shell-state';
+import { LayoutState } from '../../../state/layout-state';
 import { GitPanelState } from '../../../services/git-panel-state';
 import {
   asCommitFiles,
@@ -86,6 +87,7 @@ export class GitPanel {
 
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly layout = inject(LayoutState);
   private readonly git = inject(GitPanelState);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly workspaceStore = inject(WorkspaceFilesStore);
@@ -202,7 +204,7 @@ export class GitPanel {
     // The panel follows the project: opening it, or switching to a session in
     // another directory, reloads the history. Closed, it costs nothing.
     effect(() => {
-      if (!this.shell.gitPanelOpen()) {
+      if (!this.layout.rightVisible()) {
         return;
       }
       const cwd = this.morse.workspace().cwd;
@@ -352,7 +354,7 @@ export class GitPanel {
   }
 
   protected close(): void {
-    this.shell.closeGitPanel();
+    this.layout.setVisible('right', false);
   }
 
   /** Opens a changed file in a preview tab, the way the Explorer does. */
@@ -519,7 +521,7 @@ export class GitPanel {
     const shell = handle.closest('.shell') as HTMLElement | null;
     const nav = shell?.querySelector('.nav') as HTMLElement | null;
     const shellWidth = shell?.getBoundingClientRect().width ?? window.innerWidth;
-    const navWidth = this.shell.navigationCollapsed()
+    const navWidth = this.layout.leftCollapsed()
       ? 0
       : (nav?.getBoundingClientRect().width ?? 240);
     const max = Math.max(320, shellWidth - navWidth - GIT_RESIZE_MIN_CHAT);
@@ -534,10 +536,10 @@ export class GitPanel {
     shell?.style.setProperty('transition', 'none');
     panel?.classList.add('resizing');
     let frame = 0;
-    let pending = this.shell.gitPanelWidth() ?? Math.round(startWidth);
+    let pending = this.layout.rightSize() ?? Math.round(startWidth);
     const apply = (): void => {
       frame = 0;
-      this.shell.setGitPanelWidth(pending, false);
+      this.layout.setSize('right', pending, false);
     };
     const move = (moveEvent: PointerEvent): void => {
       pending = Math.min(max, startWidth + (startX - moveEvent.clientX));
@@ -553,7 +555,7 @@ export class GitPanel {
       shell?.style.removeProperty('transition');
       panel?.classList.remove('resizing');
       // Write the choice once, when the drag ends, not on every frame.
-      this.shell.setGitPanelWidth(pending);
+      this.layout.setSize('right', pending);
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', stop);
       handle.removeEventListener('pointercancel', stop);
@@ -565,7 +567,7 @@ export class GitPanel {
 
   /** Double-clicking the edge restores the default column width. */
   protected resetWidth(): void {
-    this.shell.resetGitPanelWidth();
+    this.layout.setSize('right', undefined);
   }
 
   /** `HEAD -> main`, `tag: v1.0` and `origin/main` each read their own way. */

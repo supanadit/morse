@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { MORSE_TRANSPORT } from '../host/transport.token';
 import { ShellState } from '../state/shell-state';
+import { LayoutState } from '../state/layout-state';
 
 /**
  * A host that shows a session as its own editor tab (VS Code) hands the app
@@ -105,7 +106,7 @@ describe('App embedded (a session editor tab)', () => {
     // The fold lives in the shell state and is persisted, so a reader who folded
     // the sidebar in the panel once must not collapse this surface's only column
     // to zero — which is a blank tab, not a folded sidebar.
-    TestBed.inject(ShellState).toggleNavigationCollapsed();
+    TestBed.inject(LayoutState).toggleVisible('left');
     const fixture = render();
     const shell: HTMLElement = fixture.nativeElement.querySelector('.shell');
 

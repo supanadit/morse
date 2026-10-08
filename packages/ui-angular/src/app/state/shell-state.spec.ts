@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ShellState } from './shell-state';
+import { LayoutState } from './layout-state';
 import { OverlayStack } from './overlay-stack';
 
 /**
@@ -13,40 +14,17 @@ describe('ShellState', () => {
     TestBed.resetTestingModule();
   });
 
-  it('starts unfolded and folds on toggle', () => {
-    const shell = TestBed.inject(ShellState);
-    expect(shell.navigationCollapsed()).toBe(false);
-
-    shell.toggleNavigationCollapsed();
-    expect(shell.navigationCollapsed()).toBe(true);
-
-    shell.toggleNavigationCollapsed();
-    expect(shell.navigationCollapsed()).toBe(false);
-  });
-
-  it('remembers the fold across a reload', () => {
-    TestBed.inject(ShellState).toggleNavigationCollapsed();
-
-    // A fresh instance is what a reload builds; the preference has to survive it.
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(ShellState).navigationCollapsed()).toBe(true);
-
-    // …and unfolding is remembered just as well.
-    TestBed.inject(ShellState).toggleNavigationCollapsed();
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(ShellState).navigationCollapsed()).toBe(false);
-  });
-
   it('keeps the drawer and the fold apart', () => {
     const shell = TestBed.inject(ShellState);
+    const layout = TestBed.inject(LayoutState);
 
-    shell.toggleNavigationCollapsed();
-    expect(shell.navigationCollapsed()).toBe(true);
+    layout.toggleVisible('left');
+    expect(layout.leftCollapsed()).toBe(true);
     // Opening the narrow drawer must not unfold the column behind it.
     expect(shell.navigationOpen()).toBe(false);
     shell.toggleNavigation();
     expect(shell.navigationOpen()).toBe(true);
-    expect(shell.navigationCollapsed()).toBe(true);
+    expect(layout.leftCollapsed()).toBe(true);
   });
 
   /**
@@ -71,27 +49,6 @@ describe('ShellState', () => {
 
     TestBed.resetTestingModule();
     expect(TestBed.inject(ShellState).explorerHeight()).toBe(280);
-  });
-
-  it('resizes the git panel and clamps the width to a usable range', () => {
-    const shell = TestBed.inject(ShellState);
-    expect(shell.gitPanelWidth()).toBeUndefined();
-
-    shell.setGitPanelWidth(520);
-    expect(shell.gitPanelWidth()).toBe(520);
-    shell.setGitPanelWidth(10);
-    expect(shell.gitPanelWidth()).toBe(220);
-    shell.setGitPanelWidth(5_000);
-    expect(shell.gitPanelWidth()).toBe(1600);
-
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(ShellState).gitPanelWidth()).toBe(1600);
-
-    // A double-click (or a reload after one) goes back to the CSS default.
-    TestBed.inject(ShellState).resetGitPanelWidth();
-    expect(TestBed.inject(ShellState).gitPanelWidth()).toBeUndefined();
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(ShellState).gitPanelWidth()).toBeUndefined();
   });
 
   it('clamps and remembers the git Changes height', () => {

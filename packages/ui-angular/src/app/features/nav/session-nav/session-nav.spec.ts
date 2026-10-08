@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 import { FRONTEND_IDENTITY } from '../../../host/morse.service';
 import { MORSE_TRANSPORT } from '../../../host/transport.token';
 import { ShellState } from '../../../state/shell-state';
+import { LayoutState } from '../../../state/layout-state';
 import { OverlayStack } from '../../../state/overlay-stack';
 import { ShortcutService } from '../../../services/shortcut.service';
 import { ShortcutKeys } from '../../../ui/shortcut-keys';
@@ -492,8 +493,7 @@ describe('SessionNav', () => {
 
   it('unfolds the sidebar column before focusing the search', async () => {
     const { host, fixture } = await render('global');
-    const shell = TestBed.inject(ShellState);
-    shell.toggleNavigationCollapsed();
+    TestBed.inject(LayoutState).toggleVisible('left');
     const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
     // The folded column hides the field with `visibility`, so it still has layout
     // and a real box — only the fold flag says it is hidden.
@@ -503,7 +503,7 @@ describe('SessionNav', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
 
-    expect(shell.navigationCollapsed()).toBe(false);
+    expect(TestBed.inject(LayoutState).leftCollapsed()).toBe(false);
     expect(document.activeElement).toBe(search);
   });
 

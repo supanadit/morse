@@ -1,19 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { LayoutState } from './layout-state';
 import { OverlayStack } from './overlay-stack';
 
-/**
- * Where the wide-layout preference is remembered. A webview or a browser with
- * storage disabled simply forgets it — the toggle still works for the session.
- */
-const NAV_COLLAPSED_KEY = 'morse.navigation.collapsed';
-/** The git panel's open state, so it comes back after a reload. */
-const GIT_PANEL_KEY = 'morse.git.open';
 /** Whether the git panel takes over the centre of the shell (the browser host). */
 const GIT_EXPANDED_KEY = 'morse.git.expanded';
-/** The git panel's column width, once its left edge has been dragged. */
-const GIT_WIDTH_KEY = 'morse.git.width';
-const GIT_WIDTH_MIN = 220;
-const GIT_WIDTH_MAX = 1600;
 /** The git panel's Changes section: its dragged height, and its folded state. */
 const GIT_CHANGES_HEIGHT_KEY = 'morse.git.changesHeight';
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
@@ -27,38 +17,6 @@ const GIT_CHANGES_MAX_HEIGHT = 1200;
 const EXPLORER_HEIGHT_KEY = 'morse.explorer.height';
 const EXPLORER_MIN_HEIGHT = 140;
 const EXPLORER_MAX_HEIGHT = 720;
-
-function readNavCollapsed(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(NAV_COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function storeNavCollapsed(collapsed: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(NAV_COLLAPSED_KEY, collapsed ? '1' : '0');
-  } catch {
-    // Storage is a nicety, not a requirement: the signal still holds the state.
-  }
-}
-
-function readGitPanelOpen(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(GIT_PANEL_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function storeGitPanelOpen(open: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(GIT_PANEL_KEY, open ? '1' : '0');
-  } catch {
-    // As above: the signal is the truth for this session either way.
-  }
-}
 
 function readGitExpanded(): boolean {
   try {
@@ -78,31 +36,6 @@ function storeGitExpanded(expanded: boolean): void {
 
 function clampChangesHeight(px: number): number {
   return Math.round(Math.min(GIT_CHANGES_MAX_HEIGHT, Math.max(GIT_CHANGES_MIN_HEIGHT, px)));
-}
-
-function clampGitWidth(px: number): number {
-  return Math.round(Math.min(GIT_WIDTH_MAX, Math.max(GIT_WIDTH_MIN, px)));
-}
-
-function readGitWidth(): number | undefined {
-  try {
-    const raw = globalThis.localStorage?.getItem(GIT_WIDTH_KEY);
-    if (raw === null || raw === undefined) {
-      return undefined;
-    }
-    const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) ? clampGitWidth(value) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function storeGitWidth(px: number): void {
-  try {
-    globalThis.localStorage?.setItem(GIT_WIDTH_KEY, String(px));
-  } catch {
-    // As above: the signal is the truth for this session either way.
-  }
 }
 
 function readChangesHeight(): number | undefined {
@@ -180,36 +113,19 @@ export class ShellState {
    * which is what `modalOpen` answers.
    */
   private readonly stack = inject(OverlayStack);
+  /**
+   * Where the columns are, how wide, and whether they are shown at all. Those facts live
+   * in one place rather than here, so the layout has a home to grow in
+   * (`state/layout-state.ts`).
+   */
+  private readonly layout = inject(LayoutState);
 
   private readonly navigationVisible = signal(false);
   readonly navigationOpen = this.navigationVisible.asReadonly();
 
-  /**
-   * Wide layouts: the navigation column folded away, so the conversation gets the
-   * whole width. The narrow drawer above is a different thing — a transient
-   * overlay, not a layout preference — so the two keep separate flags, and only
-   * this one is remembered across reloads.
-   */
-  private readonly collapsed = signal(readNavCollapsed());
-  readonly navigationCollapsed = this.collapsed.asReadonly();
-
-  /**
-   * The browser host's git panel (right column): the active project's history
-   * and graph. A layout preference like the navigation fold — remembered across
-   * reloads — and only ever rendered where the host advertises `gitPanel`.
-   */
-  private readonly gitPanel = signal(readGitPanelOpen());
-  readonly gitPanelOpen = this.gitPanel.asReadonly();
   /** Expanded: the panel leaves the sidebar and takes the centre of the shell. */
   private readonly gitExpanded = signal(readGitExpanded());
   readonly gitPanelExpanded = this.gitExpanded.asReadonly();
-  /**
-   * The git panel's column width (px). `undefined` keeps the default from
-   * `styles.css`; once the reader drags the panel's left edge toward the
-   * conversation, the chosen width is remembered like the Explorer's height.
-   */
-  private readonly gitWidthSignal = signal<number | undefined>(readGitWidth());
-  readonly gitPanelWidth = this.gitWidthSignal.asReadonly();
   /** The git panel's Changes section: its dragged height (px) and folded state. */
   private readonly changesHeightSignal = signal<number | undefined>(readChangesHeight());
   readonly gitChangesHeight = this.changesHeightSignal.asReadonly();
@@ -325,35 +241,8 @@ export class ShellState {
   }
 
   /** Folds the navigation column away (wide layouts) or brings it back. */
-  toggleNavigationCollapsed(): void {
-    this.setCollapsed(!this.collapsed());
-  }
-
-  /**
-   * Used by the sidebar's shortcuts: a folded column is `visibility: hidden`,
-   * and a field nobody can see cannot take focus either.
-   */
   unfoldNavigation(): void {
-    this.setCollapsed(false);
-  }
-
-  private setCollapsed(collapsed: boolean): void {
-    this.collapsed.set(collapsed);
-    storeNavCollapsed(collapsed);
-  }
-
-  /** Shows or hides the git panel; the panel itself refreshes while it is open. */
-  toggleGitPanel(): void {
-    this.setGitPanel(!this.gitPanel());
-  }
-
-  closeGitPanel(): void {
-    this.setGitPanel(false);
-  }
-
-  private setGitPanel(open: boolean): void {
-    this.gitPanel.set(open);
-    storeGitPanelOpen(open);
+    this.layout.setVisible('left', true);
   }
 
   /** Wide graph mode: the panel spans the conversation area instead of the sidebar. */
@@ -396,25 +285,6 @@ export class ShellState {
     this.changesHeightSignal.set(next);
     if (persist) {
       storeChangesHeight(next);
-    }
-  }
-
-  /** Drag-to-resize the git panel from its left edge; clamped to a usable range. */
-  setGitPanelWidth(px: number, persist = true): void {
-    const next = clampGitWidth(px);
-    this.gitWidthSignal.set(next);
-    if (persist) {
-      storeGitWidth(next);
-    }
-  }
-
-  /** Double-clicking the edge restores the default column width from `styles.css`. */
-  resetGitPanelWidth(): void {
-    this.gitWidthSignal.set(undefined);
-    try {
-      globalThis.localStorage?.removeItem(GIT_WIDTH_KEY);
-    } catch {
-      // As above: the signal is the truth for this session either way.
     }
   }
 

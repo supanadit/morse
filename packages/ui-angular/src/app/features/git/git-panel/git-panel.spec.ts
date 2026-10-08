@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../../host/morse.service';
 import { ShellState } from '../../../state/shell-state';
+import { LayoutState } from '../../../state/layout-state';
 import { asGitLog, asGitSync, GitPanelState } from '../../../services/git-panel-state';
 import { WorkspaceTabs } from '../../../state/workspace-tabs';
 import { GitPanel } from './git-panel';
@@ -105,7 +106,7 @@ function setup(
     providers: [{ provide: MorseService, useValue: fake }],
   });
   // The panel refreshes only while it is open; the layout flag lives in ShellState.
-  TestBed.inject(ShellState).toggleGitPanel();
+  TestBed.inject(LayoutState).setVisible('right', true);
   const fixture = TestBed.createComponent(GitPanel);
   fixture.detectChanges();
   return { fixture, fake };
