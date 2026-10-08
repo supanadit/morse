@@ -27,7 +27,7 @@ import { ShortcutService } from '../../core/shortcuts';
 import { Uploader } from '../../core/uploads';
 import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
-import { pinNoteHint } from '../transcript-rows';
+import { pinNoteHint } from '@morse/ui-runtime';
 import { PopoverFit } from '../../core/popover-fit.directive';
 import { EnterDirective } from '../../shared/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
@@ -40,7 +40,7 @@ import { ModelPicker } from '../model-picker/model-picker';
 import { ModelInputs } from '../model-picker/model-inputs';
 import { NoteHoverDirective } from '../pin-annotation/note-hover.directive';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
-import type { PopoverAnchor } from '../pin-annotation/placement';
+import type { PopoverAnchor } from '@morse/ui-runtime';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
 

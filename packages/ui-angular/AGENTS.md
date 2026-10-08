@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-10-07 | Last verified: 2026-10-07 -->
+<!-- Last updated: 2026-10-08 | Last verified: 2026-10-07 -->
 
 # packages/ui-angular — AGENTS.md
 
@@ -12,7 +12,7 @@ The Angular frontend: views over `SessionView`, plus the app-local state that is
 
 | Path | Holds |
 | --- | --- |
-| `src/app/core/` | state services + pure helpers: `morse.service.ts` (the client), `shell-state.ts`, `workspace-tabs.ts`, `terminal-store.ts`, `panel-state.ts`, `workbench-persistence.ts`, `composer-drafts.ts`, `shortcuts.ts`, `markdown.ts`, `lsp.ts` |
+| `src/app/core/` | the client binding and app-local state services: `morse.service.ts` (the client), `shell-state.ts`, `workspace-tabs.ts`, `terminal-store.ts`, `panel-state.ts`, `workbench-persistence.ts`, `composer-drafts.ts`, `shortcuts.ts`, `git-panel-state.ts`, `mcp-state.ts`, `notifications.ts`, `update.ts` (the framework-free helpers live in `@morse/ui-runtime`) |
 | `src/app/chat/` | one directory per feature: transcript, composer, model/thinking pickers, file preview, terminal, bottom panel, session page, MCP + prompt editors |
 | `src/app/nav/`, `git/`, `palette/`, `shortcuts/`, `connection/`, `agent/`, `boot/`, `about/` | the shell around the chat |
 | `src/app/routes.ts`, `src/main.ts` | hash route → root component, bootstrapped into an element `main.ts` creates |
@@ -41,7 +41,7 @@ The Angular frontend: views over `SessionView`, plus the app-local state that is
 
 ## Security
 
-Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in `core/markdown.ts` with DOMPurify before it reaches the DOM — a new renderer must go through it, and untrusted text never becomes `innerHTML`. The view layer holds no credentials and no tokens: a stored preference is a preference, and a capability it did not verify (for example the `Notification` permission) must be re-read, never assumed.
+Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in `@morse/ui-runtime`'s `render/markdown.ts` with DOMPurify before it reaches the DOM — a new renderer must go through it, and untrusted text never becomes `innerHTML`. The view layer holds no credentials and no tokens: a stored preference is a preference, and a capability it did not verify (for example the `Notification` permission) must be re-read, never assumed.
 
 ## Commit / PR
 
@@ -51,7 +51,7 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 
 ## Examples
 
-- `core/markdown.ts` — parse, sanitize, highlight, and the render cadence, in one place.
+- `@morse/ui-runtime/src/render/markdown.ts` — parse, sanitize, highlight (the render cadence lives in `shared/markdown/markdown.ts`), in one shared place.
 - `core/workspace-tabs.ts` — the tab/chip ownership model (owner session, menu scope, chip owner); read it before touching tab behaviour.
 - `core/shortcuts.ts` + `shortcuts/shortcuts-dialog.ts` — the registry and the list that prints it are the same data.
 - `core/shell-state.ts` — signals for the shell's persisted knobs and the confirm dialog.
@@ -96,7 +96,7 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | A file chip's context menu closes the session tab | a menu's scope is the clicked tab's own: `WorkspaceTabs.menuScope(id)` returns the whole strip for a session but only the chip's row for a file. `closeOthers`/`closeToTheRight`/`closeAll` must read that scope, never `items()` directly — a chip is context, and closing it must not take a session with it |
 | Closing the last chip jumps to another session’s file | `WorkspaceTabs.remove` takes the closed chip's owner session and selects it (`chipOwner`), instead of the positional neighbour in `items` — a chip is context for its session, so closing the chip in front returns to that conversation |
 | Two file chips look identical | intended: when any file name in the row is shared, the whole chip row goes two lines and every chip shows its directory, clipped at the front (`.dir` with `direction: rtl` and a `<bdi>` in `tab-strip`, so the folder nearest the file stays visible). With no shared name every chip is one row. If two still look identical, their names are not in the same row — `namesClash` counts chips per session row |
-| A new file is missing from the Explorer | it polls `listFiles` (`fresh: true`) every 4 s plus `gitStatus`; a hidden tab pauses the poll. No host push — the tree changes on disk |
+| A new file is missing from the Explorer | it polls `gitStatus` every 4 s, and re-reads `listFiles{fresh: true}` only when that working tree moved (or every 60 s regardless, and always on a project switch); a hidden tab pauses the poll. No host push — the tree changes on disk |
 | File/session tabs vanish on reload | intended only in VS Code (its own editor restores tabs). The browser host persists the open/focused tabs, panel and terminals to `<MORSE_HOME>/workbench.json` — check `capabilities.workbench` and `core/workbench-persistence.ts`; a snapshot from another `version` is ignored on purpose |
 | Terminal dies on a tab switch, a hidden panel, or after `morse stop`/`start` | the shell must outlive the view: a `Terminal` never sends `terminal/close` on destroy — only an explicit reader close does (`TerminalView.close`/`closePane`, `WorkspaceTabs.closeOwnerTerminals`), and the bottom panel is hidden with a class rather than `@if`-unmounted (`app.ts` `bottomPanelEnabled` mounts, `bottomPanelVisible` hides). A draft holding a terminal is not discarded as "untouched" (`TerminalStore.hasOwner`) |
 | A long prompt or its attachments vanish on reload / `morse stop` / a closed laptop | intended only in VS Code. The browser host saves every tab's draft — text, pins, mentions and inline images — to `<MORSE_HOME>/drafts.json` (`core/composer-drafts.ts`, `core/attachments.ts` via `WorkbenchPersistence`); the tab itself, a "New session" draft included, lives in `workbench.json` |
@@ -112,7 +112,7 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | a model's input modalities (text/vision/audio/…) | `packages/ui-angular/src/app/chat/model-picker/model-inputs.ts` ← pi's `input` on `ModelOption.input` |
 | "a newer release is out" notice (Morse or pi) | `packages/ui-angular/src/app/core/update.ts` ← `capabilities.updateCheck`/`piVersion`, `docs/CONFIGURATION.md` |
 | "a run finished" notice while the window is elsewhere | `packages/ui-angular/src/app/core/notifications.ts` + `notification-prefs.ts` ← `capabilities.notify` |
-| git history + graph panel (browser host) | `packages/ui-angular/src/app/git/git-panel.ts` ← `core/git-graph.ts`, `packages/server/src/internal/workspace/git-log.ts` |
+| git history + graph panel (browser host) | `packages/ui-angular/src/app/git/git-panel.ts` ← `core/graph.ts`/`status.ts`/`diff.ts` in `@morse/ui-runtime`, `packages/server/src/internal/workspace/git-log.ts` |
 | MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/chat/mcp-panel/` ← `core/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
 | prompt-template editor + argument tester | `packages/ui-angular/src/app/chat/prompt-editor/` ← `core/prompt-templates-state.ts`, `packages/ui-runtime/src/prompt-template.ts` (the same expansion the composer uses); host file I/O in `packages/adapter-pi-rpc/src/pi-prompts.ts`; code-split, and scoped to the session in front |
 | who is credited, and where | `packages/ui-angular/src/app/about/credits.ts` (guarded by `credits.spec.ts`) |

@@ -9,8 +9,13 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { buildFileTree, fileGlyph, type FileNode } from '../../core/file-tree';
-import { statusByPath, type ChangeKind } from '../../core/git-status';
+import {
+  buildFileTree,
+  fileGlyph,
+  statusByPath,
+  type ChangeKind,
+  type FileNode,
+} from '@morse/ui-runtime';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
 import { WorkspaceFiles } from '../../core/workspace-files';

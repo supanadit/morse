@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFileTree, fileGlyph } from './file-tree';
+import { buildFileTree, fileGlyph } from './tree.js';
 
 describe('buildFileTree', () => {
   it('nests files under the directories they imply', () => {

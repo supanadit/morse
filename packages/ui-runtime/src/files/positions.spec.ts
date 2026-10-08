@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { domRangeFor, identifierAt, offsetAt, pointAt, sourceOffsetIn } from './preview-positions';
+import { domRangeFor, identifierAt, offsetAt, pointAt, sourceOffsetIn } from './positions.js';
 
 const TEXT = ['const a = 1;', 'function b() {', '  return a;', '}', ''].join('\n');
 

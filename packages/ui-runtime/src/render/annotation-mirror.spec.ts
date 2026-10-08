@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderAnnotationMirror } from './mirror';
+import { renderAnnotationMirror } from './annotation-mirror.js';
 
 /**
  * Every character the mirror laid out, tags removed and entities decoded — what

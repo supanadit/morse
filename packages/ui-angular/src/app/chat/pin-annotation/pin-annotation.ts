@@ -26,8 +26,8 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { renderAnnotationMirror } from './mirror';
-import { placePopover, type PopoverAnchor, type PopoverSize } from './placement';
+import { renderAnnotationMirror } from '@morse/ui-runtime';
+import { placePopover, type PopoverAnchor, type PopoverSize } from '@morse/ui-runtime';
 
 /** What the editor says it is annotating: the file, and its range if it has one. */
 export interface AnnotationTarget {

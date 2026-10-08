@@ -1,6 +1,6 @@
-import { readPromptTemplate } from '@morse/ui-runtime';
 import { describe, expect, it } from 'vitest';
-import { renderPromptTemplate } from './render';
+import { readPromptTemplate } from '../prompt-template.js';
+import { renderPromptTemplate } from './render.js';
 
 describe('renderPromptTemplate', () => {
   it('writes frontmatter then the body', () => {

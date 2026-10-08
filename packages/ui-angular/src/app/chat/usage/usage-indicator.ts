@@ -6,7 +6,7 @@ import {
   formatTokens,
   formatUsage,
   formatUsageValue,
-} from '../../core/usage-format';
+} from '@morse/ui-runtime';
 
 const RADIUS = 15.5;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;

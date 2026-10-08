@@ -13,7 +13,7 @@ import type { SessionSummary, TranscriptItem } from '@morse/protocol';
 import { MorseService } from '../../core/morse.service';
 import { ShellState } from '../../core/shell-state';
 import { ShortcutService } from '../../core/shortcuts';
-import { toolFileName, toolGerund, toolKind, toolTitle } from '../../core/tool-describe';
+import { toolFileName, toolGerund, toolKind, toolTitle } from '@morse/ui-runtime';
 import { UpdateCheck } from '../../core/update';
 import { WorkspaceTabs } from '../../core/workspace-tabs';
 import { FileExplorer } from '../file-explorer/file-explorer';

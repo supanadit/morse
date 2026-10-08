@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { TaskRow } from '../../core/task-list';
+import type { TaskRow } from '@morse/ui-runtime';
 import { TaskBoard } from './task-board';
 
 @Component({

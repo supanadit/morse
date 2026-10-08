@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addedFileDiff, parseUnifiedDiff, splitRows, unifiedRows } from './git-diff';
+import { addedFileDiff, parseUnifiedDiff, splitRows, unifiedRows } from './diff.js';
 
 const DIFF = `diff --git a/a.ts b/a.ts
 index 1111111..2222222 100644

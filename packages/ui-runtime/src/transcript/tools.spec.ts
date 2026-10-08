@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolTranscriptItem } from '@morse/protocol';
-import { toolChangedFile, toolFileName, toolGerund, toolKind, toolTitle, toolVerb } from './tool-describe';
+import { toolChangedFile, toolFileName, toolGerund, toolKind, toolTitle, toolVerb } from './tools.js';
 
 function tool(name: string, title: string): ToolTranscriptItem {
   return { kind: 'tool', id: 't', at: 0, name, title, status: 'ok' };

@@ -19,7 +19,7 @@ import {
   input,
 } from '@angular/core';
 import { NoteHover } from './note-hover';
-import type { PopoverAnchor } from './placement';
+import type { PopoverAnchor } from '@morse/ui-runtime';
 
 /** How long the pointer must rest before the card appears. */
 export const NOTE_HOVER_DELAY_MS = 320;

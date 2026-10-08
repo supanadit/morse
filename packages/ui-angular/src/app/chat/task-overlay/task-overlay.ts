@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { MorseService } from '../../core/morse.service';
-import { sessionTaskList } from '../../core/task-list';
+import { sessionTaskList } from '@morse/ui-runtime';
 import { TaskBoard } from '../tool-group/task-board';
 
 /**

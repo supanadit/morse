@@ -62,6 +62,7 @@ Adapters never import each other; only the composition roots wire them.
 | a pi command, or a new pi file | `packages/adapter-pi-rpc` |
 | new UI data | `packages/protocol` + `packages/host-runtime/src/session-controller.ts` |
 | a component or view-local state | `packages/ui-angular` |
+| a framework-free frontend helper | `packages/ui-runtime` |
 | a new host or frontend | `docs/FRONTENDS.md` |
 
 ## Gotchas (cross-cutting)

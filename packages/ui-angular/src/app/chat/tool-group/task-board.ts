@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { taskCounts, type TaskRow } from '../../core/task-list';
+import { taskCounts, type TaskRow } from '@morse/ui-runtime';
 
 /**
  * A task list a tool returned, drawn from the structured `details` of its

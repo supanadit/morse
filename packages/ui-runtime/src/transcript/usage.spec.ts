@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TokenUsage } from '@morse/protocol';
-import { formatUsageValue } from './usage-format';
+import { formatUsageValue } from './usage.js';
 
 describe('formatUsageValue', () => {
   const usage: TokenUsage = {

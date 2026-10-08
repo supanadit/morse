@@ -1,6 +1,6 @@
 import type { ToolTranscriptItem, TranscriptItem } from '@morse/protocol';
 import { describe, expect, it } from 'vitest';
-import { asTaskList, sessionTaskList, taskCounts } from './task-list';
+import { asTaskList, sessionTaskList, taskCounts } from './tasks.js';
 
 /**
  * The probe decides whether a tool's structured result can be shown as a task

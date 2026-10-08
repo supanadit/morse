@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asDiagnostics, asHover, asLocation, asPosition, asRange, asReferences } from './lsp';
+import { asDiagnostics, asHover, asLocation, asPosition, asRange, asReferences } from './guards.js';
 
 const RANGE = {
   start: { line: 1, character: 2 },

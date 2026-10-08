@@ -131,8 +131,26 @@ export function reduceSessionView(view: SessionView, message: HostToClientMessag
   }
 }
 
+/**
+ * Index of the item carrying `id`, scanning from the end.
+ *
+ * The reducer's hot messages (a streamed delta, a tool update) always target an
+ * item near the tail, so the common case is a handful of comparisons instead of
+ * a walk of the whole transcript. Direction cannot change the answer: ids are
+ * unique across both producers — the projector's `morse-<kind>-<n>`, and
+ * history's `<key>#history-<page>-<index>` — so there is only one match.
+ */
+function indexOfItem(items: TranscriptItem[], id: string): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index]?.id === id) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function upsertItem(items: TranscriptItem[], item: TranscriptItem): TranscriptItem[] {
-  const index = items.findIndex((candidate) => candidate.id === item.id);
+  const index = indexOfItem(items, item.id);
   if (index === -1) {
     return [...items, item];
   }
@@ -145,7 +163,7 @@ function applyDelta(
   items: TranscriptItem[],
   delta: { id: string; text?: string; thinking?: string },
 ): TranscriptItem[] {
-  const index = items.findIndex((candidate) => candidate.id === delta.id);
+  const index = indexOfItem(items, delta.id);
   if (index === -1) {
     return items;
   }

@@ -8,7 +8,7 @@ import {
   stagedKind,
   statusByPath,
   unstagedKind,
-} from './git-status';
+} from './status.js';
 
 describe('changeKind', () => {
   it('reads a porcelain code as the badge letter', () => {

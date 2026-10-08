@@ -1,5 +1,5 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
-import { languageForPath } from './highlight';
+import { languageForPath } from '@morse/ui-runtime';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from './morse.service';
 import { QueuedPrompts } from './queued-prompts';

@@ -11,16 +11,18 @@ import type { GitCommit } from '@morse/protocol';
 import { MorseService } from '../core/morse.service';
 import { ShellState } from '../core/shell-state';
 import { GitPanelState } from '../core/git-panel-state';
-import { layoutGraph, type GraphEdge, type GraphRow } from '../core/git-graph';
 import {
   asCommitFiles,
   changeKind,
   isStaged,
   isUnstaged,
+  layoutGraph,
   stagedKind,
   unstagedKind,
   type ChangeKind,
-} from '../core/git-status';
+  type GraphEdge,
+  type GraphRow,
+} from '@morse/ui-runtime';
 import { BranchPicker } from './branch-picker/branch-picker';
 import { WorkspaceFiles } from '../core/workspace-files';
 import { WorkspaceTabs } from '../core/workspace-tabs';

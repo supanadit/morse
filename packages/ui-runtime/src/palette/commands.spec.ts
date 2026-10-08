@@ -4,7 +4,7 @@ import {
   parsePaletteQuery,
   scorePaletteEntry,
   type PaletteEntry,
-} from './palette';
+} from './commands.js';
 
 function entry(over: Partial<PaletteEntry> & Pick<PaletteEntry, 'id' | 'kind' | 'label'>): PaletteEntry {
   return over;

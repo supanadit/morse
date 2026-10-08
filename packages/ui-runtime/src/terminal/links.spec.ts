@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findTerminalLinks } from './terminal-links';
+import { findTerminalLinks } from './links.js';
 
 /**
  * xterm has no link detection, so this is what turns a dev-server banner into

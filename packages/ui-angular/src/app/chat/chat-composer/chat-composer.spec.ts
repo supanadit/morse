@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cacheHitRate, formatTokens, formatUsage } from '../../core/usage-format';
+import { cacheHitRate, formatTokens, formatUsage } from '@morse/ui-runtime';
 import { outputChars, builtinName, compactInstructions } from './chat-composer';
 
 describe('formatTokens', () => {

@@ -19,7 +19,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Markdown } from '../../shared/markdown/markdown';
-import { placePopover, type PopoverAnchor, type PopoverSize } from './placement';
+import { placePopover, type PopoverAnchor, type PopoverSize } from '@morse/ui-runtime';
 
 /** The card's wish before it has been measured. */
 const PREFERRED_SIZE: PopoverSize = { width: 360, height: 180 };

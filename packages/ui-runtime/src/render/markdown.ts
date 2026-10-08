@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked';
-import { highlightCode } from './highlight';
+import { highlightCode } from './highlight.js';
 
 /**
  * The TLDs a bare link may end in. `marked`'s GFM autolink only recognises a

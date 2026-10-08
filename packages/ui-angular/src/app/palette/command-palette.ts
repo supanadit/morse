@@ -11,7 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ThinkingLevel } from '@morse/protocol';
-import { formatTokens } from '../core/usage-format';
+import { formatTokens } from '@morse/ui-runtime';
 import { MorseService } from '../core/morse.service';
 import { ShellState } from '../core/shell-state';
 import {
@@ -24,7 +24,7 @@ import { WorkspaceFiles } from '../core/workspace-files';
 import { WorkspaceTabs } from '../core/workspace-tabs';
 import { NotificationPrefs } from '../core/notification-prefs';
 import { RunNotifier } from '../core/notifications';
-import { paletteGroups, parsePaletteQuery, type PaletteEntry } from '../core/palette';
+import { paletteGroups, parsePaletteQuery, type PaletteEntry } from '@morse/ui-runtime';
 
 /**
  * The command palette: one field over the whole app.

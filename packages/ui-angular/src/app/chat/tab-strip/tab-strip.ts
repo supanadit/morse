@@ -8,7 +8,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { fileGlyph } from '../../core/file-tree';
+import { fileGlyph } from '@morse/ui-runtime';
 import { MorseService } from '../../core/morse.service';
 import { WorkspaceTabs, type WorkspaceTab } from '../../core/workspace-tabs';
 

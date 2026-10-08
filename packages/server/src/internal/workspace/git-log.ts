@@ -80,8 +80,34 @@ function clampMax(requested?: number): number {
  * The working tree's changed paths, for the Explorer's per-file git badges.
  * Paths are made relative to `cwd` (matching `listFiles`), so a session opened
  * in a subdirectory of the repository lines up with the listing it shows.
+ *
+ * One call, not three: `--relative` asks git itself for cwd-relative paths with
+ * everything outside the directory dropped — exactly the prefix-stripping and
+ * filtering this used to do by hand, behind `rev-parse --is-inside-work-tree`
+ * and `--show-prefix`. `git status` also fails outside a work tree, which is the
+ * same "not a repository" answer those two calls produced. This is the command
+ * the Explorer polls, so the two saved spawns are every four seconds rather than
+ * once.
+ *
+ * `--relative` needs git 2.13. An older git fails here for its own reason, so
+ * the explicit path is kept as the fallback and the answer stays what it was.
  */
 export async function readGitStatus(cwd: string): Promise<GitStatus> {
+  const relative = await gitText(
+    ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--relative'],
+    cwd,
+  );
+  if (relative !== undefined) {
+    return { isRepo: true, files: parseStatus(relative, '') };
+  }
+  return readGitStatusByPrefix(cwd);
+}
+
+/**
+ * The three-call reading of the same thing, for a git too old for `--relative`
+ * (and for any other failure, which it reports the way it always did).
+ */
+async function readGitStatusByPrefix(cwd: string): Promise<GitStatus> {
   const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, files: [] };

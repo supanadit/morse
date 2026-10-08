@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GitCommit } from '@morse/protocol';
-import { layoutGraph } from './git-graph';
+import { layoutGraph } from './graph.js';
 
 function commit(hash: string, parents: string[]): GitCommit {
   return {

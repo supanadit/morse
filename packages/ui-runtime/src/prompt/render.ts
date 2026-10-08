@@ -1,10 +1,10 @@
 /**
  * The prompt-template editor's file renderer.
  *
- * It lives here, not in `@morse/ui-runtime`, because only the editor writes a
- * file back: the composer's expansion (`substituteArgs` and friends) is shared,
- * but composing frontmatter is the editor's job, and keeping it in the editor's
- * lazy chunk keeps it out of the initial bundle.
+ * The shared inverse of `prompt-template.ts`'s expansion: the composer and the
+ * palette read a template with `substituteArgs`, and the editor writes one back
+ * with `renderPromptTemplate`. Only the editor imports this, so the bundler
+ * keeps it in the lazily loaded prompt-editor chunk.
  */
 
 /** What the editor holds before it is rendered back to a file. */

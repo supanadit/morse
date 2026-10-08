@@ -8,7 +8,6 @@
  * preview as "nothing to show" rather than as a half-read object.
  */
 import type {
-  LspDefinition,
   LspDiagnostic,
   LspDiagnostics,
   LspHover,

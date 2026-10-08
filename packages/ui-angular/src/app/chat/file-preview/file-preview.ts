@@ -16,34 +16,32 @@ import type { LspDiagnostics, LspLocation, LspReferences, LspSeverity } from '@m
 import { AnimationService } from '../../core/animation.service';
 import { AttachmentStore, type PendingPin } from '../../core/attachments';
 import { DisplayPrefs, type DiffView } from '../../core/display-prefs';
-import { statusByPath } from '../../core/git-status';
-import { highlightCode } from '../../core/highlight';
-import { asDiagnostics, asHover, asLocation, asReferences } from '../../core/lsp';
+import {
+  addedFileDiff,
+  domRangeFor,
+  identifierAt,
+  offsetAt,
+  parseUnifiedDiff,
+  pinNoteHint,
+  pointAt,
+  sourceOffsetIn,
+  splitRows,
+  statusByPath,
+  unifiedRows,
+  type DiffRow,
+  type SourcePoint,
+  type SplitRow,
+  type UnifiedRow,
+} from '@morse/ui-runtime';
+import { highlightCode } from '@morse/ui-runtime';
+import { asDiagnostics, asHover, asLocation, asReferences } from '@morse/ui-runtime';
 import { MorseService } from '../../core/morse.service';
 import { WorkspaceFiles } from '../../core/workspace-files';
 import { WorkspaceTabs, type FileTab } from '../../core/workspace-tabs';
 import { NoteHoverDirective } from '../pin-annotation/note-hover.directive';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
-import type { PopoverAnchor } from '../pin-annotation/placement';
-import { pinNoteHint } from '../transcript-rows';
+import type { PopoverAnchor } from '@morse/ui-runtime';
 import { Markdown } from '../../shared/markdown/markdown';
-import {
-  domRangeFor,
-  identifierAt,
-  offsetAt,
-  pointAt,
-  sourceOffsetIn,
-  type SourcePoint,
-} from './preview-positions';
-import {
-  addedFileDiff,
-  parseUnifiedDiff,
-  splitRows,
-  unifiedRows,
-  type DiffRow,
-  type SplitRow,
-  type UnifiedRow,
-} from './git-diff';
 
 /** One highlighted range in the preview: a pinned chip, or the drag in progress. */
 interface Highlight {

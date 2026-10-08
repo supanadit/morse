@@ -5,7 +5,7 @@ import type {
   ToolTranscriptItem,
   TranscriptItem,
 } from '@morse/protocol';
-import { activeProcessKey, groupTranscriptItems, parseMentionToken, pinNoteHint, splitMentionTokens, userMessageMarkdown } from './transcript-rows';
+import { activeProcessKey, groupTranscriptItems, parseMentionToken, pinNoteHint, splitMentionTokens, userMessageMarkdown } from './rows.js';
 
 function tool(id: string, status: ToolTranscriptItem['status'] = 'ok'): ToolTranscriptItem {
   return { kind: 'tool', id, at: 0, name: 'read', title: `read: ${id}`, status };

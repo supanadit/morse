@@ -19,6 +19,10 @@ Everything a frontend needs that is not a view: the transport that reaches a hos
 | `src/transport/websocket-transport.ts` | the browser host |
 | `src/transport/memory-transport.ts` | the in-memory mock host (scripted answers, no model) |
 | `src/prompt-template.ts` | the one expansion of `$1`/`{{args}}`/frontmatter that the composer and the palette both call |
+| `src/git/`, `src/files/`, `src/transcript/`, `src/palette/`, `src/lsp/`, `src/ui/` | framework-free helpers: git graph/status/diff, file tree and preview positions, transcript rows/tasks/tools/usage, command ranking, the `host/command` reply guards, popover placement |
+| `src/render/` | the markdown render pipeline: `highlight.ts`, `markdown.ts` (DOMPurify-sanitized), `annotation-mirror.ts` |
+| `src/prompt/render.ts` | the editor's inverse of `prompt-template.ts` — a draft back to a template file |
+| `src/terminal/links.ts` | `findTerminalLinks` — URL detection for the bottom panel's terminal (the xterm binding stays in `ui-angular`) |
 
 ## Setup
 
@@ -37,6 +41,8 @@ Everything a frontend needs that is not a view: the transport that reaches a hos
 - Relative imports carry the extension: `from './host-transport.js'`.
 - A new transport implements `HostTransport`; a new frontend uses `resolveTransport()` and never branches on `hasVsCodeApi()` itself.
 - The prompt-template expansion lives here for a reason: a second implementation in a view would drift from the one the composer sends. Views call it, never re-implement it.
+- A framework-free, frontend-reusable helper lives here, not in a UI package: a second frontend must import it, never copy it. A moved module keeps its behaviour; only its relative import gains the `.js` extension.
+- A spec that touches the DOM carries `// @vitest-environment jsdom` as its first line; every other spec runs under the node default. `package.json` sets `"sideEffects": false` so an unused re-export (for example a module only a lazily loaded view imports) is tree-shaken out of an eager bundle.
 
 ## Security
 

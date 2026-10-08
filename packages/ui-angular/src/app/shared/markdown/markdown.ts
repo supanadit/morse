@@ -11,7 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
-import { renderMarkdown, renderUserMarkdown } from '../../core/markdown';
+import { renderMarkdown, renderUserMarkdown } from '@morse/ui-runtime';
 
 /**
  * How often streamed prose is re-rendered.

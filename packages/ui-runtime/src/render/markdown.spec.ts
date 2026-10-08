@@ -1,6 +1,7 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { userMessageMarkdown } from '../chat/transcript-rows';
-import { renderMarkdown, renderUserMarkdown } from './markdown';
+import { userMessageMarkdown } from '../transcript/rows.js';
+import { renderMarkdown, renderUserMarkdown } from './markdown.js';
 
 describe('renderMarkdown', () => {
   it('renders a fenced block with its language and a copy button', () => {

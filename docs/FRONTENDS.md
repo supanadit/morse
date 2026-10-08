@@ -34,6 +34,7 @@ the directory they actually serve (`frontendIdentity()` in `@morse/protocol`).
 | Wire types, guards, view state + reducer | `@morse/protocol` | `SessionView` (transcript, sessions, projects), `HostCapabilities.scope`, `reduceSessionView`, `parseHostMessage`, `encodeWireMessage` |
 | Transports | `@morse/ui-runtime` | `resolveTransport()`, `VsCodeHostTransport`, `WebSocketHostTransport`, `MemoryHostTransport` |
 | Client facade | `@morse/ui-runtime` | `createMorseClient({ transport })` → `getView()`, `subscribe()`, `actions` |
+| Framework-free helpers | `@morse/ui-runtime` | git graph/status/diff, file tree and preview positions, transcript rows/tasks/tools/usage, command ranking, the `host/command` reply guards, the markdown/highlight render pipeline, popover placement, prompt-template rendering, terminal link detection |
 
 Multi-project is host state, not frontend state: the host streams the transcript of the **active** session and
 replays another one when the client activates it, so a frontend only renders `view.items` plus the
@@ -167,7 +168,7 @@ The browser host has neither, so `filePreview: true` gives the frontend an Explo
 strip above the conversation, where sessions and files open side by side.
 
 - The Explorer is built from the same flat `listFiles` listing the `@mention` picker uses (git-aware, the
-  active session's directory), turned into a tree in `core/file-tree.ts`. Clicking a file opens a tab.
+  active session's directory), turned into a tree in `@morse/ui-runtime` (`files/tree.ts`). Clicking a file opens a tab.
   `WorkspaceFiles` holds that listing for both surfaces and re-reads it on a timer (`fresh: true` bypasses
   the host's index cache), so a file added or deleted on disk appears without a restart. The same poll asks
   `gitStatus` (`{ isRepo, files: [{ path, status }] }`, porcelain codes), and a changed file shows the
@@ -190,7 +191,7 @@ strip above the conversation, where sessions and files open side by side.
   than leaving the same file open twice. A chip is removed with the session it belongs to.
 - A file the working tree reports as changed (the same `gitStatus` map) also gets a **File / Unified /
   Split** switch in the preview: `gitDiff` (`{ path }` → `{ path, diff }`) supplies the unified diff,
-  `core/git-diff.ts` parses it into hunks and pairs the two sides for split view, and an untracked file
+  `@morse/ui-runtime` (`git/diff.ts`) parses it into hunks and pairs the two sides for split view, and an untracked file
   has its content rendered as all-added. A change block in either diff layout is clickable: one click pins
   its new-file range to the next prompt, and clicking it again unpins — no drag needed. The chosen mode is
   remembered (`DisplayPrefs.diffView`).
@@ -250,7 +251,7 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   whenever the active project changes. A directory that is not a repository is a normal answer
   (`isRepo: false`), not an error.
 - A commit carries `hash`, `shortHash`, `parents`, `refs` (already split decorations), `author`,
-  `date` and `subject`. `parents` is all the graph needs: `core/git-graph.ts` is a pure function
+  `date` and `subject`. `parents` is all the graph needs: `@morse/ui-runtime`'s `git/graph.ts` is a pure function
   that assigns each commit a lane and the edges across its row, and the panel turns that into one
   SVG per row. No graph algorithm lives in the host.
 - Clicking a commit unfolds its changed files (`gitCommitFiles { hash }` → `{ isRepo, hash, files }`,
@@ -267,7 +268,7 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
 - The changes list is split the way `git status` reads: the index (`X`) is **Staged** and the
   working tree (`Y`) is **Unstaged**, so a path edited on both sides (`MM`) appears in both. Each row
   has a `+`/`−` action and each group header stages or unstages the whole group through `gitStage` /
-  `gitUnstage` (`{ paths }` → the fresh `gitStatus`; `core/git-status.ts` owns the `X`/`Y` split). The
+  `gitUnstage` (`{ paths }` → the fresh `gitStatus`; `@morse/ui-runtime`'s `git/status.ts` owns the `X`/`Y` split). The
   host resolves every path inside the viewing session's directory, like `readFile`, and answers with
   the new working tree so the list updates in one round trip. The **Staged** group is always present
   while the section is open — an empty one says “No staged files. Stage a change to commit it.” so the

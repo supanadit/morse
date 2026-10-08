@@ -12,7 +12,7 @@ import {
 import type { ToolTranscriptItem } from '@morse/protocol';
 import { AnimationService } from '../../core/animation.service';
 import { DisplayPrefs } from '../../core/display-prefs';
-import { asTaskList, type TaskRow } from '../../core/task-list';
+import { asTaskList, type TaskRow } from '@morse/ui-runtime';
 import {
   toolChangedFile,
   toolFileName,
@@ -20,9 +20,9 @@ import {
   toolKind,
   toolTitle,
   toolVerb,
-} from '../../core/tool-describe';
+} from '@morse/ui-runtime';
 import { EnterDirective } from '../../shared/enter.directive';
-import type { ProcessStep } from '../transcript-rows';
+import type { ProcessStep } from '@morse/ui-runtime';
 import { TaskBoard } from './task-board';
 
 interface ToolTarget {

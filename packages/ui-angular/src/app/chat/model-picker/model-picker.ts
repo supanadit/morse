@@ -14,7 +14,7 @@ import {
 } from '@angular/core';
 import type { ModelOption } from '@morse/protocol';
 import { EnterDirective } from '../../shared/enter.directive';
-import { formatTokens } from '../../core/usage-format';
+import { formatTokens } from '@morse/ui-runtime';
 import { ModelInputs, modelInputKeywords } from './model-inputs';
 
 export interface ModelGroup {

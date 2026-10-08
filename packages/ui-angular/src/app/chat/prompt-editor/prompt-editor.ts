@@ -14,6 +14,7 @@ import type { PromptScope, PromptTemplateInfo } from '@morse/protocol';
 import {
   parseCommandArgs,
   promptTemplateArgumentFields,
+  renderPromptTemplate,
   substituteArgs,
   type PromptTemplateArgument,
 } from '@morse/ui-runtime';
@@ -21,7 +22,6 @@ import { debounceTime, distinctUntilChanged } from 'rxjs';
 import { PromptTemplatesState } from '../../core/prompt-templates-state';
 import { MorseService } from '../../core/morse.service';
 import { ViewState } from '../../core/view-state';
-import { renderPromptTemplate } from './render';
 
 type TestMode = 'fields' | 'raw';
 

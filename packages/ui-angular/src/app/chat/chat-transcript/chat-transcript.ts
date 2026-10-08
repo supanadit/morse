@@ -6,7 +6,7 @@ import {
   pinNoteHint,
   userMessageMarkdown,
   type TranscriptRow,
-} from '../transcript-rows';
+} from '@morse/ui-runtime';
 import { AnimationService } from '../../core/animation.service';
 import { BootHandoff } from '../../core/boot-handoff';
 import { Markdown } from '../../shared/markdown/markdown';
