@@ -112,6 +112,16 @@ export class Toolbar {
     const label = this.mcp.label(this.mcp.cwd());
     return this.mcpEnabled() ? `${label} — click to manage` : label;
   });
+  /**
+   * The prompt-template editor button exists where the host can read and write
+   * pi's prompt files. It is usable without a session too — the editor then
+   * offers the user templates only — so, like the MCP indicator, it is not gated
+   * on a session being in front.
+   */
+  protected readonly promptsEnabled = computed(
+    () => this.morse.capabilities()?.promptEditor === true,
+  );
+  protected readonly promptsOpen = computed(() => this.tabs.activeTab()?.kind === 'prompt');
 
   constructor() {
     // The bar owns these buttons, so it owns their keys too: an unavailable row (a host
@@ -161,5 +171,14 @@ export class Toolbar {
   /** Opens the MCP manager; the panel fetches the status when it mounts. */
   protected openMcp(): void {
     this.shell.openMcp();
+  }
+
+  /**
+   * Opens the prompt-template editor: a tab on a tabbed host (the browser), the
+   * host's own editor panel where there is none (VS Code). The shared method owns
+   * that choice.
+   */
+  protected openPrompts(): void {
+    this.tabs.openPromptEditor();
   }
 }

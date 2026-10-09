@@ -17,12 +17,20 @@ type Preview = {
 
 function setup(
   handler: (command: string, args?: Record<string, unknown>) => unknown = () => undefined,
+  capabilities: { filePreview?: boolean; promptEditor?: boolean } = {},
 ) {
   const fake = {
     // A host showing a real session: closing its tab must fall back to an draft.
     state: signal<{ sessionId?: string; workspace: { cwd: string; name: string } }>({
       sessionId: 'sess-live',
       workspace: { cwd: '/repo', name: 'repo' },
+    }),
+    // The capabilities the shell reads to choose an editor surface; the browser
+    // shape is the default, so `openPromptEditor` opens a tab here.
+    capabilities: signal<{ filePreview?: boolean; promptEditor?: boolean }>({
+      filePreview: true,
+      promptEditor: true,
+      ...capabilities,
     }),
     activateSession: vi.fn(),
     newSession: vi.fn(),
@@ -94,6 +102,24 @@ describe('WorkspaceTabs', () => {
 
     expect(tabs.tabs().filter((tab) => tab.kind === 'prompt')).toHaveLength(1);
     expect(tabs.activeId()).toBe('prompt:templates');
+  });
+
+  it('opens the prompt editor as a tab on a host with a tab strip', () => {
+    const { tabs, fake } = setup(() => undefined, { filePreview: true });
+
+    tabs.openPromptEditor();
+
+    expect(tabs.activeId()).toBe('prompt:templates');
+    expect(fake.requestHostCommand).not.toHaveBeenCalledWith('openPromptEditor', expect.anything());
+  });
+
+  it('asks the host to open its own editor panel where there is no tab strip', () => {
+    const { tabs, fake } = setup(() => undefined, { filePreview: false });
+
+    tabs.openPromptEditor();
+
+    expect(tabs.tabs().some((tab) => tab.kind === 'prompt')).toBe(false);
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('openPromptEditor', {});
   });
 
   it('reads a file once and does not re-read it on the next reveal', async () => {

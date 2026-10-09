@@ -100,9 +100,10 @@ never pushes a session tab aside.
 ## Prompt templates
 
 pi turns Markdown files under `~/.pi/agent/prompts` (and, once a project is trusted, `<project>/.pi/prompts`)
-into `/commands`. Run **Edit prompt templates** from the command palette (`Ctrl+Alt+E`; it is a Morse command,
-not a pi one) to open Morse's editor for them — the browser host opens a **Prompt templates** tab next to the
-sessions, and VS Code opens a **Prompt templates** editor panel, the same way the MCP editor does. It lists the
+into `/commands`. Run **Edit prompt templates** — from the toolbar's document button, the command palette, or
+`Ctrl+Alt+E` (it is a Morse command, not a pi one) — to open Morse's editor for them: the browser host opens a
+**Prompt templates** tab next to the sessions, and VS Code opens a **Prompt templates** editor panel, the same
+way the MCP editor does. It lists the
 templates the host read — your user prompt directory plus, with a session in front, that session's project
 `.pi/prompts` — writes the file for you (frontmatter and body) and tests the expansion before you run it.
 

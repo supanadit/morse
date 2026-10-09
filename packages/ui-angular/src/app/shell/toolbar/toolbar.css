@@ -232,3 +232,13 @@
 .mcp.off .mcp-dot {
   background: var(--morse-border);
 }
+
+/*
+ * The prompt-template button. Unlike MCP there is no status to report, only
+ * whether its editor is the tab in front: a plain button that lights up when
+ * open, so the reader can tell a second click is a focus, not a fresh tab.
+ */
+.prompts.on {
+  background: var(--morse-active);
+  color: var(--morse-accent);
+}

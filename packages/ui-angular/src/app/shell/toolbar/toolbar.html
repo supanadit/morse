@@ -98,6 +98,24 @@
     </svg>
   </button>
 
+  @if (promptsEnabled()) {
+    <button
+      type="button"
+      class="icon prompts"
+      [class.on]="promptsOpen()"
+      [title]="promptsOpen() ? 'Prompt templates — in front' : 'Edit prompt templates'"
+      [attr.aria-label]="'Edit prompt templates'"
+      [attr.aria-pressed]="promptsOpen()"
+      (click)="openPrompts()"
+    >
+      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M3.5 2.5h5l3 3v8h-8z" />
+        <path d="M8.5 2.5v3h3" />
+        <path d="M5.5 8.5h5M5.5 11h3" />
+      </svg>
+    </button>
+  }
+
   @if (mcpEnabled()) {
     <button
       type="button"

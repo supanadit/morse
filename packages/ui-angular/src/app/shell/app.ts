@@ -533,14 +533,11 @@ export class App {
 
   /**
    * Opens the prompt-template editor: a tab on a host with a Morse tab strip,
-   * the host's own editor panel where there is none (VS Code).
+   * the host's own editor panel where there is none (VS Code). The host branch
+   * lives on `WorkspaceTabs`, so the toolbar button takes the same path.
    */
   protected openPromptEditor(): void {
-    if (this.morse.capabilities()?.filePreview === true) {
-      this.tabs.openPrompt();
-    } else {
-      void this.morse.requestHostCommand('openPromptEditor', {}).catch(() => undefined);
-    }
+    this.tabs.openPromptEditor();
   }
 
   /** Bring the full-screen connection help back after it was dismissed. */

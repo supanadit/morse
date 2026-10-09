@@ -523,6 +523,20 @@ export class WorkspaceTabs {
   }
 
   /**
+   * Opens the prompt-template editor the way this host can show it: a tab on a
+   * host with a Morse tab strip (the browser), the host's own editor panel where
+   * there is none (VS Code). Shared so the keyboard, the palette and the toolbar
+   * button all take the same path.
+   */
+  openPromptEditor(): void {
+    if (this.morse.capabilities()?.filePreview === true) {
+      this.openPrompt();
+    } else {
+      void this.morse.requestHostCommand('openPromptEditor', {}).catch(() => undefined);
+    }
+  }
+
+  /**
    * Opens or reveals a file tab from the Explorer. With a session in front the
    * file is that session's **chip** (the row that never pushes a session tab
    * aside); with no session it stands on its own, like a session.
