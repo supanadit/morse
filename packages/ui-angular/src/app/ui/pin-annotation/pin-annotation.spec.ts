@@ -158,7 +158,7 @@ describe('PinAnnotation', () => {
 
     const inside = render();
     // A press on the card itself is not "outside".
-    inside.host.querySelector('.toolbar')?.dispatchEvent(
+    inside.host.querySelector('.tools')?.dispatchEvent(
       new PointerEvent('pointerdown', { bubbles: true }),
     );
     expect(inside.cancelled).toHaveLength(0);

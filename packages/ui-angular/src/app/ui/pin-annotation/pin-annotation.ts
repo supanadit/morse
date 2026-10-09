@@ -43,6 +43,9 @@ const VIEWPORT_FALLBACK: PopoverSize = { width: 1_024, height: 768 };
 /** The line the footer documents, so the shortcuts are discoverable. */
 const SHORTCUT_HINT = 'Markdown · ⌘/Ctrl+B bold · I italic · E code · K link · ⏎ saves';
 
+/** The empty field's prompt, the way a review comment invites one. */
+const PLACEHOLDER = 'Leave a comment';
+
 @Component({
   selector: 'morse-pin-annotation',
   templateUrl: './pin-annotation.html',
@@ -61,6 +64,7 @@ export class PinAnnotation {
   readonly cancel = output<void>();
 
   protected readonly shortcutHint = SHORTCUT_HINT;
+  protected readonly placeholder = PLACEHOLDER;
   protected readonly spot = computed(() =>
     placePopover(this.anchor(), this.measured(), {
       width: typeof window === 'undefined' ? VIEWPORT_FALLBACK.width : window.innerWidth,
