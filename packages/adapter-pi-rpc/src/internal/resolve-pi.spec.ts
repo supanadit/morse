@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentUnavailableError } from '@morse/core';
-import { PI_INSTALL_COMMAND, readPiVersion, resolvePi } from './resolve-pi.js';
+import { findWindowsShim, PI_INSTALL_COMMAND, readPiVersion, resolvePi } from './resolve-pi.js';
 
 /**
  * `resolvePi` is the one place that decides what Morse will actually run, and the
@@ -110,5 +110,120 @@ describe('readPiVersion', () => {
     expect(
       readPiVersion({ command: join(root, 'missing'), args: [], source: 'path' }),
     ).toBeUndefined();
+  });
+});
+
+/**
+ * Windows shims. npm's global install leaves `pi` (sh), `pi.cmd` and `pi.ps1`
+ * side by side in `%APPDATA%\npm`, and `PATHEXT` — a shell variable — is often
+ * missing from a GUI process. Each shim needs different spawn treatment, so
+ * `findWindowsShim` is tested directly rather than through `resolvePi`, whose
+ * platform branch cannot be faked.
+ */
+describe('findWindowsShim', () => {
+  function windowsDir(files: string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'morse-pi-win-'));
+    tempDirs.push(dir);
+    for (const file of files) {
+      writeFileSync(join(dir, file), '');
+    }
+    return dir;
+  }
+
+  /**
+   * Windows is case-insensitive, so `pi.CMD` (what `PATHEXT` yields) matches the
+   * lowercase `pi.cmd` npm writes. A POSIX test filesystem is not, so when a case
+   * differs we materialise the probe's exact spelling with a hard link to keep
+   * the fixture honest without duplicating data.
+   */
+  function windowsDirCaseInsensitive(files: string[]): string {
+    const dir = windowsDir(files);
+    for (const file of files) {
+      // Uppercase only the extension, the casing `PATHEXT` uses (`.CMD`, `.EXE`).
+      const dot = file.lastIndexOf('.');
+      const upperName = dot < 0 ? file : `${file.slice(0, dot)}${file.slice(dot).toUpperCase()}`;
+      const upper = join(dir, upperName);
+      if (upper !== join(dir, file)) {
+        symlinkSync(join(dir, file), upper);
+      }
+    }
+    return dir;
+  }
+
+  it('prefers a real .exe and starts it without a shell', () => {
+    const dir = windowsDirCaseInsensitive(['pi.cmd', 'pi.exe']);
+
+    expect(findWindowsShim('pi', { PATH: dir, PATHEXT: '.COM;.EXE;.BAT;.CMD' })).toEqual({
+      command: join(dir, 'pi.EXE'),
+      prefix: [],
+      shell: false,
+    });
+  });
+
+  it('falls back to the .cmd shim and marks it as needing a shell', () => {
+    const dir = windowsDirCaseInsensitive(['pi.cmd']);
+
+    expect(findWindowsShim('pi', { PATH: dir, PATHEXT: '.COM;.EXE;.BAT;.CMD' })).toEqual({
+      command: join(dir, 'pi.CMD'),
+      prefix: [],
+      shell: true,
+    });
+  });
+
+  it('still finds the .cmd shim when PATHEXT is absent', () => {
+    const dir = windowsDirCaseInsensitive(['pi.cmd']);
+
+    expect(findWindowsShim('pi', { PATH: dir })).toEqual({
+      command: join(dir, 'pi.CMD'),
+      prefix: [],
+      shell: true,
+    });
+  });
+
+  it('runs a lone .ps1 through powershell, since PATHEXT never lists it', () => {
+    const dir = windowsDir(['pi.ps1']);
+    const shim = findWindowsShim('pi', { PATH: dir, PATHEXT: '.COM;.EXE;.BAT;.CMD' });
+
+    expect(shim).toEqual({
+      command: 'powershell.exe',
+      prefix: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(dir, 'pi.ps1')],
+      shell: false,
+    });
+  });
+
+  it('prefers .cmd over .ps1 when both exist', () => {
+    const dir = windowsDirCaseInsensitive(['pi.cmd', 'pi.ps1']);
+
+    expect(findWindowsShim('pi', { PATH: dir, PATHEXT: '.COM;.EXE;.BAT;.CMD' })?.command).toBe(
+      join(dir, 'pi.CMD'),
+    );
+  });
+
+  it('reads Path as well as PATH, and returns undefined when nothing matches', () => {
+    const dir = windowsDirCaseInsensitive(['pi.cmd']);
+
+    expect(findWindowsShim('pi', { Path: dir, PATHEXT: '.CMD' })?.command).toBe(join(dir, 'pi.CMD'));
+    expect(findWindowsShim('pi', { PATH: windowsDir([]) })).toBeUndefined();
+  });
+});
+
+/**
+ * A Windows `.cmd` shim is a script, not the package, so the manifest is not
+ * beside it. npm names the real entry inside, and `readPiVersion` follows that.
+ */
+describe('readPiVersion on a Windows shim', () => {
+  it('follows the node_modules path written inside a .cmd shim', () => {
+    const root = mkdtempSync(join(tmpdir(), 'morse-pi-cmd-'));
+    tempDirs.push(root);
+    const pkg = join(root, 'node_modules', '@earendil-works', 'pi-coding-agent');
+    mkdirSync(join(pkg, 'dist', 'bundle'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '4.5.6' }));
+    const shim = join(root, 'pi.cmd');
+    writeFileSync(
+      shim,
+      `@ECHO off\r\nnode "%~dp0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js" %*\r\n`,
+    );
+
+    expect(readPiVersion({ command: shim, args: [], source: 'path' })).toBe('4.5.6');
   });
 });

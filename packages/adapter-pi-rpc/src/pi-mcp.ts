@@ -174,6 +174,7 @@ export class PiMcp {
       project ?? this.agentDir(),
       cleanSpawnEnv(this.env()),
       this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      spawn.shell === true,
     );
     const parsed = parseStatus(stdout);
     if (!parsed) {
@@ -454,12 +455,13 @@ function run(
   cwd: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  shell = false,
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       args,
-      { cwd, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
+      { cwd, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, shell },
       (error, stdout, stderr) => {
         const err = error as (NodeJS.ErrnoException & { killed?: boolean }) | null;
         const code = err?.code;

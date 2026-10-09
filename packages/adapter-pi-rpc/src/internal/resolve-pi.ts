@@ -30,6 +30,11 @@ export interface PiSpawn {
   command: string;
   args: string[];
   source: PiSpawnSource;
+  /**
+   * True when the command is a `.cmd`/`.bat` shim that Windows `CreateProcess`
+   * cannot start directly and must go through `cmd.exe` (spawn `shell: true`).
+   */
+  shell?: boolean;
 }
 
 export function buildRpcArgs(options: ResolvePiOptions): string[] {
@@ -65,9 +70,14 @@ export function resolvePi(options: ResolvePiOptions = {}): PiSpawn {
     return { command: process.execPath, args: [entry, ...args], source: 'node-entry' };
   }
 
-  const onPath = findOnPath('pi', env);
+  const onPath = findOnPathBinary('pi', env);
   if (onPath) {
-    return { command: onPath, args, source: 'path' };
+    return {
+      command: onPath.command,
+      args: [...onPath.prefix, ...args],
+      source: 'path',
+      ...(onPath.shell ? { shell: true } : {}),
+    };
   }
 
   throw new AgentUnavailableError(
@@ -86,6 +96,8 @@ export interface PiCliSpawn {
   /** Arguments that select pi itself, before the subcommand (the node RPC entry). */
   baseArgs: string[];
   source: PiSpawnSource;
+  /** True for a Windows `.cmd`/`.bat` shim that needs `shell: true`. */
+  shell?: boolean;
 }
 
 /**
@@ -103,9 +115,14 @@ export function resolvePiCli(options: ResolvePiOptions = {}): PiCliSpawn {
     return { command: configured, baseArgs: [], source: 'configured' };
   }
 
-  const onPath = findOnPath('pi', env);
+  const onPath = findOnPathBinary('pi', env);
   if (onPath) {
-    return { command: onPath, baseArgs: [], source: 'path' };
+    return {
+      command: onPath.command,
+      baseArgs: onPath.prefix,
+      source: 'path',
+      ...(onPath.shell ? { shell: true } : {}),
+    };
   }
 
   const entry = options.nodeEntryPath ?? env.MORSE_PI_ENTRY;
@@ -132,27 +149,109 @@ function siblingCliEntry(entry: string): string | undefined {
   return entry.endsWith('rpc-entry.js') && isExecutableEntry(cli) ? cli : undefined;
 }
 
-export function findOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+/**
+ * How a Windows shim has to be started. npm's global install leaves several
+ * kinds of `pi` next to each other in `%APPDATA%\npm`:
+ *
+ * - `pi`      POSIX sh script, only usable from Git Bash/MSYS/WSL, not Node.
+ * - `pi.cmd`  batch shim; `CreateProcess` cannot start it without `cmd.exe`,
+ *             so `spawn` needs `shell: true`.
+ * - `pi.ps1`  PowerShell script; never in `PATHEXT` and never directly
+ *             executable — it must go through `powershell -File`.
+ * - `pi.exe`  a real executable (native build), started as-is.
+ */
+type WinShim = { command: string; prefix: string[]; shell: boolean };
+
+/** `PATHEXT` is a shell variable and is often absent from GUI processes. */
+function windowsExtensions(env: NodeJS.ProcessEnv): string[] {
+  const raw = env.PATHEXT ?? env.Pathext ?? process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD';
+  return raw
+    .split(';')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+/**
+ * A Windows path that names an executable we can actually start, plus how to
+ * start it. `.ps1` is probed explicitly because `PATHEXT` deliberately omits it,
+ * and is only used when nothing better exists — its execution policy can block
+ * it and it costs a `powershell` process. Exported for the test.
+ */
+export function findWindowsShim(binary: string, env: NodeJS.ProcessEnv): WinShim | undefined {
   const pathValue = env.PATH ?? env.Path ?? '';
   if (pathValue.length === 0) {
     return undefined;
   }
-  const extensions =
-    process.platform === 'win32'
-      ? (env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').filter((value) => value.length > 0)
-      : [''];
+  const pathExt = windowsExtensions(env);
+  // `path.delimiter` is `:` off Windows, so split on `;` explicitly here.
+  const directories = pathValue.split(';');
+
+  // Walk extensions in `PATHEXT` order so a real `.exe` wins over a `.cmd`.
+  for (const directory of directories) {
+    if (directory.length === 0) {
+      continue;
+    }
+    for (const extension of pathExt) {
+      const candidate = join(directory, `${binary}${extension}`);
+      if (!isExecutableEntry(candidate)) {
+        continue;
+      }
+      const lowered = extension.toLowerCase();
+      if (lowered === '.exe' || lowered === '.com') {
+        return { command: candidate, prefix: [], shell: false };
+      }
+      if (lowered === '.cmd' || lowered === '.bat') {
+        return { command: candidate, prefix: [], shell: true };
+      }
+    }
+  }
+
+  // `.ps1` is not in `PATHEXT`; probe it explicitly, last among Windows shims.
+  for (const directory of directories) {
+    if (directory.length === 0) {
+      continue;
+    }
+    const candidate = join(directory, `${binary}.ps1`);
+    if (isExecutableEntry(candidate)) {
+      return {
+        command: 'powershell.exe',
+        prefix: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', candidate],
+        shell: false,
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Locate `binary` on `PATH` for the current platform.
+ *
+ * On Windows this returns the best shim (`.exe` > `.cmd`/`.bat` > `.ps1`) and
+ * reports the arguments and `shell` flag needed to start it; elsewhere it is a
+ * plain `PATH` walk. Exposed for the extension's "is pi installed?" probe.
+ */
+export function findOnPathBinary(binary: string, env: NodeJS.ProcessEnv = process.env): WinShim | undefined {
+  if (process.platform === 'win32') {
+    return findWindowsShim(binary, env);
+  }
+  const pathValue = env.PATH ?? env.Path ?? '';
+  if (pathValue.length === 0) {
+    return undefined;
+  }
   for (const directory of pathValue.split(delimiter)) {
     if (directory.length === 0) {
       continue;
     }
-    for (const extension of extensions) {
-      const candidate = join(directory, `${binary}${extension}`);
-      if (isExecutableEntry(candidate)) {
-        return candidate;
-      }
+    const candidate = join(directory, binary);
+    if (isExecutableEntry(candidate)) {
+      return { command: candidate, prefix: [], shell: false };
     }
   }
   return undefined;
+}
+
+export function findOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return findOnPathBinary(binary, env)?.command;
 }
 
 /**
@@ -177,6 +276,15 @@ export function readPiVersion(spawn: PiSpawn): string | undefined {
     directory = statSync(resolved).isDirectory() ? resolved : dirname(resolved);
   } catch {
     directory = dirname(entry);
+  }
+  // A Windows `.cmd`/`.bat` shim is a script, not the package, so the manifest is
+  // not beside it. npm writes the real `node_modules` path inside the shim, so
+  // follow that reference before walking ancestors.
+  if (directory !== undefined && /\.(?:cmd|bat)$/i.test(entry)) {
+    const referenced = packageDirFromShim(entry);
+    if (referenced !== undefined) {
+      directory = referenced;
+    }
   }
   // The package root is at most a couple of levels above the entry; walking a
   // fixed few and stopping keeps this from climbing to the filesystem root.
@@ -205,6 +313,41 @@ function versionFromManifest(path: string): string | undefined {
     }
   } catch {
     // Unreadable or not JSON: keep walking.
+  }
+  return undefined;
+}
+
+/**
+ * The `node_modules` package directory a Windows `.cmd`/`.bat` shim points at.
+ *
+ * npm's shim is a script, so the manifest is not beside it: the file names the
+ * real entry with something like
+ *   `"%dp0%\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js"`.
+ * Best effort — an unrecognised shim simply yields no version.
+ */
+function packageDirFromShim(entry: string): string | undefined {
+  try {
+    const text = readFileSync(entry, 'utf8');
+    // npm shims reference the entry either absolutely (`C:\...`) or relative to
+    // the shim's own directory via `%~dp0` / `%dp0%`.
+    const match = /((?:[A-Za-z]:\\|(?:%~?dp0%?\\))[^"'\r\n]*?node_modules[\\/][^"'\r\n]+)/i.exec(text);
+    if (match?.[1] === undefined) {
+      return undefined;
+    }
+    const raw = match[1];
+    const relative = raw.replace(/^(?:%~?dp0%?\\?)/i, '').replace(/\\/g, '/');
+    const resolved = /^[A-Za-z]:[\\/]/.test(raw)
+      ? raw.replace(/\\/g, '/')
+      : join(dirname(entry), relative);
+    let dir = dirname(resolved);
+    for (let depth = 0; depth < 6 && dir !== dirname(dir); depth += 1) {
+      if (existsSync(join(dir, 'package.json'))) {
+        return dir;
+      }
+      dir = dirname(dir);
+    }
+  } catch {
+    // Unreadable shim: no version, not an error.
   }
   return undefined;
 }

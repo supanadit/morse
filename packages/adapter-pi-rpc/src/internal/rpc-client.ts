@@ -8,6 +8,8 @@ export interface PiRpcClientOptions {
   command: string;
   args: string[];
   cwd: string;
+  /** True for a Windows `.cmd`/`.bat` shim that `CreateProcess` cannot start directly. */
+  shell?: boolean;
   env?: NodeJS.ProcessEnv;
   requestTimeoutMs?: number;
   onRecord: (record: RpcRecord) => void;
@@ -71,6 +73,7 @@ export class PiRpcClient {
       env: cleanSpawnEnv(this.options.env),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      shell: this.options.shell ?? false,
     });
     this.child = child;
     child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk));

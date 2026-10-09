@@ -44,7 +44,7 @@ export type { PiRpcSessionCatalogOptions } from './pi-rpc-session-catalog.js';
 export { PiRpcClient } from './internal/rpc-client.js';
 export type { PiRpcClientOptions } from './internal/rpc-client.js';
 export { JsonlFramer } from './internal/jsonl-framer.js';
-export { buildRpcArgs, findOnPath, resolvePi, resolvePiCli, resolveSessionDir } from './internal/resolve-pi.js';
+export { buildRpcArgs, findOnPath, findOnPathBinary, resolvePi, resolvePiCli, resolveSessionDir } from './internal/resolve-pi.js';
 export { readProjectTrust, writeProjectTrust, resolveAgentDir } from './internal/project-trust.js';
 export type { TrustResult } from './internal/project-trust.js';
 export type { PiCliSpawn, PiSpawn, PiSpawnSource, ResolvePiOptions } from './internal/resolve-pi.js';

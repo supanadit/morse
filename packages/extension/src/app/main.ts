@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
-import { createPiRpcAdapter, findOnPath, type PiRpcAdapterConfig } from '@morse/adapter-pi-rpc';
+import { createPiRpcAdapter, findOnPathBinary, type PiRpcAdapterConfig } from '@morse/adapter-pi-rpc';
 import { ChatService, SessionRegistry } from '@morse/core';
 import { SessionTranscriptStore } from '@morse/host-runtime';
 import {
@@ -162,11 +162,11 @@ async function resolvePiEnv(
   config: Pick<PiRpcAdapterConfig, 'piPath'>,
   logger: OutputChannelLogger,
 ): Promise<NodeJS.ProcessEnv | undefined> {
-  if (config.piPath !== undefined || findOnPath('pi', process.env) !== undefined) {
+  if (config.piPath !== undefined || findOnPathBinary('pi', process.env) !== undefined) {
     return undefined;
   }
   const path = await loginShellPath(process.env);
-  if (path === undefined || findOnPath('pi', { ...process.env, PATH: path }) === undefined) {
+  if (path === undefined || findOnPathBinary('pi', { ...process.env, PATH: path }) === undefined) {
     return undefined;
   }
   logger.info('pi was not on the extension host PATH; using the login shell PATH instead');

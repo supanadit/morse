@@ -98,6 +98,7 @@ export class PiRpcAgent implements AgentGateway {
       command: options.spawn.command,
       args: options.spawn.args,
       cwd: options.workspace.cwd,
+      shell: options.spawn.shell,
       env: options.env,
       requestTimeoutMs: options.requestTimeoutMs,
       onRecord: (record) => {
