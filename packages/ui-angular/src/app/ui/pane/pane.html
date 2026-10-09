@@ -22,14 +22,14 @@
     }
   }
 
-  <!-- The one thing a panel may bring into the title bar: a chip of its own (a ref picker).
-       It follows the name (and, folded, the fold target) and precedes the spacer, so the
-       panel's own buttons still land at the far edge. -->
-  <ng-content select="[paneChip]" />
-
   @if (folded() === undefined) {
     <span class="pane-spacer"></span>
   }
+
+  <!-- The one thing a panel may bring into the title bar: a chip of its own (a ref picker).
+       It follows the spacer, so a panel's chip sits with its own buttons at the far edge —
+       one cluster of things to click, not two. -->
+  <ng-content select="[paneChip]" />
 
   <!-- A panel's own button, drawn to the pane's own measure (the Explorer's refresh). -->
   <ng-content select="[paneActions]" />
