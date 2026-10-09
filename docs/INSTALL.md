@@ -103,6 +103,12 @@ Other `.vscode` tasks: **morse: build ui**, **morse: build server**, **morse: pa
 
 > After a UI change, run `npm run sync-webview` (or keep the F5 watcher running) or the webview stays blank.
 
+> **F5 aborts with exit code 134?** Not Morse. VS Code 1.141's `js-debug` enables CDP network
+> inspection on the extension-host inspector (`debug.javascript.enableNetworkView`, on by default),
+> and the bundled Node aborts before any extension activates. The repo ships
+> `.vscode/settings.json` setting it to `false`; **Ctrl+F5** (Run Without Debugging) is stable
+> regardless. Upstream: [microsoft/vscode#336233](https://github.com/microsoft/vscode/issues/336233).
+
 ### 1.5 Extension settings
 
 All settings live under `morse.*` (see the extension manifest / README):

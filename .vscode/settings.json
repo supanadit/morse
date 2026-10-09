@@ -1,0 +1,7 @@
+{
+  // Workaround for the VS Code 1.141 js-debug crash: debug.javascript.enableNetworkView
+  // makes js-debug send a CDP `Network.enable` to the extension-host inspector, and the
+  // bundled Node (24.21) aborts there (SIGABRT, exit 134) right as "Loading development
+  // extension" runs — before Morse activates. See microsoft/vscode#336233.
+  "debug.javascript.enableNetworkView": false
+}
