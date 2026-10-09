@@ -82,8 +82,9 @@ describe('App embedded (a session editor tab)', () => {
     const host: HTMLElement = fixture.nativeElement;
 
     expect(host.querySelector('morse-session-nav')).toBeNull();
-    // The conversation itself is still there.
-    expect(host.querySelector('morse-chat-header')).toBeTruthy();
+    // The conversation column is still one column: the toolbar already lives in
+    // a host that has its own chrome, so the chat has nothing left to add on top.
+    expect(host.querySelector('morse-toolbar')).toBeNull();
   });
 
   it('hides the sidebar toggles that would act on a sidebar it does not have', () => {
@@ -92,10 +93,14 @@ describe('App embedded (a session editor tab)', () => {
       providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new EmbeddedTransport() }],
     });
     const fixture = render();
-    const header: HTMLElement = fixture.nativeElement.querySelector('morse-chat-header');
+    const nav: HTMLElement = fixture.nativeElement.querySelector('navigation,[aria-label]') ??
+      fixture.nativeElement;
 
-    expect(header.querySelector('.menu')).toBeNull();
-    expect(header.querySelector('.collapse')).toBeNull();
+    // Nothing in the one-column surface offers a menu or a fold: both toggles
+    // belong to the toolbar, which is not rendered here.
+    expect(fixture.nativeElement.querySelector('morse-toolbar')).toBeNull();
+    expect(nav.querySelector('.menu')).toBeNull();
+    expect(nav.querySelector('.collapse')).toBeNull();
   });
 
   it('keeps its one column even when the shared fold preference says collapsed', () => {

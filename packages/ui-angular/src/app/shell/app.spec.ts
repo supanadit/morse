@@ -26,7 +26,9 @@ describe('App', () => {
   it('renders the workspace reported by the host', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('mock-workspace');
+    // The status bar carries the workspace's path since the chat header went.
+    const path = fixture.nativeElement.querySelector('morse-status-bar .path') as HTMLElement;
+    expect(path?.textContent?.trim()).toBe('/mock/workspace');
   });
 
   it('shows the composer once the agent is ready', () => {
@@ -112,14 +114,14 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('morse-about-dialog')).toBeTruthy();
   });
 
-  it('keeps "New session" in the sidebar, not repeated in the chat header', () => {    const fixture = TestBed.createComponent(App);
+  it('keeps "New session" in the sidebar, not repeated in the chrome', () => {
+    const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
-    // The header carried a second "+" next to the sidebar's button, and VS Code
-    // contributes its own `morse.newSession` to the view title bar — so the panel
-    // header must not offer a third one.
-    const header = fixture.nativeElement.querySelector('morse-chat-header') as HTMLElement;
-    const labels = [...header.querySelectorAll('button')].map((button) =>
+    // An early header and toolbar carried a second "+" next to the sidebar's
+    // button, and VS Code contributes its own `morse.newSession` to the view
+    // title bar — so the chrome must not offer a third one.
+    const labels = [...fixture.nativeElement.querySelectorAll('button')].map((button) =>
       button.getAttribute('aria-label'),
     );
     expect(labels).not.toContain('New session');

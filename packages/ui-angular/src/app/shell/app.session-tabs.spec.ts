@@ -149,27 +149,6 @@ describe('App session tabs', () => {
     expect(fixture.nativeElement.querySelector('.tab.active')).toBeNull();
   });
 
-  it('does not name the previous project in the header once no tab is in front', () => {
-    const transport = new TitledSessionTransport();
-    TestBed.configureTestingModule({
-      imports: [App],
-      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
-    });
-    const fixture = render();
-    const header = () => fixture.nativeElement.querySelector('morse-chat-header') as HTMLElement;
-
-    expect(header().querySelector('.title')?.textContent?.trim()).toBe('Sekarang tampilan tool');
-    expect(header().querySelector('.meta')?.textContent).toContain('morse');
-
-    transport.dropToDraft();
-    fixture.detectChanges();
-
-    // The host's workspace is still /work/morse, but no conversation is in front:
-    // the header must not claim that project as this empty panel's subject.
-    expect(header().querySelector('.title')?.textContent?.trim()).toBe('Morse');
-    expect(header().querySelector('.meta')).toBeNull();
-  });
-
   it('nudges for notifications once, and remembers the answer', () => {
     TestBed.configureTestingModule({
       imports: [App],

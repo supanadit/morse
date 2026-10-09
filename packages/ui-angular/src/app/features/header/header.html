@@ -1,8 +1,0 @@
-<header class="head">
-  <div class="titles">
-    <div class="title" [title]="state().sessionId ?? workspace().cwd">{{ title() }}</div>
-    @if (meta(); as line) {
-      <div class="meta" [title]="workspace().cwd">{{ line }}</div>
-    }
-  </div>
-</header>

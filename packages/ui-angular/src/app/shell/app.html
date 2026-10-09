@@ -94,10 +94,7 @@
       </div>
     }
 
-    <morse-chat-header />
-
-    <!-- The browser host's tabs: sessions and files side by side, below the
-         session header so that header keeps the same place in both hosts. VS
+    <!-- The browser host's tabs: sessions and files side by side. VS
          Code keeps its own editor tabs and never renders this strip. -->
     @if (tabsEnabled()) {
       <morse-tab-strip />

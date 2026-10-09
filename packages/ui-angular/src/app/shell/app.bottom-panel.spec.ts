@@ -174,8 +174,10 @@ describe('App bottom panel', () => {
     const terminalPanel = host.querySelector('morse-bottom-panel');
     expect(terminalPanel).not.toBeNull();
     expect(terminalPanel?.classList.contains('host-hidden')).toBe(true);
-    // The header drops the session's model and the project-scoped buttons too.
-    expect(host.querySelector('.meta')?.textContent ?? '').not.toContain('DeepSeek');
+    // No session in front: no model controls matter and the project-scoped
+    // buttons stand down.
+    const modelButton = host.querySelector('.model-button') as HTMLElement;
+    expect(modelButton?.textContent ?? '').not.toContain('DeepSeek');
     expect(host.querySelector('[aria-label="Show the git panel"]')).toBeNull();
     expect(host.querySelector('[aria-label="Hide the git panel"]')).toBeNull();
     // The tool-call density toggle is about a transcript, so it stands down…
@@ -203,7 +205,8 @@ describe('App bottom panel', () => {
     expect(terminalPanel).not.toBeNull();
     expect(terminalPanel?.classList.contains('host-hidden')).toBe(false);
     // With a session in front the model and the project buttons are back.
-    expect(host.querySelector('.meta')?.textContent ?? '').toContain('DeepSeek V4.1 Flash');
+    const modelButton = host.querySelector('.model-button') as HTMLElement;
+    expect(modelButton?.textContent ?? '').toContain('DeepSeek V4.1 Flash');
     expect(host.querySelector('[aria-label="MCP servers"]')).not.toBeNull();
     expect(host.querySelector('[aria-label^="Tool call display"]')).not.toBeNull();
   });

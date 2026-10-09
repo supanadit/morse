@@ -89,7 +89,6 @@
  * everything above it steps aside and the panel grows into the space. Only the
  * panel's own host stays, and it is the one that flexes.
  */
-.chat.bottom-full > morse-chat-header,
 .chat.bottom-full > morse-tab-strip,
 .chat.bottom-full > morse-file-preview,
 .chat.bottom-full > morse-chat-transcript,

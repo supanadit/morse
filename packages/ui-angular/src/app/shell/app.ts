@@ -4,7 +4,6 @@ import { BootSplash } from '../features/boot-splash/boot-splash';
 import { ConnectionScreen } from '../features/connection-screen/connection-screen';
 import { ChatComposer } from '../features/composer/composer';
 import { EmptySession } from '../features/empty/empty';
-import { ChatHeader } from '../features/header/header';
 import { McpPanel } from '../features/mcp-panel/mcp-panel';
 import { McpEditor } from '../features/mcp-editor/mcp-editor';
 import type { PromptEditor } from '../features/prompt-editor/prompt-editor';import { ChatTranscript } from '../features/transcript/transcript';
@@ -64,7 +63,6 @@ function previewBoot(): boolean {
     CommandPalette,
     AgentScreen,
     ConfirmDialog,
-    ChatHeader,
     McpPanel,
     McpEditor,
     NgComponentOutlet,
