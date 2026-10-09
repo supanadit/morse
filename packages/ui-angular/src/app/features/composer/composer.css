@@ -274,7 +274,7 @@
   padding: 3px 4px 3px 3px;
   border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-md);
-  background: var(--morse-hover);
+  /* background: var(--morse-hover); */
   font-size: 11.5px;
 }
 .chip img {
@@ -330,9 +330,9 @@
  * One visual layer, one alignment — nothing floats above it.
  */
 .chip.live {
-  background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
+  /* background: color-mix(in srgb, var(--morse-accent) 8%, transparent); */
   border: 1px dashed color-mix(in srgb, var(--morse-accent) 55%, transparent);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
+  /* box-shadow: 0 4px 14px rgb(0 0 0 / 28%); */
 }
 /*
  * A real <button>, so it is keyboard-reachable — and reset hard, at base
