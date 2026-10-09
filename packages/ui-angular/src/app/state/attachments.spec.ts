@@ -25,13 +25,25 @@ describe('AttachmentStore.setLivePreview', () => {
     expect(store.pins()).toHaveLength(0);
   });
 
-  it('hides when the selection is gone, without touching locked pins', () => {
+  it('shows a whole-file chip for a focused editor with no selection', () => {
+    const store = freshStore();
+    store.setLivePreview({ path: 'src/service.ts' });
+    expect(store.livePreview()).toEqual({ id: 'live-preview', path: 'src/service.ts' });
+    // Choosing a range on the same file turns the chip into a range chip.
+    store.setLivePreview({ path: 'src/service.ts', startLine: 10, endLine: 12 });
+    expect(store.livePreview()).toMatchObject({ path: 'src/service.ts', startLine: 10, endLine: 12 });
+    // Clearing the selection on the same file falls back to the whole-file chip.
+    store.setLivePreview({ path: 'src/service.ts' });
+    expect(store.livePreview()).toEqual({ id: 'live-preview', path: 'src/service.ts' });
+  });
+
+  it('hides when there is no editor at all, without touching locked pins', () => {
     const store = freshStore();
     store.pin({ path: 'src/service.ts', startLine: 154, endLine: 165 });
     store.setLivePreview({ path: 'src/other.ts', startLine: 3, endLine: 7 });
 
-    // A payload without lines is the host's "selection disappeared".
-    store.setLivePreview({ path: 'src/other.ts' });
+    // An empty path is the host's "no editor in front".
+    store.setLivePreview({ path: '' });
     expect(store.livePreview()).toBeNull();
     expect(store.pins()).toHaveLength(1);
 
@@ -56,6 +68,28 @@ describe('AttachmentStore.lockLivePreview', () => {
     expect(store.pins()).toEqual([
       { id: 'pin-1', path: 'src/service.ts', startLine: 154, endLine: 165 },
     ]);
+  });
+
+  it('locks a whole-file preview as a whole-file pin', () => {
+    const store = freshStore();
+    store.setLivePreview({ path: 'src/service.ts' });
+    store.lockLivePreview();
+
+    expect(store.livePreview()).toBeNull();
+    expect(store.pins()).toEqual([{ id: 'pin-1', path: 'src/service.ts' }]);
+  });
+
+  it('does not show a whole-file preview for a file already pinned whole', () => {
+    const store = freshStore();
+    store.pin({ path: 'src/service.ts' });
+    // The host keeps reporting the focused file on every edit; the chip must not
+    // come back as a duplicate of the pin.
+    store.setLivePreview({ path: 'src/service.ts' });
+    expect(store.livePreview()).toBeNull();
+    expect(store.pins()).toHaveLength(1);
+    // A range selection on the same file is still a new, distinct chip.
+    store.setLivePreview({ path: 'src/service.ts', startLine: 4, endLine: 6 });
+    expect(store.livePreview()).toMatchObject({ startLine: 4, endLine: 6 });
   });
 
   it('does nothing when nothing is live', () => {

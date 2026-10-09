@@ -128,12 +128,16 @@
             type="button"
             class="chip-body"
             [title]="lockLiveLabel()"
-            [attr.aria-label]="'Lock the ' + live.path + ' selection as a pin'"
+            [attr.aria-label]="live.startLine === undefined
+              ? 'Lock the whole file ' + live.path + ' to this message'
+              : 'Lock the ' + live.path + ' selection as a pin'"
             (click)="lockLive()"
           >
             <span class="pin-icon" aria-hidden="true">⧉</span>
             <span class="chip-name" [title]="live.path">{{ live.path }}</span>
-            <span class="chip-lines">{{ pinRange(live) }}</span>
+            @if (live.startLine !== undefined) {
+              <span class="chip-lines">{{ pinRange(live) }}</span>
+            }
           </button>
           <button
             type="button"

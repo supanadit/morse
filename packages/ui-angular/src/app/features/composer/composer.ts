@@ -227,9 +227,12 @@ export class ChatComposer {
   /** What clicking the live chip does, spelled out in its tooltip. */
   protected readonly lockLiveLabel = computed(() => {
     const live = this.livePreview();
-    return live
-      ? `Lock this selection — it stops following the editor; a new selection makes a new chip.`
-      : '';
+    if (!live) {
+      return '';
+    }
+    return live.startLine === undefined
+      ? `Add ${live.path} to this message — it is the file in front of the editor.`
+      : `Lock this selection — it stops following the editor; a new selection makes a new chip.`;
   });
   /** The file picker: the way to attach files in a host without drag and drop. */
   protected readonly pickerOpen = signal(false);
@@ -597,8 +600,14 @@ export class ChatComposer {
 
   /** The live chip is a preview until clicked: locking pins its final numbers. */
   protected lockLive(): void {
+    const live = this.livePreview();
     this.attachments.lockLivePreview();
-    this.attachments.say('info', 'Selection locked to this message.');
+    this.attachments.say(
+      'info',
+      live?.startLine === undefined
+        ? 'File added to this message.'
+        : 'Selection locked to this message.',
+    );
   }
 
   /** Dismisses the unlocked preview; the next selection brings a new chip. */

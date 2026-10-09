@@ -54,7 +54,8 @@ Morse **v0.22.0**. This page is the honest inventory of what ships. Everything e
 
 ### Context you attach
 
-- VS Code: editor selection plus a live selection chip that follows the caret while the user drags.
+- VS Code: a live chip follows the editor — a selection reads as `Lstart-end`, a merely focused file reads as a
+  whole-file chip with no line number — until the user clicks it to lock.
 - Everywhere: drag/drop/paste images; browser uploads land next to the session (`<cwd>/.morse/uploads/`) and
   ride as `@mentions`.
 - The `@mention` picker lists files **and** directories (`@docs/` drills in) and honours `.gitignore`.

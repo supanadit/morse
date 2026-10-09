@@ -216,9 +216,10 @@ export interface HostCapabilities {
   /** Host can read the active editor selection / open files. */
   editorContext: boolean;
   /**
-   * Host streams the active editor selection as it changes (`context/selectionLive`),
-   * so the frontend can show a live chip whose line numbers follow the user's
-   * drag until they click it to lock. Optional: hosts without an editor leave
+   * Host streams the editor's current state as it changes
+   * (`context/selectionLive`): a selection is a range chip whose numbers follow
+   * the drag, a merely focused file is a whole-file chip with no line number,
+   * and an empty path clears the chip. Optional: hosts without an editor leave
    * it off.
    */
   selectionLive?: boolean;

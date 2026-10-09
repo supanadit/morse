@@ -404,12 +404,27 @@ export class AttachmentStore {
   }
 
   /**
-   * Replaces the live selection preview (a payload without lines means the
-   * selection is gone). Field-level equality keeps a stream of identical
-   * updates from churning the render while the numbers stay realtime.
+   * Replaces the live preview with what the editor is showing now.
+   *
+   * A payload with lines is a selection; a payload with a path but no lines is
+   * a **focused file whose whole contents are the preview** — the chip carries
+   * the file with no line number, the way a mention of the file would. An empty
+   * path (or `null`) means the host has no editor in front, so the preview goes
+   * away. Field-level equality keeps a stream of identical updates from churning
+   * the render while the numbers stay realtime.
    */
   setLivePreview(next: Omit<PendingPin, 'id'> | null): void {
-    if (next === null || next.path.length === 0 || next.startLine === undefined) {
+    if (next === null || next.path.length === 0) {
+      this.live.set(null);
+      return;
+    }
+    // A whole-file preview for a file already pinned as a whole file would be a
+    // duplicate chip: the host keeps reporting the focused file on every edit,
+    // so suppress it while its pin is on the message.
+    if (
+      next.startLine === undefined &&
+      this.current().pins.some((item) => item.path === next.path && item.startLine === undefined)
+    ) {
       this.live.set(null);
       return;
     }
@@ -422,18 +437,22 @@ export class AttachmentStore {
     ) {
       return;
     }
-    this.live.set({
-      id: 'live-preview',
-      path: next.path,
-      startLine: next.startLine,
-      endLine: next.endLine,
-    });
+    const preview: PendingPin = { id: 'live-preview', path: next.path };
+    if (next.startLine !== undefined) {
+      preview.startLine = next.startLine;
+    }
+    if (next.endLine !== undefined) {
+      preview.endLine = next.endLine;
+    }
+    this.live.set(preview);
   }
 
   /**
    * Locks the live preview into a pin: it stops following new selections and
-   * rides with the next prompt. Clicking the live chip is what calls this, so
-   * locking is always the user's explicit move, never the host's.
+   * rides with the next prompt. A whole-file preview (no lines) locks as a
+   * whole-file pin, which is the same chip a picked `@path` mention makes.
+   * Clicking the live chip is what calls this, so locking is always the user's
+   * explicit move, never the host's.
    */
   lockLivePreview(): void {
     const current = this.live();
@@ -441,7 +460,14 @@ export class AttachmentStore {
       return;
     }
     this.live.set(null);
-    this.pin({ path: current.path, startLine: current.startLine, endLine: current.endLine });
+    const pin: Omit<PendingPin, 'id'> = { path: current.path };
+    if (current.startLine !== undefined) {
+      pin.startLine = current.startLine;
+    }
+    if (current.endLine !== undefined) {
+      pin.endLine = current.endLine;
+    }
+    this.pin(pin);
   }
 
   remove(id: string): void {

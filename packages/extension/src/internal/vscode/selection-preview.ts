@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 
-/** What the host reports about the editor's current selection. */
+/** What the host reports about the editor's current state. */
 export interface LiveSelectionPreview {
   path: string;
-  /** 1-based; missing together with `endLine` when nothing is selected. */
+  /**
+   * 1-based; missing together with `endLine` when nothing is selected, which
+   * means the whole focused file is the preview, not that there is no preview.
+   */
   startLine?: number;
   endLine?: number;
 }
@@ -16,11 +19,12 @@ export interface LiveSelectionPreview {
 const SELECTION_REPORT_INTERVAL_MS = 100;
 
 /**
- * Watches the editor and streams the user's current selection before they have
- * pinned anything, like drawing a highlight that keeps counting lines while it
- * moves. The frontend owns what happens next — an unlocked chip that follows
- * this stream until the user clicks it to lock. The host only reports what it
- * sees; the prompt itself is never padded with editor state behind their back.
+ * Watches the editor and streams what it is showing before the user has pinned
+ * anything: a selection while they drag it, and the merely focused file when
+ * nothing is selected, like a chip that follows the editor. The frontend owns
+ * what happens next — an unlocked chip that follows this stream until the user
+ * clicks it to lock. The host only reports what it sees; the prompt itself is
+ * never padded with editor state behind their back.
  */
 export class SelectionPreviewTracker {
   /** One timer, so a storm of drag events costs one pending callback at most. */
@@ -85,16 +89,19 @@ export class SelectionPreviewTracker {
   }
 }
 
-/** The current selection envelope, 1-based like everywhere else in Morse. */
+/**
+ * The current state envelope, 1-based like everywhere else in Morse. A focused
+ * file with no selection reports its path alone (the whole-file chip); no editor
+ * at all clears the preview with an empty path.
+ */
 export function toLivePreview(editor: vscode.TextEditor | undefined): LiveSelectionPreview {
   if (!editor) {
-    // No editor at all clears the preview; the path alone already does.
     return { path: '' };
   }
   const envelope = selectionEnvelope(editor.selections);
   const path = vscode.workspace.asRelativePath(editor.document.uri, false);
   if (!envelope) {
-    // No (non-empty) selection: hide the chip, locked pins are unaffected.
+    // Focused, nothing selected: the whole file is the preview.
     return { path };
   }
   return { path, startLine: envelope.startLine, endLine: envelope.endLine };

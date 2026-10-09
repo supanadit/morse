@@ -94,9 +94,10 @@ export interface MorseClient {
    */
   onContextSelection(listener: (pin: { path: string; startLine?: number; endLine?: number }) => void): () => void;
   /**
-   * Live, unlocked previews of the editor's current selection, streamed as the
-   * user draws it. The frontend shows one chip until it is clicked to lock
-   * (into a pin) — and keeps updating it for every new selection meanwhile.
+   * Live, unlocked previews of the editor's current state, streamed as the
+   * user moves. The frontend shows one chip until it is clicked to lock (into a
+   * pin) — a selection reads as `Lstart-end`, and the focused file with nothing
+   * selected reads as a whole-file chip with no line number.
    */
   onContextSelectionLive(listener: (preview: { path: string; startLine?: number; endLine?: number }) => void): () => void;
   /**

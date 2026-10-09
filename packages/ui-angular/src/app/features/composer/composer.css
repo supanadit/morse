@@ -324,14 +324,15 @@
   background: var(--morse-active);
 }
 /*
- * The live selection chip is a preview, not a pin: no surface (a
- * filled chip would swallow the numbers' inset pill and read as one big
- * highlight), just a dashed accent outline meaning "still following the
- * editor". One visual layer, one alignment — nothing floats above it.
+ * The live chip is a preview, not a pin: a faint surface and a dashed accent
+ * outline meaning "still following the editor", plus a soft shadow so the
+ * file in front reads as a floating, transient chip rather than a settled pin.
+ * One visual layer, one alignment — nothing floats above it.
  */
 .chip.live {
-  background: transparent;
+  background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
   border: 1px dashed color-mix(in srgb, var(--morse-accent) 55%, transparent);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
 }
 /*
  * A real <button>, so it is keyboard-reachable — and reset hard, at base

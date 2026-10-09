@@ -158,11 +158,13 @@ export type HostToClientMessage =
    */
   | { type: 'context/selection'; payload: { path: string; startLine?: number; endLine?: number } }
   /**
-   * What the user has selected in the editor right now, streamed as they drag.
-   * This is a preview, not a pin: the frontend shows it as a live chip that
-   * keeps updating (dragging and even multi-selection) until the user clicks
-   * it to lock. A payload without `startLine` means the selection is gone; the
-   * frontend hides the preview without touching the locked pins.
+   * What the user has selected (or merely focused) in the editor right now,
+   * streamed as they move. This is a preview, not a pin: the frontend shows it
+   * as a live chip that keeps updating until the user clicks it to lock. A
+   * payload with `startLine` is a selection and reads as `Lstart-end`; a payload
+   * with just a `path` is the focused file, shown as a whole-file chip with no
+   * line number. An empty `path` means there is no editor in front; the frontend
+   * hides the preview without touching the locked pins.
    */
   | { type: 'context/selectionLive'; payload: { path: string; startLine?: number; endLine?: number } }
   /**
