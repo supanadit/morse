@@ -1,0 +1,301 @@
+<div
+  class="edge-resize"
+  [morseSplitter]="'left'"
+  edge="right"
+  [min]="220"
+  label="Resize the navigation column"
+  title="Drag to resize"
+></div>
+
+<!--
+  The whole session area is one `morse-pane`, the way the Explorer is: its fold
+  chevron hides the New session button, the session search and every project list
+  at once. The groups inside are plain sections, not panes of their own — a pane
+  per project is what made the sidebar fold project-by-project instead of as a
+  whole.
+-->
+<morse-pane
+  class="sessions"
+  [class.folded]="sessionsFolded()"
+  title="Sessions"
+  [meta]="totalSessions().toString()"
+  [folded]="sessionsFolded()"
+  (foldToggle)="toggleSessions()"
+>
+  <button
+    paneActions
+    type="button"
+    class="icon"
+    title="Refresh sessions"
+    aria-label="Refresh sessions"
+    (click)="refresh()"
+  >
+    ⟳
+  </button>
+
+  @if (!sessionsFolded()) {
+    <div class="head">
+      <button type="button" class="primary" (click)="newSession($event)">
+        New session
+      </button>
+    </div>
+
+    <div class="filters">
+      <!--
+        Two rows, each full width: the sidebar is ~270px, and a project button
+        squeezed next to a search field left neither enough room to be readable.
+
+        The button filters *projects*, the field below it searches *session titles*.
+        Typing `buku` in the field used to match the project and then show “No
+        sessions yet” underneath it, which read as an empty project.
+      -->
+      @if (filterable()) {
+        <button
+          type="button"
+          class="secondary scope"
+          [class.filtered]="selectedProject() !== undefined"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="filterOpen()"
+          [title]="selectedProject()?.path ?? 'Every project pi knows about'"
+          (click)="openFilter()"
+        >
+          <span class="scope-glyph" aria-hidden="true">▤</span>
+          <span class="scope-name">{{ selectedProject()?.name ?? 'All projects' }}</span>
+        </button>
+      }
+      <input
+        #search
+        type="search"
+        [value]="query()"
+        placeholder="Search sessions…"
+        aria-label="Search sessions"
+        (input)="onQuery($event)"
+      />
+    </div>
+
+    @if (filterOpen()) {
+      <morse-project-filter
+        [projects]="projectOptions()"
+        [selected]="projectFilter()"
+        [totalSessions]="totalSessions()"
+        (select)="onProjectSelect($event)"
+        (close)="closeFilter()"
+      />
+    }
+
+    <div class="list">
+      <!--
+        What the agent is working in right now, across every project, lifted to the
+        top so a long catalog cannot bury a live run. These sessions are removed
+        from their project list below, so nothing is listed twice.
+      -->
+      @if (inProgress().length > 0) {
+        <section class="group">
+          <div class="group-head">
+            <span class="group-label">In progress</span>
+            <span class="count">{{ inProgress().length }}</span>
+          </div>
+          <ul>
+            @for (session of inProgress(); track session.id) {
+              <li>
+                <button
+                  type="button"
+                  class="session live"
+                  [class.active]="session.id === activeSessionId()"
+                  [title]="session.id"
+                  (click)="activate(session)"
+                  (contextmenu)="openMenu($event, session)"
+                >
+                  <span class="mark running" aria-hidden="true"></span>
+                  <span class="body">
+                    <span class="title">{{ session.title }}</span>
+                    <span class="subtitle">{{ activityLabel(session) }}</span>
+                  </span>
+                </button>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
+      @for (group of visibleGroups(); track group.path) {
+        <section class="group">
+          @if (scope() === 'global') {
+            <div class="group-head">
+              <button
+                type="button"
+                class="group-title"
+                [attr.aria-expanded]="!isCollapsed(group.path)"
+                [title]="group.path"
+                (click)="toggleGroup(group.path)"
+              >
+                <span class="name">{{ group.name }}</span>
+                <span class="count">{{ group.sessions.length }}</span>
+                @if (projectFilter() !== group.path) {
+                  <span class="chevron" [class.open]="!isCollapsed(group.path)">›</span>
+                }
+              </button>
+              <button
+                type="button"
+                class="group-new"
+                title="New session in this project"
+                [attr.aria-label]="'New session in ' + group.name"
+                (click)="newSession($event, group.path)"
+              >
+                +
+              </button>
+            </div>
+          }
+
+          <!-- VS Code is workspace-scoped: one project, so no accordion to fold. -->
+          @if (scope() === 'workspace' || !isCollapsed(group.path)) {
+            <ul>
+              @for (session of group.sessions; track session.id) {
+                <li>
+                  <button
+                    type="button"
+                    class="session"
+                    [class.active]="session.id === activeSessionId()"
+                    [title]="session.id"
+                    (click)="activate(session)"
+                    (contextmenu)="openMenu($event, session)"
+                  >
+                    <span class="body">
+                      <span class="title">{{ session.title }}</span>
+                    </span>
+                    <span class="meta">{{ age(session.updatedAt) }}</span>
+                  </button>
+                </li>
+              } @empty {
+                <!-- A project whose only sessions are in progress is not empty. -->
+                @if (group.hiddenRunning === 0) {
+                  <li class="empty">
+                    @if (query().length > 0) {
+                      No session matches “{{ query() }}”.
+                    } @else {
+                      No sessions yet.
+                    }
+                  </li>
+                }
+              }
+            </ul>
+          }
+        </section>
+      } @empty {
+        <p class="empty">
+          @if (query().length > 0) {
+            No session matches “{{ query() }}”.
+            @if (projectMatches().length > 0) {
+              Looking for a project?
+            }
+          } @else {
+            Nothing found.
+          }
+        </p>
+        <!-- The session box is the wrong place for a project name, so the answer is one
+             click away instead of a dead end. -->
+        @for (project of projectMatches(); track project.path) {
+          <button type="button" class="empty-action" (click)="filterToProject(project)">
+            Show all {{ project.sessionCount }} sessions in {{ project.name }}
+          </button>
+        }
+      }
+    </div>
+  }
+</morse-pane>
+
+<!-- The browser host's file tree; VS Code has its own Explorer and skips this.
+     With no tab in front there is no project to browse, so it stays out. -->
+@if (filePreview() && !noSessionInFront()) {
+  <morse-file-explorer />
+}
+
+<!-- Colophon: who made this, and who it stands on — one click from either host. -->
+<div class="foot">
+  <!-- A newer release, in the one row both hosts always render. It says the
+       version, links to its notes, and the hint (in the tooltip) says how this
+       host gets it. -->
+  @if (updateNotice(); as notice) {
+    <a
+      class="notice"
+      [href]="notice.url"
+      target="_blank"
+      rel="noreferrer noopener"
+      [title]="notice.hint + ' You are on v' + notice.current + '.'"
+    >
+      <span class="notice-glyph" aria-hidden="true">↑</span>
+      <span>Update available</span>
+      <span class="stamp">v{{ notice.latest }}</span>
+    </a>
+  }
+  <!-- The same row for pi itself: the agent Morse drives, which the reader
+       updates from a terminal, not from VS Code's extension update. -->
+  @if (piUpdateNotice(); as notice) {
+    <a
+      class="notice"
+      [href]="notice.url"
+      target="_blank"
+      rel="noreferrer noopener"
+      [title]="notice.hint + ' You are on v' + notice.current + '.'"
+    >
+      <span class="notice-glyph" aria-hidden="true">↑</span>
+      <span>Pi update available</span>
+      <span class="stamp">v{{ notice.latest }}</span>
+    </a>
+  }
+  <button type="button" (click)="openShortcuts()" title="Every key Morse understands">
+    Keyboard shortcuts
+    <span class="stamp">?</span>
+  </button>
+  <button type="button" (click)="openAbout()" title="About Morse and the technologies it uses">
+    About Morse
+    @if (version(); as stamp) {
+      <span class="stamp">v{{ stamp }}</span>
+    }
+  </button>
+</div>
+
+<!--
+  A session's actions live behind a right-click menu. The old "✕" sat inside
+  the row's own button, where the click read as "open this session" and was easy
+  to miss. Delete is destructive, so it asks first — natively where the host has
+  dialogs, in the menu itself where it does not.
+-->
+@if (menu(); as open) {
+  <div
+    class="context-menu-layer"
+    (click)="closeMenu()"
+    (contextmenu)="$event.preventDefault(); closeMenu()"
+  ></div>
+  <div
+    class="context-menu"
+    role="menu"
+    [style.left.px]="open.x"
+    [style.top.px]="open.y"
+  >
+    @if (open.confirming) {
+      <p class="context-menu-question">Delete this session?</p>
+      <p class="context-menu-title">{{ open.session.title }}</p>
+      <button type="button" class="context-menu-item" (click)="closeMenu()">Cancel</button>
+      <button type="button" class="context-menu-item danger" (click)="deleteNow(open.session)">
+        Delete
+      </button>
+    } @else {
+      <button type="button" class="context-menu-item" (click)="closeNow(open.session)">
+        Close session
+      </button>
+      @if (sessionTabs()) {
+        <button
+          type="button"
+          class="context-menu-item"
+          (click)="openInEditorTab(open.session)"
+        >
+          Open in editor tab
+        </button>
+      }
+      <button type="button" class="context-menu-item danger" (click)="askDelete(open)">
+        Delete session…
+      </button>
+    }
+  </div>
+}

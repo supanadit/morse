@@ -1,0 +1,71 @@
+<div class="pane-head" data-pane-handle>
+  @if (folded() !== undefined) {
+    <!-- The fold target is the whole row the title and count own, so its hover spans
+         the width the way the sidebar's project headers do. A chip and the panel's own
+         buttons follow it; the fold's `flex: 1` is what keeps them at the far edge. -->
+    <button
+      type="button"
+      class="pane-fold"
+      [attr.aria-expanded]="!folded()"
+      (click)="foldToggle.emit()"
+    >
+      <span class="pane-chevron" [class.open]="!folded()">›</span>
+      <span class="pane-title">{{ title() }}</span>
+      @if (meta(); as text) {
+        <span class="pane-meta">{{ text }}</span>
+      }
+    </button>
+  } @else {
+    <span class="pane-title">{{ title() }}</span>
+    @if (meta(); as text) {
+      <span class="pane-meta">{{ text }}</span>
+    }
+  }
+
+  <!-- The one thing a panel may bring into the title bar: a chip of its own (a ref picker).
+       It follows the name (and, folded, the fold target) and precedes the spacer, so the
+       panel's own buttons still land at the far edge. -->
+  <ng-content select="[paneChip]" />
+
+  @if (folded() === undefined) {
+    <span class="pane-spacer"></span>
+  }
+
+  <!-- A panel's own button, drawn to the pane's own measure (the Explorer's refresh). -->
+  <ng-content select="[paneActions]" />
+
+  @for (action of actions(); track action.id) {
+    <button
+      type="button"
+      class="pane-action"
+      [class.on]="action.active === true"
+      [disabled]="action.disabled === true"
+      [title]="label(action)"
+      [attr.aria-label]="label(action)"
+      [attr.aria-pressed]="action.active === undefined ? null : action.active"
+      (click)="action.run()"
+    >
+      @if (action.id === 'expand') {
+        <svg class="pane-glyph" viewBox="0 0 16 16" aria-hidden="true">
+          @if (action.active) {
+            <path d="M3.5 6.5h3v-3" />
+            <path d="M12.5 9.5h-3v3" />
+            <path d="M6.5 6.5 3 3" />
+            <path d="M9.5 9.5 13 13" />
+          } @else {
+            <path d="M6.5 3.5h-3v3" />
+            <path d="M9.5 12.5h3v-3" />
+            <path d="M3.5 3.5 8 8" />
+            <path d="M12.5 12.5 8 8" />
+          }
+        </svg>
+      } @else {
+        <span class="pane-glyph">{{ glyph(action) }}</span>
+      }
+    </button>
+  }
+</div>
+
+<div class="pane-body">
+  <ng-content />
+</div>

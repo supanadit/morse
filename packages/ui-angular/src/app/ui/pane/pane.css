@@ -1,0 +1,147 @@
+:host {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * The title bar. One height and one padding for every panel, so a column of them reads as
+ * one column and a dragged panel looks the same wherever it lands. A panel that sits at the
+ * top of a host column may raise `--morse-pane-head-height` to line up with the chat header
+ * (the sidebar's "Sessions" does exactly that).
+ */
+.pane-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--morse-pane-head-height, 28px);
+  padding: 0 6px 0 6px;
+}
+
+/*
+ * The fold chevron and the name are one hit target that spans the whole row, the
+ * way the sidebar's project headers do: a hover box that shrinks to the text reads
+ * as a stray button instead of the panel's own title bar. The actions that follow
+ * sit at the far right because this row takes the slack.
+ */
+.pane-fold {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pane-fold:hover {
+  background: var(--morse-hover);
+}
+
+.pane-chevron {
+  flex: none;
+  display: inline-block;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+.pane-chevron.open {
+  transform: rotate(90deg);
+}
+
+.pane-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--morse-fg-muted);
+  white-space: nowrap;
+}
+/* Inside the fold target the name takes the slack and the count trails it, the way
+   a project header's name and count do. */
+.pane-fold .pane-title {
+  flex: 1;
+}
+
+.pane-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  color: var(--morse-fg-muted);
+  white-space: nowrap;
+}
+.pane-fold .pane-meta {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The title bar's buttons: one square hit target, whatever the glyph inside it is. */
+.pane-action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: none;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+}
+.pane-action:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.pane-action.on {
+  color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 18%, transparent);
+}
+.pane-glyph {
+  font-size: 12px;
+  line-height: 1;
+}
+svg.pane-glyph {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.pane-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The body takes the rest of the pane and no more: a panel's own list scrolls, not the pane
+ * — which is what keeps two stacked panels from pushing at each other as their lists grow.
+ */
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /*
+   * A filling pane hands scrolling to the list inside it (the Explorer's rows, the git
+   * sections), which is the default; a pane whose body *is* the list asks for `auto`.
+   */
+  overflow: var(--morse-pane-overflow, hidden);
+}

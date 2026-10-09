@@ -77,8 +77,8 @@ between. `host` is the seam to a host — the `MORSE_TRANSPORT` port and the cli
 sits *below* `state` so that a store can read host state without a cycle (state stores do need the client).
 
 - **R-U1** — an import points only to the right.
-- **R-U2** — `features/x` never imports `features/y`; share through `state/`, `services/`, `ui/` or
-  `@morse/ui-runtime`.
+- **R-U2** — a panel may render the panels it is made of, but no panel may depend on itself, directly or
+  through another.
 - **R-U3** — `ui/` imports nothing from `features/`, `shell/` or `routing/`.
 - **R-U4** — `services/` imports nothing from `ui/`.
 - **R-U5** — `state/` imports nothing from `services/`.
@@ -86,6 +86,12 @@ sits *below* `state` so that a store can read host state without a cycle (state 
   `@morse/ui-runtime`. A framework is not a Morse package: every service injects `@angular/core`.
 - **R-U7** — only `shell/` and `routing/` import from more than one feature.
 - **R-U8** — any layer may import `@morse/protocol` and `@morse/ui-runtime` freely.
+
+Two things every panel is built out of, so that a panel is a panel wherever it sits: `ui/pane/` is the frame
+(title bar, count, fold chevron, body) and `ui/splitter/` is the one resize handle. A handle declares which size
+it drags; the size lives in `state/layout-state.ts` with every other dragged size, and the *shell* applies it as
+a CSS variable. Binding a size in the panel's own template would re-render the rows inside it on every frame of
+a drag — which is the difference between a resize that follows the pointer and one that stutters.
 
 `packages/ui-angular/src/app/shell/conventions.spec.ts` is this list as a test: it applies R-U1, R-U2, R-U6
 and R-U7 — plus the rule that a component's styles and template live in a sibling `.css`/`.html` — to every

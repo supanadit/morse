@@ -4,19 +4,12 @@ import { OverlayStack } from './overlay-stack';
 
 /** Whether the git panel takes over the centre of the shell (the browser host). */
 const GIT_EXPANDED_KEY = 'morse.git.expanded';
-/** The git panel's Changes section: its dragged height, and its folded state. */
-const GIT_CHANGES_HEIGHT_KEY = 'morse.git.changesHeight';
+/** The git panel's Changes section: whether it is folded. */
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
 const GIT_HISTORY_COLLAPSED_KEY = 'morse.git.historyCollapsed';
 /** The Staged / Unstaged groups fold on their own, like VS Code's Source Control. */
 const GIT_STAGED_COLLAPSED_KEY = 'morse.git.stagedCollapsed';
 const GIT_UNSTAGED_COLLAPSED_KEY = 'morse.git.unstagedCollapsed';
-const GIT_CHANGES_MIN_HEIGHT = 48;
-const GIT_CHANGES_MAX_HEIGHT = 1200;
-/** The Explorer pane's height, so a resize survives a reload. */
-const EXPLORER_HEIGHT_KEY = 'morse.explorer.height';
-const EXPLORER_MIN_HEIGHT = 140;
-const EXPLORER_MAX_HEIGHT = 720;
 
 function readGitExpanded(): boolean {
   try {
@@ -29,31 +22,6 @@ function readGitExpanded(): boolean {
 function storeGitExpanded(expanded: boolean): void {
   try {
     globalThis.localStorage?.setItem(GIT_EXPANDED_KEY, expanded ? '1' : '0');
-  } catch {
-    // As above.
-  }
-}
-
-function clampChangesHeight(px: number): number {
-  return Math.round(Math.min(GIT_CHANGES_MAX_HEIGHT, Math.max(GIT_CHANGES_MIN_HEIGHT, px)));
-}
-
-function readChangesHeight(): number | undefined {
-  try {
-    const raw = globalThis.localStorage?.getItem(GIT_CHANGES_HEIGHT_KEY);
-    if (raw === null || raw === undefined) {
-      return undefined;
-    }
-    const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) ? clampChangesHeight(value) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function storeChangesHeight(px: number): void {
-  try {
-    globalThis.localStorage?.setItem(GIT_CHANGES_HEIGHT_KEY, String(px));
   } catch {
     // As above.
   }
@@ -72,31 +40,6 @@ function storeFlag(key: string, value: boolean): void {
     globalThis.localStorage?.setItem(key, value ? '1' : '0');
   } catch {
     // As above.
-  }
-}
-
-function clampExplorerHeight(px: number): number {
-  return Math.round(Math.min(EXPLORER_MAX_HEIGHT, Math.max(EXPLORER_MIN_HEIGHT, px)));
-}
-
-function readExplorerHeight(): number | undefined {
-  try {
-    const raw = globalThis.localStorage?.getItem(EXPLORER_HEIGHT_KEY);
-    if (raw === null || raw === undefined) {
-      return undefined;
-    }
-    const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) ? clampExplorerHeight(value) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function storeExplorerHeight(px: number): void {
-  try {
-    globalThis.localStorage?.setItem(EXPLORER_HEIGHT_KEY, String(px));
-  } catch {
-    // As above: the signal is the truth for this session either way.
   }
 }
 
@@ -126,9 +69,7 @@ export class ShellState {
   /** Expanded: the panel leaves the sidebar and takes the centre of the shell. */
   private readonly gitExpanded = signal(readGitExpanded());
   readonly gitPanelExpanded = this.gitExpanded.asReadonly();
-  /** The git panel's Changes section: its dragged height (px) and folded state. */
-  private readonly changesHeightSignal = signal<number | undefined>(readChangesHeight());
-  readonly gitChangesHeight = this.changesHeightSignal.asReadonly();
+  /** The git panel's Changes section: whether it is folded. */
   private readonly changesCollapsedSignal = signal(readFlag(GIT_CHANGES_COLLAPSED_KEY));
   readonly gitChangesCollapsed = this.changesCollapsedSignal.asReadonly();
   private readonly historyCollapsedSignal = signal(readFlag(GIT_HISTORY_COLLAPSED_KEY));
@@ -138,13 +79,6 @@ export class ShellState {
   readonly gitStagedCollapsed = this.stagedCollapsedSignal.asReadonly();
   private readonly unstagedCollapsedSignal = signal(readFlag(GIT_UNSTAGED_COLLAPSED_KEY));
   readonly gitUnstagedCollapsed = this.unstagedCollapsedSignal.asReadonly();
-  /**
-   * The browser host's Explorer pane height (px). `undefined` means the default
-   * (`max-height` in CSS); once the user drags its top edge, the chosen height is
-   * remembered like the navigation fold.
-   */
-  private readonly explorer = signal<number | undefined>(readExplorerHeight());
-  readonly explorerHeight = this.explorer.asReadonly();
 
   /**
    * The "New session" folder browser (browser host only). It is shell state
@@ -277,28 +211,6 @@ export class ShellState {
   toggleGitUnstaged(): void {
     this.unstagedCollapsedSignal.update((collapsed) => !collapsed);
     storeFlag(GIT_UNSTAGED_COLLAPSED_KEY, this.unstagedCollapsedSignal());
-  }
-
-  /** Drag-to-resize the divider between Changes and History; clamped to a usable range. */
-  setGitChangesHeight(px: number, persist = true): void {
-    const next = clampChangesHeight(px);
-    this.changesHeightSignal.set(next);
-    if (persist) {
-      storeChangesHeight(next);
-    }
-  }
-
-  /**
-   * Drag-to-resize from the Explorer's top edge; clamped to a usable range. `persist` is
-   * false while the drag runs: the height is applied on every frame and written once, when
-   * the drag ends.
-   */
-  setExplorerHeight(px: number, persist = true): void {
-    const next = clampExplorerHeight(px);
-    this.explorer.set(next);
-    if (persist) {
-      storeExplorerHeight(next);
-    }
   }
 
   openAbout(): void {

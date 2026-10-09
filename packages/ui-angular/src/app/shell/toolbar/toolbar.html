@@ -1,0 +1,86 @@
+<div class="bar">
+  <!--
+       The switches for the columns sit on the side of the column they move: the fold and
+       the drawer at the left, next to the navigation column, and the git column's switch
+       at the right, next to it.
+  -->
+  <button
+    type="button"
+    class="icon menu"
+    title="Sessions and projects"
+    aria-label="Toggle navigation"
+    [attr.aria-expanded]="navigationOpen()"
+    (click)="toggleNavigation()"
+  >
+    ☰
+  </button>
+
+  <button
+    type="button"
+    class="icon collapse"
+    [title]="collapsed() ? 'Show the sidebar' : 'Hide the sidebar'"
+    [attr.aria-label]="collapsed() ? 'Show the sidebar' : 'Hide the sidebar'"
+    [attr.aria-expanded]="!collapsed()"
+    (click)="toggleSidebar()"
+  >
+    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2" y="3.5" width="12" height="9" rx="1.5" />
+      <path d="M6.5 3.5v9" />
+    </svg>
+  </button>
+
+  <span class="wordmark">Morse</span>
+
+  <button
+    type="button"
+    class="command"
+    [attr.aria-expanded]="paletteOpen()"
+    title="Search or run a command"
+    (click)="openPalette()"
+  >
+    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="M10.2 10.2 14 14" />
+    </svg>
+    <span>Search or run a command</span>
+  </button>
+
+  <span class="spacer"></span>
+
+  @if (mcpEnabled()) {
+    <button
+      type="button"
+      [class]="'icon mcp ' + mcpOverall()"
+      [title]="mcpTitle()"
+      aria-label="MCP servers"
+      (click)="openMcp()"
+    >
+      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2.5" y="3" width="11" height="4.4" rx="1.2" />
+        <rect x="2.5" y="8.6" width="11" height="4.4" rx="1.2" />
+        <circle cx="5" cy="5.2" r="0.6" />
+        <circle cx="5" cy="10.8" r="0.6" />
+      </svg>
+      <span class="mcp-dot" aria-hidden="true"></span>
+    </button>
+  }
+
+  @if (gitEnabled()) {
+    <button
+      type="button"
+      class="icon"
+      [title]="gitOpen() ? 'Hide the git panel' : 'Show the git panel'"
+      [attr.aria-label]="gitOpen() ? 'Hide the git panel' : 'Show the git panel'"
+      [attr.aria-pressed]="gitOpen()"
+      (click)="toggleGit()"
+    >
+      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="4.5" cy="3.5" r="1.6" />
+        <circle cx="4.5" cy="12.5" r="1.6" />
+        <circle cx="11.5" cy="6.5" r="1.6" />
+        <path d="M4.5 5.1v5.8" />
+        <path d="M4.5 5.1c0 2.4 7 1 7 3" />
+      </svg>
+    </button>
+  }
+</div>

@@ -56,8 +56,18 @@ export function startResize<T>(event: PointerEvent, drag: ResizeDrag<T>): void {
     }
   };
   const move = (pointer: PointerEvent): void => {
+    const first = !moved;
     pending = drag.value(pointer);
     moved = true;
+    /*
+     * The first movement paints at once: a drag that waited for a frame before showing
+     * anything feels like it has not started. Every one after it is coalesced, so a fast
+     * drag still runs one layout per paint.
+     */
+    if (first) {
+      apply();
+      return;
+    }
     if (frame === 0) {
       frame = requestAnimationFrame(apply);
     }

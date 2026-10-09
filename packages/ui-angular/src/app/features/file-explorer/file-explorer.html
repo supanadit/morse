@@ -1,0 +1,63 @@
+@if (!collapsed()) {
+  <div
+    class="resize"
+    [morseSplitter]="'explorer'"
+    edge="top"
+    [min]="140"
+    [max]="explorerMax"
+    label="Resize the file explorer"
+    title="Drag to resize"
+  ></div>
+}
+<morse-pane
+  title="Explorer"
+  [meta]="fileCount().toString()"
+  [folded]="collapsed()"
+  (foldToggle)="toggleFold()"
+>
+  <button
+    paneActions
+    type="button"
+    class="icon"
+    title="Refresh files"
+    aria-label="Refresh files"
+    (click)="refresh()"
+  >
+    ⟳
+  </button>
+
+@if (!collapsed()) {
+  <div class="rows" #rowsBox>
+    @if (isLoading() && rows().length === 0) {
+      <p class="hint">Loading files…</p>
+    } @else if (errorMessage(); as message) {
+      <p class="hint error">{{ message }}</p>
+    } @else if (rows().length === 0) {
+      <p class="hint">No files found.</p>
+    } @else {
+      @for (row of rows(); track row.node.path) {
+        <button
+          type="button"
+          class="row"
+          [class.dir]="row.node.kind === 'dir'"
+          [class.active]="selected() === row.node.path"
+          [attr.aria-current]="selected() === row.node.path ? 'true' : null"
+          [style.paddingLeft.px]="6 + row.depth * 12"
+          [title]="row.node.path"
+          (click)="onRow(row.node)"
+        >
+          <span class="glyph" aria-hidden="true">{{ glyph(row.node) }}</span>
+          <span class="name">{{ row.node.name }}</span>
+          @if (row.node.kind === 'file') {
+            @if (changeOf(row.node.path); as change) {
+              <span [class]="'badge ' + change" [title]="badgeTitle(change)">{{ change }}</span>
+            }
+          } @else if (dirChanged(row.node.path)) {
+            <span class="dot" title="Contains changes" aria-hidden="true"></span>
+          }
+        </button>
+      }
+    }
+  </div>
+}
+</morse-pane>

@@ -13,10 +13,10 @@ The Angular frontend: views over `SessionView`, plus the app-local state that is
 | Path | Holds |
 | --- | --- |
 | `src/app/host/` | the seam to a host: `transport.token.ts` (the port), `morse.service.ts` (the client binding over it) and `view-state.ts` (one value persisted through the transport) |
-| `src/app/state/` | app-local reactive state, no I/O and no DOM: `shell-state.ts`, `overlay-stack.ts`, `workspace-tabs.ts`, `workspace-files.store.ts`, `terminal-store.ts`, `panel-state.ts`, `mcp-state.ts`, `composer-drafts.ts`, `queued-prompts.ts`, `prompt-templates-state.ts`, `attachments.ts`, `display-prefs.ts`, `notification-prefs.ts`, `boot-handoff.ts` |
+| `src/app/state/` | app-local reactive state, no I/O and no DOM: `layout-state.ts` (the one home for the window's layout and every dragged size), `shell-state.ts`, `overlay-stack.ts`, `workspace-tabs.ts`, `workspace-files.store.ts`, `terminal-store.ts`, `panel-state.ts`, `mcp-state.ts`, `composer-drafts.ts`, `queued-prompts.ts`, `prompt-templates-state.ts`, `attachments.ts`, `display-prefs.ts`, `notification-prefs.ts`, `boot-handoff.ts` |
 | `src/app/services/` | use-cases and adapters: `queue-drain.ts`, `workbench-persistence.ts`, `workspace-files.service.ts`, `git-panel-state.ts`, `update.ts`, `uploads.ts`, `shortcut.service.ts`, `shortcuts.catalog.ts`, `run-notifier.ts`, `notification-channel.ts` |
-| `src/app/ui/` | Angular/DOM primitives and presentational atoms: `dialog/` (the shell every dialog is built on), `animation.service.ts`, `drop-zone.ts`, `drop-flight.ts`, `popover-fit.directive.ts`, `enter.directive.ts`, `shortcut-keys.ts`, `overlay-escape.ts`, `confirm-dialog.ts`, `markdown/markdown.ts`, `pin-annotation/` |
-| `src/app/features/` | the view layer, one folder per surface domain: `chat/` (transcript, composer, header, empty, interaction, tasks, pi-ui), `workbench/` (tabs, preview, bottom panel, terminal), `surfaces/` (the code-split editor views: the prompt template editor and the MCP editor), `nav/`, `git/`, `overlays/`, `screens/` |
+| `src/app/ui/` | Angular/DOM primitives and presentational atoms: `pane/` (the frame every panel is drawn in), `splitter/` (the one resize handle), `dialog/` (the shell every dialog is built on), `animation.service.ts`, `drop-zone.ts`, `drop-flight.ts`, `popover-fit.directive.ts`, `enter.directive.ts`, `shortcut-keys.ts`, `overlay-escape.ts`, `confirm-dialog.ts`, `markdown/markdown.ts`, `pin-annotation/` |
+| `src/app/features/` | the view layer: **one directory per panel**, flat — `composer/`, `transcript/`, `session-nav/`, `git-panel/`, `about/`, … A panel may render the panels it is made of (the composer owns its pickers); the directory names the panel and nothing else |
 | `src/app/shell/` | the `App`: layout composition — `app.ts`, `app.html`, `app.css`, and the rules as a test (`conventions.spec.ts`) |
 | `src/app/routing/` | the route table and its targets: `routes.ts` (hash route → root component), `app.config.ts`, and `session-page/` (the `/session` target, which mounts the shell embedded); `src/main.ts` bootstraps a route into an element it creates |
 | `src/styles.css` | the theme, `--morse-head-height`, and the rules VS Code's injected layer must not win |
@@ -30,7 +30,7 @@ routing → shell → features → ui → services → state → host
 ```
 
 - **R-U1** — A layer may depend only on layers to the right of it in that line, and may skip layers; it may never depend on a layer to its left.
-- **R-U2** — `features/x` never imports `features/y`; share through `state/`, `services/`, `ui/` or `@morse/ui-runtime`.
+- **R-U2** — a panel may render the panels it is made of, but no panel may depend on itself, directly or through another: a loop between two panels is the one shape that cannot be reasoned about, tested or moved apart, and `shell/conventions.spec.ts` looks for it.
 - **R-U3** — `ui/` imports nothing from `features/`, `shell/` or `routing/`.
 - **R-U4** — `services/` imports nothing from `ui/` (this is what keeps the chain acyclic).
 - **R-U5** — `state/` imports nothing from `services/`; it talks to the host through `host/`.
@@ -52,6 +52,21 @@ Enforced by `shell/conventions.spec.ts` on every run, which applies R-U1, R-U2, 
 | Type-check | none of its own — there is no `check-types` script here; `ng build` is the type-check |
 | Tests | `npm run test -w @morse/ui-angular` (`ng test` → `@angular/build:unit-test`, vitest + jsdom, no display) — part of `npm run test:fast` |
 | Sync into the extension | `npm run sync-webview` after any UI change |
+
+## Panes and sizes
+
+- A panel is drawn inside **`morse-pane`** (`ui/pane/`): it passes a title (and a count) and
+  its content, and nothing else. The title bar is the frame the shell owns — that is what a
+  docking drag will take hold of — so a panel must not grow a header of its own.
+- A handle is **`[morseSplitter]`** (`ui/splitter/`): it declares which size it drags
+  (`[morseSplitter]="'left'"`), which side it is on (`edge`), and how far it may go. It
+  measures, follows the pointer, clamps, disables the shell's column transition, and resets
+  on a double-click. Never write a `pointerdown` resize of your own.
+- Every dragged size lives in **`LayoutState`** (`layout-state.ts`) — `size(id)` /
+  `setSize(id, px, persist)`, `persist: false` while a drag runs — and the **shell** puts it
+  on screen as a CSS variable (`--morse-nav-width`, `--morse-explorer-height`, …). A panel
+  reads its own size from that variable in its stylesheet and never binds it in its
+  template: a size bound onto the panel re-renders every row inside it, once a frame.
 
 ## Code style
 
@@ -77,7 +92,7 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 
 - `@morse/ui-runtime/src/render/markdown.ts` — parse, sanitize, highlight (the render cadence lives in `ui/markdown/markdown.ts`), in one shared place.
 - `state/workspace-tabs.ts` — the tab/chip ownership model (owner session, menu scope, chip owner); read it before touching tab behaviour.
-- `services/shortcut.service.ts` + `features/overlays/shortcuts-dialog/shortcuts-dialog.ts` — the registry and the list that prints it are the same data.
+- `services/shortcut.service.ts` + `features/shortcuts-dialog/shortcuts-dialog.ts` — the registry and the list that prints it are the same data.
 - `state/shell-state.ts` — signals for the shell's persisted knobs and the confirm dialog.
 
 ## Gotchas
@@ -91,6 +106,7 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | A banner flashes on every load | it must not: banners render only for a refused handshake, `error`/`closed`, or a handshake stalled > 6 s (`slowConnection`). The first such state after the cold start is the friendly `ConnectionScreen`, not a banner |
 | A setup screen instead of the chat | `pi` is not on the host's `PATH`; the screen names the command to install and the setting/env var that host reads (`state.agentFailure`) |
 | Panel has ~20px left/right margin in VS Code only | VS Code injects `@layer vscode-default { body { padding: 0 20px } }` into every webview; Morse must declare an unlayered `body { padding: 0 }` in `styles.css` to win |
+| Resizing a panel stutters, or its list flickers while the pointer moves | the size is being bound in the panel's own template (or onto its host): a preview frame then re-renders every row in the pane. The size belongs in `LayoutState`, applied by the shell as a CSS variable, with the drag owned by `[morseSplitter]` |
 | Sidebar comes back folded after a reload | intended: `ShellState` keeps the wide-layout fold in `localStorage` (`morse.navigation.collapsed`); clear that key to reset it |
 | Compact (or `/compact`) seems to do nothing | it asks first: `ShellState.requestCompact()` opens `morse-confirm-dialog`, where Cancel is focused on purpose |
 | Typing a project name in the sidebar finds no sessions | that box searches session titles only — the project button above it opens the searchable filter; the empty state offers the matching project as a jump |
@@ -128,7 +144,7 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 | File/session tabs vanish on reload | intended only in VS Code (its own editor restores tabs). The browser host persists the open/focused tabs, panel and terminals to `<MORSE_HOME>/workbench.json` — check `capabilities.workbench` and `services/workbench-persistence.ts`; a snapshot from another `version` is ignored on purpose |
 | Terminal dies on a tab switch, a hidden panel, or after `morse stop`/`start` | the shell must outlive the view: a `Terminal` never sends `terminal/close` on destroy — only an explicit reader close does (`TerminalView.close`/`closePane`, `WorkspaceTabs.closeOwnerTerminals`), and the bottom panel is hidden with a class rather than `@if`-unmounted (`app.ts` `bottomPanelEnabled` mounts, `bottomPanelVisible` hides). A draft holding a terminal is not discarded as "untouched" (`TerminalStore.hasOwner`) |
 | A long prompt or its attachments vanish on reload / `morse stop` / a closed laptop | intended only in VS Code. The browser host saves every tab's draft — text, pins, mentions and inline images — to `<MORSE_HOME>/drafts.json` (`state/composer-drafts.ts`, `state/attachments.ts` via `WorkbenchPersistence`); the tab itself, a "New session" draft included, lives in `workbench.json` |
-| Terminal pane stays blank and no shell is ever spawned | the xterm packages are CommonJS: a production bundle's lazy chunk exports only `default`, so `core.Terminal` is `undefined` and the pane silently never calls `terminal/open` — go through `importCjs` in `features/workbench/terminal/terminal.ts`. A unit mock with named exports hides this, so the specs mirror the `default`-only shape |
+| Terminal pane stays blank and no shell is ever spawned | the xterm packages are CommonJS: a production bundle's lazy chunk exports only `default`, so `core.Terminal` is `undefined` and the pane silently never calls `terminal/open` — go through `importCjs` in `features/terminal/terminal.ts`. A unit mock with named exports hides this, so the specs mirror the `default`-only shape |
 | A custom button paints the theme accent on hover | the global `button:hover:not(:disabled)` (specificity 0,2,1) beats a plain `.row:hover` (0,2,0); write the override as `.row:hover:not(:disabled)` (same for `.group-title`, `.context-menu-item`, …) |
 | The Explorer cannot be resized | it can: drag its top edge (`.resize`); the height persists in `morse.explorer.height` via `ShellState` |
 
@@ -136,19 +152,19 @@ Rendered HTML (assistant markdown, code blocks, terminal links) is sanitized in 
 
 | Need | File |
 | --- | --- |
-| keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/services/shortcut.service.ts` ← `features/overlays/shortcuts-dialog/shortcuts-dialog.ts` |
-| a model's input modalities (text/vision/audio/…) | `packages/ui-angular/src/app/features/chat/composer/model-picker/model-inputs.ts` ← pi's `input` on `ModelOption.input` |
+| keyboard shortcuts + the `?` help list | `packages/ui-angular/src/app/services/shortcut.service.ts` ← `features/shortcuts-dialog/shortcuts-dialog.ts` |
+| a model's input modalities (text/vision/audio/…) | `packages/ui-angular/src/app/features/model-picker/model-inputs.ts` ← pi's `input` on `ModelOption.input` |
 | "a newer release is out" notice (Morse or pi) | `packages/ui-angular/src/app/services/update.ts` ← `capabilities.updateCheck`/`piVersion`, `docs/CONFIGURATION.md` |
 | "a run finished" notice while the window is elsewhere | `packages/ui-angular/src/app/services/run-notifier.ts` + `notification-prefs.ts` ← `capabilities.notify` |
-| git history + graph panel (browser host) | `packages/ui-angular/src/app/features/git/git-panel/git-panel.ts` ← `git/graph.ts`, `git/status.ts`, `git/diff.ts` in `@morse/ui-runtime`, `packages/server/src/internal/workspace/git-log.ts` |
+| git history + graph panel (browser host) | `packages/ui-angular/src/app/features/git-panel/git-panel.ts` ← `git/graph.ts`, `git/status.ts`, `git/diff.ts` in `@morse/ui-runtime`, `packages/server/src/internal/workspace/git-log.ts` |
 | the layer rules, or the stylesheet rule — as a test rather than a promise | `packages/ui-angular/src/app/shell/conventions.spec.ts` |
 | a dialog: the card, the Escape order, who is on top | `packages/ui-angular/src/app/ui/dialog/dialog.ts` ← `state/overlay-stack.ts` + `ui/overlay-escape.ts` |
-| MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/features/overlays/mcp-panel/` ← `state/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
-| prompt-template editor + argument tester | `packages/ui-angular/src/app/features/surfaces/prompt-editor/` ← `state/prompt-templates-state.ts`, `packages/ui-runtime/src/prompt-template.ts` (the same expansion the composer uses); host file I/O in `packages/adapter-pi-rpc/src/pi-prompts.ts`; code-split, and scoped to the session in front |
-| who is credited, and where | `packages/ui-angular/src/app/features/overlays/about/credits.ts` (guarded by `credits.spec.ts`) |
-| pi is not installed (setup screen) | `packages/ui-angular/src/app/features/screens/agent-screen/agent-screen.ts` ← `state.agentFailure` |
-| cold-start splash → empty-state handoff | `packages/ui-angular/src/app/features/screens/boot-splash/boot-splash.ts`, `packages/ui-angular/src/app/state/boot-handoff.ts` |
-| offline / no-host screen | `packages/ui-angular/src/app/features/screens/connection-screen/connection-screen.ts` |
+| MCP servers list/enable/disable + indicator | `packages/ui-angular/src/app/features/mcp-panel/` ← `state/mcp-state.ts`, `packages/adapter-pi-rpc/src/pi-mcp.ts` (reads `~/.pi/agent/mcp.json` + `.pi/mcp.json`, status from `pi mcp list --json`) |
+| prompt-template editor + argument tester | `packages/ui-angular/src/app/features/prompt-editor/` ← `state/prompt-templates-state.ts`, `packages/ui-runtime/src/prompt-template.ts` (the same expansion the composer uses); host file I/O in `packages/adapter-pi-rpc/src/pi-prompts.ts`; code-split, and scoped to the session in front |
+| who is credited, and where | `packages/ui-angular/src/app/features/about/credits.ts` (guarded by `credits.spec.ts`) |
+| pi is not installed (setup screen) | `packages/ui-angular/src/app/features/agent-screen/agent-screen.ts` ← `state.agentFailure` |
+| cold-start splash → empty-state handoff | `packages/ui-angular/src/app/features/boot-splash/boot-splash.ts`, `packages/ui-angular/src/app/state/boot-handoff.ts` |
+| offline / no-host screen | `packages/ui-angular/src/app/features/connection-screen/connection-screen.ts` |
 | frontend state that must survive a reload | `packages/ui-angular/src/app/host/view-state.ts` ← `HostTransport.readState/writeState` (VS Code webview state, mock memory), `localStorage` fallback; VS Code panels also need `registerWebviewPanelSerializer` |
 | measured performance baseline | `docs/DEVELOPMENT.md` ← session catalog cache, markdown render cadence |
 | interface preferences a user can change | `docs/CONFIGURATION.md` §Interface preferences |

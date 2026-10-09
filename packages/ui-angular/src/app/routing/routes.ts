@@ -1,6 +1,6 @@
 import type { Type } from '@angular/core';
 import { App } from '../shell/app';
-import { McpEditorPage } from '../features/surfaces/mcp-editor/mcp-editor-page';
+import { McpEditorPage } from '../features/mcp-editor/mcp-editor-page';
 
 /**
  * A surface this bundle can boot, keyed by URL hash.
@@ -27,7 +27,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { path: '/mcp', component: McpEditorPage },
   {
     path: '/prompts',
-    load: () => import('../features/surfaces/prompt-editor/prompt-editor-page').then((m) => m.PromptEditorPage),
+    load: () => import('../features/prompt-editor/prompt-editor-page').then((m) => m.PromptEditorPage),
   },
   // One session as a whole editor tab (VS Code). Code-split like the prompt
   // editor: a session tab is not the chat app's own bundle, and loading it only

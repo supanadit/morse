@@ -130,14 +130,15 @@ describe('App', () => {
     ).toBeTruthy();
   });
 
-  it('folds the sidebar from the chat header and brings it back', () => {
+  it('folds the sidebar from the toolbar and brings it back', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const shell = fixture.nativeElement.querySelector('.shell') as HTMLElement;
     expect(shell.classList.contains('collapsed')).toBe(false);
 
+    // The window's own shape is the toolbar's business, not the chat header's.
     const fold = fixture.nativeElement.querySelector(
-      'morse-chat-header .collapse',
+      'morse-toolbar .collapse',
     ) as HTMLButtonElement;
     fold.click();
     fixture.detectChanges();

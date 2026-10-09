@@ -80,9 +80,9 @@ Three boundaries live in this package and none of them is optional: `ProjectPoli
 | Need | File |
 | --- | --- |
 | NestJS wiring and env | `packages/server/src/app.module.ts`, `packages/server/src/app/config.ts` |
-| the preview's language server (hover, jump, squiggles, references) | `packages/server/src/internal/lsp/` (`lsp.service.ts` registry, `lsp-client.ts` stdio JSON-RPC, `language-servers.ts` resolution, `lsp-mapping.ts` translation) ← `capabilities.lsp`, the `lsp*` host commands, and `features/workbench/file-preview/` (`preview-positions.ts` maps a pointer to a zero-based position and back) |
+| the preview's language server (hover, jump, squiggles, references) | `packages/server/src/internal/lsp/` (`lsp.service.ts` registry, `lsp-client.ts` stdio JSON-RPC, `language-servers.ts` resolution, `lsp-mapping.ts` translation) ← `capabilities.lsp`, the `lsp*` host commands, and `features/file-preview/` (`preview-positions.ts` maps a pointer to a zero-based position and back) |
 | which directories may run an agent | `packages/server/src/internal/projects/project-policy.ts` |
-| git history + graph panel (browser host) | `packages/ui-angular/src/app/features/git/git-panel/git-panel.ts` ← `@morse/ui-runtime` (`git/graph.ts`), `packages/server/src/internal/workspace/git-log.ts` |
+| git history + graph panel (browser host) | `packages/ui-angular/src/app/features/git-panel/git-panel.ts` ← `@morse/ui-runtime` (`git/graph.ts`), `packages/server/src/internal/workspace/git-log.ts` |
 | open tabs / focused tab / terminals / per-tab drafts across a reload (browser host) | `packages/ui-angular/src/app/services/workbench-persistence.ts` ← `readWorkbench`/`saveWorkbench` + `readDrafts`/`saveDrafts`, `packages/server/src/internal/workspace/workbench-store.ts` |
 | env vars a user can set | `docs/CONFIGURATION.md` §Browser host environment |
 | why the host is shaped this way | `docs/ARCHITECTURE.md` §NestJS host specifics, §UI shape follows the host scope |

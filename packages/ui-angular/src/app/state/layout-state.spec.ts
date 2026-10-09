@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LayoutState } from './layout-state';
 
 /**
@@ -7,6 +7,12 @@ import { LayoutState } from './layout-state';
  * a column that came back folded, or a width that reset itself, would fail silently.
  */
 describe('LayoutState', () => {
+  beforeEach(() => {
+    // Not a courtesy: a suite that folds a column leaves it folded for the next file, and
+    // this one asserts what a first-run layout looks like.
+    localStorage.clear();
+  });
+
   afterEach(() => {
     localStorage.clear();
     TestBed.resetTestingModule();
@@ -41,7 +47,13 @@ describe('LayoutState', () => {
     layout.setVisible('right', true);
     layout.setVisible('right', false);
 
-    expect(layout.regions().map((region) => region.id)).toEqual(['left', 'main', 'right']);
+    expect(layout.regions().map((region) => region.id)).toEqual([
+      'toolbar',
+      'left',
+      'main',
+      'right',
+      'status',
+    ]);
     expect(layout.region('right').size).toBe(520);
     expect(layout.rightVisible()).toBe(false);
   });
@@ -72,6 +84,27 @@ describe('LayoutState', () => {
     expect(TestBed.inject(LayoutState).rightSize()).toBeUndefined();
   });
 
+  it('lays the window out as chrome, columns and chrome', () => {
+    const layout = TestBed.inject(LayoutState);
+
+    expect(layout.top().map((region) => region.id)).toEqual(['toolbar']);
+    expect(layout.columns().map((region) => region.id)).toEqual(['left', 'main', 'right']);
+    expect(layout.bottom().map((region) => region.id)).toEqual(['status']);
+  });
+
+  it('clamps and remembers the navigation column width too', () => {
+    const layout = TestBed.inject(LayoutState);
+    expect(layout.leftSize()).toBeUndefined();
+
+    layout.setSize('left', 360);
+    expect(layout.leftSize()).toBe(360);
+    layout.setSize('left', 10_000);
+    expect(layout.leftSize()).toBe(1600);
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(LayoutState).leftSize()).toBe(1600);
+  });
+
   it('ignores a stored width that is not a number, instead of clamping a NaN', () => {
     localStorage.setItem('morse.git.width', 'wide');
 
@@ -87,5 +120,29 @@ describe('LayoutState', () => {
 
     layout.setSize('right', 520);
     expect(localStorage.getItem('morse.git.width')).toBe('520');
+  });
+
+  it('clamps and remembers a pane height, and forgets it when the reader resets it', () => {
+    const layout = TestBed.inject(LayoutState);
+    expect(layout.explorerSize()).toBeUndefined();
+
+    layout.setSize('explorer', 300, false);
+    expect(layout.explorerSize()).toBe(300);
+    expect(localStorage.getItem('morse.explorer.height')).toBeNull();
+
+    layout.setSize('explorer', 300);
+    expect(localStorage.getItem('morse.explorer.height')).toBe('300');
+    layout.setSize('explorer', 10);
+    expect(layout.size('explorer')).toBe(140);
+
+    // A double-click on a handle asks for the stylesheet's default back, so nothing is stored.
+    layout.setSize('explorer', undefined);
+    expect(layout.explorerSize()).toBeUndefined();
+    expect(localStorage.getItem('morse.explorer.height')).toBeNull();
+
+    layout.setSize('changes', 10_000);
+    expect(layout.changesSize()).toBe(1200);
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(LayoutState).changesSize()).toBe(1200);
   });
 });

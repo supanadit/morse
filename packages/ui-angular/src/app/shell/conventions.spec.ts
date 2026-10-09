@@ -114,21 +114,44 @@ describe('frontend conventions', () => {
     expect(broken).toEqual([]);
   });
 
-  it('R-U2: no feature imports another feature', () => {
-    const broken: string[] = [];
+  it('R-U2: no panel depends on itself, directly or through another', () => {
+    // A flat `features/` means a panel may compose the panels it is made of: the composer
+    // owns its pickers, the transcript its tool group, the git panel the branch picker.
+    // What it may not do is close a loop — two panels that need each other cannot be
+    // reasoned about, tested or moved apart, and no amount of review catches it.
+    const edges = new Map<string, Set<string>>();
     for (const file of FILES) {
-      if (file.layer !== 'features') continue;
+      if (file.layer !== 'features' || file.feature === undefined) continue;
       for (const specifier of specifiers(file.source)) {
         const destination = target(file, specifier);
         if (destination === undefined || !destination.startsWith('features/')) continue;
-        const other = destination.split('/')[1];
-        if (other !== file.feature) {
-          broken.push(`${file.path} → ${specifier}`);
-        }
+        const reached = destination.split('/')[1];
+        if (reached === file.feature) continue;
+        const out = edges.get(file.feature) ?? new Set<string>();
+        out.add(reached);
+        edges.set(file.feature, out);
       }
     }
 
-    expect(broken).toEqual([]);
+    const loops: string[] = [];
+    for (const panel of edges.keys()) {
+      const reached = new Set<string>();
+      const queue = [...(edges.get(panel) ?? [])];
+      while (queue.length > 0) {
+        const next = queue.pop() as string;
+        if (next === panel) {
+          loops.push(panel);
+          break;
+        }
+        if (reached.has(next)) {
+          continue;
+        }
+        reached.add(next);
+        queue.push(...(edges.get(next) ?? []));
+      }
+    }
+
+    expect([...new Set(loops)].sort()).toEqual([]);
   });
 
   it('R-U6: the host seam depends on no other layer, and on no other Morse package', () => {

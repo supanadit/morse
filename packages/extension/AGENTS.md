@@ -75,7 +75,7 @@ The webview CSP is the boundary: `renderWebviewHtml` must keep `script-src 'nonc
 | --- | --- |
 | VS Code wiring, commands, settings | `packages/extension/src/app/main.ts`, `packages/extension/src/internal/vscode/` |
 | a second surface from the same bundle (hash route) | `packages/ui-angular/src/app/routing/routes.ts` ← `main.ts` (`createApplication` + explicit host element, so no selector match), `packages/extension/src/internal/vscode/webview-html.ts` (`route` option) |
-| a session as its own VS Code editor tab (pinned controller, restore) | `packages/ui-angular/src/app/routing/session-page/session-page.ts` ← `HostSessionController` option `pinnedSessionId`, `capabilities.sessionTabs`, `openSessionTab`/`closeSessionTab`, the `morse.openSessionTab` command; the sidebar row is `features/nav/session-nav` |
+| a session as its own VS Code editor tab (pinned controller, restore) | `packages/ui-angular/src/app/routing/session-page/session-page.ts` ← `HostSessionController` option `pinnedSessionId`, `capabilities.sessionTabs`, `openSessionTab`/`closeSessionTab`, the `morse.openSessionTab` command; the sidebar row is `features/session-nav` |
 | what `verify-webview.mjs` protects | `docs/INSTALL.md` §1.3 |
 | settings the user can change | `docs/CONFIGURATION.md` §VS Code settings |
 | building and publishing the VSIX | `docs/INSTALL.md`, `docs/RELEASING.md` |

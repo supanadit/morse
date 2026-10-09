@@ -24,7 +24,7 @@ function resizable(element: HTMLElement, drag: ResizeDrag<number>): void {
 }
 
 describe('startResize', () => {
-  it('previews at most once a frame, and commits the last value once, on release', async () => {
+  it('paints the first move at once, coalesces the rest, and commits once on release', async () => {
     const element = handle();
     const preview = vi.fn();
     const commit = vi.fn();
@@ -32,11 +32,16 @@ describe('startResize', () => {
 
     press(element, 'pointerdown', { clientY: 100 });
     press(element, 'pointermove', { clientY: 140 });
+    // The drag shows something the moment the pointer moves, without waiting for a paint.
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenLastCalledWith(140);
+
     press(element, 'pointermove', { clientY: 180 });
+    expect(preview).toHaveBeenCalledTimes(1);
     await frame();
 
-    // Two moves, one paint: the frame that was pending was not applied twice.
-    expect(preview).toHaveBeenCalledTimes(1);
+    // One layout for the moves that shared a frame.
+    expect(preview).toHaveBeenCalledTimes(2);
     expect(preview).toHaveBeenLastCalledWith(180);
     expect(commit).not.toHaveBeenCalled();
 
@@ -47,7 +52,7 @@ describe('startResize', () => {
     // The drag is over: a later move must not reach it.
     press(element, 'pointermove', { clientY: 900 });
     await frame();
-    expect(preview).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenCalledTimes(2);
   });
 
   it('commits nothing when the pointer went down and up without moving', () => {

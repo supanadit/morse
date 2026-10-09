@@ -1,4 +1,13 @@
-<div class="shell" [class.collapsed]="navigationCollapsed()" [class.embedded]="embedded()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()" [style.--morse-git-width]="gitWidth()">
+<div class="shell" [class.collapsed]="navigationCollapsed()" [style.--morse-explorer-height]="explorerHeight()" [style.--morse-changes-height]="changesHeight()" [class.embedded]="embedded()" [class.with-git]="gitOpen()" [class.git-expanded]="gitExpanded()" [style.--morse-git-width]="gitWidth()" [style.--morse-nav-width]="navWidth()">
+  <!--
+       The window's chrome: a row above the columns and a row below them. Both are plain
+       regions of the layout (`state/layout-state.ts`), like the columns are. Neither is
+       rendered into a host surface that already has its own (a VS Code editor tab) — the
+       same reason the navigation column is not.
+  -->
+  @if (!embedded()) {
+    <morse-toolbar />
+  }
   @if (bootVisible()) {
     <morse-boot-splash
       [ready]="bootReady()"
@@ -85,7 +94,7 @@
       </div>
     }
 
-    <morse-chat-header [embedded]="embedded()" />
+    <morse-chat-header />
 
     <!-- The browser host's tabs: sessions and files side by side, below the
          session header so that header keeps the same place in both hosts. VS
@@ -257,5 +266,9 @@
        on a narrow window. VS Code never mounts it (`capabilities.gitPanel`). -->
   @if (gitOpen()) {
     <morse-git-panel class="git-panel" [expanded]="gitExpanded()" />
+  }
+
+  @if (!embedded()) {
+    <morse-status-bar />
   }
 </div>

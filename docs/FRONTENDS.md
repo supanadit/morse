@@ -207,7 +207,7 @@ strip above the conversation, where sessions and files open side by side.
   a tab for it itself and promotes it to the real session on the first prompt; every "New session" is its
   own tab, and a tab can be closed to an empty strip, and a closed tab is never reopened by the host's state.
   With **no session tab in front** the browser host shows no conversation at all:
-  `packages/ui-angular/src/app/features/chat/empty/` is a placeholder that says so and offers the sidebar's
+  `packages/ui-angular/src/app/features/empty/` is a placeholder that says so and offers the sidebar's
   own "New session" (through `ShortcutService.run('session.new')`, so the button and the key cannot drift), and
   the composer is not mounted — a prompt typed with nothing open used to quietly start a session. `ChatHeader`
   reads the same `WorkspaceTabs.noSessionInFront` signal and shows `Morse` instead of the host's last
@@ -390,7 +390,7 @@ lazily imported CJS module as `{ default: exports }`, so `importCjs` unwraps `de
 7. **CSP** — inside a webview there is no `eval`/`new Function` and scripts only run with the host-provided
    nonce. Keep the bundle relative (`<base href>` is rewritten) and avoid inline event handlers.
 8. **Attribution travels with the frontend.** The About dialog is frontend data, not a host message:
-   `packages/ui-angular/src/app/features/overlays/about/credits.ts` lists every technology the workspace depends on (its spec
+   `packages/ui-angular/src/app/features/about/credits.ts` lists every technology the workspace depends on (its spec
    fails when one is missing, stale, or changes its licence), and the bundled font licence ships beside the
    bundle (`public/fonts/LICENSE.txt`). A replacement frontend reuses both instead of dropping them — no host
    work, no protocol change.

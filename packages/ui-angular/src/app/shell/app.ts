@@ -1,23 +1,25 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
-import { BootSplash } from '../features/screens/boot-splash/boot-splash';
-import { ConnectionScreen } from '../features/screens/connection-screen/connection-screen';
-import { ChatComposer } from '../features/chat/composer/composer';
-import { EmptySession } from '../features/chat/empty/empty';
-import { ChatHeader } from '../features/chat/header/header';
-import { McpPanel } from '../features/overlays/mcp-panel/mcp-panel';
-import { McpEditor } from '../features/surfaces/mcp-editor/mcp-editor';
-import type { PromptEditor } from '../features/surfaces/prompt-editor/prompt-editor';import { ChatTranscript } from '../features/chat/transcript/transcript';
-import { FilePreview } from '../features/workbench/file-preview/file-preview';
-import { InteractionPanel } from '../features/chat/interaction/interaction';
-import { BottomPanel } from '../features/workbench/bottom-panel/bottom-panel';
-import { PiUi } from '../features/chat/pi-ui/pi-ui';
-import { TaskOverlay } from '../features/chat/tasks/tasks';
-import { TabStrip } from '../features/workbench/tab-strip/tab-strip';
-import { GitPanel } from '../features/git/git-panel/git-panel';
+import { BootSplash } from '../features/boot-splash/boot-splash';
+import { ConnectionScreen } from '../features/connection-screen/connection-screen';
+import { ChatComposer } from '../features/composer/composer';
+import { EmptySession } from '../features/empty/empty';
+import { ChatHeader } from '../features/header/header';
+import { McpPanel } from '../features/mcp-panel/mcp-panel';
+import { McpEditor } from '../features/mcp-editor/mcp-editor';
+import type { PromptEditor } from '../features/prompt-editor/prompt-editor';import { ChatTranscript } from '../features/transcript/transcript';
+import { FilePreview } from '../features/file-preview/file-preview';
+import { InteractionPanel } from '../features/interaction/interaction';
+import { BottomPanel } from '../features/bottom-panel/bottom-panel';
+import { PiUi } from '../features/pi-ui/pi-ui';
+import { TaskOverlay } from '../features/tasks/tasks';
+import { TabStrip } from '../features/tab-strip/tab-strip';
+import { GitPanel } from '../features/git-panel/git-panel';
 import { AnimationService } from '../ui/animation.service';
 import { AttachmentStore } from '../state/attachments';
 import { LayoutState } from '../state/layout-state';
+import { StatusBar } from './status-bar/status-bar';
+import { Toolbar } from './toolbar/toolbar';
 import { DropZone } from '../ui/drop-zone';
 import { MorseService } from '../host/morse.service';
 import { RunNotifier } from '../services/run-notifier';
@@ -28,16 +30,16 @@ import { WorkspaceTabs } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
 import { QueueDrain } from '../services/queue-drain';
 import { EnterDirective } from '../ui/enter.directive';
-import { SessionNav } from '../features/nav/session-nav/session-nav';
-import { ProjectPicker } from '../features/nav/project-picker/project-picker';
-import { AboutDialog } from '../features/overlays/about/about-dialog';
-import { ShortcutsDialog } from '../features/overlays/shortcuts-dialog/shortcuts-dialog';
-import { CommandPalette } from '../features/overlays/command-palette/command-palette';
+import { SessionNav } from '../features/session-nav/session-nav';
+import { ProjectPicker } from '../features/project-picker/project-picker';
+import { AboutDialog } from '../features/about/about-dialog';
+import { ShortcutsDialog } from '../features/shortcuts-dialog/shortcuts-dialog';
+import { CommandPalette } from '../features/command-palette/command-palette';
 import { ShortcutService } from '../services/shortcut.service';
 import { ShortcutKeys } from '../ui/shortcut-keys';
 import { OverlayEscape } from '../ui/overlay-escape';
 import { ConfirmDialog } from '../ui/confirm-dialog';
-import { AgentScreen } from '../features/screens/agent-screen/agent-screen';
+import { AgentScreen } from '../features/agent-screen/agent-screen';
 
 /**
  * `?boot=1` keeps the cold-start screen up long enough to watch it, so the
@@ -53,6 +55,8 @@ function previewBoot(): boolean {
 @Component({
   selector: 'app-root',
   imports: [
+    Toolbar,
+    StatusBar,
     SessionNav,
     ProjectPicker,
     AboutDialog,
@@ -179,6 +183,27 @@ export class App {
   protected readonly gitWidth = computed(() => {
     const width = this.layout.rightSize();
     return width === undefined ? null : `${width}px`;
+  });
+  /**
+   * The dragged width of the navigation column, handed to the shell as its CSS variable.
+   * `null` (never dragged) leaves the default from `styles.css` in charge.
+   */
+  protected readonly navWidth = computed(() => {
+    const width = this.layout.leftSize();
+    return width === undefined ? null : `${width}px`;
+  });
+  /**
+   * The dragged heights of the two panes that are sized but never placed — the Explorer and
+   * the git panel's Changes section. The shell puts them on screen, so a drag repaints the
+   * layout instead of re-rendering the rows inside the pane.
+   */
+  protected readonly explorerHeight = computed(() => {
+    const height = this.layout.explorerSize();
+    return height === undefined ? null : `${height}px`;
+  });
+  protected readonly changesHeight = computed(() => {
+    const height = this.layout.changesSize();
+    return height === undefined ? null : `${height}px`;
   });
   /** The file the strip is showing, or `undefined` when a session tab is in front. */
   protected readonly activeFile = computed(() => {
@@ -476,7 +501,7 @@ export class App {
     }
     this.promptEditorLoading = true;
     try {
-      const { PromptEditor: Editor } = await import('../features/surfaces/prompt-editor/prompt-editor');
+      const { PromptEditor: Editor } = await import('../features/prompt-editor/prompt-editor');
       this.promptEditorClass = Editor;
       if (this.activePrompt()) {
         this.promptEditorComponent.set(Editor);

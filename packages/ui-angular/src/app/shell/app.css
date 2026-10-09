@@ -13,14 +13,22 @@
   display: grid;
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
   /*
-   * One definite row: every pane (nav, chat, git) gets the shell's height instead
+   * Three rows: the window's chrome, the columns that share the width, and the chrome
+   * below them. A definite middle row is what gives every pane the shell's height instead
    * of sizing to its own content, which is what lets their inner lists scroll.
    */
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--morse-bg);
+}
+
+/* The columns share the middle row; the chrome takes its own, across all of them. */
+.nav,
+.chat,
+.git-panel {
+  grid-row: 2;
 }
 
 .nav {

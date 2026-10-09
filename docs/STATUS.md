@@ -99,7 +99,7 @@ turns them on so the panel stands on its own:
   `<MORSE_HOME>/terminals/` (an idle shell is reclaimed after `MORSE_TERMINAL_IDLE_MS`, default 30 min). The
   emulator is lazy-loaded. The shell starts with the user's own environment, `MORSE_*` stripped, so running Morse
   from inside Morse does not inherit the host's port or workspace. URLs in the output are clickable (a small
-  link provider, `features/workbench/terminal/terminal-links.ts`, opens them in a new tab), so a dev-server banner is one
+  link provider, `features/terminal/terminal-links.ts`, opens them in a new tab), so a dev-server banner is one
   click, not a copy. VS Code leaves `terminal` off and keeps its own.
 
 ### MCP servers

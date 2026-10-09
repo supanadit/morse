@@ -84,6 +84,9 @@
    * the bottom hairline (`border-box`), so it is also the header's full height.
    */
   --morse-head-height: 44px;
+  /* The window's own chrome: a row above the columns and a row below them. */
+  --morse-toolbar-height: 34px;
+  --morse-status-height: 22px;
   /* The navigation column's width; the shell's grid and the column itself agree on it. */
   --morse-nav-width: 272px;
   /* The browser host's git panel width (the shell's third column). */

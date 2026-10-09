@@ -1,0 +1,39 @@
+:host {
+  display: block;
+  /* The chrome spans the columns: it is a row of the shell, not a column in it. */
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--morse-status-height);
+  padding: 0 10px;
+  border-top: 1px solid var(--morse-border);
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.host {
+  color: var(--morse-fg);
+}
+
+/* The project the window is rooted at, clipped at the front so the folder stays visible. */
+.path {
+  direction: rtl;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.count {
+  flex: none;
+}

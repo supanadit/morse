@@ -27,43 +27,6 @@ describe('ShellState', () => {
     expect(layout.leftCollapsed()).toBe(true);
   });
 
-  /**
-   * `modalOpen` is what lets overlay shortcuts stand down, so it has to include
-   * every dialog that can cover the app — including the help itself.
-   */
-  it('resizes the Explorer pane and clamps the height to a usable range', () => {
-    const shell = TestBed.inject(ShellState);
-    expect(shell.explorerHeight()).toBeUndefined();
-
-    shell.setExplorerHeight(320);
-    expect(shell.explorerHeight()).toBe(320);
-
-    shell.setExplorerHeight(10);
-    expect(shell.explorerHeight()).toBe(140);
-    shell.setExplorerHeight(10_000);
-    expect(shell.explorerHeight()).toBe(720);
-  });
-
-  it('remembers the Explorer height across a reload', () => {
-    TestBed.inject(ShellState).setExplorerHeight(280);
-
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(ShellState).explorerHeight()).toBe(280);
-  });
-
-  it('clamps and remembers the git Changes height', () => {
-    const shell = TestBed.inject(ShellState);
-    shell.setGitChangesHeight(260);
-    expect(shell.gitChangesHeight()).toBe(260);
-    shell.setGitChangesHeight(10);
-    expect(shell.gitChangesHeight()).toBe(48);
-    shell.setGitChangesHeight(10_000);
-    expect(shell.gitChangesHeight()).toBe(1200);
-
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(ShellState).gitChangesHeight()).toBe(1200);
-  });
-
   it('folds the git sections independently', () => {
     const shell = TestBed.inject(ShellState);
     expect(shell.gitChangesCollapsed()).toBe(false);
