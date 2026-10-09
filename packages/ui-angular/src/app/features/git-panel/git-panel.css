@@ -79,7 +79,9 @@
 /*
  * A long branch name must not crowd out the hash and the age: the chip is
  * capped and ellipsised, with its full name one hover away (the title). The
- * expanded view has room, so it shows more of it.
+ * expanded view has room, so it shows more of it. The ellipsis lives on the
+ * name span, not the chip: a flex item cannot be ellipsised, an overflow
+ * block inside one can.
  */
 .branch,
 .ref {
@@ -87,6 +89,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.branch .branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .commit.expanded .ref {
   max-width: 240px;
@@ -101,9 +108,11 @@
 .ref.kind-tag {
   color: var(--morse-typename);
 }
-/* The branch chip is a button now: it opens the switcher. */
+/* The branch chip is a button now: it opens the switcher. It stays a chip —
+   sized to its text, ellipsised at 150px — while the picker it opens spans the
+   panel. The host must not be a containing block, or the picker would hang off
+   the chip and be clipped by the panel's edge. */
 .branch-host {
-  position: relative;
   display: inline-flex;
   flex: none;
   min-width: 0;
@@ -113,7 +122,6 @@ button.branch {
   align-items: center;
   gap: 4px;
   border: 1px solid transparent;
-  background: color-mix(in srgb, var(--morse-fg-muted) 12%, transparent);
   cursor: pointer;
 }
 button.branch:hover:not(:disabled) {

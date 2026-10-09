@@ -1,9 +1,14 @@
+/*
+ * The picker pins itself just under the pane's title bar and spans the panel —
+ * the only consumer anchors it to the pane frame, not to the branch chip, so a
+ * long branch list never spills past the column's edge nor gets clipped by it.
+ */
 :host {
   position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  top: calc(var(--morse-pane-head-height, 28px) + 4px);
+  left: 6px;
+  right: 6px;
   z-index: 30;
-  width: min(320px, 90vw);
   display: block;
 }
 /* A click anywhere else closes the picker without moving the tree. */

@@ -22,7 +22,7 @@
           [disabled]="switching()"
           (click)="toggleBranchPicker()"
         >
-          {{ name }}
+          <span class="branch-name">{{ name }}</span>
           <span class="branch-caret" aria-hidden="true">▾</span>
         </button>
         @if (branchOpen() && branches(); as list) {
@@ -38,360 +38,372 @@
       </div>
     }
 
-  <div
-    class="body"
-    [class.changes-collapsed]="changesCollapsed()"
-    [class.history-collapsed]="historyCollapsed()"
-  >
-    @if (isRepo()) {
-      <!--
+    <div
+      class="body"
+      [class.changes-collapsed]="changesCollapsed()"
+      [class.history-collapsed]="historyCollapsed()"
+    >
+      @if (isRepo()) {
+        <!--
         The whole uncommitted side is one pane: the branch distance, the commit
         form and the Staged / Unstaged lists fold together under the "Changes"
         title. History below stays its own pane, so the two resize apart.
       -->
-      <morse-pane
-        class="changes"
-        [class.sized]="changesHeightPx() !== null"
-        title="Changes"
-        [meta]="changedCount() > 0 ? changedCount().toString() : undefined"
-        [folded]="changesCollapsed()"
-        (foldToggle)="toggleChanges()"
-      >
-        @if (!changesCollapsed()) {
-          <!-- How far the branch is from its upstream, and the way to close the gap. -->
-          <div class="sync">
-            <span class="sync-counts" [title]="syncLabel()">
-              <span class="sync-arrow" [class.on]="behind() > 0">
-                <span aria-hidden="true">↓</span>
-                <span>{{ behind() }}</span>
-              </span>
-              <span class="sync-arrow" [class.on]="ahead() > 0">
-                <span aria-hidden="true">↑</span>
-                <span>{{ ahead() }}</span>
-              </span>
-            </span>
-            <span class="sync-upstream" [title]="syncLabel()">{{ upstream() ?? 'no upstream' }}</span>
-            <span class="grow"></span>
-            <button
-              type="button"
-              class="icon"
-              title="Pull from the upstream"
-              aria-label="Pull"
-              [disabled]="syncing()"
-              (click)="pull()"
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M8 2v9" />
-                <path d="M4.5 7.5 8 11l3.5-3.5" />
-                <path d="M3 13.5h10" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="icon"
-              title="Push to the upstream (tags follow)"
-              aria-label="Push"
-              [disabled]="syncing()"
-              (click)="push()"
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M8 14V5" />
-                <path d="M4.5 8.5 8 5l3.5 3.5" />
-                <path d="M3 2.5h10" />
-              </svg>
-            </button>
-          </div>
-          <!-- Commit box: what is staged goes in with one line and Enter. -->
-          <div class="commit-box">
-            <input
-              class="commit-input"
-              type="text"
-              [placeholder]="'Message (Enter to commit on ' + (branch() ?? 'HEAD') + ')'"
-              aria-label="Commit message"
-              [value]="commitMessage()"
-              [disabled]="committing()"
-              (input)="onCommitMessage($event)"
-              (keydown.enter)="submitCommit()"
-            />
-            <button
-              type="button"
-              class="commit-button"
-              [disabled]="!canCommit()"
-              (click)="submitCommit()"
-            >
-              Commit
-            </button>
-          </div>
-          @if (notice(); as result) {
-            @if (!result.ok) {
-              <p class="commit-error" role="alert">{{ result.text }}</p>
-            }
-          }
-          <div class="changes-scroll">
-            @if (staged().length === 0 && unstaged().length === 0) {
-              <div class="empty">
-                <span class="mark" aria-hidden="true">
-                  <svg class="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
-                  <svg class="check" viewBox="0 0 24 24"><path d="M7.5 12.5 11 16l6-7" /></svg>
+        <morse-pane
+          class="changes"
+          [class.sized]="changesHeightPx() !== null"
+          title="Changes"
+          [meta]="changedCount() > 0 ? changedCount().toString() : undefined"
+          [folded]="changesCollapsed()"
+          (foldToggle)="toggleChanges()"
+        >
+          @if (!changesCollapsed()) {
+            <!-- How far the branch is from its upstream, and the way to close the gap. -->
+            <div class="sync">
+              <span class="sync-counts" [title]="syncLabel()">
+                <span class="sync-arrow" [class.on]="behind() > 0">
+                  <span aria-hidden="true">↓</span>
+                  <span>{{ behind() }}</span>
                 </span>
-                No uncommitted changes
-              </div>
-            } @else {
-              <morse-pane
-                class="change-group"
-                title="Staged"
-                [meta]="staged().length > 0 ? staged().length.toString() : undefined"
-                [folded]="stagedCollapsed()"
-                (foldToggle)="toggleStaged()"
-                [actions]="stagedActions()"
+                <span class="sync-arrow" [class.on]="ahead() > 0">
+                  <span aria-hidden="true">↑</span>
+                  <span>{{ ahead() }}</span>
+                </span>
+              </span>
+              <span class="sync-upstream" [title]="syncLabel()">{{
+                upstream() ?? 'no upstream'
+              }}</span>
+              <span class="grow"></span>
+              <button
+                type="button"
+                class="icon"
+                title="Pull from the upstream"
+                aria-label="Pull"
+                [disabled]="syncing()"
+                (click)="pull()"
               >
-                @if (!stagedCollapsed()) {
-                  @if (staged().length === 0) {
-                    <p class="change-empty">No staged files. Stage a change to commit it.</p>
-                  } @else {
-                    <ul class="change-list">
-                      @for (change of staged(); track change.path) {
-                        <li class="change-row">
-                          <button
-                            type="button"
-                            class="change"
-                            [title]="change.path"
-                            (click)="openChange(change.path)"
-                          >
-                            <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
-                            <span class="change-dir">{{ dirOf(change.path) }}</span
-                            ><span class="change-name">{{ baseOf(change.path) }}</span>
-                          </button>
-                          <button
-                            type="button"
-                            class="change-action"
-                            title="Unstage"
-                            [attr.aria-label]="'Unstage ' + change.path"
-                            [disabled]="staging()"
-                            (click)="unstage(change.path)"
-                          >
-                            −
-                          </button>
-                        </li>
-                      }
-                    </ul>
-                  }
-                }
-              </morse-pane>
-
-              @if (unstaged().length > 0) {
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 2v9" />
+                  <path d="M4.5 7.5 8 11l3.5-3.5" />
+                  <path d="M3 13.5h10" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="icon"
+                title="Push to the upstream (tags follow)"
+                aria-label="Push"
+                [disabled]="syncing()"
+                (click)="push()"
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 14V5" />
+                  <path d="M4.5 8.5 8 5l3.5 3.5" />
+                  <path d="M3 2.5h10" />
+                </svg>
+              </button>
+            </div>
+            <!-- Commit box: what is staged goes in with one line and Enter. -->
+            <div class="commit-box">
+              <input
+                class="commit-input"
+                type="text"
+                [placeholder]="'Message (Enter to commit on ' + (branch() ?? 'HEAD') + ')'"
+                aria-label="Commit message"
+                [value]="commitMessage()"
+                [disabled]="committing()"
+                (input)="onCommitMessage($event)"
+                (keydown.enter)="submitCommit()"
+              />
+              <button
+                type="button"
+                class="commit-button"
+                [disabled]="!canCommit()"
+                (click)="submitCommit()"
+              >
+                Commit
+              </button>
+            </div>
+            @if (notice(); as result) {
+              @if (!result.ok) {
+                <p class="commit-error" role="alert">{{ result.text }}</p>
+              }
+            }
+            <div class="changes-scroll">
+              @if (staged().length === 0 && unstaged().length === 0) {
+                <div class="empty">
+                  <span class="mark" aria-hidden="true">
+                    <svg class="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
+                    <svg class="check" viewBox="0 0 24 24"><path d="M7.5 12.5 11 16l6-7" /></svg>
+                  </span>
+                  No uncommitted changes
+                </div>
+              } @else {
                 <morse-pane
                   class="change-group"
-                  title="Unstaged"
-                  [meta]="unstaged().length.toString()"
-                  [folded]="unstagedCollapsed()"
-                  (foldToggle)="toggleUnstaged()"
-                  [actions]="unstagedActions()"
+                  title="Staged"
+                  [meta]="staged().length > 0 ? staged().length.toString() : undefined"
+                  [folded]="stagedCollapsed()"
+                  (foldToggle)="toggleStaged()"
+                  [actions]="stagedActions()"
                 >
-                  @if (!unstagedCollapsed()) {
-                    <ul class="change-list">
-                      @for (change of unstaged(); track change.path) {
-                        <li class="change-row">
-                          <button
-                            type="button"
-                            class="change"
-                            [title]="change.path"
-                            (click)="openChange(change.path)"
-                          >
-                            <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
-                            <span class="change-dir">{{ dirOf(change.path) }}</span
-                            ><span class="change-name">{{ baseOf(change.path) }}</span>
-                          </button>
-                          <button
-                            type="button"
-                            class="change-action"
-                            title="Stage"
-                            [attr.aria-label]="'Stage ' + change.path"
-                            [disabled]="staging()"
-                            (click)="stage(change.path)"
-                          >
-                            +
-                          </button>
-                        </li>
-                      }
-                    </ul>
+                  @if (!stagedCollapsed()) {
+                    @if (staged().length === 0) {
+                      <p class="change-empty">No staged files. Stage a change to commit it.</p>
+                    } @else {
+                      <ul class="change-list">
+                        @for (change of staged(); track change.path) {
+                          <li class="change-row">
+                            <button
+                              type="button"
+                              class="change"
+                              [title]="change.path"
+                              (click)="openChange(change.path)"
+                            >
+                              <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
+                              <span class="change-dir">{{ dirOf(change.path) }}</span
+                              ><span class="change-name">{{ baseOf(change.path) }}</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="change-action"
+                              title="Unstage"
+                              [attr.aria-label]="'Unstage ' + change.path"
+                              [disabled]="staging()"
+                              (click)="unstage(change.path)"
+                            >
+                              −
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    }
                   }
                 </morse-pane>
-              }
-            }
-          </div>
-        }
-      </morse-pane>
-      <div
-        class="divider"
-        [class.gone]="changesCollapsed() || historyCollapsed()"
-        [morseSplitter]="'changes'"
-        edge="bottom"
-        box="previous"
-        [min]="48"
-        [max]="changesMax"
-        label="Resize the git sections"
-        title="Drag to resize"
-      ></div>
-    }
 
-    <morse-pane
-      class="history"
-      title="History"
-      [folded]="historyCollapsed()"
-      (foldToggle)="toggleHistory()"
-    >
-      @if (!historyCollapsed()) {
-    @if (loading() && !loaded()) {
-      <p class="hint">Reading git history…</p>
-    } @else if (error(); as message) {
-    <p class="hint error">{{ message }}</p>
-  } @else if (!isRepo()) {
-    <p class="hint">This project is not a git repository.</p>
-  } @else if (commits().length === 0) {
-    <div class="empty">
-      <span class="mark node" aria-hidden="true">
-        <svg viewBox="0 0 24 24">
-          <path class="line" d="M12 3v18" />
-          <circle class="dot" cx="12" cy="12" r="3.4" />
-        </svg>
-      </span>
-      No commits yet
-    </div>
-  } @else {
-    <ul class="list" (scroll)="onScroll($event)">
-      @for (entry of entries().rows; track entry.commit.hash) {
-        <li
-          class="commit"
-          [class.expanded]="expanded()"
-          [class.open]="isCommitOpen(entry.commit.hash)"
-        >
-          <div
-            class="commit-row"
-            role="button"
-            tabindex="0"
-            [title]="commitTitle(entry.commit)"
-            [attr.aria-expanded]="isCommitOpen(entry.commit.hash)"
-            (click)="toggleCommit(entry.commit.hash)"
-            (keydown.enter)="toggleCommit(entry.commit.hash)"
-            (keydown.space)="toggleCommit(entry.commit.hash); $event.preventDefault()"
-          >
-            <svg
-              class="graph"
-              [attr.width]="graphWidth()"
-              [attr.height]="rowHeight"
-              [attr.viewBox]="'0 0 ' + graphWidth() + ' ' + rowHeight"
-              aria-hidden="true"
-            >
-              @for (edge of entry.row.edges; track $index) {
-                <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
-                <path class="flow" [attr.d]="path(edge)" />
-              }
-              <circle
-                [attr.cx]="x(entry.row.lane)"
-                [attr.cy]="rowHeight / 2"
-                r="3.4"
-                [style.fill]="rowColor(entry.row)"
-              />
-            </svg>
-
-            <span class="commit-chevron" [class.open]="isCommitOpen(entry.commit.hash)">›</span>
-
-            <span class="subject">{{ entry.commit.subject }}</span>
-
-            @if (entry.refs.length > 0) {
-              <span class="refs">
-                @for (ref of entry.refs; track ref) {
-                  <span
-                    class="ref"
-                    [title]="refLabel(ref)"
-                    [class.kind-head]="refKind(ref) === 'head'"
-                    [class.kind-local]="refKind(ref) === 'local'"
-                    [class.kind-tag]="refKind(ref) === 'tag'"
-                    >{{ refLabel(ref) }}</span
+                @if (unstaged().length > 0) {
+                  <morse-pane
+                    class="change-group"
+                    title="Unstaged"
+                    [meta]="unstaged().length.toString()"
+                    [folded]="unstagedCollapsed()"
+                    (foldToggle)="toggleUnstaged()"
+                    [actions]="unstagedActions()"
                   >
+                    @if (!unstagedCollapsed()) {
+                      <ul class="change-list">
+                        @for (change of unstaged(); track change.path) {
+                          <li class="change-row">
+                            <button
+                              type="button"
+                              class="change"
+                              [title]="change.path"
+                              (click)="openChange(change.path)"
+                            >
+                              <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
+                              <span class="change-dir">{{ dirOf(change.path) }}</span
+                              ><span class="change-name">{{ baseOf(change.path) }}</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="change-action"
+                              title="Stage"
+                              [attr.aria-label]="'Stage ' + change.path"
+                              [disabled]="staging()"
+                              (click)="stage(change.path)"
+                            >
+                              +
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  </morse-pane>
                 }
-                @if (entry.moreRefs > 0) {
-                  <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
-                }
-              </span>
-            }
-
-            <span class="grow"></span>
-
-            <span class="meta">
-              <span class="hash" [title]="entry.commit.hash">{{ entry.commit.shortHash }}</span>
-              <span class="sep" aria-hidden="true">·</span>
-              <span class="when">{{ when(entry.commit.date) }}</span>
-              @if (expanded()) {
-                <span class="sep" aria-hidden="true">·</span>
-                <span class="author">{{ entry.commit.author }}</span>
-              }
-            </span>
-
-            <button
-              type="button"
-              class="copy"
-              [title]="copied() === entry.commit.hash ? 'Copied' : 'Copy commit hash'"
-              [attr.aria-label]="'Copy commit hash ' + entry.commit.shortHash"
-              (click)="$event.stopPropagation(); copy(entry.commit)"
-            >
-              {{ copied() === entry.commit.hash ? '✓' : '⧉' }}
-            </button>
-          </div>
-
-          @if (isCommitOpen(entry.commit.hash)) {
-            <div class="commit-files">
-              <!-- The lanes carrying on below the commit, drawn across the list so
-                   the expanded row does not cut the graph. -->
-              <div class="commit-rail" aria-hidden="true">
-                @for (edge of continuing(entry.row); track $index) {
-                  <span
-                    class="rail"
-                    [style.left.px]="x(edge.toLane)"
-                    [style.background]="color(edge.color)"
-                  ></span>
-                }
-              </div>
-              @if (commitState(entry.commit.hash).loading) {
-                <p class="commit-file-hint">Reading the commit…</p>
-              } @else if (commitState(entry.commit.hash).error; as message) {
-                <p class="commit-file-hint error">{{ message }}</p>
-              } @else if (commitState(entry.commit.hash).files.length === 0) {
-                <p class="commit-file-hint">No changed files under this session.</p>
-              } @else {
-                <ul class="commit-file-list">
-                  @for (file of commitState(entry.commit.hash).files; track file.path) {
-                    <li>
-                      <button
-                        type="button"
-                        class="commit-file"
-                        [title]="file.path"
-                        (click)="openCommitChange(entry.commit.hash, file.path, entry.commit.subject)"
-                      >
-                        <span [class]="'badge ' + file.kind">{{ file.kind }}</span>
-                        <span class="change-dir">{{ dirOf(file.path) }}</span
-                        ><span class="change-name">{{ baseOf(file.path) }}</span>
-                      </button>
-                    </li>
-                  }
-                </ul>
               }
             </div>
           }
-        </li>
+        </morse-pane>
+        <div
+          class="divider"
+          [class.gone]="changesCollapsed() || historyCollapsed()"
+          [morseSplitter]="'changes'"
+          edge="bottom"
+          box="previous"
+          [min]="48"
+          [max]="changesMax"
+          label="Resize the git sections"
+          title="Drag to resize"
+        ></div>
       }
-      <li class="more">
-        @if (hasMore()) {
-          {{ loading() ? 'Loading older commits…' : 'Scroll for older commits' }}
-        } @else {
-          Beginning of history
+
+      <morse-pane
+        class="history"
+        title="History"
+        [folded]="historyCollapsed()"
+        (foldToggle)="toggleHistory()"
+      >
+        @if (!historyCollapsed()) {
+          @if (loading() && !loaded()) {
+            <p class="hint">Reading git history…</p>
+          } @else if (error(); as message) {
+            <p class="hint error">{{ message }}</p>
+          } @else if (!isRepo()) {
+            <p class="hint">This project is not a git repository.</p>
+          } @else if (commits().length === 0) {
+            <div class="empty">
+              <span class="mark node" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path class="line" d="M12 3v18" />
+                  <circle class="dot" cx="12" cy="12" r="3.4" />
+                </svg>
+              </span>
+              No commits yet
+            </div>
+          } @else {
+            <ul class="list" (scroll)="onScroll($event)">
+              @for (entry of entries().rows; track entry.commit.hash) {
+                <li
+                  class="commit"
+                  [class.expanded]="expanded()"
+                  [class.open]="isCommitOpen(entry.commit.hash)"
+                >
+                  <div
+                    class="commit-row"
+                    role="button"
+                    tabindex="0"
+                    [title]="commitTitle(entry.commit)"
+                    [attr.aria-expanded]="isCommitOpen(entry.commit.hash)"
+                    (click)="toggleCommit(entry.commit.hash)"
+                    (keydown.enter)="toggleCommit(entry.commit.hash)"
+                    (keydown.space)="toggleCommit(entry.commit.hash); $event.preventDefault()"
+                  >
+                    <svg
+                      class="graph"
+                      [attr.width]="graphWidth()"
+                      [attr.height]="rowHeight"
+                      [attr.viewBox]="'0 0 ' + graphWidth() + ' ' + rowHeight"
+                      aria-hidden="true"
+                    >
+                      @for (edge of entry.row.edges; track $index) {
+                        <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
+                        <path class="flow" [attr.d]="path(edge)" />
+                      }
+                      <circle
+                        [attr.cx]="x(entry.row.lane)"
+                        [attr.cy]="rowHeight / 2"
+                        r="3.4"
+                        [style.fill]="rowColor(entry.row)"
+                      />
+                    </svg>
+
+                    <span class="commit-chevron" [class.open]="isCommitOpen(entry.commit.hash)"
+                      >›</span
+                    >
+
+                    <span class="subject">{{ entry.commit.subject }}</span>
+
+                    @if (entry.refs.length > 0) {
+                      <span class="refs">
+                        @for (ref of entry.refs; track ref) {
+                          <span
+                            class="ref"
+                            [title]="refLabel(ref)"
+                            [class.kind-head]="refKind(ref) === 'head'"
+                            [class.kind-local]="refKind(ref) === 'local'"
+                            [class.kind-tag]="refKind(ref) === 'tag'"
+                            >{{ refLabel(ref) }}</span
+                          >
+                        }
+                        @if (entry.moreRefs > 0) {
+                          <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
+                        }
+                      </span>
+                    }
+
+                    <span class="grow"></span>
+
+                    <span class="meta">
+                      <span class="hash" [title]="entry.commit.hash">{{
+                        entry.commit.shortHash
+                      }}</span>
+                      <span class="sep" aria-hidden="true">·</span>
+                      <span class="when">{{ when(entry.commit.date) }}</span>
+                      @if (expanded()) {
+                        <span class="sep" aria-hidden="true">·</span>
+                        <span class="author">{{ entry.commit.author }}</span>
+                      }
+                    </span>
+
+                    <button
+                      type="button"
+                      class="copy"
+                      [title]="copied() === entry.commit.hash ? 'Copied' : 'Copy commit hash'"
+                      [attr.aria-label]="'Copy commit hash ' + entry.commit.shortHash"
+                      (click)="$event.stopPropagation(); copy(entry.commit)"
+                    >
+                      {{ copied() === entry.commit.hash ? '✓' : '⧉' }}
+                    </button>
+                  </div>
+
+                  @if (isCommitOpen(entry.commit.hash)) {
+                    <div class="commit-files">
+                      <!-- The lanes carrying on below the commit, drawn across the list so
+                   the expanded row does not cut the graph. -->
+                      <div class="commit-rail" aria-hidden="true">
+                        @for (edge of continuing(entry.row); track $index) {
+                          <span
+                            class="rail"
+                            [style.left.px]="x(edge.toLane)"
+                            [style.background]="color(edge.color)"
+                          ></span>
+                        }
+                      </div>
+                      @if (commitState(entry.commit.hash).loading) {
+                        <p class="commit-file-hint">Reading the commit…</p>
+                      } @else if (commitState(entry.commit.hash).error; as message) {
+                        <p class="commit-file-hint error">{{ message }}</p>
+                      } @else if (commitState(entry.commit.hash).files.length === 0) {
+                        <p class="commit-file-hint">No changed files under this session.</p>
+                      } @else {
+                        <ul class="commit-file-list">
+                          @for (file of commitState(entry.commit.hash).files; track file.path) {
+                            <li>
+                              <button
+                                type="button"
+                                class="commit-file"
+                                [title]="file.path"
+                                (click)="
+                                  openCommitChange(
+                                    entry.commit.hash,
+                                    file.path,
+                                    entry.commit.subject
+                                  )
+                                "
+                              >
+                                <span [class]="'badge ' + file.kind">{{ file.kind }}</span>
+                                <span class="change-dir">{{ dirOf(file.path) }}</span
+                                ><span class="change-name">{{ baseOf(file.path) }}</span>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      }
+                    </div>
+                  }
+                </li>
+              }
+              <li class="more">
+                @if (hasMore()) {
+                  {{ loading() ? 'Loading older commits…' : 'Scroll for older commits' }}
+                } @else {
+                  Beginning of history
+                }
+              </li>
+            </ul>
+          }
         }
-      </li>
-    </ul>
-  }
-      }
-    </morse-pane>
-  </div>
+      </morse-pane>
+    </div>
   </morse-pane>
 </aside>
