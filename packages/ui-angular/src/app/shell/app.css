@@ -501,8 +501,11 @@
    * Specific enough to beat the component's own `:host { position: relative }`,
    * which the absolutely-positioned header/list rely on in every other mode.
    */
+  /* Same grid-area trap as the drawer: the git overlay spans the shell's height,
+     not just row 2 — but stays a right-side partial overlay. */
   .shell > .git-panel {
     position: absolute;
+    grid-row: auto;
     z-index: 20;
     top: 0;
     bottom: 0;
@@ -511,13 +514,19 @@
     box-shadow: 0 0 24px rgb(0 0 0 / 35%);
   }
 
+  /*
+   * Narrow window: the drawer overlays full height but leaves a strip of the
+   * conversation on the right — a click there (the scrim behind it) closes it,
+   * a full-width drawer would have to be closed by nothing but its own content.
+   */
   .nav {
     position: absolute;
+    grid-row: auto;
     z-index: 20;
     top: 0;
     bottom: 0;
     left: 0;
-    width: min(86%, 320px);
+    width: min(100% - 48px, 420px);
     transform: translateX(-102%);
     transition: transform 160ms ease;
     box-shadow: 0 0 24px rgb(0 0 0 / 35%);
