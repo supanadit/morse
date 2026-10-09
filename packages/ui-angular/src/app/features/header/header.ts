@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { MorseService } from '../../host/morse.service';
-import { DisplayPrefs } from '../../state/display-prefs';
-import { ShellState } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 
+/** The conversation view: its title and its meta line. The conversation's
+ * buttons moved to the toolbar, beside the window's own indicators. */
 @Component({
   selector: 'morse-chat-header',
   templateUrl: './header.html',
@@ -12,14 +12,10 @@ import { WorkspaceTabs } from '../../state/workspace-tabs';
 })
 export class ChatHeader {
   private readonly morse = inject(MorseService);
-  private readonly shell = inject(ShellState);
-  private readonly display = inject(DisplayPrefs);
   private readonly tabs = inject(WorkspaceTabs);
 
   protected readonly state = this.morse.state;
   protected readonly workspace = this.morse.workspace;
-  /** The reader's chosen tool-call density, toggled from the toolbar. */
-  protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
   /**
    * True when no session is in front on the tabbed host — the empty placeholder.
    * The host's workspace is still whatever it last was, so naming it here read as
@@ -27,13 +23,6 @@ export class ChatHeader {
    * strip (VS Code) has its own workspace and is never in this state.
    */
   protected readonly noSessionInFront = this.tabs.noSessionInFront;
-
-  /** The compact button needs a conversation; with none it says so instead. */
-  protected readonly compactTitle = computed(() =>
-    this.noSessionInFront()
-      ? 'Open a session to compact the conversation'
-      : 'Compact the conversation (asks first)',
-  );
 
   protected readonly title = computed(() => {
     if (this.noSessionInFront()) {
@@ -60,14 +49,4 @@ export class ChatHeader {
     }
     return parts.join(' · ');
   });
-
-  protected compact(): void {
-    // Never straight to the agent: the dialog owns the question (see ShellState).
-    this.shell.requestCompact();
-  }
-
-  /** Flips between the detailed timeline and the compact summary, and remembers it. */
-  protected toggleToolDisplay(): void {
-    this.display.toggleToolDisplay();
-  }
 }

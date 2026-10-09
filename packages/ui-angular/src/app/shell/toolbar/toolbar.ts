@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
 import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
+import { DisplayPrefs } from '../../state/display-prefs';
 import { McpState } from '../../state/mcp-state';
 import { ShellState } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
@@ -10,11 +11,10 @@ import { ShortcutService } from '../../services/shortcut.service';
  * The window's top bar.
  *
  * It holds what belongs to the *window* rather than to the conversation in front: who this
- * is, the way into every command, the agent's lifecycle, and the switches that change the
- * window's own shape — the navigation column, the git column, the MCP manager. What a
- * conversation offers (its title and what it is called, compacting it) stays in the chat
- * header, where the conversation is; the same buttons in both would be two places to keep
- * honest.
+ * is, the way into every command, the agent's lifecycle, the conversation's own buttons
+ * (the tool-call display and compact), and the switches that change the window's own shape
+ * — the navigation column, the git column, the MCP manager. What is left in the chat
+ * header is what a conversation says: its title and its meta line.
  *
  * It is not rendered into a host surface that already has its own chrome (a VS Code editor
  * tab, see `app.html`), so the drawer toggle and the fold are always available here rather
@@ -29,6 +29,7 @@ import { ShortcutService } from '../../services/shortcut.service';
 export class Toolbar {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly display = inject(DisplayPrefs);
   private readonly layout = inject(LayoutState);
   private readonly mcp = inject(McpState);
   private readonly tabs = inject(WorkspaceTabs);
@@ -78,6 +79,20 @@ export class Toolbar {
     const detail = this.morse.connectionDetail();
     return detail ? `${this.statusLabel()} · ${detail}` : this.statusLabel();
   });
+  /** The reader's chosen tool-call density, toggled from this bar. */
+  protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
+  /**
+   * True when no session is in front on the tabbed host — the empty placeholder.
+   * The display switch is absent then, and the compact button says so instead.
+   */
+  protected readonly noSessionInFront = this.tabs.noSessionInFront;
+
+  /** The compact button needs a conversation; with none it says so instead. */
+  protected readonly compactTitle = computed(() =>
+    this.noSessionInFront()
+      ? 'Open a session to compact the conversation'
+      : 'Compact the conversation (asks first)',
+  );
   /** Wide layouts: the sidebar is folded away, and this button brings it back. */
   protected readonly collapsed = this.layout.leftCollapsed;
   /** The git column's switch only exists where the host can answer `gitLog`, and only
@@ -117,6 +132,16 @@ export class Toolbar {
 
   protected openPalette(): void {
     this.shell.togglePalette();
+  }
+
+  /** Flips between the detailed timeline and the compact summary, and remembers it. */
+  protected toggleToolDisplay(): void {
+    this.display.toggleToolDisplay();
+  }
+
+  protected compact(): void {
+    // Never straight to the agent: the dialog owns the question (see ShellState).
+    this.shell.requestCompact();
   }
 
   protected toggleNavigation(): void {

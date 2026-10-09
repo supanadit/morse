@@ -5,45 +5,4 @@
       <div class="meta" [title]="workspace().cwd">{{ line }}</div>
     }
   </div>
-
-  <div class="actions">
-    @if (!noSessionInFront()) {
-      <button
-        type="button"
-        class="icon"
-        [title]="
-          compactTools()
-            ? 'Tool calls: compact — click for the legacy timeline'
-            : 'Tool calls: legacy timeline — click for the compact tree'
-        "
-        [attr.aria-label]="'Tool call display: ' + (compactTools() ? 'compact' : 'timeline')"
-        [attr.aria-pressed]="compactTools()"
-        (click)="toggleToolDisplay()"
-      >
-        @if (compactTools()) {
-          <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M3 6h10M3 10h6" />
-          </svg>
-        } @else {
-          <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M3 4.5h10M3 8h10M3 11.5h10" />
-          </svg>
-        }
-      </button>
-    }
-
-    <button
-      type="button"
-      class="icon"
-      [title]="compactTitle()"
-      aria-label="Compact the conversation"
-      [disabled]="!state().agentReady || noSessionInFront()"
-      (click)="compact()"
-    >
-      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M4 3 8 6.6l4-3.6" />
-        <path d="M4 13 8 9.4l4 3.6" />
-      </svg>
-    </button>
-  </div>
 </header>

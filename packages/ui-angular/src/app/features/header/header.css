@@ -77,9 +77,3 @@
   font-size: 11px;
   color: var(--morse-fg-muted);
 }
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-}

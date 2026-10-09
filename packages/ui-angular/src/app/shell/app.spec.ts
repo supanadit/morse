@@ -280,7 +280,7 @@ describe('App · compaction asks first', () => {
     const { host, fixture, sent } = await renderApp();
 
     const compact = host.querySelector(
-      'morse-chat-header button[aria-label="Compact the conversation"]',
+      'morse-toolbar button[aria-label="Compact the conversation"]',
     ) as HTMLButtonElement;
     compact.click();
     fixture.detectChanges();
@@ -307,7 +307,7 @@ describe('App · compaction asks first', () => {
     const { host, fixture, sent } = await renderApp();
 
     (host.querySelector(
-      'morse-chat-header button[aria-label="Compact the conversation"]',
+      'morse-toolbar button[aria-label="Compact the conversation"]',
     ) as HTMLButtonElement).click();
     fixture.detectChanges();
 
@@ -353,7 +353,7 @@ describe('App · compaction asks first', () => {
     const { host, fixture, sent } = await renderApp();
 
     (host.querySelector(
-      'morse-chat-header button[aria-label="Compact the conversation"]',
+      'morse-toolbar button[aria-label="Compact the conversation"]',
     ) as HTMLButtonElement).click();
     fixture.detectChanges();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
