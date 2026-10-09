@@ -10,10 +10,11 @@ import { ShortcutService } from '../../services/shortcut.service';
  * The window's top bar.
  *
  * It holds what belongs to the *window* rather than to the conversation in front: who this
- * is, the way into every command, and the switches that change the window's own shape — the
- * navigation column, the git column, the MCP manager. What a conversation offers (its
- * title, what the agent is doing, compacting it) stays in the chat header, where the
- * conversation is; the same buttons in both would be two places to keep honest.
+ * is, the way into every command, the agent's lifecycle, and the switches that change the
+ * window's own shape — the navigation column, the git column, the MCP manager. What a
+ * conversation offers (its title and what it is called, compacting it) stays in the chat
+ * header, where the conversation is; the same buttons in both would be two places to keep
+ * honest.
  *
  * It is not rendered into a host surface that already has its own chrome (a VS Code editor
  * tab, see `app.html`), so the drawer toggle and the fold are always available here rather
@@ -36,6 +37,47 @@ export class Toolbar {
 
   protected readonly paletteOpen = this.shell.paletteOpen;
   protected readonly navigationOpen = this.shell.navigationOpen;
+
+  protected readonly state = this.morse.state;
+  /** The happy path lives in the dot: no banner needed while it is healthy. */
+  protected readonly status = computed(() => {
+    const connection = this.morse.connection();
+    if (connection !== 'ready') {
+      return connection;
+    }
+    if (this.state().agentStarting) {
+      return 'starting';
+    }
+    // The lazy no-session state is healthy, not a failure: the host spawns the
+    // agent on the first prompt, so the dot stays ready and the hint lives in
+    // the empty-state hero instead.
+    if (!this.state().agentReady && this.state().agentError === undefined) {
+      return 'ready';
+    }
+    return this.state().agentReady ? 'ready' : 'error';
+  });
+
+  protected readonly statusLabel = computed(() => {
+    switch (this.status()) {
+      case 'ready':
+        return 'Ready';
+      case 'starting':
+        return 'Starting…';
+      case 'connecting':
+        return 'Connecting…';
+      case 'closed':
+        return 'Disconnected';
+      case 'error':
+        return 'Error';
+      default:
+        return this.status();
+    }
+  });
+
+  protected readonly statusTitle = computed(() => {
+    const detail = this.morse.connectionDetail();
+    return detail ? `${this.statusLabel()} · ${detail}` : this.statusLabel();
+  });
   /** Wide layouts: the sidebar is folded away, and this button brings it back. */
   protected readonly collapsed = this.layout.leftCollapsed;
   /** The git column's switch only exists where the host can answer `gitLog`, and only

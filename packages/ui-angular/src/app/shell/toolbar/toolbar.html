@@ -31,6 +31,19 @@
 
   <span class="wordmark">Morse</span>
 
+  <span
+    class="status"
+    [class.online]="status() === 'ready'"
+    [class.busy]="status() === 'starting'"
+    [class.failed]="status() === 'error' || status() === 'closed'"
+    [title]="statusTitle()"
+  >
+    <span class="dot" aria-hidden="true"></span>
+    @if (status() !== 'ready') {
+      <span class="status-text">{{ statusLabel() }}</span>
+    }
+  </span>
+
   <button
     type="button"
     class="command"

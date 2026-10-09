@@ -17,54 +17,9 @@ export class ChatHeader {
   private readonly tabs = inject(WorkspaceTabs);
 
   protected readonly state = this.morse.state;
-  /** The window's own buttons — the navigation fold, the git column, the MCP manager —
-   * belong to the toolbar, which owns them and their keys (`shell/toolbar/`). What is
-   * left here is about the conversation: its title, its meta line, and the agent's state. */
-  protected readonly connection = this.morse.connection;
-  protected readonly connectionDetail = this.morse.connectionDetail;
   protected readonly workspace = this.morse.workspace;
   /** The reader's chosen tool-call density, toggled from the toolbar. */
   protected readonly compactTools = computed(() => this.display.toolDisplay() === 'compact');
-  /** The happy path lives in the dot: no banner needed while it is healthy. */
-  protected readonly status = computed(() => {
-    const connection = this.connection();
-    if (connection !== 'ready') {
-      return connection;
-    }
-    if (this.state().agentStarting) {
-      return 'starting';
-    }
-    // The lazy no-session state is healthy, not a failure: the host spawns the
-    // agent on the first prompt, so the dot stays ready and the hint lives in
-    // the empty-state hero instead.
-    if (!this.state().agentReady && this.state().agentError === undefined) {
-      return 'ready';
-    }
-    return this.state().agentReady ? 'ready' : 'error';
-  });
-
-  protected readonly statusLabel = computed(() => {
-    switch (this.status()) {
-      case 'ready':
-        return 'Ready';
-      case 'starting':
-        return 'Starting…';
-      case 'connecting':
-        return 'Connecting…';
-      case 'closed':
-        return 'Disconnected';
-      case 'error':
-        return 'Error';
-      default:
-        return this.status();
-    }
-  });
-
-  protected readonly statusTitle = computed(() => {
-    const detail = this.connectionDetail();
-    return detail ? `${this.statusLabel()} · ${detail}` : this.statusLabel();
-  });
-
   /**
    * True when no session is in front on the tabbed host — the empty placeholder.
    * The host's workspace is still whatever it last was, so naming it here read as
