@@ -132,4 +132,30 @@ describe('ChatComposer thinking-levels hold', () => {
     fixture.detectChanges();
     expect(transport.sent.some((message) => message.type === 'chat/prompt')).toBe(true);
   });
+
+  it('dismisses the thinking panel when the model chooser opens over it', async () => {
+    const transport = new SettlingHostTransport();
+    const { fixture, host } = await mount(transport);
+    transport.state({
+      availableModels: [{ provider: 'ollama', id: 'gemma-3', name: 'Gemma 3 31B' }],
+      availableThinkingLevels: ['off', 'low', 'high'],
+    });
+    fixture.detectChanges();
+
+    // Open the thinking panel first...
+    (host.querySelector('morse-thinking-picker .trigger') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('morse-thinking-picker .panel')).not.toBeNull();
+
+    // ...then reach for the model chooser. The trigger's own press is swallowed
+    // (so the chooser's outside-press listener does not race its toggle), so the
+    // panel must be closed by the composer, not by the outside-press listener.
+    const modelButton = host.querySelector('.model-button') as HTMLElement;
+    modelButton.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    modelButton.click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-thinking-picker .panel')).toBeNull();
+    expect(host.querySelector('morse-model-picker')).not.toBeNull();
+  });
 });

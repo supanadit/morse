@@ -137,7 +137,11 @@ export class ThinkingPicker {
     }
   }
 
-  private close(): void {
+  /**
+   * Dismisses the panel. Public so a sibling popover can close it when it opens
+   * over it: two dropdowns must never sit on top of each other.
+   */
+  close(): void {
     this.open.set(false);
     this.bumped.set(false);
   }

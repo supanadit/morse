@@ -81,6 +81,7 @@ export class ChatComposer {
   private readonly uploads = inject(Uploader);
   private readonly promptInput = viewChild<ElementRef<HTMLTextAreaElement>>('promptInput');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  private readonly thinkingPicker = viewChild(ThinkingPicker);
 
   protected readonly text = this.drafts.text;
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
@@ -992,11 +993,24 @@ export class ChatComposer {
 
   /** Opens the model chooser; `/model` and the footer trigger share it. */
   private openModelPicker(): void {
+    // Two dropdowns must never overlap: the chooser opening over the thinking
+    // panel dismisses it, whether it was opened by click or by its shortcut.
+    this.thinkingPicker()?.close();
     // pi caches its configured models while the session is warm, so opening the
     // picker asks for a fresh catalog: a model added to `models.json` shows up
     // here without restarting the host or the session.
     this.morse.refreshModels();
     this.modelPickerOpen.set(true);
+  }
+
+  /**
+   * The model trigger's pointerdown is kept from reaching the document so the
+   * chooser's own outside-press listener does not close it before the click
+   * toggles it. Closing the sibling thinking panel then happens in
+   * `openModelPicker`, so the keyboard path gets it too.
+   */
+  protected onModelTriggerPointerdown(event: Event): void {
+    event.stopPropagation();
   }
 
   protected toggleModelPicker(): void {

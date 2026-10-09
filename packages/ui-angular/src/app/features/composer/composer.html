@@ -312,7 +312,7 @@
         [disabled]="models().length === 0"
         [title]="modelLabel()"
         [attr.aria-expanded]="modelPickerOpen()"
-        (pointerdown)="$event.stopPropagation()"
+        (pointerdown)="onModelTriggerPointerdown($event)"
         (click)="toggleModelPicker()"
       >
         @if (currentProvider(); as provider) {
