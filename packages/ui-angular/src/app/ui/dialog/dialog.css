@@ -18,21 +18,24 @@
    */
   z-index: var(--morse-z-dialog);
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 45%);
+  padding: 0;
+  background: transparent;
+  pointer-events: none;
 }
 
 .modal-card {
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   gap: var(--morse-card-gap, 0);
   width: var(--morse-card-width, min(560px, 100%));
-  max-height: var(--morse-card-max-height, min(640px, 90vh));
+  max-height: var(--morse-card-max-height, 100vh);
+  height: 100vh;
   padding: var(--morse-card-padding, 0);
   border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-lg);
+  border-radius: 0;
   background: var(--morse-panel, var(--morse-bg));
   box-shadow: 0 18px 48px rgb(0 0 0 / 40%);
   overflow: var(--morse-card-overflow, hidden);

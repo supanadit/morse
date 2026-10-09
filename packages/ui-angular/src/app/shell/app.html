@@ -32,6 +32,10 @@
     <morse-session-nav class="nav" [class.open]="navigationOpen()" />
   }
 
+  @if (paletteOpen()) {
+    <morse-command-palette />
+  }
+
   @if (projectPickerOpen()) {
     <morse-project-picker />
   }
@@ -46,12 +50,6 @@
 
   @if (mcpOpen()) {
     <morse-mcp-panel />
-  }
-
-  <!-- The command palette: one field over commands, tabs, sessions, projects,
-       files and the model. Mounted at the app level so it covers everything. -->
-  @if (paletteOpen()) {
-    <morse-command-palette />
   }
 
   @if (compactConfirmOpen()) {
