@@ -189,6 +189,19 @@ export class HostSessionController {
    * own loading row instead of the first one's answer.
    */
   private thinkingLevelsRefresh = 0;
+  /**
+   * Serializes the client messages that change what a prompt is answered with,
+   * so a prompt can never overtake a model or thinking pick it should follow.
+   *
+   * The transport fires every message without awaiting the last (`void
+   * controller.handleClientMessage(...)`), and `model/set` is slow — it awaits
+   * pi, which re-reads the new model's thinking levels before it is done. A fast
+   * Enter used to run `chat/prompt` in parallel, reaching the agent before the
+   * switch: the prompt was answered, or reasoned, by the previous model's
+   * settings. Chaining the mutating messages here restores the order the reader
+   * saw on screen — model, then thinking, then the prompt.
+   */
+  private clientChain: Promise<void> = Promise.resolve();
   /** Discriminates history item ids across pages (see `historyItems`). */
   private historyPageSeq = 0;
   /** This client's live attachments to shells, keyed by the terminal id it named. */
@@ -306,6 +319,27 @@ export class HostSessionController {
     if (this.disposed) {
       return;
     }
+    // Ordering matters only where a message changes the state a later one reads:
+    // a prompt must not overtake the model/thinking pick it follows (see
+    // `clientChain`). Terminal keystrokes and reads stay immediate — a shell
+    // must echo without waiting on a slow model switch, and a list refresh has
+    // nothing to order against.
+    const mutatesSettings =
+      message.type === 'model/set' ||
+      message.type === 'thinking/set' ||
+      message.type === 'chat/prompt';
+    if (!mutatesSettings) {
+      await this.dispatchClientMessage(message);
+      return;
+    }
+    const run = this.clientChain.then(() => this.dispatchClientMessage(message));
+    // Keep the chain alive even when this message throws, or one failed send
+    // would wedge every later pick.
+    this.clientChain = run.catch(() => undefined);
+    await run;
+  }
+
+  private async dispatchClientMessage(message: ClientToHostMessage): Promise<void> {
     switch (message.type) {
       case 'client/ready':
         if (message.payload.protocolVersion !== PROTOCOL_VERSION) {

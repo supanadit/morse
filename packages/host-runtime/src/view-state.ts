@@ -71,6 +71,23 @@ export function draftSessionViewState(
   if (!catalog) {
     return empty;
   }
+  // While the picked model's levels are being re-read, the catalog still holds
+  // the *previous* model's — pi scopes them per current model. Showing its
+  // `max`, its option list, as if they applied to the model just picked is the
+  // bug this guards: the picker read `Max` for a model with no reasoning and
+  // offered levels it may not have. Until the answer lands the level is `off`
+  // (pi's own neutral for "no reasoning chosen yet") and the list is empty, so
+  // the picker shows only its reading status. The model pick itself stands.
+  if (meta.loadingThinkingLevels) {
+    return {
+      ...empty,
+      model: toModelOption(pendingModel ?? catalog.model),
+      thinkingLevel: 'off',
+      availableModels: catalog.availableModels.map(toModelOption).filter(isModelOption),
+      availableThinkingLevels: [],
+      availableCommands: catalog.availableCommands.map(toCommandOption),
+    };
+  }
   return {
     ...empty,
     model: toModelOption(pendingModel ?? catalog.model),

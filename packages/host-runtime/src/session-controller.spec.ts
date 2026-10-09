@@ -615,10 +615,13 @@ describe('HostSessionController failures', () => {
     // pi scopes the levels to the current model, so the new model's list cannot
     // be known yet: the panel names the model already and admits it is reading
     // instead of showing the previous model's levels as if they still applied.
+    // The stale list is dropped and the level reads `off` — the previous model's
+    // `low` must not stand in for a model that may not have it.
     expect(settled).toBe(false);
     expect(h.lastState()?.model?.id).toBe('plain');
     expect(h.lastState()?.loadingThinkingLevels).toBe(true);
-    expect(h.lastState()?.availableThinkingLevels).toEqual(['off', 'low', 'high', 'max']);
+    expect(h.lastState()?.availableThinkingLevels).toEqual([]);
+    expect(h.lastState()?.thinkingLevel).toBe('off');
 
     release?.();
     await picked;
@@ -1310,6 +1313,128 @@ describe('HostSessionController background prompts', () => {
     expect(transcripts.items('sess-a')).toHaveLength(1);
     expect(registry.activeKeyOf()).toBe('sess-b');
     expect(lastStateOf(messages)?.sessionId).toBe('sess-b');
+  });
+});
+
+/**
+ * The transport fires every client message without awaiting the last, so a
+ * prompt used to run in parallel with the model or thinking pick it followed.
+ * A fast Enter — switching to a model that has no reasoning, then immediately
+ * sending — could reach the agent before the switch settled, and the prompt was
+ * answered by the previous model's settings. The controller now orders the
+ * mutating messages; these lock that down.
+ */
+describe('HostSessionController ordering of settings and prompts', () => {
+  interface Ordering {
+    host: HostSessionController;
+    /** Resolves the parked `setModel` so the switch can finish. */
+    release(): void;
+    /** Every model the agent was told to switch to, in order. */
+    models: ModelRef[];
+    /** Every prompt that reached the agent, in order, with the model it saw. */
+    prompts: { text: string; model: string | undefined }[];
+    /** The model the agent currently holds, as the fake gateway sees it. */
+    current(): ModelRef | undefined;
+  }
+
+  async function ordering(): Promise<Ordering> {
+    const messages: HostToClientMessage[] = [];
+    const models: ModelRef[] = [];
+    const prompts: { text: string; model: string | undefined }[] = [];
+    let current: ModelRef | undefined;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const factory: AgentGatewayFactory = {
+      create: () => {
+        const gateway = fakeGateway({ sessionId: 'sess-1' });
+        return Promise.resolve({
+          ...gateway,
+          // The switch parks, like pi re-reading the new model's levels does;
+          // a switch to `broken` fails outright, to prove the chain survives it.
+          setModel: (model: ModelRef) => {
+            models.push(model);
+            if (model.id === 'broken') {
+              return Promise.reject(new Error('set_model refused'));
+            }
+            return gate.then(() => {
+              current = model;
+            });
+          },
+          prompt: (text: string) => {
+            prompts.push({ text, model: current?.id });
+            return Promise.resolve<PromptDisposition>('started');
+          },
+        });
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const host = connect(registry, chat, new SessionTranscriptStore(), messages);
+    await host.start();
+    await host.handleClientMessage({ type: 'chat/prompt', payload: { text: 'first' } });
+    // Only the prompt under test should be parked against the gate; the session
+    // is warm now and the next two messages are the ones being ordered.
+    current = { provider: 'mock', id: 'reasoner', name: 'Reasoner' };
+    prompts.length = 0;
+    return {
+      host,
+      release: () => release?.(),
+      models,
+      prompts,
+      current: () => current,
+    };
+  }
+
+  it('holds a prompt behind a slow model switch instead of racing it', async () => {
+    const h = await ordering();
+
+    // Fired the way the transport does: neither awaited before the next.
+    const switching = h.host.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'mock', id: 'plain' },
+    });
+    const sending = h.host.handleClientMessage({
+      type: 'chat/prompt',
+      payload: { text: 'answer me' },
+    });
+
+    await Promise.resolve();
+    // The switch is still in flight, so the prompt must not have reached the
+    // agent — and must not have been answered by the old model.
+    expect(h.models.map((model) => model.id)).toEqual(['plain']);
+    expect(h.prompts).toEqual([]);
+
+    h.release();
+    await switching;
+    await sending;
+
+    // The prompt ran on the model it was meant to follow, not the previous one.
+    expect(h.prompts).toEqual([{ text: 'answer me', model: 'plain' }]);
+  });
+
+  it('keeps the chain alive after a failed message, so the next prompt still sends', async () => {
+    const h = await ordering();
+
+    // A switch that fails: the chain must not wedge on the rejected message.
+    const failing = h.host.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'mock', id: 'broken' },
+    });
+    await failing.catch(() => undefined);
+
+    await h.host.handleClientMessage({
+      type: 'chat/prompt',
+      payload: { text: 'still reaches the agent' },
+    });
+
+    expect(h.prompts.map((prompt) => prompt.text)).toContain('still reaches the agent');
   });
 });
 

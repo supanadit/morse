@@ -101,6 +101,14 @@ export class ChatComposer {
   protected readonly canSend = computed(
     () => this.connected() && !this.agentStarting() && this.agentError() === undefined,
   );
+  /**
+   * A send must wait for a model pick's thinking levels to land. The host orders
+   * a prompt behind the switch, but letting Enter through here reads as "sent with
+   * Max" while the picker is still re-reading — so the button is disabled and
+   * Enter is a no-op until the pick settles. Typing stays enabled: only the send
+   * is held.
+   */
+  protected readonly settingsSettled = computed(() => !this.loadingThinkingLevels());
   protected readonly canAttachSelection = computed(
     () => this.morse.capabilities()?.editorContext === true,
   );
@@ -487,8 +495,22 @@ export class ChatComposer {
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
+      // A model pick's thinking levels are still being read: the send would be
+      // held by the host anyway, and looking like it left with the previous
+      // model's level is the confusion. Do nothing until the pick settles.
+      if (!this.settingsSettled()) {
+        return;
+      }
       this.sendWith(this.streaming() ? 'steer' : 'new');
     }
+  }
+
+  /** The Send button: the same hold Enter takes while a model pick settles. */
+  protected onSendClick(): void {
+    if (!this.settingsSettled()) {
+      return;
+    }
+    this.sendWith('new');
   }
 
   protected sendWith(mode: PromptMode): void {

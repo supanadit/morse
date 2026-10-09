@@ -352,10 +352,10 @@
         <button
           type="button"
           class="icon send"
-          title="Send (Enter)"
+          [title]="settingsSettled() ? 'Send (Enter)' : 'Waiting for the model’s thinking levels…'"
           aria-label="Send"
-          [disabled]="!canSend()"
-          (click)="sendWith('new')"
+          [disabled]="!canSend() || !settingsSettled()"
+          (click)="onSendClick()"
         >
           ↑
         </button>
