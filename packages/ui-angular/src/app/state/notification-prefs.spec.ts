@@ -43,4 +43,15 @@ describe('NotificationPrefs', () => {
     expect(prefs.enabled()).toBe(false);
     expect(prefs.bannerDismissed()).toBe(true);
   });
+
+  it('defaults the sound on, and remembers muting it', () => {
+    expect(TestBed.inject(NotificationPrefs).sound()).toBe(true);
+
+    TestBed.inject(NotificationPrefs).setSound(false);
+    expect(TestBed.inject(NotificationPrefs).sound()).toBe(false);
+
+    // A reload rebuilds the service; the mute has to survive it.
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(NotificationPrefs).sound()).toBe(false);
+  });
 });

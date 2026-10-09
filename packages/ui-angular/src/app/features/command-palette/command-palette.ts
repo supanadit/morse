@@ -136,6 +136,31 @@ export class CommandPalette {
               icon: '›',
             },
       );
+      rows.push(
+        this.prefs.sound()
+          ? {
+              id: 'command:notify.soundOff',
+              kind: 'command',
+              label: 'Mute the completion sound',
+              badge: 'notify',
+              icon: '›',
+            }
+          : {
+              id: 'command:notify.soundOn',
+              kind: 'command',
+              label: 'Play a sound when a session finishes',
+              badge: 'notify',
+              icon: '›',
+            },
+      );
+      rows.push({
+        id: 'command:notify.test',
+        kind: 'command',
+        label: 'Send a test notification',
+        description: 'Hear and see what a finished session does',
+        badge: 'notify',
+        icon: '›',
+      });
     }
     return rows;
   });
@@ -337,6 +362,18 @@ export class CommandPalette {
         }
         if (id === 'notify.away') {
           this.prefs.setMode('away');
+          return;
+        }
+        if (id === 'notify.soundOn') {
+          this.prefs.setSound(true);
+          return;
+        }
+        if (id === 'notify.soundOff') {
+          this.prefs.setSound(false);
+          return;
+        }
+        if (id === 'notify.test') {
+          this.notifier.test();
           return;
         }
         this.shortcuts.run(id as ActionId);

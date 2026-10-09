@@ -10,6 +10,7 @@ import {
   trackNotificationPermission,
   type NotificationPermissionState,
 } from './notification-channel';
+import { NotificationSound } from './notification-sound';
 
 /**
  * Tells the reader when a run finishes while they are looking elsewhere.
@@ -28,6 +29,7 @@ export class RunNotifier {
   private readonly morse = inject(MorseService);
   private readonly attachments = inject(AttachmentStore);
   private readonly prefs = inject(NotificationPrefs);
+  private readonly sound = inject(NotificationSound);
   private readonly destroyRef = inject(DestroyRef);
   /** The last observed streaming state per session, so only a stop is news. */
   private streaming = new Map<string, boolean>();
@@ -83,7 +85,27 @@ export class RunNotifier {
     if (this.prefs.mode() === 'away' && isWindowFocused()) {
       return;
     }
-    const body = this.body(keys);
+    this.deliver(this.body(keys));
+  }
+
+  /**
+   * Raises one notice right now, on demand, so a reader can hear and see what a
+   * real finish will do without waiting for a session. Deliberate, so `away` does
+   * not suppress it; it still respects the on/off switch and the sound setting.
+   */
+  test(): void {
+    if (!this.prefs.enabled()) {
+      return;
+    }
+    this.deliver('Test notification — this is how a finished session will sound.');
+  }
+
+  private deliver(body: string): void {
+    // The chime is part of the notice, not a separate channel: it follows the same
+    // preference and mode gate above, and only its own switch can silence it.
+    if (this.prefs.sound()) {
+      this.sound.play();
+    }
     if (this.morse.capabilities()?.notify === true) {
       this.morse.hostCommand('notify', { title: 'Morse', body });
       return;

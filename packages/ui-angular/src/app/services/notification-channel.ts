@@ -1,6 +1,6 @@
 /**
  * The delivery half of notifications: the browser's Notification API, its
- * permission, and whether the window is even looking.
+ * permission, whether the window is even looking, and the audible chime.
  *
  * Nothing here knows about sessions or preferences — `RunNotifier` decides *when*
  * to say something and this file says it. Keeping the two apart is what lets the
@@ -110,4 +110,55 @@ export function showWebNotification(body: string): boolean {
     notification.close();
   };
   return true;
+}
+
+/**
+ * The audio context is created once and reused: browsers cap how many a page may
+ * open, and a context resumed by the first chime stays usable for the rest.
+ */
+let audioContext: AudioContext | undefined;
+
+function audioConstructor(): typeof AudioContext | undefined {
+  const win = globalThis as { AudioContext?: typeof AudioContext };
+  return win.AudioContext;
+}
+
+/**
+ * Plays a short two-note chime, synthesized rather than shipped as a file so the
+ * webview bundle carries no media asset and needs no MIME handling. Best-effort:
+ * a host without Web Audio (or one that blocks it) simply stays silent, which is
+ * exactly what the feature being off would sound like.
+ */
+export function playChime(): void {
+  const Context = audioConstructor();
+  if (Context === undefined) {
+    return;
+  }
+  try {
+    audioContext ??= new Context();
+    const context = audioContext;
+    // A context created before any user gesture starts suspended; resume it inside
+    // the (asynchronous) delivery path so later chimes are not swallowed.
+    void context.resume?.();
+    const start = context.currentTime;
+    for (const [offset, frequency] of [
+      [0, 660],
+      [0.16, 990],
+    ] as const) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      const at = start + offset;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.12, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(at);
+      oscillator.stop(at + 0.16);
+    }
+  } catch {
+    // An unavailable or restricted audio context must not break the notification.
+  }
 }

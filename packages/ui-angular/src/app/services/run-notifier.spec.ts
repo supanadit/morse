@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentStore } from '../state/attachments';
 import { MorseService } from '../host/morse.service';
 import { NotificationPrefs } from '../state/notification-prefs';
+import { NotificationSound } from './notification-sound';
 import { RunNotifier } from './run-notifier';
 
 type Activity = Map<string, { streaming: boolean }>;
@@ -13,6 +14,7 @@ function setup(capabilities: Record<string, unknown> = {}) {
   const caps = signal<Record<string, unknown>>(capabilities);
   const sessions = signal<{ id: string; title: string }[]>([]);
   const sent: { command: string; args?: Record<string, unknown> }[] = [];
+  const play = vi.fn();
   const fake = {
     sessionActivity: activity as Signal<Activity>,
     capabilities: caps as Signal<Record<string, unknown>>,
@@ -21,12 +23,19 @@ function setup(capabilities: Record<string, unknown> = {}) {
       sent.push({ command, args });
     }),
   };
-  TestBed.configureTestingModule({ providers: [{ provide: MorseService, useValue: fake }] });
+  TestBed.configureTestingModule({
+    providers: [
+      { provide: MorseService, useValue: fake },
+      // The chime is Web Audio, which jsdom does not implement; the policy under
+      // test is *when* the notifier asks for a sound, so the player is a stand-in.
+      { provide: NotificationSound, useValue: { play } },
+    ],
+  });
   const prefs = TestBed.inject(NotificationPrefs);
   // The notifier is opt-in: most tests exercise it switched on.
   prefs.setEnabled(true);
   TestBed.inject(RunNotifier);
-  return { activity, caps, sessions, sent, prefs };
+  return { activity, caps, sessions, sent, prefs, play };
 }
 
 /** The reader is looking at another window, not the panel. */
@@ -202,4 +211,65 @@ describe('RunNotifier', () => {
 
     expect(say).toHaveBeenCalledWith('info', 'Morse: A session finished');
   });
+
+  it('chimes when a run finishes', () => {
+    const { activity, play } = setup({ notify: true });
+    away();
+
+    activity.set(new Map([['s1', { streaming: true }]]));
+    TestBed.tick();
+    activity.set(new Map([['s1', { streaming: false }]]));
+    TestBed.tick();
+
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent when the sound preference is off', () => {
+    const { activity, prefs, play } = setup({ notify: true });
+    away();
+    prefs.setSound(false);
+
+    activity.set(new Map([['s1', { streaming: true }]]));
+    TestBed.tick();
+    activity.set(new Map([['s1', { streaming: false }]]));
+    TestBed.tick();
+
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('does not chime when the notification itself is suppressed', () => {
+    const { activity, play } = setup({ notify: true });
+    // Focused, the default `away` mode says the answer is already on screen.
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+
+    activity.set(new Map([['s1', { streaming: true }]]));
+    TestBed.tick();
+    activity.set(new Map([['s1', { streaming: false }]]));
+    TestBed.tick();
+
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('raises a notice on demand for a test', () => {
+    const { sent, play } = setup({ notify: true });
+    // Deliberate, so `away` does not suppress it even with the panel focused.
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+
+    TestBed.inject(RunNotifier).test();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].command).toBe('notify');
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not raise a test notice while the feature is off', () => {
+    const { sent, prefs, play } = setup({ notify: true });
+    prefs.disable();
+
+    TestBed.inject(RunNotifier).test();
+
+    expect(sent).toHaveLength(0);
+    expect(play).not.toHaveBeenCalled();
+  });
 });
+

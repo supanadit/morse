@@ -355,6 +355,36 @@ describe('CommandPalette', () => {
     expect(labels(fixture)).toContain('Notify even while the window is focused');
   });
 
+  it('offers a sound toggle and a test notification once notifications are on', async () => {
+    const { fixture, transport } = await render();
+    const prefs = TestBed.inject(NotificationPrefs);
+    prefs.enable();
+    expect(prefs.sound()).toBe(true);
+
+    open(fixture);
+    search(fixture, 'sound');
+    expect(labels(fixture)).toContain('Mute the completion sound');
+    press('Enter');
+    fixture.detectChanges();
+    expect(prefs.sound()).toBe(false);
+
+    open(fixture);
+    search(fixture, 'sound');
+    expect(labels(fixture)).toContain('Play a sound when a session finishes');
+
+    open(fixture);
+    search(fixture, 'test notification');
+    expect(labels(fixture)).toContain('Send a test notification');
+    press('Enter');
+    fixture.detectChanges();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'host/command',
+        payload: expect.objectContaining({ command: 'notify' }),
+      }),
+    );
+  });
+
   it('closes on Escape without running anything', async () => {
     const { fixture, transport } = await render();
     open(fixture);

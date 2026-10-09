@@ -15,6 +15,7 @@ export type NotificationMode = 'away' | 'always';
  */
 const ENABLED_KEY = 'morse.notifications.enabled';
 const MODE_KEY = 'morse.notifications.mode';
+const SOUND_KEY = 'morse.notifications.sound';
 /** The "notifications are off" nudge was answered, so it stops asking. */
 const BANNER_KEY = 'morse.notifications.banner';
 
@@ -63,6 +64,13 @@ export class NotificationPrefs {
   readonly enabled = this.enabledSignal.asReadonly();
   private readonly modeSignal = signal<NotificationMode>(readMode());
   readonly mode = this.modeSignal.asReadonly();
+  /**
+   * Whether a finished run also chimes. On by default: a reader who turned the
+   * notification on wants to hear it, and the sound can be silenced on its own
+   * for a panel they are watching but not reading.
+   */
+  private readonly soundSignal = signal(readFlag(SOUND_KEY, true));
+  readonly sound = this.soundSignal.asReadonly();
   private readonly bannerSignal = signal(readFlag(BANNER_KEY, false));
   /** The nudge was turned on or dismissed, so it never asks again. */
   readonly bannerDismissed = this.bannerSignal.asReadonly();
@@ -98,6 +106,16 @@ export class NotificationPrefs {
   /** `away` and `always` are the only two, so a toggle is the whole choice. */
   toggleMode(): void {
     this.setMode(this.modeSignal() === 'away' ? 'always' : 'away');
+  }
+
+  /** Turns the completion chime on or off, independently of the notification. */
+  setSound(sound: boolean): void {
+    this.soundSignal.set(sound);
+    storeFlag(SOUND_KEY, sound);
+  }
+
+  toggleSound(): void {
+    this.setSound(!this.soundSignal());
   }
 
   dismissBanner(): void {
