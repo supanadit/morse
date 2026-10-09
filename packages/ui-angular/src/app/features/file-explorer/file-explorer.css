@@ -53,6 +53,30 @@ morse-pane {
   overflow: auto;
   padding: 0 6px 8px;
 }
+/*
+ * The filter sits above the list, in the pane body, the way the sidebar's session
+ * search sits under its button — same full-width field, so "type to narrow" reads
+ * the same in both. A query replaces the tree with a flat list of matching files.
+ */
+.filter {
+  flex: none;
+  padding: 4px 6px 6px;
+}
+.filter input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 11.5px;
+}
+/* The folder a matching file sits in: context, muted, and it gives up its room first. */
+.dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
 .row {
   display: flex;
   align-items: center;

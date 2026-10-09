@@ -179,6 +179,9 @@ strip above the conversation, where sessions and files open side by side.
   the host's index cache), so a file added or deleted on disk appears without a restart. The same poll asks
   `gitStatus` (`{ isRepo, files: [{ path, status }] }`, porcelain codes), and a changed file shows the
   one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the folder that holds it.
+  A **filter box** above the list narrows the project: a query replaces the tree with a flat, ranked list of
+  matching files (the `@mention` picker's `rankFiles`, so a name hit outranks a path hit) and each row names
+  the folder it sits in; the title bar reads `3 of 41` rather than claiming a smaller project.
 - A file tab is filled by the `readFile` host command (`{ path, cwd? }` → `{ path, content, size, truncated,
   binary }`). `path` is relative to the viewing session's cwd: `readWorkspaceFile` resolves it against that
   directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the

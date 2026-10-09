@@ -11,7 +11,7 @@
 }
 <morse-pane
   title="Explorer"
-  [meta]="fileCount().toString()"
+  [meta]="meta()"
   [folded]="collapsed()"
   (foldToggle)="toggleFold()"
 >
@@ -27,11 +27,48 @@
   </button>
 
 @if (!collapsed()) {
+  <div class="filter">
+    <input
+      type="search"
+      [value]="filter()"
+      placeholder="Filter files…"
+      aria-label="Filter files"
+      (input)="onFilter($event)"
+      (keydown)="onFilterKeydown($event)"
+    />
+  </div>
+
   <div class="rows" #rowsBox>
     @if (isLoading() && rows().length === 0) {
       <p class="hint">Loading files…</p>
     } @else if (errorMessage(); as message) {
       <p class="hint error">{{ message }}</p>
+    } @else if (filtering()) {
+      <!-- A query replaces the tree with a flat list of matches: the folder a file
+           sits in is shown beside it, so the row answers both "which file" and "where". -->
+      @if (matching().length === 0) {
+        <p class="hint">No file matches “{{ filter() }}”.</p>
+      } @else {
+        @for (match of matching(); track match.path) {
+          <button
+            type="button"
+            class="row"
+            [class.active]="selected() === match.path"
+            [attr.aria-current]="selected() === match.path ? 'true' : null"
+            [title]="match.path"
+            (click)="openMatch(match)"
+          >
+            <span class="glyph" aria-hidden="true">{{ glyphFor(match.name) }}</span>
+            <span class="name">{{ match.name }}</span>
+            @if (match.dir.length > 0) {
+              <span class="dir">{{ match.dir }}</span>
+            }
+            @if (changeOf(match.path); as change) {
+              <span [class]="'badge ' + change" [title]="badgeTitle(change)">{{ change }}</span>
+            }
+          </button>
+        }
+      }
     } @else if (rows().length === 0) {
       <p class="hint">No files found.</p>
     } @else {

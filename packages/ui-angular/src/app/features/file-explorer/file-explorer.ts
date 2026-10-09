@@ -23,12 +23,21 @@ import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { Splitter } from '../../ui/splitter/splitter';
+import { rankFiles } from '../file-picker/file-picker';
 
 const MIN_EXPLORER_HEIGHT = 140;
 
 interface ExplorerRow {
   node: FileNode;
   depth: number;
+}
+
+/** One row of the filtered list: a matching file and the folder it sits in. */
+export interface FileMatch {
+  path: string;
+  name: string;
+  /** The directory above the file, or `''` for one at the project root. */
+  dir: string;
 }
 
 /**
@@ -91,6 +100,26 @@ export class FileExplorer {
   protected readonly collapsed = this.folded.asReadonly();
   protected readonly isLoading = this.workspaceStore.busy;
   protected readonly errorMessage = this.workspaceStore.error;
+  /**
+   * The Explorer's own search box. A non-empty query replaces the tree with a
+   * flat list of matching files — VS Code's Explorer filter, and the fast way to
+   * reach a file whose folder the reader would otherwise have to open by hand.
+   */
+  protected readonly filter = signal('');
+  protected readonly filtering = computed(() => this.filter().trim().length > 0);
+  protected readonly matching = computed(() =>
+    matchFiles(this.workspaceStore.files(), this.filter()),
+  );
+  /**
+   * The title bar counts what is on screen: the matches while filtering, every
+   * file otherwise. `3 of 41` says the box is narrowing the project, not that the
+   * project shrank.
+   */
+  protected readonly meta = computed(() =>
+    this.filtering()
+      ? `${this.matching().length} of ${this.fileCount()}`
+      : this.fileCount().toString(),
+  );
 
   /** The changed paths by letter, and the folders that contain one. */
   private readonly changes = computed(() => statusByPath(this.workspaceStore.status()));
@@ -115,6 +144,8 @@ export class FileExplorer {
           this.expanded.set(new Set());
           this.revealedPath = undefined;
           this.expandedFor = cwd;
+          // A query for the last project's files would leave this one looking empty.
+          this.filter.set('');
         }
       });
     });
@@ -265,6 +296,26 @@ export class FileExplorer {
     this.tabs.openFile(node.path);
   }
 
+  protected onFilter(event: Event): void {
+    this.filter.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Escape empties the box, and stops there: nothing else is up to close. */
+  protected onFilterKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || this.filter().length === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.filter.set('');
+  }
+
+  protected glyphFor = fileGlyph;
+
+  protected openMatch(match: FileMatch): void {
+    this.tabs.openFile(match.path);
+  }
+
   /** The list above gives way, but never below a screenful of it. */
   protected readonly explorerMax = (handle: HTMLElement): number => {
     const box = handle.parentElement;
@@ -275,6 +326,30 @@ export class FileExplorer {
     const top = box.parentElement?.getBoundingClientRect().top ?? 0;
     return Math.max(MIN_EXPLORER_HEIGHT, bottom - top - 120);
   };
+}
+
+/**
+ * The files whose path matches the filter, best first — the flat list an open
+ * search box shows instead of the tree.
+ *
+ * Directories are left out: the filtered view answers "find a file", and a folder
+ * row would only open a folder. The ranking is the `@mention` picker's, through
+ * `rankFiles`, so the two file lists look for the same thing the same way.
+ */
+export function matchFiles(files: readonly string[], query: string): FileMatch[] {
+  if (query.trim().length === 0) {
+    return [];
+  }
+  return rankFiles(files, query, Number.POSITIVE_INFINITY)
+    .filter((path) => !path.endsWith('/'))
+    .map((path) => {
+      const cut = path.lastIndexOf('/');
+      return {
+        path,
+        name: cut === -1 ? path : path.slice(cut + 1),
+        dir: cut === -1 ? '' : path.slice(0, cut),
+      };
+    });
 }
 
 function flatten(nodes: readonly FileNode[], expanded: ReadonlySet<string>): ExplorerRow[] {

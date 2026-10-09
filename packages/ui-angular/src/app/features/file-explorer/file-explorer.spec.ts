@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
-import { FileExplorer } from './file-explorer';
+import { FileExplorer, matchFiles } from './file-explorer';
 
 function setup(files: string[], status?: unknown) {
   const state = signal({ workspace: { cwd: '/work/morse', name: 'morse' } });
@@ -48,6 +48,53 @@ function badges(fixture: ComponentFixture<FileExplorer>): string[] {
     (node.textContent ?? '').trim(),
   );
 }
+
+function typeFilter(fixture: ComponentFixture<FileExplorer>, value: string): void {
+  const input = fixture.nativeElement.querySelector('.filter input') as HTMLInputElement;
+  input.value = value;
+  input.dispatchEvent(new Event('input'));
+  fixture.detectChanges();
+}
+
+describe('matchFiles', () => {
+  const FILES = [
+    'README.md',
+    'src/main.ts',
+    'src/app/main.ts',
+    'packages/extension/src/main.ts',
+    'docs/',
+    'src/',
+  ];
+
+  it('returns nothing for an empty query', () => {
+    expect(matchFiles(FILES, '')).toEqual([]);
+    expect(matchFiles(FILES, '   ')).toEqual([]);
+  });
+
+  it('matches a name before a path, and a shallow path before a deep one', () => {
+    expect(matchFiles(FILES, 'main').map((match) => match.path)).toEqual([
+      'src/main.ts',
+      'src/app/main.ts',
+      'packages/extension/src/main.ts',
+    ]);
+  });
+
+  it('leaves directories out, splitting each file from its folder', () => {
+    const matches = matchFiles(FILES, 'src');
+    expect(matches.map((match) => match.path)).not.toContain('src/');
+    expect(matches.find((match) => match.path === 'src/main.ts')).toEqual({
+      path: 'src/main.ts',
+      name: 'main.ts',
+      dir: 'src',
+    });
+    // A file at the project root has no folder to show.
+    expect(matchFiles(FILES, 'readme')[0]).toEqual({
+      path: 'README.md',
+      name: 'README.md',
+      dir: '',
+    });
+  });
+});
 
 describe('FileExplorer', () => {
   afterEach(() => {
@@ -210,6 +257,41 @@ describe('FileExplorer', () => {
 
     expect(rows(fixture)).toEqual(['src']);
     expect(fixture.nativeElement.querySelector('.row.active')).toBeNull();
+  });
+
+  it('filters the tree to a flat list of matching files, and clears on Escape', async () => {
+    const { fixture, tabs } = setup(['README.md', 'src/app/main.ts', 'src/app/view.ts']);
+    await flush();
+    fixture.detectChanges();
+
+    typeFilter(fixture, 'main');
+    // The tree (folders to open) gives way to the file, with its folder beside it.
+    expect(rows(fixture)).toEqual(['main.ts']);
+    expect(fixture.nativeElement.querySelector('.row .dir')?.textContent).toBe('src/app');
+    // The count reads as a narrowing, not a smaller project.
+    expect(fixture.nativeElement.querySelector('.pane-meta')?.textContent?.trim()).toContain('of');
+
+    (fixture.nativeElement.querySelector('.filter input') as HTMLInputElement).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape' }),
+    );
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.filter input')?.value).toBe('');
+    expect(rows(fixture)).toEqual(['src', 'README.md']);
+
+    // A click opens the matching file in a tab.
+    typeFilter(fixture, 'view');
+    (fixture.nativeElement.querySelector('.row') as HTMLElement).click();
+    expect(tabs.openFile).toHaveBeenCalledWith('src/app/view.ts');
+  });
+
+  it('says when nothing matches the filter', async () => {
+    const { fixture } = setup(['src/main.ts']);
+    await flush();
+    fixture.detectChanges();
+
+    typeFilter(fixture, 'nothing like this');
+    expect(rows(fixture)).toEqual([]);
+    expect(fixture.nativeElement.querySelector('.hint')?.textContent).toContain('No file matches');
   });
 
   it('offers a resize handle only while the pane is open', async () => {
