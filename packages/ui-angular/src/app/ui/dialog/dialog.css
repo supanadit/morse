@@ -18,11 +18,17 @@
    */
   z-index: var(--morse-z-dialog);
   display: flex;
-  align-items: stretch;
+  /* Centred in the viewport, the way every modal is expected to sit — stretch
+     pinned each card to the top, however much height it actually needed. */
+  align-items: center;
   justify-content: center;
-  padding: 0;
-  background: transparent;
-  pointer-events: none;
+  /* Air between a near-window-width card and the viewport edges: a modal that
+     touches the screen sides reads as a broken layout, not a dialog. */
+  padding: 0 16px;
+  /* The backdrop: a dim that says the app behind is not interactable. dialogs
+     that read as floating cards (not full-height sheets) usually want it. */
+  background: var(--morse-backdrop, rgb(0 0 0 / 45%));
+  pointer-events: auto;
 }
 
 .modal-card {
@@ -31,8 +37,7 @@
   flex-direction: column;
   gap: var(--morse-card-gap, 0);
   width: var(--morse-card-width, min(560px, 100%));
-  max-height: var(--morse-card-max-height, 100vh);
-  height: 100vh;
+  max-height: var(--morse-card-max-height, min(680px, 100vh - 48px));
   padding: var(--morse-card-padding, 0);
   border: 1px solid var(--morse-border);
   border-radius: 0;

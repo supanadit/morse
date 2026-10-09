@@ -8,17 +8,20 @@
 /*
  * The bar is a grid, so the two-row shape is exact and never accidental.
  *
- * Wide enough it is one row in three tracks: the identity (its natural width), the
- * command centre (the flexible `1fr` that fills the middle), and the buttons (their
- * natural width). When the bar gets tight, a container query gives the command its own
- * full-width second row and leaves identity and buttons together on row one. The query
- * measures the bar itself, not the viewport: a webview's width is its own, and a viewport
- * breakpoint would never fire for a narrow webview in a wide window. It is also never
- * three rows and never a lone button on its own line.
+ * Wide enough it is one row in three tracks: two symmetric `1fr` sides with the
+ * command centre between them. Symmetry is what puts the search box at the true
+ * centre of the window the way VS Code's does — a single flexible middle track
+ * between two `auto` sides would only centre it in the *leftover* space, which
+ * drifts off-centre whenever the two side groups differ in width. When the bar
+ * gets tight, a container query gives the command its own full-width second row
+ * and leaves identity and buttons together on row one. The query measures the
+ * bar itself, not the viewport: a webview's width is its own, and a viewport
+ * breakpoint would never fire for a narrow webview in a wide window. It is also
+ * never three rows and never a lone button on its own line.
  */
 .bar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr);
   align-items: center;
   gap: 2px 6px;
   container-type: inline-size;
@@ -31,6 +34,7 @@
 .identity {
   grid-column: 1;
   grid-row: 1;
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -40,14 +44,15 @@
 .actions {
   grid-column: 3;
   grid-row: 1;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 /*
- * The command centre: the flexible middle track, which it fills up to a readable cap.
- * The container query below is the one thing that moves it — nothing about the wide
- * shape is conditional.
+ * The command centre: the middle track, which grows to 560px and no further —
+ * the symmetric side tracks split whatever is left, so the box stays centred at
+ * every width. The container query below is the one thing that moves it.
  */
 .command {
   grid-column: 2;
@@ -56,8 +61,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  max-width: 560px;
   height: 24px;
   padding: 0 10px;
   border: 1px solid var(--morse-border);
@@ -75,13 +78,14 @@
  * full width. Identity and buttons keep row one, exactly where they were — the bar reads
  * the same, only the search moved.
  *
- * The extra bottom margin is the air a two-row bar needs and a one-row bar must not
- * have: the dropped command would otherwise sit flush against the bar's bottom border.
- * The rule is inside the query (and the query is against the bar, whose descendant the
- * command is), so only the dropped command carries it — the one-row bar keeps its exact
- * height.
+ * The threshold tracks the shell's own drawer breakpoint (759px): below it the window
+ * is narrow enough that the identity, the actions and a readable command box cannot
+ * share one row, no matter how the tracks are sized — the identity shrinks first
+ * (`min-width: 0`) and its text then paints under the box. Above it, the centred
+ * one-row shape has real slack. The extra bottom margin is the air a two-row bar
+ * needs and a one-row bar must not have.
  */
-@container (max-width: 520px) {
+@container (max-width: 759px) {
   .command {
     grid-column: 1 / -1;
     grid-row: 2;

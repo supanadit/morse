@@ -20,7 +20,7 @@ morse-dialog {
 .search input {
   flex: 1;
   min-width: 0;
-  padding-left: 0;
+  padding: 6px 10px;
   font-size: 13px;
 }
 .esc {
@@ -121,6 +121,31 @@ morse-dialog {
 .hint .prefixes {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/*
+ * The key hints are one row on a wide card, but at narrow widths there is no
+ * room for both halves, and the prefixes (`>`, `#`, `@`, `:`) are the part a
+ * reader acts on — abbreviations nobody is told about are dead keys. So the
+ * halves stack instead of competing in one row: the prefixes take their own
+ * line and the move hints stay above them.
+ */
+@media (max-width: 520px) {
+  .hint {
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow: visible;
+  }
+  .hint .spacer {
+    display: none;
+  }
+  .hint .prefixes {
+    flex-basis: 100%;
+    /* A full-basis item is not moved by the row's justify-content — its own text
+       alignment is what centres it. */
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 kbd {
   padding: 0 3px;
