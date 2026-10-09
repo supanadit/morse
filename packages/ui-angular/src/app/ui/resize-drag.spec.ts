@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startResize, type ResizeDrag } from './resize-drag';
 
 /** jsdom has no `PointerEvent`; a `MouseEvent` carries everything these handlers read. */
@@ -12,24 +12,40 @@ function handle(): HTMLElement {
   return element;
 }
 
-/** One animation frame: the drag coalesces its moves into one layout per paint. */
-const frame = (): Promise<void> =>
-  new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-
 /** A handle that starts a drag on pointerdown, with the site's own value formula. */
 function resizable(element: HTMLElement, drag: ResizeDrag<number>): void {
   element.addEventListener('pointerdown', (event) => startResize(event, drag));
 }
 
+/** The queued frames, painted only when the test chooses. */
+let painted: Array<() => void>;
+
+/**
+ * One animation frame from the drag's own queue — painted synchronously, never on
+ * a timer this test does not own, so no leaked fake timer can stall the wait.
+ */
+async function frame(): Promise<void> {
+  while (painted.length > 0) {
+    painted.shift()!();
+    await Promise.resolve();
+  }
+}
+
 describe('startResize', () => {
-  // This spec measures real animation frames. The builder runs spec files
-  // non-isolated, so a fake-timer install leaked from another file would make
-  // `requestAnimationFrame` never fire and `await frame()` hang until the 5 s
-  // timeout. Real timers start every case here.
+  // The drag coalesces its moves with requestAnimationFrame. Whether a real frame
+  // fires inside a test is not ours to count on — one case hung for 5 s when fake
+  // timers leaked in from another spec — so the drag gets a queue the test paints.
   beforeEach(() => {
-    vi.useRealTimers();
+    painted = [];
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      (callback: (now: number) => void) => painted.push(() => callback(0)),
+    );
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+  });
+  afterEach(() => {
+    painted.length = 0;
+    vi.unstubAllGlobals();
   });
 
   it('paints the first move at once, coalesces the rest, and commits once on release', async () => {

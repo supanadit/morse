@@ -27,12 +27,6 @@ function press(element: Element, type: string, init: MouseEventInit = {}): void 
   element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
 }
 
-/** One animation frame: the drag coalesces its moves into one layout per paint. */
-const frame = (): Promise<void> =>
-  new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-
 function render(): { host: HTMLElement; fixture: ComponentFixture<Host>; handle: HTMLElement } {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ imports: [Host] });
@@ -42,16 +36,31 @@ function render(): { host: HTMLElement; fixture: ComponentFixture<Host>; handle:
   return { host, fixture, handle: host.querySelector('.handle') as HTMLElement };
 }
 
+/** Frames the drag queued, painted when the test chooses — never on a clock. */
+let painted: Array<() => void>;
+const frame = async (): Promise<void> => {
+  while (painted.length > 0) {
+    painted.shift()!();
+    await Promise.resolve();
+  }
+};
+
 /**
  * One resize handle, whatever it resizes: the gesture is the directive's, and the size it
  * lands in is the layout's — never the pane's own template.
  */
 describe('Splitter', () => {
+  // The drag under test coalesces its moves with requestAnimationFrame; a leaked
+  // fake-timer install once stalled a wait on it for 5 s. The frames now come from
+  // a queue this spec paints itself, so the real clock decides nothing here.
   beforeEach(() => {
     localStorage.clear();
-    // This spec measures real animation frames; a fake-timer install leaked from
-    // another file (specs run non-isolated) would hang `await frame()` for 5 s.
-    vi.useRealTimers();
+    painted = [];
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      (callback: (now: number) => void) => painted.push(() => callback(0)),
+    );
+    vi.stubGlobal('cancelAnimationFrame', () => {});
   });
 
   it('drags the size it is given, through the layout, within its own range', async () => {
@@ -67,13 +76,14 @@ describe('Splitter', () => {
 
     // The first move paints at once; the rest wait for the frame they share.
     press(handle, 'pointermove', { clientY: 1_000 });
+    expect(layout.explorerSize()).toBe(360);
     await frame();
     expect(layout.explorerSize()).toBe(140);
 
     press(handle, 'pointerup');
     // Released: a later move must not reach the pane that was being sized.
     press(handle, 'pointermove', { clientY: 10 });
-    await frame();
+    // The first move after a release paints at once again.
     expect(layout.explorerSize()).toBe(140);
   });
 
