@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { composePromptTemplate, type PromptTemplateForm } from '@morse/ui-runtime';
+import { AutoGrowDirective } from '../../ui/auto-grow.directive';
 import { Dialog } from '../../ui/dialog/dialog';
 
 /** What opens the form: the prompt template the palette picked. */
@@ -32,7 +33,7 @@ export interface PromptTemplateRequest {
 @Component({
   selector: 'morse-prompt-template-dialog',
   templateUrl: './prompt-template-dialog.html',
-  imports: [Dialog],
+  imports: [Dialog, AutoGrowDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './prompt-template-dialog.css',
 })
@@ -97,7 +98,11 @@ export class PromptTemplateDialog {
     this.submitted.emit(this.preview());
   }
 
-  /** Enter sends from a single-line field; a textarea needs Ctrl/Cmd+Enter. */
+  /**
+   * Enter belongs to the field — arguments may hold code or a paragraph, so it
+   * inserts a newline. Ctrl/Cmd+Enter is the shortcut to send; the buttons stay
+   * the reliable path.
+   */
   protected onSubmitKey(event: KeyboardEvent): void {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       this.submit(event);

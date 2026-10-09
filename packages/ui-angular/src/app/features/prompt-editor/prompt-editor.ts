@@ -19,6 +19,7 @@ import {
   type PromptTemplateArgument,
 } from '@morse/ui-runtime';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { AutoGrowDirective } from '../../ui/auto-grow.directive';
 import { PromptTemplatesState } from '../../state/prompt-templates-state';
 import { MorseService } from '../../host/morse.service';
 import { ViewState } from '../../host/view-state';
@@ -60,6 +61,7 @@ const DRAFT_KEY = 'prompt-editor';
 @Component({
   selector: 'morse-prompt-editor',
   templateUrl: './prompt-editor.html',
+  imports: [AutoGrowDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './prompt-editor.css',
 })

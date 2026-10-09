@@ -135,16 +135,16 @@ describe('PromptEditor', () => {
 
       await type('Use $1 and $2');
       // The tester is debounced: nothing changes while the reader is mid-type.
-      expect(element.querySelectorAll('.arg-grid input')).toHaveLength(0);
+      expect(element.querySelectorAll('.arg-grid textarea')).toHaveLength(0);
       vi.advanceTimersByTime(250);
       fixture.detectChanges();
-      expect(element.querySelectorAll('.arg-grid input')).toHaveLength(2);
+      expect(element.querySelectorAll('.arg-grid textarea')).toHaveLength(2);
 
       // Deleting `$2` from the body deletes its input too.
       await type('Use $1 only');
       vi.advanceTimersByTime(250);
       fixture.detectChanges();
-      expect(element.querySelectorAll('.arg-grid input')).toHaveLength(1);
+      expect(element.querySelectorAll('.arg-grid textarea')).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -168,7 +168,7 @@ describe('PromptEditor', () => {
       // A previewable body brings the tester back, but there is nothing to fill.
       expect(element.querySelector('.test')).not.toBeNull();
       expect(element.querySelector('pre.preview')).not.toBeNull();
-      expect(element.querySelectorAll('.arg-grid input')).toHaveLength(0);
+      expect(element.querySelectorAll('.arg-grid textarea')).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }

@@ -265,6 +265,14 @@ textarea:focus {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 10px;
 }
+/* The sample fields grow from one row; monospace so pasted code lines up. */
+.arg-grid textarea {
+  min-height: 30px;
+  max-height: 40vh;
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .default-hint {
   color: var(--morse-fg-muted);
   font-size: 10.5px;

@@ -44,12 +44,12 @@ function type(field: HTMLInputElement | HTMLTextAreaElement, value: string): voi
 const nextTick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('PromptTemplateDialog', () => {
-  it('renders a field per declared argument plus the extra box', () => {
+  it('renders a multi-line field per declared argument plus the extra box', () => {
     const { host } = render();
-    const inputs = [...host.querySelectorAll('input')] as HTMLInputElement[];
-    expect(inputs).toHaveLength(2);
-    expect(inputs[0].getAttribute('aria-label')).toBe('focus');
-    expect(inputs[1].getAttribute('aria-label')).toBe('file');
+    const fields = [...host.querySelectorAll('.field textarea')] as HTMLTextAreaElement[];
+    expect(fields).toHaveLength(3);
+    expect(fields[0].getAttribute('aria-label')).toBe('focus');
+    expect(fields[1].getAttribute('aria-label')).toBe('file');
     // Angle brackets in the hint mark the field required.
     expect(host.querySelectorAll('.required')).toHaveLength(1);
     expect(host.querySelector('textarea[aria-label="Additional instructions"]')).not.toBeNull();
@@ -57,7 +57,7 @@ describe('PromptTemplateDialog', () => {
 
   it('updates the preview as fields and extra change', () => {
     const { host, fixture } = render();
-    const [focus, file] = [...host.querySelectorAll('input')] as HTMLInputElement[];
+    const [focus, file] = [...host.querySelectorAll('.field textarea')] as HTMLTextAreaElement[];
 
     type(focus, 'concurrency');
     type(file, 'src/app.ts');
@@ -74,7 +74,7 @@ describe('PromptTemplateDialog', () => {
 
   it('uses the template default for a blank optional field', () => {
     const { host, fixture } = render();
-    const file = [...host.querySelectorAll('input')] as HTMLInputElement[];
+    const file = [...host.querySelectorAll('.field textarea')] as HTMLTextAreaElement[];
     type(file[1], 'src/app.ts');
     fixture.detectChanges();
     expect(host.querySelector('pre')?.textContent).toContain('Review the staged changes in src/app.ts.');
@@ -85,7 +85,7 @@ describe('PromptTemplateDialog', () => {
     const send = host.querySelector('.actions button:not(.secondary)') as HTMLButtonElement;
     expect(send.disabled).toBe(true);
 
-    type(host.querySelectorAll('input')[1] as HTMLInputElement, 'src/app.ts');
+    type(host.querySelectorAll('.field textarea')[1] as HTMLTextAreaElement, 'src/app.ts');
     fixture.detectChanges();
     expect(send.disabled).toBe(false);
   });
@@ -97,8 +97,8 @@ describe('PromptTemplateDialog', () => {
     fixture.componentInstance.submitted.subscribe(submitted);
     fixture.componentInstance.cancelled.subscribe(cancelled);
 
-    type(host.querySelectorAll('input')[0] as HTMLInputElement, 'concurrency');
-    type(host.querySelectorAll('input')[1] as HTMLInputElement, 'src/app.ts');
+    type(host.querySelectorAll('.field textarea')[0] as HTMLTextAreaElement, 'concurrency');
+    type(host.querySelectorAll('.field textarea')[1] as HTMLTextAreaElement, 'src/app.ts');
     type(host.querySelector('textarea[aria-label="Additional instructions"]') as HTMLTextAreaElement, 'Be brief.');
     fixture.detectChanges();
 
@@ -128,7 +128,7 @@ describe('PromptTemplateDialog', () => {
   it('lands focus on the first field', async () => {
     const { host } = render();
     await nextTick();
-    expect(document.activeElement).toBe(host.querySelector('input'));
+    expect(document.activeElement).toBe(host.querySelector('.field textarea'));
   });
 
   it('offers a shell-quoted raw-arguments field for a catch-all template', () => {
@@ -138,5 +138,37 @@ describe('PromptTemplateDialog', () => {
     type(field, '"api tests" lint');
     fixture.detectChanges();
     expect(host.querySelector('pre')?.textContent).toContain('Run: api tests lint');
+  });
+
+  it('keeps a pasted multi-line argument as one value', () => {
+    const { host, fixture } = render();
+    const [focus, file] = [...host.querySelectorAll('.field textarea')] as HTMLTextAreaElement[];
+
+    type(focus, 'line one\nline two\nline three');
+    type(file, 'src/app.ts');
+    fixture.detectChanges();
+
+    // Newlines survive into the expanded prompt instead of being flattened.
+    expect(host.querySelector('pre')?.textContent).toContain(
+      'Review line one\nline two\nline three changes in src/app.ts.',
+    );
+  });
+
+  it('sends on Ctrl+Enter and leaves plain Enter to the field', () => {
+    const { host, fixture } = render();
+    const submitted = vi.fn();
+    fixture.componentInstance.submitted.subscribe(submitted);
+
+    type(host.querySelectorAll('.field textarea')[1] as HTMLTextAreaElement, 'src/app.ts');
+    fixture.detectChanges();
+
+    const field = host.querySelector('.field textarea') as HTMLTextAreaElement;
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(submitted).not.toHaveBeenCalled();
+
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+    );
+    expect(submitted).toHaveBeenCalledTimes(1);
   });
 });

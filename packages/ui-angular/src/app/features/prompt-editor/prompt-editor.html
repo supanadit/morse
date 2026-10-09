@@ -190,13 +190,16 @@
                           <span class="required">required</span>
                         }
                       </span>
-                      <input
-                        type="text"
+                      <!-- A sample value can be a pasted paragraph too, so it
+                           grows with what is typed or pasted. -->
+                      <textarea
+                        rows="1"
+                        [morseAutoGrow]="160"
                         [attr.aria-label]="field.label"
                         [placeholder]="field.default ?? ''"
                         [value]="fieldValue(field.id)"
                         (input)="setFieldValue(field.id, $any($event.target).value)"
-                      />
+                      ></textarea>
                       @if (defaultHint(field); as fallback) {
                         <span class="default-hint">{{ fallback }}</span>
                       }

@@ -21,6 +21,7 @@
         @if (argument.index === undefined) {
           <textarea
             rows="2"
+            [morseAutoGrow]="180"
             [value]="value(argument.id)"
             [attr.aria-label]="argument.label"
             placeholder="Shell-quoted arguments, e.g. &quot;api tests&quot; lint"
@@ -28,13 +29,20 @@
             (keydown)="onSubmitKey($event)"
           ></textarea>
         } @else {
-          <input
-            type="text"
+          <!--
+            Every argument is a textarea: a value may be a pasted patch or a
+            paragraph, and a one-line input cuts all of it but the first line.
+            It starts a single row tall and grows with what is typed or pasted.
+          -->
+          <textarea
+            rows="1"
+            [morseAutoGrow]="200"
             [value]="value(argument.id)"
             [attr.aria-label]="argument.label"
+            [placeholder]="argument.default ?? ''"
             (input)="setValue(argument.id, $event)"
-            (keydown.enter)="submit($event)"
-          />
+            (keydown)="onSubmitKey($event)"
+          ></textarea>
         }
       </label>
     }
@@ -46,6 +54,7 @@
       </span>
       <textarea
         rows="3"
+        [morseAutoGrow]="200"
         aria-label="Additional instructions"
         [value]="extra()"
         placeholder="Anything the template does not cover"

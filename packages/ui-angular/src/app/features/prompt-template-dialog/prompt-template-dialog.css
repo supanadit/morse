@@ -68,6 +68,19 @@ textarea {
   font-size: 12.5px;
   resize: vertical;
 }
+/*
+ * The argument boxes: room to read a pasted paragraph, and a monospace face so
+ * code and stack traces line up. `line-height` matches `.preview`, so what is
+ * typed reads like what will be sent. `min-height` is the single-row floor the
+ * auto-grow directive grows from.
+ */
+textarea {
+  line-height: 1.5;
+  min-height: 30px;
+  max-height: 40vh;
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+}
 input:focus,
 textarea:focus {
   outline: none;
