@@ -151,7 +151,8 @@ export class Toolbar {
 
   protected compact(): void {
     // Never straight to the agent: the dialog owns the question (see ShellState).
-    this.shell.requestCompact();
+    // The key pins it to the conversation in front, not whichever one is front later.
+    this.shell.requestCompact(undefined, this.tabs.composerKey());
   }
 
   protected toggleNavigation(): void {

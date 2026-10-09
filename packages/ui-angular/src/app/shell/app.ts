@@ -273,6 +273,7 @@ export class App {
   protected readonly paletteOpen = this.shell.paletteOpen;
   protected readonly navigationCollapsed = this.layout.leftCollapsed;
   protected readonly compactConfirmOpen = this.shell.compactConfirmOpen;
+  protected readonly stopConfirmOpen = this.shell.stopConfirmOpen;
   /**
    * The question, with the user's own instructions echoed back when they typed
    * `/compact <instructions>` — the dialog is the last place to catch a mistake.
@@ -363,7 +364,7 @@ export class App {
     // project filter, the composer owns the model chooser, the thinking picker
     // its own panel — so a missing owner shows up as an unavailable row.
     const unbind = [
-      this.shortcuts.bind('context.compact', () => this.shell.requestCompact(), () => this.morse.state().agentReady),
+      this.shortcuts.bind('context.compact', () => this.shell.requestCompact(undefined, this.tabs.composerKey()), () => this.morse.state().agentReady),
       this.shortcuts.bind('help.shortcuts', () => this.shell.toggleShortcuts()),
       // The palette's open flag is shell state (so `modalOpen` is honest and the
       // overlay renders from one place), so its key is bound here like the help's.
@@ -404,6 +405,42 @@ export class App {
     this.destroyRef.onDestroy(() => {
       this.clearNoticeTimer();
       this.clearBootTimer();
+    });
+    // A stop question is only ever about the run that was in flight when it was
+    // asked. A fast answer can settle before the reader confirms, leaving the
+    // dialog guarding a run that no longer exists — and confirming it would abort
+    // whatever run comes next. So the question retracts itself the moment that run
+    // ends, exactly like the stop button it stands in for.
+    effect(() => {
+      if (!this.morse.state().streaming) {
+        this.shell.closeStopPrompt();
+      }
+    });
+    // A compact question is about one conversation, pinned when it opened. If that
+    // conversation closes while the dialog is still up, the question no longer has a
+    // subject: confirming it would fail against a dead session (the host refuses a
+    // pinned key it no longer holds) when the honest answer is that there is nothing
+    // left to compact. So it retracts itself.
+    //
+    // "Closed" means the key vanished from a live set that once held it. A host that
+    // has not reported activity at all says nothing about the key, so the empty set
+    // only counts as proof of closure once some activity has actually arrived —
+    // otherwise a question over a still-open session would be taken down on startup.
+    // The loud refusal on confirm stays the backstop for hosts that never report.
+    let reportedActivity = false;
+    effect(() => {
+      const key = this.shell.compactSessionKey();
+      const live = this.morse.sessionActivity();
+      if (key === undefined) {
+        return;
+      }
+      if (live.size === 0 && !reportedActivity) {
+        return;
+      }
+      reportedActivity = true;
+      if (!live.has(key)) {
+        this.shell.closeCompactPrompt();
+      }
     });
     // A toast is transient, so it dismisses itself: an info note goes quickly, a
     // warning lingers a little. The manual close stays for "I read it, go away".
@@ -653,15 +690,44 @@ export class App {
   /**
    * The user said yes: the dialog steps aside, then the host asks pi to compact.
    * Closing first keeps a slow request from leaving a stale question on screen.
+   *
+   * The session key pinned when the question opened rides along, so a dialog asked
+   * over session A cannot compact session B just because the reader switched tabs
+   * while it was up — compaction rewrites what pi remembers, and it must rewrite the
+   * conversation the question was about.
    */
   protected confirmCompact(): void {
     const instructions = this.shell.compactInstructions();
+    const sessionKey = this.shell.compactSessionKey();
     this.shell.closeCompactPrompt();
-    this.morse.compactSession(instructions);
+    this.morse.compactSession(instructions, sessionKey);
   }
 
   protected cancelCompact(): void {
     this.shell.closeCompactPrompt();
+  }
+
+  /**
+   * The user said yes: the dialog steps aside, then the host aborts the run.
+   * Closing first mirrors `confirmCompact` — no stale question over a request
+   * already in flight, and the abort's own UI updates are not competing with it.
+   *
+   * The streaming check is the second half of the race guard: the dialog retracts
+   * itself when the run ends (the effect above), but a confirm and the run settling
+   * can still land on the same tick, so this drops a yes that has nothing left to
+   * stop. Aborting an idle session would be a no-op at best and could cut a run the
+   * reader started after the question was asked.
+   */
+  protected confirmStop(): void {
+    this.shell.closeStopPrompt();
+    if (!this.morse.state().streaming) {
+      return;
+    }
+    this.morse.abort();
+  }
+
+  protected cancelStop(): void {
+    this.shell.closeStopPrompt();
   }
 
   protected closeNavigation(): void {

@@ -233,8 +233,13 @@ export class MorseService {
     this.actions.deleteSession(sessionId);
   }
 
-  compactSession(instructions?: string): void {
-    this.actions.compactSession(instructions);
+  /**
+   * Summarizes one conversation's context. `sessionKey` pins it to the session the
+   * confirmation was asked over, so switching sessions while the dialog is up cannot
+   * redirect a compaction to the wrong conversation.
+   */
+  compactSession(instructions?: string, sessionKey?: string): void {
+    this.actions.compactSession(instructions, sessionKey);
   }
 
   /** Asks the host for the previous page of history (scroll reached the top). */

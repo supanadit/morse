@@ -56,7 +56,13 @@ export interface MorseActions {
    * agent process only; this removes the session file.
    */
   deleteSession(sessionId: string): void;
-  compactSession(instructions?: string): void;
+  /**
+   * Summarizes the context of one session. `sessionKey` pins it to the conversation
+   * the ask belonged to, so a dialog opened over session A cannot compact whichever
+   * session happens to be in front when the user says yes; omitted, it targets the
+   * session in front, the shared panel's behaviour.
+   */
+  compactSession(instructions?: string, sessionKey?: string): void;
   /** Fetches the previous page of a resumed session's history. */
   loadOlderHistory(): void;
   requestSessions(): void;
@@ -273,8 +279,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       send({ type: 'session/activate', payload: { sessionId, cwd } }),
     closeSession: (sessionId) => send({ type: 'session/close', payload: { sessionId } }),
     deleteSession: (sessionId) => send({ type: 'session/delete', payload: { sessionId } }),
-    compactSession: (instructions) =>
-      send({ type: 'session/compact', payload: { instructions } }),
+    compactSession: (instructions, sessionKey) =>
+      send({ type: 'session/compact', payload: { instructions, sessionKey } }),
     loadOlderHistory: () => send({ type: 'history/load', payload: {} }),
     requestSessions: () => send({ type: 'session/list', payload: {} }),
     requestProjects: () => send({ type: 'project/list', payload: {} }),

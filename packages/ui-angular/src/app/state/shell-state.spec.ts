@@ -83,6 +83,11 @@ describe('ShellState', () => {
     expect(shell.compactConfirmOpen()).toBe(true);
     shell.closeCompactPrompt();
     expect(shell.compactConfirmOpen()).toBe(false);
+
+    shell.requestStop();
+    expect(shell.stopConfirmOpen()).toBe(true);
+    shell.closeStopPrompt();
+    expect(shell.stopConfirmOpen()).toBe(false);
   });
 
   it('shares the project the sidebar is narrowed to', () => {

@@ -63,6 +63,17 @@
     />
   }
 
+  @if (stopConfirmOpen()) {
+    <morse-confirm-dialog
+      title="Stop the run?"
+      body="pi abandons the turn in flight. Anything it already said stays in the transcript, but the answer it was writing is lost, along with any queued follow-ups still waiting."
+      note="Steering and follow-ups do not need this — they queue, and you can cancel them."
+      confirmLabel="Stop"
+      (confirmed)="confirmStop()"
+      (cancelled)="cancelStop()"
+    />
+  }
+
   @if (navigationOpen() && !embedded()) {
     <button
       type="button"

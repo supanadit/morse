@@ -185,6 +185,9 @@ async function renderApp(): Promise<{
 const compactions = (sent: ClientToHostMessage[]): ClientToHostMessage[] =>
   sent.filter((message) => message.type === 'session/compact');
 
+const stops = (sent: ClientToHostMessage[]): ClientToHostMessage[] =>
+  sent.filter((message) => message.type === 'chat/abort');
+
 /** Presses a shortcut on the document, which is where the shell listens. */
 function press(key: string, { ctrl = false, alt = false } = {}): void {
   document.dispatchEvent(
@@ -363,6 +366,96 @@ describe('App · compaction asks first', () => {
 
     expect(compactions(sent)).toHaveLength(0);
     expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+  });
+
+  it('asks before stopping a run, and the answer is the only way the abort is sent', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    // The Stop button sits beside Steer and Follow up, so a stray press is one slip
+    // away. It only asks: nothing reaches the host until the question is answered.
+    TestBed.inject(ShellState).requestStop();
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-confirm-dialog')?.textContent).toContain('Stop the run?');
+    TestBed.inject(ShellState).closeStopPrompt();
+    fixture.detectChanges();
+    expect(stops(sent)).toHaveLength(0);
+  });
+
+  it('aborts once the stop question is confirmed, and Escape only closes it', async () => {
+    vi.useFakeTimers();
+    const { host, fixture, sent } = await renderApp();
+
+    // The question only exists while a run does, so start a real one: the answer
+    // landing before the confirm is exactly the case the guard below refuses.
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = 'do the thing';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await vi.advanceTimersByTimeAsync(20);
+    fixture.detectChanges();
+
+    TestBed.inject(ShellState).requestStop();
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    // Escape is the safe direction: it takes the question down and stops nothing.
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+    expect(stops(sent)).toHaveLength(0);
+
+    TestBed.inject(ShellState).requestStop();
+    fixture.detectChanges();
+    (host.querySelector(
+      'morse-confirm-dialog .actions button:not(.secondary)',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(stops(sent)).toHaveLength(1);
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+  });
+
+  it('retracts the stop question when the run it guards finishes first', async () => {
+    vi.useFakeTimers();
+    const { host, fixture, sent } = await renderApp();
+
+    // A real run: the prompt starts the mock host streaming, which is what makes
+    // Stop (and therefore the question) available in the first place.
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = 'do the thing';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await vi.advanceTimersByTimeAsync(20);
+    fixture.detectChanges();
+
+    TestBed.inject(ShellState).requestStop();
+    fixture.detectChanges();
+    expect(host.querySelector('morse-confirm-dialog')).not.toBeNull();
+
+    // The answer lands before the reader decides. The question was only ever about
+    // the run in flight, so it takes itself down — no stale gate on an idle session.
+    await vi.advanceTimersByTimeAsync(10_000);
+    fixture.detectChanges();
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+    expect(stops(sent)).toHaveLength(0);
+  });
+
+  it('drops a yes that arrives after the run already ended', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    // The dialog and the run settling can land on the same tick: the question is up
+    // while the run has already finished. Confirming must not reach the host — an
+    // abort here would be a no-op at best, and could cut a run started since.
+    TestBed.inject(ShellState).requestStop();
+    fixture.detectChanges();
+    (host.querySelector(
+      'morse-confirm-dialog .actions button:not(.secondary)',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(stops(sent)).toHaveLength(0);
   });
 
   it('takes down only the dialog on top, so one Escape cannot close two', async () => {

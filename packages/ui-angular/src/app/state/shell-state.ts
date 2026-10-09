@@ -141,6 +141,17 @@ export class ShellState {
   readonly compactConfirmOpen = computed(() => this.compactPrompt() !== undefined);
   /** Whatever the user typed after `/compact`, handed to pi on confirmation. */
   readonly compactInstructions = computed(() => this.compactPrompt()?.instructions);
+  /** The conversation the compact question was asked about, pinned on confirm. */
+  readonly compactSessionKey = computed(() => this.compactPrompt()?.sessionKey);
+
+  /**
+   * The stop gate. Aborting a run throws away the turn in flight — and the key that
+   * does it sits next to the ones used to steer, so a stray press used to end the
+   * run outright. It always asks first, the same way compaction does. Steering and
+   * follow-ups are not gated: they queue, and a queued message can be cancelled.
+   */
+  private readonly stopPrompt = signal(false);
+  readonly stopConfirmOpen = this.stopPrompt.asReadonly();
 
   /**
    * The MCP manager. Shell state like About: the header's indicator opens it,
@@ -282,13 +293,27 @@ export class ShellState {
     this.mcp.set(false);
   }
 
-  /** Asks before compacting; the caller runs the action on confirmation. */
-  requestCompact(instructions?: string): void {
-    this.compactPrompt.set(instructions ? { instructions } : {});
+  /**
+   * Asks before compacting; the caller runs the action on confirmation.
+   * `sessionKey` is the conversation the question is about, captured when the
+   * dialog opens so confirming cannot compact a session the user switched to in
+   * the meantime (or none that is in front at all).
+   */
+  requestCompact(instructions?: string, sessionKey?: string): void {
+    this.compactPrompt.set({ ...(instructions ? { instructions } : {}), sessionKey });
   }
 
   closeCompactPrompt(): void {
     this.compactPrompt.set(undefined);
+  }
+
+  /** Asks before aborting the run; the caller runs the action on confirmation. */
+  requestStop(): void {
+    this.stopPrompt.set(true);
+  }
+
+  closeStopPrompt(): void {
+    this.stopPrompt.set(false);
   }
 }
 
@@ -296,4 +321,6 @@ export class ShellState {
 interface CompactPrompt {
   /** `/compact keep the decisions` — the words after the command, if any. */
   instructions?: string;
+  /** The session it was asked about, pinned on confirm. */
+  sessionKey?: string;
 }

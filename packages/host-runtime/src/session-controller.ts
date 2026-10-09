@@ -405,10 +405,17 @@ export class HostSessionController {
         // elapsed chip, Stop button) and pulses the session in the navigator
         // while the agent summarizes the context. Reset in `finally` — a failed
         // compaction must hand the composer back, not wedge it on "Working".
+        //
+        // The key the frontend sends pins the compaction to the conversation its
+        // dialog was opened over. Without it (older frontends, the shared panel)
+        // the session in front is the target, which is the only sensible default.
         this.setBusy(true);
         try {
           await this.guard(() =>
-            this.options.services.chat.compact(message.payload.instructions, this.promptTarget()),
+            this.options.services.chat.compact(
+              message.payload.instructions,
+              message.payload.sessionKey ?? this.promptTarget(),
+            ),
           );
         } finally {
           this.setBusy(false);

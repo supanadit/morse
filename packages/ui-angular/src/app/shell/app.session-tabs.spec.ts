@@ -13,6 +13,9 @@ import { MORSE_TRANSPORT } from '../host/transport.token';
 class TitledSessionTransport extends BaseHostTransport {
   readonly kind = 'memory' as const;
 
+  /** Everything the frontend asked the host to do, in order. */
+  readonly sent: ClientToHostMessage[] = [];
+
   /** `false` models a host with no notification channel of its own (the web). */
   constructor(private readonly hostCanNotify = true) {
     super();
@@ -45,6 +48,7 @@ class TitledSessionTransport extends BaseHostTransport {
   }
 
   send(message: ClientToHostMessage): void {
+    this.sent.push(message);
     if (message.type !== 'client/ready') {
       return;
     }
@@ -71,6 +75,22 @@ class TitledSessionTransport extends BaseHostTransport {
         sessions: [
           { id: 'session-1', title: 'Sekarang tampilan tool', cwd: '/work/morse', updatedAt: 1, messageCount: 3 },
         ],
+      },
+    });
+  }
+
+  /** Publishes the live sessions; an empty list is a host that reports none. */
+  showActivity(keys: string[]): void {
+    this.emitMessage({
+      type: 'session/activity',
+      payload: {
+        sessions: keys.map((sessionKey) => ({
+          sessionKey,
+          streaming: false,
+          busy: false,
+          agentReady: true,
+          agentStarting: false,
+        })),
       },
     });
   }
@@ -210,6 +230,78 @@ describe('App session tabs', () => {
     (row()!.querySelector('.diagnostics-toggle') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(row()!.querySelector('.diagnostics-list')?.textContent).toContain('explain-path.md');
+  });
+
+  it('pins a compaction to the conversation its dialog was asked over', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+
+    // The header button opens the question while session-1 is in front. The key is
+    // captured now, not at confirm time: a reader who switches tabs while the dialog
+    // is up must still compact the conversation they were asked about, never the one
+    // they switched to.
+    (fixture.nativeElement.querySelector(
+      'morse-toolbar button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector(
+      'morse-confirm-dialog .actions button:not(.secondary)',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const compacted = transport.sent.filter((message) => message.type === 'session/compact');
+    expect(compacted).toHaveLength(1);
+    expect(compacted[0]).toMatchObject({ payload: { sessionKey: 'session-1' } });
+  });
+
+  it('retracts the compact question when the pinned conversation closes while it is up', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+
+    // The host reports session-1 alive, so the question has a subject to guard.
+    transport.showActivity(['session-1']);
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector(
+      'morse-toolbar button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('morse-confirm-dialog')).not.toBeNull();
+
+    // The conversation closes under the dialog. Nothing is left to compact, so the
+    // question takes itself down rather than leaving a yes that would only fail.
+    transport.showActivity([]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('morse-confirm-dialog')).toBeNull();
+    expect(transport.sent.filter((message) => message.type === 'session/compact')).toHaveLength(0);
+  });
+
+  it('leaves the compact question up when the host has not reported its live sessions', () => {
+    const transport = new TitledSessionTransport();
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
+    });
+    const fixture = render();
+
+    // No activity has arrived at all, so the empty set says nothing about the pinned
+    // key — guessing "closed" here would take down a question that is still valid.
+    (fixture.nativeElement.querySelector(
+      'morse-toolbar button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('morse-confirm-dialog')).not.toBeNull();
   });
 
   it('hides the chat and offers a session when no tab is in front', () => {

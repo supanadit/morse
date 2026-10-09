@@ -232,7 +232,12 @@ export type ClientToHostMessage =
    * the session file. What that means per host is the catalog's business.
    */
   | { type: 'session/delete'; payload: { sessionId: string } }
-  | { type: 'session/compact'; payload: { instructions?: string } }
+  /**
+   * Summarizes one session's context. `sessionKey` pins it to the conversation
+   * the question was asked about; omitted, it means "whatever is in front", the
+   * shared panel's behaviour.
+   */
+  | { type: 'session/compact'; payload: { instructions?: string; sessionKey?: string } }
   | { type: 'history/load'; payload: Record<string, never> }
   | { type: 'session/list'; payload: Record<string, never> }
   /**

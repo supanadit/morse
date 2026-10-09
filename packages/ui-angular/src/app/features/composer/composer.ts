@@ -523,7 +523,7 @@ export class ChatComposer {
     const instructions = compactInstructions(value);
     if (instructions !== undefined) {
       this.drafts.setText('');
-      this.shell.requestCompact(instructions);
+      this.shell.requestCompact(instructions, this.tabs.composerKey());
       return;
     }
     // A bare built-in (`/new`, `/compact`, `/settings`, `/model`) is an action,
@@ -674,8 +674,14 @@ export class ChatComposer {
     return `data:${image.mimeType};base64,${image.data}`;
   }
 
+  /**
+   * Stop is destructive — it drops the turn in flight — so it asks first. The button
+   * sits beside Steer and Follow up, and a stray press used to end the run outright;
+   * the dialog puts Cancel under the cursor instead. Steering and follow-ups stay
+   * ungated: they queue, and a queued message can be cancelled.
+   */
   protected abort(): void {
-    this.morse.abort();
+    this.shell.requestStop();
   }
 
   /**
@@ -1041,8 +1047,8 @@ export class ChatComposer {
       case 'compact':
         // Asked for, not done: `/compact` opens the same confirmation as the
         // header button, because a typo in the prompt should not summarize a
-        // conversation on its own.
-        this.shell.requestCompact();
+        // conversation on its own. The key pins it to the conversation in front.
+        this.shell.requestCompact(undefined, this.tabs.composerKey());
         break;
       case 'settings':
         this.morse.hostCommand('openSettings');
@@ -1107,7 +1113,7 @@ export class ChatComposer {
       case 'compact':
         // The same confirmation as the header button: `/compact` must not
         // summarize a conversation on its own.
-        this.shell.requestCompact();
+        this.shell.requestCompact(undefined, this.tabs.composerKey());
         return;
       case 'settings':
         this.morse.hostCommand('openSettings');

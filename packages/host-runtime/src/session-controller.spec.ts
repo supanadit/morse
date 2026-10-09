@@ -73,6 +73,8 @@ function fakeGateway(
     refreshModels?: () => Promise<void>;
     /** Warnings the agent carries on its state (pi's refused prompt templates). */
     diagnostics?: AgentDiagnostic[];
+    /** Records each compaction call's instructions and target session key. */
+    onCompact?: (instructions: string | undefined, sessionKey: string | undefined) => void;
   } = {},
 ): AgentGateway {
   let sessionId = options.sessionId;
@@ -104,14 +106,16 @@ function fakeGateway(
     abort: () => Promise.resolve(),
     setModel: () => Promise.reject(new Error('no agent under test here')),
     setThinkingLevel: () => Promise.resolve(),
-    compact: () =>
-      options.hold
+    compact: (instructions, sessionKey) => {
+      options.onCompact?.(instructions, sessionKey);
+      return options.hold
         ? new Promise<void>((resolve, reject) => {
             let hold = options.hold!;
             hold.finish = resolve;
             hold.fail = reject;
           })
-        : Promise.reject(options.compactError ?? new Error('compact failed')),
+        : Promise.reject(options.compactError ?? new Error('compact failed'));
+    },
     respondToInteraction: () => Promise.resolve(),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
@@ -190,12 +194,15 @@ function harness(options: {
   catalogSessions?: SessionSummary[];
   /** Warnings the agent carries on its state (pi's refused prompt templates). */
   diagnostics?: AgentDiagnostic[];
+  /** Records each compaction call's instructions and target session key. */
+  onCompact?: (instructions: string | undefined, sessionKey: string | undefined) => void;
 } = {}): Harness {
   const messages: HostToClientMessage[] = [];
   const gateway = fakeGateway({
     compactError: options.compactError,
     sessionId: 'sess-1',
     ...(options.diagnostics ? { diagnostics: options.diagnostics } : {}),
+    ...(options.onCompact ? { onCompact: options.onCompact } : {}),
     ...(options.hold ? { hold: options.hold } : {}),
     ...(options.historyEntries ? { historyEntries: options.historyEntries } : {}),
     ...(options.forkMessages ? { forkMessages: options.forkMessages } : {}),
@@ -416,6 +423,70 @@ describe('HostSessionController compaction', () => {
       )
       .map((message) => message.payload);
     expect(String(appends.at(-1)?.text)).toContain('Already compacted');
+  });
+
+  it('a pinned session key names the conversation, so a stale dialog cannot compact the wrong one', async () => {
+    const calls: Array<[string | undefined, string | undefined]> = [];
+    const h = harness({
+      compactError: new Error('compact failed'),
+      onCompact: (instructions, sessionKey) => calls.push([instructions, sessionKey]),
+    });
+    await withOpenSession(h);
+
+    // The frontend pins the conversation its question was asked over. The host uses
+    // that key to *select* the agent (the gateway's own id is the conversation), so
+    // the call lands on the pinned session rather than reaching for whichever one is
+    // in front when the message arrives. The gateway's second argument is therefore
+    // the routing key resolved by `chatAgent`, not the wire field — what matters is
+    // that the exact conversation was addressed.
+    await h.controller.handleClientMessage({
+      type: 'session/compact',
+      payload: { instructions: 'keep the schema', sessionKey: 'sess-1' },
+    });
+    expect(calls).toEqual([['keep the schema', undefined]]);
+    // And the routing key that selected this agent is the pinned one, not the
+    // controller's own (undefined) target.
+    expect(h.registry.activeKeyOf()).toBe('sess-1');
+  });
+
+  it('a pinned key for a session that is no longer open fails loudly, not onto the wrong one', async () => {
+    const calls: Array<[string | undefined, string | undefined]> = [];
+    const h = harness({
+      compactError: new Error('compact failed'),
+      onCompact: (instructions, sessionKey) => calls.push([instructions, sessionKey]),
+    });
+    await withOpenSession(h);
+    h.messages.length = 0;
+
+    // The readery switched away and the pinned conversation closed before the yes.
+    // The safe failure is a refusal — never silently compacting the session that
+    // happens to be in front instead.
+    await h.controller.handleClientMessage({
+      type: 'session/compact',
+      payload: { sessionKey: 'sess-closed' },
+    });
+    expect(calls).toEqual([]);
+    const appends = h.messages
+      .filter((message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
+        message.type === 'transcript/append',
+      )
+      .map((message) => message.payload);
+    expect(String(appends.at(-1)?.text)).toContain('no longer open');
+  });
+
+  it('an unpinned compaction falls back to the session in front', async () => {
+    const calls: Array<[string | undefined, string | undefined]> = [];
+    const h = harness({
+      compactError: new Error('compact failed'),
+      onCompact: (instructions, sessionKey) => calls.push([instructions, sessionKey]),
+    });
+    await withOpenSession(h);
+
+    // No key (an older frontend, or the shared panel): the session in front is the
+    // only sensible target, which is what `promptTarget()` resolves to — here
+    // `undefined`, and the registry's active session answers it.
+    await h.controller.handleClientMessage({ type: 'session/compact', payload: {} });
+    expect(calls).toEqual([[undefined, undefined]]);
   });
 });
 
