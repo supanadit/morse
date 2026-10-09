@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { startResize, type ResizeDrag } from './resize-drag';
 
 /** jsdom has no `PointerEvent`; a `MouseEvent` carries everything these handlers read. */
@@ -24,6 +24,14 @@ function resizable(element: HTMLElement, drag: ResizeDrag<number>): void {
 }
 
 describe('startResize', () => {
+  // This spec measures real animation frames. The builder runs spec files
+  // non-isolated, so a fake-timer install leaked from another file would make
+  // `requestAnimationFrame` never fire and `await frame()` hang until the 5 s
+  // timeout. Real timers start every case here.
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
   it('paints the first move at once, coalesces the rest, and commits once on release', async () => {
     const element = handle();
     const preview = vi.fn();

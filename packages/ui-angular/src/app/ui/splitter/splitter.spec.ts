@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayoutState } from '../../state/layout-state';
 import { Splitter } from './splitter';
 
@@ -49,6 +49,9 @@ function render(): { host: HTMLElement; fixture: ComponentFixture<Host>; handle:
 describe('Splitter', () => {
   beforeEach(() => {
     localStorage.clear();
+    // This spec measures real animation frames; a fake-timer install leaked from
+    // another file (specs run non-isolated) would hang `await frame()` for 5 s.
+    vi.useRealTimers();
   });
 
   it('drags the size it is given, through the layout, within its own range', async () => {
