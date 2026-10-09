@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.23.0 — 9 October 2026
+
+A pinned range can carry your own note, and the Explorer finds a file by typing.
+
+### New
+
+- **Annotate a pinned range with your own words.** Every pinned range — a chip in the composer, a band in
+  the file preview, a change row in either diff layout, or a chip in the transcript — now carries a ✎ that
+  opens a comment box. The note is written with a formatting toolbar and shortcuts, rendered in place as you
+  type, saved as Markdown, and read back as a formatted card on hover. It rides the wire with its pin as one
+  mention, so the note can never be read as your own prose.
+- **Find a file in the Explorer without opening folders.** The sidebar Explorer has a filter box: a query
+  replaces the tree with a flat, ranked list of matching files, each row naming the folder it sits in, and the
+  title bar counts the matches (`3 of 41`) instead of claiming a smaller project. A name hit outranks a path
+  hit, so `readme` puts `README.md` above `docs/README.md`.
+- **A focused file previews as a whole-file chip.** The chip used to appear only while a range was
+  highlighted; a file merely in front of the editor now shows the same chip — no line numbers, because
+  nothing is selected — and it locks into a whole-file pin when you click it.
+
+### Fixed
+
+- **The branch picker spans the panel.** It hung off the branch chip and spilled past the panel's edge,
+  where the panel's own overflow clipped it — half the switcher was gone. It now pins under the pane's title
+  bar and spans the column.
+- **A file added on disk reaches the Explorer a poll sooner.** The decision to re-read the list used the
+  previous tick's working tree, so a new file waited one extra tick (4 s). The status is now read first, and
+  the list follows the tree in the same tick.
+- **Dialogs and the palette fit a narrow window.** The command palette's hints stack and centre below 520px,
+  and dialogs centre in the viewport with side padding instead of stretching to the full height.
+
+### Improved
+
+- **One toolbar, and no duplicate header.** The chat header is gone: the tab strip, composer and status bar
+  carry what it said, the conversation's own buttons moved to the toolbar beside the MCP icon, and the
+  agent's lifecycle now lives there too.
+- **One frame for every panel.** The Explorer, git panel, sessions and the rest share one title bar, one fold
+  chevron, one resize handle and one dialog shell — the same panel looks the same wherever it sits.
+- **The toolbar wraps instead of clipping.** Below 759px the command centre drops to a second row, and the
+  navigation column becomes a full-height drawer that leaves a dismissable strip rather than sliding away.
+
 ## 0.22.0 — 8 October 2026
 
 A session gets its own editor tab, and the browser's preview gets a language server.
