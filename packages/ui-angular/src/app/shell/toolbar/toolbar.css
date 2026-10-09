@@ -5,32 +5,59 @@
   grid-row: 1;
 }
 
+/*
+ * The bar is a grid, so the two-row shape is exact and never accidental.
+ *
+ * Wide enough it is one row in three tracks: the identity (its natural width), the
+ * command centre (the flexible `1fr` that fills the middle), and the buttons (their
+ * natural width). When the bar gets tight, a container query gives the command its own
+ * full-width second row and leaves identity and buttons together on row one. The query
+ * measures the bar itself, not the viewport: a webview's width is its own, and a viewport
+ * breakpoint would never fire for a narrow webview in a wide window. It is also never
+ * three rows and never a lone button on its own line.
+ */
 .bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  height: var(--morse-toolbar-height);
+  gap: 2px 6px;
+  container-type: inline-size;
+  min-height: var(--morse-toolbar-height);
   padding: 0 8px;
   border-bottom: 1px solid var(--morse-border);
   background: var(--morse-panel, var(--morse-bg));
 }
-
-.wordmark {
-  margin-right: 4px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--morse-fg);
+/* Row one, left: the identity, which never moves. */
+.identity {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
-
-.spacer {
-  flex: 1;
+/* Row one, right: the buttons, never shrunk or split. */
+.actions {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-
+/*
+ * The command centre: the flexible middle track, which it fills up to a readable cap.
+ * The container query below is the one thing that moves it — nothing about the wide
+ * shape is conditional.
+ */
 .command {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: stretch;
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(560px, 60%);
+  width: 100%;
+  max-width: 560px;
   height: 24px;
   padding: 0 10px;
   border: 1px solid var(--morse-border);
@@ -41,6 +68,26 @@
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+
+/*
+ * Tight bar: the command centre drops to a second row, spanning all three tracks at
+ * full width. Identity and buttons keep row one, exactly where they were — the bar reads
+ * the same, only the search moved.
+ *
+ * The extra bottom margin is the air a two-row bar needs and a one-row bar must not
+ * have: the dropped command would otherwise sit flush against the bar's bottom border.
+ * The rule is inside the query (and the query is against the bar, whose descendant the
+ * command is), so only the dropped command carries it — the one-row bar keeps its exact
+ * height.
+ */
+@container (max-width: 520px) {
+  .command {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: none;
+    margin-bottom: 6px;
+  }
 }
 
 .command:hover {

@@ -4,6 +4,14 @@
        the drawer at the left, next to the navigation column, and the git column's switch
        at the right, next to it.
   -->
+  <!--
+       The bar is the window's chrome, in three parts. The identity (the drawer and
+       fold switches, the wordmark, the status dot) and the command centre share row
+       one; the conversation's buttons and the column switches are pinned to the right
+       of that row. When the bar is too narrow for all three, the command centre drops
+       to a second row and the other two stay exactly where they were.
+  -->
+  <span class="identity">
   <button
     type="button"
     class="icon menu"
@@ -43,22 +51,13 @@
       <span class="status-text">{{ statusLabel() }}</span>
     }
   </span>
+  </span>
 
-  <button
-    type="button"
-    class="command"
-    [attr.aria-expanded]="paletteOpen()"
-    title="Search or run a command"
-    (click)="openPalette()"
-  >
-    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="7" cy="7" r="4.2" />
-      <path d="M10.2 10.2 14 14" />
-    </svg>
-    <span>Search or run a command</span>
-  </button>
-
-  <span class="spacer"></span>
+  <!--
+       The conversation's buttons and the column switches, one group. The grid places
+       them in the bar's right track; they never shrink and never split.
+  -->
+  <span class="actions">
 
   @if (!noSessionInFront()) {
     <button
@@ -135,4 +134,24 @@
       </svg>
     </button>
   }
+  </span>
+  <!--
+       The command centre: the grid's flexible middle track while the bar is wide, and
+       its own full-width second row when the bar is tight — the one thing that moves, so
+       the identity and the buttons above stay put.
+  -->
+  <button
+    type="button"
+    class="command"
+    [attr.aria-expanded]="paletteOpen()"
+    title="Search or run a command"
+    (click)="openPalette()"
+  >
+    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="M10.2 10.2 14 14" />
+    </svg>
+    <span>Search or run a command</span>
+  </button>
+
 </div>
