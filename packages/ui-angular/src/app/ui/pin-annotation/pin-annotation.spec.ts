@@ -50,7 +50,18 @@ function select(area: HTMLTextAreaElement, start: number, end: number): void {
 }
 
 function press(host: HTMLElement, label: string): void {
-  host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+  const byLabel = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (byLabel !== null) {
+    byLabel.click();
+    return;
+  }
+  // The tab buttons carry their label as text, not an aria-label.
+  for (const button of host.querySelectorAll<HTMLButtonElement>('button.tab')) {
+    if (button.textContent?.trim() === label) {
+      button.click();
+      return;
+    }
+  }
 }
 
 describe('PinAnnotation', () => {
@@ -61,14 +72,33 @@ describe('PinAnnotation', () => {
     expect(host.querySelector('.range')?.textContent).toContain('L30-31');
   });
 
-  it('renders the draft as markdown in place, while it is being typed', () => {
+  it('keeps the source in Write and renders it in Preview', () => {
     const { fixture, host, area } = render();
     type(area, '**bold** and `code`', fixture);
-    const mirror = host.querySelector('.mirror code') as HTMLElement;
-    // The textarea stays the markdown source; the mirror is the styled rendering.
+    // Write shows exactly the markdown source the user typed.
     expect(area.value).toBe('**bold** and `code`');
-    expect(mirror.innerHTML).toContain('<span class="b">bold</span>');
-    expect(mirror.innerHTML).toContain('<span class="code">code</span>');
+    expect((host.querySelector('.preview') as HTMLElement).hidden).toBe(true);
+
+    // Preview is a separate surface: the rendered markdown, no editable field.
+    press(host, 'Preview');
+    fixture.detectChanges();
+    expect((host.querySelector('.input') as HTMLTextAreaElement).hidden).toBe(true);
+    expect((host.querySelector('.preview') as HTMLElement).hidden).toBe(false);
+    const rendered = host.querySelector('.preview .md') as HTMLElement;
+    expect(rendered.innerHTML).toContain('<strong>bold</strong>');
+    expect(rendered.querySelector('code')?.textContent).toBe('code');
+  });
+
+  it('returns to Write with the caret at the end when Preview is left', () => {
+    const { fixture, host, area } = render('a note');
+    type(area, 'a note', fixture);
+    press(host, 'Preview');
+    fixture.detectChanges();
+    press(host, 'Write');
+    fixture.detectChanges();
+    const back = host.querySelector('.input') as HTMLTextAreaElement;
+    expect(back.value).toBe('a note');
+    expect(back.selectionStart).toBe('a note'.length);
   });
 
   it('wraps the selection in bold from the toolbar', () => {

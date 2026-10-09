@@ -473,69 +473,6 @@ code {
   color: var(--morse-fg);
 }
 
-/* ---------------------------------------------------------------------------
- * The annotation editor's mirror. Like the .md rules above, this HTML is
- * injected by renderAnnotationMirror(), so the styles are global — namespaced
- * under the editor card so nothing leaks into the rest of the app.
- *
- * The load-bearing rule is .mk: syntax marks the reader should not see (`**`, a
- * heading's `#`, a link's target) stay in the layout at their full width, so the
- * caret in the transparent textarea above still sits on the character it edits.
- * Never change that to display: none — the two layers would drift apart.
- * Every other rule here is paint-only for the same reason: colour, weight and
- * decoration, never spacing or size.
- * ------------------------------------------------------------------------- */
-
-.pin-annotation .mk {
-  visibility: hidden;
-}
-
-.pin-annotation .lm {
-  color: var(--morse-fg-muted);
-}
-
-.pin-annotation .b {
-  font-weight: 700;
-}
-
-.pin-annotation .i {
-  font-style: italic;
-}
-
-.pin-annotation .s {
-  text-decoration: line-through;
-  opacity: 0.7;
-}
-
-.pin-annotation .code {
-  border-radius: 3px;
-  background: var(--morse-hover);
-  color: var(--morse-accent);
-}
-
-.pin-annotation .link {
-  color: var(--morse-accent);
-  text-decoration: underline;
-}
-
-.pin-annotation .h {
-  color: var(--morse-fg);
-  font-weight: 700;
-}
-
-.pin-annotation .q {
-  color: var(--morse-fg-muted);
-}
-
-.pin-annotation .li {
-  color: var(--morse-fg);
-}
-
-.pin-annotation .fn {
-  background: color-mix(in srgb, var(--morse-hover) 70%, transparent);
-  color: var(--morse-fg);
-}
-
 /* Token colours follow the host theme instead of shipping a stylesheet. */
 .hljs-comment,
 .hljs-quote {

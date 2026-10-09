@@ -3,10 +3,17 @@
  *
  * It is anchored to whatever opened it (a composer chip, a band's corner, a diff
  * row) — hence `placePopover` — and it is where an annotation is actually
- * written: a formatting toolbar, the usual markdown shortcuts, and the source
- * rendered *in place* while typing (see `mirror.ts`), so `**bold**` reads as
- * bold the moment the closing stars are typed. The value stays markdown from end
- * to end: the editor never converts the draft, it only paints it.
+ * written: a formatting toolbar, the usual markdown shortcuts, and two tabs —
+ * **Write** for the source, **Preview** for the rendered result. The draft stays
+ * markdown from end to end; the editor never converts it, Preview only paints it
+ * through the same renderer the transcript uses.
+ *
+ * Write and Preview are separate surfaces on purpose. An earlier version overlaid
+ * a transparent textarea on a live mirror of its own markup so `**bold**` read as
+ * bold while typing; keeping two layers on one grid proved impossible to hold (a
+ * stray background, a wrapping difference, a synthetic face and the prose slid
+ * out from under the caret). Two tabs give each layer the whole box and nothing
+ * to disagree about.
  *
  * `save` hands the markdown up as-is — clearing is saving nothing — and the
  * caller routes it to the pin it belongs to.
@@ -26,8 +33,8 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { renderAnnotationMirror } from '@morse/ui-runtime';
 import { placePopover, type PopoverAnchor, type PopoverSize } from '@morse/ui-runtime';
+import { Markdown } from '../markdown/markdown';
 
 /** What the editor says it is annotating: the file, and its range if it has one. */
 export interface AnnotationTarget {
@@ -35,6 +42,9 @@ export interface AnnotationTarget {
   /** `L30-31`-style label; absent for a whole-file pin. */
   range?: string;
 }
+
+/** Which of the two surfaces is showing: the source, or its rendering. */
+type EditorTab = 'write' | 'preview';
 
 /** The card's wish before it has been measured; also placement's first guess. */
 const PREFERRED_SIZE: PopoverSize = { width: 560, height: 360 };
@@ -49,6 +59,7 @@ const PLACEHOLDER = 'Leave a comment';
 @Component({
   selector: 'morse-pin-annotation',
   templateUrl: './pin-annotation.html',
+  imports: [Markdown],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './pin-annotation.css',
 })
@@ -71,12 +82,11 @@ export class PinAnnotation {
       height: typeof window === 'undefined' ? VIEWPORT_FALLBACK.height : window.innerHeight,
     }),
   );
-  /** The draft once the user has touched it; `null` means "still the pin's note". */
-  protected readonly mirrorHtml = computed(() => renderAnnotationMirror(this.draft()));
+  /** Which surface is showing. Preview never accepts input, so no caret to keep. */
+  protected readonly tab = signal<EditorTab>('write');
 
   private readonly card = viewChild<ElementRef<HTMLElement>>('card');
   private readonly input = viewChild<ElementRef<HTMLTextAreaElement>>('input');
-  private readonly mirror = viewChild<ElementRef<HTMLElement>>('mirror');
   private readonly measured = signal<PopoverSize>(PREFERRED_SIZE);
   private readonly typed = signal<string | null>(null);
   protected readonly draft = computed(() => this.typed() ?? this.note());
@@ -111,14 +121,22 @@ export class PinAnnotation {
     this.typed.set((event.target as HTMLTextAreaElement).value);
   }
 
-  /** The mirror follows the textarea's scroll: they are the same text, layered. */
-  protected onScroll(): void {
-    const area = this.input()?.nativeElement;
-    const mirror = this.mirror()?.nativeElement;
-    if (area === undefined || mirror === undefined) {
+  /**
+   * Switches surfaces. Back on Write, focus goes straight to the textarea — the
+   * field never left the DOM, so no after-render hop is needed and the caret can
+   * be restored synchronously.
+   */
+  protected setTab(tab: EditorTab): void {
+    if (this.tab() === tab) {
       return;
     }
-    mirror.style.transform = `translateY(${-area.scrollTop}px)`;
+    this.tab.set(tab);
+    if (tab === 'write') {
+      const area = this.input()?.nativeElement;
+      area?.focus();
+      const end = area?.value.length ?? 0;
+      area?.setSelectionRange(end, end);
+    }
   }
 
   protected onKeydown(event: KeyboardEvent): void {
@@ -269,9 +287,9 @@ export class PinAnnotation {
 
   /**
    * Writes a new draft straight into the textarea and puts the selection where
-   * the edit left it. Imperative on purpose: the mirror only needs the signal,
-   * and restoring a selection has to happen before Angular repaints, or the caret
-   * jumps to the end of the text.
+   * the edit left it. Imperative on purpose: the draft signal only needs the
+   * value, and restoring a selection has to happen before Angular repaints, or
+   * the caret jumps to the end of the text.
    */
   private replace(
     area: HTMLTextAreaElement,
@@ -283,7 +301,6 @@ export class PinAnnotation {
     area.focus();
     area.selectionStart = selection.start;
     area.selectionEnd = selection.end;
-    this.onScroll();
   }
 
   /** Reads the card's real size so placement can decide above or below. */

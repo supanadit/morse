@@ -155,7 +155,10 @@ footer .grow {
   color: var(--morse-fg-muted);
   font-size: 12px;
   font-weight: 500;
-  cursor: default;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--morse-fg);
 }
 .tab.on {
   border-bottom-color: var(--morse-accent);
@@ -202,53 +205,43 @@ footer .grow {
 }
 
 /*
- * The write surface: a textarea whose text is transparent over the mirror of
- * the same text. Both layers are monospace at the same size and line-height,
- * and the mirror's syntax marks keep their width (visibility: hidden), so the
- * caret stays on the character it is editing. The mirror's own markup is
- * styled in styles.css, because injected HTML cannot see component styles.
+ * The two surfaces. Write is a plain textarea — the source, in the mono face,
+ * visible and selectable like any other field. Preview is the same markdown run
+ * through the transcript's renderer, so a note reads exactly as it will once
+ * posted. They share the box and the scroll area but never share a pixel: that
+ * separation is the point, and the earlier transparent-textarea-over-mirror
+ * trick is gone for good.
  */
 .editor {
-  position: relative;
   height: min(38vh, 280px);
   margin: 12px;
   overflow: hidden;
   border: 1px solid var(--morse-input-border);
   border-radius: var(--morse-radius-md);
   background: var(--morse-input-bg);
-  font-family: var(--morse-font-mono);
-  font-size: 12px;
-  line-height: 1.65;
+}
+/* `hidden` is how the two surfaces swap; make it win over the box rules below. */
+.editor [hidden] {
+  display: none;
 }
 .editor:focus-within {
   border-color: var(--morse-focus);
 }
-.mirror,
-.input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  padding: 8px 10px;
-  border: 0;
-  font: inherit;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  tab-size: 2;
-}
-.mirror {
-  overflow: hidden;
-  pointer-events: none;
-  color: var(--morse-fg);
-}
-.mirror code {
-  font: inherit;
-}
 .input {
   width: 100%;
   height: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
   background: transparent;
-  color: transparent;
+  color: var(--morse-fg);
   caret-color: var(--morse-fg);
+  font-family: var(--morse-font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
   resize: none;
   overflow: auto;
   outline: none;
@@ -257,9 +250,17 @@ footer .grow {
   color: var(--morse-fg-muted);
   opacity: 1;
 }
-.input::selection {
-  color: transparent;
-  background: color-mix(in srgb, var(--morse-accent) 35%, transparent);
+/* The preview scrolls like the transcript it mirrors, with room to breathe. */
+.preview {
+  height: 100%;
+  padding: 4px 12px 12px;
+  overflow: auto;
+}
+.preview .empty {
+  margin: 8px 0;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  font-style: italic;
 }
 
 /* --- the footer: the shortcut legend, then cancel and the one action --------- */

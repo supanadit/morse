@@ -37,8 +37,26 @@
   </header>
 
   <div class="tabs">
-    <!-- The single mode, so a label rather than a control: nothing to switch to yet. -->
-    <span class="tab on">Write</span>
+    <button
+      type="button"
+      class="tab"
+      [class.on]="tab() === 'write'"
+      [attr.aria-selected]="tab() === 'write'"
+      role="tab"
+      (click)="setTab('write')"
+    >
+      Write
+    </button>
+    <button
+      type="button"
+      class="tab"
+      [class.on]="tab() === 'preview'"
+      [attr.aria-selected]="tab() === 'preview'"
+      role="tab"
+      (click)="setTab('preview')"
+    >
+      Preview
+    </button>
     <span class="grow"></span>
     <div class="tools" role="toolbar" aria-label="Markdown formatting">
       <!-- Every button cancels its own mousedown: a toolbar press must not take
@@ -48,6 +66,7 @@
         title="Bold (⌘/Ctrl+B)"
         aria-label="Bold"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="bold()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -59,6 +78,7 @@
         title="Italic (⌘/Ctrl+I)"
         aria-label="Italic"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="italic()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -70,6 +90,7 @@
         title="Quote"
         aria-label="Quote"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="quote()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -81,6 +102,7 @@
         title="Inline code (⌘/Ctrl+E)"
         aria-label="Inline code"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="inlineCode()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -92,6 +114,7 @@
         title="Link (⌘/Ctrl+K)"
         aria-label="Link"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="link()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -105,6 +128,7 @@
         title="Bulleted list"
         aria-label="Bulleted list"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="bullet()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -117,6 +141,7 @@
         title="Numbered list"
         aria-label="Numbered list"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="ordered()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -129,6 +154,7 @@
         title="Code block"
         aria-label="Code block"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="codeBlock()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -141,6 +167,7 @@
         title="Heading"
         aria-label="Heading"
         (mousedown)="$event.preventDefault()"
+        [disabled]="tab() === 'preview'"
         (click)="heading()"
       >
         <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
@@ -150,20 +177,28 @@
     </div>
   </div>
 
-  <div class="editor">
-    <!-- The mirror is what the eye sees; the textarea over it is what you type. -->
-    <pre class="mirror" #mirror aria-hidden="true"><code [innerHTML]="mirrorHtml()"></code></pre>
+  <div class="editor" [class.showing-preview]="tab() === 'preview'">
+    <!-- Both surfaces stay in the DOM; `hidden` swaps which one paints. Keeping
+         the textarea mounted is what lets the toolbar and the caret survive a
+         trip through Preview and back. -->
     <textarea
       #input
       class="input"
+      [hidden]="tab() === 'preview'"
       [attr.placeholder]="placeholder"
       spellcheck="false"
-      [value]="note()"
+      [value]="draft()"
       [attr.aria-label]="'Annotation for ' + target().path"
       (input)="onInput($event)"
-      (scroll)="onScroll()"
       (keydown)="onKeydown($event)"
     ></textarea>
+    <div class="preview" [hidden]="tab() === 'write'">
+      @if (draft().trim().length > 0) {
+        <morse-markdown [text]="draft()" />
+      } @else {
+        <p class="empty">Nothing to preview yet — write a note in the Write tab.</p>
+      }
+    </div>
   </div>
 
   <footer>

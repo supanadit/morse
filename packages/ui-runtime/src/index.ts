@@ -14,7 +14,6 @@ export * from './lsp/guards.js';
 export * from './ui/placement.js';
 export * from './render/highlight.js';
 export * from './render/markdown.js';
-export * from './render/annotation-mirror.js';
 export * from './prompt/render.js';
 export * from './terminal/links.js';
 export * from './transport/host-transport.js';
