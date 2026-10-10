@@ -84,7 +84,7 @@ describe('TreeList', () => {
 
     // Roots carry none. Both children sit under the root `morse`, which is a root
     // and so contributes a gap (not a line) before the tee and the corner.
-    expect(prefixes(host)).toEqual(['├─', '└─']);
+    expect(prefixes(host)).toEqual(['├', '└']);
   });
 
   it('gives every line a caret slot, so a leaf label lines up with a group label', () => {

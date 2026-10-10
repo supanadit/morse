@@ -106,13 +106,14 @@ export function flattenTree<T>(
 }
 
 /**
- * The connector a row draws to its left: the vertical lines of the ancestors that
- * still have siblings below, then the corner or the tee for this row itself.
+ * The connector a row draws to its left: a column per ancestor above it, a `│`
+ * where that ancestor still has a sibling below and a space where it does not, then
+ * a `├` or `└` for the row itself.
  *
- * A root carries none — there is no branch above it to connect to, and its line is
- * never drawn, so its column is not collected either (otherwise every row below
- * would pay a blank column for a line that cannot exist). Deeper rows get `│ ` per
- * continuing ancestor, `  ` per finished one, and `├─`/`└─` for the row.
+ * One character per level, corners without a dash: a deep tree is a column of thin
+ * guides rather than a wall of `│ ` pairs, and the row's own mark still says which
+ * branch it hangs from. A root carries none — there is no branch above it to
+ * connect to, and its column is not collected either.
  */
 export function treePrefix(row: {
   readonly depth: number;
@@ -123,7 +124,7 @@ export function treePrefix(row: {
     return "";
   }
   const lines = row.ancestorContinues.map((continues) =>
-    continues ? "│ " : "  ",
+    continues ? "│" : " ",
   );
-  return lines.join("") + (row.isLast ? "└─" : "├─");
+  return lines.join("") + (row.isLast ? "└" : "├");
 }
