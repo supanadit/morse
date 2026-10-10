@@ -277,6 +277,16 @@ export interface HostCapabilities {
    */
   updateCheck?: boolean;
   /**
+   * Host can install a newer Morse build for itself and relaunch it
+   * (`updateHost`), so the browser footer's update notice becomes a button
+   * instead of only a link. Only the npm-installed server host sets it, and only
+   * when the install is writable and `MORSE_SELF_UPDATE=1` opted in: a global
+   * install may need root, and the browser UI is unauthenticated, so this must
+   * never be on by accident. VS Code updates through the Marketplace and leaves
+   * it off.
+   */
+  selfUpdate?: boolean;
+  /**
    * The installed pi version, so the frontend can tell when a newer pi is out
    * and say how this host updates it (`pi update`). Optional: a host that could
    * not read pi's package leaves it off and the pi notice stays quiet.
@@ -863,4 +873,24 @@ export interface InteractionResponse {
 export interface FrontendIdentity {
   name: string;
   version: string;
+}
+
+/**
+ * What the `updateHost` command answers: whether a newer build was installed and
+ * whether the host is relaunching itself to run it.
+ *
+ * The frontend prints `message` either way, and — when `restarting` — reloads the
+ * page once the health probe sees the new process. `from`/`to` are the versions,
+ * so the notice can say what it did rather than only that it did something.
+ */
+export interface UpdateHostResult {
+  ok: boolean;
+  /** The version the host was serving when it was asked. */
+  from: string;
+  /** The version npm reported installing, when the install succeeded. */
+  to?: string;
+  /** True when the host is exiting so a supervisor (or the CLI) runs the new build. */
+  restarting?: boolean;
+  /** One line the frontend shows: what happened, or why it could not. */
+  message: string;
 }

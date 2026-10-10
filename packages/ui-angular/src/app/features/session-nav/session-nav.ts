@@ -94,6 +94,12 @@ export class SessionNav {
   protected readonly updateNotice = this.update.available;
   /** A newer pi, when the host could read the one it runs and the registry had it. */
   protected readonly piUpdateNotice = this.update.piAvailable;
+  /** Whether this host can install its own update (npm-global + opted in). */
+  protected readonly canSelfUpdate = this.update.canApply;
+  /** True while an install runs, so the button reports progress and cannot repeat. */
+  protected readonly updating = this.update.applying;
+  /** What the last attempt said — a refusal reason, or "restarting". */
+  protected readonly updateStatus = this.update.status;
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
 
@@ -439,6 +445,14 @@ export class SessionNav {
   /** Opens the About/credits overlay; it lives at the app level, not in here. */
   protected openAbout(): void {
     this.shell.openAbout();
+  }
+
+  /**
+   * The footer's update button: hand the install to the host, which answers
+   * before it exits. `UpdateCheck.apply` waits out the restart and reloads.
+   */
+  protected applyUpdate(): void {
+    void this.update.apply();
   }
 
   /** Opens the keyboard help, which lives at the app level for the same reason. */

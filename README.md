@@ -138,6 +138,10 @@ morse start
 to bind `0.0.0.0` (the UI has no auth — trusted networks only, or put an authenticating proxy in front), and
 `-f` to stay in the foreground for systemd or Docker.
 
+`morse update` installs the latest release and restarts. The same thing is a button: start the host with
+`MORSE_SELF_UPDATE=1` and the sidebar's "Update available" row installs and reloads for you. It is off by
+default, and only answers the machine the host runs on.
+
 ### VS Code extension
 
 Install it from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=supanadit.morse) or

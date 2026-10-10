@@ -1,5 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { MemoryHostTransport } from '@morse/ui-runtime';
+import type {
+  ClientToHostMessage,
+  HostCapabilities,
+  HostToClientMessage,
+} from '@morse/protocol';
+import { BaseHostTransport, type TransportKind } from '@morse/ui-runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MORSE_TRANSPORT } from '../host/transport.token';
 import {
@@ -14,6 +20,57 @@ import {
   updateHint,
   type VersionLoader,
 } from './update';
+
+/**
+ * A transport that performs the handshake with chosen capabilities and answers a
+ * host command with a scripted result. `apply()` needs a real round-trip, and the
+ * shared mock's capabilities are fixed at import time, so this one is local.
+ */
+class ScriptedTransport extends BaseHostTransport {
+  readonly kind: TransportKind = 'memory';
+  private connected = false;
+  commands: { command: string; args?: Record<string, unknown> }[] = [];
+
+  constructor(
+    private readonly capabilities: HostCapabilities,
+    private readonly result: unknown,
+  ) {
+    super();
+  }
+
+  connect(): void {
+    if (this.connected) return;
+    this.connected = true;
+    this.emitStatus('open');
+  }
+
+  send(message: ClientToHostMessage): void {
+    if (message.type === 'client/ready') {
+      this.emitMessage({
+        type: 'host/ready',
+        payload: {
+          protocolVersion: 1,
+          capabilities: this.capabilities,
+          state: {} as never,
+        },
+      });
+      return;
+    }
+    if (message.type === 'host/command') {
+      this.commands.push({ command: message.payload.command, args: message.payload.args });
+      if (message.payload.requestId !== undefined) {
+        this.emitMessage({
+          type: 'host/command/result',
+          payload: { requestId: message.payload.requestId, ok: true, data: this.result },
+        });
+      }
+    }
+  }
+
+  dispose(): void {
+    this.connected = false;
+  }
+}
 
 /** A loader that answers whatever the test says, without a network in sight. */
 function loader(document: unknown): VersionLoader & { mock: { calls: unknown[] } } {
@@ -222,5 +279,86 @@ describe('UpdateCheck', () => {
     // and nothing is fetched to contradict it.
     expect(update.available()?.latest).toBe('0.9.9');
     expect(request.mock.calls).toHaveLength(0);
+  });
+});
+
+/** A service wired to a transport that advertises chosen capabilities. */
+function serviceWith(
+  capabilities: Partial<HostCapabilities>,
+  result: unknown,
+): { update: UpdateCheck; transport: ScriptedTransport } {
+  const transport = new ScriptedTransport(
+    {
+      hostKind: 'server',
+      scope: 'global',
+      editorContext: false,
+      nativeDialogs: false,
+      insertIntoEditor: false,
+      revealFile: false,
+      ...capabilities,
+    },
+    result,
+  );
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    providers: [
+      { provide: MORSE_TRANSPORT, useFactory: () => transport },
+      { provide: UPDATE_LOADER, useValue: undefined },
+    ],
+  });
+  return { update: TestBed.inject(UpdateCheck), transport };
+}
+
+/**
+ * The one-click update. The host answers before it exits, so the interesting
+ * states are: it can be pressed only where the host says so, a refusal is shown
+ * as a reason, and a success never leaves the button stuck on "Updating…".
+ */
+describe('UpdateCheck apply', () => {
+  it('is offered only where the host advertises selfUpdate', () => {
+    expect(serviceWith({}, undefined).update.canApply()).toBe(false);
+    expect(serviceWith({ selfUpdate: true }, undefined).update.canApply()).toBe(true);
+  });
+
+  it('sends updateHost and reports a refusal reason without reloading', async () => {
+    const { update, transport } = serviceWith(
+      { selfUpdate: true },
+      { ok: false, from: '0.2.1', message: 'Not a writable npm-global install.' },
+    );
+
+    const applied = await update.apply();
+
+    expect(applied).toBe(false);
+    expect(transport.commands.map((entry) => entry.command)).toContain('updateHost');
+    expect(update.status()).toBe('Not a writable npm-global install.');
+    expect(update.applying()).toBe(false);
+  });
+
+  it('reports the host message when it installs without asking for a reload', async () => {
+    const { update } = serviceWith(
+      { selfUpdate: true },
+      { ok: true, from: '0.2.1', message: 'Already on the latest build.' },
+    );
+
+    const applied = await update.apply();
+
+    expect(applied).toBe(true);
+    expect(update.status()).toBe('Already on the latest build.');
+    expect(update.applying()).toBe(false);
+  });
+
+  it('says so when the host never answers instead of hanging', async () => {
+    // No result key means no `host/command/result` is emitted at all.
+    const { update, transport } = serviceWith({ selfUpdate: true }, undefined);
+    transport.send = (message: ClientToHostMessage): void => {
+      if (message.type === 'client/ready') return;
+      // Swallow the command: the host stays silent.
+    };
+
+    const applied = await update.apply(50);
+
+    expect(applied).toBe(false);
+    expect(update.status()).toContain('did not answer');
+    expect(update.applying()).toBe(false);
   });
 });

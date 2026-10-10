@@ -90,6 +90,26 @@ dl.identity dd a {
 dl.identity dd a:hover {
   text-decoration: underline;
 }
+/*
+ * The update action, drawn like the link beside it: inside a definition list a
+ * full button would look like a form control, and this is one line of text that
+ * happens to install something.
+ */
+dl.identity dd .linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--morse-link);
+  font: inherit;
+  cursor: pointer;
+}
+dl.identity dd .linkish:hover:not(:disabled) {
+  text-decoration: underline;
+}
+dl.identity dd .linkish:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .scroll {
   flex: 1;
   min-height: 0;

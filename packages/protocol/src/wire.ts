@@ -117,7 +117,14 @@ export type HostCommand =
    * Show a notification of the host's own (a finished run the reader stepped
    * away from). Only offered where `capabilities.notify` is set.
    */
-  | 'notify';
+  | 'notify'
+  /**
+   * Install the latest published build for this host and relaunch it, so the
+   * browser footer's update notice can act instead of only linking. Only offered
+   * where `capabilities.selfUpdate` is set — an npm-global install the host can
+   * rewrite — and answered with an `UpdateHostResult`.
+   */
+  | 'updateHost';
 
 /** Host -> frontend. */
 export type HostToClientMessage =

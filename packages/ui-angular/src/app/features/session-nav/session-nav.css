@@ -402,6 +402,21 @@ ul {
   flex: none;
   font-size: 11px;
 }
+/* An in-flight install: the label changes, the row stays put. */
+.foot .notice:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/*
+ * What the last attempt said. Deliberately not a notice row of its own: it
+ * explains the button above it and must not look like a second update.
+ */
+.foot .notice.status {
+  cursor: default;
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  white-space: normal;
+}
 .foot .stamp {
   flex: 1;
   min-width: 0;

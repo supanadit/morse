@@ -31,9 +31,16 @@
       <div>
         <dt>update</dt>
         <dd>
-          <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
-            v{{ notice.latest }} available
-          </a>
+          @if (canSelfUpdate()) {
+            <button type="button" class="linkish" [disabled]="updating()" (click)="applyUpdate()">
+              {{ updating() ? 'Updating…' : 'Install v' + notice.latest + ' and restart' }}
+            </button>
+            <a [href]="notice.url" target="_blank" rel="noreferrer noopener">notes</a>
+          } @else {
+            <a [href]="notice.url" target="_blank" rel="noreferrer noopener" [title]="notice.hint">
+              v{{ notice.latest }} available
+            </a>
+          }
         </dd>
       </div>
     }
@@ -48,6 +55,10 @@
       </div>
     }
   </dl>
+
+  @if (updateStatus(); as status) {
+    <p class="blurb" role="status">{{ status }}</p>
+  }
 
   <div class="scroll">
     @for (group of groups; track group.title) {

@@ -51,7 +51,18 @@ const CAPABILITIES: HostCapabilities = {
   // A representative installed pi version, so the pi notice can be reviewed too
   // (`?mock=1&update=1`, or `?newer-pi=<version>` without a request).
   ...(isUpdateCheckWanted() ? { piVersion: '1.0.3' } : {}),
+  // `?mock=1&self-update=1` makes the mock claim it can install its own update,
+  // so the footer's update button is reviewable without a real NestJS host.
+  ...(isSelfUpdateWanted() ? { selfUpdate: true } : {}),
 };
+
+/** `?mock=1&self-update=1`: let the mock offer the one-click update button. */
+function isSelfUpdateWanted(): boolean {
+  if (typeof location === 'undefined') {
+    return false;
+  }
+  return new URL(location.href, 'http://localhost/').searchParams.get('self-update') === '1';
+}
 
 /** `?mock=1&update=1`: let the release check run against the real registry. */
 function isUpdateCheckWanted(): boolean {
@@ -398,6 +409,23 @@ export class MemoryHostTransport extends BaseHostTransport {
               requestId: message.payload.requestId,
               ok: true,
               data: { path: `.morse/uploads/${name}`, name, bytes: 0 },
+            },
+          });
+          return;
+        }
+        if (message.payload.command === 'updateHost' && message.payload.requestId) {
+          // The mock never installs anything: it answers the shape the real host
+          // answers, so the button's progress and refusal paths are reviewable.
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: {
+                ok: false,
+                from: '0.0.0-mock',
+                message: 'The mock host does not install anything.',
+              },
             },
           });
           return;

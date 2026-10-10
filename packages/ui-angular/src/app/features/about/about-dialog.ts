@@ -30,6 +30,14 @@ export class AboutDialog {
   protected readonly updateNotice = this.update.available;
   /** A newer pi, for the same reason the Morse notice rides here. */
   protected readonly piUpdateNotice = this.update.piAvailable;
+  /** Whether this host can install its own update, so the notice becomes a button. */
+  protected readonly canSelfUpdate = this.update.canApply;
+  protected readonly updating = this.update.applying;
+  protected readonly updateStatus = this.update.status;
+
+  protected applyUpdate(): void {
+    void this.update.apply();
+  }
 
   /** `name version` as the host read it from the frontend manifest. */
   protected readonly frontend = computed(() => {

@@ -32,6 +32,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_UI_DIR` | bundled frontend | Override the served frontend directory |
 | `MORSE_UPLOAD_DIR` | `.morse/uploads` | Where browser uploads land (relative to a session cwd, or absolute) |
 | `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published Morse and pi versions from the npm registry (`0`/`false`/`off` disables both) |
+| `MORSE_SELF_UPDATE` | disabled | Whether the browser footer's update notice may install the latest release and restart the host (`1`/`true`/`on`/`yes` enables). Off by default; see below |
 | `MORSE_TERMINAL_IDLE_MS` | `1800000` | How long a terminal's shell keeps running with no page attached before the host reclaims it (`0` disables the timeout) |
 | `MORSE_LSP_IDLE_MS` | `600000` | How long a language server keeps running after the last request that used it (`0` disables the timeout) |
 | `MORSE_LSP_TS`, `MORSE_LSP_JSON`, `MORSE_LSP_YAML`, `MORSE_LSP_SH`, `MORSE_LSP_GO`, `MORSE_LSP_PY` | unset | Path to the server for that language, overriding the lookup order below |
@@ -49,6 +50,15 @@ page load, so the sidebar can say when a newer Morse or a newer pi is out. They 
 your sessions, and an air-gapped host can turn the check off — the panel then simply never mentions updates.
 The pi check only runs when the host could read the installed pi version (`capabilities.piVersion`), so a
 host that could not is quiet on its own.
+
+`MORSE_SELF_UPDATE=1` turns the sidebar's "Update available" row into a button that installs the latest
+`@supanadit/morse-web` and restarts the host. It is off by default, and the server refuses the request unless
+all of these hold: the variable was set, the caller is on this machine (`127.0.0.1`/`::1` — never a `--lan`
+visitor, because the browser UI has no auth), and the running copy is an npm-global install this user can write
+to. When any of them fails the button reports why and the hint still carries the command to run by hand. The
+install itself runs in a detached helper that waits for the old process to exit, runs
+`npm install -g @supanadit/morse-web@latest`, and starts the CLI again — the daemon never overwrites the files
+it is running from. `morse update` does the same sequence from a terminal.
 
 Files the browser uploads (drag-and-drop, paste, or the `+` button) land in `<session-cwd>/.morse/uploads/` and
 ride as `@mentions`; `MORSE_UPLOAD_DIR` moves that inbox. Consider adding it to the project's `.gitignore`.

@@ -1,4 +1,4 @@
-import { InjectionToken, Injectable, effect, inject, signal } from '@angular/core';
+import { InjectionToken, Injectable, computed, effect, inject, signal } from '@angular/core';
 import { MorseService } from '../host/morse.service';
 
 /**
@@ -35,7 +35,6 @@ export interface UpdateNotice {
   /** Where the release notes are. */
   url: string;
 }
-
 /**
  * Reads the published version. It is a seam because this is the only thing the
  * frontend ever fetches off-machine: a test replaces it, and so does a deployment
@@ -158,6 +157,8 @@ export class UpdateCheck {
   private readonly loader = inject(UPDATE_LOADER);
   private readonly notice = signal<UpdateNotice | undefined>(undefined);
   private readonly piNotice = signal<UpdateNotice | undefined>(undefined);
+  private readonly selfUpdating = signal(false);
+  private readonly updateStatus = signal<string | undefined>(undefined);
   private started = false;
 
   /** The newer Morse release, if there is one and the host allowed asking. */
@@ -165,6 +166,19 @@ export class UpdateCheck {
 
   /** The newer pi release, when the host named its pi version. */
   readonly piAvailable = this.piNotice.asReadonly();
+
+  /**
+   * Whether this host can install its own update. Only the npm-installed server
+   * host sets `capabilities.selfUpdate`, and even then the command re-checks the
+   * install and the caller's address, so this is an affordance and not a promise.
+   */
+  readonly canApply = computed(() => this.morse.capabilities()?.selfUpdate === true);
+
+  /** True while an install is running: the button says so and cannot be pressed twice. */
+  readonly applying = this.selfUpdating.asReadonly();
+
+  /** What the last attempt said — a failure reason, or "restarting". */
+  readonly status = this.updateStatus.asReadonly();
 
   constructor() {
     effect(() => {
@@ -237,5 +251,84 @@ export class UpdateCheck {
     } catch {
       // Same silence as the Morse check.
     }
+  }
+
+  /**
+   * Asks the host to install the newer release and restart itself.
+   *
+   * The host answers before it exits, so this resolves with `restarting: true`
+   * and the caller reloads once the health probe sees the new process. A host
+   * that refuses (not opted in, not writable, not this machine) answers `ok:
+   * false` with a reason, and the notice falls back to its own hint.
+   *
+   * Resolves `false` when the host never answered, so a caller can react instead
+   * of waiting forever.
+   */
+  async apply(timeoutMs = 30_000): Promise<boolean> {
+    if (this.selfUpdating()) {
+      return false;
+    }
+    this.selfUpdating.set(true);
+    this.updateStatus.set('Starting the update…');
+    try {
+      const result = (await this.morse.requestHostCommand('updateHost', undefined, timeoutMs)) as
+        | { ok?: boolean; restarting?: boolean; message?: string }
+        | undefined;
+      if (result === undefined) {
+        this.updateStatus.set('The host did not answer. Update it from a terminal instead.');
+        return false;
+      }
+      this.updateStatus.set(result.message ?? 'Updating…');
+      if (result.ok !== true) {
+        return false;
+      }
+      if (result.restarting === true) {
+        this.updateStatus.set('Restarting… the page will reload when the new build is up.');
+        await waitForRestart();
+        location.reload();
+      }
+      return true;
+    } catch {
+      this.updateStatus.set('The update could not be started.');
+      return false;
+    } finally {
+      this.selfUpdating.set(false);
+    }
+  }
+}
+
+/**
+ * Polls `/api/health` until the host stops answering and then answers again —
+ * the new build. The reload is what the reader sees; this is only the gate that
+ * keeps it from racing the restart (reloading into the dying process shows the
+ * connection screen for a moment).
+ */
+async function waitForRestart(pollMs = 500, timeoutMs = 90_000): Promise<void> {
+  if (typeof fetch !== 'function') {
+    return;
+  }
+  const deadline = Date.now() + timeoutMs;
+  let sawRestart = false;
+  while (Date.now() < deadline) {
+    const up = await probeHealth();
+    if (!up) {
+      sawRestart = true;
+    } else if (sawRestart) {
+      return;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, pollMs));
+  }
+}
+
+async function probeHealth(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/health', { signal: AbortSignal.timeout(1500) });
+    if (!response.ok) {
+      return false;
+    }
+    const body = (await response.json()) as { status?: string };
+    return body.status === 'ok';
+  } catch {
+    return false;
   }
 }

@@ -64,6 +64,8 @@ interface Options {
   host?: string;
   workspace?: string;
   projects?: string;
+  /** The version the `update` command installs; defaults to `latest`. */
+  targetVersion?: string;
   lan: boolean;
   foreground: boolean;
   open: boolean;
@@ -93,6 +95,7 @@ const COMMANDS = new Set([
   'serve',
   'stop',
   'restart',
+  'update',
   'status',
   'logs',
   'help',
@@ -131,6 +134,7 @@ function parseArgs(argv: string[]): Options {
       case 'serve':
       case 'stop':
       case 'restart':
+      case 'update':
       case 'status':
       case 'logs':
       case 'help':
@@ -152,6 +156,10 @@ function parseArgs(argv: string[]): Options {
         break;
       case '--projects':
         options.projects = takeValue();
+        break;
+      case '--version-tag':
+      case '--to':
+        options.targetVersion = takeValue();
         break;
       case '--lan':
         options.lan = true;
@@ -340,24 +348,43 @@ async function start(options: Options): Promise<number> {
     await stop({ quiet: true });
   }
   // Either no state, or state whose process is gone / no longer Morse.
+  // Remember what it ran on: a restart (and the self-update helper, which runs
+  // `morse start` with no arguments) should come back on the same URL, so the
+  // browser tab that is reloading finds it there.
+  const previous = existing && !(await isServerRunning(existing)) ? existing : undefined;
   clearState();
 
-  const workspace = options.workspace ? resolve(options.workspace) : process.cwd();
+  const workspace = options.workspace
+    ? resolve(options.workspace)
+    : (previous?.workspace ?? process.cwd());
   if (!existsSync(workspace)) {
     throw new Error(`Workspace does not exist: ${workspace}`);
   }
 
   const envPort = process.env.MORSE_PORT ? Number.parseInt(process.env.MORSE_PORT, 10) : NaN;
-  let port = options.port ?? (Number.isInteger(envPort) ? envPort : undefined) ?? DEFAULT_PORT;
-  if (options.port === undefined && !Number.isInteger(envPort)) {
+  // An explicit flag wins, then the environment, then the port this Morse had
+  // before, then the default. Only the last of those has to hunt for a free one.
+  const remembered = previous?.port;
+  const requested =
+    options.port ?? (Number.isInteger(envPort) ? envPort : undefined) ?? remembered;
+  let port = requested ?? DEFAULT_PORT;
+  if (requested === undefined) {
     // Nobody asked for a specific port: avoid clobbering whatever already
     // listens on the default one (another Morse, a dev server, ...).
     port = await findFreePort(DEFAULT_PORT);
   } else if (!(await isPortFree(port))) {
-    throw new Error(`Port ${port} is already in use. Pass --port to pick another one.`);
+    // A remembered port may have been taken while Morse was down; fall back to
+    // any free one rather than refusing to start.
+    if (requested === remembered && options.port === undefined && !Number.isInteger(envPort)) {
+      port = await findFreePort(DEFAULT_PORT);
+    } else {
+      throw new Error(`Port ${port} is already in use. Pass --port to pick another one.`);
+    }
   }
 
-  const host = options.lan ? '0.0.0.0' : (options.host ?? process.env.MORSE_HOST ?? DEFAULT_HOST);
+  const host = options.lan
+    ? '0.0.0.0'
+    : (options.host ?? process.env.MORSE_HOST ?? previous?.host ?? DEFAULT_HOST);
   const instance = randomUUID();
   const env = buildEnv(options, port, host, workspace, instance);
 
@@ -514,6 +541,65 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
   return !isAlive(pid);
 }
 
+/**
+ * Install the latest published build, then bring the server back up.
+ *
+ * This is the same sequence the browser's one-click update runs in its detached
+ * helper, exposed as a command so a terminal user can do it too — and so the
+ * helper has a stable, documented entry point instead of a copied script. The
+ * install is deliberately a child process with inherited stdio: npm's own output
+ * is the progress report, and a failure is npm's exit code, not ours.
+ */
+async function update(options: Options): Promise<number> {
+  const version = options.targetVersion ?? 'latest';
+  console.log(`\n  ${bold('Updating')} @supanadit/morse-web@${version}\n`);
+  const code = await new Promise<number>((resolveInstall) => {
+    const child = spawn('npm', ['install', '-g', `@supanadit/morse-web@${version}`], {
+      stdio: 'inherit',
+      // npm must see the user's environment, not Morse's.
+      env: cleanEnv(process.env),
+    });
+    child.on('exit', (exitCode) => resolveInstall(exitCode ?? 1));
+    child.on('error', (error: Error) => {
+      console.error(`${red('morse:')} npm could not be started (${error.message}).`);
+      resolveInstall(1);
+    });
+  });
+  if (code !== 0) {
+    return code;
+  }
+  // Only restart a server this CLI can see; a foreground/systemd install is
+  // restarted by its supervisor, so stopping it here would fight that.
+  const state = readState();
+  if (state && (await isServerRunning(state))) {
+    await stop({ quiet: true });
+    // Bring it back on the address it had, so a browser tab reloading on the old
+    // URL finds the new build there instead of on a different port.
+    return start({
+      ...options,
+      port: options.port ?? state.port,
+      host: options.host ?? state.host,
+      workspace: options.workspace ?? state.workspace,
+    });
+  }
+  console.log(dim('No running Morse daemon to restart. Run `morse start` when you are ready.'));
+  return 0;
+}
+
+/**
+ * The environment a child npm should see: the user's, with Morse's variables
+ * removed, so a `MORSE_PORT`/`MORSE_WORKSPACE` meant for the server cannot leak
+ * into the install (and npm runs its own lifecycle scripts with a clean view).
+ */
+function cleanEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key.startsWith('MORSE_')) continue;
+    env[key] = value;
+  }
+  return env;
+}
+
 async function status(options: Options): Promise<number> {
   const state = readState();
   if (!state || !(await isServerRunning(state))) {
@@ -620,6 +706,7 @@ function printHelp(): void {
    start            Start the web server in the background (default)
    stop             Stop the running server
    restart          Stop, then start the server
+   update           Install the latest release, then restart (--to <version>)
    status           Show whether the server is running
    logs             Print the server log (--follow to tail)
    help             Show this help
@@ -634,6 +721,7 @@ function printHelp(): void {
    --projects <list>    Comma/colon separated list of roots the agent may open
    --open               Open the browser once the server is healthy
    --force              Replace a server this CLI already started
+   --to <version>       Version the update command installs (default: latest)
    --json               Machine-readable output (status)
    --follow             Follow the log file (logs)
    -h, --help           Show this help
@@ -645,6 +733,8 @@ function printHelp(): void {
    MORSE_HOST             Default bind address
    MORSE_WORKSPACE        Workspace the agent runs in
    MORSE_PROJECTS         Roots the agent may open
+   MORSE_UPDATE_CHECK     Ask the registry whether a newer Morse is out (0 disables)
+   MORSE_SELF_UPDATE      Allow the browser's update button to install and restart (1 enables)
    MORSE_HOT_SESSIONS     How many pi processes stay alive (default: 4)
    MORSE_PI_PATH          Path to the pi executable (default: pi on PATH)
    MORSE_PI_ENTRY         Run a pi RPC entry with node instead of the binary
@@ -655,6 +745,7 @@ function printHelp(): void {
    morse --lan --port 3002        # reachable on the LAN
    morse start --open             # start and open the browser
    morse logs --follow            # tail the server log
+   morse update                   # install the latest release and restart
    morse stop                     # stop the daemon
 `);
 }
@@ -682,6 +773,8 @@ export async function run(argv: string[]): Promise<number> {
     case 'restart':
       await stop({ quiet: true });
       return start(options);
+    case 'update':
+      return update(options);
     case 'status':
       return status(options);
     case 'logs':

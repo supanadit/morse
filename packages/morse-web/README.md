@@ -72,6 +72,7 @@ Then open <http://127.0.0.1:4399/>. The server keeps running in the background; 
 | `morse start -f` | Run in the foreground (systemd `Type=simple`, Docker) |
 | `morse stop` | Stop the running server |
 | `morse restart` | Stop, then start |
+| `morse update` | Install the latest release, then restart (`--to <version>` for a specific one) |
 | `morse status` | Show PID, URL, workspace and uptime (`--json` for scripts) |
 | `morse logs` | Print the server log (`--follow` to tail) |
 | `morse help`, `morse version` | Help / version |
@@ -87,6 +88,7 @@ Then open <http://127.0.0.1:4399/>. The server keeps running in the background; 
 --projects <list>    Comma/colon separated roots the agent may open
 --open               Open the browser once healthy
 --force              Replace a server this CLI already started
+--to <version>       Version the update command installs (default: latest)
 ```
 
 ### Environment
@@ -101,6 +103,7 @@ MORSE_HOT_SESSIONS     How many pi processes stay alive (default: 4)
 MORSE_PI_PATH          Path to the pi executable (default: pi on PATH)
 MORSE_PI_ENTRY         Run a pi RPC entry with node instead of the binary
 MORSE_UI_DIR           Override the served frontend directory
+MORSE_SELF_UPDATE      Allow the browser's update button to install and restart (default: off)
 ```
 
 The full list, including the language-server, terminal and upload knobs, is in
@@ -110,6 +113,10 @@ The full list, including the language-server, terminal and upload knobs, is in
 
 `morse start` binds `127.0.0.1` by default. `--lan` exposes an **unauthenticated** chat UI to your network: only
 do it on a trusted network, or put a TLS reverse proxy with auth in front of it.
+
+One-click self-update is **off** unless you start the host with `MORSE_SELF_UPDATE=1`, and even then it only
+answers a caller on `127.0.0.1`/`::1` and only when the running copy is a writable npm-global install. A `--lan`
+host therefore never lets a network visitor install anything.
 
 ## How the single package is built
 

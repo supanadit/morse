@@ -50,6 +50,15 @@ export interface MorseServerConfig {
    */
   updateCheck: boolean;
   /**
+   * Whether the browser footer may install a newer Morse and relaunch this host
+   * (`updateHost`). Off unless `MORSE_SELF_UPDATE=1`, because the browser UI is
+   * unauthenticated and a global npm install can need root: a self-update
+   * endpoint must be an explicit choice, never a default. The server additionally
+   * checks that the running module is an npm-global install this user can write
+   * to, and refuses non-loopback callers.
+   */
+  selfUpdate: boolean;
+  /**
    * Opaque token the `morse` CLI mints for each daemon it spawns. Relayed by
    * `/api/health`, it lets the CLI prove which process is answering instead of
    * trusting a pid that the OS may have recycled to an unrelated process.
@@ -103,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     terminalIdleMs: parsePositiveInt(env.MORSE_TERMINAL_IDLE_MS, 30 * 60_000),
     lspIdleMs: parsePositiveInt(env.MORSE_LSP_IDLE_MS, 10 * 60_000),
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
+    selfUpdate: isOn(env.MORSE_SELF_UPDATE),
     instance: env.MORSE_INSTANCE?.trim() || undefined,
   };
 }
@@ -140,6 +150,16 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 function isOff(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
   return normalized === '0' || normalized === 'false' || normalized === 'off';
+}
+
+/**
+ * `MORSE_SELF_UPDATE=1` (or `true`/`on`/`yes`) opts into one-click self-update.
+ * Off for anything else, including an unset variable: this is the switch that has
+ * to be thrown deliberately.
+ */
+function isOn(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes';
 }
 
 /** `MORSE_PROJECTS=/a:/b` or `MORSE_PROJECTS=/a,/b` -> ['/a', '/b']. */

@@ -8,7 +8,7 @@ import {
   type HostSessionServices,
   type SessionTranscriptStore,
 } from '@morse/host-runtime';
-import type { HostCapabilities, HostToClientMessage, LspPosition } from '@morse/protocol';
+import type { HostCapabilities, HostToClientMessage, LspPosition, UpdateHostResult } from '@morse/protocol';
 import type { MorseServerConfig } from '../../app/config.js';
 import {
   MORSE_CONFIG,
@@ -41,6 +41,7 @@ import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '../workspa
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
 import { ServerLanguageServers } from '../lsp/lsp.service.js';
+import { canSelfUpdate, performSelfUpdate } from '../self-update/self-update.js';
 
 /**
  * Composition root for one client connection (clean-architecture R7): the only
@@ -139,10 +140,15 @@ export class MorseSessionFactory {
       // Editing prompt templates is plain file I/O into pi's prompt directories,
       // which this host already owns. The editor works without the pi CLI.
       promptEditor: true,
+      // One-click self-update: only when the operator opted in
+      // (`MORSE_SELF_UPDATE=1`). The frontend turns the footer's update notice into
+      // a button when this is set; the command itself re-checks the install and
+      // the caller's address before it runs anything.
+      selfUpdate: this.config.selfUpdate,
     };
   }
 
-  createFor(emit: (message: HostToClientMessage) => void): HostSessionController {
+  createFor(emit: (message: HostToClientMessage) => void, remoteAddress?: string): HostSessionController {
     const services: HostSessionServices = {
       registry: this.registry,
       chat: new ChatService({ agent: this.registry, logger: this.logger }),
@@ -163,7 +169,10 @@ export class MorseSessionFactory {
       ownsRegistry: false,
       // A page load must not create a session; the first prompt opens one.
       autoOpen: false,
-      onHostCommand: (command, args, context) => this.runHostCommand(command, args, context),
+      // The caller's address rides along so `updateHost` can refuse anyone who is
+      // not on this machine.
+      onHostCommand: (command, args, context) =>
+        this.runHostCommand(command, args, context, remoteAddress),
       // The bottom panel's shell: this host can spawn one on its own machine.
       terminal: this.terminal,
       agentHint:
@@ -185,6 +194,7 @@ export class MorseSessionFactory {
     command: string,
     args: Record<string, unknown> | undefined,
     context?: HostCommandContext,
+    remoteAddress?: string,
   ): Promise<unknown> {
     switch (command) {
       case 'listDirectories': {
@@ -412,9 +422,57 @@ export class MorseSessionFactory {
           this.optionalCwd(context, args),
         );
       }
+      case 'updateHost': {
+        return this.updateHost(remoteAddress);
+      }
       default:
         throw new UnsupportedByHostError(`This host does not support "${command}".`);
     }
+  }
+
+  /**
+   * Install a newer Morse and relaunch this host.
+   *
+   * Every gate is checked here, at the moment of the call, rather than trusted
+   * from the capability the frontend saw at handshake time:
+   *
+   * - the operator opted in (`MORSE_SELF_UPDATE=1`),
+   * - the caller is on this machine (the browser UI has no auth, so a `--lan`
+   *   host must not expose a remote `npm install -g`),
+   * - the running module is an npm-global install this user can rewrite.
+   *
+   * A refused request answers with `ok: false` and a reason; the frontend falls
+   * back to the command it already prints in the hint.
+   */
+  private async updateHost(remoteAddress?: string): Promise<UpdateHostResult> {
+    const from = this.config.frontend?.version ?? 'unknown';
+    if (!this.config.selfUpdate) {
+      return {
+        ok: false,
+        from,
+        message: 'This host was not started with MORSE_SELF_UPDATE=1. Run npm install -g @supanadit/morse-web@latest and restart it.',
+      };
+    }
+    if (!isLoopback(remoteAddress)) {
+      this.logger.warn(`Refused a self-update from ${remoteAddress ?? 'an unknown address'}`);
+      return {
+        ok: false,
+        from,
+        message: 'Self-update is only allowed from this machine.',
+      };
+    }
+    if (!(await canSelfUpdate())) {
+      return {
+        ok: false,
+        from,
+        message: 'This Morse is not a writable npm-global install, so it cannot replace itself. Run npm install -g @supanadit/morse-web@latest yourself.',
+      };
+    }
+    return performSelfUpdate({
+      dataDir: this.config.dataDir,
+      currentVersion: from,
+      logger: this.logger,
+    });
   }
 
   /**
@@ -501,6 +559,29 @@ function gitPaths(args: Record<string, unknown> | undefined): string[] {
 function stringArg(args: Record<string, unknown> | undefined, key: string): string {
   const value = args?.[key];
   return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Whether an address is on this machine. `updateHost` runs a global install, so
+ * it must never answer anyone but the person sitting at the host: a `--lan`
+ * server exposes the UI with no auth, and `::ffff:127.0.0.1` is how a
+ * dual-stack socket spells IPv4 loopback. An address we cannot see is refused.
+ *
+ * Exported for its spec: it is the only thing between the browser UI and a
+ * remote `npm install -g`, so it is tested on its own rather than through a host.
+ */
+export function isLoopback(address: string | undefined): boolean {
+  if (address === undefined || address.length === 0) {
+    return false;
+  }
+  // An IPv6-mapped IPv4 address (`::ffff:127.0.0.1`) or a bare IPv6 loopback.
+  const normalized = address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
+  return (
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === 'localhost' ||
+    normalized.startsWith('127.')
+  );
 }
 
 /**

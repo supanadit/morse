@@ -4,6 +4,7 @@ import {
   WebSocketGateway,
 } from '@nestjs/websockets';
 import { Inject } from '@nestjs/common';
+import type { IncomingMessage } from 'node:http';
 import type { RawData, WebSocket } from 'ws';
 import {
   DEFAULT_WS_PATH,
@@ -31,14 +32,18 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
   ) {}
 
-  handleConnection(client: WebSocket): void {
+  handleConnection(client: WebSocket, request?: IncomingMessage): void {
     const emit = (message: HostToClientMessage): void => {
       if (client.readyState === 1) {
         client.send(encodeWireMessage(message));
       }
     };
 
-    const controller = this.sessions.createFor(emit);
+    // The socket's peer, so `updateHost` can refuse anyone not on this machine.
+    // Nest's ws adapter hands the upgrade request as the second argument; a
+    // missing one simply means the command cannot be used.
+    const remoteAddress = request?.socket?.remoteAddress;
+    const controller = this.sessions.createFor(emit, remoteAddress);
     this.clients.set(client, controller);
 
     client.on('message', (data: RawData) => {
