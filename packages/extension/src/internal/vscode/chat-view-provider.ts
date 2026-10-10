@@ -166,6 +166,43 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   /** The window's one MCP config watcher; shared by every panel that shows it. */
   private mcpWatcher: McpWatcher | undefined;
 
+  /**
+   * Routes a webview message to its controller, after pruning any session tabs
+   * a close/delete makes stale. Every surface (the sidebar, the MCP and prompt
+   * editors, and each session tab) funnels through here so that closing or
+   * deleting a session disposes its editor tab no matter which panel asked — a
+   * tab is only ever as alive as the conversation it is pinned to.
+   */
+  private async handleClientMessage(
+    controller: HostSessionController,
+    message: ClientToHostMessage,
+  ): Promise<void> {
+    if (message.type === 'session/close' || message.type === 'session/delete') {
+      this.disposeSessionTab(message.payload.sessionId);
+    }
+    await controller.handleClientMessage(message);
+  }
+
+  /**
+   * Disposes the editor tab pinned to `sessionId`, if any, and drops its map
+   * entry. Called when the session is closed or deleted, and by the restore path
+   * for a tab whose conversation no longer exists. A no-op when the session has
+   * no tab, so the common close-in-the-sidebar case stays cheap.
+   */
+  private disposeSessionTab(sessionId: string): void {
+    const panel = this.sessionPanels.get(sessionId);
+    if (panel === undefined) {
+      return;
+    }
+    // `onDidDispose` deletes the map entry only when it still points at this
+    // panel, so dropping it here keeps a panel that is already being disposed
+    // (e.g. the tab closed itself) from being deleted twice.
+    panel.dispose();
+    if (this.sessionPanels.get(sessionId) === panel) {
+      this.sessionPanels.delete(sessionId);
+    }
+  }
+
   constructor(private readonly deps: ChatViewProviderDeps) {}
 
   /**
@@ -264,7 +301,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         // already posted while it was starting up: repost the current state.
         liveSelection.flush();
       }
-      void controller.handleClientMessage(message);
+      void this.handleClientMessage(controller, message);
     });
 
     view.onDidDispose(() => {
@@ -440,7 +477,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const subscription = panel.webview.onDidReceiveMessage((raw: unknown) => {
       const message = parseClientMessage(raw);
       if (message) {
-        void controller.handleClientMessage(message);
+        void this.handleClientMessage(controller, message);
       }
     });
 
@@ -515,21 +552,37 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         },
       }),
       vscode.window.registerWebviewPanelSerializer(SESSION_TAB_VIEW_TYPE, {
-        deserializeWebviewPanel: (panel: vscode.WebviewPanel, state: unknown) => {
+        deserializeWebviewPanel: async (panel: vscode.WebviewPanel, state: unknown) => {
           // Which session this tab was lives in the webview state the pinned
           // surface wrote (`SESSION_TAB_STATE_KEY`). A tab restored without it
           // cannot be re-pinned to a conversation, so it is closed rather than
           // silently becoming an unrelated session.
           const sessionId = readSessionTabState(state);
-          if (sessionId === undefined) {
+          if (sessionId === undefined || !(await this.sessionExists(sessionId))) {
+            // A tab whose conversation was deleted while the window was closed
+            // would otherwise come back pinned to a session that is gone; there
+            // is nothing to restore it to.
             panel.dispose();
-            return Promise.resolve();
+            return;
           }
           this.attachSessionPanel(panel, sessionId);
-          return Promise.resolve();
         },
       }),
     );
+  }
+
+  /**
+   * Whether a session still exists, warm in the registry or stored on disk. A
+   * session that is not hot can still be resumed from its file, so the catalog is
+   * the fallback; a catalog that cannot be read leaves the tab alone rather than
+   * closing a conversation that may well be there.
+   */
+  private async sessionExists(sessionId: string): Promise<boolean> {
+    if (this.deps.registry.stateOf(sessionId) !== undefined) {
+      return true;
+    }
+    const sessions = await this.deps.registry.listSessions().catch(() => undefined);
+    return sessions === undefined || sessions.some((session) => session.id === sessionId);
   }
 
   /**
@@ -564,7 +617,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const subscription = panel.webview.onDidReceiveMessage((raw: unknown) => {
       const message = parseClientMessage(raw);
       if (message) {
-        void controller.handleClientMessage(message);
+        void this.handleClientMessage(controller, message);
       }
     });
 
@@ -626,7 +679,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const subscription = panel.webview.onDidReceiveMessage((raw: unknown) => {
       const message = parseClientMessage(raw);
       if (message) {
-        void controller.handleClientMessage(message);
+        void this.handleClientMessage(controller, message);
       }
     });
 
