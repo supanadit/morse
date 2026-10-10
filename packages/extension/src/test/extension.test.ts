@@ -42,6 +42,18 @@ suite('Morse extension', () => {
     );
   });
 
+  test('does not put Attach Selection in the chat panel title toolbar', () => {
+    // The chat composer already offers attaching a selection, so the redundant
+    // toolbar icon was removed. The command stays in the palette for keyboard use.
+    const morse = vscode.extensions.getExtension(EXTENSION_ID);
+    const titleMenu: Array<{ command?: string }> =
+      morse?.packageJSON?.contributes?.menus?.['view/title'] ?? [];
+    assert.ok(
+      !titleMenu.some((entry) => entry.command === 'morse.attachSelection'),
+      'morse.attachSelection must not appear as a view/title icon',
+    );
+  });
+
   test('the webview CSP lets a code-split chunk load', () => {
     // A lazy route (the prompt editor, a session tab) is a runtime `import()` of
     // a hashed chunk, and a chunk request carries none of the nonces VS Code

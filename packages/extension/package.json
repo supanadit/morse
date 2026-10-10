@@ -99,17 +99,15 @@
           "group": "navigation"
         },
         {
-          "command": "morse.attachSelection",
-          "when": "view == morse.chat",
-          "group": "navigation"
-        },
-        {
           "command": "morse.openSessionTab",
           "when": "view == morse.chat",
           "group": "navigation"
         }
       ],
       "commandPalette": [
+        {
+          "command": "morse.attachSelection"
+        },
         {
           "command": "morse.openSessionTab",
           "when": "view == morse.chat"
