@@ -73,6 +73,14 @@ export interface TreeListRow<T> {
  * children to walk anyway. The `ancestorContinues` list is built as the walk
  * descends, so a row can draw its own prefix without knowing the tree.
  */
+/**
+ * A row's `ancestorContinues`: one flag per column to the left of the row's own
+ * corner, outermost first. The last entry is the direct parent's column, which is
+ * always `false` — the parent's own corner owns that cell, so the child leaves it
+ * blank and its `└` lands under the parent's `├`. The entries above that are `true`
+ * while those ancestors still have a sibling below, which draws the `│` that keeps
+ * the subtree joined to the rest of the list.
+ */
 export function flattenTree<T>(
   nodes: readonly TreeNode<T>[],
   expanded: ReadonlySet<string>,
@@ -90,14 +98,14 @@ export function flattenTree<T>(
       if (node.kind !== "group" || !expanded.has(node.id)) {
         continue;
       }
-      // Only a non-root ancestor draws a continuation line, and a root's line is
-      // never drawn at all: collecting it would spend a blank column on every row
-      // below, for a line that cannot exist. So the list starts at depth 1.
-      const continues = depth > 0 ? !isLast : undefined;
+      // A child's corner goes in this row's own column, and this row's column is the
+      // last cell it drew. The root has no column of its own — its children start the
+      // tree — so only a non-root row adds one (blank when it is the last child).
+      const ownColumn = depth > 0 ? !isLast : undefined;
       walk(
         node.children,
         depth + 1,
-        continues === undefined ? [] : [...ancestorContinues, continues],
+        ownColumn === undefined ? [] : [...ancestorContinues, ownColumn],
       );
     }
   };
@@ -106,14 +114,14 @@ export function flattenTree<T>(
 }
 
 /**
- * The connector a row draws to its left: a column per ancestor above it, a `│`
- * where that ancestor still has a sibling below and a space where it does not, then
- * a `├` or `└` for the row itself.
+ * The connector a row draws to its left: two cells per level above it, then a `├` or
+ * `└` for the row itself.
  *
- * One character per level, corners without a dash: a deep tree is a column of thin
- * guides rather than a wall of `│ ` pairs, and the row's own mark still says which
- * branch it hangs from. A root carries none — there is no branch above it to
- * connect to, and its column is not collected either.
+ * Each level's two cells are a `│` and a space while that ancestor still carries a
+ * branch down to its next sibling, and two spaces once it has run out. Two cells,
+ * not one, is what puts a child's corner two columns in from its parent's — past the
+ * parent's own corner column — so a nested row steps in instead of stacking on the
+ * row above. A root carries none: there is no branch above it to connect to.
  */
 export function treePrefix(row: {
   readonly depth: number;
@@ -124,7 +132,7 @@ export function treePrefix(row: {
     return "";
   }
   const lines = row.ancestorContinues.map((continues) =>
-    continues ? "│" : " ",
+    continues ? "│ " : "  ",
   );
   return lines.join("") + (row.isLast ? "└" : "├");
 }

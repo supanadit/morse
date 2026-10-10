@@ -88,7 +88,7 @@ describe("flattenTree", () => {
     // `top` is a root and its column is not collected; `x` is not last, so it is the
     // one entry, and it draws the line down to `y`.
     expect(rows[2].ancestorContinues).toEqual([true]);
-    expect(treePrefix(rows[2])).toBe("│└");
+    expect(treePrefix(rows[2])).toBe("│ └");
   });
 
   it("stops the line at the last root, so the branch is not joined to nothing", () => {
@@ -120,13 +120,13 @@ describe("treePrefix", () => {
   it("draws a line per continuing ancestor and a gap per finished one", () => {
     expect(
       treePrefix({ depth: 2, isLast: true, ancestorContinues: [true] }),
-    ).toBe("│└");
+    ).toBe("│ └");
     expect(
       treePrefix({ depth: 2, isLast: false, ancestorContinues: [false] }),
-    ).toBe(" ├");
+    ).toBe("  ├");
     expect(
       treePrefix({ depth: 3, isLast: true, ancestorContinues: [true, false] }),
-    ).toBe("│ └");
+    ).toBe("│   └");
   });
 
   it("lines the labels up whatever the ancestors did", () => {

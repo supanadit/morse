@@ -60,9 +60,6 @@
   flex: none;
   white-space: pre;
   font-family: var(--morse-font-mono);
-  /* Letter-spaced, so one thin `│` per level still separates the columns without
-     the `│ ` pair that read as a wall down a deep tree. */
-  letter-spacing: 2px;
   font-size: 11px;
   line-height: 1;
   color: var(--morse-fg-muted);
