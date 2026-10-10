@@ -15,19 +15,19 @@ import { LayoutState } from '../../state/layout-state';
 import { ShellState } from '../../state/shell-state';
 import { ShortcutService } from '../../services/shortcut.service';
 import { toolFileName, toolGerund, toolKind, toolTitle } from '@morse/ui-runtime';
+import type { TreeNode } from '@morse/ui-runtime';
 import { UpdateCheck } from '../../services/update';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { FileExplorer } from '../file-explorer/file-explorer';
 import { Pane } from '../../ui/pane/pane';
 import { Splitter } from '../../ui/splitter/splitter';
+import { TreeList } from '../../ui/tree-list/tree-list';
 import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
 interface SessionGroup {
   path: string;
   name: string;
   sessions: SessionSummary[];
-  /** How many of this project's sessions are shown in "In progress" instead. */
-  hiddenRunning: number;
 }
 
 /** An open session context menu, anchored at the pointer. */
@@ -49,7 +49,7 @@ interface SessionMenu {
  */
 @Component({
   selector: 'morse-session-nav',
-  imports: [ProjectFilter, FileExplorer, Pane, Splitter],
+  imports: [ProjectFilter, FileExplorer, Pane, Splitter, TreeList],
   templateUrl: './session-nav.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './session-nav.css',
@@ -69,6 +69,158 @@ export class SessionNav {
   protected readonly sessionsFolded = signal(false);
   protected readonly collapsed = signal<Record<string, boolean>>({});
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
+  /**
+   * Sessions under each project for the shared tree. A project is a `group` whose
+   * children are its sessions; a session is a `leaf` carrying the summary itself,
+   * so a click opens it without looking an id back up.
+   *
+   * The tree only lists what is not already pinned at the top as in progress, so
+   * nothing is shown twice — the same rule the old flat list used.
+   */
+  protected readonly treeNodes = computed<TreeNode<SessionSummary>[]>(() => {
+    const inProgress = new Set(this.inProgress().map((session) => session.id));
+    // A workspace host has one project, so a group row for it is a header with
+    // nothing to contrast against — the sessions are simply the tree's roots.
+    if (this.scope() === 'workspace') {
+      return this.visibleGroups().flatMap((group) => this.sessionNodes(group, inProgress));
+    }
+    return this.visibleGroups().map((group) => ({
+      id: projectNodeId(group.path),
+      label: group.name,
+      // A group's own data is never acted on — only its sessions are.
+      data: undefined as unknown as SessionSummary,
+      badge: group.sessions.length.toString(),
+      kind: 'group' as const,
+      action: {
+        glyph: '+',
+        label: `New session in ${group.name}`,
+        run: () => this.startSession(group.path),
+      },
+      children: this.sessionNodes(group, inProgress),
+    }));
+  });
+
+  /** A project's sessions as tree nodes, with each fork nested under the session it was forked from. */
+  private sessionNodes(
+    group: SessionGroup,
+    inProgress: ReadonlySet<string>,
+  ): TreeNode<SessionSummary>[] {
+    const sessions = group.sessions.filter((session) => !inProgress.has(session.id));
+    const byId = new Map(sessions.map((session) => [session.id, session] as const));
+    // A child is nested only when its parent is in this same list: a parent pinned
+    // as in progress, or one from another project, leaves the child a root rather
+    // than hiding it under a row that is not there.
+    const childrenOf = new Map<string, SessionSummary[]>();
+    const roots: SessionSummary[] = [];
+    for (const session of sessions) {
+      const parentId = session.parentId;
+      if (parentId !== undefined && parentId !== session.id && byId.has(parentId)) {
+        const siblings = childrenOf.get(parentId) ?? [];
+        siblings.push(session);
+        childrenOf.set(parentId, siblings);
+      } else {
+        roots.push(session);
+      }
+    }
+    const toNode = (session: SessionSummary): TreeNode<SessionSummary> => {
+      const children = (childrenOf.get(session.id) ?? []).map(toNode);
+      return {
+        id: session.id,
+        label: session.title,
+        data: session,
+        badge: this.age(session.updatedAt),
+        // A session with forks unfolds like a folder, so the forks are reachable.
+        kind: children.length > 0 ? 'group' : 'leaf',
+        children,
+      };
+    };
+    return roots.map(toNode);
+  }
+
+  /**
+   * The open projects, in the shape the shared tree wants. The component keeps a
+   * map of folded projects for the old accordion; this turns it inside out,
+   * because the tree wants what is *open* rather than what is shut.
+   */
+  protected readonly expandedProjects = computed<ReadonlySet<string>>(() => {
+    const folded = this.collapsed();
+    const open = new Set<string>();
+    for (const group of this.visibleGroups()) {
+      // A filtered project is never folded, and a workspace has a single group.
+      if (
+        this.scope() === 'workspace' ||
+        this.projectFilter() === group.path ||
+        folded[group.path] !== true
+      ) {
+        open.add(projectNodeId(group.path));
+      }
+    }
+    // A session that is a fork parent (a group in the tree) is open unless the
+    // reader folded it by its own id, so its forks show without a first click.
+    for (const node of this.treeNodes()) {
+      this.collectOpenForks(node, folded, open);
+    }
+    return open;
+  });
+
+  /** Walks the tree for session groups — forks — and opens the ones not folded. */
+  private collectOpenForks(
+    node: TreeNode<SessionSummary>,
+    folded: Readonly<Record<string, boolean>>,
+    open: Set<string>,
+  ): void {
+    if (node.kind !== 'group') {
+      return;
+    }
+    // Only a session group (a fork parent) lives here; a project's id is prefixed.
+    if (!node.id.startsWith('project:') && folded[node.id] !== true) {
+      open.add(node.id);
+    }
+    for (const child of node.children) {
+      this.collectOpenForks(child, folded, open);
+    }
+  }
+
+  /**
+   * The shared tree reports a clicked row. A project is a heading, so clicking it
+   * folds; a session — fork parent or leaf — opens, whoever its children are. Opening
+   * the parent is the point: a parent is a session first, a group only because the
+   * forks hang under it.
+   */
+  protected onTreeRow(node: TreeNode<SessionSummary>): void {
+    if (isProjectNode(node)) {
+      this.toggleGroup(node.id.slice('project:'.length));
+      return;
+    }
+    this.activate(node.data);
+  }
+
+  /** The caret only folds, so a parent session can be opened by its own name. */
+  protected onTreeToggle(node: TreeNode<SessionSummary>): void {
+    this.toggleGroup(isProjectNode(node) ? node.id.slice('project:'.length) : node.id);
+  }
+
+  /** A right-click on a session row opens the row's menu at the pointer. */
+  protected onTreeContext(open: { node: TreeNode<SessionSummary>; event: MouseEvent }): void {
+    if (isProjectNode(open.node)) {
+      return;
+    }
+    this.openMenu(open.event, open.node.data);
+  }
+
+  /**
+   * The tree's message when it has no rows to draw. A query narrows; without one the
+   * project is simply empty, and a project filter means nothing in *that* project.
+   */
+  protected readonly emptyMessage = computed<string>(() => {
+    if (this.query().trim().length > 0) {
+      return `No session matches “${this.query()}”.`;
+    }
+    if (this.projectFilter().length > 0) {
+      return 'No sessions in this project yet.';
+    }
+    return 'Nothing found.';
+  });
   /** Which project the list is narrowed to; `''` shows every one of them. */
   protected readonly projectFilter = this.shell.projectFilterPath;
   /**
@@ -193,7 +345,6 @@ export class SessionNav {
           path: project?.path ?? workspace.cwd,
           name: workspace.name || project?.name || 'workspace',
           sessions,
-          hiddenRunning: 0,
         },
       ];
     }
@@ -201,7 +352,6 @@ export class SessionNav {
       path: project.path,
       name: project.name,
       sessions: sessions.filter((session) => session.cwd === project.path),
-      hiddenRunning: 0,
     }));
   });
 
@@ -224,7 +374,7 @@ export class SessionNav {
             ? group.sessions
             : group.sessions.filter((session) => session.title.toLowerCase().includes(query));
         const sessions = matched.filter((session) => !inProgress.has(session.id));
-        return { ...group, sessions, hiddenRunning: matched.length - sessions.length };
+        return { ...group, sessions };
       })
       // A project with no matching session is not a result of a session search…
       .filter((group) => filter.length > 0 || query.length === 0 || group.sessions.length > 0);
@@ -278,15 +428,6 @@ export class SessionNav {
         off();
       }
     });
-  }
-
-  protected isCollapsed(path: string): boolean {
-    // The project you asked for is never folded: filtering to it and then seeing a
-    // collapsed header is the same empty-list confusion this control removed.
-    if (this.projectFilter() === path) {
-      return false;
-    }
-    return this.collapsed()[path] === true;
   }
 
   /** Folds the whole session list down to its title bar, or brings it back. */
@@ -550,6 +691,19 @@ export class SessionNav {
     }
     return `${Math.round(hours / 24)}d`;
   }
+}
+
+/**
+ * The node id a project's row carries. Prefixed so it cannot collide with a session
+ * id — and stripped again when a click comes back, since folding is keyed by path.
+ */
+function projectNodeId(path: string): string {
+  return `project:${path}`;
+}
+
+/** A project heading (folds), as opposed to a session fork (a group that still opens). */
+function isProjectNode(node: TreeNode<SessionSummary>): boolean {
+  return node.id.startsWith('project:');
 }
 
 /**

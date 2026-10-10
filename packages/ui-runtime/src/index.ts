@@ -12,6 +12,7 @@ export * from './transcript/usage.js';
 export * from './palette/commands.js';
 export * from './lsp/guards.js';
 export * from './ui/placement.js';
+export * from './ui/tree-list.js';
 export * from './render/highlight.js';
 export * from './render/markdown.js';
 export * from './prompt/render.js';

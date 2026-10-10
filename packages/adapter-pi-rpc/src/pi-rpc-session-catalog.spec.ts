@@ -55,6 +55,44 @@ describe('PiRpcSessionCatalog', () => {
     expect(byFile['two.jsonl'].id.endsWith('two.jsonl')).toBe(true);
   });
 
+  it('reads the parent a forked session was cloned from, so the sidebar can nest it', async () => {
+    const parent = '/work/project/sessions/original.jsonl';
+    const root = await makeCatalog({
+      'fork.jsonl': [
+        `{"type":"session","version":3,"id":"fork","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/work/project","parentSession":"${parent}"}`,
+        userMessage('first question', '1'),
+      ],
+      ...ONE_SESSION,
+    });
+    roots.push(root);
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root });
+
+    const byFile = Object.fromEntries((await catalog.list()).map((s) => [s.id.split('/').pop(), s]));
+    // The header carries the parent path verbatim; a session that is not a fork has none.
+    expect(byFile['fork.jsonl'].parentId).toBe(parent);
+    expect(byFile['one.jsonl'].parentId).toBeUndefined();
+  });
+
+  it('keeps the parent across a resumed scan, which never re-reads the header', async () => {
+    const parent = '/work/project/sessions/original.jsonl';
+    const root = await makeCatalog({
+      'fork.jsonl': [
+        `{"type":"session","version":3,"id":"fork","cwd":"/work/project","parentSession":"${parent}"}`,
+      ],
+    });
+    roots.push(root);
+    const file = join(root, '--work-project--', 'fork.jsonl');
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root });
+    expect((await catalog.list())[0].parentId).toBe(parent);
+
+    // The next list reads only the appended tail; the parent must survive that.
+    await writeFile(file, `${userMessage('a fork, continued', '1')}\n`, { encoding: 'utf8', flag: 'a' });
+    expect((await catalog.list())[0]).toMatchObject({
+      title: 'a fork, continued',
+      parentId: parent,
+    });
+  });
+
   it('still counts and parses lines that are not in pi’s canonical shape', async () => {
     const root = await makeCatalog({
       // Spaced keys and a different key order: the fast path must not miss these.

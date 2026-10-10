@@ -37,15 +37,20 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * The row labels, from whichever list is showing: the shared tree draws a `.label`,
+ * the flat filtered list draws a `.name`. Reading both lets one helper cover either.
+ */
 function rows(fixture: ComponentFixture<FileExplorer>): string[] {
-  return [...fixture.nativeElement.querySelectorAll('.row .name')].map(
-    (node: Element) => node.textContent ?? '',
-  );
+  const labels = [...fixture.nativeElement.querySelectorAll('.row .label')];
+  const names = [...fixture.nativeElement.querySelectorAll('.row .name')];
+  return [...labels, ...names].map((node: Element) => node.textContent ?? '');
 }
 
+/** The badge every *file* row ends with — the folder dot is checked separately. */
 function badges(fixture: ComponentFixture<FileExplorer>): string[] {
-  return [...fixture.nativeElement.querySelectorAll('.row .badge')].map((node: Element) =>
-    (node.textContent ?? '').trim(),
+  return [...fixture.nativeElement.querySelectorAll('.row:not(.group) .badge')].map(
+    (node: Element) => (node.textContent ?? '').trim(),
   );
 }
 
@@ -160,7 +165,8 @@ describe('FileExplorer', () => {
 
     expect(rows(fixture)).toEqual(['src', 'package.json', 'README.md']);
     expect(badges(fixture)).toEqual(['U', 'M']);
-    expect(fixture.nativeElement.querySelector('.row.dir .dot')).not.toBeNull();
+    // A folder that holds a change is marked too, so a collapsed tree still shows it.
+    expect(fixture.nativeElement.querySelector('.row.group .badge')?.textContent).toBe('•');
   });
 
   it('reveals the file in front, and follows the active chip', async () => {

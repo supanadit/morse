@@ -166,6 +166,13 @@ export interface SessionSummary {
   cwd: string;
   updatedAt: number;
   messageCount: number;
+  /**
+   * The session this one was forked from, as its id (a session file path), when
+   * pi recorded one. A child and its parent share a first message, so this is the
+   * only thing that tells a fork apart from a session that happens to start the
+   * same way — the frontend nests a child under its parent by it.
+   */
+  parentId?: string;
 }
 
 /**

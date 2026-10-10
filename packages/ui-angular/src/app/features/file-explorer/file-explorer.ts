@@ -15,6 +15,7 @@ import {
   statusByPath,
   type ChangeKind,
   type FileNode,
+  type TreeNode,
 } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
 import { ShellState } from '../../state/shell-state';
@@ -23,14 +24,10 @@ import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { Splitter } from '../../ui/splitter/splitter';
+import { TreeList } from '../../ui/tree-list/tree-list';
 import { rankFiles } from '../file-picker/file-picker';
 
 const MIN_EXPLORER_HEIGHT = 140;
-
-interface ExplorerRow {
-  node: FileNode;
-  depth: number;
-}
 
 /** One row of the filtered list: a matching file and the folder it sits in. */
 export interface FileMatch {
@@ -52,7 +49,7 @@ export interface FileMatch {
  */
 @Component({
   selector: 'morse-file-explorer',
-  imports: [Pane, Splitter],
+  imports: [Pane, Splitter, TreeList],
   templateUrl: './file-explorer.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -95,7 +92,12 @@ export class FileExplorer {
   private scrollPending = false;
 
   private readonly tree = computed(() => buildFileTree(this.workspaceStore.files()));
-  protected readonly rows = computed(() => flatten(this.tree(), this.expanded()));
+  /**
+   * The files as the shared tree wants them: a node with a label, a kind and its
+   * children, carrying the `FileNode` itself so a click opens the right path. A
+   * directory keeps its fold mark; a file shows its git badge.
+   */
+  protected readonly nodes = computed<TreeNode<FileNode>[]>(() => this.toNodes(this.tree()));
   protected readonly fileCount = computed(() => countFiles(this.tree()));
   protected readonly collapsed = this.folded.asReadonly();
   protected readonly isLoading = this.workspaceStore.busy;
@@ -176,7 +178,7 @@ export class FileExplorer {
     // Only a pending reveal may scroll — a poll or the reader's own
     // expand/collapse changes `rows` too, and must leave the pane where it is.
     effect(() => {
-      this.rows();
+      this.nodes();
       this.selected();
       this.collapsed();
       untracked(() => {
@@ -235,15 +237,60 @@ export class FileExplorer {
     }
   }
 
-  protected glyph(node: FileNode): string {
-    if (node.kind === 'dir') {
-      return this.expanded().has(node.path) ? '▾' : '▸';
-    }
-    return fileGlyph(node.name);
+  /**
+   * The tree the shared component draws: every `FileNode` paired with a node that
+   * says what to show. A folder carries a dot when it holds a change, a file its
+   * git badge — the badges the Explorer used to draw in its own template.
+   */
+  private toNodes(nodes: readonly FileNode[]): TreeNode<FileNode>[] {
+    return nodes.map((node) => ({
+      id: node.path,
+      label: node.name,
+      data: node,
+      badge: this.badgeFor(node),
+      badgeTone: this.toneFor(node),
+      kind: node.kind === 'dir' ? ('group' as const) : ('leaf' as const),
+      children: node.kind === 'dir' ? this.toNodes(node.children) : [],
+    }));
   }
 
-  protected isExpanded(path: string): boolean {
-    return this.expanded().has(path);
+  /** The mark a file's row ends with: a git letter, or a dot for a folder that holds one. */
+  private badgeFor(node: FileNode): string | undefined {
+    if (node.kind === 'file') {
+      return this.changeOf(node.path);
+    }
+    return this.dirChanged(node.path) ? '•' : undefined;
+  }
+
+  /**
+   * The colour that letter earns. The mapping is the Explorer's, not the tree's: a
+   * modified file warns, an added one succeeds, a deleted or conflicted one errs.
+   */
+  private toneFor(node: FileNode): TreeNode<FileNode>['badgeTone'] {
+    if (node.kind === 'dir') {
+      return 'warn';
+    }
+    switch (this.changeOf(node.path)) {
+      case 'M':
+        return 'warn';
+      case 'A':
+      case 'U':
+        return 'success';
+      case 'D':
+      case 'C':
+        return 'error';
+      case 'R':
+        return 'info';
+      default:
+        return 'plain';
+    }
+  }
+
+  protected glyphFor = fileGlyph;
+
+  /** The shared tree reports the node it was given; a folder folds, a file opens. */
+  protected onTreeRow(node: TreeNode<FileNode>): void {
+    this.onRow(node.data);
   }
 
   /** The git badge letter for a file, or `undefined` when it is unchanged. */
@@ -310,8 +357,6 @@ export class FileExplorer {
     this.filter.set('');
   }
 
-  protected glyphFor = fileGlyph;
-
   protected openMatch(match: FileMatch): void {
     this.tabs.openFile(match.path);
   }
@@ -350,20 +395,6 @@ export function matchFiles(files: readonly string[], query: string): FileMatch[]
         dir: cut === -1 ? '' : path.slice(0, cut),
       };
     });
-}
-
-function flatten(nodes: readonly FileNode[], expanded: ReadonlySet<string>): ExplorerRow[] {
-  const rows: ExplorerRow[] = [];
-  const walk = (list: readonly FileNode[], depth: number): void => {
-    for (const node of list) {
-      rows.push({ node, depth });
-      if (node.kind === 'dir' && expanded.has(node.path)) {
-        walk(node.children, depth + 1);
-      }
-    }
-  };
-  walk(nodes, 0);
-  return rows;
 }
 
 function countFiles(nodes: readonly FileNode[]): number {

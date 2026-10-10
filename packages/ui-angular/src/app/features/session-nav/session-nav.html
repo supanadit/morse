@@ -118,80 +118,23 @@
         </section>
       }
 
-      @for (group of visibleGroups(); track group.path) {
-        <section class="group">
-          @if (scope() === 'global') {
-            <div class="group-head">
-              <button
-                type="button"
-                class="group-title"
-                [attr.aria-expanded]="!isCollapsed(group.path)"
-                [title]="group.path"
-                (click)="toggleGroup(group.path)"
-              >
-                <span class="name">{{ group.name }}</span>
-                <span class="count">{{ group.sessions.length }}</span>
-                @if (projectFilter() !== group.path) {
-                  <span class="chevron" [class.open]="!isCollapsed(group.path)">›</span>
-                }
-              </button>
-              <button
-                type="button"
-                class="group-new"
-                title="New session in this project"
-                [attr.aria-label]="'New session in ' + group.name"
-                (click)="newSession($event, group.path)"
-              >
-                +
-              </button>
-            </div>
-          }
+      <!--
+        Projects and their sessions, drawn in the same tree the Explorer uses: a
+        project folds with `▾`/`▸`, each session is a `└─` under it, and the per-project
+        “+” is the row's own action. The “In progress” section above stays separate —
+        it is a live view, not a place in the hierarchy.
+      -->
+      <morse-tree
+        [nodes]="treeNodes()"
+        [expanded]="expandedProjects()"
+        [selected]="activeSessionId()"
+        [empty]="emptyMessage()"
+        (activate)="onTreeRow($event)"
+        (toggle)="onTreeToggle($event)"
+        (context)="onTreeContext($event)"
+      />
 
-          <!-- VS Code is workspace-scoped: one project, so no accordion to fold. -->
-          @if (scope() === 'workspace' || !isCollapsed(group.path)) {
-            <ul>
-              @for (session of group.sessions; track session.id) {
-                <li>
-                  <button
-                    type="button"
-                    class="session"
-                    [class.active]="session.id === activeSessionId()"
-                    [title]="session.id"
-                    (click)="activate(session)"
-                    (contextmenu)="openMenu($event, session)"
-                  >
-                    <span class="body">
-                      <span class="title">{{ session.title }}</span>
-                    </span>
-                    <span class="meta">{{ age(session.updatedAt) }}</span>
-                  </button>
-                </li>
-              } @empty {
-                <!-- A project whose only sessions are in progress is not empty. -->
-                @if (group.hiddenRunning === 0) {
-                  <li class="empty">
-                    @if (query().length > 0) {
-                      No session matches “{{ query() }}”.
-                    } @else {
-                      No sessions yet.
-                    }
-                  </li>
-                }
-              }
-            </ul>
-          }
-        </section>
-      } @empty {
-        <p class="empty">
-          @if (query().length > 0) {
-            No session matches “{{ query() }}”.
-            @if (projectMatches().length > 0) {
-              Looking for a project?
-            }
-          } @else {
-            Nothing found.
-          }
-        </p>
+      @if (treeNodes().length === 0) {
         <!-- The session box is the wrong place for a project name, so the answer is one
              click away instead of a dead end. -->
         @for (project of projectMatches(); track project.path) {

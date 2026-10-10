@@ -39,7 +39,7 @@
   </div>
 
   <div class="rows" #rowsBox>
-    @if (isLoading() && rows().length === 0) {
+    @if (isLoading() && nodes().length === 0) {
       <p class="hint">Loading files…</p>
     } @else if (errorMessage(); as message) {
       <p class="hint error">{{ message }}</p>
@@ -69,31 +69,17 @@
           </button>
         }
       }
-    } @else if (rows().length === 0) {
-      <p class="hint">No files found.</p>
     } @else {
-      @for (row of rows(); track row.node.path) {
-        <button
-          type="button"
-          class="row"
-          [class.dir]="row.node.kind === 'dir'"
-          [class.active]="selected() === row.node.path"
-          [attr.aria-current]="selected() === row.node.path ? 'true' : null"
-          [style.paddingLeft.px]="6 + row.depth * 12"
-          [title]="row.node.path"
-          (click)="onRow(row.node)"
-        >
-          <span class="glyph" aria-hidden="true">{{ glyph(row.node) }}</span>
-          <span class="name">{{ row.node.name }}</span>
-          @if (row.node.kind === 'file') {
-            @if (changeOf(row.node.path); as change) {
-              <span [class]="'badge ' + change" [title]="badgeTitle(change)">{{ change }}</span>
-            }
-          } @else if (dirChanged(row.node.path)) {
-            <span class="dot" title="Contains changes" aria-hidden="true"></span>
-          }
-        </button>
-      }
+      <!-- The same tree the session list is drawn in; this pane only says what each
+           row is and what a click does. -->
+      <morse-tree
+        [nodes]="nodes()"
+        [expanded]="expanded()"
+        [selected]="selected()"
+        empty="No files found."
+        (activate)="onTreeRow($event)"
+        (toggle)="onTreeRow($event)"
+      />
     }
   </div>
 }

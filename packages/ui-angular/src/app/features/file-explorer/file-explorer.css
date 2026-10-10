@@ -110,52 +110,10 @@ morse-pane {
   white-space: nowrap;
   font-size: 12px;
 }
-.row.dir .name {
-  font-weight: 600;
-}
 /*
- * The file in front. Same mark as the sidebar's active session, so "this is
- * the one" reads the same everywhere: a tinted row with a left rule.
+ * The flat filtered list keeps its own row mark: a file glyph, the name, then its
+ * folder. The tree's rows (and their git badges) are the shared component's now.
  */
-.row.active {
-  background: var(--morse-active, var(--morse-hover));
-  box-shadow: inset 2px 0 0 var(--morse-accent);
-}
-.row.active .name {
-  font-weight: 600;
-}
-/* The git badge: one letter, coloured by the kind of change, VS Code's way. */
-.badge {
-  flex: none;
-  padding: 0 4px;
-  border-radius: 4px;
-  font-family: var(--morse-font-mono);
-  font-size: 9.5px;
-  line-height: 15px;
-  color: var(--morse-fg-muted);
-}
-.badge.M {
-  color: var(--morse-warn);
-}
-.badge.A,
-.badge.U {
-  color: var(--morse-success);
-}
-.badge.D,
-.badge.C {
-  color: var(--morse-error);
-}
-.badge.R {
-  color: var(--morse-info);
-}
-/* A folder that holds a change gets a dot, so a collapsed tree still shows it. */
-.dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--morse-warn);
-}
 .hint {
   padding: 4px 12px 10px;
   font-size: 11.5px;

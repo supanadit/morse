@@ -30,6 +30,15 @@ class ScopedHostTransport extends BaseHostTransport {
     private readonly updateCheck = false,
     /** The host shows a session as its own editor tab (VS Code). */
     private readonly sessionTabs = false,
+    /** Sessions to send, when a test needs a shape the default pair cannot show (a fork). */
+    private readonly sessions?: {
+      id: string;
+      title: string;
+      cwd: string;
+      updatedAt: number;
+      messageCount: number;
+      parentId?: string;
+    }[],
   ) {
     super();
   }
@@ -86,12 +95,14 @@ class ScopedHostTransport extends BaseHostTransport {
     this.emitMessage({
       type: 'session/list',
       payload: {
-        sessions: scoped
-          ? [{ id: 's1', title: 'Morse work', cwd: '/work/morse', updatedAt: 2, messageCount: 3 }]
-          : [
-              { id: 's1', title: 'Morse work', cwd: '/work/morse', updatedAt: 2, messageCount: 3 },
-              { id: 's2', title: 'Other work', cwd: '/work/other', updatedAt: 1, messageCount: 5 },
-            ],
+        sessions:
+          this.sessions ??
+          (scoped
+            ? [{ id: 's1', title: 'Morse work', cwd: '/work/morse', updatedAt: 2, messageCount: 3 }]
+            : [
+                { id: 's1', title: 'Morse work', cwd: '/work/morse', updatedAt: 2, messageCount: 3 },
+                { id: 's2', title: 'Other work', cwd: '/work/other', updatedAt: 1, messageCount: 5 },
+              ]),
       },
     });
     // Two live sessions; only `s1` is actually running, `s2` is idle.
@@ -157,6 +168,15 @@ interface RenderOptions {
   loader?: VersionLoader;
   /** The host shows a session as its own editor tab (VS Code). */
   sessionTabs?: boolean;
+  /** Sessions to send, when a test needs a shape the default pair cannot show (a fork). */
+  sessions?: {
+    id: string;
+    title: string;
+    cwd: string;
+    updatedAt: number;
+    messageCount: number;
+    parentId?: string;
+  }[];
 }
 
 async function render(
@@ -170,6 +190,7 @@ async function render(
     directoryPicker,
     options.updateCheck === true,
     options.sessionTabs === true,
+    options.sessions,
   );
   await TestBed.configureTestingModule({
     imports: [SessionNav],
@@ -228,14 +249,77 @@ describe('SessionNav', () => {
     const { host } = await render('global');
     const text = host.textContent ?? '';
 
-    expect(host.querySelectorAll('.group-title')).toHaveLength(2);
+    // Every project is a group row in the shared tree, drawn the way the Explorer draws
+    // a folder: a fold chevron, the name, a count badge.
+    expect(host.querySelectorAll('.row.group')).toHaveLength(2);
     expect(text).toContain('morse');
     expect(text).toContain('other');
     expect(text).toContain('Morse work');
     expect(text).toContain('Other work');
-    // The per-project action lives in the project header as a "+" icon.
-    expect(host.querySelectorAll('.group-new')).toHaveLength(2);
-    expect(host.querySelector('.group-new')?.getAttribute('aria-label')).toContain('morse');
+    // The per-project action lives on the project's own row as a "+" icon.
+    expect(host.querySelectorAll('.row-action')).toHaveLength(2);
+    expect(host.querySelector('.row-action')?.getAttribute('aria-label')).toContain('morse');
+  });
+
+  it('nests a forked session under the session it was forked from', async () => {
+    const { host } = await render('global', false, {
+      sessions: [
+        { id: 'parent', title: 'Use codebase map memory', cwd: '/work/morse', updatedAt: 2, messageCount: 3 },
+        { id: 'fork', title: 'Use codebase map memory', cwd: '/work/morse', updatedAt: 1, messageCount: 1, parentId: 'parent' },
+      ],
+    });
+
+    // The parent is a foldable group (it holds a fork); the fork is a `└─` under it,
+    // the way a subdirectory is under a folder. Level 1 is the project, 2 the parent.
+    const parent = host.querySelector('[aria-level="2"]') as HTMLElement;
+    expect(parent.querySelector('.label')?.textContent).toContain('Use codebase map memory');
+    expect(parent.getAttribute('aria-expanded')).toBe('true');
+    const fork = host.querySelector('[aria-level="3"]') as HTMLElement;
+    expect(fork.querySelector('.label')?.textContent).toContain('Use codebase map memory');
+    // One gap for the project root, one for the parent, then the corner.
+    expect(fork.querySelector('.prefix')?.textContent).toBe('    └─');
+    expect(fork.getAttribute('aria-level')).toBe('3');
+  });
+
+  it('opens a parent session from its name, and folds it from its caret', async () => {
+    const { host, transport, fixture } = await render('global', false, {
+      sessions: [
+        { id: 'parent', title: 'Parent session', cwd: '/work/morse', updatedAt: 2, messageCount: 3 },
+        { id: 'fork', title: 'Forked session', cwd: '/work/morse', updatedAt: 1, messageCount: 1, parentId: 'parent' },
+      ],
+    });
+
+    // A parent is a session first: clicking its name opens it, like any other row.
+    const parentRow = host.querySelector('.row[aria-level="2"]') as HTMLElement;
+    parentRow.click();
+    fixture.detectChanges();
+    expect(
+      transport.sent.some((m) => m.type === 'session/activate'),
+    ).toBe(true);
+
+    // Its caret only folds — the row behind it does not open.
+    const caret = host.querySelector('button.chevron[aria-expanded="true"]') as HTMLButtonElement;
+    expect(caret).not.toBeNull();
+    caret.click();
+    fixture.detectChanges();
+    // Folded, the fork is gone from the list.
+    expect(host.querySelectorAll('.row[aria-level="3"]')).toHaveLength(0);
+  });
+
+  it('leaves a fork a root when the session it was forked from is not in the list', async () => {
+    const { host } = await render('global', false, {
+      // The parent is missing (deleted, or pinned as in progress): the child must
+      // still be reachable rather than hidden under a row that is not there.
+      sessions: [
+        { id: 'fork', title: 'Orphaned fork', cwd: '/work/morse', updatedAt: 1, messageCount: 1, parentId: 'gone' },
+      ],
+    });
+
+    // The orphan is a root session, so it sits one level under the project.
+    const fork = host.querySelector('[aria-level="2"]') as HTMLElement;
+    expect(fork.querySelector('.label')?.textContent).toBe('Orphaned fork');
+    expect(fork.classList.contains('group')).toBe(false);
+    expect(fork.querySelector('.prefix')?.textContent).toBe('  └─');
   });
 
   it('shows one group and no project switcher for a workspace-scoped host', async () => {
@@ -243,11 +327,11 @@ describe('SessionNav', () => {
     const text = host.textContent ?? '';
 
     // One project means the group header (and its accordion) is noise.
-    expect(host.querySelector('.group-title')).toBeNull();
+    expect(host.querySelectorAll('.row.group')).toHaveLength(0);
     expect(text).toContain('Morse work');
     expect(text).not.toContain('Other work');
     // Creating a session in *another* directory is a global-host affordance.
-    expect(host.querySelector('.group-new')).toBeNull();
+    expect(host.querySelector('.row-action')).toBeNull();
   });
 
   it('draws the whole session area in one pane, and folds it as a whole', async () => {
@@ -259,7 +343,7 @@ describe('SessionNav', () => {
     expect(pane).not.toBeNull();
     expect(pane.querySelector('.head button.primary')?.textContent).toContain('New session');
     expect(pane.querySelector('input[aria-label="Search sessions"]')).not.toBeNull();
-    expect(pane.querySelectorAll('.group-title').length).toBeGreaterThan(0);
+    expect(pane.querySelectorAll('.row.group').length).toBeGreaterThan(0);
 
     const fold = pane.querySelector('.pane-fold') as HTMLButtonElement;
     expect(fold.getAttribute('aria-expanded')).toBe('true');
@@ -269,13 +353,13 @@ describe('SessionNav', () => {
     expect(fold.getAttribute('aria-expanded')).toBe('false');
     expect(pane.querySelector('.head')).toBeNull();
     expect(pane.querySelector('input[aria-label="Search sessions"]')).toBeNull();
-    expect(pane.querySelectorAll('.session')).toHaveLength(0);
+    expect(pane.querySelectorAll('.row')).toHaveLength(0);
 
     // …and the chevron brings it all back.
     fold.click();
     fixture.detectChanges();
     expect(pane.querySelector('.head button.primary')).not.toBeNull();
-    expect(pane.querySelectorAll('.session').length).toBeGreaterThan(0);
+    expect(pane.querySelectorAll('.row').length).toBeGreaterThan(0);
   });
 
   it('lifts a running session into In progress, and only that one', async () => {
@@ -287,7 +371,8 @@ describe('SessionNav', () => {
     expect(live[0]?.querySelector('.mark.running')).not.toBeNull();
     expect(live[0]?.querySelector('.title')?.textContent).toContain('Morse work');
     // …and does not repeat inside its project, while the idle-but-live `s2` stays.
-    const listed = [...global.querySelectorAll('.session:not(.live) .title')].map(
+    // The tree's session rows are the leaves; the group rows are the projects.
+    const listed = [...global.querySelectorAll('.row:not(.group) .label')].map(
       (node) => node.textContent,
     );
     expect(listed).toEqual(['Other work']);
@@ -556,7 +641,7 @@ describe('SessionNav', () => {
 
   it('filters to one project from the chip, and back to all of them', async () => {
     const { host, fixture } = await render('global');
-    expect(host.querySelectorAll('.group-title')).toHaveLength(2);
+    expect(host.querySelectorAll('.row.group')).toHaveLength(2);
     expect(host.querySelector('.scope')?.textContent).toContain('All projects');
 
     (host.querySelector('.scope') as HTMLElement).click();
@@ -573,7 +658,7 @@ describe('SessionNav', () => {
 
     // One project, its sessions, and the chip saying which one.
     expect(host.querySelector('.scope')?.textContent).toContain('other');
-    expect(host.querySelectorAll('.group-title')).toHaveLength(1);
+    expect(host.querySelectorAll('.row.group')).toHaveLength(1);
     expect(host.textContent).toContain('Other work');
     expect(host.textContent).not.toContain('Morse work');
     expect(host.querySelector('morse-project-filter')).toBeNull();
@@ -583,19 +668,21 @@ describe('SessionNav', () => {
     fixture.detectChanges();
     ([...host.querySelectorAll('morse-project-filter .row')][0] as HTMLElement).click();
     fixture.detectChanges();
-    expect(host.querySelectorAll('.group-title')).toHaveLength(2);
+    expect(host.querySelectorAll('.row.group')).toHaveLength(2);
   });
 
   it('keeps the session box about session titles, then offers the project it matched', async () => {
     const { host, fixture } = await render('global');
     const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;
 
-    // A path is not a session title: no group is shown for it any more.
+    // A path is not a session title: no project row is shown for it any more.
     search.value = 'work/';
     search.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    expect(host.querySelectorAll('.group-title')).toHaveLength(0);
-    expect(host.textContent).toContain('Looking for a project?');
+    expect(host.querySelectorAll('.row.group')).toHaveLength(0);
+    // The tree's own empty state names the query; the project jump below it is the way out.
+    expect(host.textContent).toContain('No session matches');
+    expect(host.querySelectorAll('.empty-action').length).toBeGreaterThan(0);
 
     // But each project it does match is one click from its full session list.
     const jumps = [...host.querySelectorAll('.empty-action')] as HTMLElement[];

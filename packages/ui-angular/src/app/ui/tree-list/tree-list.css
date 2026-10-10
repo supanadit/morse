@@ -1,0 +1,205 @@
+/*
+ * One row, drawn once for both trees. The look is the one the two panes had
+ * separately: a hover tint, an accent rule on the row in front, a muted connector
+ * to the left and a muted detail under the label. Owning it here is the point —
+ * the Explorer's row and the session's row can no longer disagree.
+ */
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 6px 8px;
+}
+
+/*
+ * One line of the tree: the row, and the optional action beside it. The line is the
+ * flex parent so the action can sit next to the row rather than inside it (a button
+ * cannot nest a button).
+ */
+.line {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--morse-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover:not(:disabled),
+.row:focus-visible:not(:disabled) {
+  background: var(--morse-hover);
+}
+
+/*
+ * The connector column. Monospace, so `│`, the gap and `├─`/`└─` keep the same
+ * width and a column of labels lines up whatever the ancestors did. Dim, because
+ * the tree above the row is context, not content.
+ */
+.prefix {
+  flex: none;
+  white-space: pre;
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--morse-fg-muted);
+}
+
+/*
+ * The fold mark, a button of its own at the row's far-left edge, so every group's
+ * caret stacks in one line down the pane and a click on it folds without opening the
+ * row. One glyph (`›`), turned a quarter when the group is open, so it opens the way
+ * a disclosure does and never changes shape. A leaf draws nothing but keeps the
+ * width, so a file lines up with a folder at the same level.
+ */
+.chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--morse-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+.chevron.open {
+  transform: rotate(90deg);
+}
+button.chevron:hover,
+button.chevron:focus-visible {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* A group's name is the folder weight: bold, so the tree's bones read first. */
+.row.group .label {
+  font-weight: 600;
+}
+
+/* The second line — a session's activity, a matching file's folder. */
+.detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+
+/* A short mark at the row's end: the git badge, a count. Same mono measure. */
+.badge {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: var(--morse-font-mono);
+  font-size: 9.5px;
+  line-height: 15px;
+  color: var(--morse-fg-muted);
+}
+
+/*
+ * The badge's tone, named by the caller as data. The letters themselves live in the
+ * caller (a git `M` means modified); the tree only knows a handful of theme colours,
+ * so the two trees' marks agree on what “warn” and “error” look like.
+ */
+.badge.warn {
+  color: var(--morse-warn);
+}
+.badge.success {
+  color: var(--morse-success);
+}
+.badge.info {
+  color: var(--morse-info);
+}
+.badge.error {
+  color: var(--morse-error);
+}
+.badge.muted,
+.badge.plain {
+  color: var(--morse-fg-muted);
+}
+
+/*
+ * The row in front. Same mark the Explorer and the sidebar share: a tinted row
+ * with a left rule, so "this is the one" reads the same everywhere.
+ */
+.row.active {
+  background: var(--morse-active, var(--morse-hover));
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+
+.row.active .label {
+  font-weight: 600;
+}
+
+/*
+ * The row's own action — the session list's per-project “+”. Same measure as the
+ * pane's action buttons, so a row button and a title-bar button look alike.
+ */
+.row-action {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.row-action:hover:not(:disabled),
+.row-action:focus-visible:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.empty {
+  padding: 4px 12px 10px;
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+}

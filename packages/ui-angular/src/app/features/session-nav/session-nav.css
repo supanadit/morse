@@ -128,34 +128,22 @@ input {
 .group + .group {
   margin-top: 10px;
 }
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 /*
- * A group header — "In progress" or a project. Uppercase and quiet, with the count
- * trailing: structure inside the one pane without a second set of nested panes.
+ * The "In progress" header. Uppercase and quiet, with the count trailing: structure
+ * inside the one pane without a second set of nested panes. A project's own header is
+ * now a row of the shared tree, so this is the only header this component draws.
  */
 .group-head {
   display: flex;
   align-items: center;
   gap: 2px;
 }
-.group-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  padding: 5px 6px;
-  border: 0;
-  border-radius: var(--morse-radius-sm);
-  background: transparent;
-  color: var(--morse-fg-muted);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  text-align: left;
-  cursor: pointer;
-}
-/* The "In progress" header is not foldable, so it is a label with the same type. */
+/* The "In progress" header is not foldable, so it is a label rather than a button. */
 .group-label {
   flex: 1;
   min-width: 0;
@@ -169,55 +157,20 @@ input {
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
-.group-title:hover:not(:disabled) {
-  background: var(--morse-hover);
-}
-.group-title .name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.group-title .count,
 .group-head .count {
   flex: none;
   font-variant-numeric: tabular-nums;
-}
-.chevron {
-  flex: none;
-  transition: transform 120ms ease;
-}
-.chevron.open {
-  transform: rotate(90deg);
-}
-/*
- * The per-project "+" sits after the fold affordance, so the action lives where the
- * project is named. Same measure as the pane's own action buttons.
- */
-.group-new {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--morse-radius-sm);
-  background: transparent;
-  color: var(--morse-fg-muted);
-  font-size: 15px;
-  line-height: 1.2;
-  cursor: pointer;
-}
-.group-new:hover:not(:disabled),
-.group-new:focus-visible:not(:disabled) {
-  background: var(--morse-hover);
-  color: var(--morse-fg);
 }
 ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
+/*
+ * The live rows in "In progress". This one section stays the component's own — it is
+ * a view of what is running, not a place in the project hierarchy — so its rows keep
+ * their own look: a running mark, a title and the activity line under it.
+ */
 .session {
   display: flex;
   align-items: center;
@@ -255,9 +208,6 @@ ul {
   font-size: 12.5px;
   font-weight: 500;
 }
-.session.active .title {
-  font-weight: 600;
-}
 .session .subtitle {
   min-width: 0;
   overflow: hidden;
@@ -265,13 +215,6 @@ ul {
   white-space: nowrap;
   color: var(--morse-fg-muted);
   font-size: 11px;
-}
-.session .meta {
-  flex: none;
-  font-size: 10.5px;
-  white-space: nowrap;
-  color: var(--morse-fg-muted);
-  font-variant-numeric: tabular-nums;
 }
 /*
  * The live mark in "In progress": a spinning ring while the agent works,

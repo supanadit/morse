@@ -1,0 +1,67 @@
+@if (rows().length === 0) {
+  <p class="empty">{{ empty() }}</p>
+} @else {
+  <div class="rows" role="tree">
+    @for (row of rows(); track row.node.id) {
+      <!-- A line is the caret, the row, and an optional action. The caret is its own
+           button: it folds, and the row opens — so a parent session is opened by its
+           name and unfolded by its mark, and neither click steals the other. -->
+      <div class="line">
+        @if (row.node.kind === 'group') {
+          <button
+            type="button"
+            class="chevron"
+            [class.open]="isOpen(row.node)"
+            [attr.aria-label]="(isOpen(row.node) ? 'Collapse ' : 'Expand ') + row.node.label"
+            [attr.aria-expanded]="isOpen(row.node)"
+            (click)="onToggle($event, row.node)"
+          >
+            ›
+          </button>
+        } @else {
+          <!-- A leaf keeps the caret's column, blank, so a file lines up with a folder. -->
+          <span class="chevron" aria-hidden="true"></span>
+        }
+        <button
+          type="button"
+          class="row"
+          role="treeitem"
+          [class.group]="row.node.kind === 'group'"
+          [class.active]="selected() === row.node.id"
+          [attr.aria-level]="row.depth + 1"
+          [attr.aria-expanded]="row.node.kind === 'group' ? isOpen(row.node) : null"
+          [attr.aria-current]="selected() === row.node.id ? 'true' : null"
+          [title]="row.node.label"
+          (click)="onRow(row.node)"
+          (contextmenu)="onContext($event, row.node)"
+        >
+          <!-- The connector: the ancestors' lines, then this row's corner. Monospace,
+               so every column of the tree lands under the one above it. -->
+          @if (row.depth > 0) {
+            <span class="prefix" aria-hidden="true">{{ prefix(row) }}</span>
+          }
+          <span class="body">
+            <span class="label">{{ row.node.label }}</span>
+            @if (row.node.detail; as text) {
+              <span class="detail">{{ text }}</span>
+            }
+          </span>
+          @if (row.node.badge; as mark) {
+            <span [class]="'badge ' + (row.node.badgeTone ?? 'plain')">{{ mark }}</span>
+          }
+        </button>
+        @if (row.node.action; as action) {
+          <button
+            type="button"
+            class="row-action"
+            [title]="action.label"
+            [attr.aria-label]="action.label"
+            (click)="onAction($event, row.node)"
+          >
+            {{ action.glyph }}
+          </button>
+        }
+      </div>
+    }
+  </div>
+}

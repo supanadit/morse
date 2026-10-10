@@ -219,6 +219,8 @@ async function readSessionSummary(
   }
 
   let cwd = resumable && previous !== undefined ? previous.summary.cwd : '';
+  let parentId =
+    resumable && previous !== undefined ? previous.summary.parentId : undefined;
   let name = resumable && previous !== undefined ? previous.name : undefined;
   let firstUserText = resumable && previous !== undefined ? previous.firstUserText : undefined;
   let messageCount = resumable && previous !== undefined ? previous.summary.messageCount : 0;
@@ -254,7 +256,11 @@ async function readSessionSummary(
         }
       } else if (type === 'session') {
         if (cwd.length === 0) {
-          cwd = asString(parseAt(start, end)?.['cwd']) ?? '';
+          const header = parseAt(start, end);
+          cwd = asString(header?.['cwd']) ?? '';
+          // `parentSession` sits in the header, written once, so it is only ever
+          // read from the whole-file scan (a resumed scan never sees that line).
+          parentId = asString(header?.['parentSession']) ?? undefined;
         }
       } else if ((type === 'session_info' || type === 'session_name') && !name) {
         name = asString(parseAt(start, end)?.['name']);
@@ -286,6 +292,7 @@ async function readSessionSummary(
       cwd,
       updatedAt,
       messageCount,
+      parentId,
     },
     scanned,
     name,
