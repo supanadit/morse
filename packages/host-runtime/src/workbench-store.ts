@@ -25,15 +25,19 @@ const LAYOUT_MAX_BYTES = 256 * 1024;
 const DRAFTS_MAX_BYTES = 32 * 1024 * 1024;
 
 /**
- * The browser host's persisted shell state under `<MORSE_HOME>`: the layout the
+ * A host's persisted shell state under its own data directory: the layout the
  * reader left (`workbench.json`) and the prompts they were typing (`drafts.json`),
- * so opening the page again lands them on the tab they left, with the words and
+ * so opening the shell again lands them on the tab they left, with the words and
  * attachments still in the composer.
  *
  * The frontend owns the inner shape (`snapshot.data`); the host only guards the
  * envelope's version and size, so a newer frontend can add a field without a
- * server change. A missing, unreadable or stale file is not an error: it just
+ * host change. A missing, unreadable or stale file is not an error: it just
  * means "nothing to restore", and the frontend starts clean.
+ *
+ * Both hosts share this module: the browser host points it at `<MORSE_HOME>`, and
+ * the VS Code extension at its `globalStorageUri`, so a window reload restores
+ * the session that was in front instead of starting empty.
  */
 export function readWorkbench(dataDir: string): WorkbenchSnapshot | undefined {
   return readSlot(join(dataDir, LAYOUT_FILE), LAYOUT_MAX_BYTES);

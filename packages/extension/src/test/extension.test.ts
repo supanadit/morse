@@ -42,6 +42,31 @@ suite('Morse extension', () => {
     );
   });
 
+  test('activates on startup, so granting trust does not need a reload', () => {
+    // A first-time window opens the folder untrusted and the panel is already
+    // drawn, so a later trust grant never re-fires `onView`. `onStartupFinished`
+    // is what lets the extension activate on the trust change itself.
+    const morse = vscode.extensions.getExtension(EXTENSION_ID);
+    const events: string[] = morse?.packageJSON?.activationEvents ?? [];
+    assert.ok(
+      events.includes('onStartupFinished'),
+      'the trust-granted change must be able to activate without a manual reload',
+    );
+  });
+
+  test('declares how it behaves in an untrusted workspace', () => {
+    // Without this VS Code assumes `supported: false` and keeps the extension
+    // disabled in Restricted Mode, which is what left the panel blank until a
+    // reload. `limited` lets it start and let the trust listener take over.
+    const morse = vscode.extensions.getExtension(EXTENSION_ID);
+    const untrusted = morse?.packageJSON?.capabilities?.untrustedWorkspaces;
+    assert.strictEqual(
+      untrusted?.supported,
+      'limited',
+      'Morse must declare a limited untrusted-workspace story',
+    );
+  });
+
   test('does not put Attach Selection in the chat panel title toolbar', () => {
     // The chat composer already offers attaching a selection, so the redundant
     // toolbar icon was removed. The command stays in the palette for keyboard use.

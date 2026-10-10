@@ -112,6 +112,7 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     prompts: adapter.prompts,
     mcpAvailable: adapter.describeCli() !== undefined,
     piVersion: adapter.version(),
+    workbenchDataDir: workbenchDataDir(context),
   });
 
   context.subscriptions.push(
@@ -149,6 +150,16 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
 
 export function deactivate(): void {
   // Nothing else to do: every disposable is registered in the extension context.
+}
+
+/**
+ * Where this window stores its shell layout. `storageUri` is per-workspace, so two
+ * windows on two folders keep their own sessions in front instead of fighting over
+ * one file; a window with no folder open (an empty window) falls back to the
+ * extension's global storage.
+ */
+function workbenchDataDir(context: vscode.ExtensionContext): string {
+  return (context.storageUri ?? context.globalStorageUri).fsPath;
 }
 
 function describePi(adapter: { describe(): { source: string; command: string } }): string {

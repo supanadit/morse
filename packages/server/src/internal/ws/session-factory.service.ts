@@ -37,7 +37,7 @@ import {
   unstageGitPaths,
 } from '../workspace/git-log.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
-import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '../workspace/workbench-store.js';
+import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/host-runtime';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
 import { ServerLanguageServers } from '../lsp/lsp.service.js';

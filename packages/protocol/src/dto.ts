@@ -330,8 +330,9 @@ export interface HostCapabilities {
   /**
    * Host can read and write the frontend's shell layout (`readWorkbench` /
    * `saveWorkbench`), so the tabs and terminal a reader had open come back on
-   * the next visit. The browser host keeps it under `~/.morse`; VS Code has its
-   * own editor/tab restoration and leaves it off.
+   * the next visit. The browser host keeps it under `~/.morse`; the VS Code
+   * extension under its per-workspace storage, so a reopened window restores the
+   * session that was in front instead of starting empty.
    */
   workbench?: boolean;
   /**

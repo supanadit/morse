@@ -35,15 +35,16 @@ const RESTORE_GRACE_MS = 2_500;
 type Slot = 'layout' | 'drafts';
 
 /**
- * Persists the browser host's shell state under `<MORSE_HOME>`: the open/focused
+ * Persists the host's shell state under its own data directory: the open/focused
  * tabs, the bottom panel and its terminals (`workbench.json`), and the half-written
  * prompts — text, pins and attachments — per tab (`drafts.json`), so opening the
- * page again lands the reader on the tab they left, with their words intact and a
- * `morse stop` or a closed laptop losing nothing.
+ * shell again lands the reader on the tab they left, with their words intact and a
+ * `morse stop`, a closed laptop or a VS Code restart losing nothing.
  *
- * This is the browser host's alone: the frontend owns the schema, the host only
- * stores the envelope (see `capabilities.workbench`). VS Code advertises no such
- * capability and keeps its own tab restoration, so the service does nothing there.
+ * The frontend owns the schema, the host only stores the envelope (see
+ * `capabilities.workbench`). The browser host points it at `<MORSE_HOME>`, the VS
+ * Code extension at its per-workspace `storageUri`, so a reopened window restores
+ * the session that was in front instead of starting empty.
  *
  * A restore is applied before the write watches start, and the state just written
  * is remembered so the first effect run does not immediately save it back.
@@ -68,8 +69,8 @@ export class WorkbenchPersistence {
   private graceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
-    // Capabilities arrive with the handshake: the browser host announces that it
-    // persists shell state, and only then is there a file to read or write.
+    // Capabilities arrive with the handshake: a host that persists shell state
+    // announces it, and only then is there a file to read or write.
     effect(() => {
       const connected = this.morse.connection() === 'ready';
       const capable = this.morse.capabilities()?.workbench === true;

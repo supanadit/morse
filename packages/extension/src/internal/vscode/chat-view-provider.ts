@@ -9,6 +9,10 @@ import {
 import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/adapter-pi-rpc';
 import {
   HostSessionController,
+  readDrafts,
+  readWorkbench,
+  saveDrafts,
+  saveWorkbench,
   type HostSessionServices,
   type ProjectPolicy,
   type SessionTranscriptStore,
@@ -85,6 +89,12 @@ export interface ChatViewProviderDeps {
   mcpAvailable: boolean;
   /** The installed pi version, for the "a newer pi is out" notice. */
   piVersion?: string;
+  /**
+   * Where the window persists its shell layout (`workbench.json`) and drafts
+   * (`drafts.json`) across a reload. VS Code's own per-window storage, so two
+   * windows on different folders never share a layout.
+   */
+  workbenchDataDir: string;
 }
 
 /** What this host can do — the frontend reads this instead of guessing. */
@@ -127,6 +137,9 @@ function buildCapabilities(mcp: boolean, piVersion: string | undefined): HostCap
     // A whole conversation can be shown as its own editor tab, pinned to that
     // session, and revealed again instead of opened twice.
     sessionTabs: true,
+    // The window can store the frontend's shell layout under its own storage, so
+    // reopening it lands on the session that was in front instead of empty.
+    workbench: true,
   };
 }
 
@@ -723,6 +736,17 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       case 'openSettings':
         await vscode.commands.executeCommand('workbench.action.openSettings', 'morse.');
         return;
+      case 'readWorkbench':
+        // The frontend's shell layout, or `null` on a first run (or when the file
+        // was written by a frontend this build cannot read). Same envelope the
+        // browser host stores, so one frontend restores both hosts identically.
+        return readWorkbench(this.deps.workbenchDataDir) ?? null;
+      case 'saveWorkbench':
+        return { ok: saveWorkbench(this.deps.workbenchDataDir, args) };
+      case 'readDrafts':
+        return readDrafts(this.deps.workbenchDataDir) ?? null;
+      case 'saveDrafts':
+        return { ok: saveDrafts(this.deps.workbenchDataDir, args) };
       case 'showOutput':
         this.deps.logger.show();
         return;
