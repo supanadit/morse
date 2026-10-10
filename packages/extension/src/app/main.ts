@@ -27,6 +27,19 @@ import { warmFileIndex } from '../internal/vscode/workspace-index';
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const logger = new OutputChannelLogger();
   try {
+    // A first-time window opens the folder untrusted, and trust can be granted
+    // while the sidebar view is already visible. A trust change does not re-fire
+    // `onView`, so without this an already-drawn panel would stay blank until a
+    // manual window reload. Start on the trust grant instead.
+    if (!vscode.workspace.isTrusted) {
+      logger.info('Morse is waiting for the workspace to be trusted');
+      const granted = vscode.workspace.onDidGrantWorkspaceTrust(() => {
+        granted.dispose();
+        void startHost(context, logger);
+      });
+      context.subscriptions.push(granted);
+      return;
+    }
     await startHost(context, logger);
   } catch (error: unknown) {
     // An unhandled activation error leaves the view contributed by the manifest

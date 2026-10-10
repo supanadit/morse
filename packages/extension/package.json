@@ -34,11 +34,18 @@
     "copilot-alternative"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onView:morse.chat",
     "onWebviewPanel:morse.mcpEditor",
     "onWebviewPanel:morse.promptEditor",
     "onWebviewPanel:morse.sessionTab"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Morse stays inactive until the workspace is trusted, since it spawns the pi agent and can run tools against your files."
+    }
+  },
   "main": "./dist/extension.js",
   "icon": "media/icon.png",
   "galleryBanner": {
