@@ -15,7 +15,8 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 6px 8px;
+  /* The left edge is the caret's own column, so the list needs no gutter of its own. */
+  padding: 0 6px 8px 3px;
 }
 
 /*
@@ -32,10 +33,10 @@
 .row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   width: 100%;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 3px 6px 3px 2px;
   border: 0;
   border-radius: 6px;
   background: none;
@@ -76,14 +77,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: none;
   color: var(--morse-fg-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
   transition: transform 120ms ease;

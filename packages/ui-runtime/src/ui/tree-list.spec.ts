@@ -66,15 +66,17 @@ describe("flattenTree", () => {
     expect(rows.map((row) => row.isLast)).toEqual([true, false, false, true]);
   });
 
-  it("draws no ancestor line under a root, even when that root has a sibling", () => {
+  it("draws no ancestor line under a root, and spends no column on one either", () => {
     // The roots sit in their own column with nothing to their left, so a child of
-    // the first root must not draw a line down to the second one.
+    // a root has no ancestor line at all — not a blank one. The root's column is
+    // never collected, so the child's prefix is just its own corner.
     const tree = [group("a", [leaf("a1")]), leaf("b")];
     const rows = flattenTree(tree, new Set(["a"]));
 
     expect(rows[0].ancestorContinues).toEqual([]);
-    expect(rows[1].ancestorContinues).toEqual([false]);
+    expect(rows[1].ancestorContinues).toEqual([]);
     expect(rows[2].ancestorContinues).toEqual([]);
+    expect(treePrefix(rows[1])).toBe("└─");
   });
 
   it("continues a non-root ancestor that still has a sibling below", () => {
@@ -83,19 +85,19 @@ describe("flattenTree", () => {
     const rows = flattenTree(tree, new Set(["top", "x"]));
 
     expect(ids(rows)).toEqual(["top", "x", "x1", "y"]);
-    // Outermost first: `top` is a root and draws nothing, `x` is not last so it
-    // draws the line down to `y`.
-    expect(rows[2].ancestorContinues).toEqual([false, true]);
-    // The prefix reads top-to-bottom: a gap for the root, then the line, then the corner.
-    expect(treePrefix(rows[2])).toBe("  │ └─");
+    // `top` is a root and its column is not collected; `x` is not last, so it is the
+    // one entry, and it draws the line down to `y`.
+    expect(rows[2].ancestorContinues).toEqual([true]);
+    expect(treePrefix(rows[2])).toBe("│ └─");
   });
 
   it("stops the line at the last root, so the branch is not joined to nothing", () => {
     const tree = [leaf("a"), group("b", [leaf("b1")])];
     const rows = flattenTree(tree, new Set(["b"]));
 
-    // b is the last root; its child has no sibling below b to connect to.
-    expect(rows[2].ancestorContinues).toEqual([false]);
+    // b is the last root; its child has no sibling below b to connect to, and the
+    // root's column is not collected, so there is nothing to draw.
+    expect(rows[2].ancestorContinues).toEqual([]);
   });
 });
 
@@ -107,11 +109,11 @@ describe("treePrefix", () => {
   });
 
   it("draws the corner for the last child and the tee otherwise", () => {
-    expect(treePrefix({ depth: 1, isLast: true, ancestorContinues: [false] })).toBe(
-      "  └─",
+    expect(treePrefix({ depth: 1, isLast: true, ancestorContinues: [] })).toBe(
+      "└─",
     );
-    expect(treePrefix({ depth: 1, isLast: false, ancestorContinues: [false] })).toBe(
-      "  ├─",
+    expect(treePrefix({ depth: 1, isLast: false, ancestorContinues: [] })).toBe(
+      "├─",
     );
   });
 

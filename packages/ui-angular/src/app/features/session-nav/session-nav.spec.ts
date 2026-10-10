@@ -277,7 +277,7 @@ describe('SessionNav', () => {
     const fork = host.querySelector('[aria-level="3"]') as HTMLElement;
     expect(fork.querySelector('.label')?.textContent).toContain('Use codebase map memory');
     // One gap for the project root, one for the parent, then the corner.
-    expect(fork.querySelector('.prefix')?.textContent).toBe('    └─');
+    expect(fork.querySelector('.prefix')?.textContent).toBe('  └─');
     expect(fork.getAttribute('aria-level')).toBe('3');
   });
 
@@ -319,7 +319,7 @@ describe('SessionNav', () => {
     const fork = host.querySelector('[aria-level="2"]') as HTMLElement;
     expect(fork.querySelector('.label')?.textContent).toBe('Orphaned fork');
     expect(fork.classList.contains('group')).toBe(false);
-    expect(fork.querySelector('.prefix')?.textContent).toBe('  └─');
+    expect(fork.querySelector('.prefix')?.textContent).toBe('└─');
   });
 
   it('shows one group and no project switcher for a workspace-scoped host', async () => {

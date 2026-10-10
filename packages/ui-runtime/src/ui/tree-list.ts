@@ -90,10 +90,15 @@ export function flattenTree<T>(
       if (node.kind !== "group" || !expanded.has(node.id)) {
         continue;
       }
-      // Only a non-root ancestor draws a continuation line; a root has nothing to
-      // its left to connect to.
-      const continues = depth > 0 ? !isLast : false;
-      walk(node.children, depth + 1, [...ancestorContinues, continues]);
+      // Only a non-root ancestor draws a continuation line, and a root's line is
+      // never drawn at all: collecting it would spend a blank column on every row
+      // below, for a line that cannot exist. So the list starts at depth 1.
+      const continues = depth > 0 ? !isLast : undefined;
+      walk(
+        node.children,
+        depth + 1,
+        continues === undefined ? [] : [...ancestorContinues, continues],
+      );
     }
   };
   walk(nodes, 0, []);
@@ -104,10 +109,10 @@ export function flattenTree<T>(
  * The connector a row draws to its left: the vertical lines of the ancestors that
  * still have siblings below, then the corner or the tee for this row itself.
  *
- * A root carries none — there is no branch above it to connect to. Deeper rows get
- * `│ ` per continuing ancestor, `  ` per finished one, and `├─`/`└─` for the row.
- * Each column is two characters: one for the line and one of air, so the tree reads
- * as a tree without the channel of space three characters made.
+ * A root carries none — there is no branch above it to connect to, and its line is
+ * never drawn, so its column is not collected either (otherwise every row below
+ * would pay a blank column for a line that cannot exist). Deeper rows get `│ ` per
+ * continuing ancestor, `  ` per finished one, and `├─`/`└─` for the row.
  */
 export function treePrefix(row: {
   readonly depth: number;
