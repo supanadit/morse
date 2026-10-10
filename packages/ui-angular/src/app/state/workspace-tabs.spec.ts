@@ -573,6 +573,39 @@ describe('WorkspaceTabs', () => {
     expect(fake.newSession).not.toHaveBeenCalled();
   });
 
+  it('drops session tabs the host no longer has, keeping the one in front', () => {
+    // A session closed or deleted elsewhere leaves the host's list but not the
+    // strip; on a host with no strip (VS Code) nothing else would ever close it.
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.focusSession({ id: 's3', title: 'Three' });
+
+    tabs.reconcileSessions([{ id: 's1' }, { id: 's3' }]);
+
+    // s2 is gone; s3 is in front and s1 is still known.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 's3']);
+  });
+
+  it('never reconciles away the session in front or a draft', () => {
+    // The host's list can lag the session the reader just opened, and a draft is
+    // not a session yet, so neither may be dropped for being absent from it.
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.startDraft();
+    const draftId = tabs.activeId();
+
+    // The reader is on the draft; s1 in the background is not protected and goes.
+    tabs.reconcileSessions([]);
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual([draftId]);
+
+    // Now the session in front must survive an empty list: the host has not
+    // published it yet.
+    tabs.focusSession({ id: 's9', title: 'Just opened' });
+    tabs.reconcileSessions([]);
+    expect(tabs.tabs().map((tab) => tab.id)).toContain('s9');
+  });
+
   it('clears an active session tab when the host drops to a draft', () => {
     const { tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });

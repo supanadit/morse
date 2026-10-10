@@ -14,7 +14,8 @@ function render(hostKind: 'vscode' | 'server', tabs: number) {
       {
         provide: MorseService,
         useValue: {
-          capabilities: signal({ hostKind } as HostCapabilities),
+          // Only the browser host shows the Morse tab strip; VS Code has none.
+          capabilities: signal({ hostKind, filePreview: hostKind === 'server' } as HostCapabilities),
           workspace: signal({ cwd: '/work/morse', name: 'morse' }),
         },
       },
@@ -47,5 +48,11 @@ describe('StatusBar', () => {
   it('counts how much is open, and says so in the singular for one', () => {
     expect(render('server', 1).querySelector('.count')?.textContent?.trim()).toBe('1 tab');
     expect(render('server', 3).querySelector('.count')?.textContent?.trim()).toBe('3 tabs');
+  });
+
+  it('hides the tab count where the host shows no Morse tab strip', () => {
+    // VS Code has no strip (its own editor tabs are the strip), so counting the
+    // sidebar's internal session tabs would name something the reader cannot see.
+    expect(render('vscode', 3).querySelector('.count')).toBeNull();
   });
 });

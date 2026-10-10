@@ -512,6 +512,17 @@ export class App {
       this.focusedSession = id;
       this.tabs.showSession(session);
     });
+    // A session the host no longer has cannot keep a tab. Sessions leave the
+    // host's list when closed or deleted from another surface, and where there is
+    // no strip (VS Code) the reader has no way to close the orphan tab themselves.
+    // Gated on the first `session/list`: before it the list is empty because it has
+    // not been sent, not because nothing is open.
+    effect(() => {
+      if (!this.morse.sessionsLoaded()) {
+        return;
+      }
+      this.tabs.reconcileSessions(this.morse.sessions());
+    });
     // Load the prompt editor only while its tab is in front. A lazy `import()`
     // keeps its template and cheat sheet in their own chunk, unlike `@defer`,
     // whose runtime would ride in the initial bundle instead.

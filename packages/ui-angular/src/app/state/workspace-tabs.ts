@@ -804,6 +804,31 @@ export class WorkspaceTabs {
   }
 
   /**
+   * Drops session tabs whose session the host no longer has. A session closed or
+   * deleted elsewhere (another window, the CLI, a `morse stop`) leaves the host's
+   * list but not this strip, and a host with no tab strip — VS Code — gives the
+   * reader no way to close the orphan, so it would sit there, counted, forever.
+   *
+   * `known` is every session the host still has (see `MorseService.sessions`). The
+   * session in front and every draft are kept whatever the list says: the list can
+   * lag the very session the reader just opened, and a draft is not a session yet.
+   */
+  reconcileSessions(known: readonly { id: string }[]): void {
+    const alive = new Set(known.map((session) => session.id));
+    const active = this.active();
+    const orphans = this.items().filter(
+      (tab): tab is SessionTab =>
+        tab.kind === 'session' &&
+        tab.draft !== true &&
+        tab.id !== active &&
+        !alive.has(tab.id),
+    );
+    for (const tab of orphans) {
+      this.forget(tab.id);
+    }
+  }
+
+  /**
    * The host shows no session (an empty draft): a real session tab cannot be the
    * one on screen. Clears the active flag so a stale tab does not look active
    * over an empty panel; a draft tab stays, since it *is* that empty session.

@@ -24,5 +24,12 @@ export class StatusBar {
 
   protected readonly workspace = computed(() => this.morse.workspace());
 
+  /**
+   * Only a host with a tab strip has tabs to count. VS Code keeps its own editor
+   * tabs and hides the strip (`filePreview: false`), so a count of its internal
+   * session tabs would name something the reader cannot see or close.
+   */
+  protected readonly showsTabs = computed(() => this.morse.capabilities()?.filePreview === true);
+
   protected readonly tabCount = computed(() => this.tabs.tabs().length);
 }

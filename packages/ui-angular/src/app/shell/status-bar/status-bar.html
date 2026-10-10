@@ -2,5 +2,7 @@
   <span class="host">{{ hostLabel() }}</span>
   <span class="path" [title]="workspace().cwd">{{ workspace().cwd }}</span>
   <span class="spacer"></span>
-  <span class="count">{{ tabCount() }} {{ tabCount() === 1 ? 'tab' : 'tabs' }}</span>
+  @if (showsTabs()) {
+    <span class="count">{{ tabCount() }} {{ tabCount() === 1 ? 'tab' : 'tabs' }}</span>
+  }
 </div>

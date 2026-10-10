@@ -68,6 +68,8 @@ export class MorseService {
    */
   readonly hostEpoch = computed(() => this.view().hostEpoch);
   readonly sessions = computed(() => this.view().sessions);
+  /** Whether `session/list` has arrived at least once; see `SessionView.sessionsLoaded`. */
+  readonly sessionsLoaded = computed(() => this.view().sessionsLoaded);
   /** Every live agent session (not only the selected one). */
   readonly activity = computed(() => this.view().activity);
   /** The same activity keyed by session id, for the navigator's running marks. */

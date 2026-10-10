@@ -35,6 +35,13 @@ export interface SessionView {
   state: SessionViewState;
   items: TranscriptItem[];
   sessions: SessionSummary[];
+  /**
+   * Whether `session/list` has arrived at least once. A frontend that prunes
+   * tabs against `sessions` must wait for this: an empty list before the first
+   * publish is "not asked yet", not "no sessions", and pruning then would drop
+   * the tab of the session that is actually in front.
+   */
+  sessionsLoaded: boolean;
   /** Live agent sessions; a session can be working even while another is shown. */
   activity: SessionActivity[];
   /** Directories pi has sessions for; the browser host's project list. */
@@ -65,6 +72,7 @@ export function createInitialView(
     },
     items: [],
     sessions: [],
+    sessionsLoaded: false,
     activity: [],
     projects: [],
     pendingInteraction: null,
@@ -111,7 +119,7 @@ export function reduceSessionView(view: SessionView, message: HostToClientMessag
     case 'transcript/prepend':
       return { ...view, items: [...message.payload.items, ...view.items] };
     case 'session/list':
-      return { ...view, sessions: [...message.payload.sessions] };
+      return { ...view, sessions: [...message.payload.sessions], sessionsLoaded: true };
     case 'session/activity':
       return { ...view, activity: [...message.payload.sessions] };
     case 'project/list':
