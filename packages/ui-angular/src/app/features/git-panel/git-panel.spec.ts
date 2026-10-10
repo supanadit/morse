@@ -117,11 +117,34 @@ async function settle(fixture: ReturnType<typeof TestBed.createComponent<GitPane
   fixture.detectChanges();
 }
 
-/** The `.change-group` whose `morse-pane` title is `title` (“Staged” / “Unstaged”). */
-function groupByTitle(host: HTMLElement, title: string): HTMLElement | undefined {
-  return [...host.querySelectorAll<HTMLElement>('.change-group')].find(
-    (group) => group.querySelector('.pane-title')?.textContent?.trim() === title,
+/** The `morse-tree` group row whose label is `label` (“Staged” / “Unstaged”). */
+function groupByTitle(host: HTMLElement, label: string): HTMLElement | undefined {
+  return [...host.querySelectorAll<HTMLElement>('.changes-tree .row.group')].find(
+    (row) => row.querySelector('.label')?.textContent?.trim() === label,
   );
+}
+
+/** The file labels inside a change group, in the order they are drawn. */
+function groupFileNames(host: HTMLElement, group: string): string[] {
+  // The tree draws one flat row list: a group's files are the leaf rows between
+  // its own group row and the next group row.
+  const lines = [...host.querySelectorAll<HTMLElement>('.changes-tree .line')];
+  const start = lines.findIndex(
+    (line) =>
+      line.querySelector('.row.group .label')?.textContent?.trim() === group,
+  );
+  if (start === -1) {
+    return [];
+  }
+  const names: string[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const row = lines[index].querySelector('.row');
+    if (row?.classList.contains('group')) {
+      break;
+    }
+    names.push(row?.querySelector('.label')?.textContent?.trim() ?? '');
+  }
+  return names;
 }
 
 describe('GitPanel', () => {
@@ -224,7 +247,7 @@ describe('GitPanel', () => {
     expect(fake.requestHostCommand).toHaveBeenCalledWith('gitCommitFiles', {
       hash: LOG.commits[0].hash,
     });
-    const names = [...host.querySelectorAll('.commit-file .change-name')].map((node) =>
+    const names = [...host.querySelectorAll('.commit-file-tree .row:not(.group) .label')].map((node) =>
       node.textContent?.trim(),
     );
     expect(names).toEqual(['a.ts', 'b.ts']);
@@ -233,7 +256,7 @@ describe('GitPanel', () => {
     expect(host.querySelectorAll('.commit-files .commit-rail .rail').length).toBeGreaterThan(0);
 
     // Clicking a file opens a tab whose diff is against that commit, not HEAD.
-    host.querySelector<HTMLButtonElement>('.commit-file')!.click();
+    host.querySelector<HTMLButtonElement>('.commit-file-tree .row:not(.group)')!.click();
     fixture.detectChanges();
     const tabs = TestBed.inject(WorkspaceTabs);
     expect(tabs.tabs().map((tab) => tab.id)).toContain(`commit:${LOG.commits[0].hash}:src/a.ts`);
@@ -424,15 +447,15 @@ describe('GitPanel', () => {
     expect(changes).not.toBeNull();
     expect(changes.querySelector('.sync')).not.toBeNull();
     expect(changes.querySelector('.commit-box')).not.toBeNull();
-    expect(changes.querySelector('.change-group')).not.toBeNull();
-    // The pane body itself does not scroll; the lists have their own region.
+    expect(changes.querySelector('.changes-tree')).not.toBeNull();
+    // The pane body itself does not scroll; the tree has its own region.
     expect(changes.querySelector('.changes-scroll')).not.toBeNull();
 
-    // Folding the Changes pane takes the form and the groups with it.
+    // Folding the Changes pane takes the form and the tree with it.
     changes.querySelector<HTMLButtonElement>('.pane-fold')?.click();
     fixture.detectChanges();
     expect(host.querySelector('.commit-box')).toBeNull();
-    expect(host.querySelector('.change-group')).toBeNull();
+    expect(host.querySelector('.changes-tree')).toBeNull();
   });
 
   it('lists uncommitted changes above the graph and opens one in a tab', async () => {
@@ -449,16 +472,13 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const names = [...host.querySelectorAll('.change .change-name')].map((node) =>
-      node.textContent?.trim(),
-    );
-    const badges = [...host.querySelectorAll('.change .badge')].map((node) =>
-      node.textContent?.trim(),
-    );
+    const rows = [...host.querySelectorAll('.changes-tree .row:not(.group)')];
+    const names = rows.map((node) => node.querySelector('.label')?.textContent?.trim());
+    const badges = rows.map((node) => node.querySelector('.badge')?.textContent?.trim());
     expect(names).toEqual(['a.ts', 'b.ts']);
     expect(badges).toEqual(['M', 'U']);
 
-    host.querySelector<HTMLButtonElement>('.change')?.click();
+    (rows[0] as HTMLButtonElement).click();
     expect(TestBed.inject(WorkspaceTabs).tabs().map((tab) => tab.id)).toEqual(['file:a.ts']);
   });
 
@@ -476,16 +496,22 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const groups = [...host.querySelectorAll('.change-group')];
-    const names = (group: Element) =>
-      [...group.querySelectorAll('.change-name')].map((node) => node.textContent?.trim());
+    const groups = [...host.querySelectorAll('.changes-tree .row.group')];
     expect(groups).toHaveLength(2);
-    expect(names(groupByTitle(host, 'Staged')!)).toEqual(['both.ts', 'staged.ts']);
-    expect(names(groupByTitle(host, 'Unstaged')!)).toEqual(['both.ts', 'unstaged.ts', 'untracked.ts']);
-    expect(host.querySelector('.change-group .pane-title')?.textContent?.trim()).toBe('Staged');
+    expect(groupFileNames(host, 'Staged')).toEqual(['both.ts', 'staged.ts']);
+    expect(groupFileNames(host, 'Unstaged')).toEqual([
+      'both.ts',
+      'unstaged.ts',
+      'untracked.ts',
+    ]);
+    // The group's own badge is its count, and its action stages the whole group.
+    expect(groupByTitle(host, 'Staged')?.querySelector('.badge')?.textContent?.trim()).toBe('2');
+    expect(
+      groupByTitle(host, 'Unstaged')?.closest('.line')?.querySelector('.row-action'),
+    ).not.toBeNull();
   });
 
-  it('keeps the Staged group with an empty note when nothing is staged', async () => {
+  it('keeps the Staged group when nothing is staged', async () => {
     const { fixture } = setup(LOG, {
       files: [],
       status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
@@ -493,15 +519,15 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    // The group never disappears: the commit flow needs a stable home, and an
-    // empty one says what to do instead of leaving a gap.
+    // The group never disappears: the commit flow needs a stable home, so an
+    // empty Staged group is drawn with a zero count and no file rows.
     const staged = groupByTitle(host, 'Staged');
     expect(staged).toBeDefined();
-    expect(staged?.querySelector('.change-empty')?.textContent).toContain('No staged files');
-    expect(staged?.querySelectorAll('.change-row')).toHaveLength(0);
+    expect(staged?.querySelector('.badge')?.textContent?.trim()).toBe('0');
+    expect(groupFileNames(host, 'Staged')).toHaveLength(0);
   });
 
-  it('folds a change group from its header, independently', async () => {
+  it('folds a change group from its caret, independently', async () => {
     const { fixture } = setup(LOG, {
       files: [],
       status: {
@@ -514,19 +540,19 @@ describe('GitPanel', () => {
     });
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
-    const toggle = (title: string) =>
-      groupByTitle(host, title)!.querySelector<HTMLButtonElement>('.pane-fold')!;
+    const caret = (label: string) =>
+      groupByTitle(host, label)!.closest('.line')!.querySelector<HTMLButtonElement>('.chevron')!;
 
-    toggle('Staged').click();
+    caret('Staged').click();
     fixture.detectChanges();
-    // The rows fold under the header, which stays put; the other group is untouched.
-    expect(groupByTitle(host, 'Staged')?.querySelectorAll('.change-row')).toHaveLength(0);
-    expect(toggle('Staged').getAttribute('aria-expanded')).toBe('false');
-    expect(groupByTitle(host, 'Unstaged')?.querySelectorAll('.change-row')).toHaveLength(1);
+    // The rows fold under the group, which stays put; the other group is untouched.
+    expect(groupFileNames(host, 'Staged')).toHaveLength(0);
+    expect(caret('Staged').getAttribute('aria-expanded')).toBe('false');
+    expect(groupFileNames(host, 'Unstaged')).toHaveLength(1);
 
-    toggle('Staged').click();
+    caret('Staged').click();
     fixture.detectChanges();
-    expect(groupByTitle(host, 'Staged')?.querySelectorAll('.change-row')).toHaveLength(1);
+    expect(groupFileNames(host, 'Staged')).toHaveLength(1);
   });
 
   it('stages an unstaged path from its row', async () => {
@@ -545,14 +571,11 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     const unstaged = groupByTitle(host, 'Unstaged')!;
-    unstaged.querySelector<HTMLButtonElement>('.change-action')?.click();
+    unstaged.closest('.line')!.querySelector<HTMLButtonElement>('.row-action')?.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts'] }]);
-    const staged = groupByTitle(host, 'Staged')!;
-    expect([...staged.querySelectorAll('.change-name')].map((node) => node.textContent?.trim())).toEqual([
-      'a.ts',
-    ]);
+    expect(groupFileNames(host, 'Staged')).toEqual(['a.ts']);
   });
 
   it('unstages a staged path from its row', async () => {
@@ -571,14 +594,11 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     const staged = groupByTitle(host, 'Staged')!;
-    staged.querySelector<HTMLButtonElement>('.change-action')?.click();
+    staged.closest('.line')!.querySelector<HTMLButtonElement>('.row-action')?.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitUnstage', paths: ['a.ts'] }]);
-    const unstaged = groupByTitle(host, 'Unstaged')!;
-    expect([...unstaged.querySelectorAll('.change-name')].map((node) => node.textContent?.trim())).toEqual([
-      'a.ts',
-    ]);
+    expect(groupFileNames(host, 'Unstaged')).toEqual(['a.ts']);
   });
 
   it('stages every unstaged path from the group header', async () => {
@@ -611,7 +631,7 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     const unstaged = groupByTitle(host, 'Unstaged')!;
-    unstaged.querySelector<HTMLButtonElement>('.pane-action')?.click();
+    unstaged.closest('.line')!.querySelector<HTMLButtonElement>('.row-action')?.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts', 'b.ts'] }]);
@@ -624,12 +644,12 @@ describe('GitPanel', () => {
     });
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('.change-list')).not.toBeNull();
+    expect(host.querySelector('.changes-tree')).not.toBeNull();
 
     host.querySelector<HTMLButtonElement>('.changes .pane-fold')?.click();
     fixture.detectChanges();
 
-    expect(host.querySelector('.change-list')).toBeNull();
+    expect(host.querySelector('.changes-tree')).toBeNull();
     expect(host.querySelector('.body.changes-collapsed')).not.toBeNull();
   });
 

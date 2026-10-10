@@ -129,6 +129,12 @@
                 <p class="commit-error" role="alert">{{ result.text }}</p>
               }
             }
+            <!--
+              The uncommitted files are drawn in the same tree the session list and
+              the Explorer use: "Staged" and "Unstaged" are the roots, each file a
+              child so its row carries the `└─` connector, its git badge and its own
+              stage/unstage button. No rule between the two groups.
+            -->
             <div class="changes-scroll">
               @if (staged().length === 0 && unstaged().length === 0) {
                 <div class="empty">
@@ -139,87 +145,14 @@
                   No uncommitted changes
                 </div>
               } @else {
-                <morse-pane
-                  class="change-group"
-                  title="Staged"
-                  [meta]="staged().length > 0 ? staged().length.toString() : undefined"
-                  [folded]="stagedCollapsed()"
-                  (foldToggle)="toggleStaged()"
-                  [actions]="stagedActions()"
-                >
-                  @if (!stagedCollapsed()) {
-                    @if (staged().length === 0) {
-                      <p class="change-empty">No staged files. Stage a change to commit it.</p>
-                    } @else {
-                      <ul class="change-list">
-                        @for (change of staged(); track change.path) {
-                          <li class="change-row">
-                            <button
-                              type="button"
-                              class="change"
-                              [title]="change.path"
-                              (click)="openChange(change.path)"
-                            >
-                              <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
-                              <span class="change-dir">{{ dirOf(change.path) }}</span
-                              ><span class="change-name">{{ baseOf(change.path) }}</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="change-action"
-                              title="Unstage"
-                              [attr.aria-label]="'Unstage ' + change.path"
-                              [disabled]="staging()"
-                              (click)="unstage(change.path)"
-                            >
-                              −
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    }
-                  }
-                </morse-pane>
-
-                @if (unstaged().length > 0) {
-                  <morse-pane
-                    class="change-group"
-                    title="Unstaged"
-                    [meta]="unstaged().length.toString()"
-                    [folded]="unstagedCollapsed()"
-                    (foldToggle)="toggleUnstaged()"
-                    [actions]="unstagedActions()"
-                  >
-                    @if (!unstagedCollapsed()) {
-                      <ul class="change-list">
-                        @for (change of unstaged(); track change.path) {
-                          <li class="change-row">
-                            <button
-                              type="button"
-                              class="change"
-                              [title]="change.path"
-                              (click)="openChange(change.path)"
-                            >
-                              <span [class]="'badge ' + change.kind">{{ change.kind }}</span>
-                              <span class="change-dir">{{ dirOf(change.path) }}</span
-                              ><span class="change-name">{{ baseOf(change.path) }}</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="change-action"
-                              title="Stage"
-                              [attr.aria-label]="'Stage ' + change.path"
-                              [disabled]="staging()"
-                              (click)="stage(change.path)"
-                            >
-                              +
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    }
-                  </morse-pane>
-                }
+                <morse-tree
+                  class="changes-tree"
+                  [nodes]="changeNodes()"
+                  [expanded]="changesExpanded()"
+                  empty="No uncommitted changes"
+                  (activate)="onChangeRow($event)"
+                  (toggle)="onToggleChangeGroup($event)"
+                />
               }
             </div>
           }
@@ -366,28 +299,14 @@
                       } @else if (commitState(entry.commit.hash).files.length === 0) {
                         <p class="commit-file-hint">No changed files under this session.</p>
                       } @else {
-                        <ul class="commit-file-list">
-                          @for (file of commitState(entry.commit.hash).files; track file.path) {
-                            <li>
-                              <button
-                                type="button"
-                                class="commit-file"
-                                [title]="file.path"
-                                (click)="
-                                  openCommitChange(
-                                    entry.commit.hash,
-                                    file.path,
-                                    entry.commit.subject
-                                  )
-                                "
-                              >
-                                <span [class]="'badge ' + file.kind">{{ file.kind }}</span>
-                                <span class="change-dir">{{ dirOf(file.path) }}</span
-                                ><span class="change-name">{{ baseOf(file.path) }}</span>
-                              </button>
-                            </li>
-                          }
-                        </ul>
+                        <!-- The commit's files, drawn in the shared tree's rows: the
+                             same badge, folder and name the changes above use. -->
+                        <morse-tree
+                          class="commit-file-tree"
+                          [nodes]="commitFileNodes(entry.commit.hash)"
+                          [expanded]="noGroups"
+                          (activate)="onCommitFileRow($event, entry.commit.hash, entry.commit.subject)"
+                        />
                       }
                     </div>
                   }

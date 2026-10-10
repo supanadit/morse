@@ -316,19 +316,13 @@ button.branch:disabled {
 .divider.gone {
   display: none;
 }
-.change-group {
-  /* A group is content inside the Changes scroll region: never stretched to
-     fill it, or the Staged and Unstaged lists would each claim half a pane. */
-  flex: none;
-  display: flex;
-  flex-direction: column;
+/* The changes tree fills the scroll region; the tree component owns the rows.
+   The two groups sit flush — no rule between them (the tree draws its own
+   connectors, so a separator would double the structure). */
+.changes-tree {
+  flex: 1;
+  min-height: 0;
 }
-.change-group + .change-group {
-  border-top: 1px solid var(--morse-border);
-}
-/* A quiet sub-heading naming which side of the porcelain code the rows are. */
-/* The title area folds its group; the header's own action stays outside it. */
-/* Wins over the global button hover (see AGENTS.md): the row owns the hover. */
 /* The Staged group is always present; an empty one says what to do next. */
 .change-empty {
   display: flex;
@@ -344,78 +338,6 @@ button.branch:disabled {
   content: '';
   flex: none;
   width: 14px;
-}
-.change-action {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--morse-radius-sm);
-  background: transparent;
-  color: var(--morse-fg-muted);
-  font: inherit;
-  line-height: 1;
-  cursor: pointer;
-}
-.change-list {
-  margin: 0;
-  padding: 0 0 6px;
-  list-style: none;
-}
-.change-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.change {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  padding: 2px 2px 2px 10px;
-  border: 0;
-  background: none;
-  color: var(--morse-fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.change:hover:not(:disabled) {
-  background: var(--morse-hover);
-}
-/* The stage/unstage affordance is quiet until the row is under the pointer. */
-.change-action {
-  width: 20px;
-  height: 20px;
-  margin-right: 6px;
-  font-size: 13px;
-  opacity: 0;
-}
-.change-row:hover .change-action,
-.change-action:focus-visible {
-  opacity: 1;
-}
-.change-action:hover:not(:disabled) {
-  background: var(--morse-border);
-  color: var(--morse-fg);
-}
-.change-action:disabled,
-.change-dir {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-}
-.change-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
 }
 /*
  * An empty section is not a sentence in the corner: a centred, gently
@@ -534,30 +456,6 @@ button.branch:disabled {
     animation: none;
   }
 }
-/* The git badge, shared with the Explorer: one letter, coloured by kind. */
-.badge {
-  flex: none;
-  padding: 0 4px;
-  border-radius: 4px;
-  font-family: var(--morse-font-mono);
-  font-size: 9.5px;
-  line-height: 15px;
-  color: var(--morse-fg-muted);
-}
-.badge.M {
-  color: var(--morse-warn);
-}
-.badge.A,
-.badge.U {
-  color: var(--morse-success);
-}
-.badge.D,
-.badge.C {
-  color: var(--morse-error);
-}
-.badge.R {
-  color: var(--morse-info);
-}
 /* The graph list fills the rest and is the other scroll area. */
 .list {
   flex: 1;
@@ -639,26 +537,10 @@ button.branch:disabled {
   border-radius: 1px;
   opacity: 0.9;
 }
-.commit-file-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.commit-file {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 2px 10px 2px 44px;
-  border: 0;
-  background: none;
-  color: var(--morse-fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.commit-file:hover:not(:disabled) {
-  background: var(--morse-hover);
+/* A commit's file list, under its row, drawn in the shared tree; indented to
+   clear the graph's lanes and line up with the hint text above it. */
+.commit-file-tree {
+  padding-left: 40px;
 }
 .commit-file-hint {
   margin: 0;

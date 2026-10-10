@@ -23,6 +23,7 @@ import {
   type ChangeKind,
   type GraphEdge,
   type GraphRow,
+  type TreeNode,
 } from '@morse/ui-runtime';
 import { BranchPicker } from '../branch-picker/branch-picker';
 import { WorkspaceFiles } from '../../services/workspace-files.service';
@@ -30,6 +31,7 @@ import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { Splitter } from '../../ui/splitter/splitter';
+import { TreeList } from '../../ui/tree-list/tree-list';
 import type { PaneAction } from '../../ui/pane/pane';
 
 /** One uncommitted file, ready for the Changes section. */
@@ -37,6 +39,10 @@ interface ChangeView {
   path: string;
   kind: ChangeKind;
 }
+
+/** The two root ids of the changes tree, so a fold can address one group. */
+const STAGED_GROUP = 'staged';
+const UNSTAGED_GROUP = 'unstaged';
 
 /** One file a commit touched, ready for the graph's expanded row. */
 interface CommitFileView {
@@ -80,7 +86,7 @@ const GIT_RESIZE_MIN_CHAT = 180;
 @Component({
   selector: 'morse-git-panel',
   templateUrl: './git-panel.html',
-  imports: [Pane, BranchPicker, Splitter],
+  imports: [Pane, BranchPicker, Splitter, TreeList],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './git-panel.css',
 })
@@ -174,6 +180,126 @@ export class GitPanel {
   protected readonly openCommit = signal<string | undefined>(undefined);
   /** The file list of each commit that was unfolded, kept so re-opening is free. */
   private readonly commitFiles = signal<Record<string, CommitFilesState>>({});
+
+  /**
+   * The changes as the shared tree draws them: "Staged" and "Unstaged" are the
+   * roots, each file a leaf one level down so its row carries the `└─` connector
+   * the session list and Explorer use. The group's badge is its count, the file's
+   * is its git letter; the group's `action` is the stage/unstage-all button.
+   */
+  protected readonly changeNodes = computed<TreeNode<ChangeView>[]>(() => {
+    const nodes: TreeNode<ChangeView>[] = [
+      this.changeGroup(STAGED_GROUP, 'Staged', this.staged(), 'unstaged'),
+    ];
+    if (this.unstaged().length > 0) {
+      nodes.push(
+        this.changeGroup(UNSTAGED_GROUP, 'Unstaged', this.unstaged(), 'staged'),
+      );
+    }
+    return nodes;
+  });
+
+  /**
+   * The groups that are open, from the shell's fold flags. The tree folds a root by
+   * dropping it from the set, so a collapsed group contributes nothing.
+   */
+  protected readonly changesExpanded = computed<ReadonlySet<string>>(() => {
+    const set = new Set<string>();
+    if (!this.stagedCollapsed()) {
+      set.add(STAGED_GROUP);
+    }
+    if (!this.unstagedCollapsed()) {
+      set.add(UNSTAGED_GROUP);
+    }
+    return set;
+  });
+
+  /** A commit's files are all leaves: nothing to fold, so no id is ever open. */
+  protected readonly noGroups: ReadonlySet<string> = new Set();
+
+  private changeGroup(
+    id: string,
+    label: string,
+    changes: readonly ChangeView[],
+    /** The action every file's row offers: move it to this other side. */
+    moveTo: 'staged' | 'unstaged',
+  ): TreeNode<ChangeView> {
+    return {
+      id,
+      label,
+      data: changes[0] ?? { path: '', kind: 'M' },
+      badge: changes.length.toString(),
+      badgeTone: 'plain',
+      kind: 'group',
+      action:
+        changes.length === 0
+          ? undefined
+          : {
+              glyph: id === STAGED_GROUP ? '−' : '+',
+              label: id === STAGED_GROUP ? 'Unstage all changes' : 'Stage all changes',
+              run: () => (id === STAGED_GROUP ? this.unstageAll() : this.stageAll()),
+            },
+      children: changes.map((change) => this.changeLeaf(change, moveTo)),
+    };
+  }
+
+  /** One file row: the path split into its muted folder and the file's own name. */
+  private changeLeaf(
+    change: ChangeView,
+    moveTo: 'staged' | 'unstaged',
+  ): TreeNode<ChangeView> {
+    const slash = change.path.lastIndexOf('/');
+    return {
+      id: change.path,
+      label: slash === -1 ? change.path : change.path.slice(slash + 1),
+      detail: slash === -1 ? undefined : change.path.slice(0, slash),
+      data: change,
+      badge: change.kind,
+      badgeTone: this.toneOf(change.kind),
+      kind: 'leaf',
+      action: {
+        glyph: moveTo === 'staged' ? '+' : '−',
+        label: (moveTo === 'staged' ? 'Stage ' : 'Unstage ') + change.path,
+        run: () => (moveTo === 'staged' ? this.stage(change.path) : this.unstage(change.path)),
+      },
+      children: [],
+    };
+  }
+
+  /** A git letter's tone, shared by the change rows and the commit-file rows. */
+  private toneOf(kind: ChangeKind): TreeNode<ChangeView>['badgeTone'] {
+    switch (kind) {
+      case 'M':
+        return 'warn';
+      case 'A':
+      case 'U':
+        return 'success';
+      case 'D':
+      case 'C':
+        return 'error';
+      case 'R':
+        return 'info';
+      default:
+        return 'plain';
+    }
+  }
+
+  /** The file rows of a commit, shaped the way the shared tree draws them. */
+  protected commitFileNodes(hash: string): TreeNode<CommitFileView>[] {
+    return this.commitState(hash).files.map((file) => {
+      const slash = file.path.lastIndexOf('/');
+      return {
+        id: file.path,
+        label: slash === -1 ? file.path : file.path.slice(slash + 1),
+        detail: slash === -1 ? undefined : file.path.slice(0, slash),
+        data: file,
+        badge: file.kind,
+        badgeTone: this.toneOf(file.kind),
+        kind: 'leaf' as const,
+        children: [],
+      };
+    });
+  }
 
   /** The graph layout and its commits, paired so the template walks one list. */
   protected readonly entries = computed(() => {
@@ -360,9 +486,31 @@ export class GitPanel {
     this.layout.setVisible('right', false);
   }
 
-  /** Opens a changed file in a preview tab, the way the Explorer does. */
-  protected openChange(path: string): void {
-    this.tabs.openFile(path);
+  /** The shared tree reports the node it was given; a group folds, a file opens. */
+  protected onChangeRow(node: TreeNode<ChangeView>): void {
+    if (node.kind === 'group') {
+      this.toggleChangeGroup(node.id);
+      return;
+    }
+    this.tabs.openFile(node.data.path);
+  }
+
+  /** A group's caret folds it, mirroring the shell flag the header would set. */
+  protected onToggleChangeGroup(node: TreeNode<ChangeView>): void {
+    this.toggleChangeGroup(node.id);
+  }
+
+  private toggleChangeGroup(id: string): void {
+    if (id === STAGED_GROUP) {
+      this.shell.toggleGitStaged();
+    } else {
+      this.shell.toggleGitUnstaged();
+    }
+  }
+
+  /** A commit file row opens that file's diff inside the commit. */
+  protected onCommitFileRow(node: TreeNode<CommitFileView>, hash: string, subject: string): void {
+    this.openCommitChange(hash, node.data.path, subject);
   }
 
   /** Moves one path into the index (`git add`). */
@@ -409,17 +557,6 @@ export class GitPanel {
     }
   }
 
-  /** The directory part of a path, with its trailing slash, for the muted label. */
-  protected dirOf(path: string): string {
-    const slash = path.lastIndexOf('/');
-    return slash === -1 ? '' : path.slice(0, slash + 1);
-  }
-
-  protected baseOf(path: string): string {
-    const slash = path.lastIndexOf('/');
-    return slash === -1 ? path : path.slice(slash + 1);
-  }
-
   /** Wide mode: the graph leaves the sidebar and takes the centre of the shell. */
   protected toggleExpanded(): void {
     this.shell.toggleGitPanelExpanded();
@@ -431,16 +568,6 @@ export class GitPanel {
 
   protected toggleHistory(): void {
     this.shell.toggleGitHistory();
-  }
-
-  /** Folds the Staged group's rows under its header, leaving the header in place. */
-  protected toggleStaged(): void {
-    this.shell.toggleGitStaged();
-  }
-
-  /** Folds the Unstaged group's rows under its header, leaving the header in place. */
-  protected toggleUnstaged(): void {
-    this.shell.toggleGitUnstaged();
   }
 
   /** The inline height only while both sections are open; otherwise CSS decides. */
@@ -464,18 +591,6 @@ export class GitPanel {
     { id: 'refresh', label: 'Refresh history', run: () => this.refresh(), disabled: this.loading() },
     { id: 'close', label: 'Hide the git panel', run: () => this.close() },
   ]);
-
-  protected readonly stagedActions = computed<readonly PaneAction[]>(() =>
-    this.staged().length === 0
-      ? []
-      : [{ id: 'remove', label: 'Unstage all changes', run: () => this.unstageAll(), disabled: this.staging() }],
-  );
-
-  protected readonly unstagedActions = computed<readonly PaneAction[]>(() =>
-    this.unstaged().length === 0
-      ? []
-      : [{ id: 'add', label: 'Stage all changes', run: () => this.stageAll(), disabled: this.staging() }],
-  );
 
   /** At least 80px of History stays visible, so the section cannot be squeezed out. */
   protected readonly changesMax = (handle: HTMLElement): number => {
