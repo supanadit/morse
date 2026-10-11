@@ -32,6 +32,15 @@ export class SessionTranscriptStore {
   private readonly projectors = new Map<string, TranscriptProjector>();
   private readonly cursors = new Map<string, HistoryCursor>();
   private readonly listeners = new Set<(update: TranscriptUpdate) => void>();
+
+  /**
+   * How many sessions this store is holding a transcript for. Exposed for the
+   * leak guard (and tests): warm transcripts must track the registry's hot set,
+   * not grow with every session ever seen.
+   */
+  get size(): number {
+    return this.projectors.size;
+  }
   /**
    * Agent events already projected, by instance (see `apply`). A weak set, so
    * a projected record never keeps itself alive after it has been fanned out.
@@ -172,4 +181,40 @@ export class SessionTranscriptStore {
       listener(update);
     }
   }
+}
+
+/**
+ * The registry surface this binding needs — declared structurally so
+ * `host-runtime` does not have to import the registry's whole port (or its
+ * module) just to be told when a session goes cold.
+ */
+export interface TranscriptEvictionSource {
+  onRemoval(listener: (key: string) => void): () => void;
+}
+
+/**
+ * Ties a store's lifetime to the registry's hot set: when a session leaves it —
+ * an LRU eviction, an explicit close, a delete — its transcript and paging
+ * cursor are dropped with it.
+ *
+ * This is the fix for the warm-transcript leak. The controller only cleared a
+ * transcript when a *client* asked to close or delete a session; a session
+ * retired by the registry's hot limit was freed (process, gateway) but left its
+ * `TranscriptProjector` — the whole conversation plus its tool index — in the
+ * store forever, because the store is a singleton that outlives every client.
+ * Subscribing here closes that gap at the one place every departure flows
+ * through.
+ *
+ * Returns the detach, for a host composition root to register with its own
+ * disposal (VS Code's `context.subscriptions`, a Nest `onModuleDestroy`).
+ */
+export function bindTranscriptsToRegistry(
+  registry: TranscriptEvictionSource,
+  transcripts: SessionTranscriptStore,
+): () => void {
+  const detach = registry.onRemoval((key) => transcripts.clear(key));
+  return () => {
+    detach();
+    transcripts.dispose();
+  };
 }

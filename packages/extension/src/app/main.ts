@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
 import { createPiRpcAdapter, findOnPathBinary, type PiRpcAdapterConfig } from '@morse/adapter-pi-rpc';
 import { ChatService, SessionRegistry } from '@morse/core';
-import { SessionTranscriptStore } from '@morse/host-runtime';
+import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/host-runtime';
 import {
   FRONTEND_MANIFEST_FILE,
   PROTOCOL_VERSION,
@@ -96,6 +96,10 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
   const editor = new VsCodeContextProvider();
 
   const transcripts = new SessionTranscriptStore();
+  // Warm transcripts follow the registry's hot set: a session retired by the hot
+  // limit drops its transcript and paging cursor with its process, instead of
+  // holding them in the singleton store until the window closes.
+  const detachTranscripts = bindTranscriptsToRegistry(sessions, transcripts);
 
   const provider = new MorseChatViewProvider({
     registry: sessions,
@@ -118,7 +122,7 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
   context.subscriptions.push(
     logger,
     { dispose: () => void sessions.dispose() },
-    { dispose: () => transcripts.dispose() },
+    { dispose: detachTranscripts },
     vscode.window.registerWebviewViewProvider(MorseChatViewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),

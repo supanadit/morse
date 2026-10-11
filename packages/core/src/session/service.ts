@@ -168,6 +168,15 @@ export class SessionRegistry {
   /** Least recently used first. */
   private readonly recency: string[] = [];
   private readonly listeners = new Set<(event: TaggedAgentEvent) => void>();
+  /**
+   * Notified whenever a session leaves the hot set — an LRU eviction, an
+   * explicit close, or a delete. This is the registry's own teardown signal:
+   * the hot process is gone, so anything a host kept keyed by that session key
+   * (a warm transcript, a paging cursor) must be dropped with it. Without this,
+   * a session retired by the hot limit leaks its transcript for the host's
+   * entire lifetime, because no client ever asked to close it.
+   */
+  private readonly removals = new Set<(key: string) => void>();
   private readonly hotLimit: number;
   private activeKey: string | undefined;
   private syntheticKeys = 0;
@@ -187,6 +196,18 @@ export class SessionRegistry {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * Observes sessions leaving the hot set, whatever the reason. A host uses it
+   * to release per-session state (the warm transcript) at exactly the moment its
+   * process is retired, instead of holding it until the host shuts down.
+   */
+  onRemoval(listener: (key: string) => void): () => void {
+    this.removals.add(listener);
+    return () => {
+      this.removals.delete(listener);
     };
   }
 
@@ -379,8 +400,13 @@ export class SessionRegistry {
 
   async close(key: string): Promise<void> {
     const session = this.hot.get(key);
-    this.forget(key);
-    if (!session) {
+    const wasHot = this.forget(key);
+    // Announce even a session that was already cold: the caller asked for it to
+    // be gone, so any host state still keyed by it is stale either way. Fired
+    // before the gateway await, so a caller's cleanup is not held up by a slow
+    // process teardown.
+    this.announceRemoval(key);
+    if (!session || !wasHot) {
       return;
     }
     session.detach();
@@ -446,6 +472,7 @@ export class SessionRegistry {
     this.hot.clear();
     this.recency.length = 0;
     this.listeners.clear();
+    this.removals.clear();
     this.activeKey = undefined;
     this.draftCache.clear();
     this.draftProbes.clear();
@@ -485,14 +512,27 @@ export class SessionRegistry {
     this.recency.push(key);
   }
 
-  private forget(key: string): void {
+  /** Returns whether the key was actually hot (so callers do not double-report). */
+  private forget(key: string): boolean {
     const index = this.recency.indexOf(key);
     if (index >= 0) {
       this.recency.splice(index, 1);
     }
-    this.hot.delete(key);
+    const existed = this.hot.delete(key);
     if (this.activeKey === key) {
       this.activeKey = undefined;
+    }
+    return existed;
+  }
+
+  /** Fans a session's departure out, isolated so one bad listener cannot stop the rest. */
+  private announceRemoval(key: string): void {
+    for (const listener of [...this.removals]) {
+      try {
+        listener(key);
+      } catch (error: unknown) {
+        this.deps.logger.error('Session removal listener failed', error);
+      }
     }
   }
 

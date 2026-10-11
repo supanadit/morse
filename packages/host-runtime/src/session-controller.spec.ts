@@ -24,7 +24,7 @@ import {
   type TranscriptItem,
 } from '@morse/protocol';
 import { HostSessionController } from './session-controller.js';
-import { SessionTranscriptStore } from './transcript-store.js';
+import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
 import type { TerminalBackend, TerminalSink } from './terminal.js';
 import type { HostScopeOptions } from './session-controller.js';
 
@@ -1147,6 +1147,148 @@ describe('SessionRegistry hot limit', () => {
 
     expect(disposed).toEqual([]);
     expect(registry.hotKeys()).toHaveLength(3);
+  });
+});
+
+/**
+ * The warm-transcript leak: the store is a singleton that outlives every client,
+ * and the controller only cleared a transcript when a *client* asked to close or
+ * delete a session. A session the registry retired on its own (the hot-limit LRU)
+ * freed its process but left its transcript + paging cursor in the store forever.
+ * `bindTranscriptsToRegistry` closes that gap at the one place every departure
+ * flows through.
+ */
+describe('warm transcript eviction follows the registry hot set', () => {
+  function registryAndStore(hotLimit: number) {
+    const records = new Map<string, AgentSessionState>();
+    let spawned = 0;
+    const factory: AgentGatewayFactory = {
+      create: () => {
+        spawned += 1;
+        const sessionId = `sess-${spawned}`;
+        const record: AgentSessionState = {
+          workspace: WORKSPACE,
+          thinkingLevel: 'off',
+          availableModels: [],
+          availableThinkingLevels: [],
+          availableCommands: [],
+          streaming: false,
+          sessionId,
+        };
+        records.set(sessionId, record);
+        return Promise.resolve({
+          ...fakeGateway({ sessionId }),
+          state: () => Promise.resolve(record),
+        });
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: {
+        list: () => Promise.resolve([]),
+        remove: () => Promise.resolve(),
+      },
+      defaultWorkspace: WORKSPACE,
+      hotLimit,
+      logger: silentLogger,
+    });
+    const transcripts = new SessionTranscriptStore();
+    const detach = bindTranscriptsToRegistry(registry, transcripts);
+    return { registry, transcripts, detach };
+  }
+
+  it('drops a transcript when its session is retired by the hot limit', async () => {
+    const { registry, transcripts } = registryAndStore(1);
+    const first = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(first.key, 'the one that will be retired');
+    expect(transcripts.size).toBe(1);
+
+    // A second session over the limit retires the first. No client asked to
+    // close it, so nothing but the removal signal can clear its transcript.
+    const second = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(second.key, 'the one that stays');
+
+    expect(registry.hotKeys()).toEqual([second.key]);
+    // One projector, and it is the survivor's: the retired session's is gone.
+    expect(transcripts.size).toBe(1);
+    expect(transcripts.items(first.key)).toEqual([]);
+    expect(transcripts.items(second.key)).not.toEqual([]);
+  });
+
+  it('holds at most `hotLimit` transcripts however many sessions cycle through', async () => {
+    const { registry, transcripts } = registryAndStore(2);
+
+    // Ten sessions open one after another: without the binding this leaks all
+    // ten projectors into the singleton store.
+    for (let i = 0; i < 10; i += 1) {
+      const opened = await registry.open({ workspace: WORKSPACE });
+      transcripts.userPrompt(opened.key, `prompt ${i}`);
+    }
+
+    expect(registry.hotKeys()).toHaveLength(2);
+    expect(transcripts.size).toBeLessThanOrEqual(2);
+  });
+
+  it('clears the paging cursor with the transcript, so a reopened session starts fresh', async () => {
+    const { registry, transcripts } = registryAndStore(1);
+    const first = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(first.key, 'hello');
+    transcripts.setHistoryCursor(first.key, { before: 'cursor-1', hasOlder: true });
+
+    await registry.open({ workspace: WORKSPACE });
+
+    expect(transcripts.historyCursor(first.key)).toEqual({ hasOlder: false });
+  });
+
+  it('clears on an explicit close and delete too, not only on eviction', async () => {
+    const { registry, transcripts } = registryAndStore(4);
+    const closed = await registry.open({ workspace: WORKSPACE });
+    const removed = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(closed.key, 'x');
+    transcripts.userPrompt(removed.key, 'y');
+
+    await registry.close(closed.key);
+    expect(transcripts.size).toBe(1);
+
+    await registry.remove(removed.key);
+    expect(transcripts.size).toBe(0);
+  });
+
+  it('detaching the binding stops the eviction and disposes the store', async () => {
+    const { registry, transcripts, detach } = registryAndStore(1);
+    const first = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(first.key, 'kept');
+
+    // The returned detach both unsubscribes and disposes the store: once a host
+    // tears down the binding, there is no longer anything warm to keep.
+    detach();
+    expect(transcripts.size).toBe(0);
+
+    // A later eviction finds no listener, so it cannot clear a store that is
+    // already gone — and the registry itself stays usable.
+    const second = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(second.key, 'still here');
+    expect(transcripts.size).toBe(1);
+  });
+
+  it('does not fire a removal for a fork, which re-homes the transcript instead', async () => {
+    // A fork re-keys the running session (pi reuses the subprocess), and the
+    // controller re-homes the transcript with `transcripts.move`. A removal here
+    // would wrongly wipe the conversation that just moved, so the registry must
+    // announce only real departures — close/delete/eviction.
+    const { registry, transcripts } = registryAndStore(4);
+    const removals: string[] = [];
+    registry.onRemoval((key) => removals.push(key));
+    const first = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(first.key, 'before the fork');
+
+    // The fake gateway cancels unless a fork is configured, and a cancelled
+    // fork leaves the session untouched — the point is that neither path
+    // announces a removal.
+    await registry.forkActive('entry-1');
+
+    expect(removals).toEqual([]);
+    expect(transcripts.size).toBe(1);
   });
 });
 
