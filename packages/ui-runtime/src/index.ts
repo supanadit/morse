@@ -2,6 +2,7 @@ export * from './client.js';
 export * from './prompt-template.js';
 export * from './git/graph.js';
 export * from './git/status.js';
+export * from './git/repos.js';
 export * from './git/diff.js';
 export * from './files/tree.js';
 export * from './files/positions.js';

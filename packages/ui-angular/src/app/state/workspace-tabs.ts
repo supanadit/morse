@@ -57,6 +57,12 @@ export interface FileTab {
   commitHash?: string;
   /** The commit's subject, so the preview can name the commit it is showing. */
   commitSubject?: string;
+  /**
+   * The nested repository this file's diff must be read from, when the git panel
+   * opened it from a repository below the session directory. Absent for the
+   * session's own repository and for an Explorer click.
+   */
+  repo?: string;
 }
 
 export type WorkspaceTab = SessionTab | FileTab | McpTab | PromptTab;
@@ -541,7 +547,7 @@ export class WorkspaceTabs {
    * file is that session's **chip** (the row that never pushes a session tab
    * aside); with no session it stands on its own, like a session.
    */
-  openFile(path: string, line?: number): void {
+  openFile(path: string, line?: number, repo?: string): void {
     const owner = this.focusedOwner();
     this.placeFileTab(
       `${FILE_PREFIX}${path}`,
@@ -550,7 +556,7 @@ export class WorkspaceTabs {
       owner.id !== undefined,
       owner.id,
       owner.cwd,
-      line === undefined ? {} : { line },
+      { ...(line === undefined ? {} : { line }), ...(repo === undefined ? {} : { repo }) },
     );
   }
 
@@ -572,12 +578,13 @@ export class WorkspaceTabs {
    * diff is against the commit, not HEAD — and follows the same rule as the
    * Explorer: a chip for the session in front, a plain tab when there is none.
    */
-  openCommitFile(hash: string, path: string, subject: string): void {
+  openCommitFile(hash: string, path: string, subject: string, repo?: string): void {
     const owner = this.focusedOwner();
     const commitId = commitTabId(hash, path);
     this.placeFileTab(commitId, commitId, path, owner.id !== undefined, owner.id, owner.cwd, {
       commitHash: hash,
       commitSubject: subject,
+      ...(repo === undefined ? {} : { repo }),
     });
   }
 
@@ -1146,8 +1153,13 @@ export class WorkspaceTabs {
             hash: tab.commitHash,
             path: tab.path,
             cwd: tab.projectCwd,
+            ...(tab.repo === undefined ? {} : { repo: tab.repo }),
           })
-        : this.morse.requestHostCommand('gitDiff', { path: tab.path, cwd: tab.projectCwd });
+        : this.morse.requestHostCommand('gitDiff', {
+            path: tab.path,
+            cwd: tab.projectCwd,
+            ...(tab.repo === undefined ? {} : { repo: tab.repo }),
+          });
     void request.then((data) => {
       const diff = asDiff(data);
       if (diff === undefined) {

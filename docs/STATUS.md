@@ -77,8 +77,10 @@ support simply never shows the affordance.
 VS Code has an Explorer, editor and Source Control and leaves `filePreview` / `gitPanel` off; the browser host
 turns them on so the panel stands on its own:
 
-- **Git panel** (`Ctrl+Alt+G`): the active project's recent commits with their branch graph, plus the
-  working tree's uncommitted changes with a per-file kind. Resizable from its edge; long refs fold.
+- **Git panel** (`Ctrl+Alt+G`): the repositories under the active project — its own plus any nested
+  ones (a submodule, a separate checkout) — with their repository headers pinned at the top and one
+  open repository's recent commits, branch graph, sync bar and uncommitted changes below it. Every
+  action targets the open repository. Resizable from its edge; long refs fold.
 - **Explorer**: the session project's files with git status badges, resizable, refreshed by polling
   `listFiles` (`fresh: true`) and `gitStatus`, with a filter box that narrows it to a flat, ranked list of
   matching files.

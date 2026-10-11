@@ -12,6 +12,8 @@ import type {
   GitSync,
 } from '@morse/protocol';
 import { resolveWithin } from './file-store.js';
+import { UnsupportedByHostError } from '@morse/core';
+import { resolveRepoCwd } from './git-repos.js';
 
 /**
  * How many commits the panel reads. A history view is for orientation, not for
@@ -39,16 +41,18 @@ export async function readGitLog(
   cwd: string,
   requestedMax?: number,
   requestedSkip?: number,
+  repo?: string,
 ): Promise<GitLog> {
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, commits: [] };
   }
   const max = clampMax(requestedMax);
   const skip = clampSkip(requestedSkip);
   const [root, branch, raw] = await Promise.all([
-    gitText(['rev-parse', '--show-toplevel'], cwd),
-    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
+    gitText(['rev-parse', '--show-toplevel'], work),
+    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], work),
     gitText(
       [
         'log',
@@ -58,12 +62,12 @@ export async function readGitLog(
         `--max-count=${max}`,
         `--pretty=format:${PRETTY_FORMAT}`,
       ],
-      cwd,
+      work,
     ),
   ]);
   return {
     isRepo: true,
-    root: root?.trim() || cwd,
+    root: root?.trim() || work,
     branch: branch?.trim() || undefined,
     commits: parseCommits(raw ?? ''),
   };
@@ -77,9 +81,43 @@ function clampMax(requested?: number): number {
 }
 
 /**
+ * Where a git command for `repo` actually runs, plus the prefix that maps its
+ * paths back to the session directory. `work` is the repository root; `base` is
+ * that root relative to `cwd` — empty for the session's own repository, `sub`
+ * for a nested one at `cwd/sub`. Every answer keeps paths session-relative, the
+ * same vocabulary `listFiles` and `readFile` use, so the Explorer, preview and
+ * panel line up whether the file lives in the project's repository or a nested one.
+ */
+interface RepoContext {
+  work: string;
+  base: string;
+}
+
+async function repoContext(cwd: string, repo?: string): Promise<RepoContext> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
+  const base = toPosix(relative(cwd, work));
+  return { work, base };
+}
+
+/**
+ * A session-relative client path as the repository sees it: resolved inside the
+ * session directory (the same guard `readFile` uses), then required to sit
+ * inside the repository the command runs in, and finally made relative to it.
+ */
+function toRepoPath(cwd: string, work: string, requested: string): string {
+  const absolute = resolveWithin(cwd, requested);
+  const rel = toPosix(relative(work, absolute));
+  if (rel.startsWith('..')) {
+    throw new UnsupportedByHostError('A preview only opens files inside the project.');
+  }
+  return rel;
+}
+
+/**
  * The working tree's changed paths, for the Explorer's per-file git badges.
  * Paths are made relative to `cwd` (matching `listFiles`), so a session opened
- * in a subdirectory of the repository lines up with the listing it shows.
+ * in a subdirectory of the repository lines up with the listing it shows, and a
+ * nested repository's paths carry its folder as a prefix.
  *
  * One call, not three: `--relative` asks git itself for cwd-relative paths with
  * everything outside the directory dropped — exactly the prefix-stripping and
@@ -92,22 +130,23 @@ function clampMax(requested?: number): number {
  * `--relative` needs git 2.13. An older git fails here for its own reason, so
  * the explicit path is kept as the fallback and the answer stays what it was.
  */
-export async function readGitStatus(cwd: string): Promise<GitStatus> {
+export async function readGitStatus(cwd: string, repo?: string): Promise<GitStatus> {
+  const { work, base } = await repoContext(cwd, repo);
   const relative = await gitText(
     ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--relative'],
-    cwd,
+    work,
   );
   if (relative !== undefined) {
-    return { isRepo: true, files: parseStatus(relative, '') };
+    return { isRepo: true, files: prefixStatus(parseStatus(relative, ''), base) };
   }
-  return readGitStatusByPrefix(cwd);
+  return readGitStatusByPrefix(work, base);
 }
 
 /**
  * The three-call reading of the same thing, for a git too old for `--relative`
  * (and for any other failure, which it reports the way it always did).
  */
-async function readGitStatusByPrefix(cwd: string): Promise<GitStatus> {
+async function readGitStatusByPrefix(cwd: string, base = ''): Promise<GitStatus> {
   const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, files: [] };
@@ -116,7 +155,15 @@ async function readGitStatusByPrefix(cwd: string): Promise<GitStatus> {
     gitText(['rev-parse', '--show-prefix'], cwd),
     gitText(['status', '--porcelain=v1', '-z', '--untracked-files=all'], cwd),
   ]);
-  return { isRepo: true, files: parseStatus(raw ?? '', prefix?.trim() ?? '') };
+  return { isRepo: true, files: prefixStatus(parseStatus(raw ?? '', prefix?.trim() ?? ''), base) };
+}
+
+/** Maps repository-relative status paths onto the session directory. */
+function prefixStatus(files: GitFileStatus[], base: string): GitFileStatus[] {
+  if (base.length === 0) {
+    return files;
+  }
+  return files.map((file) => ({ ...file, path: `${base}/${file.path}` }));
 }
 
 /**
@@ -154,13 +201,18 @@ function parseStatus(raw: string, root: string): GitFileStatus[] {
  * uses, so a client cannot name a file outside the project. An untracked file
  * has no diff against HEAD; the frontend renders its content as all-added.
  */
-export async function readGitDiff(cwd: string, requested: string): Promise<GitDiff> {
-  const rel = toPosix(relative(cwd, resolveWithin(cwd, requested)));
+export async function readGitDiff(
+  cwd: string,
+  requested: string,
+  repo?: string,
+): Promise<GitDiff> {
+  const { work } = await repoContext(cwd, repo);
+  const rel = toRepoPath(cwd, work, requested);
   const diff = await gitText(
     ['diff', '--no-color', '--no-ext-diff', '-U3', 'HEAD', '--', rel],
-    cwd,
+    work,
   );
-  return { path: rel, diff: diff ?? '' };
+  return { path: requested, diff: diff ?? '' };
 }
 
 /**
@@ -169,20 +221,25 @@ export async function readGitDiff(cwd: string, requested: string): Promise<GitDi
  * a session opened in a subdirectory sees only what it can open. A commit that
  * touched nothing there is an empty list, not an error.
  */
-export async function readCommitFiles(cwd: string, requested: string): Promise<GitCommitFiles> {
+export async function readCommitFiles(
+  cwd: string,
+  requested: string,
+  repo?: string,
+): Promise<GitCommitFiles> {
+  const { work, base } = await repoContext(cwd, repo);
   const hash = requested.trim();
   if (!isCommitHash(hash)) {
     return { isRepo: false, hash, files: [] };
   }
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, hash, files: [] };
   }
   const raw = await gitText(
     ['show', '--name-status', '--format=', '-z', '--find-renames', '--relative', hash],
-    cwd,
+    work,
   );
-  return { isRepo: true, hash, files: parseNameStatus(raw ?? '') };
+  return { isRepo: true, hash, files: prefixStatus(parseNameStatus(raw ?? ''), base) };
 }
 
 /**
@@ -190,16 +247,32 @@ export async function readCommitFiles(cwd: string, requested: string): Promise<G
  * opened from the git panel's commit row. The path is resolved inside `cwd`,
  * exactly like `readGitDiff`. A root commit shows the whole file as added.
  */
-export async function readCommitDiff(cwd: string, hash: string, requested: string): Promise<GitDiff> {
-  const rel = toPosix(relative(cwd, resolveWithin(cwd, requested)));
+export async function readCommitDiff(
+  cwd: string,
+  hash: string,
+  requested: string,
+  repo?: string,
+): Promise<GitDiff> {
+  const { work } = await repoContext(cwd, repo);
+  const rel = toRepoPath(cwd, work, requested);
   if (!isCommitHash(hash.trim())) {
-    return { path: rel, diff: '' };
+    return { path: requested, diff: '' };
   }
   const diff = await gitText(
-    ['show', '--format=', '--no-color', '--no-ext-diff', '-U3', '--relative', hash.trim(), '--', rel],
-    cwd,
+    [
+      'show',
+      '--format=',
+      '--no-color',
+      '--no-ext-diff',
+      '-U3',
+      '--relative',
+      hash.trim(),
+      '--',
+      rel,
+    ],
+    work,
   );
-  return { path: rel, diff: diff ?? '' };
+  return { path: requested, diff: diff ?? '' };
 }
 
 /** A revision the client may name: a hex object id, never an option or a ref. */
@@ -237,12 +310,17 @@ function parseNameStatus(raw: string): GitFileStatus[] {
  * anything outside its project. The fresh working tree comes back as the answer,
  * so the panel updates without a second `gitStatus` round trip.
  */
-export async function stageGitPaths(cwd: string, requested: readonly string[]): Promise<GitStatus> {
-  const paths = resolvePaths(cwd, requested);
+export async function stageGitPaths(
+  cwd: string,
+  requested: readonly string[],
+  repo?: string,
+): Promise<GitStatus> {
+  const { work } = await repoContext(cwd, repo);
+  const paths = resolvePaths(cwd, work, requested);
   if (paths.length > 0) {
-    await gitRun(['add', '--', ...paths], cwd);
+    await gitRun(['add', '--', ...paths], work);
   }
-  return readGitStatus(cwd);
+  return readGitStatus(cwd, repo);
 }
 
 /**
@@ -251,15 +329,20 @@ export async function stageGitPaths(cwd: string, requested: readonly string[]): 
  * again. An unborn `HEAD` (a repository with no commits) cannot be reset, so the
  * entry is removed from the index directly instead.
  */
-export async function unstageGitPaths(cwd: string, requested: readonly string[]): Promise<GitStatus> {
-  const paths = resolvePaths(cwd, requested);
+export async function unstageGitPaths(
+  cwd: string,
+  requested: readonly string[],
+  repo?: string,
+): Promise<GitStatus> {
+  const { work } = await repoContext(cwd, repo);
+  const paths = resolvePaths(cwd, work, requested);
   if (paths.length > 0) {
-    const reset = await gitRun(['reset', '--quiet', 'HEAD', '--', ...paths], cwd);
+    const reset = await gitRun(['reset', '--quiet', 'HEAD', '--', ...paths], work);
     if (!reset) {
-      await gitRun(['rm', '--cached', '--quiet', '--', ...paths], cwd);
+      await gitRun(['rm', '--cached', '--quiet', '--', ...paths], work);
     }
   }
-  return readGitStatus(cwd);
+  return readGitStatus(cwd, repo);
 }
 
 /**
@@ -267,35 +350,34 @@ export async function unstageGitPaths(cwd: string, requested: readonly string[])
  * to push. A branch with no upstream (or an unborn branch) reports zero for both,
  * so the panel still shows the pull/push controls without a distance.
  */
-export async function readGitSync(cwd: string): Promise<GitSync> {
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+export async function readGitSync(cwd: string, repo?: string): Promise<GitSync> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, ahead: 0, behind: 0 };
   }
   const [branch, upstream] = await Promise.all([
-    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
-    gitText(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], cwd),
+    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], work),
+    gitText(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], work),
   ]);
   const name = branch?.trim() || undefined;
   const tracked = upstream?.trim() || undefined;
   if (tracked === undefined) {
     return { isRepo: true, branch: name, ahead: 0, behind: 0 };
   }
-  const counts = await gitText(
-    ['rev-list', '--left-right', '--count', `${tracked}...HEAD`],
-    cwd,
-  );
+  const counts = await gitText(['rev-list', '--left-right', '--count', `${tracked}...HEAD`], work);
   const [behind, ahead] = parseCounts(counts ?? '');
   return { isRepo: true, branch: name, upstream: tracked, ahead, behind };
 }
 
 /** Pulls the upstream (`git pull`) and reports the new distance. */
-export async function pullGit(cwd: string): Promise<GitSync> {
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+export async function pullGit(cwd: string, repo?: string): Promise<GitSync> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() === 'true') {
-    await gitRun(['pull', '--no-edit'], cwd, 180_000);
+    await gitRun(['pull', '--no-edit'], work, 180_000);
   }
-  return readGitSync(cwd);
+  return readGitSync(work);
 }
 
 /**
@@ -303,12 +385,13 @@ export async function pullGit(cwd: string): Promise<GitSync> {
  * the annotated tags that point into the pushed history, so a release tag travels
  * with the commit it names instead of waiting for a separate `git push --tags`.
  */
-export async function pushGit(cwd: string): Promise<GitSync> {
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+export async function pushGit(cwd: string, repo?: string): Promise<GitSync> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() === 'true') {
-    await gitRun(['push', '--follow-tags'], cwd, 180_000);
+    await gitRun(['push', '--follow-tags'], work, 180_000);
   }
-  return readGitSync(cwd);
+  return readGitSync(work);
 }
 
 /**
@@ -316,16 +399,17 @@ export async function pushGit(cwd: string): Promise<GitSync> {
  * remote-tracking branches (minus `origin/HEAD`, which is not a branch), and the
  * tags (checking one out detaches HEAD).
  */
-export async function readGitBranches(cwd: string): Promise<GitBranches> {
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+export async function readGitBranches(cwd: string, repo?: string): Promise<GitBranches> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, local: [], remote: [], tags: [] };
   }
   const [current, local, remote, tags] = await Promise.all([
-    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
-    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], cwd),
-    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/remotes'], cwd),
-    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/tags'], cwd),
+    gitText(['rev-parse', '--abbrev-ref', 'HEAD'], work),
+    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], work),
+    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/remotes'], work),
+    gitText(['for-each-ref', '--format=%(refname:short)', 'refs/tags'], work),
   ]);
   return {
     isRepo: true,
@@ -337,16 +421,17 @@ export async function readGitBranches(cwd: string): Promise<GitBranches> {
 }
 
 /** Commits the staged changes with `message`; git's refusal is reported back. */
-export async function commitGit(cwd: string, message: string): Promise<GitMutation> {
+export async function commitGit(cwd: string, message: string, repo?: string): Promise<GitMutation> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
   const text = message.trim();
   if (text.length === 0) {
     return { ok: false, message: 'A commit needs a message.' };
   }
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { ok: false, message: 'This project is not a git repository.' };
   }
-  const result = await gitExec(['commit', '-m', text], cwd, 60_000);
+  const result = await gitExec(['commit', '-m', text], work, 60_000);
   if (result.ok) {
     return { ok: true };
   }
@@ -362,18 +447,20 @@ export async function checkoutGit(
   cwd: string,
   branch: string,
   create: boolean,
+  repo?: string,
 ): Promise<GitMutation> {
+  const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
   const name = branch.trim();
   if (!isBranchName(name)) {
     return { ok: false, message: 'That is not a usable branch name.' };
   }
-  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
+  const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { ok: false, message: 'This project is not a git repository.' };
   }
   const result = await gitExec(
     create ? ['checkout', '-b', name] : ['checkout', name],
-    cwd,
+    work,
     60_000,
   );
   return { ok: result.ok, message: result.ok ? undefined : gitRefusal(result.output) };
@@ -503,11 +590,11 @@ function gitText(args: string[], cwd: string): Promise<string | undefined> {
   });
 }
 
-/** Resolves client paths inside `cwd` and normalises them to `/` separators. */
-function resolvePaths(cwd: string, requested: readonly string[]): string[] {
+/** Resolves session-relative client paths into repository-relative ones. */
+function resolvePaths(cwd: string, work: string, requested: readonly string[]): string[] {
   return requested
     .filter((path): path is string => typeof path === 'string' && path.length > 0)
-    .map((path) => toPosix(relative(cwd, resolveWithin(cwd, path))));
+    .map((path) => toRepoPath(cwd, work, path));
 }
 
 /**

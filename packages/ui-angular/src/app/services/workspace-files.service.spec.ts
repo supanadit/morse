@@ -112,6 +112,7 @@ describe('WorkspaceFiles', () => {
     const { requestHostCommand } = setup({ hostKind: 'server', filePicker: true, gitPanel: true });
 
     expect(commands(requestHostCommand)).toContain('gitStatus');
+    expect(commands(requestHostCommand)).toContain('gitRepos');
   });
 
   it('asks nothing when the host cannot list files at all', () => {

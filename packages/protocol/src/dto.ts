@@ -416,6 +416,37 @@ export interface GitStatus {
 }
 
 /**
+ * One repository the git panel lists. A project can hold more than one: the
+ * repository the session directory sits in, plus any nested ones (a submodule,
+ * or a separate repository under the project directory), which VS Code calls
+ * its multiple source-control repositories.
+ */
+export interface GitRepoInfo {
+  /**
+   * Repository root relative to the session directory, with `/` separators.
+   * Empty (`''`) for the session's own repository; the panel sends this back as
+   * the `repo` argument of every git command so the host knows which one to run in.
+   */
+  path: string;
+  /** Repository root on disk (absolute). */
+  root: string;
+  /** A short display name: the root's folder name (or the session directory's). */
+  name: string;
+  /** True for the repository the session directory sits in. */
+  current: boolean;
+  /** Current branch (`HEAD` short name), when known. */
+  branch?: string;
+}
+
+/** What the `gitRepos` host command answers: the repositories under a project. */
+export interface GitRepos {
+  /** False when the directory is inside no repository and holds none beneath it. */
+  isRepo: boolean;
+  /** The session's own repository first, then nested ones by path. */
+  repos: GitRepoInfo[];
+}
+
+/**
  * What the `gitCommitFiles` host command answers: the paths a single commit
  * touched, with the status each had in that commit (`M`, `A`, `D`, `R`, …).
  */

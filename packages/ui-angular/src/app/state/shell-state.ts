@@ -7,9 +7,6 @@ const GIT_EXPANDED_KEY = 'morse.git.expanded';
 /** The git panel's Changes section: whether it is folded. */
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
 const GIT_HISTORY_COLLAPSED_KEY = 'morse.git.historyCollapsed';
-/** The Staged / Unstaged groups fold on their own, like VS Code's Source Control. */
-const GIT_STAGED_COLLAPSED_KEY = 'morse.git.stagedCollapsed';
-const GIT_UNSTAGED_COLLAPSED_KEY = 'morse.git.unstagedCollapsed';
 
 function readGitExpanded(): boolean {
   try {
@@ -69,16 +66,12 @@ export class ShellState {
   /** Expanded: the panel leaves the sidebar and takes the centre of the shell. */
   private readonly gitExpanded = signal(readGitExpanded());
   readonly gitPanelExpanded = this.gitExpanded.asReadonly();
-  /** The git panel's Changes section: whether it is folded. */
+  /** The open repository's Changes section: whether it is folded. */
   private readonly changesCollapsedSignal = signal(readFlag(GIT_CHANGES_COLLAPSED_KEY));
   readonly gitChangesCollapsed = this.changesCollapsedSignal.asReadonly();
+  /** The open repository's History section: whether it is folded. */
   private readonly historyCollapsedSignal = signal(readFlag(GIT_HISTORY_COLLAPSED_KEY));
   readonly gitHistoryCollapsed = this.historyCollapsedSignal.asReadonly();
-  /** The two change groups, each folded independently. */
-  private readonly stagedCollapsedSignal = signal(readFlag(GIT_STAGED_COLLAPSED_KEY));
-  readonly gitStagedCollapsed = this.stagedCollapsedSignal.asReadonly();
-  private readonly unstagedCollapsedSignal = signal(readFlag(GIT_UNSTAGED_COLLAPSED_KEY));
-  readonly gitUnstagedCollapsed = this.unstagedCollapsedSignal.asReadonly();
 
   /**
    * The "New session" folder browser (browser host only). It is shell state
@@ -210,18 +203,6 @@ export class ShellState {
   toggleGitHistory(): void {
     this.historyCollapsedSignal.update((collapsed) => !collapsed);
     storeFlag(GIT_HISTORY_COLLAPSED_KEY, this.historyCollapsedSignal());
-  }
-
-  /** Folds the Staged group down to its header, or brings it back. */
-  toggleGitStaged(): void {
-    this.stagedCollapsedSignal.update((collapsed) => !collapsed);
-    storeFlag(GIT_STAGED_COLLAPSED_KEY, this.stagedCollapsedSignal());
-  }
-
-  /** Folds the Unstaged group down to its header, or brings it back. */
-  toggleGitUnstaged(): void {
-    this.unstagedCollapsedSignal.update((collapsed) => !collapsed);
-    storeFlag(GIT_UNSTAGED_COLLAPSED_KEY, this.unstagedCollapsedSignal());
   }
 
   openAbout(): void {

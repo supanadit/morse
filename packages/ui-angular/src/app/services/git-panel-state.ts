@@ -1,7 +1,17 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
-import type { GitBranches, GitCommit, GitLog, GitMutation, GitSync } from '@morse/protocol';
+import { computed, inject, Injectable, signal, type Signal } from '@angular/core';
+import type {
+  GitBranches,
+  GitCommit,
+  GitLog,
+  GitMutation,
+  GitRepoInfo,
+  GitStatus,
+  GitSync,
+} from '@morse/protocol';
+import { asGitRepos, asGitStatus } from '@morse/ui-runtime';
 import { MorseService } from '../host/morse.service';
 import { WorkspaceFiles } from './workspace-files.service';
+import { WorkspaceFilesStore } from '../state/workspace-files.store';
 
 /** Commits per `gitLog` call; the panel appends another page as it scrolls. */
 export const GIT_PAGE_SIZE = 250;
@@ -15,21 +25,26 @@ interface GitMeta {
 }
 
 /**
- * The browser host's git panel data: the active project's commits and branch,
- * fetched with the `gitLog` host command a page at a time.
+ * One repository's git panel data and actions. A project may hold several
+ * repositories — its own plus nested ones (a submodule, a separate checkout) —
+ * so each gets its own state and sends its own `repo` argument, and stage,
+ * commit, checkout, pull and push all act on the repository the row belongs to.
  *
- * `refresh()` loads the first page (a project switch, the refresh button);
- * `loadMore()` appends the next page as the panel scrolls, so the list walks all
- * the way back to the root commit without loading a huge history up front.
+ * `path` is the repository root relative to the viewing session's directory,
+ * `''` for the session's own repository. It travels as the `repo` argument so
+ * the host runs the command in the right working tree.
  */
-@Injectable({ providedIn: 'root' })
-export class GitPanelState {
-  private readonly morse = inject(MorseService);
-  private readonly workspace = inject(WorkspaceFiles);
+export class GitRepoState {
   private readonly items = signal<GitCommit[]>([]);
   private readonly meta = signal<GitMeta | undefined>(undefined);
   private readonly busy = signal(false);
   private readonly failure = signal<string | undefined>(undefined);
+  private readonly syncState = signal<GitSync | undefined>(undefined);
+  private readonly syncing = signal(false);
+  private readonly branchList = signal<GitBranches | undefined>(undefined);
+  private readonly commitPending = signal(false);
+  private readonly branchPending = signal(false);
+  private readonly feedback = signal<{ ok: boolean; text: string } | undefined>(undefined);
   /** Bumped by every `refresh`, so a late page from an old project is dropped. */
   private generation = 0;
 
@@ -42,20 +57,17 @@ export class GitPanelState {
   readonly root = computed(() => this.meta()?.root);
   readonly hasMore = computed(() => this.meta()?.hasMore === true);
   readonly commits = this.items.asReadonly();
-  /** How far HEAD is from its upstream, for the pull/push controls. */
-  private readonly syncState = signal<GitSync | undefined>(undefined);
-  private readonly syncing = signal(false);
-  readonly sync = this.syncState.asReadonly();
-  /** True while a pull or push is in flight, so the buttons stay disabled. */
-  readonly syncingNow = this.syncing.asReadonly();
+  /** The working tree's changes, polled while the panel is open. */
+  /**
+   * The working tree, read from the shared `WorkspaceFiles` poll rather than a
+   * private copy: that poll already refreshes every repository every few seconds,
+   * so the panel's changes list stays live without a second timer.
+   */
+  readonly status: Signal<GitStatus | undefined>;
   readonly ahead = computed(() => this.syncState()?.ahead ?? 0);
   readonly behind = computed(() => this.syncState()?.behind ?? 0);
   readonly upstream = computed(() => this.syncState()?.upstream);
-  /** The branches the picker can switch to, read when it opens. */
-  private readonly branchList = signal<GitBranches | undefined>(undefined);
-  private readonly commitPending = signal(false);
-  private readonly branchPending = signal(false);
-  private readonly feedback = signal<{ ok: boolean; text: string } | undefined>(undefined);
+  readonly syncingNow = this.syncing.asReadonly();
   readonly branches = this.branchList.asReadonly();
   /** True while a commit is in flight, so the button stays disabled. */
   readonly committing = this.commitPending.asReadonly();
@@ -64,20 +76,56 @@ export class GitPanelState {
   /** The last mutation's words, so a refusal is visible instead of silent. */
   readonly notice = this.feedback.asReadonly();
 
-  /**
-   * Shows a refusal the host was never asked about — a client-side guard, such as
-   * pressing Enter with nothing staged. The wording matches the host's own answer
-   * for the same situation, so the message is the same either way.
-   */
-  refuse(text: string): void {
-    this.feedback.set({ ok: false, text });
+  constructor(
+    private readonly morse: MorseService,
+    private readonly workspace: WorkspaceFiles,
+    private readonly workspaceStore: WorkspaceFilesStore,
+    readonly info: GitRepoInfo,
+  ) {
+    this.status = computed(() => this.workspaceStore.repos()[this.info.path]);
+    this.stagedFold = signal(readFold(`morse.git.staged.${this.info.root}`));
+    this.unstagedFold = signal(readFold(`morse.git.unstaged.${this.info.root}`));
+    this.historyFold = signal(readFold(`morse.git.history.${this.info.root}`));
+    this.stagedCollapsed = this.stagedFold.asReadonly();
+    this.unstagedCollapsed = this.unstagedFold.asReadonly();
+    this.historyCollapsed = this.historyFold.asReadonly();
   }
 
+  /** The `repo` argument of every host command targeting this repository. */
+  private get repoArg(): string | undefined {
+    return this.info.path.length > 0 ? this.info.path : undefined;
+  }
+
+  /**
+   * The three inner folds, each remembered per repository (keyed by its absolute
+   * root) so a project switch does not lose them. Which *section* is open is not
+   * here: only one repository is open at a time, and that is the panel's choice,
+   * not a repository's (see `GitPanelState.openPath`).
+   */
+  private readonly stagedFold: ReturnType<typeof signal<boolean>>;
+  private readonly unstagedFold: ReturnType<typeof signal<boolean>>;
+  private readonly historyFold: ReturnType<typeof signal<boolean>>;
+  readonly stagedCollapsed: Signal<boolean>;
+  readonly unstagedCollapsed: Signal<boolean>;
+  readonly historyCollapsed: Signal<boolean>;
+
+  toggleStaged(): void {
+    this.stagedFold.update((value) => !value);
+    storeFold(`morse.git.staged.${this.info.root}`, this.stagedFold());
+  }
+
+  toggleUnstaged(): void {
+    this.unstagedFold.update((value) => !value);
+    storeFold(`morse.git.unstaged.${this.info.root}`, this.unstagedFold());
+  }
+
+  toggleHistory(): void {
+    this.historyFold.update((value) => !value);
+    storeFold(`morse.git.history.${this.info.root}`, this.historyFold());
+  }
+
+  /** Loads the first page of history and the sync distance. */
   refresh(): void {
-    const cwd = this.morse.workspace().cwd;
-    if (!cwd) {
-      return;
-    }
     const generation = (this.generation += 1);
     this.busy.set(true);
     this.failure.set(undefined);
@@ -103,6 +151,16 @@ export class GitPanelState {
       });
   }
 
+  /** Re-reads the working tree for this repository. */
+  loadStatus(): void {
+    void this.morse.requestHostCommand('gitStatus', this.args()).then((data) => {
+      const status = asGitStatus(data);
+      if (status !== undefined) {
+        this.workspaceStore.setStatus(this.info.path, status);
+      }
+    });
+  }
+
   /** Appends the next page; a no-op while one is already in flight. */
   loadMore(): void {
     if (this.busy() || !this.hasMore() || !this.isRepo()) {
@@ -126,13 +184,9 @@ export class GitPanelState {
       });
   }
 
-  /** Re-reads how far HEAD is from its upstream (a project switch, a refresh). */
+  /** Re-reads how far HEAD is from its upstream. */
   refreshSync(): void {
-    const cwd = this.morse.workspace().cwd;
-    if (!cwd) {
-      return;
-    }
-    void this.morse.requestHostCommand('gitSync').then((data) => {
+    void this.morse.requestHostCommand('gitSync', this.args()).then((data) => {
       const sync = asGitSync(data);
       if (sync !== undefined) {
         this.syncState.set(sync);
@@ -142,11 +196,12 @@ export class GitPanelState {
 
   /** Reads the branches the picker lists; called when the picker opens. */
   loadBranches(): void {
-    const cwd = this.morse.workspace().cwd;
-    if (!cwd) {
-      return;
-    }
-    void this.morse.requestHostCommand('gitBranches').then((data) => {
+    const repo = this.repoArg;
+    const request =
+      repo === undefined
+        ? this.morse.requestHostCommand('gitBranches')
+        : this.morse.requestHostCommand('gitBranches', { repo });
+    void request.then((data) => {
       const branches = asGitBranches(data);
       if (branches !== undefined) {
         this.branchList.set(branches);
@@ -154,7 +209,12 @@ export class GitPanelState {
     });
   }
 
-  /** Commits what is staged; the changes list, graph and distance all move. */
+  /** Shows a refusal the host was never asked about (a client-side guard). */
+  refuse(text: string): void {
+    this.feedback.set({ ok: false, text });
+  }
+
+  /** Commits what is staged in this repository. */
   async commit(message: string): Promise<boolean> {
     if (this.commitPending()) {
       return false;
@@ -162,7 +222,11 @@ export class GitPanelState {
     this.commitPending.set(true);
     this.feedback.set(undefined);
     try {
-      const data = await this.morse.requestHostCommand('gitCommit', { message }, 60_000);
+      const data = await this.morse.requestHostCommand(
+        'gitCommit',
+        { message, ...this.args() },
+        60_000,
+      );
       const result = asGitMutation(data);
       if (result?.ok === true) {
         this.workspace.refresh();
@@ -186,7 +250,7 @@ export class GitPanelState {
     try {
       const data = await this.morse.requestHostCommand(
         'gitCheckout',
-        { branch, create },
+        { branch, create, ...this.args() },
         60_000,
       );
       const result = asGitMutation(data);
@@ -206,44 +270,171 @@ export class GitPanelState {
     }
   }
 
-  /** Pulls the upstream into the branch, then re-reads history and the distance. */
+  /** Pulls the upstream into this repository, then re-reads history and status. */
   async pull(): Promise<void> {
     await this.syncFrom('gitPull');
   }
 
-  /** Pushes the branch to its upstream, then re-reads history and the distance. */
+  /** Pushes this repository's branch, then re-reads history and status. */
   async push(): Promise<void> {
     await this.syncFrom('gitPush');
   }
 
-  /**
-   * A pull/push is a network round trip, so it gets a long answer timeout (the
-   * frontend's default 5s would give up while git is still talking), and the
-   * history is re-read afterwards because the graph just changed.
-   */
+  /** Stages paths in this repository, taking the fresh working tree from the host. */
+  async stage(paths: readonly string[]): Promise<void> {
+    await this.workspace.stage(this.info.path, paths);
+  }
+
+  /** Unstages paths in this repository, keeping the working-tree change. */
+  async unstage(paths: readonly string[]): Promise<void> {
+    await this.workspace.unstage(this.info.path, paths);
+  }
+
   private async syncFrom(command: 'gitPull' | 'gitPush'): Promise<void> {
     if (this.syncing()) {
       return;
     }
     this.syncing.set(true);
     try {
-      const data = await this.morse.requestHostCommand(command, undefined, 180_000);
+      const data = await this.morse.requestHostCommand(command, this.args(), 180_000);
       const sync = asGitSync(data);
       if (sync !== undefined) {
         this.syncState.set(sync);
       }
+      this.workspace.refresh();
       this.refresh();
     } finally {
       this.syncing.set(false);
     }
   }
 
+  private args(): Record<string, unknown> | undefined {
+    const repo = this.repoArg;
+    return repo === undefined ? undefined : { repo };
+  }
+
   private async page(skip: number): Promise<GitLog | undefined> {
     const raw = await this.morse.requestHostCommand('gitLog', {
       max: GIT_PAGE_SIZE,
       skip,
+      ...(this.args() ?? {}),
     });
     return asGitLog(raw);
+  }
+}
+
+/**
+ * The browser host's git panel data: the repositories under the active project,
+ * each with its own history, working tree, branches and mutations. The panel
+ * lists them as accordion sections, the way VS Code's source-control view does.
+ *
+ * `refresh()` re-reads the repository list (a project switch, the refresh
+ * button) and refreshes each one; the nested repository set is discovered by the
+ * host (`gitRepos`), so a submodule added since the last read shows up.
+ */
+@Injectable({ providedIn: 'root' })
+export class GitPanelState {
+  private readonly morse = inject(MorseService);
+  private readonly workspace = inject(WorkspaceFiles);
+  private readonly workspaceStore = inject(WorkspaceFilesStore);
+  private readonly sections = signal<GitRepoState[]>([]);
+  private readonly discovered = signal(false);
+  private readonly busy = signal(false);
+  private readonly failure = signal<string | undefined>(undefined);
+  /**
+   * The repository whose section is open, by relative path. Only one is open at
+   * a time — a pinned list + detail, the way the Explorer sits below the
+   * session list — so the other repository headers stay visible and never need
+   * to be scrolled to. `undefined` means every section is folded.
+   */
+  private readonly openPathSignal = signal<string | undefined>(readOpenRepo());
+
+  /** Every repository under the project, the session's own first. */
+  readonly repos = this.sections.asReadonly();
+  /** The relative path of the open section, or `undefined` when all are folded. */
+  readonly openPath = this.openPathSignal.asReadonly();
+  readonly loading = this.busy.asReadonly();
+  readonly error = this.failure.asReadonly();
+  /** True once the host answered, even if the project holds no repository. */
+  readonly loaded = computed(() => this.discovered());
+  /** True when the project holds at least one repository. */
+  readonly isRepo = computed(() => this.sections().length > 0);
+  /** The repository the project's session directory sits in, when there is one. */
+  readonly current = computed(
+    () => this.sections().find((section) => section.info.current) ?? this.sections()[0],
+  );
+
+  /**
+   * Opens one repository, folding whichever was open. Clicking the open one
+   * again folds it, so the panel can show every header and nothing else.
+   */
+  toggleSection(path: string): void {
+    this.setOpen(this.openPathSignal() === path ? undefined : path);
+  }
+
+  /** Opens one repository's section directly. */
+  open(path: string): void {
+    this.setOpen(path);
+  }
+
+  private setOpen(path: string | undefined): void {
+    this.openPathSignal.set(path);
+    storeOpenRepo(path);
+  }
+
+  /** Re-reads the repository list and every repository's history. */
+  refresh(): void {
+    const cwd = this.morse.workspace().cwd;
+    if (!cwd) {
+      return;
+    }
+    this.busy.set(true);
+    this.failure.set(undefined);
+    void this.morse
+      .requestHostCommand('gitRepos')
+      .then((data) => {
+        const repos = asGitRepos(data);
+        if (repos === undefined) {
+          this.sections.set([]);
+          this.failure.set('The host could not read git history for this project.');
+          return;
+        }
+        this.discovered.set(true);
+        // Reuse the state of a repository that is still present, so its loaded
+        // history and fold are not thrown away by a refresh; refresh the rest.
+        const previous = new Map(this.sections().map((state) => [state.info.path, state]));
+        const next = repos.repos.map(
+          (info) =>
+            previous.get(info.path) ??
+            new GitRepoState(this.morse, this.workspace, this.workspaceStore, info),
+        );
+        this.sections.set(next);
+        // The remembered open section may be gone (a project switch), or never
+        // chosen on a first visit; fall back to the session's own repository so
+        // the panel opens on something useful, never a blank detail pane.
+        if (!next.some((state) => state.info.path === this.openPathSignal())) {
+          this.setOpen(next.find((state) => state.info.current)?.info.path ?? next[0]?.info.path);
+        }
+        for (const state of next) {
+          state.refresh();
+          state.loadStatus();
+        }
+      })
+      .finally(() => {
+        this.busy.set(false);
+      });
+  }
+
+  /** Re-reads every repository's working tree (the panel's poll tick). */
+  refreshStatuses(): void {
+    for (const state of this.sections()) {
+      state.loadStatus();
+    }
+  }
+
+  /** The state for one repository path (`''` for the session's own). */
+  stateFor(path: string): GitRepoState | undefined {
+    return this.sections().find((state) => state.info.path === path);
   }
 }
 
@@ -323,6 +514,48 @@ export function asGitSync(value: unknown): GitSync | undefined {
 function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
+
+/** Whether a per-repository fold was left collapsed, from `localStorage`. */
+function readFold(key: string): boolean {
+  try {
+    return globalThis.localStorage?.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function storeFold(key: string, collapsed: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(key, collapsed ? '1' : '0');
+  } catch {
+    // A host without storage simply forgets the fold.
+  }
+}
+
+/** The repository path whose section was left open, from `localStorage`. */
+function readOpenRepo(): string | undefined {
+  try {
+    const value = globalThis.localStorage?.getItem(OPEN_REPO_KEY);
+    return value === null || value === undefined ? undefined : value;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeOpenRepo(path: string | undefined): void {
+  try {
+    if (path === undefined) {
+      globalThis.localStorage?.removeItem(OPEN_REPO_KEY);
+      return;
+    }
+    globalThis.localStorage?.setItem(OPEN_REPO_KEY, path);
+  } catch {
+    // A host without storage simply forgets the open section.
+  }
+}
+
+/** The key the open repository's relative path is remembered under. */
+const OPEN_REPO_KEY = 'morse.git.openRepo';
 
 /** Validates the host's answer to `gitBranches`. */
 export function asGitBranches(value: unknown): GitBranches | undefined {

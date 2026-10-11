@@ -255,50 +255,71 @@ VS Code has a Source Control view, so its host leaves `gitPanel` off and none of
 browser host has none, so `gitPanel: true` gives the frontend a right-hand panel with the active
 project's recent commits and their branch graph, toggled from the chat toolbar (`Ctrl+Alt+G`).
 
-- The panel follows the viewing session's directory, exactly like the Explorer: it calls the
-  `gitLog` host command (`{ max? }` → `{ isRepo, root?, branch?, commits }`) when it opens and
-  whenever the active project changes. A directory that is not a repository is a normal answer
-  (`isRepo: false`), not an error.
+- The panel follows the viewing session's directory, exactly like the Explorer: it first calls the
+  `gitRepos` host command (`{}` → `{ isRepo, repos }`) when it opens and whenever the active project
+  changes, then reads each repository's history with `gitLog` (`{ max?, skip?, repo? }` → `{ isRepo,
+  root?, branch?, commits }`). A directory that is not a repository and holds none beneath it is a
+  normal answer (`isRepo: false`), not an error.
+- A **project can hold several repositories** — its own plus nested ones (a submodule, a separate
+  checkout). Each is a section in a **fixed order** (the project's own first, then nested ones by
+  path), and opening one **expands it in place**: its header stays exactly where it was and only its
+  body appears below it, so the other headers never move — the way VS Code's Source Control lists
+  multiple repositories. Only one section is open at a time (clicking the open header folds it). The
+  open repository is remembered in `localStorage`; on a first visit, or when the remembered one is
+  gone, the session's own repository opens. `gitRepos` returns each one's `path` (relative to the
+  session directory, `''` for the session's own), `root`, `name`, `current` and `branch`; the host
+  discovers them by scanning the project for `.git` entries (skipping dependency folders and
+  descending at most a few levels). Every git command carries that `path` back as its `repo`
+  argument, so stage, commit, checkout, pull and push act on the open repository. The host resolves
+  `repo` inside the session directory (the same guard `readFile` uses) and reads the repository root
+  from git, never from the client.
+- A **nested repository's paths stay session-relative** (`packages/lib/src/a.ts`), so the Explorer's
+  badges, the preview tabs and `readFile` line up on one vocabulary: `gitStatus` runs in the
+  repository root with its result prefixed by the repository's folder. The Explorer's changes come
+  from the shared `WorkspaceFiles` poll, which asks `gitStatus` for every repository and merges them
+  (`WorkspaceFilesStore` keeps them per repository and computes one status for the badges).
 - A commit carries `hash`, `shortHash`, `parents`, `refs` (already split decorations), `author`,
   `date` and `subject`. `parents` is all the graph needs: `@morse/ui-runtime`'s `git/graph.ts` is a pure function
   that assigns each commit a lane and the edges across its row, and the panel turns that into one
   SVG per row. No graph algorithm lives in the host.
-- Clicking a commit unfolds its changed files (`gitCommitFiles { hash }` → `{ isRepo, hash, files }`,
-  paths relative to the session's directory like `gitStatus`). Every lane that continues below the
-  commit is redrawn as a rail across the file list, so the graph is not cut by the expansion. Clicking
-  a file opens its own preview tab whose diff is `gitCommitDiff { hash, path }` (`git show`, not the
-  working tree's); the tab carries the hash, so the same path in two commits is two diffs, and it
-  offers only the unified and split layouts — the content on disk is not the commit's content, so a
-  File view would mislead.
-- The panel is two sections: an **uncommitted changes** list on top (the same `gitStatus` poll the
-  Explorer uses, so it stays live; a click opens the file in a preview tab) and the **graph** below,
-  which pages towards the root commit as it scrolls. Each section folds from its own header, and a
-  drag handle between them sets the changes height (persisted in `ShellState`, like the Explorer's).
+- Clicking a commit unfolds its changed files (`gitCommitFiles { hash, repo? }` → `{ isRepo, hash,
+  files }`, paths relative to the session's directory like `gitStatus`). Every lane that continues
+  below the commit is redrawn as a rail across the file list, so the graph is not cut by the
+  expansion. Clicking a file opens its own preview tab whose diff is `gitCommitDiff { hash, path,
+  repo? }` (`git show`, not the working tree's); the tab carries the hash and the repository, so the
+  same path in two commits — or two repositories — is different diffs, and it offers only the unified
+  and split layouts — the content on disk is not the commit's content, so a File view would mislead.
+- The open repository's detail holds an **uncommitted changes** list (the same `gitStatus` poll the
+  Explorer uses, so it stays live; a click opens the file in a preview tab), a commit box, a sync bar
+  and the **graph** below, which pages towards the root commit as it scrolls. That detail is the only
+  scrolling region; every repository header keeps its fixed place above or below it, so a project
+  with several repositories never has one move out from under the pointer.
 - The changes list is split the way `git status` reads: the index (`X`) is **Staged** and the
   working tree (`Y`) is **Unstaged**, so a path edited on both sides (`MM`) appears in both. Each row
   has a `+`/`−` action and each group header stages or unstages the whole group through `gitStage` /
-  `gitUnstage` (`{ paths }` → the fresh `gitStatus`; `@morse/ui-runtime`'s `git/status.ts` owns the `X`/`Y` split). The
+  `gitUnstage` (`{ paths, repo? }` → the fresh `gitStatus`; `@morse/ui-runtime`'s `git/status.ts` owns the `X`/`Y` split). The
   host resolves every path inside the viewing session's directory, like `readFile`, and answers with
   the new working tree so the list updates in one round trip. The **Staged** group is always present
   while the section is open — an empty one says “No staged files. Stage a change to commit it.” so the
   commit flow keeps a stable home — while the whole-tree-clean state stays the centered
-  “No uncommitted changes”. Each group's header folds its own rows (a chevron, persisted in
-  `ShellState` like the Changes/History folds), so Staged and Unstaged collapse independently.
-- The panel has a sync bar: `gitSync` reports how far HEAD is from its upstream (`behind` to pull,
-  `ahead` to push) and the two buttons run `gitPull` / `gitPush`. Push uses `--follow-tags`, so the
-  annotated tags that point into the pushed history travel with it. Both are network commands, so the
-  host runs git with prompts disabled (a missing credential fails rather than blocking), and the
+  “No uncommitted changes”. Each group's header folds its own rows (a chevron, persisted per
+  repository root), so Staged and Unstaged collapse independently within the open repository.
+- The open repository's sync bar: `gitSync { repo? }` reports how far HEAD is from its upstream (`behind` to
+  pull, `ahead` to push) and the two buttons run `gitPull` / `gitPush`. Push uses `--follow-tags`, so
+  the annotated tags that point into the pushed history travel with it. Both are network commands, so
+  the host runs git with prompts disabled (a missing credential fails rather than blocking), and the
   frontend gives them a long answer timeout instead of the usual 5s; the graph and the distance are
   re-read afterwards.
-- The branch chip is a button: it opens `morse-branch-picker` (`gitBranches` → locals, remote
-  tracking branches — remotes shown by their short name — and tags) with "Create new branch…" and
-  "Checkout detached…" rows. `gitCheckout { branch, create }` switches, creates, or detaches (a tag or
-  a commit hash); tags check out detached, the way git does. A commit box above the changes calls
-  `gitCommit { message }` for what is staged; both mutations answer `{ ok, message }`, so a refusal
-  (a hook, a conflict, a bad branch name) is shown in the panel instead of failing silently. Git's
-  everyday refusal — "nothing to commit" — is reported as *"Nothing is staged to commit. Stage a change
-  first."*, and pressing Enter in the message box with an empty index says the same without asking git
-  (`gitExec` prefers git's own stdout/stderr over Node's `Command failed: …` wrapper).
+- The branch chip is a button: it opens `morse-branch-picker` (`gitBranches { repo? }` → locals,
+  remote tracking branches — remotes shown by their short name — and tags) with "Create new branch…"
+  and "Checkout detached…" rows. `gitCheckout { branch, create, repo? }` switches, creates, or detaches
+  (a tag or a commit hash); tags check out detached, the way git does. A commit box above the changes
+  calls `gitCommit { message, repo? }` for what is staged; both mutations answer `{ ok, message }`, so
+  a refusal (a hook, a conflict, a bad branch name) is shown in the section instead of failing
+  silently. Git's everyday refusal — "nothing to commit" — is reported as *"Nothing is staged to
+  commit. Stage a change first."*, and pressing Enter in the message box with an empty index says the
+  same without asking git (`gitExec` prefers git's own stdout/stderr over Node's `Command failed: …`
+  wrapper).
 - The history is read with `git log --all --date-order` and capped (250 by default, 500 hard), so a
   long repository stays readable. VS Code never loads this — the capability, the shortcut row and
   the panel are all gated on `capabilities.gitPanel`.

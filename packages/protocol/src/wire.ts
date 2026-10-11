@@ -24,6 +24,8 @@ export type HostCommand =
   | 'uploadFile'
   | 'gitLog'
   | 'gitStatus'
+  /** The repositories under the viewing project, for the git panel's per-repo list. */
+  | 'gitRepos'
   | 'gitDiff'
   /** The paths a single commit touched, for the graph's expandable row. */
   | 'gitCommitFiles'

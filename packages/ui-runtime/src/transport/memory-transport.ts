@@ -474,6 +474,13 @@ export class MemoryHostTransport extends BaseHostTransport {
           });
           return;
         }
+        if (message.payload.command === 'gitRepos' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: MOCK_GIT_REPOS },
+          });
+          return;
+        }
         if (message.payload.command === 'gitLog' && message.payload.requestId) {
           this.emit({
             type: 'host/command/result',
@@ -996,6 +1003,32 @@ function mockCommit(
     subject,
   };
 }
+
+/**
+ * A scripted pair of repositories — the project's own plus a nested checkout — so
+ * the panel's multi-repository accordion is reviewable under `?mock=1`. Other git
+ * commands ignore the `repo` argument in the mock and answer the same scripted
+ * data, which is enough to exercise the sections and their folds.
+ */
+const MOCK_GIT_REPOS = {
+  isRepo: true,
+  repos: [
+    {
+      path: '',
+      root: '/mock/workspace',
+      name: 'mock-workspace',
+      current: true,
+      branch: 'master',
+    },
+    {
+      path: 'packages/morse-web',
+      root: '/mock/workspace/packages/morse-web',
+      name: 'morse-web',
+      current: false,
+      branch: 'feat/web-repos',
+    },
+  ],
+};
 
 /** A scripted working-tree status, so the Explorer's git badges are reviewable. */
 const MOCK_GIT_STATUS = {

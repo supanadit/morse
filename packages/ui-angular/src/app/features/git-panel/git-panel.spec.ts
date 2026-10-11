@@ -42,7 +42,7 @@ function setup(
     /** Read the mock working tree each time (a staging test mutates it). */
     getStatus?: () => unknown;
     /** Answer `gitStage`/`gitUnstage`; return the fresh working tree. */
-    onGitMutation?: (command: string, paths: string[]) => unknown;
+    onGitMutation?: (command: string, paths: string[], repo?: string) => unknown;
     /** Answer `gitCommitFiles` with one commit's changed paths. */
     commitFiles?: unknown;
     /** Answer `gitSync`/`gitPull`/`gitPush` with the branch distance. */
@@ -51,8 +51,23 @@ function setup(
     branches?: unknown;
     /** Answer `gitCommit`/`gitCheckout` with a mutation verdict. */
     mutation?: unknown;
+    /** The repositories `gitRepos` lists; defaults to the session's own. */
+    repos?: unknown;
   } = {},
 ) {
+  const repoList =
+    options.repos ?? {
+      isRepo: true,
+      repos: [
+        {
+          path: '',
+          root: '/mock/workspace',
+          name: 'morse',
+          current: true,
+          branch: 'main',
+        },
+      ],
+    };
   const fake = {
     workspace: signal({ cwd: '/mock/workspace', name: 'morse' }),
     capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
@@ -61,6 +76,9 @@ function setup(
       workspace: { cwd: '/mock/workspace', name: 'morse' },
     }),
     requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) => {
+      if (command === 'gitRepos') {
+        return Promise.resolve(repoList);
+      }
       if (command === 'listFiles') {
         return Promise.resolve({ files: options.files ?? [] });
       }
@@ -71,8 +89,11 @@ function setup(
         const paths = Array.isArray(args?.['paths'])
           ? (args!['paths'] as string[]).filter((path) => typeof path === 'string')
           : [];
+        const repo = typeof args?.['repo'] === 'string' ? (args!['repo'] as string) : undefined;
         return Promise.resolve(
-          options.onGitMutation ? options.onGitMutation(command, paths) : options.status,
+          options.onGitMutation
+            ? options.onGitMutation(command, paths, repo)
+            : (options.getStatus ? options.getStatus() : options.status),
         );
       }
       if (command === 'gitCommitFiles') {
@@ -98,6 +119,7 @@ function setup(
       if (command === 'gitCommit' || command === 'gitCheckout') {
         return Promise.resolve(options.mutation ?? { ok: true });
       }
+      // `gitLog` and anything else named: the history result.
       return Promise.resolve(result);
     }),
   };
@@ -416,7 +438,9 @@ describe('GitPanel', () => {
   });
 
   it('says when the project is not a repository', async () => {
-    const { fixture } = setup({ isRepo: false, commits: [] });
+    const { fixture } = setup({ isRepo: false, commits: [] }, {
+      repos: { isRepo: false, repos: [] },
+    });
     await settle(fixture);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'not a git repository',
@@ -428,12 +452,12 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    expect(host.querySelector('.changes .empty .mark')).not.toBeNull();
-    expect(host.querySelector('.changes .empty .mark .check')).not.toBeNull();
+    expect(host.querySelector('.repo-detail-pane .empty .mark')).not.toBeNull();
+    expect(host.querySelector('.repo-detail-pane .empty .mark .check')).not.toBeNull();
     expect(host.textContent).toContain('No uncommitted changes');
   });
 
-  it('draws the whole changes area, form and groups, in one pane', async () => {
+  it('draws the whole changes area, form and groups, in one open repository', async () => {
     const { fixture } = setup(LOG, {
       files: [],
       status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
@@ -441,21 +465,109 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    // The sync row, the commit form and both change groups live in the one
-    // "Changes" pane body, so they fold and size together.
-    const changes = host.querySelector('morse-pane.changes') as HTMLElement;
-    expect(changes).not.toBeNull();
-    expect(changes.querySelector('.sync')).not.toBeNull();
-    expect(changes.querySelector('.commit-box')).not.toBeNull();
-    expect(changes.querySelector('.changes-tree')).not.toBeNull();
-    // The pane body itself does not scroll; the tree has its own region.
-    expect(changes.querySelector('.changes-scroll')).not.toBeNull();
+    // The sync row, the commit form and both change groups live in the open
+    // repository's detail pane, so they scroll together.
+    const detail = host.querySelector('.repo-detail-pane') as HTMLElement;
+    expect(detail).not.toBeNull();
+    expect(detail.querySelector('.sync')).not.toBeNull();
+    expect(detail.querySelector('.commit-box')).not.toBeNull();
+    expect(detail.querySelector('.changes-tree')).not.toBeNull();
+    expect(detail.querySelector('.changes-scroll')).not.toBeNull();
 
-    // Folding the Changes pane takes the form and the tree with it.
-    changes.querySelector<HTMLButtonElement>('.pane-fold')?.click();
+    // Folding the repository takes the form and the tree with it.
+    host.querySelector<HTMLButtonElement>('.repo-toggle')?.click();
     fixture.detectChanges();
     expect(host.querySelector('.commit-box')).toBeNull();
     expect(host.querySelector('.changes-tree')).toBeNull();
+    expect(host.querySelector('.repo-detail-pane')).toBeNull();
+  });
+
+  it('folds and resizes the Changes and History sections inside the open repository', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    // Both sections are panes with their own fold, and a drag handle between.
+    const changes = host.querySelector('morse-pane.changes') as HTMLElement;
+    const history = host.querySelector('morse-pane.history') as HTMLElement;
+    expect(changes).not.toBeNull();
+    expect(history).not.toBeNull();
+    expect(host.querySelector('.divider')).not.toBeNull();
+
+    // Folding Changes hides its body but leaves History alone.
+    const changesFold = changes.querySelector<HTMLButtonElement>('.pane-fold')!;
+    changesFold.click();
+    fixture.detectChanges();
+    expect(host.querySelector('.commit-box')).toBeNull();
+    expect(host.querySelector('.changes-tree')).toBeNull();
+    expect(host.querySelector('.list')).not.toBeNull();
+    expect(host.querySelector('.repo-detail-pane')?.classList.contains('changes-collapsed')).toBe(
+      true,
+    );
+
+    // Folding History too collapses both to their headers; the divider goes away.
+    history.querySelector<HTMLButtonElement>('.pane-fold')!.click();
+    fixture.detectChanges();
+    expect(host.querySelector('.list')).toBeNull();
+    expect(host.querySelector('.divider.gone')).not.toBeNull();
+  });
+
+  it('opens one repository in place and leaves the other headers put', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
+      repos: {
+        isRepo: true,
+        repos: [
+          { path: '', root: '/mock/workspace', name: 'morse', current: true, branch: 'main' },
+          {
+            path: 'packages/sub',
+            root: '/mock/workspace/packages/sub',
+            name: 'sub',
+            current: false,
+            branch: 'dev',
+          },
+        ],
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    /** The header labels in the order they are drawn. */
+    const headerNames = (): string[] =>
+      [...host.querySelectorAll<HTMLElement>('.repo-head .repo-name')].map(
+        (node) => node.textContent?.trim() ?? '',
+      );
+
+    // The session's own repository is open by default; only one detail pane.
+    expect(headerNames()).toEqual(['morse', 'sub']);
+    expect(host.querySelectorAll('.repo-detail-pane')).toHaveLength(1);
+    // A nested repo whose path differs from its folder name shows the path too.
+    expect(host.querySelectorAll<HTMLElement>('.repo-head')[1]!.querySelector('.repo-detail')?.textContent?.trim()).toBe(
+      'packages/sub',
+    );
+
+    // Opening the second expands it *in place*: the header order never changes,
+    // there is still one detail pane, and it sits directly under its own header.
+    host.querySelectorAll<HTMLButtonElement>('.repo-toggle')[1]!.click();
+    fixture.detectChanges();
+    expect(headerNames()).toEqual(['morse', 'sub']);
+    expect(host.querySelectorAll('.repo-detail-pane')).toHaveLength(1);
+    const secondHead = host.querySelectorAll<HTMLElement>('.repo-head')[1]!;
+    expect(secondHead.classList.contains('open')).toBe(true);
+    const detail = host.querySelector('.repo-detail-pane') as HTMLElement;
+    expect(
+      secondHead.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Clicking the open header again folds it, leaving only the headers.
+    secondHead.querySelector<HTMLButtonElement>('.repo-toggle')!.click();
+    fixture.detectChanges();
+    expect(host.querySelector('.repo-detail-pane')).toBeNull();
+    expect(host.querySelectorAll('.repo-head')).toHaveLength(2);
   });
 
   it('lists uncommitted changes above the graph and opens one in a tab', async () => {
@@ -637,7 +749,7 @@ describe('GitPanel', () => {
     expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts', 'b.ts'] }]);
   });
 
-  it('folds the changes section away from its header', async () => {
+  it('folds a repository section away from its header', async () => {
     const { fixture } = setup(LOG, {
       files: ['a.ts'],
       status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
@@ -646,11 +758,11 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.changes-tree')).not.toBeNull();
 
-    host.querySelector<HTMLButtonElement>('.changes .pane-fold')?.click();
+    host.querySelector<HTMLButtonElement>('.repo-toggle')?.click();
     fixture.detectChanges();
 
     expect(host.querySelector('.changes-tree')).toBeNull();
-    expect(host.querySelector('.body.changes-collapsed')).not.toBeNull();
+    expect(host.querySelector('.repo-detail-pane')).toBeNull();
   });
 
   it('offers a left-edge handle to resize the panel against the conversation', async () => {
@@ -720,11 +832,25 @@ describe('GitPanelState paging', () => {
     });
   }
 
-  it('appends the next page until the root, then stops', async () => {
+  it('appends the next page per repository until the root, then stops', async () => {
     const fake = {
       workspace: signal({ cwd: '/r', name: 'r' }),
       capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
-      requestHostCommand: vi.fn((_command: string, args?: Record<string, unknown>) => {
+      requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) => {
+        if (command === 'gitRepos') {
+          return Promise.resolve({
+            isRepo: true,
+            repos: [
+              { path: '', root: '/r', name: 'r', current: true, branch: 'main' },
+            ],
+          });
+        }
+        if (command === 'gitSync') {
+          return Promise.resolve({ isRepo: true, branch: 'main', ahead: 0, behind: 0 });
+        }
+        if (command === 'gitStatus') {
+          return Promise.resolve({ isRepo: true, files: [] });
+        }
         const skip = Number(args?.['skip'] ?? 0);
         const commits = skip === 0 ? page(0, 250) : page(250, 3);
         return Promise.resolve({ isRepo: true, root: '/r', branch: 'main', commits });
@@ -735,14 +861,18 @@ describe('GitPanelState paging', () => {
 
     state.refresh();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(state.commits()).toHaveLength(250);
-    expect(state.hasMore()).toBe(true);
+    const repo = state.repos()[0]!;
+    expect(repo.commits()).toHaveLength(250);
+    expect(repo.hasMore()).toBe(true);
 
-    state.loadMore();
+    repo.loadMore();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(state.commits()).toHaveLength(253);
-    expect(state.hasMore()).toBe(false);
-    expect(fake.requestHostCommand).toHaveBeenLastCalledWith('gitLog', { max: 250, skip: 250 });
+    expect(repo.commits()).toHaveLength(253);
+    expect(repo.hasMore()).toBe(false);
+    expect(fake.requestHostCommand).toHaveBeenLastCalledWith('gitLog', {
+      max: 250,
+      skip: 250,
+    });
   });
 });
 

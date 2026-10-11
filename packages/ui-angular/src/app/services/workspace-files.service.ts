@@ -1,6 +1,6 @@
 import { Injectable, computed, effect, inject } from '@angular/core';
 import type { GitStatus } from '@morse/protocol';
-import { asGitStatus } from '@morse/ui-runtime';
+import { asGitRepos, asGitStatus } from '@morse/ui-runtime';
 import { MorseService } from '../host/morse.service';
 import { WorkspaceFilesStore } from '../state/workspace-files.store';
 
@@ -122,27 +122,32 @@ export class WorkspaceFiles {
   }
 
   /**
-   * Stages the named paths in the viewing session's repository. The host answers
-   * with the fresh working tree, so the panel updates without a second poll; a
-   * host that cannot answer leaves the status to resync instead.
+   * Stages the named paths in one repository of the viewing project. The host
+   * answers with the fresh working tree, so the panel and the Explorer update
+   * without a second poll; a host that cannot answer leaves the status to
+   * resync instead.
    */
-  async stage(paths: readonly string[]): Promise<boolean> {
-    return this.mutate('gitStage', paths);
+  async stage(repo: string, paths: readonly string[]): Promise<boolean> {
+    return this.mutate('gitStage', repo, paths);
   }
 
-  /** Unstages the named paths, keeping the working-tree change. */
-  async unstage(paths: readonly string[]): Promise<boolean> {
-    return this.mutate('gitUnstage', paths);
+  /** Unstages the named paths of one repository, keeping the working-tree change. */
+  async unstage(repo: string, paths: readonly string[]): Promise<boolean> {
+    return this.mutate('gitUnstage', repo, paths);
   }
 
   private async mutate(
     command: 'gitStage' | 'gitUnstage',
+    repo: string,
     paths: readonly string[],
   ): Promise<boolean> {
     if (paths.length === 0) {
       return true;
     }
-    const result = await this.morse.requestHostCommand(command, { paths: [...paths] });
+    const result = await this.morse.requestHostCommand(command, {
+      paths: [...paths],
+      ...(repo.length > 0 ? { repo } : {}),
+    });
     const status = asGitStatus(result);
     if (status === undefined) {
       // No usable answer (an older host): fall back to a full resync so the
@@ -150,7 +155,7 @@ export class WorkspaceFiles {
       this.refresh();
       return false;
     }
-    this.store.setStatus(status);
+    this.store.setStatus(repo, status);
     return true;
   }
 
@@ -188,12 +193,12 @@ export class WorkspaceFiles {
   }
 
   /**
-   * Reads the working tree and then the file list, so the list and the badges
-   * describe the same moment.
+   * Reads the working tree of every repository and then the file list, so the
+   * list and the badges describe the same moment.
    *
-   * The order matters. The status is the change signal, so it is asked for
+   * The order matters. The statuses are the change signal, so they are asked for
    * first: a tick that issued both commands together had to decide before the
-   * status it was comparing had arrived, which made the list follow the tree a
+   * statuses it was comparing had arrived, which made the list follow the tree a
    * whole tick — four seconds — after the tree had already moved.
    */
   private async read(
@@ -204,15 +209,14 @@ export class WorkspaceFiles {
     try {
       // A host without git (VS Code) is never asked: it would answer with an
       // error, and a background poll must not fill the transcript with those.
-      const status = this.gitAvailable()
-        ? asGitStatus(await this.morse.requestHostCommand('gitStatus'))
-        : undefined;
+      const statuses = this.gitAvailable() ? await this.readStatuses() : new Map<string, GitStatus>();
       if (this.morse.workspace().cwd !== cwd) {
         // The project changed while this request was in flight; the next poll
         // (or the effect) asks again for the directory the user is in.
         return;
       }
-      const fresh = listFresh ?? this.needsFreshList(status);
+      const merged = this.mergeStatuses(statuses);
+      const fresh = listFresh ?? this.needsFreshList(merged);
       const listData = await this.morse.requestHostCommand(
         'listFiles',
         fresh ? { fresh: true } : undefined,
@@ -227,13 +231,13 @@ export class WorkspaceFiles {
       }
       this.loadedFor = cwd;
       this.store.setFiles(files);
-      this.store.setStatus(status);
+      this.store.setStatuses(Object.fromEntries(statuses));
       if (fresh) {
         this.listReadAt = Date.now();
       }
       // Recorded from what was just read, so the next tick compares against
       // the tree this answer described.
-      this.statusSignature = status === undefined ? undefined : workingTreeSignature(status);
+      this.statusSignature = merged === undefined ? undefined : workingTreeSignature(merged);
     } finally {
       this.inFlight = false;
       if (!background) {
@@ -243,6 +247,50 @@ export class WorkspaceFiles {
         this.ensureLoaded(true);
       }
     }
+  }
+
+  /**
+   * Reads every repository's working tree. The repository set comes from
+   * `gitRepos` — the project's own plus any nested ones — and each is asked for
+   * its own `gitStatus`, so the Explorer's badges cover a submodule's files too.
+   * A host that cannot answer `gitRepos` falls back to the session's own
+   * repository, so a single-repository host keeps working unchanged.
+   */
+  private async readStatuses(): Promise<Map<string, GitStatus>> {
+    const statuses = new Map<string, GitStatus>();
+    // Ask for the session's own repository immediately, so a host that answers
+    // `gitRepos` slowly still gets its working tree in the same tick.
+    const own = this.morse.requestHostCommand('gitStatus');
+    // An older host answers `undefined` to `gitRepos`; then the session's own
+    // repository is the only one there is.
+    const repos = asGitRepos(await this.morse.requestHostCommand('gitRepos'));
+    const nested = repos === undefined ? [] : repos.repos.filter((repo) => repo.path.length > 0);
+    const ownStatus = asGitStatus(await own);
+    if (ownStatus !== undefined && ownStatus.isRepo) {
+      statuses.set('', ownStatus);
+    }
+    for (const repo of nested) {
+      const status = asGitStatus(
+        await this.morse.requestHostCommand('gitStatus', { repo: repo.path }),
+      );
+      if (status !== undefined && status.isRepo) {
+        statuses.set(repo.path, status);
+      }
+    }
+    return statuses;
+  }
+
+  /**
+   * Every repository's changes as one status, matching what the store computes
+   * for the Explorer. Used only as the change signal here: it is what
+   * `needsFreshList` and the signature compare against.
+   */
+  private mergeStatuses(statuses: Map<string, GitStatus>): GitStatus | undefined {
+    if (statuses.size === 0) {
+      return undefined;
+    }
+    const files = [...statuses.values()].flatMap((status) => status.files);
+    return { isRepo: true, files };
   }
 }
 

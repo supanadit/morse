@@ -36,6 +36,7 @@ import {
   stageGitPaths,
   unstageGitPaths,
 } from '../workspace/git-log.js';
+import { readGitRepos } from '../workspace/git-repos.js';
 import { workspaceFiles } from '../workspace/workspace-index.js';
 import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/host-runtime';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
@@ -271,19 +272,26 @@ export class MorseSessionFactory {
         this.logger.info(`Upload stored: ${saved.path} (${saved.bytes} bytes)`);
         return saved;
       }
+      case 'gitRepos': {
+        // The repositories under the viewing project: its own, plus any nested
+        // ones (submodules, separate checkouts). The panel lists one accordion
+        // section per repository, the way VS Code's source-control view does.
+        const cwd = this.requireWritableCwd(context);
+        return readGitRepos(cwd);
+      }
       case 'gitLog': {        // The git panel's history and graph. Like `readFile`, the repository is
         // the viewing session's directory, never a path the client names. `skip`
         // pages towards the root commit as the panel scrolls.
         const cwd = this.requireWritableCwd(context);
         const max = typeof args?.max === 'number' ? args.max : undefined;
         const skip = typeof args?.skip === 'number' ? args.skip : undefined;
-        return readGitLog(cwd, max, skip);
+        return readGitLog(cwd, max, skip, repoArg(args));
       }
       case 'gitStatus': {
         // The working tree's changes, for the Explorer's per-file badges. Polled
         // alongside `listFiles`, so the two always describe the same moment.
         const cwd = this.requireWritableCwd(context);
-        return readGitStatus(cwd);
+        return readGitStatus(cwd, repoArg(args));
       }
       case 'gitDiff': {
         // One file's unified diff for the preview's diff modes. The path is
@@ -293,25 +301,25 @@ export class MorseSessionFactory {
         if (path.length === 0) {
           throw new UnsupportedByHostError('gitDiff needs a "path" argument.');
         }
-        return readGitDiff(cwd, path);
+        return readGitDiff(cwd, path, repoArg(args));
       }
       case 'gitStage': {
         // Staging writes the index of the viewing session's repository. Paths are
         // resolved inside it, exactly like `readFile`, and the answer is the
         // fresh working tree so the panel updates in one round trip.
         const cwd = this.requireWritableCwd(context);
-        return stageGitPaths(cwd, gitPaths(args));
+        return stageGitPaths(cwd, gitPaths(args), repoArg(args));
       }
       case 'gitUnstage': {
         const cwd = this.requireWritableCwd(context);
-        return unstageGitPaths(cwd, gitPaths(args));
+        return unstageGitPaths(cwd, gitPaths(args), repoArg(args));
       }
       case 'gitCommitFiles': {
         // The graph's expandable row: the paths one commit touched. The hash is
         // client-named, so it is validated as a hex object id, never a ref.
         const cwd = this.requireWritableCwd(context);
         const hash = typeof args?.hash === 'string' ? args.hash : '';
-        return readCommitFiles(cwd, hash);
+        return readCommitFiles(cwd, hash, repoArg(args));
       }
       case 'gitCommitDiff': {
         const cwd = this.commandCwd(context, args);
@@ -320,38 +328,38 @@ export class MorseSessionFactory {
         if (path.length === 0) {
           throw new UnsupportedByHostError('gitCommitDiff needs a "path" argument.');
         }
-        return readCommitDiff(cwd, hash, path);
+        return readCommitDiff(cwd, hash, path, repoArg(args));
       }
       case 'gitSync': {
         // How far HEAD is from its upstream, for the panel's pull/push controls.
         const cwd = this.requireWritableCwd(context);
-        return readGitSync(cwd);
+        return readGitSync(cwd, repoArg(args));
       }
       case 'gitPull': {
         // Network commands: git runs with prompts disabled, so a missing
         // credential fails instead of blocking the host on stdin.
         const cwd = this.requireWritableCwd(context);
-        return pullGit(cwd);
+        return pullGit(cwd, repoArg(args));
       }
       case 'gitPush': {
         const cwd = this.requireWritableCwd(context);
-        return pushGit(cwd);
+        return pushGit(cwd, repoArg(args));
       }
       case 'gitCommit': {
         // Commits the staged changes. The message is client-named but passed as
         // a single argv element, never through a shell.
         const cwd = this.requireWritableCwd(context);
         const message = typeof args?.message === 'string' ? args.message : '';
-        return commitGit(cwd, message);
+        return commitGit(cwd, message, repoArg(args));
       }
       case 'gitBranches': {
         const cwd = this.requireWritableCwd(context);
-        return readGitBranches(cwd);
+        return readGitBranches(cwd, repoArg(args));
       }
       case 'gitCheckout': {
         const cwd = this.requireWritableCwd(context);
         const branch = typeof args?.branch === 'string' ? args.branch : '';
-        return checkoutGit(cwd, branch, args?.create === true);
+        return checkoutGit(cwd, branch, args?.create === true, repoArg(args));
       }
       case 'mcpStatus': {
         // The viewing session's MCP servers. `pi mcp list --json` connects every
@@ -554,6 +562,18 @@ function gitPaths(args: Record<string, unknown> | undefined): string[] {
     return [];
   }
   return paths.filter((path): path is string => typeof path === 'string' && path.length > 0);
+}
+
+/**
+ * The `repo` argument of a git command: the session-relative path of the nested
+ * repository it targets. Absent (or empty) is the session directory's own
+ * repository, which is what every command meant before the panel listed more
+ * than one. The host resolves it inside the session directory with the same
+ * guard `readFile` uses, so a client cannot name a repository outside the project.
+ */
+function repoArg(args: Record<string, unknown> | undefined): string | undefined {
+  const repo = args?.['repo'];
+  return typeof repo === 'string' && repo.length > 0 ? repo : undefined;
 }
 
 function stringArg(args: Record<string, unknown> | undefined, key: string): string {

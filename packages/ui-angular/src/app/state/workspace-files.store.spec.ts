@@ -14,12 +14,28 @@ describe('WorkspaceFilesStore', () => {
     const status: GitStatus = { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] };
     store.setFiles(['a.ts']);
     store.setBusy(true);
-    store.setStatus(status);
+    store.setStatus('', status);
     store.setError('Could not list this project.');
 
     expect(store.files()).toEqual(['a.ts']);
     expect(store.busy()).toBe(true);
-    expect(store.status()).toBe(status);
+    expect(store.status()).toEqual(status);
     expect(store.error()).toBe('Could not list this project.');
+  });
+
+  it('merges every repository into one status for the Explorer', () => {
+    const store = new WorkspaceFilesStore();
+    store.setStatuses({
+      '': { isRepo: true, files: [{ path: 'root.ts', status: ' M' }] },
+      'packages/sub': { isRepo: true, files: [{ path: 'packages/sub/a.ts', status: '??' }] },
+    });
+
+    expect(store.status()?.files.map((file) => file.path)).toEqual([
+      'root.ts',
+      'packages/sub/a.ts',
+    ]);
+    // A nested repository with no changes of its own adds nothing.
+    store.setStatus('packages/sub', { isRepo: true, files: [] });
+    expect(store.status()?.files.map((file) => file.path)).toEqual(['root.ts']);
   });
 });
