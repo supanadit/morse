@@ -28,6 +28,15 @@ const SKIPPED_DIRECTORIES = new Set([
 
 const MAX_INDEXED_FILES = 5_000;
 const INDEX_TTL_MS = 60_000;
+/**
+ * How many directories keep a warm index. A global browser host switches
+ * projects freely, and each cached index can hold thousands of paths, so the
+ * cache is bounded: the least recently used project is dropped once the cap is
+ * passed. Nothing else ever releases an index — unlike the VS Code host, which
+ * has a single workspace folder — so without this the map would grow for the
+ * host's entire lifetime.
+ */
+const MAX_CACHED_INDEXES = 8;
 
 interface FileIndex {
   files: string[];
@@ -36,9 +45,29 @@ interface FileIndex {
   at: number;
 }
 
-/** One index per directory: a global browser host can switch projects. */
+/**
+ * One index per directory, capped and LRU-ordered: a global host browses many
+ * projects, but only a handful are ever warm at once. Ordered oldest-first, so
+ * the first key is the eviction candidate.
+ */
 const indexes = new Map<string, FileIndex>();
 const inFlight = new Map<string, Promise<FileIndex>>();
+
+/**
+ * Forgets cached indexes — every directory, or just one. Called when a session
+ * leaves the hot set (its project is no longer being viewed) and on host
+ * shutdown, so a global host does not retain a listing per project it has ever
+ * seen. Exposed for the session-removal hook and for tests.
+ */
+export function clearWorkspaceIndex(cwd?: string): void {
+  if (cwd === undefined) {
+    indexes.clear();
+    inFlight.clear();
+    return;
+  }
+  indexes.delete(cwd);
+  inFlight.delete(cwd);
+}
 
 /**
  * Entries under `cwd`, relative to it, for the frontend's `@mention` picker:
@@ -64,6 +93,10 @@ async function cachedIndex(cwd: string, fresh: boolean): Promise<FileIndex> {
   const now = Date.now();
   const cached = indexes.get(cwd);
   if (!fresh && cached && now - cached.at < INDEX_TTL_MS) {
+    // A hit is use: move it to the most-recently-used end so an actively
+    // browsed project is not the one a later project evicts.
+    indexes.delete(cwd);
+    indexes.set(cwd, cached);
     return cached;
   }
   const pending = inFlight.get(cwd);
@@ -73,7 +106,11 @@ async function cachedIndex(cwd: string, fresh: boolean): Promise<FileIndex> {
   const task = indexWorkspace(cwd)
     .then((index) => {
       const entry: FileIndex = { ...index, at: Date.now() };
+      // Re-inserting an existing key moves it to the end (insertion order), so
+      // a refreshed index counts as most-recently-used for the LRU below.
+      indexes.delete(cwd);
       indexes.set(cwd, entry);
+      evictIfNeeded();
       return entry;
     })
     .finally(() => {
@@ -81,6 +118,17 @@ async function cachedIndex(cwd: string, fresh: boolean): Promise<FileIndex> {
     });
   inFlight.set(cwd, task);
   return task;
+}
+
+/** Drops the least recently used indexes once the cache is over its cap. */
+function evictIfNeeded(): void {
+  while (indexes.size > MAX_CACHED_INDEXES) {
+    const oldest = indexes.keys().next().value;
+    if (oldest === undefined) {
+      return;
+    }
+    indexes.delete(oldest);
+  }
 }
 
 async function indexWorkspace(cwd: string): Promise<Omit<FileIndex, 'at'>> {

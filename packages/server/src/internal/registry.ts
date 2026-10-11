@@ -4,6 +4,7 @@ import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/host-r
 import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
 import type { MorseServerConfig } from '../app/config.js';
 import { MORSE_SESSION_REGISTRY, MORSE_TRANSCRIPT_STORE } from '../app/tokens.js';
+import { clearWorkspaceIndex } from './workspace/workspace-index.js';
 
 /**
  * Composition root glue (R7): builds the one session registry this server owns.
@@ -24,7 +25,7 @@ export function createSessionRegistry(
   });
 }
 
-/** Shutdown hook: dispose every warm `pi` process and the transcripts. */
+/** Shutdown hook: dispose every warm `pi` process and the host-wide caches. */
 @Injectable()
 export class MorseRegistryLifecycle implements OnModuleDestroy {
   private readonly detachTranscripts: () => void;
@@ -41,6 +42,10 @@ export class MorseRegistryLifecycle implements OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.detachTranscripts();
+    // The workspace index is module-global and LRU-capped while the host runs;
+    // on shutdown there is nothing left to serve, so drop every listing rather
+    // than hold them until the process exits.
+    clearWorkspaceIndex();
     await this.registry.dispose();
   }
 }

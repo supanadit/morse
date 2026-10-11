@@ -39,7 +39,7 @@ import { MORSE_CONFIG, MORSE_LOGGER } from '../../app/tokens.js';
 import { resolveWithin } from '../workspace/file-store.js';
 import { languageIdForPath, resolveServerCommand, serverForLanguage } from './language-servers.js';
 import { hoverFrom, locationsFrom, relativeWithin, toFileUri } from './lsp-mapping.js';
-import { LspClient } from './lsp-client.js';
+import { LspClient, MAX_OPEN_DOCUMENTS } from './lsp-client.js';
 
 /** How long diagnostics wait for a server's first report about a document. */
 const DIAGNOSTICS_TIMEOUT_MS = 10_000;
@@ -199,7 +199,9 @@ export class ServerLanguageServers implements OnModuleDestroy {
     }
     const client = this.warm(entry);
     if (client !== undefined && text !== undefined) {
+      entry.opened.delete(absolute);
       entry.opened.set(absolute, languageId);
+      this.trimOpened(entry);
       client.open(absolute, languageId, text);
     }
     this.touch(entry);
@@ -292,7 +294,29 @@ export class ServerLanguageServers implements OnModuleDestroy {
         resolve();
       }
     });
+    // A server that dies must not leave the preview spinning: release every
+    // waiter now instead of letting each wait out its own timeout.
+    client.onExit(() => {
+      for (const [uri, waits] of entry.waiting) {
+        for (const resolve of [...waits]) {
+          resolve();
+        }
+        entry.waiting.delete(uri);
+      }
+    });
     return client;
+  }
+
+  /** Keeps the service's own document bookkeeping aligned with the client's cap. */
+  private trimOpened(entry: LspEntry): void {
+    while (entry.opened.size > MAX_OPEN_DOCUMENTS) {
+      const oldest = entry.opened.keys().next().value;
+      if (oldest === undefined) {
+        return;
+      }
+      entry.opened.delete(oldest);
+      entry.published.delete(oldest);
+    }
   }
 
   /**

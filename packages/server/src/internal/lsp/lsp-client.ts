@@ -35,6 +35,15 @@ const DEFAULT_INIT_TIMEOUT_MS = 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 /** How long a server gets to exit on `shutdown` before it is killed. */
 const EXIT_GRACE_MS = 2_000;
+/**
+ * How many documents one server keeps open — and so how many files it retains
+ * diagnostics for. The idle clock does not bound this: `touch` resets it on
+ * every request, so a server that keeps being used in a large project would
+ * otherwise remember every file ever opened for the whole process lifetime. The
+ * least recently used document is closed (`didClose`) and forgotten past the
+ * cap, so the server frees it too.
+ */
+export const MAX_OPEN_DOCUMENTS = 256;
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -47,6 +56,7 @@ export class LspClient {
   private readonly documents = new Map<string, { languageId: string; version: number }>();
   private readonly published = new Map<string, LspDiagnostic[]>();
   private readonly diagnosticsListeners = new Set<(uri: string) => void>();
+  private readonly exitListeners = new Set<() => void>();
   private nextId = 1;
   private dead = false;
 
@@ -136,13 +146,36 @@ export class LspClient {
       this.notify('textDocument/didOpen', {
         textDocument: { uri, languageId, version: 1, text },
       });
+      this.closeLeastRecentlyUsed();
       return;
     }
+    // A re-open is use: reorder for the LRU, then report the change.
+    this.documents.delete(uri);
+    this.documents.set(uri, existing);
     existing.version += 1;
     this.notify('textDocument/didChange', {
       textDocument: { uri, version: existing.version },
       contentChanges: [{ text }],
     });
+  }
+
+  /**
+   * Keeps the open-document set bounded. Evicting is not just forgetting: the
+   * server is told to `didClose` the file (so it drops its own parse and
+   * diagnostics for it) and the last published report is dropped with it. The
+   * next request for that file simply opens it again — cheaper than retaining
+   * every file a long-lived project ever touched.
+   */
+  private closeLeastRecentlyUsed(): void {
+    while (this.documents.size > MAX_OPEN_DOCUMENTS) {
+      const oldest = this.documents.keys().next().value;
+      if (oldest === undefined) {
+        return;
+      }
+      this.documents.delete(oldest);
+      this.published.delete(oldest);
+      this.notify('textDocument/didClose', { textDocument: { uri: oldest } });
+    }
   }
 
   /** What the server last published for a document URI. */
@@ -160,17 +193,28 @@ export class LspClient {
     return () => this.diagnosticsListeners.delete(listener);
   }
 
+  /**
+   * Called once when the server is believed dead (a crash, an exit, a failed
+   * write). The layer above uses it to stop waiting on a process that will
+   * never publish again, instead of leaving a preview spinning until a timeout.
+   */
+  onExit(listener: () => void): () => void {
+    if (this.dead) {
+      listener();
+      return () => undefined;
+    }
+    this.exitListeners.add(listener);
+    return () => this.exitListeners.delete(listener);
+  }
+
   /** Ends the server: `shutdown`, `exit`, then force if it lingers. */
   dispose(): void {
     if (this.dead) {
       return;
     }
-    this.dead = true;
-    for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pending.resolve(undefined);
-      this.pending.delete(id);
-    }
+    // Same teardown as a death, so a diagnostics wait is released rather than
+    // left to its timeout: the process is about to be gone either way.
+    this.markDead();
     this.documents.clear();
     this.published.clear();
     this.diagnosticsListeners.clear();
@@ -296,6 +340,12 @@ export class LspClient {
       pending.resolve(undefined);
       this.pending.delete(id);
     }
+    // Tell the layer above once: a wait for a first diagnostics report must not
+    // outlive the process that would have sent it.
+    for (const listener of [...this.exitListeners]) {
+      listener();
+    }
+    this.exitListeners.clear();
   }
 
   private write(message: LspMessage): void {
