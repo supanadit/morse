@@ -123,17 +123,26 @@ morse-dialog {
   text-overflow: ellipsis;
 }
 /*
- * The key hints are one row on a wide card, but at narrow widths there is no
- * room for both halves, and the prefixes (`>`, `#`, `@`, `:`) are the part a
- * reader acts on — abbreviations nobody is told about are dead keys. So the
- * halves stack instead of competing in one row: the prefixes take their own
- * line and the move hints stay above them.
+ * The key hints are one row on a wide card, but below that there is no room for
+ * both halves, and the prefixes (`>`, `#`, `@`, `:`) are the part a reader acts on
+ * — abbreviations nobody is told about are dead keys. So the halves stack instead
+ * of competing in one row: the prefixes take their own line and the move hints
+ * stay above them.
+ *
+ * The card is `min(640px, 100%)` on a layer with 16px side padding, so the hint
+ * only has the full row to itself once the viewport clears the card. The old 520px
+ * cut left a band where the card was already too narrow for one row but the stack
+ * had not kicked in, and the prefixes were ellipsised away — the breakpoint has to
+ * track the card, not the viewport alone: 640px card + 2×16px layer padding = 672px.
  */
-@media (max-width: 520px) {
+@media (max-width: 672px) {
   .hint {
     flex-wrap: wrap;
     justify-content: center;
     overflow: visible;
+    /* Two rows need more air above and below than the single row did. */
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
   .hint .spacer {
     display: none;
