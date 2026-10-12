@@ -367,4 +367,34 @@ describe('PiRpcSessionCatalog', () => {
     // say "Load more" and show a true project size.
     expect((await catalog.countByProject()).get('/work/project')).toBe(13);
   });
+
+  it('searches the whole catalog by title and project, past the page cap', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'morse-catalog-'));
+    roots.push(root);
+    const bucket = join(root, '--work-project--');
+    await mkdir(bucket, { recursive: true });
+    for (let index = 0; index < 30; index += 1) {
+      const at = String(index).padStart(2, '0');
+      // Only one session mentions "needle"; it is older than the first page of
+      // ten, so a search limited to the page could never find it.
+      const text = index === 0 ? 'the needle in the haystack' : `ordinary session ${at}`;
+      await writeFile(
+        join(bucket, `find-${at}.jsonl`),
+        `${SESSION.join('\n')}\n${userMessage(text, at)}\n`,
+        'utf8',
+      );
+    }
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root, maxSessionsPerProject: 10 });
+
+    // The first page does not contain it…
+    expect((await catalog.list()).some((session) => session.title.includes('needle'))).toBe(false);
+    // …but the search finds it anyway, because it walks the whole catalog.
+    const found = await catalog.search('needle');
+    expect(found).toHaveLength(1);
+    expect(found[0]?.title).toBe('the needle in the haystack');
+    // A project-path match works too, and an empty query matches nothing (the
+    // palette clears its remote rows on an empty box instead of listing all).
+    expect(await catalog.search('/work/project')).toHaveLength(30);
+    expect(await catalog.search('   ')).toHaveLength(0);
+  });
 });

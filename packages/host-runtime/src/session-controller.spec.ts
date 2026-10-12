@@ -1036,6 +1036,54 @@ describe('HostSessionController project list', () => {
     expect(pageCalls).toEqual([{ cwd: '/work/busy', offset: 1 }]);
   });
 
+  it('answers searchSessions from the whole catalog, scoped to the host', async () => {
+    const messages: HostToClientMessage[] = [];
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(fakeGateway({ sessionId: 'sess-busy' })) },
+      catalog: {
+        list: () => Promise.resolve([]),
+        search: (query: string) =>
+          Promise.resolve(
+            [
+              { id: 'a', title: 'Deploy the parser', cwd: '/work/allowed', updatedAt: 1, messageCount: 1 },
+              { id: 'b', title: 'Deploy the server', cwd: '/work/outside', updatedAt: 2, messageCount: 1 },
+            ].filter((session) => session.title.toLowerCase().includes(query.toLowerCase())),
+          ),
+      },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const controller = new HostSessionController({
+      services: { registry, chat },
+      capabilities: CAPABILITIES,
+      emit: (message) => messages.push(message),
+      logger: silentLogger,
+      transcripts: new SessionTranscriptStore(),
+      autoOpen: false,
+      scope: { kind: 'workspace', roots: ['/work/allowed'] },
+    });
+    await controller.start();
+    messages.length = 0;
+
+    await controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'searchSessions', args: { query: 'deploy' }, requestId: 'r1' },
+    });
+
+    const result = messages
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'host/command/result' }> =>
+          message.type === 'host/command/result',
+      )
+      .at(-1);
+    expect(result?.payload.ok).toBe(true);
+    // The out-of-scope match is filtered out, and the allowed one is returned.
+    expect(
+      (result?.payload.data as { sessions: { id: string }[] }).sessions.map((s) => s.id),
+    ).toEqual(['a']);
+  });
+
   it('re-reads commands when the palette asks, and skips a host that cannot', async () => {
     const refreshed: number[] = [];
     const h = harness({

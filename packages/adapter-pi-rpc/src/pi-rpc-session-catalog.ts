@@ -1,7 +1,7 @@
 import { open, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { SessionCatalog, SessionPage, SessionSummary } from '@morse/core';
-import { DEFAULT_SESSIONS_PER_PROJECT } from '@morse/core';
+import { DEFAULT_SESSION_SEARCH_LIMIT, DEFAULT_SESSIONS_PER_PROJECT } from '@morse/core';
 import { asRecord, asString } from './internal/rpc-types.js';
 import { resolveSessionDir } from './internal/resolve-pi.js';
 
@@ -198,6 +198,46 @@ export class PiRpcSessionCatalog implements SessionCatalog {
       }
     }
     return counts;
+  }
+
+  /**
+   * Sessions whose title or project path contains `query`, newest first. This is
+   * the command palette's "search every session" — it walks the whole catalog,
+   * not just the pages the sidebar has loaded.
+   *
+   * Every file is read through the same `readOne` cache the list uses, so the
+   * first search on a cold catalog pays the read (a real 383-session catalog:
+   * ~2.4 s) and every search after it is a memory scan (~10 ms). Building a
+   * separate title index would double the reads for no freshness gain: the cache
+   * already invalidates on size + mtime.
+   */
+  async search(query: string, limit = DEFAULT_SESSION_SEARCH_LIMIT): Promise<SessionSummary[]> {
+    const needle = query.trim().toLowerCase();
+    if (needle.length === 0) {
+      return [];
+    }
+    const files = await this.collectSessionFiles();
+    const matches: SessionSummary[] = [];
+    const bound = Math.max(1, limit);
+    for (const [bucket, bucketFiles] of groupByBucket(files)) {
+      for (const file of bucketFiles) {
+        const summary = await this.readOne(file, bucket);
+        if (summary === undefined) {
+          continue;
+        }
+        if (
+          summary.title.toLowerCase().includes(needle) ||
+          summary.cwd.toLowerCase().includes(needle)
+        ) {
+          matches.push(summary);
+        }
+      }
+    }
+    // `collectSessionFiles` sorted newest first, but the bucket walk reorders, so
+    // sort the matches before capping — the palette wants the newest, not the
+    // first buckets to happen to match.
+    matches.sort((left, right) => right.updatedAt - left.updatedAt);
+    return matches.slice(0, bound);
   }
 
   /** Reads one file into its summary, updating the cache and the bucket→cwd map. */

@@ -8,10 +8,11 @@ import {
   type PromptImage,
   type PromptMode,
   type SessionActivity,
+  type SessionSummary,
   type SessionView,
   type ThinkingLevel,
 } from '@morse/protocol';
-import { createMorseClient, type MorseActions, type MorseClient } from '@morse/ui-runtime';
+import { asSessionSummaries, createMorseClient, type MorseActions, type MorseClient } from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from './transport.token';
 
 /**
@@ -262,6 +263,19 @@ export class MorseService {
   /** Fetches more of one project's sessions, for the sidebar's "Load more". */
   requestSessionPage(cwd: string): void {
     this.actions.requestSessionPage(cwd);
+  }
+
+  /**
+   * Searches every stored session through the host, for the command palette. The
+   * catalog itself is only ever a page in this frontend, so the query goes to the
+   * host and it answers with the matches (scoped to what this host may show).
+   */
+  async searchSessions(query: string, limit?: number): Promise<SessionSummary[]> {
+    const answer = await this.requestHostCommand('searchSessions', {
+      query,
+      ...(limit === undefined ? {} : { limit }),
+    });
+    return asSessionSummaries(answer) ?? [];
   }
 
   /** Re-reads the prompt templates and other commands the palette lists. */

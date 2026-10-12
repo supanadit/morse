@@ -11,6 +11,7 @@ export * from './transcript/tasks.js';
 export * from './transcript/tools.js';
 export * from './transcript/usage.js';
 export * from './palette/commands.js';
+export * from './sessions.js';
 export * from './lsp/guards.js';
 export * from './ui/placement.js';
 export * from './ui/tree-list.js';

@@ -88,6 +88,12 @@ export type HostCommand =
   | 'gitUnstage'
   /** The shell layout the reader left behind (`~/.morse/workbench.json`). */
   | 'readWorkbench'
+  /**
+   * Sessions whose title or project path matches a query, across the whole pi
+   * catalog (not just the pages the sidebar loaded). Backs the command palette's
+   * `#` session search.
+   */
+  | 'searchSessions'
   /** Writes the shell layout back, so the next visit opens the same tabs. */
   | 'saveWorkbench'
   /**

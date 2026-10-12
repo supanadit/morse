@@ -10,7 +10,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { ThinkingLevel } from '@morse/protocol';
+import type { SessionSummary, ThinkingLevel } from '@morse/protocol';
 import { formatTokens } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
 import { ShellState } from '../../state/shell-state';
@@ -56,6 +56,14 @@ export class CommandPalette {
 
   protected readonly query = signal('');
   protected readonly active = signal(0);
+  /**
+   * Matches the host's server-side search returned for the current query. The
+   * palette holds only the sidebar's pages locally, so this is how a session
+   * outside those pages becomes searchable.
+   */
+  private readonly remoteSessions = signal<SessionSummary[]>([]);
+  /** Monotonic id of the in-flight search, so a late answer for an old query is dropped. */
+  private searchSeq = 0;
 
   /**
    * The reader's own projects and files are only in the list where the host can
@@ -196,7 +204,7 @@ export class CommandPalette {
   });
 
   private readonly sessionEntries = computed<PaletteEntry[]>(() =>
-    this.morse.sessions().map((session) => ({
+    this.sessionList().map((session) => ({
       id: `session:${session.id}`,
       kind: 'session' as const,
       label: session.title || 'New session',
@@ -206,6 +214,23 @@ export class CommandPalette {
       keywords: session.cwd,
     })),
   );
+
+  /**
+   * Every session the palette can offer: the pages the sidebar has loaded, plus
+   * whatever the host's server-side search returned for the current query. Local
+   * rows come first so a session already on screen is not duplicated by a search
+   * result, and the newest wins when the same id appears in both.
+   */
+  private readonly sessionList = computed<SessionSummary[]>(() => {
+    const byId = new Map<string, SessionSummary>();
+    for (const session of this.morse.sessions()) {
+      byId.set(session.id, session);
+    }
+    for (const session of this.remoteSessions()) {
+      byId.set(session.id, session);
+    }
+    return [...byId.values()];
+  });
 
   /**
    * Projects only exist as a filter on a global host: VS Code is scoped to the
@@ -313,11 +338,45 @@ export class CommandPalette {
     // A cold file index would make "find a file" look broken on the first open.
     this.workspace.ensureLoaded();
 
+    // The host searches the whole catalog for the reader. The palette only holds
+    // the sidebar's pages, so a query is sent on a short debounce — one round
+    // trip per pause, not per keystroke — and a sequence guard drops an answer
+    // for a query the reader has already moved past.
+    effect((onCleanup) => {
+      const { kind, filter } = parsePaletteQuery(this.query());
+      // Only the session source searches; a flat list searches too, so a session
+      // is findable without the `#` prefix.
+      if (kind !== undefined && kind !== 'session') {
+        this.remoteSessions.set([]);
+        return;
+      }
+      if (filter.trim().length === 0) {
+        this.remoteSessions.set([]);
+        return;
+      }
+      const handle = setTimeout(() => void this.runSearch(filter), 150);
+      onCleanup(() => clearTimeout(handle));
+    });
+
     effect(() => {
       this.active();
       this.groups();
       setTimeout(() => this.revealActive(), 0);
     });
+  }
+
+  /** One server-side session search; a late answer for an old query is dropped. */
+  private async runSearch(filter: string): Promise<void> {
+    const seq = ++this.searchSeq;
+    const trimmed = filter.trim();
+    const matches = await this.morse.searchSessions(trimmed).catch(() => []);
+    if (seq !== this.searchSeq) {
+      return;
+    }
+    this.remoteSessions.set(matches);
+    // The highlight is an index into the row list; a new result set can shorten
+    // it, so bring it back inside the bounds after the rows change.
+    this.active.set(Math.min(this.active(), Math.max(0, this.rows().length - 1)));
   }
 
   protected onInput(event: Event): void {
@@ -384,7 +443,7 @@ export class CommandPalette {
         return;
       case 'session': {
         const id = entryId(entry, 'session');
-        const session = this.morse.sessions().find((candidate) => candidate.id === id);
+        const session = this.sessionList().find((candidate) => candidate.id === id);
         if (session !== undefined) {
           this.tabs.focusSession({ id: session.id, title: session.title, cwd: session.cwd });
         }

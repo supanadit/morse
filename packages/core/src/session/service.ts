@@ -97,6 +97,12 @@ export interface AgentGatewayFactory {
  * every project's top 20) while still filling a screen without a click.
  */
 export const DEFAULT_SESSIONS_PER_PROJECT = 10;
+/**
+ * How many sessions the palette's server-side search returns at most. Enough to
+ * fill the palette's Sessions section generously; the reader narrows the query
+ * rather than scrolling a thousand matches.
+ */
+export const DEFAULT_SESSION_SEARCH_LIMIT = 50;
 
 /** One project's sessions, newest first, plus whether the catalog holds more. */
 export interface SessionPage {
@@ -120,6 +126,13 @@ export interface SessionCatalog {
    */
   listPage?(options: { cwd: string; offset?: number; limit?: number }): Promise<SessionPage>;
   /**
+   * Sessions whose title or project path contains `query`, newest first, capped
+   * to `limit`. The palette asks the host this while the reader types, so the
+   * frontend never has to hold the whole catalog to search it. Optional: a
+   * catalog that cannot search omits it and the palette falls back to the pages
+   * it already holds.
+   */
+  search?(query: string, limit?: number): Promise<SessionSummary[]>;  /**
    * True number of stored sessions per project path. Optional: `list()` caps each
    * project to a page, so a caller that needs the real total (the sidebar's
    * "Load more" and the project counts) asks here. A catalog that cannot answer
@@ -496,6 +509,19 @@ export class SessionRegistry {
       return new Map();
     }
     return countByProject.call(this.deps.catalog).catch(() => new Map());
+  }
+
+  /**
+   * Sessions matching a query across the whole catalog, for the command palette.
+   * A catalog that cannot search returns nothing, and the palette falls back to
+   * the pages the sidebar already holds.
+   */
+  async searchSessions(query: string, limit?: number): Promise<SessionSummary[]> {
+    const search = this.deps.catalog.search;
+    if (!search) {
+      return [];
+    }
+    return search.call(this.deps.catalog, query, limit);
   }
 
   /** Projects are the directories pi has session buckets for. */

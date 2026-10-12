@@ -1316,6 +1316,23 @@ export class HostSessionController {
     args: Record<string, unknown> | undefined,
     requestId?: string,
   ): Promise<void> {
+    // Session search is answered here, not by the host's own command handler:
+    // the registry (and so the whole catalog) lives in this controller, and the
+    // result must respect the host's scope. Routing it through every host would
+    // duplicate the scope filter in each one.
+    if (command === 'searchSessions') {
+      const query = typeof args?.query === 'string' ? args.query : '';
+      const limit = typeof args?.limit === 'number' ? args.limit : undefined;
+      const sessions = await this.options.services.registry
+        .searchSessions(query, limit)
+        .catch((error: unknown) => {
+          this.options.logger.warn(`Session search failed: ${describeError(error)}`, error);
+          return [];
+        });
+      const scoped = sessions.filter((session) => this.withinScope(session.cwd));
+      this.answerHostCommand(requestId, true, { sessions: scoped });
+      return;
+    }
     const handler = this.options.onHostCommand;
     if (!handler) {
       this.options.emit(

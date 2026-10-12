@@ -15,6 +15,20 @@ import { WorkspaceTabs } from '../../state/workspace-tabs';
 
 const FILES = ['README.md', 'packages/core/src/domain.ts', 'packages/ui-angular/src/app/app.ts'];
 
+/**
+ * A session the host knows but the sidebar's first page did not include. It is
+ * what proves the palette searches the whole catalog, not just loaded pages.
+ */
+const REMOTE_SESSIONS = [
+  {
+    id: 'session-old',
+    title: 'Ancient deployment notes',
+    cwd: '/work/archive',
+    updatedAt: 1,
+    messageCount: 7,
+  },
+];
+
 const CAPABILITIES: HostCapabilities = {
   hostKind: 'server',
   scope: 'global',
@@ -98,6 +112,27 @@ class PaletteTransport extends BaseHostTransport {
             type: 'host/command/result',
             payload: { requestId: message.payload.requestId, ok: true, data: { files: FILES } },
           });
+          return;
+        }
+        if (message.payload.command === 'searchSessions' && message.payload.requestId) {
+          const query =
+            typeof message.payload.args?.['query'] === 'string'
+              ? message.payload.args['query'].toLowerCase()
+              : '';
+          // One session lives only on the host, past the page the sidebar loaded.
+          this.emitMessage({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: {
+                sessions: REMOTE_SESSIONS.filter((session) =>
+                  session.title.toLowerCase().includes(query),
+                ),
+              },
+            },
+          });
+          return;
         }
         return;
       default:
@@ -258,8 +293,29 @@ describe('CommandPalette', () => {
     );
   });
 
-  it('picks a model and a thinking level', async () => {
+  it('finds a session past the sidebar page through the host search, and opens it', async () => {
     const { fixture, transport } = await render();
+    open(fixture);
+
+    search(fixture, '# ancient');
+    // The search is debounced (one round trip per pause), so wait past it and let
+    // the host's answer land before reading the rows.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    fixture.detectChanges();
+
+    expect(transport.sent.some((m) => m.type === 'host/command')).toBe(true);
+    // The row is only in the host's catalog — the sidebar never loaded it.
+    expect(labels(fixture)).toContain('Ancient deployment notes');
+    press('Enter');
+    fixture.detectChanges();
+    expect(
+      transport.sent.some(
+        (message) => message.type === 'session/activate' && message.payload.sessionId === 'session-old',
+      ),
+    ).toBe(true);
+  });
+
+  it('picks a model and a thinking level', async () => {    const { fixture, transport } = await render();
     open(fixture);
 
     search(fixture, 'other model');

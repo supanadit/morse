@@ -411,6 +411,23 @@ export class MemoryHostTransport extends BaseHostTransport {
           });
           return;
         }
+        if (message.payload.command === 'searchSessions' && message.payload.requestId) {
+          const query =
+            typeof message.payload.args?.query === 'string'
+              ? message.payload.args.query.trim().toLowerCase()
+              : '';
+          const sessions = this.sessions.filter(
+            (session) =>
+              query.length === 0 ||
+              session.title.toLowerCase().includes(query) ||
+              session.cwd.toLowerCase().includes(query),
+          );
+          this.emit({
+            type: 'host/command/result',
+            payload: { requestId: message.payload.requestId, ok: true, data: { sessions } },
+          });
+          return;
+        }
         if (message.payload.command === 'uploadFile' && message.payload.requestId) {
           const name =
             typeof message.payload.args?.name === 'string'
