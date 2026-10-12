@@ -66,6 +66,12 @@ export interface MorseActions {
   /** Fetches the previous page of a resumed session's history. */
   loadOlderHistory(): void;
   requestSessions(): void;
+  /**
+   * Fetches more of one project's sessions, for the sidebar's "Load more". The
+   * host answers with a `session/list` carrying that `cwd`, merged into the view.
+   * The page size is the host's, so the frontend does not guess one.
+   */
+  requestSessionPage(cwd: string): void;
   requestProjects(): void;
   /** Re-reads the prompt templates and other commands the palette lists. */
   refreshCommands(): void;
@@ -283,6 +289,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       send({ type: 'session/compact', payload: { instructions, sessionKey } }),
     loadOlderHistory: () => send({ type: 'history/load', payload: {} }),
     requestSessions: () => send({ type: 'session/list', payload: {} }),
+    requestSessionPage: (cwd) => send({ type: 'session/list', payload: { cwd } }),
     requestProjects: () => send({ type: 'project/list', payload: {} }),
     refreshCommands: () => send({ type: 'commands/refresh', payload: {} }),
     refreshModels: () => send({ type: 'models/refresh', payload: {} }),

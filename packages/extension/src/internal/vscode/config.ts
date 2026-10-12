@@ -8,6 +8,7 @@ export function readPiAdapterConfig(): PiRpcAdapterConfig {
   const piPath = configuration.get<string>('pi.path', '').trim();
   const entry = configuration.get<string>('pi.entry', '').trim();
   const sessionDir = configuration.get<string>('pi.sessionDir', '').trim();
+  const perProject = configuration.get<number>('sessions.perProject', 10);
 
   return {
     piPath: piPath.length > 0 ? piPath : undefined,
@@ -16,6 +17,9 @@ export function readPiAdapterConfig(): PiRpcAdapterConfig {
     noSession: configuration.get<boolean>('pi.noSession', false),
     extraArgs: configuration.get<string[]>('pi.extraArgs', []),
     requestTimeoutMs: configuration.get<number>('pi.requestTimeoutMs', 30_000),
+    // A project's first page before "Load more"; 0 or a negative value is ignored
+    // by the catalog, which clamps to at least one.
+    maxSessionsPerProject: Number.isFinite(perProject) ? perProject : 10,
   };
 }
 

@@ -18,6 +18,8 @@ export interface MorseServerConfig {
   sessionDir?: string;
   noSession: boolean;
   requestTimeoutMs: number;
+  /** Sessions of one project the sidebar lists before "Load more". */
+  sessionsPerProject: number;
   /** How many `pi` processes stay alive at once (least recently used first). */
   hotSessions: number;
   /** Roots the agent may work in; empty means "any absolute path". */
@@ -105,6 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     sessionDir: env.MORSE_SESSION_DIR,
     noSession: env.MORSE_NO_SESSION === '1',
     requestTimeoutMs: parsePositiveInt(env.MORSE_REQUEST_TIMEOUT_MS, 30_000),
+    sessionsPerProject: parsePositiveInt(env.MORSE_SESSIONS_PER_PROJECT, 10),
     hotSessions: parsePositiveInt(env.MORSE_HOT_SESSIONS, 4),
     projects: parseList(env.MORSE_PROJECTS),
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,

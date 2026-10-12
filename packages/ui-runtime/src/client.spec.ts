@@ -275,6 +275,36 @@ describe('reduceSessionView', () => {
     expect(prepended.items.map((item) => item.id)).toEqual(['u0', 'a1']);
   });
 
+  it('merges a scoped session page into the list and records its hasMore flag', () => {
+    const first = reduceSessionView(createInitialView(), {
+      type: 'session/list',
+      payload: {
+        sessions: [
+          { id: 's1', title: 'one', cwd: '/work/busy', updatedAt: 3, messageCount: 1 },
+        ],
+        hasMoreByProject: { '/work/busy': true },
+      },
+    });
+    expect(first.sessionHasMore['/work/busy']).toBe(true);
+
+    const paged = reduceSessionView(first, {
+      type: 'session/list',
+      payload: {
+        cwd: '/work/busy',
+        hasMore: false,
+        sessions: [
+          { id: 's2', title: 'two', cwd: '/work/busy', updatedAt: 2, messageCount: 1 },
+          // A rename of the existing row replaces it rather than adding a second.
+          { id: 's1', title: 'one (renamed)', cwd: '/work/busy', updatedAt: 3, messageCount: 2 },
+        ],
+      },
+    });
+
+    expect(paged.sessions.map((session) => session.id)).toEqual(['s1', 's2']);
+    expect(paged.sessions.find((session) => session.id === 's1')?.title).toBe('one (renamed)');
+    expect(paged.sessionHasMore['/work/busy']).toBe(false);
+  });
+
   it('ignores unknown message shapes without throwing', () => {
     const view = createInitialView();
     const unknown = { type: 'nope/whatever', payload: {} } as unknown as Parameters<

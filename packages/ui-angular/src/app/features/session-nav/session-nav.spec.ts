@@ -39,6 +39,8 @@ class ScopedHostTransport extends BaseHostTransport {
       messageCount: number;
       parentId?: string;
     }[],
+    /** Projects the host reports as holding more sessions than it sent. */
+    private readonly hasMoreByProject: Record<string, boolean> = {},
   ) {
     super();
   }
@@ -103,6 +105,7 @@ class ScopedHostTransport extends BaseHostTransport {
                 { id: 's1', title: 'Morse work', cwd: '/work/morse', updatedAt: 2, messageCount: 3 },
                 { id: 's2', title: 'Other work', cwd: '/work/other', updatedAt: 1, messageCount: 5 },
               ]),
+        hasMoreByProject: this.hasMoreByProject,
       },
     });
     // Two live sessions; only `s1` is actually running, `s2` is idle.
@@ -177,6 +180,8 @@ interface RenderOptions {
     messageCount: number;
     parentId?: string;
   }[];
+  /** Projects the host reports as holding more sessions than it sent. */
+  hasMoreByProject?: Record<string, boolean>;
 }
 
 async function render(
@@ -191,6 +196,7 @@ async function render(
     options.updateCheck === true,
     options.sessionTabs === true,
     options.sessions,
+    options.hasMoreByProject,
   );
   await TestBed.configureTestingModule({
     imports: [SessionNav],
@@ -261,8 +267,31 @@ describe('SessionNav', () => {
     expect(host.querySelector('.row-action')?.getAttribute('aria-label')).toContain('morse');
   });
 
-  it('nests a forked session under the session it was forked from', async () => {
-    const { host } = await render('global', false, {
+  it('tails a project with a "Load more" row when the host holds more, and pages it on click', async () => {
+    const { host, transport, fixture } = await render('global', false, {
+      hasMoreByProject: { '/work/morse': true },
+    });
+
+    // The busy project's sessions end with the separator row; the other project
+    // has nothing more and gets none.
+    const labels = [...host.querySelectorAll('.row .label')].map((node) => node.textContent?.trim());
+    expect(labels).toContain('Load more');
+    expect(labels.filter((label) => label === 'Load more')).toHaveLength(1);
+
+    // Clicking it asks the host for that project's next page, not a full refresh.
+    const more = [...host.querySelectorAll('.row')].find((row) =>
+      row.textContent?.includes('Load more'),
+    ) as HTMLElement;
+    more.click();
+    fixture.detectChanges();
+
+    const paged = transport.sent.filter(
+      (message) => message.type === 'session/list' && message.payload.cwd === '/work/morse',
+    );
+    expect(paged).toHaveLength(1);
+  });
+
+  it('nests a forked session under the session it was forked from', async () => {    const { host } = await render('global', false, {
       sessions: [
         { id: 'parent', title: 'Use codebase map memory', cwd: '/work/morse', updatedAt: 2, messageCount: 3 },
         { id: 'fork', title: 'Use codebase map memory', cwd: '/work/morse', updatedAt: 1, messageCount: 1, parentId: 'parent' },

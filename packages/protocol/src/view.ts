@@ -36,6 +36,12 @@ export interface SessionView {
   items: TranscriptItem[];
   sessions: SessionSummary[];
   /**
+   * Whether the host holds more sessions past the first page for each project,
+   * keyed by cwd. `list()` caps a project to a page, so the sidebar offers a
+   * "Load more" row until the host says there is nothing left.
+   */
+  sessionHasMore: Record<string, boolean>;
+  /**
    * Whether `session/list` has arrived at least once. A frontend that prunes
    * tabs against `sessions` must wait for this: an empty list before the first
    * publish is "not asked yet", not "no sessions", and pruning then would drop
@@ -73,6 +79,7 @@ export function createInitialView(
     items: [],
     sessions: [],
     sessionsLoaded: false,
+    sessionHasMore: {},
     activity: [],
     projects: [],
     pendingInteraction: null,
@@ -119,7 +126,26 @@ export function reduceSessionView(view: SessionView, message: HostToClientMessag
     case 'transcript/prepend':
       return { ...view, items: [...message.payload.items, ...view.items] };
     case 'session/list':
-      return { ...view, sessions: [...message.payload.sessions], sessionsLoaded: true };
+      // A payload with `cwd` is one project's next page (the sidebar's "Load
+      // more"), so it is merged into what is already shown. Without `cwd` it is
+      // the whole first-page list, which replaces the view.
+      if (message.payload.cwd !== undefined) {
+        return {
+          ...view,
+          sessions: mergeSessions(view.sessions, message.payload.sessions),
+          sessionsLoaded: true,
+          sessionHasMore: {
+            ...view.sessionHasMore,
+            [message.payload.cwd]: message.payload.hasMore === true,
+          },
+        };
+      }
+      return {
+        ...view,
+        sessions: [...message.payload.sessions],
+        sessionsLoaded: true,
+        sessionHasMore: { ...(message.payload.hasMoreByProject ?? {}) },
+      };
     case 'session/activity':
       return { ...view, activity: [...message.payload.sessions] };
     case 'project/list':
@@ -137,6 +163,22 @@ export function reduceSessionView(view: SessionView, message: HostToClientMessag
     default:
       return view;
   }
+}
+
+/**
+ * One project's next page into the list already held. Existing ids are replaced
+ * (a session can grow or be renamed between pages) and new ones are appended,
+ * keeping the newest-first order the host sent.
+ */
+function mergeSessions(
+  current: readonly SessionSummary[],
+  incoming: readonly SessionSummary[],
+): SessionSummary[] {
+  const byId = new Map(current.map((session) => [session.id, session] as const));
+  for (const session of incoming) {
+    byId.set(session.id, session);
+  }
+  return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
 /**

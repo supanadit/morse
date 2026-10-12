@@ -13,6 +13,7 @@ Settings live under `morse.*`:
 | `morse.pi.extraArgs` | Extra arguments for the pi process |
 | `morse.pi.requestTimeoutMs` | Per-request RPC timeout |
 | `morse.sessions.hotLimit` | How many `pi` processes stay warm (LRU, default 4) |
+| `morse.sessions.perProject` | Sessions of one project listed before a "Load more" row (default 10) |
 
 ## Browser host environment
 
@@ -26,6 +27,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_WORKSPACE` | current directory | Directory the agent works in |
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
 | `MORSE_HOT_SESSIONS` | `4` | How many `pi` processes stay alive at once |
+| `MORSE_SESSIONS_PER_PROJECT` | `10` | Sessions of one project listed before a "Load more" row |
 | `MORSE_PI_PATH` / `MORSE_PI_ENTRY` | unset | Path to the `pi` binary, or a pi RPC entry run with node |
 | `MORSE_SESSION_DIR` / `MORSE_NO_SESSION` | unset | pi session persistence |
 | `MORSE_REQUEST_TIMEOUT_MS` | `30000` | Per-request RPC timeout |

@@ -5,8 +5,10 @@ import {
   ElementRef,
   HostListener,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import type { SessionSummary, TranscriptItem } from '@morse/protocol';
@@ -28,6 +30,8 @@ interface SessionGroup {
   path: string;
   name: string;
   sessions: SessionSummary[];
+  /** True number the project holds, when the host reported one; else undefined. */
+  total?: number;
 }
 
 /** An open session context menu, anchored at the pointer. */
@@ -70,6 +74,14 @@ export class SessionNav {
   protected readonly collapsed = signal<Record<string, boolean>>({});
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
   /**
+   * True while the sidebar is fetching a project's next page, keyed by cwd. The
+   * value is the number of that project's sessions when the request went out, so
+   * the flag only clears when *that* project's page actually lands — an unrelated
+   * session push must not clear it and let a second click advance the host's page
+   * cursor twice, skipping a page.
+   */
+  protected readonly loadingMore = signal<Record<string, number>>({});
+  /**
    * Sessions under each project for the shared tree. A project is a `group` whose
    * children are its sessions; a session is a `leaf` carrying the summary itself,
    * so a click opens it without looking an id back up.
@@ -89,7 +101,9 @@ export class SessionNav {
       label: group.name,
       // A group's own data is never acted on — only its sessions are.
       data: undefined as unknown as SessionSummary,
-      badge: group.sessions.length.toString(),
+      // The badge is the true total the host reported, not just the page shown,
+      // so a project with 154 sessions reads as "154" beside its first ten rows.
+      badge: (group.total ?? group.sessions.length).toString(),
       kind: 'group' as const,
       action: {
         glyph: '+',
@@ -99,6 +113,68 @@ export class SessionNav {
       children: this.sessionNodes(group, inProgress),
     }));
   });
+
+  /**
+   * True when a project has sessions the host has not sent yet. The host owns the
+   * page cursor, so this only decides whether to draw the "Load more" row — which
+   * asks it for the next page on click.
+   */
+  private hasMore(group: SessionGroup): boolean {
+    return this.morse.sessionHasMore()[group.path] === true;
+  }
+
+  /**
+   * The row that fetches a project's next page. It is a leaf rather than an
+   * action on the project header so it sits at the end of the sessions, where the
+   * reader has scrolled to and expects the list to continue, instead of competing
+   * with the "+" that starts a new session.
+   */
+  private moreNode(group: SessionGroup): TreeNode<SessionSummary> {
+    const loading = this.loadingMore()[group.path] !== undefined;
+    return {
+      id: moreNodeId(group.path),
+      label: loading ? 'Loading…' : 'Load more',
+      detail: group.total === undefined ? undefined : `${group.sessions.length} of ${group.total}`,
+      data: undefined as unknown as SessionSummary,
+      // A leaf: it has no children to fold, and a caret would promise some. The
+      // row click is what pages the project.
+      kind: 'leaf' as const,
+      children: [],
+      action: {
+        glyph: '＋',
+        label: `Load more sessions in ${group.name}`,
+        run: () => this.loadMore(group.path),
+      },
+    };
+  }
+
+  /**
+   * Asks the host for a project's next page. The reply is merged into the view by
+   * the reducer, so this only marks the row busy; an effect observes the view and
+   * clears the flag once the page arrives.
+   */
+  private loadMore(path: string): void {
+    if (this.loadingMore()[path] !== undefined) {
+      return;
+    }
+    const shown = this.morse.sessions().filter((session) => session.cwd === path).length;
+    this.loadingMore.update((state) => ({ ...state, [path]: shown }));
+    this.morse.requestSessionPage(path);
+    // The effect below clears the flag when the page lands. This is the safety
+    // net for a page that never arrives (a dropped socket) or one whose rows were
+    // all already shown: the row must not stay "Loading…" forever.
+    setTimeout(() => this.finishLoading(path, shown), 8_000);
+  }
+
+  /** Clears a project's in-flight flag if it is still the same request. */
+  private finishLoading(path: string, before: number): void {
+    if (this.loadingMore()[path] !== before) {
+      return;
+    }
+    const next = { ...this.loadingMore() };
+    delete next[path];
+    this.loadingMore.set(next);
+  }
 
   /** A project's sessions as tree nodes, with each fork nested under the session it was forked from. */
   private sessionNodes(
@@ -134,7 +210,10 @@ export class SessionNav {
         children,
       };
     };
-    return roots.map(toNode);
+    const nodes = roots.map(toNode);
+    // The "Load more" row tails the project's sessions, so it is the separator
+    // between what the reader has and what the host still holds.
+    return this.hasMore(group) ? [...nodes, this.moreNode(group)] : nodes;
   }
 
   /**
@@ -188,6 +267,10 @@ export class SessionNav {
    * forks hang under it.
    */
   protected onTreeRow(node: TreeNode<SessionSummary>): void {
+    if (isMoreNode(node)) {
+      this.loadMore(moreNodePath(node.id));
+      return;
+    }
     if (isProjectNode(node)) {
       this.toggleGroup(node.id.slice('project:'.length));
       return;
@@ -197,12 +280,17 @@ export class SessionNav {
 
   /** The caret only folds, so a parent session can be opened by its own name. */
   protected onTreeToggle(node: TreeNode<SessionSummary>): void {
+    // "Load more" keeps no children, so its caret has nothing to fold; the row's
+    // own action is the click that matters.
+    if (isMoreNode(node)) {
+      return;
+    }
     this.toggleGroup(isProjectNode(node) ? node.id.slice('project:'.length) : node.id);
   }
 
   /** A right-click on a session row opens the row's menu at the pointer. */
   protected onTreeContext(open: { node: TreeNode<SessionSummary>; event: MouseEvent }): void {
-    if (isProjectNode(open.node)) {
+    if (isProjectNode(open.node) || isMoreNode(open.node)) {
       return;
     }
     this.openMenu(open.event, open.node.data);
@@ -352,6 +440,9 @@ export class SessionNav {
       path: project.path,
       name: project.name,
       sessions: sessions.filter((session) => session.cwd === project.path),
+      // The host counts every stored session, while `sessions` holds only the
+      // page it sent, so the badge and the filter show the real project size.
+      total: project.sessionCount,
     }));
   });
 
@@ -388,7 +479,9 @@ export class SessionNav {
     this.groups().map((group) => ({
       path: group.path,
       name: group.name,
-      sessionCount: group.sessions.length,
+      // The true total, not the page shown: a project with 154 sessions must read
+      // as 154 in the filter even though the list holds only its first page.
+      sessionCount: group.total ?? group.sessions.length,
     })),
   );
 
@@ -414,6 +507,32 @@ export class SessionNav {
   });
 
   constructor() {
+    // A page reply arrives as a `session/list`, which changes the sessions and
+    // the per-project `hasMore` map. Clear only the projects whose session count
+    // moved past what it was when their request went out, so an unrelated push
+    // does not unlock a second click mid-flight.
+    effect(() => {
+      const sessions = this.morse.sessions();
+      const hasMore = this.morse.sessionHasMore();
+      untracked(() => {
+        const inFlight = this.loadingMore();
+        if (Object.keys(inFlight).length === 0) {
+          return;
+        }
+        const next: Record<string, number> = {};
+        for (const [path, before] of Object.entries(inFlight)) {
+          const landed = sessions.filter((session) => session.cwd === path).length > before;
+          // Keep the row busy until its own page landed; also release it when the
+          // host says there is nothing more, so a zero-length page cannot wedge it.
+          if (!landed && hasMore[path] === true) {
+            next[path] = before;
+          }
+        }
+        if (Object.keys(next).length !== Object.keys(inFlight).length) {
+          this.loadingMore.set(next);
+        }
+      });
+    });
     // Three shortcuts belong to the sidebar, because it owns what they act on:
     // the search field, the project filter, and "New session" — the last one
     // because the button's meaning depends on the host (a global host asks which
@@ -704,6 +823,25 @@ function projectNodeId(path: string): string {
 /** A project heading (folds), as opposed to a session fork (a group that still opens). */
 function isProjectNode(node: TreeNode<SessionSummary>): boolean {
   return node.id.startsWith('project:');
+}
+
+/**
+ * The node id the "Load more" row carries. Prefixed like a project id but with
+ * its own marker, so it is never mistaken for a project or a session id (a
+ * session id is a file path and cannot contain this prefix at the start).
+ */
+function moreNodeId(path: string): string {
+  return `more:${path}`;
+}
+
+/** The "Load more" row, whose click pages its project rather than opening a session. */
+function isMoreNode(node: TreeNode<SessionSummary>): boolean {
+  return node.id.startsWith('more:');
+}
+
+/** The project path a "Load more" node id was built from. */
+function moreNodePath(id: string): string {
+  return id.slice('more:'.length);
 }
 
 /**

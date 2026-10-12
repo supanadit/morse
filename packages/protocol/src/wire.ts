@@ -149,7 +149,21 @@ export type HostToClientMessage =
   | { type: 'transcript/replace'; payload: { items: TranscriptItem[] } }
   /** A page of older history, inserted in front of what the client already has. */
   | { type: 'transcript/prepend'; payload: { items: TranscriptItem[] } }
-  | { type: 'session/list'; payload: { sessions: SessionSummary[] } }
+  | {
+      type: 'session/list';
+      payload: {
+        sessions: SessionSummary[];
+        /**
+         * For the full first-page list: whether each project has sessions past
+         * the page, keyed by cwd, so the sidebar can draw its "Load more" row.
+         */
+        hasMoreByProject?: Record<string, boolean>;
+        /** Set when this payload is one project's page (see the request). */
+        cwd?: string;
+        /** For a scoped page: whether that project has yet more sessions. */
+        hasMore?: boolean;
+      };
+    }
   /**
    * A watched `mcp.json` changed on disk, so the reader's MCP indicator and
    * panel should re-read that directory. `cwd` is `''` for the user-level file,
@@ -248,7 +262,17 @@ export type ClientToHostMessage =
    */
   | { type: 'session/compact'; payload: { instructions?: string; sessionKey?: string } }
   | { type: 'history/load'; payload: Record<string, never> }
-  | { type: 'session/list'; payload: Record<string, never> }
+  | {
+      type: 'session/list';
+      payload: {
+        /**
+         * Fetch more of this project's sessions instead of the whole catalog.
+         * Omitted, the host publishes the first page of every project. The host
+         * owns the page size and cursor, so the caller only names the project.
+         */
+        cwd?: string;
+      };
+    }
   /**
    * Re-reads the resources the composer's palette lists. pi caches its prompt
    * templates at spawn, so a newly added template is invisible until this — the

@@ -70,6 +70,8 @@ export class MorseService {
   readonly sessions = computed(() => this.view().sessions);
   /** Whether `session/list` has arrived at least once; see `SessionView.sessionsLoaded`. */
   readonly sessionsLoaded = computed(() => this.view().sessionsLoaded);
+  /** Per-project flag that the host holds sessions past the first page. */
+  readonly sessionHasMore = computed(() => this.view().sessionHasMore);
   /** Every live agent session (not only the selected one). */
   readonly activity = computed(() => this.view().activity);
   /** The same activity keyed by session id, for the navigator's running marks. */
@@ -255,6 +257,11 @@ export class MorseService {
 
   requestSessions(): void {
     this.actions.requestSessions();
+  }
+
+  /** Fetches more of one project's sessions, for the sidebar's "Load more". */
+  requestSessionPage(cwd: string): void {
+    this.actions.requestSessionPage(cwd);
   }
 
   /** Re-reads the prompt templates and other commands the palette lists. */

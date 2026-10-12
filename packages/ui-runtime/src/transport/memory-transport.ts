@@ -303,6 +303,19 @@ export class MemoryHostTransport extends BaseHostTransport {
         return;
       }
       case 'session/list':
+        // A payload naming a project is that project's next page; without one it
+        // is the first-page list. The mock already holds every session, so it
+        // answers with that project's rows and no more to load.
+        if (message.payload.cwd !== undefined) {
+          const sessions = this.sessions.filter(
+            (session) => session.cwd === message.payload.cwd,
+          );
+          this.emit({
+            type: 'session/list',
+            payload: { cwd: message.payload.cwd, sessions, hasMore: false },
+          });
+          return;
+        }
         this.emit({ type: 'session/list', payload: { sessions: this.sessions } });
         return;
       case 'project/list':

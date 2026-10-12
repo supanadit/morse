@@ -970,6 +970,72 @@ describe('HostSessionController project list', () => {
     expect(paths).toContain('/work/other');
   });
 
+  it('answers a scoped session/list with that project\'s next page and a hasMore flag', async () => {
+    const messages: HostToClientMessage[] = [];
+    let pageCalls: { cwd: string; offset?: number; limit?: number }[] = [];
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(fakeGateway({ sessionId: 'sess-busy' })) },
+      catalog: {
+        list: () =>
+          Promise.resolve([
+            { id: 's1', title: 'one', cwd: '/work/busy', updatedAt: 1, messageCount: 1 },
+          ]),
+        countByProject: () => Promise.resolve(new Map([['/work/busy', 3]])),
+        listPage: (options) => {
+          pageCalls.push(options);
+          return Promise.resolve({
+            sessions: [
+              { id: 's2', title: 'two', cwd: '/work/busy', updatedAt: 2, messageCount: 1 },
+              { id: 's3', title: 'three', cwd: '/work/busy', updatedAt: 3, messageCount: 1 },
+            ],
+            hasMore: false,
+          });
+        },
+      },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const controller = new HostSessionController({
+      services: { registry, chat },
+      capabilities: CAPABILITIES,
+      emit: (message) => messages.push(message),
+      logger: silentLogger,
+      transcripts: new SessionTranscriptStore(),
+      autoOpen: false,
+      scope: { kind: 'global' },
+    });
+    await controller.start();
+
+    // The first full list reports the project holds more than its page.
+    await controller.handleClientMessage({ type: 'session/list', payload: {} });
+    const first = messages
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'session/list' }> =>
+          message.type === 'session/list',
+      )
+      .at(-1);
+    expect(first?.payload.hasMoreByProject?.['/work/busy']).toBe(true);
+
+    messages.length = 0;
+    await controller.handleClientMessage({
+      type: 'session/list',
+      payload: { cwd: '/work/busy' },
+    });
+    const page = messages
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'session/list' }> =>
+          message.type === 'session/list',
+      )
+      .at(-1);
+    expect(page?.payload.cwd).toBe('/work/busy');
+    expect(page?.payload.sessions.map((session) => session.id)).toEqual(['s2', 's3']);
+    expect(page?.payload.hasMore).toBe(false);
+    // The host owns the offset: the first page delivered one session, so the next
+    // call resumes at 1 rather than at zero.
+    expect(pageCalls).toEqual([{ cwd: '/work/busy', offset: 1 }]);
+  });
+
   it('re-reads commands when the palette asks, and skips a host that cannot', async () => {
     const refreshed: number[] = [];
     const h = harness({

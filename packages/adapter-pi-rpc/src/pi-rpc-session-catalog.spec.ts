@@ -277,4 +277,94 @@ describe('PiRpcSessionCatalog', () => {
 
     await expect(catalog.remove(join(root, '--work-project--', 'one.jsonl'))).resolves.toBeUndefined();
   });
+
+  it('keeps every project even when one project has many more sessions', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'morse-catalog-'));
+    roots.push(root);
+    const bucketA = join(root, '--work-busy--');
+    const bucketB = join(root, '--work-quiet--');
+    await mkdir(bucketA, { recursive: true });
+    await mkdir(bucketB, { recursive: true });
+    // 30 sessions in the busy project, one in the quiet one. The quiet project
+    // must be present no matter how many sessions the busy one holds.
+    for (let index = 0; index < 30; index += 1) {
+      const at = String(index).padStart(2, '0');
+      await writeFile(
+        join(bucketA, `busy-${at}.jsonl`),
+        `${SESSION.map((line) => line.replace('/work/project', '/work/busy')).join('\n')}\n${userMessage(`busy ${at}`, at)}\n`,
+        'utf8',
+      );
+    }
+    await writeFile(
+      join(bucketB, 'quiet.jsonl'),
+      `${SESSION.map((line) => line.replace('/work/project', '/work/quiet')).join('\n')}\n${userMessage('quiet one', '50')}\n`,
+      'utf8',
+    );
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root, maxSessionsPerProject: 5 });
+
+    const sessions = await catalog.list();
+    const byCwd = new Map<string, number>();
+    for (const session of sessions) {
+      byCwd.set(session.cwd, (byCwd.get(session.cwd) ?? 0) + 1);
+    }
+    // The quiet project survived even though the busy one's newest 30 would fill
+    // a small global cap entirely.
+    expect(byCwd.get('/work/busy')).toBe(5);
+    expect(byCwd.get('/work/quiet')).toBe(1);
+  });
+
+  it('pages one project\'s sessions and reports whether more remain', async () => {
+    const root = await makeCatalog({});
+    roots.push(root);
+    const bucket = join(root, '--work-project--');
+    await mkdir(bucket, { recursive: true });
+    for (let index = 0; index < 25; index += 1) {
+      const at = String(index).padStart(2, '0');
+      await writeFile(
+        join(bucket, `page-${at}.jsonl`),
+        `${SESSION.join('\n')}\n${userMessage(`page ${at}`, at)}\n`,
+        'utf8',
+      );
+    }
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root, maxSessionsPerProject: 10 });
+
+    // The first list already shows the first page of ten.
+    expect(await catalog.list()).toHaveLength(10);
+
+    const first = await catalog.listPage({ cwd: '/work/project', offset: 0, limit: 10 });
+    expect(first.sessions).toHaveLength(10);
+    expect(first.hasMore).toBe(true);
+
+    const second = await catalog.listPage({ cwd: '/work/project', offset: 10, limit: 10 });
+    expect(second.sessions).toHaveLength(10);
+    expect(second.hasMore).toBe(true);
+
+    const third = await catalog.listPage({ cwd: '/work/project', offset: 20, limit: 10 });
+    expect(third.sessions).toHaveLength(5);
+    expect(third.hasMore).toBe(false);
+
+    // No page repeats an id from another, so "Load more" cannot show a row twice.
+    const ids = new Set([...first.sessions, ...second.sessions, ...third.sessions].map((s) => s.id));
+    expect(ids.size).toBe(25);
+  });
+
+  it('reports the true per-project count from the directory listing, past the page cap', async () => {
+    const root = await makeCatalog({});
+    roots.push(root);
+    const bucket = join(root, '--work-project--');
+    await mkdir(bucket, { recursive: true });
+    for (let index = 0; index < 13; index += 1) {
+      await writeFile(
+        join(bucket, `count-${index}.jsonl`),
+        `${SESSION.join('\n')}\n${userMessage(`count ${index}`, '1')}\n`,
+        'utf8',
+      );
+    }
+    const catalog = new PiRpcSessionCatalog({ sessionDir: root, maxSessionsPerProject: 5 });
+
+    expect(await catalog.list()).toHaveLength(5);
+    // The count is the real total, not the five the page held, so the sidebar can
+    // say "Load more" and show a true project size.
+    expect((await catalog.countByProject()).get('/work/project')).toBe(13);
+  });
 });

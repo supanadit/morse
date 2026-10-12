@@ -163,6 +163,12 @@
           "default": 4,
           "minimum": 1,
           "markdownDescription": "How many pi sessions (one process each) stay alive at once. When the limit is reached the least recently used session is retired; it can still be resumed from its session file."
+        },
+        "morse.sessions.perProject": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "markdownDescription": "How many sessions of one project the sidebar lists before a \"Load more\" row. Every project is always listed; only its sessions are paged."
         }
       }
     }

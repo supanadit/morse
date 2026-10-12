@@ -89,9 +89,43 @@ export interface AgentGatewayFactory {
   probeDefaults?(options: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway>;
 }
 
+/**
+ * How many sessions of one project a catalog returns in a first list. The
+ * sidebar shows this page and offers "Load more" for the rest, so a catalog with
+ * hundreds of sessions in one project does not make the first paint read all of
+ * them. Chosen to keep the cold scan cheap (a real catalog measured ~0.4 s for
+ * every project's top 20) while still filling a screen without a click.
+ */
+export const DEFAULT_SESSIONS_PER_PROJECT = 10;
+
+/** One project's sessions, newest first, plus whether the catalog holds more. */
+export interface SessionPage {
+  sessions: SessionSummary[];
+  /** True when sessions past this page exist for the same `cwd`. */
+  hasMore: boolean;
+}
+
 /** Driven port (R2): reads persisted sessions. */
 export interface SessionCatalog {
+  /**
+   * Every project's sessions, newest first, each project capped to a first page
+   * so a huge catalog does not have to be read whole. The cap is the catalog's
+   * own; `listPage` fetches the rest of one project on demand.
+   */
   list(): Promise<SessionSummary[]>;
+  /**
+   * More of one project's sessions, newest first, starting at `offset`.
+   * Optional: a catalog that can only answer `list()` in full omits it, and the
+   * sidebar simply has nothing more to load for that project.
+   */
+  listPage?(options: { cwd: string; offset?: number; limit?: number }): Promise<SessionPage>;
+  /**
+   * True number of stored sessions per project path. Optional: `list()` caps each
+   * project to a page, so a caller that needs the real total (the sidebar's
+   * "Load more" and the project counts) asks here. A catalog that cannot answer
+   * cheaply omits it and callers fall back to counting the sessions they hold.
+   */
+  countByProject?(): Promise<Map<string, number>>;
   /**
    * Deletes a persisted session. Optional on purpose: a catalog whose storage
    * Morse must not touch simply omits it, and the use case reports that
@@ -434,9 +468,43 @@ export class SessionRegistry {
     return this.deps.catalog.list();
   }
 
+  /**
+   * More of one project's sessions, for the sidebar's "Load more" row. A catalog
+   * without paging answers with whatever it already has and no more to fetch, so
+   * the sidebar simply stops offering to load.
+   */
+  async listSessionPage(options: {
+    cwd: string;
+    offset?: number;
+    limit?: number;
+  }): Promise<SessionPage> {
+    const listPage = this.deps.catalog.listPage;
+    if (!listPage) {
+      return { sessions: [], hasMore: false };
+    }
+    return listPage.call(this.deps.catalog, options);
+  }
+
+  /**
+   * True number of stored sessions per project, when the catalog can report it
+   * cheaply from its directory listing. The list is paged, so the sidebar uses
+   * this to know a project still has sessions past its first page.
+   */
+  async sessionCounts(): Promise<Map<string, number>> {
+    const countByProject = this.deps.catalog.countByProject;
+    if (!countByProject) {
+      return new Map();
+    }
+    return countByProject.call(this.deps.catalog).catch(() => new Map());
+  }
+
   /** Projects are the directories pi has session buckets for. */
   async listProjects(sessions?: readonly SessionSummary[]): Promise<ProjectSummary[]> {
     const all = sessions ?? (await this.listSessions());
+    // The list is paged per project, so counting only the sessions in it would
+    // report a page (10) where the project holds 150. The catalog's directory
+    // listing knows the real totals; fall back to the sessions when it cannot say.
+    const counts = await this.deps.catalog.countByProject?.().catch(() => undefined);
     const projects = new Map<string, ProjectSummary>();
     for (const session of all) {
       if (session.cwd.length === 0) {
@@ -454,6 +522,14 @@ export class SessionRegistry {
         sessionCount: 1,
         lastUsedAt: session.updatedAt,
       });
+    }
+    if (counts !== undefined) {
+      for (const [cwd, count] of counts) {
+        const project = projects.get(cwd);
+        if (project !== undefined) {
+          project.sessionCount = count;
+        }
+      }
     }
     const defaultPath = this.deps.defaultWorkspace.cwd;
     if (!projects.has(defaultPath)) {

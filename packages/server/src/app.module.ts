@@ -50,6 +50,7 @@ import {
             sessionDir: config.sessionDir,
             noSession: config.noSession,
             requestTimeoutMs: config.requestTimeoutMs,
+            maxSessionsPerProject: config.sessionsPerProject,
             clientVersion: config.frontend?.version,
           },
           logger,

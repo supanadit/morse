@@ -1,11 +1,26 @@
 import { open, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import type { SessionCatalog, SessionSummary } from '@morse/core';
+import type { SessionCatalog, SessionPage, SessionSummary } from '@morse/core';
+import { DEFAULT_SESSIONS_PER_PROJECT } from '@morse/core';
 import { asRecord, asString } from './internal/rpc-types.js';
 import { resolveSessionDir } from './internal/resolve-pi.js';
 
 export interface PiRpcSessionCatalogOptions {
   sessionDir?: string;
+  /**
+   * Sessions kept per project in the first list. Every project is still listed;
+   * only its sessions are capped, and `listPage` fetches the rest. Defaults to
+   * `DEFAULT_SESSIONS_PER_PROJECT`.
+   */
+  maxSessionsPerProject?: number;
+  /**
+   * @deprecated A single global cap is what made whole projects disappear from
+   * the sidebar: `collectSessionFiles` sorts every project's files together, so
+   * the newest 50 could all belong to one project and the others vanished. Kept
+   * only so an old caller passing it still compiles; it is now a hard ceiling on
+   * the *whole* list, applied after the per-project cap, and defaults to
+   * unlimited.
+   */
   maxSessions?: number;
   env?: NodeJS.ProcessEnv;
   /**
@@ -71,6 +86,7 @@ function typeAt(raw: string, start: number, end: number): string | undefined {
  */
 export class PiRpcSessionCatalog implements SessionCatalog {
   private readonly directory: string;
+  private readonly maxSessionsPerProject: number;
   private readonly maxSessions: number;
   private readonly removeFile: (path: string) => Promise<void>;
   private readonly readSummary: (
@@ -81,14 +97,23 @@ export class PiRpcSessionCatalog implements SessionCatalog {
   /**
    * Summaries survive between calls, keyed by path and validated by size + mtime.
    * The list is asked for far more often than sessions change — every reconnect,
-   * every new session, every rename — and re-reading 50 transcripts each time was
-   * the single most expensive thing the host did.
+   * every new session, every rename — and re-reading every transcript each time
+   * was the single most expensive thing the host did.
    */
   private readonly cache = new Map<string, CachedSummary>();
+  /**
+   * The cwd each bucket directory holds, learned from a summary we have read.
+   * pi names a bucket `--<cwd with separators replaced>--`, which is lossy, so
+   * the only trustworthy mapping is the one a session's own header gives us.
+   */
+  private readonly bucketCwd = new Map<string, string>();
 
   constructor(options: PiRpcSessionCatalogOptions = {}) {
     this.directory = resolveSessionDir(options.sessionDir, options.env);
-    this.maxSessions = options.maxSessions ?? 50;
+    this.maxSessionsPerProject = Math.max(1, options.maxSessionsPerProject ?? DEFAULT_SESSIONS_PER_PROJECT);
+    // Unlimited unless a caller explicitly asks for a ceiling: a global cap is
+    // what used to drop whole projects, so it must never bite by default.
+    this.maxSessions = options.maxSessions ?? Number.POSITIVE_INFINITY;
     this.removeFile = options.removeFile ?? unlink;
     this.readSummary = options.readSummary ?? readSessionSummary;
   }
@@ -111,33 +136,145 @@ export class PiRpcSessionCatalog implements SessionCatalog {
     return this.inFlight;
   }
 
+  /**
+   * Every project's first page. The files are grouped by bucket first, so each
+   * project contributes at most `maxSessionsPerProject` newest sessions — the
+   * newest 50 *overall* is what let one busy project crowd every other project
+   * out of the sidebar entirely.
+   */
   private async buildList(): Promise<SessionSummary[]> {
     const files = await this.collectSessionFiles();
+    const byBucket = groupByBucket(files);
     const summaries: SessionSummary[] = [];
-    const seen = new Set<string>();
-    for (const file of files.slice(0, this.maxSessions)) {
-      seen.add(file.path);
-      const cached = this.cache.get(file.path);
-      if (cached !== undefined && cached.size === file.size && cached.updatedAt === file.updatedAt) {
-        summaries.push(cached.summary);
-        continue;
+    for (const [bucket, bucketFiles] of byBucket) {
+      for (const file of bucketFiles.slice(0, this.maxSessionsPerProject)) {
+        const summary = await this.readOne(file, bucket);
+        if (summary !== undefined) {
+          summaries.push(summary);
+        }
       }
-      const scan = await this.readSummary(file.path, file.updatedAt, cached);
-      if (scan === undefined) {
-        this.cache.delete(file.path);
-        continue;
-      }
-      this.cache.set(file.path, { size: file.size, updatedAt: file.updatedAt, ...scan });
-      summaries.push(scan.summary);
     }
-    // A deleted session (or one that fell out of `maxSessions`) must not keep its
-    // text alive here.
+    this.evictStaleCache(files);
+    summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+    return summaries.slice(0, this.maxSessions);
+  }
+
+  /**
+   * More of one project's sessions, newest first. The sidebar calls this behind
+   * its "Load more" row, so a project with hundreds of sessions is read a page
+   * at a time instead of all at once on first paint.
+   */
+  async listPage(options: { cwd: string; offset?: number; limit?: number }): Promise<SessionPage> {
+    const files = await this.collectSessionFiles();
+    const bucket = await this.bucketForCwd(options.cwd, files);
+    const bucketFiles = bucket === undefined ? [] : (groupByBucket(files).get(bucket) ?? []);
+    const offset = Math.max(0, options.offset ?? 0);
+    const limit = Math.max(0, options.limit ?? this.maxSessionsPerProject);
+    const page = bucketFiles.slice(offset, offset + limit);
+    const sessions: SessionSummary[] = [];
+    for (const file of page) {
+      // `page` is empty when the bucket is unknown, so `bucket` is always set here.
+      const summary = await this.readOne(file, bucket ?? file.bucket);
+      if (summary !== undefined) {
+        sessions.push(summary);
+      }
+    }
+    return { sessions, hasMore: offset + limit < bucketFiles.length };
+  }
+
+  /**
+   * True number of sessions per project, taken from the directory listing rather
+   * than from the capped pages. The sidebar shows this count and a "Load more"
+   * row only when it is larger than what has been shown, so it has to be the real
+   * total even though the list itself is paged.
+   */
+  async countByProject(): Promise<Map<string, number>> {
+    const files = await this.collectSessionFiles();
+    const counts = new Map<string, number>();
+    for (const [bucket, bucketFiles] of groupByBucket(files)) {
+      const cwd = await this.cwdOfBucket(bucket, bucketFiles);
+      if (cwd !== undefined) {
+        counts.set(cwd, bucketFiles.length);
+      }
+    }
+    return counts;
+  }
+
+  /** Reads one file into its summary, updating the cache and the bucket→cwd map. */
+  private async readOne(
+    file: SessionFile,
+    bucket: string,
+  ): Promise<SessionSummary | undefined> {
+    const cached = this.cache.get(file.path);
+    if (cached !== undefined && cached.size === file.size && cached.updatedAt === file.updatedAt) {
+      this.rememberBucket(bucket, cached.summary.cwd);
+      return cached.summary;
+    }
+    const scan = await this.readSummary(file.path, file.updatedAt, cached);
+    if (scan === undefined) {
+      this.cache.delete(file.path);
+      return undefined;
+    }
+    this.cache.set(file.path, { size: file.size, updatedAt: file.updatedAt, ...scan });
+    this.rememberBucket(bucket, scan.summary.cwd);
+    return scan.summary;
+  }
+
+  private rememberBucket(bucket: string, cwd: string): void {
+    if (cwd.length > 0 && !this.bucketCwd.has(bucket)) {
+      this.bucketCwd.set(bucket, cwd);
+    }
+  }
+
+  /**
+   * The bucket directory holding a project's sessions. Answered from the learned
+   * map when possible; otherwise one session header per unknown bucket is read to
+   * learn its cwd, which is cheap at a few dozen buckets.
+   */
+  private async bucketForCwd(cwd: string, files: SessionFile[]): Promise<string | undefined> {
+    for (const [bucket, known] of this.bucketCwd) {
+      if (known === cwd) {
+        return bucket;
+      }
+    }
+    for (const [bucket, bucketFiles] of groupByBucket(files)) {
+      if (await this.cwdOfBucket(bucket, bucketFiles) === cwd) {
+        return bucket;
+      }
+    }
+    return undefined;
+  }
+
+  /** The cwd a bucket holds, learned from its newest readable session. */
+  private async cwdOfBucket(bucket: string, bucketFiles: SessionFile[]): Promise<string | undefined> {
+    const known = this.bucketCwd.get(bucket);
+    if (known !== undefined) {
+      return known;
+    }
+    for (const file of bucketFiles) {
+      const summary = await this.readOne(file, bucket);
+      if (summary !== undefined && summary.cwd.length > 0) {
+        return summary.cwd;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Drops summaries whose file is gone. The full file set is known from the
+   * directory listing, so an entry is only evicted when its session no longer
+   * exists — not when it merely fell outside a page, which is what evicting by
+   * `maxSessions` used to do. `listPage` and `countByProject` only warm the
+   * cache, so this runs from `list()` (and from whichever of them ran first on a
+   * cold catalog, since a page read also primes the map).
+   */
+  private evictStaleCache(files: readonly SessionFile[]): void {
+    const present = new Set(files.map((file) => file.path));
     for (const path of [...this.cache.keys()]) {
-      if (!seen.has(path)) {
+      if (!present.has(path)) {
         this.cache.delete(path);
       }
     }
-    return summaries;
   }
 
   /**
@@ -164,11 +301,9 @@ export class PiRpcSessionCatalog implements SessionCatalog {
     }
   }
 
-  private async collectSessionFiles(): Promise<
-    { path: string; size: number; updatedAt: number }[]
-  > {
+  private async collectSessionFiles(): Promise<SessionFile[]> {
     const buckets = await safeReadDir(this.directory);
-    const files: { path: string; size: number; updatedAt: number }[] = [];
+    const files: SessionFile[] = [];
     for (const bucket of buckets) {
       if (!bucket.isDirectory()) {
         continue;
@@ -180,12 +315,38 @@ export class PiRpcSessionCatalog implements SessionCatalog {
         }
         const path = join(bucketPath, entry.name);
         const info = await stat(path).catch(() => undefined);
-        files.push({ path, size: info?.size ?? 0, updatedAt: info?.mtimeMs ?? 0 });
+        files.push({ path, size: info?.size ?? 0, updatedAt: info?.mtimeMs ?? 0, bucket: bucket.name });
       }
     }
     files.sort((left, right) => right.updatedAt - left.updatedAt);
     return files;
   }
+}
+
+/** One session file on disk, tagged with the bucket directory it sits in. */
+interface SessionFile {
+  path: string;
+  size: number;
+  updatedAt: number;
+  bucket: string;
+}
+
+/**
+ * Sessions split by project bucket, each bucket's files keeping the newest-first
+ * order the full sort gave them. A `Map` preserves insertion order, so the
+ * buckets come out in the order their newest session was touched too.
+ */
+function groupByBucket(files: readonly SessionFile[]): Map<string, SessionFile[]> {
+  const byBucket = new Map<string, SessionFile[]>();
+  for (const file of files) {
+    const bucket = byBucket.get(file.bucket);
+    if (bucket === undefined) {
+      byBucket.set(file.bucket, [file]);
+    } else {
+      bucket.push(file);
+    }
+  }
+  return byBucket;
 }
 
 /**

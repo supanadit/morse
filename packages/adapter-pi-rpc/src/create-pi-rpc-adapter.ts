@@ -8,6 +8,13 @@ import { resolvePi, resolvePiCli, readPiVersion, type PiCliSpawn, type PiSpawn }
 
 export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
   sessionDir?: string;
+  /** Sessions shown per project before "Load more"; every project is still listed. */
+  maxSessionsPerProject?: number;
+  /**
+   * @deprecated A single global cap made whole projects disappear. Prefer
+   * `maxSessionsPerProject`; this now only sets an optional ceiling on the whole
+   * list and defaults to unlimited.
+   */
   maxSessions?: number;
   /** How session files are removed; the host supplies its own (see the catalog). */
   removeSessionFile?: (path: string) => Promise<void>;
@@ -47,6 +54,7 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
   const factory = new PiRpcAgentFactory(config, logger);
   const catalog = new PiRpcSessionCatalog({
     sessionDir: config.sessionDir,
+    maxSessionsPerProject: config.maxSessionsPerProject,
     maxSessions: config.maxSessions,
     env: config.env,
     removeFile: config.removeSessionFile,

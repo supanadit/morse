@@ -146,6 +146,13 @@ export class HostSessionController {
   private isDraft = false;
   /** Project a draft opens its first session in (browser "New session here"). */
   private draftWorkspace: WorkspaceRef | undefined;
+  /**
+   * How many catalog sessions of each project the client already has, keyed by
+   * cwd. The host owns this rather than trusting the client's count, because the
+   * first page folds live (unpersisted) sessions in and a client counting rows
+   * would page past real ones. Reset on every full publish.
+   */
+  private sessionOffsets = new Map<string, number>();
   /** Catalog of a never-recording probe — fills the draft pickers. */
   private draftCatalog: AgentSessionState | undefined;
   /** Picks made in the draft, applied to the session the first prompt opens. */
@@ -425,7 +432,7 @@ export class HostSessionController {
         await this.loadOlderHistory();
         return;
       case 'session/list':
-        await this.publishSessions();
+        await this.publishSessions(message.payload);
         return;
       case 'commands/refresh':
         await this.refreshCommands();
@@ -1505,10 +1512,39 @@ export class HostSessionController {
     }
   }
 
-  private async publishSessions(): Promise<void> {
+  /**
+   * Publishes sessions. Without `request.cwd` it is the first page of every
+   * project plus the project list; with `request.cwd` it is that one project's
+   * next page, merged by the frontend into what it already shows.
+   */
+  private async publishSessions(request: { cwd?: string } = {}): Promise<void> {
+    if (request.cwd !== undefined) {
+      await this.publishSessionPage(request.cwd);
+      return;
+    }
     const result = await this.guard(() => this.options.services.registry.listSessions());
     if (result.ok) {
       const sessions = result.value.filter((session) => this.withinScope(session.cwd));
+      // A full republish must not collapse the pages a reader has already loaded:
+      // for each project with more than its first page revealed, send that whole
+      // revealed range back. The list is authoritative (deletions prune), so the
+      // reducer still replaces — it just replaces with everything that was shown.
+      const expanded = await this.revealedPages(sessions);
+      for (const extra of expanded) {
+        sessions.push(...extra);
+      }
+      // The client now holds page 1 plus whatever pages it had revealed, so that
+      // is the offset "Load more" must resume from. A project the reader has not
+      // paged starts (and stays) at its first-page count.
+      const pageCounts = new Map<string, number>();
+      for (const session of result.value.filter((session) => this.withinScope(session.cwd))) {
+        pageCounts.set(session.cwd, (pageCounts.get(session.cwd) ?? 0) + 1);
+      }
+      for (const [cwd, count] of pageCounts) {
+        if ((this.sessionOffsets.get(cwd) ?? 0) < count) {
+          this.sessionOffsets.set(cwd, count);
+        }
+      }
       const known = new Set(sessions.map((session) => session.id));
       // A session pi has not persisted yet is invisible in the catalog, so the
       // list would be missing the very session the user just created. Fold the
@@ -1531,13 +1567,116 @@ export class HostSessionController {
         });
       }
       this.summaries = new Map(sessions.map((session) => [session.id, session]));
-      this.options.emit({ type: 'session/list', payload: { sessions } });
+      const hasMoreByProject = await this.projectHasMore(sessions);
+      this.options.emit({ type: 'session/list', payload: { sessions, hasMoreByProject } });
       // A session change is a project change (cwd, count, last-used), and the
       // navigator builds its groups from `project/list`. Without this the group
       // for a new project — and every session inside a project missing from the
       // last list — stayed invisible until a manual refresh.
       await this.publishProjects(sessions);
     }
+  }
+
+  /**
+   * The sessions of projects a reader has paged past their first page, so a full
+   * republish can send them again instead of snapping the list back to page one.
+   * The newest page-1 sessions are already in the list; only the older ones that
+   * were revealed are fetched.
+   */
+  private async revealedPages(
+    firstPage: readonly SessionSummary[],
+  ): Promise<SessionSummary[][]> {
+    const shown = new Map<string, number>();
+    for (const session of firstPage) {
+      shown.set(session.cwd, (shown.get(session.cwd) ?? 0) + 1);
+    }
+    const extra: SessionSummary[][] = [];
+    for (const [cwd, revealed] of this.sessionOffsets) {
+      const have = shown.get(cwd) ?? 0;
+      if (revealed <= have || !this.withinScope(cwd)) {
+        continue;
+      }
+      const result = await this.guard(() =>
+        this.options.services.registry.listSessionPage({ cwd, offset: have, limit: revealed - have }),
+      );
+      if (result.ok) {
+        extra.push(result.value.sessions.filter((session) => this.withinScope(session.cwd)));
+      }
+    }
+    return extra;
+  }
+
+  /**
+   * One project's next page, answering the sidebar's "Load more". The live
+   * sessions of that project are folded in too, since an unpersisted session is
+   * missing from the catalog and belongs at the top of its own project.
+   */
+  private async publishSessionPage(cwd: string): Promise<void> {
+    if (!this.withinScope(cwd)) {
+      this.options.emit({ type: 'session/list', payload: { sessions: [], hasMore: false, cwd } });
+      return;
+    }
+    const offset = this.sessionOffsets.get(cwd) ?? 0;
+    const result = await this.guard(() =>
+      this.options.services.registry.listSessionPage({ cwd, offset }),
+    );
+    if (!result.ok) {
+      return;
+    }
+    const sessions = result.value.sessions.filter((session) => this.withinScope(session.cwd));
+    this.sessionOffsets.set(cwd, offset + sessions.length);
+    const known = new Set(sessions.map((session) => session.id));
+    // A hot session is only added on the first page; a later page must not repeat
+    // it (the frontend merges by id, but the count it pages by would drift).
+    if (offset === 0) {
+      for (const key of this.options.services.registry.hotKeys()) {
+        if (known.has(key)) {
+          continue;
+        }
+        const state = this.options.services.registry.stateOf(key);
+        const sessionCwd = state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
+        if (sessionCwd !== cwd) {
+          continue;
+        }
+        sessions.push({
+          id: key,
+          title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
+          cwd: sessionCwd,
+          updatedAt: Date.now(),
+          messageCount: 0,
+        });
+      }
+    }
+    for (const session of sessions) {
+      this.summaries.set(session.id, session);
+    }
+    this.options.emit({
+      type: 'session/list',
+      payload: { sessions, hasMore: result.value.hasMore, cwd },
+    });
+  }
+
+  /**
+   * Which projects hold more sessions than the first page delivered. The true
+   * counts come from the catalog's directory listing; a project whose count is
+   * above what was published (or which the catalog cannot count) is offered a
+   * "Load more" row by the sidebar.
+   */
+  private async projectHasMore(
+    sessions: readonly SessionSummary[],
+  ): Promise<Record<string, boolean>> {
+    const counts = await this.options.services.registry.sessionCounts();
+    const shown = new Map<string, number>();
+    for (const session of sessions) {
+      shown.set(session.cwd, (shown.get(session.cwd) ?? 0) + 1);
+    }
+    const hasMore: Record<string, boolean> = {};
+    for (const [cwd, total] of counts) {
+      if (this.withinScope(cwd)) {
+        hasMore[cwd] = total > (shown.get(cwd) ?? 0);
+      }
+    }
+    return hasMore;
   }
 
   /**
