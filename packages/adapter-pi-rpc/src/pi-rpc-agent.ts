@@ -481,7 +481,7 @@ export class PiRpcAgent implements AgentGateway {
         break;
     }
 
-    const mapped = mapSessionEvent(record, this.now);
+    const mapped = mapSessionEvent(record, this.now, this.sessionState);
     if (mapped.state) {
       this.patchState(mapped.state);
     }
@@ -490,6 +490,13 @@ export class PiRpcAgent implements AgentGateway {
     }
     // Compaction rewrites the context, so the footer's percentage must follow.
     if (record['type'] === 'compaction_end') {
+      void this.refreshStats();
+    }
+    // A message entering the session moves the totals, counts and context the
+    // usage panel shows. pi exposes those only over `get_session_stats`, so
+    // waiting for `agent_settled` left the panel frozen for the whole run;
+    // re-pulling as each message lands is what keeps it moving mid-run.
+    if (record['type'] === 'message_end') {
       void this.refreshStats();
     }
   }

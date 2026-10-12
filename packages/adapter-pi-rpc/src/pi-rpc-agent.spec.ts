@@ -1,8 +1,9 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { appendPinMentions, buildCommandList, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentSessionState } from '@morse/core';
+import { appendPinMentions, buildCommandList, PiRpcAgent, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
 
 /**
  * The palette is rebuilt from disk because pi caches its prompt templates at
@@ -367,5 +368,136 @@ describe('appendPinMentions', () => {
     expect(appendPinMentions('', [{ path: 'README.md', note: 'focus' }])).toBe(
       ['@README.md', '  > focus'].join('\n'),
     );
+  });
+});
+
+/**
+ * The usage panel reads the cumulative totals, counts and context that pi
+ * exposes only through `get_session_stats`, and a run spans many messages:
+ * refreshing only at `agent_settled` left the panel frozen for the whole run.
+ * This fake pi answers the handshake, then lands a `message_end` while the run
+ * is still going — the totals must move without any settle in between.
+ */
+describe('PiRpcAgent mid-run stats', () => {
+  const FIRST_STATS = {
+    tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15 },
+    cost: 0.01,
+    contextUsage: { tokens: 10, contextWindow: 1_000_000, percent: 0.001 },
+    totalMessages: 2,
+    userMessages: 1,
+    assistantMessages: 1,
+    toolCalls: 0,
+    toolResults: 0,
+  };
+  const SECOND_STATS = {
+    tokens: { input: 500, output: 40, cacheRead: 0, cacheWrite: 0, total: 540 },
+    cost: 0.02,
+    contextUsage: { tokens: 500_000, contextWindow: 1_000_000, percent: 0.5 },
+    totalMessages: 17,
+    userMessages: 1,
+    assistantMessages: 16,
+    toolCalls: 5,
+    toolResults: 5,
+  };
+
+  /**
+   * A minimal pi: it answers every RPC, reports the attach-time stats first,
+   * and lands a `message_end` when asked for models a second time — the test's
+   * signal that "a message just arrived mid-run". Later stats calls report the
+   * moved figures.
+   */
+  const fakePi = String.raw`
+const FIRST = ${JSON.stringify(FIRST_STATS)};
+const SECOND = ${JSON.stringify(SECOND_STATS)};
+let buffered = '';
+let statsCalls = 0;
+let modelCalls = 0;
+const write = (line) => process.stdout.write(JSON.stringify(line) + '\n');
+const respond = (req, data) =>
+  write({ type: 'response', id: req.id, command: req.type, success: true, data });
+const handle = (req) => {
+  if (req.type === 'get_session_stats') {
+    statsCalls += 1;
+    respond(req, statsCalls === 1 ? FIRST : SECOND);
+    return;
+  }
+  if (req.type === 'get_available_models') {
+    modelCalls += 1;
+    respond(req, { models: [] });
+    if (modelCalls === 2) {
+      write({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'mid-run' }],
+          stopReason: 'endTurn',
+          usage: { input: 50_000, output: 600, cacheRead: 40_000, totalTokens: 50_600 },
+        },
+      });
+    }
+    return;
+  }
+  respond(req, {});
+};
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buffered += chunk;
+  let end;
+  while ((end = buffered.indexOf('\n')) >= 0) {
+    const line = buffered.slice(0, end);
+    buffered = buffered.slice(end + 1);
+    if (line.trim().length > 0) handle(JSON.parse(line));
+  }
+});
+`;
+
+  let agent: PiRpcAgent | undefined;
+
+  afterEach(async () => {
+    if (agent) {
+      await agent.dispose();
+      agent = undefined;
+    }
+  });
+
+  it('re-pulls the totals when a message lands, before the run settles', async () => {
+    const cwd = await tempRoot();
+    const agentRoot = await tempRoot();
+    await mkdir(join(agentRoot, 'prompts'), { recursive: true });
+    await mkdir(join(cwd, '.pi', 'prompts'), { recursive: true });
+
+    const states: AgentSessionState[] = [];
+    agent = new PiRpcAgent({
+      spawn: { command: process.execPath, args: ['-e', fakePi], source: 'node-entry' },
+      workspace: { cwd, name: 'morse-spec' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
+    });
+    agent.subscribe((event) => {
+      if (event.type === 'agent/ready' || event.type === 'agent/state') {
+        states.push(event.state);
+      }
+    });
+
+    const attached = await agent.initialize();
+    expect(attached.usage?.inputTokens).toBe(10);
+    expect(attached.counts?.totalMessages).toBe(2);
+
+    // The fake pi lands its message in answer to this mid-run request; no
+    // `agent_settled` ever arrives, so anything the panel shows must come from
+    // the per-message refresh.
+    await agent.refreshModels();
+
+    await vi.waitFor(
+      () => {
+        expect(states.some((state) => state.usage?.inputTokens === 500)).toBe(true);
+      },
+      { timeout: 5_000, interval: 10 },
+    );
+    const updated = states.find((state) => state.usage?.inputTokens === 500);
+    expect(updated?.counts?.totalMessages).toBe(17);
+    expect(updated?.contextUsage?.percent).toBe(0.5);
+    expect(updated?.costUsd).toBe(0.02);
+    expect(updated?.lastUsage?.outputTokens).toBe(600);
   });
 });

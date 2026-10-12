@@ -29,13 +29,20 @@ export interface MappedRecord {
  * Pure mapping from pi session events (docs/json.md) to Morse domain events.
  * No subprocess, no clock: the caller injects `now`, which keeps it trivially
  * testable and shared by every pi transport.
+ *
+ * `prev` is the session state as it stands, so a figure pi re-sends unchanged
+ * on every streaming delta can be recognized instead of re-patched.
  */
-export function mapSessionEvent(record: RpcRecord, now: () => number): MappedRecord {
+export function mapSessionEvent(
+  record: RpcRecord,
+  now: () => number,
+  prev?: Partial<AgentSessionState>,
+): MappedRecord {
   switch (record.type) {
     case 'agent_start':
       return { events: [{ type: 'agent/run-start', at: now() }], state: { streaming: true } };
     case 'message_update':
-      return mapMessageUpdate(record, now);
+      return mapMessageUpdate(record, now, prev?.lastUsage);
     case 'message_end':
       return mapMessageEnd(record, now);
     case 'tool_execution_start':
@@ -285,22 +292,54 @@ function toolCallsOf(content: unknown): HistoryToolCall[] {
   return calls;
 }
 
-function mapMessageUpdate(record: RpcRecord, now: () => number): MappedRecord {
+function mapMessageUpdate(
+  record: RpcRecord,
+  now: () => number,
+  prevLastUsage: TokenUsage | undefined,
+): MappedRecord {
   const assistant = asRecord(record['assistantMessageEvent']) as RpcAssistantMessageEvent | undefined;
-  if (!assistant) {
-    return { events: [] };
+  const events: AgentEvent[] = [];
+  if (assistant?.type === 'text_delta' && assistant.delta) {
+    events.push({ type: 'agent/delta', at: now(), channel: 'text', delta: assistant.delta });
+  } else if (assistant?.type === 'thinking_delta' && assistant.delta) {
+    events.push({ type: 'agent/delta', at: now(), channel: 'thinking', delta: assistant.delta });
   }
-  if (assistant.type === 'text_delta' && assistant.delta) {
-    return {
-      events: [{ type: 'agent/delta', at: now(), channel: 'text', delta: assistant.delta }],
-    };
+  const state = streamedLastUsage(record, prevLastUsage);
+  return state ? { events, state } : { events };
+}
+
+/**
+ * The cumulative usage pi attaches to a streaming `message_update`, as the
+ * panel's "last assistant message" figure — but only when it is genuinely new.
+ * pi re-sends the same usage on every delta and may hold it at zero until the
+ * message completes (docs/json.md), so patching each record blindly would
+ * either broadcast the whole state per token or wipe the panel back to zeros
+ * mid-message.
+ */
+function streamedLastUsage(
+  record: RpcRecord,
+  prevLastUsage: TokenUsage | undefined,
+): Partial<AgentSessionState> | undefined {
+  const usage = toUsage(asRecord(record['usage']) as RpcUsage | undefined);
+  if (usage === undefined || usage.totalTokens <= 0 || sameUsage(usage, prevLastUsage)) {
+    return undefined;
   }
-  if (assistant.type === 'thinking_delta' && assistant.delta) {
-    return {
-      events: [{ type: 'agent/delta', at: now(), channel: 'thinking', delta: assistant.delta }],
-    };
+  return { lastUsage: usage };
+}
+
+/** Value equality for usage figures; an absent optional field means zero. */
+function sameUsage(a: TokenUsage, b: TokenUsage | undefined): boolean {
+  if (b === undefined) {
+    return false;
   }
-  return { events: [] };
+  return (
+    a.inputTokens === b.inputTokens &&
+    a.outputTokens === b.outputTokens &&
+    a.totalTokens === b.totalTokens &&
+    (a.cacheReadTokens ?? 0) === (b.cacheReadTokens ?? 0) &&
+    (a.cacheWriteTokens ?? 0) === (b.cacheWriteTokens ?? 0) &&
+    (a.reasoningTokens ?? 0) === (b.reasoningTokens ?? 0)
+  );
 }
 
 function mapMessageEnd(record: RpcRecord, now: () => number): MappedRecord {

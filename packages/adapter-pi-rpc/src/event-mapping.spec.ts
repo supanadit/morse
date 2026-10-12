@@ -149,6 +149,57 @@ describe('mapSessionEvent compaction_end', () => {
   });
 });
 
+describe('mapSessionEvent message_update', () => {
+  const usage = { input: 20_000, output: 631, cacheRead: 19_000, totalTokens: 20_631 };
+
+  it('carries the streamed usage as the last-message figure, so the panel moves mid-run', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'message_update',
+        usage,
+        assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Hi' },
+      },
+      () => 7,
+    );
+    expect(mapped.state?.lastUsage).toEqual({
+      inputTokens: 20_000,
+      outputTokens: 631,
+      totalTokens: 20_631,
+      cacheReadTokens: 19_000,
+    });
+    expect(mapped.events).toEqual([
+      { type: 'agent/delta', at: 7, channel: 'text', delta: 'Hi' },
+    ]);
+  });
+
+  it('leaves the figure alone when it is the one pi already re-sent', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'message_update',
+        usage,
+        assistantMessageEvent: { type: 'text_delta', delta: '!' },
+      },
+      () => 7,
+      { lastUsage: { inputTokens: 20_000, outputTokens: 631, totalTokens: 20_631, cacheReadTokens: 19_000 } },
+    );
+    expect(mapped.state).toBeUndefined();
+    expect(mapped.events).toHaveLength(1);
+  });
+
+  it('never wipes the panel back to zeros while the provider holds usage at zero', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'message_update',
+        usage: { input: 0, output: 0, totalTokens: 0 },
+        assistantMessageEvent: { type: 'text_delta', delta: '…' },
+      },
+      () => 7,
+      { lastUsage: { inputTokens: 9, outputTokens: 1, totalTokens: 10 } },
+    );
+    expect(mapped.state).toBeUndefined();
+  });
+});
+
 describe('mapSessionEvent tool_execution_end', () => {
   it('carries the tool\u2019s structured details through verbatim, with the text output', () => {
     const mapped = mapSessionEvent(
