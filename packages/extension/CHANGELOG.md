@@ -1,5 +1,98 @@
 # Changelog
 
+## 0.24.0 — 12 October 2026
+
+The browser host updates itself in one click, and every list is now one tree.
+
+### New
+
+- **Update the browser host without leaving it.** The footer's "Update available" notice is a button: it asks
+  the host to install the latest release and relaunch, and the page reloads on the new build — no terminal, no
+  re-running a command. It is off unless the host was started with `MORSE_SELF_UPDATE=1`, and the install never
+  runs in the process it replaces: a detached helper waits for the old daemon to exit, installs, and starts it
+  again. Refusals (not opted in, a caller that is not on loopback, an install that is not a writable
+  npm-global) answer with a reason and the notice falls back to the command it already printed. `morse update`
+  does the same from a terminal, and `morse start` now remembers its port so a restart lands on the same URL.
+- **A session chimes when its run finishes.** The completion notice only ever spoke visually, and a reader who
+  stepped away from the panel — the case it exists for — had nothing to hear. A synthesized two-note chime now
+  follows the same away/always policy as the toast, with its own mute switch. The palette gains "Mute/Play a
+  sound…" and "Send a test notification", the latter firing on demand so the channel can be checked without
+  waiting for a run.
+- **Every repository under a project is in the git panel.** A project can hold more than one repository — its
+  own plus a nested submodule or checkout — and the panel only ever saw the one the session sat in. It now
+  lists them all, each stage/commit/checkout/pull/push acting on the open repository, and the badges merge
+  every repository's status. Sections expand in place, one at a time, the way VS Code's Source Control lists
+  them.
+- **The Explorer and the session list share one tree.** They were the same list drawn twice and had begun to
+  drift. One component now renders both; the session list also nests a forked session under the session it
+  was forked from.
+- **The prompt-template editor has a toolbar button.** It was wired but reachable only by keyboard shortcut and
+  the palette, so on the web it looked missing next to MCP and Git. It now sits beside them, lit while its tab
+  is in front.
+- **A session in front comes back across a window reopen.** The VS Code host advertised no workbench
+  capability, so a reopened window started on an empty draft. It now saves and restores the session in front,
+  the same behaviour the browser already had.
+- **Prompt-template argument fields grow to fit.** They were single-line, so a pasted stack trace or paragraph
+  hid all but the first line. Every field is now an auto-growing textarea — one row tall at first, growing to
+  a cap before it scrolls — with Enter inserting a newline and Ctrl/Cmd+Enter sending.
+- **The annotation editor splits into Write and Preview tabs.** The old overlay drew a live mirror of the
+  markdown under a transparent textarea, and the two layers would not stay on one character grid — the prose
+  slid out from under the caret. Source and rendering are now two surfaces, each with the whole box, and the
+  caret and draft survive the round trip.
+
+### Fixed
+
+- **Stop asks before it ends a run.** It sat beside Steer and Follow up, so a stray press killed the run
+  outright. It now confirms, like compaction, and the question retracts itself when the run it is about ends.
+- **Compaction acts on the session its dialog was opened over.** `session/compact` named no session, so a
+  dialog opened on one conversation and a switch in between silently rewrote another's memory. The message
+  now carries the pinned session, and a confirm against a closed session fails loudly instead of compacting
+  the wrong conversation.
+- **The composer holds a prompt while the model and thinking levels settle.** Switching models could send a
+  prompt against the previous model's reasoning level, and a fast Enter could reach the agent before the model
+  pick did. The mutating messages are now ordered, and Send stays disabled until the new levels are read.
+- **A prompt sent with a picked model no longer carries the previous model's level.** While a model's levels
+  load, the picker reports thinking off and no options, instead of showing the stale list.
+- **pi is found and started on Windows.** Detection read only the extensions in `PATHEXT`, which a window
+  opened from the Start Menu rarely inherits and which omits `.ps1` on purpose — and a found `pi.cmd` still
+  failed to launch, because `CreateProcess` cannot start a batch file. Resolution now returns a spawn plan:
+  `.exe`/`.com` run directly, `.cmd`/`.bat` through a shell, a lone `.ps1` through PowerShell.
+- **Morse activates when you grant trust.** A first-time window opens untrusted, so the extension stayed
+  disabled in Restricted Mode and the panel came up blank until a manual reload. It now declares its untrusted
+  behaviour and starts when trust is granted.
+- **A session's editor tab closes when the session does.** Closing or deleting a session from the sidebar used
+  to leave its tab behind, and a tab whose session was deleted while the window was closed came back pinned to
+  a conversation that no longer exists.
+- **The status bar stops counting tabs a host cannot close.** In VS Code the editor's own tabs are the strip, so
+  the sidebar's tab count listed conversations that were not open and could not be closed by hand. The count is
+  hidden where there is no Morse tab strip, and the strip reconciles against the host's session list.
+- **The browser host's caches are bounded.** Three structures grew for the host's whole lifetime: the
+  workspace index kept a listing for every project ever browsed (now an 8-entry LRU), and an LSP client kept
+  every document ever opened and its diagnostics (now a 256-entry LRU that closes evicted files). A diagnostics
+  wait also now ends when the server dies, instead of leaving the preview spinning until its timeout.
+- **A retired session frees its transcript.** A session the registry evicted on its own left its whole
+  conversation and tool index in the transcript store for the host's lifetime. Eviction, close and delete now
+  all release it.
+- **The model chooser and the thinking panel no longer overlap.** Opening the chooser left the thinking panel
+  up, and the two dropdowns stacked. They now share one positioning context and close each other.
+- **The palette's key hints stay readable at every width.** The hint bar stacked only below 520px, but the card
+  is already too narrow for one row well before that, so the source prefixes between 520px and 672px were
+  ellipsised away. The breakpoint now tracks the card.
+- **A deep tree stays readable.** Each level cost two columns, so a folder five deep was a wall of bars. A level
+  is now one guide line, with the tree pulled left and the caret, gutter and row padding brought in with it.
+- **A nested row steps in past its parent's corner.** A child drew its corner in its parent's column, so the two
+  rows read as one label rather than a parent and its child.
+- **The New session blurb is spaced from its search field.** The projects screen dropped the sub-heading
+  straight onto the input.
+- **The redundant Attach Selection button is gone from the toolbar.** The composer already offered it; the
+  command stays in the palette for keyboard use.
+
+### Improved
+
+- **`morse start` reuses the workspace and port it had before.** A restart — including the one the self-update
+  runs — comes back on the same URL, so the browser tab that is reloading finds it there. A remembered port
+  taken while Morse was down falls back to a free one instead of refusing to start.
+
 ## 0.23.0 — 9 October 2026
 
 A pinned range can carry your own note, and the Explorer finds a file by typing.
