@@ -402,10 +402,17 @@ export class GitPanelState {
         this.discovered.set(true);
         // Reuse the state of a repository that is still present, so its loaded
         // history and fold are not thrown away by a refresh; refresh the rest.
-        const previous = new Map(this.sections().map((state) => [state.info.path, state]));
+        // Keyed by the repository's absolute root *and* its relative path, not
+        // the path alone: a project's own repository is `''` in *every* project,
+        // so keying by path made a project switch keep the previous project's
+        // repo — its stale name, branch and root — while only history refreshed.
+        // The root alone would miss the same repo reached by a different
+        // relative path (its own repo in one project, a nested one in another),
+        // whose commands need the path that project expects.
+        const previous = new Map(this.sections().map((state) => [repoKey(state.info), state]));
         const next = repos.repos.map(
           (info) =>
-            previous.get(info.path) ??
+            previous.get(repoKey(info)) ??
             new GitRepoState(this.morse, this.workspace, this.workspaceStore, info),
         );
         this.sections.set(next);
@@ -436,6 +443,17 @@ export class GitPanelState {
   stateFor(path: string): GitRepoState | undefined {
     return this.sections().find((state) => state.info.path === path);
   }
+}
+
+/**
+ * The identity of one repository within the panel: its absolute root and the
+ * relative path the current project addresses it by. Two projects reach the same
+ * repository at different relative paths (`''` for their own), so both are needed
+ * to tell a genuinely unchanged repository from a different one that happens to
+ * share a relative path.
+ */
+function repoKey(info: GitRepoInfo): string {
+  return `${info.root}\u0000${info.path}`;
 }
 
 function metaOf(log: GitLog): GitMeta {

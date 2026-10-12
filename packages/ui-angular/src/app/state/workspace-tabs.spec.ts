@@ -221,28 +221,29 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('s1');
   });
 
-  it('abandons an unfinished draft when a real session is picked', () => {
+  it('keeps an unfinished draft when a real session is picked', () => {
     const { tabs } = setup();
 
     tabs.startDraft('/repo');
     tabs.focusSession({ id: 's1', title: 'One' });
 
-    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    // Picking another session must not close the reader's own "New session" tab.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-1', 's1']);
   });
 
-  it('abandons the draft instead of duplicating a session tab already open', () => {
+  it('keeps the draft instead of duplicating a session tab already open', () => {
     const { tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
     tabs.startDraft('/repo');
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'draft-1']);
 
     // The user clicks the open session's tab while a draft is in front; the host
-    // then lands on s1. That is not the draft's own session, so the draft goes
-    // away instead of being promoted into a second tab for the same id.
+    // then lands on s1. That is not the draft's own session, so the draft is not
+    // promoted into a second tab for the same id — but it is not closed either.
     tabs.select('s1');
     tabs.showSession({ id: 's1', title: 'One', cwd: '/repo' });
 
-    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', 'draft-1']);
     expect(tabs.activeId()).toBe('s1');
   });
 
@@ -288,13 +289,15 @@ describe('WorkspaceTabs', () => {
     expect(drafts.isEmpty('draft-1')).toBe(false);
   });
 
-  it('drops an untouched draft when a real session is picked', () => {
+  it('keeps an untouched draft when a real session is picked', () => {
     const { tabs } = setup();
 
     tabs.startDraft('/repo');
     tabs.focusSession({ id: 's1', title: 'One' });
 
-    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    // An untouched draft survives the pick: it is a tab the reader opened and can
+    // come back to, not scratch state the store may throw away.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['draft-1', 's1']);
   });
 
   it('keeps an untouched draft alive while it holds a terminal', () => {

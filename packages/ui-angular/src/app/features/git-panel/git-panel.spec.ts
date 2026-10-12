@@ -437,6 +437,76 @@ describe('GitPanel', () => {
     );
   });
 
+  it('re-reads the repository identity when the project switches', async () => {
+    // Both projects' own repository is the relative path `''`; keying the panel's
+    // repo state by that path alone left the previous project's name/branch in
+    // place after a switch, while only the history refreshed.
+    const workspace = signal({ cwd: '/one', name: 'one' });
+    const fake = {
+      workspace,
+      capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
+      state: signal({ sessionId: 's1', workspace: { cwd: '/one', name: 'one' } }),
+      requestHostCommand: vi.fn((command: string) => {
+        const cwd = workspace().cwd;
+        if (command === 'gitRepos') {
+          return Promise.resolve({
+            isRepo: true,
+            repos: [
+              {
+                path: '',
+                root: cwd,
+                name: workspace().name,
+                current: true,
+                branch: cwd === '/one' ? 'one-branch' : 'two-branch',
+              },
+            ],
+          });
+        }
+        if (command === 'gitSync') {
+          return Promise.resolve({ isRepo: true, branch: 'main', ahead: 0, behind: 0 });
+        }
+        if (command === 'gitStatus') {
+          return Promise.resolve({ isRepo: true, files: [] });
+        }
+        return Promise.resolve({
+          isRepo: true,
+          root: cwd,
+          branch: cwd === '/one' ? 'one-branch' : 'two-branch',
+          commits: [
+            {
+              hash: cwd === '/one' ? 'a1111111' : 'b2222222',
+              shortHash: cwd === '/one' ? 'a111111' : 'b222222',
+              parents: [],
+              refs: ['HEAD -> main'],
+              author: 'A',
+              date: new Date().toISOString(),
+              subject: cwd === '/one' ? 'commit in one' : 'commit in two',
+            },
+          ],
+        });
+      }),
+    };
+    TestBed.configureTestingModule({
+      imports: [GitPanel],
+      providers: [{ provide: MorseService, useValue: fake }],
+    });
+    TestBed.inject(LayoutState).setVisible('right', true);
+    const fixture = TestBed.createComponent(GitPanel);
+    fixture.detectChanges();
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.repo-name')?.textContent?.trim()).toBe('one');
+    expect(host.querySelector('.subject')?.textContent?.trim()).toBe('commit in one');
+
+    workspace.set({ cwd: '/two', name: 'two' });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // The new project's repository, not the previous one's stale identity.
+    expect(host.querySelector('.repo-name')?.textContent?.trim()).toBe('two');
+    expect(host.querySelector('.subject')?.textContent?.trim()).toBe('commit in two');
+  });
+
   it('says when the project is not a repository', async () => {
     const { fixture } = setup({ isRepo: false, commits: [] }, {
       repos: { isRepo: false, repos: [] },

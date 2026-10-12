@@ -315,10 +315,10 @@ export class WorkspaceTabs {
     // A pick is the reader's own navigation: it always wins over a restored
     // layout's hold on the front tab.
     this.restorePending = false;
-    // The draft stops being the host's pending session; a filled-in one stays in
-    // the strip as the reader's work, an untouched one is noise.
+    // The draft stops being the host's pending session; it stays in the strip as
+    // the reader's own tab, though. Focusing another session must never close an
+    // untouched "New session" — it is a place to come back to, not noise.
     this.pendingDraft = undefined;
-    this.discardEmptyDrafts();
     this.showSession(session);
     this.morse.activateSession(session.id, session.cwd);
   }
@@ -730,9 +730,9 @@ export class WorkspaceTabs {
           this.morse.newSession(tab.cwd);
         }
       } else {
-        // Picking a real session leaves an untouched "New session" tab behind.
+        // Picking a real session leaves the "New session" tab in place: it is the
+        // reader's own tab, and closing it out from under them is the surprise.
         this.pendingDraft = undefined;
-        this.discardEmptyDrafts();
         this.morse.activateSession(tab.id, tab.cwd);
       }
       return;
@@ -1200,10 +1200,9 @@ export class WorkspaceTabs {
     }
     // A session that already owns a tab is not what this draft became: the user
     // put an open session in front (clicked its tab) and the host followed, so
-    // the draft is abandoned. Promoting here would leave two tabs for the same
-    // session id instead of one.
+    // the draft is left alone rather than promoted — keeping it would duplicate a
+    // session id, and dropping it would close a tab the reader still wants.
     if (this.findSession(session.id) !== undefined) {
-      this.discardEmptyDrafts();
       return;
     }
     this.drafts.rekey(activeDraft.id, session.id);
@@ -1227,36 +1226,6 @@ export class WorkspaceTabs {
         return tab;
       }),
     );
-  }
-
-  /**
-   * Drops draft tabs nobody typed into. A draft the reader filled in is kept:
-   * its words live in the composer store and are theirs to return to.
-   */
-  private discardEmptyDrafts(): void {
-    const doomed = this.items().filter(
-      (tab): tab is SessionTab =>
-        tab.kind === 'session' &&
-        tab.draft === true &&
-        this.drafts.isEmpty(tab.id) &&
-        // A draft with a shell in it is not untouched: the reader may have run a
-        // command or `cd`'d, and dropping it would take the terminal with it.
-        !this.terminals.hasOwner(tab.id),
-    );
-    if (doomed.length === 0) {
-      return;
-    }
-    const ids = new Set(doomed.map((tab) => tab.id));
-    this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
-    if (this.pendingDraft !== undefined && ids.has(this.pendingDraft)) {
-      this.pendingDraft = undefined;
-    }
-    for (const id of ids) {
-      this.drafts.forget(id);
-      this.closeOwnerTerminals(id);
-      this.queued.forgetOwner(id);
-    }
-    this.pruneOrphanMentions();
   }
 
   private needsLoad(tab: WorkspaceTab): boolean {
