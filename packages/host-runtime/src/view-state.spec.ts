@@ -63,4 +63,21 @@ describe('toSessionViewState', () => {
     expect(view.model?.input).toBeUndefined();
     expect(view.availableModels[0]?.input).toBeUndefined();
   });
+
+  it('carries the measured session speed through, as a copy', () => {
+    const speed = { avgTokensPerSecond: 42.7, peakTokensPerSecond: 88.9, slowestTokensPerSecond: 11.3 };
+    const view = toSessionViewState({ ...base(), speed }, META);
+
+    expect(view.speed).toEqual(speed);
+    // A copy, so a later patch on the agent's state cannot mutate the view.
+    expect(view.speed).not.toBe(speed);
+  });
+
+  it('leaves speed absent on a session that predates the feature', () => {
+    // An old session file carries no measurement: the panel must show — rather
+    // than a zero, so the key is omitted entirely rather than defaulted.
+    const view = toSessionViewState(base(), META);
+
+    expect(view.speed).toBeUndefined();
+  });
 });

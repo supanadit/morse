@@ -29,6 +29,14 @@ import {
   type WorkspaceRef,
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
+import {
+  emptySpeed,
+  loadSpeed,
+  recordSpeed,
+  saveSpeed,
+  snapshotSpeed,
+  type StoredSessionSpeed,
+} from './session-speed.js';
 import { stripAnsi } from './internal/ansi-text.js';
 import { getBuiltinSlashCommands } from './internal/pi-builtins.js';
 import { parsePromptTemplate, type PromptFrontmatter } from './internal/prompt-frontmatter.js';
@@ -36,6 +44,7 @@ import { PromptWatcher } from './internal/prompt-watch.js';
 import { resolveAgentDir, readProjectTrust } from './internal/project-trust.js';
 import { PiRpcClient } from './internal/rpc-client.js';
 import {
+  asNumber,
   asRecord,
   asString,
   type RpcExtensionUiRequest,
@@ -55,6 +64,11 @@ export interface PiRpcAgentOptions {
   env?: NodeJS.ProcessEnv;
   requestTimeoutMs?: number;
   now?: () => number;
+  /**
+   * Where per-session derived stats (speed) are persisted, one file per
+   * session. Absent keeps them in memory only — they do not survive the host.
+   */
+  dataDir?: string;
 }
 
 /**
@@ -83,6 +97,13 @@ export class PiRpcAgent implements AgentGateway {
   private readonly promptWatcher: PromptWatcher;
   /** Full mapped history, fetched once and paged locally (see `history`). */
   private historyCache: AgentHistoryEntry[] | undefined;
+  /**
+   * When the assistant message now streaming began (`message_start`); its span
+   * at `message_end` is the only clock pi does not keep for us.
+   */
+  private assistantStartedAt: number | undefined;
+  /** The persisted speed accumulator for the attached session, when there is one. */
+  private speedStored: StoredSessionSpeed | undefined;
 
   constructor(private readonly options: PiRpcAgentOptions) {
     this.now = options.now ?? (() => Date.now());
@@ -369,9 +390,17 @@ export class PiRpcAgent implements AgentGateway {
     const thinkingLevel = toThinkingLevel(state.thinkingLevel);
     const built = await buildCommandList(commands?.commands, this.commandContext());
 
+    // The session identity doubles as the key its speed file is stored under;
+    // a fork rebinds it, so the accumulator follows the file pi now writes.
+    const sessionKey = state.sessionFile ?? state.sessionId;
+    this.speedStored =
+      this.options.dataDir !== undefined && sessionKey !== undefined
+        ? await loadSpeed(this.options.dataDir, sessionKey)
+        : undefined;
+
     this.sessionState = {
       ...this.sessionState,
-      sessionId: state.sessionFile ?? state.sessionId,
+      sessionId: sessionKey,
       sessionTitle: state.sessionName,
       model: state.model ? toModelRef(state.model) : this.sessionState.model,
       thinkingLevel: thinkingLevel ?? this.sessionState.thinkingLevel,
@@ -381,6 +410,9 @@ export class PiRpcAgent implements AgentGateway {
       availableCommands: built.commands,
       diagnostics: built.diagnostics,
       streaming: state.isStreaming === true,
+      // Explicitly (re)set: attaching to another session must not keep the
+      // previous one's speed while the new file loads.
+      speed: snapshotSpeed(this.speedStored),
     };
     this.ready = true;
     await this.refreshStats();
@@ -477,6 +509,15 @@ export class PiRpcAgent implements AgentGateway {
         return;
       case 'queue_update':
         return;
+      case 'message_start': {
+        // Remember when this message began generating: `message_end` turns the
+        // span into the session's speed sample (pi reports no timing itself).
+        const message = asRecord(record['message']);
+        if (message?.['role'] === 'assistant') {
+          this.assistantStartedAt = this.now();
+        }
+        return;
+      }
       default:
         break;
     }
@@ -497,6 +538,8 @@ export class PiRpcAgent implements AgentGateway {
     // waiting for `agent_settled` left the panel frozen for the whole run;
     // re-pulling as each message lands is what keeps it moving mid-run.
     if (record['type'] === 'message_end') {
+      // Its span over the wire is also the session's only speed sample.
+      this.trackSpeed(record);
       void this.refreshStats();
     }
   }
@@ -547,6 +590,42 @@ export class PiRpcAgent implements AgentGateway {
   private patchState(patch: Partial<AgentSessionState>): void {
     this.sessionState = { ...this.sessionState, ...patch };
     this.emit({ type: 'agent/state', at: this.now(), state: this.snapshotState() });
+  }
+
+  /**
+   * Folds one assistant message's span (`message_start` → `message_end`) into
+   * the session's speed accumulator and persists it. Best-effort: a message
+   * this host never saw start (it attached mid-stream), a session with no file
+   * to key on, or a message too short to separate speed from latency is simply
+   * not counted.
+   */
+  private trackSpeed(record: RpcRecord): void {
+    const message = asRecord(record['message']);
+    if (!message || message['role'] !== 'assistant') {
+      return;
+    }
+    const startedAt = this.assistantStartedAt;
+    this.assistantStartedAt = undefined;
+    const dataDir = this.options.dataDir;
+    const session = this.sessionState.sessionId;
+    if (startedAt === undefined || dataDir === undefined || session === undefined) {
+      return;
+    }
+    const output = asNumber(asRecord(message['usage'])?.['output']);
+    const updated = recordSpeed(
+      this.speedStored ?? emptySpeed(session),
+      output ?? 0,
+      this.now() - startedAt,
+    );
+    if (updated === undefined) {
+      return;
+    }
+    this.speedStored = updated;
+    const speed = snapshotSpeed(updated);
+    if (speed !== undefined) {
+      this.patchState({ speed });
+    }
+    void saveSpeed(dataDir, updated);
   }
 
   private snapshotState(): AgentSessionState {

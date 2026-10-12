@@ -216,6 +216,9 @@ export class MemoryHostTransport extends BaseHostTransport {
       toolResults: 42,
       totalMessages: 200,
     },
+    // Measured by the host, not reported by pi; the fixture shows a session
+    // that has been watched for a while.
+    speed: { avgTokensPerSecond: 42.7, peakTokensPerSecond: 88.9, slowestTokensPerSecond: 11.2 },
     // The fixture keeps one call running, so the host must look busy too.
     busy: this.items.some((item) => item.kind === 'tool' && item.status === 'running'),
     agentReady: true,

@@ -52,6 +52,9 @@ import {
             requestTimeoutMs: config.requestTimeoutMs,
             maxSessionsPerProject: config.sessionsPerProject,
             clientVersion: config.frontend?.version,
+            // Session speed is derived, not reported: this host measures it and
+            // keeps it under `<MORSE_HOME>` so a restart continues the totals.
+            dataDir: config.dataDir,
           },
           logger,
         ),

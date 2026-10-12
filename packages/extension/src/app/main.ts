@@ -79,6 +79,9 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
       ...piConfig,
       removeSessionFile: deleteSessionFile,
       clientVersion: frontendIdentity(manifest)?.version,
+      // Derived session stats (speed) live beside this window's other state,
+      // exactly like the workbench layout.
+      dataDir: workbenchDataDir(context),
       ...(env ? { env } : {}),
     },
     logger,

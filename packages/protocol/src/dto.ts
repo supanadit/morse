@@ -160,6 +160,19 @@ export interface SessionCounts {
   totalMessages: number;
 }
 
+/**
+ * Whole-session generation speed, measured by the host: pi reports no timing,
+ * so the panel's numbers come from messages this host watched generate.
+ */
+export interface SessionSpeed {
+  /** Output tokens over seconds spent generating, across every counted message. */
+  avgTokensPerSecond: number;
+  /** The fastest single counted message. */
+  peakTokensPerSecond: number;
+  /** The slowest single counted message. */
+  slowestTokensPerSecond: number;
+}
+
 export interface SessionSummary {
   id: string;
   title: string;
@@ -747,6 +760,8 @@ export interface SessionViewState {
   costUsd?: number;
   contextUsage?: ContextUsage;
   counts?: SessionCounts;
+  /** Whole-session generation speed, measured by the host (pi reports none). */
+  speed?: SessionSpeed;
   /** False when the agent backend (the `pi` binary) could not be started. */
   agentReady: boolean;
   /** True while the host is spawning/attaching the agent, so the UI does not

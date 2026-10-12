@@ -53,6 +53,17 @@ export function formatCost(costUsd: number | undefined): string | undefined {
   return `$${costUsd.toFixed(3)}`;
 }
 
+/**
+ * Generation speed for the panel: one decimal below 100 (a speed is read, not
+ * counted), whole numbers above. `—` while no message has been timed.
+ */
+export function formatRate(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+  return value >= 100 ? `${Math.round(value)}/s` : `${value.toFixed(1)}/s`;
+}
+
 /** Context percentage, or `undefined` when the agent has not answered yet. */
 export function contextPercent(context: ContextUsage | undefined): number | undefined {
   if (!context || context.percent === null) {

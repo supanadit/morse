@@ -118,6 +118,7 @@ export function toSessionViewState(
     costUsd: state.costUsd,
     contextUsage: state.contextUsage ? { ...state.contextUsage } : undefined,
     counts: state.counts ? { ...state.counts } : undefined,
+    speed: state.speed ? { ...state.speed } : undefined,
     agentReady: meta.agentReady,
     agentStarting: meta.agentStarting,
     agentError: meta.agentError,

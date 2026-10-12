@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TokenUsage } from '@morse/protocol';
-import { formatUsageValue } from './usage.js';
+import { formatRate, formatUsageValue } from './usage.js';
 
 describe('formatUsageValue', () => {
   const usage: TokenUsage = {
@@ -27,5 +27,25 @@ describe('formatUsageValue', () => {
 
   it('shows an em dash when there is no usage at all', () => {
     expect(formatUsageValue(undefined, 'reasoningTokens')).toBe('—');
+  });
+});
+
+describe('formatRate', () => {
+  it('keeps a decimal below 100, where a speed is read rather than counted', () => {
+    expect(formatRate(42.7)).toBe('42.7/s');
+    expect(formatRate(11.25)).toBe('11.3/s');
+  });
+
+  it('rounds above 100, where the decimal is noise', () => {
+    expect(formatRate(123.4)).toBe('123/s');
+    expect(formatRate(100)).toBe('100/s');
+  });
+
+  it('shows an em dash while nothing has been timed', () => {
+    // A session from before the feature, or one mid-first-message: `0/s` would
+    // claim instant generation, and a blank cell would look broken.
+    expect(formatRate(undefined)).toBe('—');
+    expect(formatRate(Number.NaN)).toBe('—');
+    expect(formatRate(Number.POSITIVE_INFINITY)).toBe('—');
   });
 });

@@ -118,6 +118,20 @@ export interface SessionCounts {
   totalMessages: number;
 }
 
+/**
+ * Whole-session generation speed. pi keeps no clock, so the host times each
+ * assistant message (`message_start` → `message_end`) and keeps these totals
+ * per session — a resumed session continues them from disk.
+ */
+export interface SessionSpeed {
+  /** Output tokens over seconds spent generating, across every counted message. */
+  avgTokensPerSecond: number;
+  /** The fastest single counted message. */
+  peakTokensPerSecond: number;
+  /** The slowest single counted message. */
+  slowestTokensPerSecond: number;
+}
+
 export interface WorkspaceRef {
   cwd: string;
   name: string;
@@ -232,6 +246,8 @@ export interface AgentSessionState {
   costUsd?: number;
   contextUsage?: ContextUsage;
   counts?: SessionCounts;
+  /** Whole-session generation speed, measured by the host (pi reports none). */
+  speed?: SessionSpeed;
 }
 
 /**

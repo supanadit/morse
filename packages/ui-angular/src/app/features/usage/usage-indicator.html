@@ -100,6 +100,13 @@
 
     <section>
       <h4>Session totals</h4>
+      <div class="grid">
+        <div class="cell"><span class="k">Cached</span><span class="v">{{ cachedLabel() }}</span></div>
+        <div class="cell"><span class="k">Miss</span><span class="v">{{ missLabel() }}</span></div>
+        <div class="cell"><span class="k">Avg speed</span><span class="v">{{ avgSpeedLabel() }}</span></div>
+        <div class="cell"><span class="k">Peak speed</span><span class="v">{{ peakSpeedLabel() }}</span></div>
+        <div class="cell"><span class="k">Lowest speed</span><span class="v">{{ slowestSpeedLabel() }}</span></div>
+      </div>
       <div class="totals">{{ sessionLine() || 'No usage yet.' }}</div>
     </section>
   </div>

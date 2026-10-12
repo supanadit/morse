@@ -1,8 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
-import type { ContextUsage, ModelOption, SessionCounts, TokenUsage } from '@morse/protocol';
+import type { ContextUsage, ModelOption, SessionCounts, SessionSpeed, TokenUsage } from '@morse/protocol';
 import {
   cacheHitRate,
   formatCost,
+  formatRate,
   formatTokens,
   formatUsage,
   formatUsageValue,
@@ -31,6 +32,7 @@ export class UsageIndicator {
   readonly costUsd = input<number>();
   readonly contextUsage = input<ContextUsage>();
   readonly counts = input<SessionCounts>();
+  readonly speed = input<SessionSpeed>();
   readonly model = input<ModelOption>();
   readonly sessionTitle = input<string>();
 
@@ -104,6 +106,29 @@ export class UsageIndicator {
     const hit = cacheHitRate(this.lastUsage());
     return hit === undefined ? '—' : `${hit.toFixed(1)}%`;
   });
+
+  /** Prompt tokens the cache served, whole session; `—` when none was reported. */
+  protected readonly cachedLabel = computed(() =>
+    formatUsageValue(this.usage(), 'cacheReadTokens'),
+  );
+
+  /** Prompt tokens the cache missed (pi's `input` excludes every cache figure). */
+  protected readonly missLabel = computed(() => {
+    const usage = this.usage();
+    return usage === undefined ? '—' : formatTokens(usage.inputTokens);
+  });
+
+  protected readonly avgSpeedLabel = computed(() =>
+    formatRate(this.speed()?.avgTokensPerSecond),
+  );
+
+  protected readonly peakSpeedLabel = computed(() =>
+    formatRate(this.speed()?.peakTokensPerSecond),
+  );
+
+  protected readonly slowestSpeedLabel = computed(() =>
+    formatRate(this.speed()?.slowestTokensPerSecond),
+  );
 
   protected lastValue(key: keyof TokenUsage): string {
     return formatUsageValue(this.lastUsage(), key);

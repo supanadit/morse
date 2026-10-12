@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSessionState } from '@morse/core';
+import { loadSpeed } from './session-speed.js';
 import { appendPinMentions, buildCommandList, PiRpcAgent, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
 
 /**
@@ -402,13 +403,14 @@ describe('PiRpcAgent mid-run stats', () => {
 
   /**
    * A minimal pi: it answers every RPC, reports the attach-time stats first,
-   * and lands a `message_end` when asked for models a second time — the test's
-   * signal that "a message just arrived mid-run". Later stats calls report the
-   * moved figures.
+   * and — when asked for models a second time — streams one assistant message
+   * (`message_start`, a beat, `message_end`): the test's signal for "a message
+   * just arrived mid-run". Later stats calls report the moved figures.
    */
   const fakePi = String.raw`
 const FIRST = ${JSON.stringify(FIRST_STATS)};
 const SECOND = ${JSON.stringify(SECOND_STATS)};
+const SESSION_FILE = '/tmp/morse-speed-spec-session.jsonl';
 let buffered = '';
 let statsCalls = 0;
 let modelCalls = 0;
@@ -416,6 +418,10 @@ const write = (line) => process.stdout.write(JSON.stringify(line) + '\n');
 const respond = (req, data) =>
   write({ type: 'response', id: req.id, command: req.type, success: true, data });
 const handle = (req) => {
+  if (req.type === 'get_state') {
+    respond(req, { sessionFile: SESSION_FILE });
+    return;
+  }
   if (req.type === 'get_session_stats') {
     statsCalls += 1;
     respond(req, statsCalls === 1 ? FIRST : SECOND);
@@ -426,14 +432,20 @@ const handle = (req) => {
     respond(req, { models: [] });
     if (modelCalls === 2) {
       write({
-        type: 'message_end',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'mid-run' }],
-          stopReason: 'endTurn',
-          usage: { input: 50_000, output: 600, cacheRead: 40_000, totalTokens: 50_600 },
-        },
+        type: 'message_start',
+        message: { role: 'assistant', content: [], stopReason: 'pending' },
       });
+      setTimeout(() => {
+        write({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'mid-run' }],
+            stopReason: 'endTurn',
+            usage: { input: 50_000, output: 600, cacheRead: 40_000, totalTokens: 50_600 },
+          },
+        });
+      }, 40);
     }
     return;
   }
@@ -499,5 +511,65 @@ process.stdin.on('data', (chunk) => {
     expect(updated?.contextUsage?.percent).toBe(0.5);
     expect(updated?.costUsd).toBe(0.02);
     expect(updated?.lastUsage?.outputTokens).toBe(600);
+  });
+
+  /**
+   * The speed figures pi never reports: measured from the message's own span,
+   * then persisted so the next host on this session resumes them instead of
+   * starting back at zero.
+   */
+  it('measures a message into session speed and resumes it from disk', async () => {
+    const cwd = await tempRoot();
+    const agentRoot = await tempRoot();
+    const dataDir = await tempRoot();
+    await mkdir(join(agentRoot, 'prompts'), { recursive: true });
+    await mkdir(join(cwd, '.pi', 'prompts'), { recursive: true });
+    const options = {
+      spawn: { command: process.execPath, args: ['-e', fakePi], source: 'node-entry' as const },
+      workspace: { cwd, name: 'morse-spec' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
+      dataDir,
+    };
+
+    const states: AgentSessionState[] = [];
+    agent = new PiRpcAgent(options);
+    agent.subscribe((event) => {
+      if (event.type === 'agent/ready' || event.type === 'agent/state') {
+        states.push(event.state);
+      }
+    });
+
+    const attached = await agent.initialize();
+    // Nothing has been timed on this host yet, so the panel shows — not 0/s.
+    expect(attached.speed).toBeUndefined();
+
+    await agent.refreshModels();
+    await vi.waitFor(
+      () => {
+        expect(states.some((state) => state.speed !== undefined)).toBe(true);
+      },
+      { timeout: 5_000, interval: 10 },
+    );
+    const measured = states.find((state) => state.speed !== undefined)?.speed;
+    expect(measured).toBeDefined();
+    expect(measured!.avgTokensPerSecond).toBeGreaterThan(0);
+    expect(measured!.peakTokensPerSecond).toBeGreaterThanOrEqual(measured!.slowestTokensPerSecond);
+
+    // The save is fire-and-forget behind the state patch; wait for the file.
+    await vi.waitFor(
+      async () => {
+        expect(await loadSpeed(dataDir, '/tmp/morse-speed-spec-session.jsonl')).toBeDefined();
+      },
+      { timeout: 5_000, interval: 10 },
+    );
+    const files = await readdir(join(dataDir, 'speed'));
+    expect(files).toHaveLength(1);
+
+    // A fresh host on the same session continues exactly where this one left off.
+    await agent.dispose();
+    agent = new PiRpcAgent(options);
+    const resumed = await agent.initialize();
+    expect(resumed.speed).toEqual(measured);
   });
 });

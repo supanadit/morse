@@ -16,6 +16,8 @@ export interface PiRpcAgentFactoryOptions {
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
   requestTimeoutMs?: number;
+  /** Where per-session derived stats (speed) are persisted; one host data dir. */
+  dataDir?: string;
 }
 
 /** Implements `AgentGatewayFactory` (declared by core) by spawning `pi --mode rpc`. */
@@ -87,6 +89,7 @@ export class PiRpcAgentFactory implements AgentGatewayFactory {
       sessionPath,
       env: this.options.env,
       requestTimeoutMs: this.options.requestTimeoutMs,
+      dataDir: this.options.dataDir,
     });
     await agent.initialize();
     return agent;
