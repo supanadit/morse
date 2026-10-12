@@ -399,6 +399,14 @@ owns the wire conversation and the host owns the process. The NestJS host implem
 gated by `ProjectPolicy` like opening a session — so prompts, colours, line editing, resize and
 full-screen programs (vim, top) all work as in a desktop terminal. `node-pty` is a native module,
 kept external in the `morse-web` bundle and installed by npm (it needs a compiler on Linux).
+- **A close reaps the whole job, not just the shell.** `node-pty`'s own `kill` signals only the
+shell's pid on Unix, so a `pnpm start:dev`/dev-server child survives a `terminal/close`, reparents
+to init and keeps its port. `ServerTerminalBackend` therefore reads the process table (POSIX `ps`)
+and signals the shell, every descendant and each of their process groups — a graceful `SIGHUP`
+first (so a server still prints its shutdown log), then a `SIGKILL` pass that re-reads the table by
+the pty session (`sid`) and catches children that reparented while the shell died. Windows keeps
+`node-pty`'s no-argument `kill`, which already ends the ConPTY's whole process list. `Ctrl+C` in
+the pane is the shell's own foreground-group `SIGINT` and is unchanged.
 - The view is **xterm.js** (`@xterm/xterm` plus the fit and WebGL addons), imported lazily the first
 time the panel opens so a reader who never opens it downloads nothing. xterm renders the PTY's raw
 stream; keystrokes go back untouched. Its theme and monospace font are read from the active CSS

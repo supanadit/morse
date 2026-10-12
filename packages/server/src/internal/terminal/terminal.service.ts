@@ -14,6 +14,14 @@ import { MORSE_CONFIG, MORSE_LOGGER, MORSE_PROJECT_POLICY } from '../../app/toke
 import { childProcessEnv } from '../child-env.js';
 import type { ServerProjectPolicy } from '../projects/project-policy.js';
 import { readTerminalLog, removeTerminalLog, writeTerminalLog } from './terminal-log.js';
+import {
+  descendantRows,
+  readProcessTable,
+  sessionRows,
+  signalGroup,
+  signalProcess,
+  type ProcessRow,
+} from './process-tree.js';
 
 /** How long a shell gets to exit on kill before it is killed outright. */
 const SIGKILL_AFTER_MS = 1_500;
@@ -162,7 +170,10 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
       // Nothing should append after this: the shutdown is the last writer.
       entry.generation += 1;
       this.persist(terminalId, entry);
-      this.killPty(entry.pty);
+      // The scheduled fallback timer is unref'd, so it would not fire before the
+      // host process exits. Force the whole job down *now*, synchronously, so a
+      // server that ignored the graceful signal cannot outlive the host.
+      this.forceKillPty(entry.pty);
       entry.pty = undefined;
       this.stopFlush(entry);
       this.cancelIdle(entry);
@@ -170,24 +181,78 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
     this.entries.clear();
   }
 
-  /** SIGTERM, then SIGKILL for a shell that ignores it (a hung process group). */
+  /**
+   * Ends a shell and everything it started.
+   *
+   * `node-pty`'s own `kill` signals only the shell's pid on Unix
+   * (`process.kill(this.pid, signal || 'SIGHUP')`), so a dev server the reader
+   * launched — a child, usually in a process group of its own under job control —
+   * survives the close, reparents to init, and keeps its port. The `SIGKILL`
+   * fallback targeted that same, already-dead shell pid, so it reaped nothing.
+   *
+   * Signal the whole job instead: the shell, every descendant, and each of their
+   * process groups. The graceful pass (SIGHUP, the signal a terminal hangup
+   * sends) lets a well-behaved server run its shutdown log; the force pass
+   * re-reads the table, because by then the children have reparented to init and
+   * are only findable by the pty session they still share.
+   *
+   * Windows is left to `node-pty`: its `kill()` already takes the pseudoconsole's
+   * whole process list, and there is no `ps` table to walk.
+   */
   private killPty(pty: IPty | undefined): void {
     if (pty === undefined) {
       return;
     }
-    try {
-      pty.kill();
-    } catch {
-      return;
-    }
+    const root = pty.pid;
+    const tree = descendantRows(root, readProcessTable());
+    this.signalJob(pty, root, tree, 'SIGHUP');
+
     const timer = setTimeout(() => {
-      try {
-        pty.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
+      // The shell may be gone; whoever is left still shares its pty session.
+      this.signalJob(pty, root, sessionRows(root, readProcessTable()), 'SIGKILL');
     }, SIGKILL_AFTER_MS);
     timer.unref?.();
+  }
+
+  /**
+   * SIGKILLs a shell and every survivor of its job right now, without waiting and
+   * without scheduling — the host is about to exit, so an unref'd timer cannot be
+   * relied on. The table is re-read because the children have reparented to init
+   * by now; the pty session is what still finds them.
+   */
+  private forceKillPty(pty: IPty | undefined): void {
+    if (pty === undefined) {
+      return;
+    }
+    const root = pty.pid;
+    this.signalJob(pty, root, sessionRows(root, readProcessTable()), 'SIGKILL');
+  }
+
+  /**
+   * Signals a shell and the job under it. `pty.kill` reaches the shell (and, on
+   * Windows, the ConPTY's whole process list); the group and per-process signals
+   * are what reach the children `pty.kill` never sees on Unix.
+   */
+  private signalJob(pty: IPty, root: number, rows: ProcessRow[], signal: NodeJS.Signals): void {
+    try {
+      // Windows rejects a signal argument (`Signals not supported on windows.`);
+      // its no-argument kill already ends the pseudoconsole's process list.
+      if (process.platform === 'win32') {
+        pty.kill();
+      } else {
+        pty.kill(signal);
+      }
+    } catch {
+      // Already gone.
+    }
+    if (process.platform === 'win32') {
+      return;
+    }
+    signalGroup(root, signal);
+    for (const row of rows) {
+      signalProcess(row.pid, signal);
+      signalGroup(row.pgid, signal);
+    }
   }
 
   private entryFor(terminalId: string): TerminalEntry {

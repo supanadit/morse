@@ -12,7 +12,12 @@ const pty = vi.hoisted(() => {
   type DataHandler = (data: string) => void;
   type ExitHandler = (event: { exitCode: number }) => void;
   class FakePty {
-    pid = 4321;
+    /**
+     * A sentinel pid no real process group will have, so the new tree-kill's
+     * `process.kill(-pid, ...)` cannot reach an unrelated process when `ps`
+     * happens to answer for this test run.
+     */
+    pid = 2_147_483_646;
     private readonly dataHandlers: DataHandler[] = [];
     private readonly exitHandlers: ExitHandler[] = [];
     /** Runs on the first `kill`, before the buffer is frozen. */
@@ -28,7 +33,7 @@ const pty = vi.hoisted(() => {
     }
     write(): void {}
     resize(): void {}
-    kill(): void {
+    kill(_signal?: string): void {
       if (this.killed) {
         return;
       }
@@ -59,6 +64,20 @@ const pty = vi.hoisted(() => {
 });
 
 vi.mock('node-pty', () => ({ spawn: pty.spawn }));
+
+/**
+ * The tree walk shells out to `ps` and signals real process groups. The service
+ * spec is about the registry's buffer and lifecycle, not process reaping, so the
+ * walk is stubbed empty and the signals are dropped — `process-tree.spec.ts`
+ * covers the walk itself, and an integration proof lives with the real host.
+ */
+vi.mock('./process-tree.js', () => ({
+  readProcessTable: () => [],
+  descendantRows: () => [],
+  sessionRows: () => [],
+  signalProcess: () => undefined,
+  signalGroup: () => undefined,
+}));
 
 import { ServerTerminalBackend } from './terminal.service.js';
 
