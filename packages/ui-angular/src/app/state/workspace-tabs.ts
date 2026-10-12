@@ -721,12 +721,18 @@ export class WorkspaceTabs {
     this.active.set(id);
     if (tab.kind === 'session') {
       // The draft is a placeholder, not a pi session: activating it would ask
-      // the host to resume a session literally named "draft". Only a host that
-      // is showing a real session has to be told to step back to an empty draft;
-      // an empty host draft is the same empty panel for any draft tab.
+      // the host to resume a session literally named "draft". The host holds one
+      // draft, though, and that draft belongs to a project (`cwd`), so a host on
+      // a real session — or on a draft in *another* project — has to be told to
+      // step back to this tab's own empty draft. Skipping that when the host is
+      // merely *a* draft left two "New session" tabs from two projects showing
+      // the same (the previous) workspace.
       if (tab.draft === true) {
         this.pendingDraft = tab.id;
-        if (this.morse.state().sessionId !== undefined) {
+        const state = this.morse.state();
+        const otherProject =
+          tab.cwd !== undefined && state.workspace.cwd !== tab.cwd;
+        if (state.sessionId !== undefined || otherProject) {
           this.morse.newSession(tab.cwd);
         }
       } else {

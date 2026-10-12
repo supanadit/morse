@@ -262,6 +262,23 @@ describe('WorkspaceTabs', () => {
     expect(fake.activateSession).not.toHaveBeenCalled();
   });
 
+  it('re-targets the host when switching between drafts of different projects', () => {
+    const { tabs, fake } = setup();
+
+    tabs.startDraft('/work/morse');
+    tabs.startDraft('/work/jiraya');
+    // The host is now on the jiraya draft: a real `session/new` made it active.
+    fake.state.set({ sessionId: undefined, workspace: { cwd: '/work/jiraya', name: 'jiraya' } });
+    fake.newSession.mockClear();
+
+    // Clicking the morse draft has to step the host back to *its* project; an
+    // empty host draft is not the same empty panel when the folder differs.
+    tabs.select('draft-1');
+
+    expect(tabs.activeId()).toBe('draft-1');
+    expect(fake.newSession).toHaveBeenCalledWith('/work/morse');
+  });
+
   it('opens a separate tab — and draft — for every "New session"', () => {
     const { tabs, fake } = setup();
 
