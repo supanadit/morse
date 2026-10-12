@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.25.0 — 12 October 2026
+
+Every project keeps its place in the sidebar, and a hidden shell keeps running.
+
+### New
+
+- **Every project in the sidebar.** The session list sorted all projects' sessions together and kept only the
+  newest 50, so a busy project could crowd every other one out entirely — a project is derived from its
+  sessions, so one whose newest session fell outside that slice vanished from the sidebar and the filter. The
+  cap is now per project, so every project is always represented, with a **Load more** row to page in the rest
+  and true session counts per project. `morse.sessions.perProject` / `MORSE_SESSIONS_PER_PROJECT` sets the page
+  size (default 10).
+- **The palette searches every stored session.** Its Sessions rows came from the sidebar's first page per
+  project, so a session beyond those pages could not be found. The search now runs on the host — one cold read
+  warms a cache every later search scans in memory — and the palette merges the remote matches with the pages
+  it already holds, dropping a late answer for a query the reader has moved past.
+
+### Fixed
+
+- **A terminal keeps its shell across a tab switch.** A running terminal in a session the reader left reset to
+  a fresh shell. Two independent defects did it: the bottom panel unmounted its tool when a session switch made
+  the panel's per-session view `undefined`, taking every session's `Terminal` with it; and a repeat
+  `terminal/open` on the same connection was treated as a close, the one call that ends a shell and drops its
+  scrollback. The panel now keeps the last tool it mounted, and a remount reattaches to the live shell and
+  replays what that viewer missed.
+- **A closed terminal takes its whole job with it.** `terminal/close`, closing the tab or session, and
+  `morse stop` left a dev server the reader had launched — `pnpm start:dev`, a watcher — running: node-pty
+  signals only the shell's own pid, so the job reparented to init and kept its port, and the old `SIGKILL`
+  fallback targeted that same, already-dead pid. The process table is now read and the shell, every descendant
+  and each of their process groups are signalled — a graceful `SIGHUP` first so a server still prints its
+  shutdown log, then a `SIGKILL` pass that re-reads the table by pty session and catches children that
+  reparented while the shell died. Shutdown force-kills synchronously, since the scheduled fallback timer is
+  unref'd and would not fire before the process exits.
+- **The git panel follows a project switch.** It keyed its repository state by the relative `path`, which is
+  `''` for the session's own repository in every project, so switching to a session in another directory
+  reused the previous project's stale name, branch and root while only the history refreshed — the panel read
+  one project's name over another's session until the first message forced a reopen. State is now keyed by the
+  absolute root and the relative path.
+- **An untouched draft tab survives a session pick.** Focusing another session removed a "New session" tab
+  nobody had typed into, treating the reader's own tab as noise. It stays until the reader closes it.
+- **A draft tab re-targets the host across projects.** Selecting a draft only sent `session/new` when the host
+  was on a real session, so clicking one project's draft while the host sat on another's left both showing the
+  second project's workspace. The message now goes whenever the clicked draft's project differs from the host's
+  current workspace.
+
 ## 0.24.0 — 12 October 2026
 
 The browser host updates itself in one click, and every list is now one tree.
