@@ -504,14 +504,16 @@ export class HostSessionController {
       this.emitTerminalExit(payload.terminalId, undefined, 'This host has no terminal.');
       return;
     }
-    // A repeat open on this connection replaces the shell rather than leaking a
-    // second one behind the same name. A first open must not: the shell may be
-    // one this connection is reattaching to, and that one keeps running.
+    // A repeat open on this connection is a *reattach*: a pane that remounted
+    // (a rebuilt view) is asking for the shell it already has, not a new one.
+    // Detach the superseded viewer only; `attach` below reuses the live shell
+    // and replays what that viewer missed. A shell that already exited is the
+    // other case — there the dead scrollback is dropped so a fresh shell does
+    // not replay it over the emulator that still shows it.
     const previous = this.terminals.get(payload.terminalId);
     if (previous !== undefined) {
       previous.detach();
       this.terminals.delete(payload.terminalId);
-      backend.close(payload.terminalId);
     } else if (this.openedTerminals.has(payload.terminalId)) {
       // A restart after the shell exited: drop the dead shell's scrollback, so
       // the fresh shell does not replay it over the emulator that still has it.

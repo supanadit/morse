@@ -95,7 +95,7 @@
 
   <!-- Folded, the body keeps its component (and its shell) and only loses space. -->
   <div class="body" [class.hidden]="!expanded()">
-    @if (activeView(); as view) {
+    @if (mountedView(); as view) {
       @if (componentFor(view); as component) {
         <ng-container [ngComponentOutlet]="component" />
       }

@@ -1561,10 +1561,11 @@ describe('HostSessionController terminal', () => {
     const host = controller(messages, shells.backend);
     await host.start();
 
-    // Open t1 twice: the second replaces the first.
+    // Open t1 twice: the second supersedes the first viewer and reattaches to
+    // the same shell (it is not a new one and the shell keeps running).
     await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
     await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
-    // The superseded shell ends late; that is not the terminal's news.
+    // The superseded viewer's shell reference ends late; that is not the news.
     shells.sinks[0]?.exit(1);
 
     expect(messages.filter((message) => message.type === 'terminal/exit')).toHaveLength(0);
@@ -1579,6 +1580,27 @@ describe('HostSessionController terminal', () => {
     expect(messages).toContainEqual({
       type: 'terminal/exit',
       payload: { terminalId: 't1', code: 0, error: undefined },
+    });
+  });
+
+  it('reattaches a repeat open to the live shell instead of killing it', async () => {
+    const messages: HostToClientMessage[] = [];
+    const shell = fakeTerminal({ replay: 'earlier output\n' });
+    const host = controller(messages, shell.backend);
+    await host.start();
+
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+    messages.length = 0;
+    // A pane that remounted (a rebuilt view, a rebuilt panel) opens the same id
+    // again. The shell must survive — only the superseded viewer is dropped.
+    await host.handleClientMessage({ type: 'terminal/open', payload: { terminalId: 't1' } });
+
+    expect(shell.isKilled()).toBe(false);
+    expect(shell.detaches()).toBe(1);
+    // A reattach replays the scrollback so the fresh emulator catches up.
+    expect(messages).toContainEqual({
+      type: 'terminal/output',
+      payload: { terminalId: 't1', data: 'earlier output\n' },
     });
   });
 

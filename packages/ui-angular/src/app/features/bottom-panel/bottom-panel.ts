@@ -2,8 +2,11 @@ import { NgComponentOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
+  effect,
   inject,
   input,
+  signal,
   type Type,
 } from '@angular/core';
 import { PANEL_DEFAULT_HEIGHT, PanelState } from '../../state/panel-state';
@@ -61,6 +64,25 @@ export class BottomPanel {
   protected readonly height = this.panel.height;
   protected readonly full = this.panel.full;
   protected readonly actions = this.panel.actions;
+  /**
+   * The tool whose component is mounted. The fold, the chosen tool and full
+   * screen are per session (`PanelState`), but a session that has not opened the
+   * panel reports no active view — and swapping the tool out then would unmount
+   * it, destroying every `Terminal` and with it the host-owned shells. So the
+   * last tool shown stays mounted across a session switch; each tool filters by
+   * the session in front itself, so a hidden one shows nothing of its own.
+   */
+  private readonly lastView = signal<string | undefined>(undefined);
+  protected readonly mountedView = computed(() => this.activeView() ?? this.lastView());
+
+  constructor() {
+    effect(() => {
+      const view = this.activeView();
+      if (view !== undefined) {
+        this.lastView.set(view);
+      }
+    });
+  }
 
   /** A chip: opens its tool, or folds the panel if it was already open. */
   protected select(id: string): void {

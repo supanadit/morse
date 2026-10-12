@@ -53,10 +53,12 @@ function press(element: Element, type: string, clientY = 0): void {
   );
 }
 
+type SessionState = { sessionId: string | undefined; workspace: { cwd: string; name: string } };
+
 /** The terminal view needs a host that exists (for the session key) and talks. */
 function morseStub() {
   return {
-    state: signal({ sessionId: 's1' as string | undefined, workspace: { cwd: '/w', name: 'w' } }),
+    state: signal<SessionState>({ sessionId: 's1', workspace: { cwd: '/w', name: 'w' } }),
     activateSession: vi.fn(),
     newSession: vi.fn(),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
@@ -70,14 +72,19 @@ function morseStub() {
   };
 }
 
-function setup(): { fixture: ComponentFixture<BottomPanel>; host: HTMLElement } {
+function setup(): {
+  fixture: ComponentFixture<BottomPanel>;
+  host: HTMLElement;
+  state: ReturnType<typeof signal<SessionState>>;
+} {
+  const morse = morseStub();
   TestBed.configureTestingModule({
     imports: [BottomPanel],
-    providers: [{ provide: MorseService, useValue: morseStub() }],
+    providers: [{ provide: MorseService, useValue: morse }],
   });
   const fixture = TestBed.createComponent(BottomPanel);
   fixture.detectChanges();
-  return { fixture, host: fixture.nativeElement as HTMLElement };
+  return { fixture, host: fixture.nativeElement as HTMLElement, state: morse.state };
 }
 
 describe('BottomPanel', () => {
@@ -132,6 +139,27 @@ describe('BottomPanel', () => {
     fixture.detectChanges();
 
     expect(host.classList.contains('host-hidden')).toBe(false);
+    expect(host.querySelector('morse-terminal-view')).not.toBeNull();
+  });
+
+  it('keeps the tool mounted when the session switches, so shells survive', async () => {
+    const { fixture, host, state } = setup();
+    (host.querySelector('.chip-label') as HTMLElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(host.querySelector('morse-terminal-view')).not.toBeNull();
+
+    // Switched to a session whose own panel was never opened: its `activeView`
+    // is `undefined`, but the terminal must stay mounted (its shells are live).
+    state.set({ sessionId: 's2', workspace: { cwd: '/other', name: 'other' } });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(host.querySelector('morse-terminal-view')).not.toBeNull();
+
+    // Back on s1: still mounted, and its own state is intact.
+    state.set({ sessionId: 's1', workspace: { cwd: '/w', name: 'w' } });
+    fixture.detectChanges();
     expect(host.querySelector('morse-terminal-view')).not.toBeNull();
   });
 
