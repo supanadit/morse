@@ -224,6 +224,32 @@ function setupPnpmInstall(base: string, slashCommandsJs: string): { shim: string
 const toSlashes = (path: string): string => path.replace(/\\/g, '/');
 const toBackslashes = (path: string): string => path.replace(/\//g, '\\');
 
+/**
+ * A bun global install on Windows. bun cannot symlink and cannot run a shebang,
+ * so it writes `pi.exe` — a real PE — beside a `pi.bunx` whose UTF-16 payload
+ * names the target, and reads it back at launch. The payload is stored relative
+ * to the shim's *grandparent* (`~/.bun`), with a leading `..\` removed, which the
+ * payload here reproduces with bun's real `install/global/node_modules` layout.
+ */
+function setupBunInstall(base: string, slashCommandsJs: string): { shim: string; root: string } {
+  const root = join(base, 'install', 'global', 'node_modules', '@earendil-works', 'pi-coding-agent');
+  setupPi(root, slashCommandsJs);
+  mkdirSync(join(root, 'dist', 'bundle'), { recursive: true });
+  writeFileSync(join(root, 'dist', 'bundle', 'cli.js'), '#!/usr/bin/env node\n');
+
+  const shim = join(base, 'bin', 'pi.exe');
+  mkdirSync(dirnameOf(shim), { recursive: true });
+  // A PE is opaque to a text scan, so its bytes only have to not look like one;
+  // the real shim's magic is not what any reader on our side touches.
+  writeFileSync(shim, Buffer.from('MZ\u0000\u0000bun-shim\u0000', 'latin1'));
+  const reference = ['install', 'global', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js'].join('\\');
+  writeFileSync(
+    `${shim.slice(0, -'.exe'.length)}.bunx`,
+    Buffer.from(`${reference}"`, 'utf16le'),
+  );
+  return { shim, root };
+}
+
 afterEach(() => {
   for (const dir of roots.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -298,6 +324,17 @@ describe('piPackageRoot', () => {
     );
     expect(piPackageRoot(`${managed.launcher}.cmd`)).toBe(managed.root);
   });
+
+  // bun on Windows is the one install shape that is neither a symlink nor a text
+  // shim: a compiled `.exe` and a UTF-16 sidecar. Both were opaque to every step
+  // above, so a bun-global pi resolved to nothing (issue #1's Windows analogue).
+  it('resolves a bun Windows .exe shim through its .bunx sidecar', () => {
+    const install = setupBunInstall(
+      tempDir('morse-pibuiltins-bun-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(piPackageRoot(install.shim)).toBe(install.root);
+  });
 });
 
 describe('readPiVersion', () => {
@@ -321,6 +358,14 @@ describe('readPiVersion', () => {
   it('reads the version through a pnpm POSIX shim', () => {
     const install = setupPnpmInstall(
       tempDir('morse-pibuiltins-version-pnpm-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(readPiVersion({ command: install.shim, args: [], source: 'path' })).toBe('9.9.9');
+  });
+
+  it('reads the version of a bun Windows install through its .exe shim', () => {
+    const install = setupBunInstall(
+      tempDir('morse-pibuiltins-version-bun-'),
       'export const BUILTIN_SLASH_COMMANDS = [];',
     );
     expect(readPiVersion({ command: install.shim, args: [], source: 'path' })).toBe('9.9.9');

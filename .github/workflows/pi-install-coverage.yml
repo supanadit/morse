@@ -181,12 +181,13 @@ jobs:
         run: |
           corepack enable
           corepack prepare pnpm@latest --activate
-          # On Windows pnpm puts its global shims directly in PNPM_HOME (no bin/
-          # subdirectory) and checks that same directory is on PATH.
+          # Since pnpm 11 the global bin directory is `$PNPM_HOME/bin` on Windows
+          # too — it still checks that exact directory is on PATH, and the raw
+          # `$PNPM_HOME` is not enough (it fails with GLOBAL_BIN_DIR_NOT_IN_PATH).
           $env:PNPM_HOME = "$env:USERPROFILE\.pnpm"
           "PNPM_HOME=$env:PNPM_HOME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $env:PNPM_HOME | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          $env:PATH = "$env:PNPM_HOME;$env:PATH"
+          "$env:PNPM_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$env:PNPM_HOME\bin;$env:PATH"
           pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent
 
       - name: Install pi via bun

@@ -24,6 +24,10 @@ export type { PiSpawn } from './resolve-pi.js';
  *   global store, not a symlink). The walk up finds a bin directory, never a
  *   manifest; the real `node_modules` path is named inside the shim and is
  *   followed from there.
+ * - a *compiled binary shim*: bun on Windows cannot symlink and cannot run a
+ *   shebang, so it writes `pi.exe` — a real PE — beside a `pi.bunx` sidecar whose
+ *   UTF-16 payload names the target relative to the shim's grandparent. The file
+ *   is opaque to any text scan, so the sidecar is decoded on its own.
  * - a managed `releases-v1` install (`curl pi.dev/install.sh`, the PowerShell
  *   `install.ps1`): no manifest anywhere above the launcher, only an installer
  *   marker and `current-version`. Its layout is reconstructed from the files the
@@ -106,6 +110,14 @@ export function piPackageRoot(entry: string, maxDepth = MAX_ROOT_DEPTH): string 
     return adjacent;
   }
   for (const referenced of referencedDirectoriesFromShim(entry)) {
+    const shimmed = climbForPiPackage(referenced, maxDepth);
+    if (shimmed !== undefined) {
+      return shimmed;
+    }
+  }
+  // bun's Windows `.exe` shim is a compiled image, so the text scan above cannot
+  // read it; its target lives in a sidecar instead.
+  for (const referenced of bunShimTargets(entry)) {
     const shimmed = climbForPiPackage(referenced, maxDepth);
     if (shimmed !== undefined) {
       return shimmed;
@@ -226,6 +238,48 @@ function referencedDirectoriesFromShim(entry: string): string[] {
 /** A `.cmd`/`.bat`/`.ps1`/`sh` script or a bare name; never a `.js`/binary entry. */
 function isShimCandidate(entry: string): boolean {
   return !/\.(?:exe|com|js|mjs|cjs|json)$/i.test(entry);
+}
+
+/**
+ * The directories a bun Windows `.exe` shim points into.
+ *
+ * bun cannot hand a child the target path in its process image, so it writes a
+ * second file beside the launcher: `pi.exe` is a tiny PE that reads `pi.bunx` and
+ * `NtCreateProcess`es what it names. That makes the pair the only install shape
+ * Morse cannot read as text — the `.exe` is an image and the `.bunx` is UTF-16 —
+ * which is why a bun-global pi on Windows resolved to nothing.
+ *
+ * The sidecar's first field is `[WSTR:bin_path][u16 '"'][u16 0]…` and the encoder
+ * stores the target relative to the shim's own directory with a leading `..\`
+ * removed, so joined against that directory's parent it reconstructs the target
+ * (see `bun_shim_impl.rs`, which rebuilds the same path by overwriting the shim's
+ * filename with the payload). Best effort: no `.exe` suffix, no readable sidecar
+ * or no quote terminator yields none.
+ */
+function bunShimTargets(entry: string): string[] {
+  if (!/\.exe$/i.test(entry)) {
+    return [];
+  }
+  const sidecar = `${entry.slice(0, -'.exe'.length)}.bunx`;
+  let payload: string;
+  try {
+    if (statSync(sidecar).size > SHIM_MAX_BYTES) {
+      return [];
+    }
+    payload = readFileSync(sidecar).toString('utf16le');
+  } catch {
+    return [];
+  }
+  const terminator = payload.indexOf('"');
+  const reference = (terminator >= 0 ? payload.slice(0, terminator) : payload).trim();
+  if (reference.length === 0) {
+    return [];
+  }
+  // The payload is a Windows path in every case, so its separators are normalized
+  // rather than joined literally — the same resolution then works on any host.
+  const base = dirname(dirname(entry));
+  const target = join(base, reference.replace(/\\/g, '/'));
+  return target === base ? [] : [target];
 }
 
 /**
