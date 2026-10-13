@@ -67,54 +67,42 @@ jobs:
           - name: install.sh (managed) — Ubuntu
             os: ubuntu-latest
             install: managed-sh
-            shell: bash
           - name: install.sh (managed) — macOS arm64
             os: macos-latest
             install: managed-sh
-            shell: bash
           - name: install.ps1 (managed) — Windows
             os: windows-latest
             install: managed-ps1
-            shell: pwsh
           # Package managers, on every POSIX host and on Windows. npm symlinks on
           # POSIX but writes `.cmd`/`.ps1` shims on Windows; pnpm copies a `sh`
           # shim on POSIX and a `.cmd` shim on Windows.
           - name: npm — Ubuntu
             os: ubuntu-latest
             install: npm
-            shell: bash
           - name: npm — macOS arm64
             os: macos-latest
             install: npm
-            shell: bash
           - name: npm — Windows
             os: windows-latest
             install: npm-win
-            shell: pwsh
           - name: pnpm — Ubuntu
             os: ubuntu-latest
             install: pnpm
-            shell: bash
           - name: pnpm — macOS arm64
             os: macos-latest
             install: pnpm
-            shell: bash
           - name: pnpm — Windows
             os: windows-latest
             install: pnpm-win
-            shell: pwsh
           - name: bun — Ubuntu
             os: ubuntu-latest
             install: bun
-            shell: bash
           - name: bun — macOS arm64
             os: macos-latest
             install: bun
-            shell: bash
           - name: bun — Windows
             os: windows-latest
             install: bun-win
-            shell: pwsh
     env:
       # corepack would otherwise stop to ask before downloading pnpm.
       COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
@@ -221,6 +209,7 @@ jobs:
 
       # `--dump` prints the entry, its realpath and the start of the shim on
       # success too: when a layout changes, the log already shows what changed.
+      # No `shell:` here: the `shell` keyword cannot read `matrix`, and `node`
+      # runs the same in the platform default (bash on Unix, pwsh on Windows).
       - name: Verify Morse reads the installed pi
-        shell: ${{ matrix.shell }}
         run: node scripts/check-pi-coverage.mjs --dump
