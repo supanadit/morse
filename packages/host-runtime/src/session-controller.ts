@@ -163,7 +163,23 @@ export class HostSessionController {
   private agentError: string | undefined;
   /** The machine-readable half of `agentError` (see `AgentFailure`). */
   private agentFailure: AgentFailure | undefined;
-  private busy = false;
+  /**
+   * True while this client is switching to/starting a session
+   * (`runSessionChange`). Kept apart from `compacting`: sharing one flag meant
+   * a switch's release cleared a compaction still running in the tab the reader
+   * just left, and the composer's Working indicator vanished with it.
+   */
+  private switchBusy = false;
+  /** Keys of the sessions a compaction is running for (`session/compact`). */
+  private readonly compacting = new Set<string>();
+  /**
+   * The session a switch is heading for, set the moment `session/activate`
+   * arrives and cleared once `adopt` has landed. Every state emitted in between
+   * is built from it, so a client that already put the new tab in front never
+   * receives the state of the tab it just left — its Working lighting up under
+   * the tab now in front.
+   */
+  private pendingKey: string | undefined;
   private disposed = false;
   private hasOpenedOnce = false;
   private hostReadyEmitted = false;
@@ -406,17 +422,28 @@ export class HostSessionController {
       case 'session/delete':
         await this.deleteSession(message.payload.sessionId);
         return;
-      case 'session/compact':
-        // Compaction is part of the process, not a side note: like a run, the
-        // same `busy` flag lights the composer's Working indicator (spinner,
-        // elapsed chip, Stop button) and pulses the session in the navigator
-        // while the agent summarizes the context. Reset in `finally` — a failed
-        // compaction must hand the composer back, not wedge it on "Working".
+      case 'session/compact': {
+        // Compaction is part of the process, not a side note: like a run, it
+        // lights the composer's Working indicator (spinner, elapsed chip, Stop
+        // button) for the conversation it runs in. Tracked per session — the
+        // flag this used to share with a session switch is why switching tabs
+        // mid-compaction cleared the indicator and left the run invisible.
+        // Reset in `finally` — a failed compaction must hand the composer back,
+        // not wedge it on "Working".
         //
         // The key the frontend sends pins the compaction to the conversation its
         // dialog was opened over. Without it (older frontends, the shared panel)
-        // the session in front is the target, which is the only sensible default.
-        this.setBusy(true);
+        // the session in front is the target, which is the only sensible default;
+        // with no session at all it is the host's active one, as `chat.compact`
+        // resolves it (`requireActive`).
+        const targetKey =
+          message.payload.sessionKey ??
+          this.promptTarget() ??
+          this.options.services.registry.activeKeyOf();
+        if (targetKey !== undefined) {
+          this.compacting.add(targetKey);
+        }
+        this.emitState();
         try {
           await this.guard(() =>
             this.options.services.chat.compact(
@@ -425,9 +452,13 @@ export class HostSessionController {
             ),
           );
         } finally {
-          this.setBusy(false);
+          if (targetKey !== undefined) {
+            this.compacting.delete(targetKey);
+          }
+          this.emitState();
         }
         return;
+      }
       case 'history/load':
         await this.loadOlderHistory();
         return;
@@ -710,11 +741,13 @@ export class HostSessionController {
     this.draftWorkspace = undefined;
     this.draftModel = undefined;
     this.draftThinking = undefined;
-    await this.runSessionChange(() =>
-      this.options.services.registry.activate(
-        sessionId,
-        path ? workspaceOf(path) : undefined,
-      ),
+    await this.runSessionChange(
+      () =>
+        this.options.services.registry.activate(
+          sessionId,
+          path ? workspaceOf(path) : undefined,
+        ),
+      sessionId,
     );
   }
 
@@ -774,7 +807,7 @@ export class HostSessionController {
       // was closed or deleted from the sidebar.
       await this.enterDraft();
     } else if (next) {
-      await this.runSessionChange(() => this.options.services.registry.activate(next));
+      await this.runSessionChange(() => this.options.services.registry.activate(next), next);
     } else {
       // Return to the draft the way session/new made it: no replacement
       // session nobody asked for; the next prompt opens one.
@@ -783,13 +816,23 @@ export class HostSessionController {
     await this.publishSessions();
   }
 
-  /** Opens/activates a session while reporting progress and failures. */
+  /**
+   * Opens/activates a session while reporting progress and failures.
+   * `targetKey` is the session the reader's tab already shows: from the first
+   * emit the view describes it, never the session they just left.
+   */
   private async runSessionChange(
     change: () => Promise<OpenedSession>,
+    targetKey?: string,
   ): Promise<void> {
     const announce = this.hasOpenedOnce;
+    if (targetKey !== undefined) {
+      this.pendingKey = targetKey;
+    }
     if (announce) {
-      this.setBusy(true);
+      // The switch's own pulse: Working while the target starts, released in
+      // `finally` — never touching a compaction another session may be running.
+      this.switchBusy = true;
     }
     this.agentStarting = true;
     if (announce) {
@@ -810,8 +853,13 @@ export class HostSessionController {
     } finally {
       this.agentStarting = false;
       this.hasOpenedOnce = true;
+      // `adopt` has landed (or the switch failed): the view speaks for
+      // `activeKey` again, and the switch's own busy flag is released without
+      // touching a compaction another session may still be running.
+      this.pendingKey = undefined;
       if (announce) {
-        this.setBusy(false);
+        this.switchBusy = false;
+        this.emitState();
       } else {
         this.emitState();
       }
@@ -1756,12 +1804,12 @@ export class HostSessionController {
       .hotKeys()
       .map((key) => {
         const state = this.options.services.registry.stateOf(key);
-        const isActive = key === this.activeKey;
+        const isActive = key === this.viewKey();
         const needsInput = this.pendingFor(key) !== undefined;
         return {
           sessionKey: key,
           streaming: state?.streaming ?? false,
-          busy: isActive ? this.busy : false,
+          busy: (isActive && this.switchBusy) || this.compacting.has(key),
           agentReady: isActive ? this.agentReady : state !== undefined,
           agentStarting: isActive ? this.agentStarting : false,
           needsInput,
@@ -1771,20 +1819,35 @@ export class HostSessionController {
     this.options.emit({ type: 'session/activity', payload: { sessions } });
   }
 
+  /**
+   * The session the view describes: the target of a switch while one is in
+   * flight, the adopted one otherwise.
+   */
+  private viewKey(): string | undefined {
+    return this.pendingKey ?? this.activeKey;
+  }
+
+  /** Working in the view: a switch under way, or this view's session compacting. */
+  private isBusy(): boolean {
+    const key = this.viewKey();
+    return this.switchBusy || (key !== undefined && this.compacting.has(key));
+  }
+
   private currentState(): SessionViewState {
     const meta = {
       agentReady: this.agentReady,
       agentStarting: this.agentStarting,
       agentError: this.agentError,
       agentFailure: this.agentFailure,
-      busy: this.busy,
+      busy: this.isBusy(),
       hasOlderHistory: this.hasOlderHistory,
       loadingOlderHistory: this.loadingOlderHistory,
       loadingThinkingLevels: this.loadingThinkingLevels,
     };
-    const state = this.activeKey === undefined
+    const key = this.viewKey();
+    const state = key === undefined
       ? undefined
-      : this.options.services.registry.stateOf(this.activeKey);
+      : this.options.services.registry.stateOf(key);
     if (state) {
       const view = toSessionViewState(state, meta);
       // pi names a session only when it emits `session_name`, so a *resumed*
@@ -1792,12 +1855,12 @@ export class HostSessionController {
       // workspace name for a title it already knows. The catalog is the
       // authority (it is what the sidebar lists); a session still on the
       // placeholder takes its title from its first prompt instead.
-      if (view.sessionTitle === undefined && this.activeKey !== undefined) {
-        const catalog = this.summaries.get(this.activeKey)?.title;
+      if (view.sessionTitle === undefined && key !== undefined) {
+        const catalog = this.summaries.get(key)?.title;
         view.sessionTitle =
           catalog !== undefined && catalog !== UNTITLED_SESSION
             ? catalog
-            : this.derivedTitle(this.activeKey);
+            : this.derivedTitle(key);
       }
       return view;
     }
@@ -1810,14 +1873,6 @@ export class HostSessionController {
       this.draftModel,
       this.draftThinking,
     );
-  }
-
-  private setBusy(busy: boolean): void {
-    if (this.busy === busy) {
-      return;
-    }
-    this.busy = busy;
-    this.emitState();
   }
 
   private fail(message: string, detail?: string): void {

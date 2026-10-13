@@ -313,6 +313,38 @@ async function withOpenSession(h: Harness): Promise<void> {
   await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
 }
 
+/**
+ * Two sessions a test can switch between (`sess-a` in front), with a
+ * compaction the test can hold open. The shared `harness()` gateway always
+ * reports `sess-1`, so a switch would resolve back to the same key — a
+ * factory honoring the requested id is what makes a tab switch real here.
+ */
+async function twoSessionsOnHold(hold: CompactHold): Promise<{
+  host: HostSessionController;
+  messages: HostToClientMessage[];
+}> {
+  const messages: HostToClientMessage[] = [];
+  const factory: AgentGatewayFactory = {
+    create: (input) =>
+      Promise.resolve(fakeGateway({ sessionId: input.sessionId ?? 'sess-a', hold })),
+  };
+  const registry = new SessionRegistry({
+    factory,
+    catalog: { list: () => Promise.resolve([]) },
+    defaultWorkspace: WORKSPACE,
+    logger: silentLogger,
+  });
+  const chat = new ChatService({ agent: registry, logger: silentLogger });
+  const transcripts = new SessionTranscriptStore();
+  const host = connect(registry, chat, transcripts, messages);
+  await host.start();
+  await host.handleClientMessage({
+    type: 'session/activate',
+    payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+  });
+  return { host, messages };
+}
+
 describe('HostSessionController.start (reload reattach)', () => {
   it('reattaches the active session without spawning: a reload replays the conversation', async () => {
     const h = harness();
@@ -423,6 +455,60 @@ describe('HostSessionController compaction', () => {
       )
       .map((message) => message.payload);
     expect(String(appends.at(-1)?.text)).toContain('Already compacted');
+  });
+
+  it('a tab switch does not end a running compaction: coming back still shows Working', async () => {
+    const hold: CompactHold = { finish: () => {}, fail: () => {} };
+    const { host, messages } = await twoSessionsOnHold(hold);
+
+    const pending = host.handleClientMessage({ type: 'session/compact', payload: {} });
+    expect(lastStateOf(messages)).toMatchObject({ busy: true, sessionId: 'sess-a' });
+
+    // The reader switches to another session's tab while it compacts.
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
+    });
+    // The other tab is not the session compacting, so it must not claim busy…
+    expect(lastStateOf(messages)).toMatchObject({ busy: false, sessionId: 'sess-b' });
+
+    // …and the compaction kept its own flag: coming back still shows Working.
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+    expect(lastStateOf(messages)).toMatchObject({ busy: true, sessionId: 'sess-a' });
+
+    hold.finish();
+    await pending;
+    expect(lastStateOf(messages)).toMatchObject({ busy: false, sessionId: 'sess-a' });
+  });
+
+  it('a switch never emits the left session as busy under the tab now in front', async () => {
+    const hold: CompactHold = { finish: () => {}, fail: () => {} };
+    const { host, messages } = await twoSessionsOnHold(hold);
+    const pending = host.handleClientMessage({ type: 'session/compact', payload: {} });
+    messages.length = 0;
+
+    // The client puts the new tab in front immediately; every state the host
+    // emits from here on describes the target, never the session just left —
+    // a state still naming `sess-a` would light its Working under tab B.
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
+    });
+    const states = messages
+      .filter((message): message is Extract<HostToClientMessage, { type: 'session/state' }> =>
+        message.type === 'session/state')
+      .map((message) => message.payload);
+    expect(states.length).toBeGreaterThan(0);
+    expect(states.some((state) => state.sessionId === 'sess-a')).toBe(false);
+    // The switch still pulses Working for the session being switched to —
+    // the busy flag that used to be shared with compaction.
+    expect(states[0]).toMatchObject({ busy: true });
+
+    hold.finish();
+    await pending;
   });
 
   it('a pinned session key names the conversation, so a stale dialog cannot compact the wrong one', async () => {
