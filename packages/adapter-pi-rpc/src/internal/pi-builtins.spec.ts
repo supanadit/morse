@@ -1,12 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   clearBuiltinCommandsCache,
   getBuiltinSlashCommands,
-  piPackageRoot,
 } from './pi-builtins.js';
+import { piPackageRoot, readPiVersion } from './pi-install.js';
 import { buildCommandList, type CommandContext } from '../pi-rpc-agent.js';
 
 /**
@@ -38,6 +38,7 @@ function writeSlashCommands(root: string, body: string): string {
 
 /** A minimal fake pi install: manifest, a dummy bin entry, and the module. */
 function setupPi(root: string, slashCommandsJs: string, files?: Record<string, string>): string {
+  mkdirSync(root, { recursive: true });
   writeFileSync(
     join(root, 'package.json'),
     JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '9.9.9', type: 'module' }),
@@ -56,10 +57,172 @@ function dirnameOf(path: string): string {
   return path.slice(0, Math.max(path.lastIndexOf('/'), 0));
 }
 
+/**
+ * The launcher `pi.dev/install.sh` writes at `<agent>/bin/pi`, shortened but
+ * structurally exact: it resolves its own symlinks, reads
+ * `<agent>/install/current-version` and execs that release's bin. Nothing in
+ * or above it is a manifest — the shape that left the palette without builtins.
+ */
+const MANAGED_LAUNCHER = [
+  '#!/bin/sh',
+  'pi_launcher=$0',
+  'while [ -L "$pi_launcher" ]; do',
+  '  pi_link=$(readlink "$pi_launcher") || exit 1',
+  '  case "$pi_link" in',
+  '    /*) pi_launcher="$pi_link" ;;',
+  '    *) pi_launcher=${pi_launcher%/*}/$pi_link ;;',
+  '  esac',
+  'done',
+  'pi_bin_dir=${pi_launcher%/*}',
+  'pi_agent_dir=${pi_bin_dir%/*}',
+  'pi_current_file=$pi_agent_dir/install/current-version',
+  'IFS= read -r pi_current_version < "$pi_current_file" || exit 1',
+  'pi_release_bin=$pi_agent_dir/install/releases/$pi_current_version/node_modules/.bin/pi',
+  '[ -x "$pi_release_bin" ] || exit 1',
+  'exec "$pi_release_bin" "$@"',
+].join('\n');
+
+/**
+ * A managed install (releases-v1) exactly as install.sh lays it out: launcher
+ * at `<base>/agent/bin/pi`, `install/` beside it, and the package npm ci
+ * installed under `install/releases/<version>/node_modules`. Returns the
+ * PATH entry Morse resolves — `<base>/path-bin/pi`, a symlink to the launcher,
+ * the way `write_managed_install_link` puts it on PATH.
+ */
+function setupManagedPi(
+  base: string,
+  slashCommandsJs: string,
+  version = '9.9.9',
+): { entry: string; launcher: string; installDir: string; root: string } {
+  const agentRoot = join(base, 'agent');
+  const binDir = join(agentRoot, 'bin');
+  const installDir = join(agentRoot, 'install');
+  const releaseDir = join(installDir, 'releases', version);
+  const root = join(releaseDir, 'node_modules', '@earendil-works', 'pi-coding-agent');
+  mkdirSync(binDir, { recursive: true });
+  mkdirSync(join(releaseDir, 'node_modules', '.bin'), { recursive: true });
+  mkdirSync(join(root, 'dist', 'bundle'), { recursive: true });
+  writeFileSync(
+    join(installDir, 'managed-install.json'),
+    JSON.stringify({
+      kind: 'pi-managed-install',
+      schemaVersion: 1,
+      layout: 'releases-v1',
+      entrypoint: { type: 'script', path: join(binDir, 'pi') },
+    }),
+  );
+  writeFileSync(join(installDir, 'current-version'), `${version}\n`);
+  // The release root is an installer meta-package *depending* on pi — which is
+  // why walking up from the launcher never meets pi's own manifest.
+  writeFileSync(
+    join(releaseDir, 'package.json'),
+    JSON.stringify({
+      name: 'pi-managed-install',
+      version,
+      dependencies: { '@earendil-works/pi-coding-agent': version },
+    }),
+  );
+  writeFileSync(
+    join(root, 'package.json'),
+    JSON.stringify({ name: '@earendil-works/pi-coding-agent', version, type: 'module' }),
+  );
+  writeFileSync(join(root, 'dist', 'bundle', 'cli.js'), '');
+  writeSlashCommands(root, slashCommandsJs);
+  symlinkSync(
+    join('..', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js'),
+    join(releaseDir, 'node_modules', '.bin', 'pi'),
+  );
+  writeFileSync(join(binDir, 'pi'), `${MANAGED_LAUNCHER}\n`, { mode: 0o755 });
+  const pathBin = join(base, 'path-bin');
+  mkdirSync(pathBin, { recursive: true });
+  symlinkSync(join('..', 'agent', 'bin', 'pi'), join(pathBin, 'pi'));
+  return { entry: join(pathBin, 'pi'), launcher: join(binDir, 'pi'), installDir, root };
+}
+
 function spawnFor(root: string): { spawn: { command: string; args: string[]; source: 'configured' } } {
   // A configured binary under `bin/` resolves: bin/ -> package root.
   return { spawn: { command: join(root, 'bin', 'pi'), args: [], source: 'configured' } };
 }
+
+/**
+ * A shim as cmd-shim writes it (npm, and pnpm's copied POSIX shim): its own
+ * directory as `$basedir`/`%dp0%`, references that climb out of the shim's bin
+ * directory into a store, and — for pnpm — a `# cmd-shim-target=` trailer. The
+ * real pi is never above the shim, so only following these references resolves.
+ */
+function writeCmdShim(
+  shim: string,
+  references: { sh: string; cmd: string; ps1: string },
+  target?: string,
+): void {
+  mkdirSync(dirnameOf(shim), { recursive: true });
+  writeFileSync(
+    shim,
+    [
+      '#!/bin/sh',
+      'basedir=$(dirname "$(echo "$0" | sed -e \'s,\\\\\\,/,g\')")',
+      'if [ -x "$basedir/node" ]; then',
+      `  exec "$basedir/node" "${references.sh}" "$@"`,
+      'else',
+      `  exec node "${references.sh}" "$@"`,
+      'fi',
+      ...(target === undefined ? [] : [`# cmd-shim-target=${target}`]),
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    `${shim}.cmd`,
+    [
+      '@ECHO off',
+      'SET dp0=%~dp0',
+      `node "%~dp0${references.cmd}" %*`,
+      '',
+    ].join('\r\n'),
+  );
+  writeFileSync(
+    `${shim}.ps1`,
+    [
+      '#!/usr/bin/env pwsh',
+      '$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent',
+      `& "${references.ps1}" $args`,
+      'exit $LASTEXITCODE',
+      '',
+    ].join('\n'),
+  );
+}
+
+/**
+ * A pnpm global install on POSIX: `$PNPM_HOME/bin/pi` is a copied `sh` shim into
+ * `$PNPM_HOME/global/<store>/node_modules/.pnpm/...`, so no pi manifest is above
+ * the shim and (unlike npm) no symlink points at the package either. The store
+ * hash is fake here; the shim is the real cmd-shim shape.
+ */
+function setupPnpmInstall(base: string, slashCommandsJs: string): { shim: string; root: string } {
+  const store = join(base, 'global', 'v11', 'a'.repeat(64), 'node_modules', '.pnpm');
+  const packageDir = join(store, 'pi-coding-agent@9.9.9', 'node_modules', '@earendil-works', 'pi-coding-agent');
+  setupPi(packageDir, slashCommandsJs);
+  mkdirSync(join(packageDir, 'dist', 'bundle'), { recursive: true });
+  writeFileSync(join(packageDir, 'dist', 'bundle', 'cli.js'), '#!/usr/bin/env node\n');
+
+  // The path the shim names, as each shell spells it, relative to `bin/` because
+  // that is where the shim sits. The pnpm shim is the real article: the store
+  // path is written into every branch and repeated in the target trailer.
+  const entry = join('..', 'global', 'v11', 'a'.repeat(64), 'node_modules', '.pnpm', 'pi-coding-agent@9.9.9', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js');
+  const shim = join(base, 'bin', 'pi');
+  writeCmdShim(
+    shim,
+    {
+      sh: `$basedir/${toSlashes(entry)}`,
+      cmd: toBackslashes(entry),
+      ps1: `$basedir/${toSlashes(entry)}`,
+    },
+    toSlashes(join(base, entry)),
+  );
+  return { shim, root: packageDir };
+}
+
+const toSlashes = (path: string): string => path.replace(/\\/g, '/');
+const toBackslashes = (path: string): string => path.replace(/\//g, '\\');
 
 afterEach(() => {
   for (const dir of roots.splice(0)) {
@@ -78,6 +241,105 @@ describe('piPackageRoot', () => {
     const bare = tempDir('morse-pibuiltins-nopi-');
     writeFileSync(join(bare, 'not-pi'), '');
     expect(piPackageRoot(join(bare, 'not-pi'))).toBeUndefined();
+  });
+
+  // Regression: issue #1 — a bash-script (managed) pi has no manifest above
+  // its launcher, so the walk-up alone reported an unreadable install.
+  it('resolves the package root behind a managed install.sh launcher', () => {
+    const managed = setupManagedPi(
+      tempDir('morse-pibuiltins-managed-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(piPackageRoot(managed.entry)).toBe(managed.root);
+    // Also when pi resolves straight to the launcher (no PATH symlink).
+    expect(piPackageRoot(managed.launcher)).toBe(managed.root);
+  });
+
+  it('keeps a managed tree whose current-version is not a release name from being read', () => {
+    const managed = setupManagedPi(
+      tempDir('morse-pibuiltins-managed-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    writeFileSync(join(managed.installDir, 'current-version'), '../..\n');
+    expect(piPackageRoot(managed.entry)).toBeUndefined();
+  });
+
+  // A pnpm global install leaves a *copied* shim, not a symlink, so the walk-up
+  // meets a bin directory and only the store path written inside the shim leads
+  // to pi.
+  it('follows a pnpm POSIX shim, which is not a symlink', () => {
+    const install = setupPnpmInstall(
+      tempDir('morse-pibuiltins-pnpm-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(piPackageRoot(install.shim)).toBe(install.root);
+  });
+
+  it('follows a Windows .cmd shim whose store path is relative to itself', () => {
+    const install = setupPnpmInstall(
+      tempDir('morse-pibuiltins-cmd-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(piPackageRoot(`${install.shim}.cmd`)).toBe(install.root);
+    expect(piPackageRoot(`${install.shim}.ps1`)).toBe(install.root);
+  });
+
+  // The PowerShell installer puts `.cmd`/`.ps1` launchers beside the sh launcher
+  // and prepends that bin dir to the user PATH, so a Windows managed install
+  // needs both the shim and the managed layout to be recognized together.
+  it('resolves a managed install entered through its pi.cmd launcher', () => {
+    const managed = setupManagedPi(
+      tempDir('morse-pibuiltins-managed-win-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    writeCmdShim(
+      managed.launcher,
+      { sh: '$basedir/pi-launcher.js', cmd: 'pi-launcher.js', ps1: '$basedir/pi-launcher.js' },
+    );
+    expect(piPackageRoot(`${managed.launcher}.cmd`)).toBe(managed.root);
+  });
+});
+
+describe('readPiVersion', () => {
+  it('reads the version pi itself names, through a managed install', () => {
+    const managed = setupManagedPi(
+      tempDir('morse-pibuiltins-version-managed-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+      '4.5.6',
+    );
+    expect(readPiVersion({ command: managed.entry, args: [], source: 'path' })).toBe('4.5.6');
+    // The PowerShell installer leaves `.cmd`/`.ps1` beside the launcher; both
+    // enter the same managed tree as the sh launcher does.
+    writeCmdShim(
+      managed.launcher,
+      { sh: '$basedir/pi-launcher.js', cmd: 'pi-launcher.js', ps1: '$basedir/pi-launcher.js' },
+    );
+    expect(readPiVersion({ command: `${managed.launcher}.cmd`, args: [], source: 'path' })).toBe('4.5.6');
+    expect(readPiVersion({ command: `${managed.launcher}.ps1`, args: [], source: 'path' })).toBe('4.5.6');
+  });
+
+  it('reads the version through a pnpm POSIX shim', () => {
+    const install = setupPnpmInstall(
+      tempDir('morse-pibuiltins-version-pnpm-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(readPiVersion({ command: install.shim, args: [], source: 'path' })).toBe('9.9.9');
+  });
+
+  // `powershell -File <shim>` resolves pi's entry to the shim in the args, not
+  // the command.
+  it('reads the version of a pi started through powershell -File', () => {
+    const install = setupPnpmInstall(
+      tempDir('morse-pibuiltins-version-ps1-'),
+      'export const BUILTIN_SLASH_COMMANDS = [];',
+    );
+    expect(
+      readPiVersion({
+        command: 'powershell.exe',
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', `${install.shim}.ps1`],
+        source: 'path',
+      }),
+    ).toBe('9.9.9');
   });
 });
 
@@ -147,6 +409,27 @@ describe('getBuiltinSlashCommands', () => {
     expect(getBuiltinSlashCommands(spawnFor(root).spawn as never)).toBeUndefined();
   });
 
+  // Regression: issue #1 — the banner "Morse could not read the built-in slash
+  // commands" showed for pi installed by `curl pi.dev/install.sh | sh`.
+  it('reads the builtins from a managed (bash installer) pi', () => {
+    const managed = setupManagedPi(tempDir('morse-pibuiltins-managed-'), literal);
+    const result = getBuiltinSlashCommands({
+      command: managed.entry,
+      args: [],
+      source: 'path',
+    } as never);
+    expect(result).toEqual({
+      root: managed.root,
+      version: '9.9.9',
+      commands: [
+        { name: 'settings', description: 'Open settings menu' },
+        { name: 'model', description: 'Select model', argumentHint: '<provider/model>' },
+        { name: 'brk', description: 'a]b and ]}' },
+        { name: 'dedupe', description: 'first' },
+      ],
+    });
+  });
+
   it('returns undefined without a spawn or for a spawn with no pi install behind it', () => {
     expect(getBuiltinSlashCommands(undefined)).toBeUndefined();
     const empty = tempDir('morse-pibuiltins-bogus-');
@@ -212,6 +495,23 @@ describe('buildCommandList with a pi install', () => {
     expect(commands.find((command) => command.name === 'model')?.argumentHint).toBe(
       '<provider/model>',
     );
+    expect(diagnostics).toEqual([]);
+  });
+
+  // Regression: issue #1 — this diagnostic was the warning banner users saw
+  // for a managed pi, though the install was perfectly readable.
+  it('reads a managed pi without the unreadable-install diagnostic', async () => {
+    const managed = setupManagedPi(tempDir('morse-pibuiltins-managed-'), literal);
+    const context: CommandContext = {
+      cwd: tempDir('morse-pibuiltins-cwd-'),
+      env: { PI_CODING_AGENT_DIR: tempDir('morse-pibuiltins-agent-') },
+      spawn: { command: managed.entry, args: [], source: 'path' } as never,
+    };
+    const { commands, diagnostics } = await buildCommandList(
+      [{ name: 'ask-user', source: 'extension' }],
+      context,
+    );
+    expect(commands.map((command) => command.name)).toEqual(['settings', 'model', 'ask-user']);
     expect(diagnostics).toEqual([]);
   });
 

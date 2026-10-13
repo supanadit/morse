@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import type { PiSpawn } from './resolve-pi.js';
+import { piEntry, piPackageRoot, versionOf, type PiSpawn } from './pi-install.js';
 
 /**
  * pi's TUI slash commands, read from the installed pi binary itself.
@@ -26,11 +26,8 @@ import type { PiSpawn } from './resolve-pi.js';
  *    than a silently trimmed palette.
  */
 
-const PI_PACKAGE_NAME = '@earendil-works/pi-coding-agent';
 /** `dist/core/slash-commands.js`, relative to the pi package root. */
 const SLASH_COMMANDS_FILE = join('dist', 'core', 'slash-commands.js');
-/** Walk-up depth cap — pi's entry can be `bin/`, `dist/`, `dist/bundle/`. */
-const MAX_ROOT_DEPTH = 5;
 
 /** A pi builtin, exactly as pi declares it (see pi's own `BuiltinSlashCommand`). */
 export interface BuiltinSlashCommand {
@@ -55,39 +52,6 @@ interface CacheEntry {
 
 /** Keyed by package root; invalidated by the file's mtime, not by a TTL. */
 const cache = new Map<string, CacheEntry>();
-
-/**
- * The pi package root for a pi entry (`pi` binary or a `dist/**[.js]` entry):
- * realpath the entry, then walk up to the manifest whose name is pi's. Mirrors
- * pi's own version lookup walk.
- */
-export function piPackageRoot(entry: string, maxDepth = MAX_ROOT_DEPTH): string | undefined {
-  let directory: string;
-  try {
-    const resolved = realpathSync(entry);
-    directory = statSync(resolved).isDirectory() ? resolved : dirname(resolved);
-  } catch {
-    return undefined;
-  }
-  for (let depth = 0; depth < maxDepth && directory !== dirname(directory); depth += 1) {
-    const manifest = join(directory, 'package.json');
-    if (existsSync(manifest)) {
-      try {
-        const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as { name?: unknown };
-        if (parsed.name === PI_PACKAGE_NAME) {
-          return directory;
-        }
-      } catch {
-        // Unreadable manifest: keep walking.
-      }
-    }
-    directory = dirname(directory);
-  }
-  return undefined;
-}
-
-const piEntry = (spawn: PiSpawn): string | undefined =>
-  spawn.source === 'node-entry' ? spawn.args.find((arg) => /\.(?:c|m)?js$/.test(arg)) : spawn.command;
 
 /**
  * pi's builtins as the installed binary declares them, cached until the file
@@ -139,21 +103,6 @@ function readFromRoot(root: string, file: string): PiBuiltinsResult | undefined 
   }
   const version = versionOf(root);
   return { root, version, commands };
-}
-
-function versionOf(root: string): string | undefined {
-  try {
-    const parsed = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
-      version?: unknown;
-    };
-    if (typeof parsed.version !== 'string') {
-      return undefined;
-    }
-    const version = parsed.version.trim();
-    return version.length > 0 ? version : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**

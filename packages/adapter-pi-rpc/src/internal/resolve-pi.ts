@@ -1,7 +1,8 @@
-import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { AgentUnavailableError } from '@morse/core';
+import { readPiVersion } from './pi-install.js';
 
 export interface ResolvePiOptions {
   /** Explicit path to the `pi` binary (setting `morse.pi.path` / `MORSE_PI_PATH`). */
@@ -255,103 +256,8 @@ export function findOnPath(binary: string, env: NodeJS.ProcessEnv = process.env)
 }
 
 /**
- * The installed pi version, read from the npm package that owns the resolved
- * entry (`pi` is a symlink to `.../@earendil-works/pi-coding-agent/dist/bundle/cli.js`,
- * so its `package.json` sits two directories up). Best effort: a pi installed by
- * a package manager that does not leave a readable package.json next to the
- * binary simply has no version, and the only cost is the frontend's "a newer pi
- * is out" notice.
- *
- * Not `pi --version`: this runs while a host builds its capabilities, and a
- * subprocess there would delay every connection. Reading one file does not.
+ * Where pi keeps its session files, unless a host points somewhere else.
  */
-export function readPiVersion(spawn: PiSpawn): string | undefined {
-  const entry = spawn.source === 'node-entry' ? spawn.args.find((arg) => /\.(?:c|m)?js$/.test(arg)) : spawn.command;
-  if (entry === undefined || entry.length === 0) {
-    return undefined;
-  }
-  let directory: string | undefined;
-  try {
-    const resolved = realpathSync(entry);
-    directory = statSync(resolved).isDirectory() ? resolved : dirname(resolved);
-  } catch {
-    directory = dirname(entry);
-  }
-  // A Windows `.cmd`/`.bat` shim is a script, not the package, so the manifest is
-  // not beside it. npm writes the real `node_modules` path inside the shim, so
-  // follow that reference before walking ancestors.
-  if (directory !== undefined && /\.(?:cmd|bat)$/i.test(entry)) {
-    const referenced = packageDirFromShim(entry);
-    if (referenced !== undefined) {
-      directory = referenced;
-    }
-  }
-  // The package root is at most a couple of levels above the entry; walking a
-  // fixed few and stopping keeps this from climbing to the filesystem root.
-  for (let depth = 0; depth < 4 && directory !== undefined && directory !== dirname(directory); depth += 1) {
-    const manifest = join(directory, 'package.json');
-    if (existsSync(manifest)) {
-      const version = versionFromManifest(manifest);
-      if (version !== undefined) {
-        return version;
-      }
-    }
-    directory = dirname(directory);
-  }
-  return undefined;
-}
-
-/** The version of the package pi ships as, when this manifest is that package. */
-function versionFromManifest(path: string): string | undefined {
-  try {
-    const manifest = JSON.parse(readFileSync(path, 'utf8')) as {
-      name?: unknown;
-      version?: unknown;
-    };
-    if (manifest.name === '@earendil-works/pi-coding-agent' && typeof manifest.version === 'string') {
-      return manifest.version.trim() || undefined;
-    }
-  } catch {
-    // Unreadable or not JSON: keep walking.
-  }
-  return undefined;
-}
-
-/**
- * The `node_modules` package directory a Windows `.cmd`/`.bat` shim points at.
- *
- * npm's shim is a script, so the manifest is not beside it: the file names the
- * real entry with something like
- *   `"%dp0%\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js"`.
- * Best effort — an unrecognised shim simply yields no version.
- */
-function packageDirFromShim(entry: string): string | undefined {
-  try {
-    const text = readFileSync(entry, 'utf8');
-    // npm shims reference the entry either absolutely (`C:\...`) or relative to
-    // the shim's own directory via `%~dp0` / `%dp0%`.
-    const match = /((?:[A-Za-z]:\\|(?:%~?dp0%?\\))[^"'\r\n]*?node_modules[\\/][^"'\r\n]+)/i.exec(text);
-    if (match?.[1] === undefined) {
-      return undefined;
-    }
-    const raw = match[1];
-    const relative = raw.replace(/^(?:%~?dp0%?\\?)/i, '').replace(/\\/g, '/');
-    const resolved = /^[A-Za-z]:[\\/]/.test(raw)
-      ? raw.replace(/\\/g, '/')
-      : join(dirname(entry), relative);
-    let dir = dirname(resolved);
-    for (let depth = 0; depth < 6 && dir !== dirname(dir); depth += 1) {
-      if (existsSync(join(dir, 'package.json'))) {
-        return dir;
-      }
-      dir = dirname(dir);
-    }
-  } catch {
-    // Unreadable shim: no version, not an error.
-  }
-  return undefined;
-}
-
 export function resolveSessionDir(configured?: string, env: NodeJS.ProcessEnv = process.env): string {
   const fromEnv = env.PI_CODING_AGENT_SESSION_DIR;
   const value = configured ?? (fromEnv && fromEnv.length > 0 ? fromEnv : undefined);
@@ -367,3 +273,21 @@ function isExecutableEntry(path: string): boolean {
     return false;
   }
 }
+
+/**
+ * The installed pi version, re-exported from the install resolver so hosts can
+ * keep importing it from the pi resolver they already use.
+ *
+ * It reads the package that owns the resolved entry (`pi` is a symlink to
+ * `.../@earendil-works/pi-coding-agent/dist/bundle/cli.js`, so its `package.json`
+ * sits two directories up). Best effort: a pi installed by a package manager that
+ * does not leave a readable package.json next to the binary simply has no
+ * version, and the only cost is the frontend's "a newer pi is out" notice.
+ *
+ * Not `pi --version`: this runs while a host builds its capabilities, and a
+ * subprocess there would delay every connection. Reading one file does not.
+ *
+ * The resolution itself lives in `pi-install.ts` because it shares its script
+ * shim and managed-install knowledge with the builtins read.
+ */
+export { readPiVersion };

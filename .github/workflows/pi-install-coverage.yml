@@ -1,0 +1,226 @@
+name: Pi install coverage
+
+# Morse reads two things straight out of the pi install it launched: the version
+# (the frontend's "a newer pi is out" notice) and the package behind the binary
+# (whose `dist/core/slash-commands.js` feeds the palette's builtins). pi ships
+# five install paths — install.sh, install.ps1, npm, pnpm, bun — and each lays the
+# binary out differently: a managed releases tree, a symlink into `node_modules`,
+# or a script shim that only names the package inside itself.
+#
+# The unit suite pins each of those layouts as a fixture, and a fixture can only
+# be as faithful as the person who wrote it. This workflow installs the real
+# thing from pi's own installers and registries, then runs the built resolver
+# against it. It is the only test here that would fail because pi moved a
+# launcher, changed its shim format, or a package manager changed its store.
+#
+# macOS is its own axis, not "just another Unix". The installer picks the PATH
+# directory it installs into differently there (install.sh prefers Homebrew's bin
+# on Darwin, `$HOME/.local/bin` on Linux), and the Apple Silicon Homebrew prefix
+# is `/opt/homebrew`, not Intel's `/usr/local`. pnpm also defaults its global
+# store to `~/Library/pnpm` on macOS instead of `~/.local/share/pnpm`. None of
+# that is provable from a Linux runner.
+#
+# Only the arm64 macOS runner is used. Intel macOS would exercise the same code
+# paths with a different Homebrew prefix — "a directory on PATH", nothing Morse
+# reads — while the x86 images are on the way out anyway (`macos-13` retired in
+# December 2025; `macos-15-intel` is dated for August 2027). `macos-latest` is the
+# Apple Silicon image today; pin `macos-14` if determinism is ever preferred.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - packages/adapter-pi-rpc/src/internal/pi-install.ts
+      - packages/adapter-pi-rpc/src/internal/resolve-pi.ts
+      - packages/adapter-pi-rpc/src/internal/pi-builtins.ts
+      - scripts/check-pi-coverage.mjs
+      - .github/workflows/pi-install-coverage.yml
+  pull_request:
+    paths:
+      - packages/adapter-pi-rpc/src/internal/pi-install.ts
+      - packages/adapter-pi-rpc/src/internal/resolve-pi.ts
+      - packages/adapter-pi-rpc/src/internal/pi-builtins.ts
+      - scripts/check-pi-coverage.mjs
+      - .github/workflows/pi-install-coverage.yml
+  # pi ships continuously, and a release can change a shim shape without changing
+  # Morse; a nightly run is what catches that before a user does.
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Per install method, so the matrix legs do not cancel each other.
+    concurrency:
+      group: pi-install-${{ github.workflow }}-${{ matrix.name }}
+      cancel-in-progress: true
+    strategy:
+      # One package manager breaking must not hide the state of the others.
+      fail-fast: false
+      matrix:
+        include:
+          # pi's own installers. install.sh covers Linux and macOS; install.ps1
+          # is Windows-only and lays down the same releases-v1 tree with
+          # `.cmd`/`.ps1` launchers instead of a shell one.
+          - name: install.sh (managed) — Ubuntu
+            os: ubuntu-latest
+            install: managed-sh
+            shell: bash
+          - name: install.sh (managed) — macOS arm64
+            os: macos-latest
+            install: managed-sh
+            shell: bash
+          - name: install.ps1 (managed) — Windows
+            os: windows-latest
+            install: managed-ps1
+            shell: pwsh
+          # Package managers, on every POSIX host and on Windows. npm symlinks on
+          # POSIX but writes `.cmd`/`.ps1` shims on Windows; pnpm copies a `sh`
+          # shim on POSIX and a `.cmd` shim on Windows.
+          - name: npm — Ubuntu
+            os: ubuntu-latest
+            install: npm
+            shell: bash
+          - name: npm — macOS arm64
+            os: macos-latest
+            install: npm
+            shell: bash
+          - name: npm — Windows
+            os: windows-latest
+            install: npm-win
+            shell: pwsh
+          - name: pnpm — Ubuntu
+            os: ubuntu-latest
+            install: pnpm
+            shell: bash
+          - name: pnpm — macOS arm64
+            os: macos-latest
+            install: pnpm
+            shell: bash
+          - name: pnpm — Windows
+            os: windows-latest
+            install: pnpm-win
+            shell: pwsh
+          - name: bun — Ubuntu
+            os: ubuntu-latest
+            install: bun
+            shell: bash
+          - name: bun — macOS arm64
+            os: macos-latest
+            install: bun
+            shell: bash
+          - name: bun — Windows
+            os: windows-latest
+            install: bun-win
+            shell: pwsh
+    env:
+      # corepack would otherwise stop to ask before downloading pnpm.
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+
+      # pi itself needs Node at runtime, and the resolver is exercised from Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # `--ignore-scripts`: this job never runs the UI or a host, and skipping
+      # install scripts keeps node-pty (the browser terminal, native) out of it.
+      - name: Install Morse's dependencies
+        run: npm ci --ignore-scripts
+
+      # The resolver is run from `dist`, exactly as the extension runs it. Only
+      # the libraries are needed; the UI and the hosts are irrelevant here.
+      - name: Build the adapter
+        run: npm run build:libs
+
+      - name: Install pi via install.sh
+        if: matrix.install == 'managed-sh'
+        shell: bash
+        run: |
+          # No TTY under CI, so the installer takes its default action (install)
+          # and the managed layout, and never prompts for PATH.
+          curl -fsSL https://pi.dev/install.sh | sh
+          # The installer writes the launcher into whichever PATH directory it
+          # chose and only records that in the user's shell profile. Add every
+          # candidate to this job's PATH: `~/.local/bin` and the agent's own
+          # `bin` on Linux, Homebrew's bin (already on PATH) on macOS.
+          {
+            echo "$HOME/.local/bin"
+            echo "$HOME/.pi/agent/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Install pi via install.ps1
+        if: matrix.install == 'managed-ps1'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://pi.dev/install.ps1 -OutFile "$env:TEMP\pi-install.ps1"
+          & "$env:TEMP\pi-install.ps1"
+          # The installer prepends `<agent>\bin` to the *user* PATH, which does
+          # not reach this process; add it to the job PATH by hand.
+          "$env:USERPROFILE\.pi\agent\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Install pi via npm
+        if: matrix.install == 'npm'
+        run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Install pi via npm (Windows)
+        if: matrix.install == 'npm-win'
+        run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Install pi via pnpm
+        if: matrix.install == 'pnpm'
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          # pnpm refuses a global install whose bin directory is not on PATH, so
+          # it is chosen, exported, and put there before the install runs. Set
+          # explicitly because the default differs per OS (`~/Library/pnpm` on
+          # macOS, `~/.local/share/pnpm` on Linux).
+          export PNPM_HOME="$HOME/.pnpm"
+          echo "PNPM_HOME=$PNPM_HOME" >> "$GITHUB_ENV"
+          echo "$PNPM_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$PNPM_HOME/bin:$PATH"
+          pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Install pi via pnpm (Windows)
+        if: matrix.install == 'pnpm-win'
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          # On Windows pnpm puts its global shims directly in PNPM_HOME (no bin/
+          # subdirectory) and checks that same directory is on PATH.
+          $env:PNPM_HOME = "$env:USERPROFILE\.pnpm"
+          "PNPM_HOME=$env:PNPM_HOME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:PNPM_HOME | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$env:PNPM_HOME;$env:PATH"
+          pnpm add -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Install pi via bun
+        if: matrix.install == 'bun'
+        shell: bash
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun add -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Install pi via bun (Windows)
+        if: matrix.install == 'bun-win'
+        shell: pwsh
+        run: |
+          Invoke-RestMethod -Uri https://bun.sh/install.ps1 | Invoke-Expression
+          "$env:USERPROFILE\.bun\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$env:USERPROFILE\.bun\bin;$env:PATH"
+          bun add -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      # `--dump` prints the entry, its realpath and the start of the shim on
+      # success too: when a layout changes, the log already shows what changed.
+      - name: Verify Morse reads the installed pi
+        shell: ${{ matrix.shell }}
+        run: node scripts/check-pi-coverage.mjs --dump
