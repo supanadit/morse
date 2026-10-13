@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.26.0 — 13 October 2026
+
+The usage panel says what the cache saved and how fast the model answered, and Morse finds pi however it was
+installed.
+
+### New
+
+- **Cache split and generation speed in the usage panel.** The session totals now answer four questions they
+  could not before: how many prompt tokens the cache served versus missed, and how fast the model actually
+  generated — average, peak and slowest. Cached reads pi's `cacheReadTokens` and Miss its `inputTokens` (pi's
+  `promptTokens = input + cacheRead + cacheWrite`, so `input` is exactly the part the cache did not cover).
+  Speed is different: pi keeps no clock, so the host times each assistant message (`message_start` →
+  `message_end`) and persists the totals per session, so a resumed session continues its history instead of
+  starting from zero. A message under 25 output tokens is refused — at that size the span measures request
+  latency, not speed — and all three figures share one counted set, so the average can never sit outside the
+  range the extremes show.
+
+### Fixed
+
+- **Fixed the "Morse could not read the built-in slash commands" warning, and the missing builtins behind it,
+  for most ways of installing pi.** Morse read the pi package by walking up from the `pi` binary, which only
+  works when `pi` is a symlink into `node_modules` — true of exactly one install method. A managed install
+  (`curl pi.dev/install.sh`, the PowerShell `install.ps1`) has no manifest anywhere above its launcher; pnpm
+  writes a *copied* shell shim into its store; Windows `.cmd`/`.ps1` shims are scripts outside the package; and
+  bun on Windows writes a compiled `.exe` beside a `.bunx` sidecar. The package is now resolved through whichever
+  of those shapes is present — the launcher's installer marker, the `node_modules` path named inside a shim, or
+  the sidecar's target — so the palette gets its builtins and the "unreadable install" banner is gone. The
+  "a newer pi is out" notice is restored with it, since the version reads the same way.
+- **Fixed the usage panel sitting on stale numbers until a run ended.** Every figure came from a single pull
+  that only ran at attach, compaction and settle, so during a run the panel showed attach-time totals — exactly
+  when the reader wanted to watch the context grow. It now re-reads per completed message, and the in-flight
+  response's cumulative usage is shown as it streams (guarded so a provider that reports zeros mid-message
+  cannot wipe the panel, and so the same figure is not rebroadcast per token).
+
 ## 0.25.0 — 12 October 2026
 
 Every project keeps its place in the sidebar, and a hidden shell keeps running.
