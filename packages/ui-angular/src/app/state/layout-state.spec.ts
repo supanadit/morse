@@ -145,4 +145,21 @@ describe('LayoutState', () => {
     TestBed.resetTestingModule();
     expect(TestBed.inject(LayoutState).changesSize()).toBe(1200);
   });
+
+  it('clamps and remembers the git detail height in its own range', () => {
+    const layout = TestBed.inject(LayoutState);
+    expect(layout.detailSize()).toBeUndefined();
+
+    // Too short for both sections under an open repository, and past any window.
+    layout.setSize('detail', 10);
+    expect(layout.detailSize()).toBe(240);
+    layout.setSize('detail', 99_999);
+    expect(layout.size('detail')).toBe(1600);
+    expect(localStorage.getItem('morse.git.detailHeight')).toBe('1600');
+
+    // Back to the stylesheet's floor: a double-click forgets the drag entirely.
+    layout.setSize('detail', undefined);
+    expect(layout.detailSize()).toBeUndefined();
+    expect(localStorage.getItem('morse.git.detailHeight')).toBeNull();
+  });
 });

@@ -6,11 +6,12 @@ import { Injectable, computed, signal } from '@angular/core';
 export type RegionId = 'toolbar' | 'left' | 'main' | 'right' | 'status';
 
 /**
- * A pane that stays where it is but can be made taller: the Explorer, and the git panel's
- * Changes section. Not regions — they are sized, never placed — but they are dragged the
- * same way, so their size is remembered in the same place (`setSize`, `size`).
+ * A pane that stays where it is but can be made taller: the Explorer, the git panel's
+ * Changes section, and the repository detail that holds Changes and History under an
+ * open repository header. Not regions — they are sized, never placed — but they are
+ * dragged the same way, so their size is remembered in the same place (`setSize`, `size`).
  */
-export type PaneId = 'explorer' | 'changes';
+export type PaneId = 'explorer' | 'changes' | 'detail';
 
 /** Everything whose size the reader can drag: a column's width, a pane's height. */
 export type SizeId = RegionId | PaneId;
@@ -55,14 +56,19 @@ const COLUMN_MIN = 220;
 const COLUMN_MAX = 1600;
 
 /** The range each pane's height is clamped into, in px. */
-const PANE_MIN: Record<PaneId, number> = { explorer: 140, changes: 48 };
-const PANE_MAX: Record<PaneId, number> = { explorer: 720, changes: 1200 };
+const PANE_MIN: Record<PaneId, number> = { explorer: 140, changes: 48, detail: 240 };
+const PANE_MAX: Record<PaneId, number> = { explorer: 720, changes: 1200, detail: 1600 };
+
+/** A pane's height, against a column's width: the two kinds of size `SizeId` carries. */
+function isPane(id: SizeId): id is PaneId {
+  return id === 'explorer' || id === 'changes' || id === 'detail';
+}
 
 /**
  * The reader's stored layout. These are the keys the shell wrote before there was a model
  * (`morse.navigation.collapsed`, `morse.git.open`, `morse.git.width`, `morse.explorer.height`,
- * `morse.git.changesHeight`), and they stay exactly as they are: a stored layout belongs to
- * the reader, and a rename is a migration nobody asked for.
+ * `morse.git.changesHeight`, `morse.git.detailHeight`), and they stay exactly as they are: a
+ * stored layout belongs to the reader, and a rename is a migration nobody asked for.
  */
 const NAV_COLLAPSED_KEY = 'morse.navigation.collapsed';
 const GIT_PANEL_KEY = 'morse.git.open';
@@ -83,10 +89,11 @@ const SIZE_KEYS: Partial<Record<SizeId, string>> = {
   right: 'morse.git.width',
   explorer: 'morse.explorer.height',
   changes: 'morse.git.changesHeight',
+  detail: 'morse.git.detailHeight',
 };
 
 function clampSize(id: SizeId, px: number): number {
-  if (id === 'explorer' || id === 'changes') {
+  if (isPane(id)) {
     return Math.round(Math.min(PANE_MAX[id], Math.max(PANE_MIN[id], px)));
   }
   return Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, px)));
@@ -162,6 +169,7 @@ export class LayoutState {
   private readonly panes = signal<Record<PaneId, number | undefined>>({
     explorer: readSize('explorer'),
     changes: readSize('changes'),
+    detail: readSize('detail'),
   });
 
   /** Chrome above the columns, left to right: the toolbar. */
@@ -189,6 +197,8 @@ export class LayoutState {
   readonly explorerSize = computed(() => this.panes().explorer);
   /** The git panel's Changes section height, or `undefined` for the CSS default. */
   readonly changesSize = computed(() => this.panes().changes);
+  /** The git panel's open-repository detail height, or `undefined` for the CSS default. */
+  readonly detailSize = computed(() => this.panes().detail);
 
   /**
    * One region by id. Every region the shell lays out is always in the list — a region is
@@ -207,7 +217,7 @@ export class LayoutState {
 
   /** One size, region or pane, as the reader left it. `undefined` is the CSS default. */
   size(id: SizeId): number | undefined {
-    return id === 'explorer' || id === 'changes' ? this.panes()[id] : this.region(id).size;
+    return isPane(id) ? this.panes()[id] : this.region(id).size;
   }
 
   setVisible(id: RegionId, visible: boolean): void {
@@ -230,7 +240,7 @@ export class LayoutState {
    */
   setSize(id: SizeId, px: number | undefined, persist = true): void {
     const size = px === undefined ? undefined : clampSize(id, px);
-    if (id === 'explorer' || id === 'changes') {
+    if (isPane(id)) {
       this.panes.update((panes) => ({ ...panes, [id]: size }));
     } else {
       this.update(id, (region) => ({ ...region, size }));

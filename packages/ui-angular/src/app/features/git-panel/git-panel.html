@@ -35,6 +35,7 @@
           @if (view.path === openPath()) {
             <div
               class="repo-detail-pane"
+              [class.sized]="detailSized()"
               [class.changes-collapsed]="changesCollapsed()"
               [class.history-collapsed]="historyCollapsed()"
             >
@@ -329,6 +330,22 @@
             }
             }
             </morse-pane>
+
+            <!--
+              The detail's own handle, at its bottom edge: drag it down to give Changes
+              and History more of the panel — the way a crowded header list leaves the
+              detail no room to grow into on its own.
+            -->
+            <div
+              class="divider detail-divider"
+              [morseSplitter]="'detail'"
+              edge="bottom"
+              box="parent"
+              [min]="detailMin"
+              [max]="detailMax"
+              label="Resize the repository detail"
+              title="Drag to resize"
+            ></div>
             </div>
           }
         }
@@ -348,7 +365,7 @@
       class="repo-toggle"
       [attr.aria-expanded]="open"
       [attr.aria-label]="(open ? 'Collapse ' : 'Expand ') + repoLabel(view)"
-      (click)="toggleSection(view.path)"
+      (click)="toggleSection(view.path, $event)"
     >
       <span class="repo-chevron" [class.open]="open" aria-hidden="true">›</span>
       <span class="repo-name">{{ repoLabel(view) }}</span>

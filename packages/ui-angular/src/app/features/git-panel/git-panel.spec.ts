@@ -585,6 +585,42 @@ describe('GitPanel', () => {
     expect(host.querySelector('.divider.gone')).not.toBeNull();
   });
 
+  it('carries the open detail a handle of its own, and drags its height through the layout', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+    const layout = TestBed.inject(LayoutState);
+
+    // The handle sits at the detail's bottom edge — inside it, so the splitter
+    // measures the pane it grows — and names itself for a screen reader.
+    const handle = host.querySelector<HTMLElement>('.repo-detail-pane .detail-divider');
+    expect(handle).not.toBeNull();
+    expect(handle!.getAttribute('role')).toBe('separator');
+    expect(handle!.getAttribute('aria-label')).toBe('Resize the repository detail');
+
+    // Never dragged: the floor comes from the stylesheet, not a stored height.
+    expect(host.querySelector('.repo-detail-pane')?.classList.contains('sized')).toBe(false);
+
+    // Dragged: the pane wears the height the shell's variable puts on screen.
+    layout.setSize('detail', 400);
+    fixture.detectChanges();
+    expect(host.querySelector('.repo-detail-pane')?.classList.contains('sized')).toBe(true);
+
+    // The handle is on the pane's bottom edge, so the hand going down is taller —
+    // and jsdom measures no room, leaving the drag to its own minimum.
+    handle!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientY: 300 }));
+    handle!.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, cancelable: true, clientY: 350 }));
+    expect(layout.detailSize()).toBe(450);
+
+    // A double-click hands the height back to the stylesheet and forgets the drag.
+    handle!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(layout.detailSize()).toBeUndefined();
+    expect(localStorage.getItem('morse.git.detailHeight')).toBeNull();
+  });
+
   it('opens one repository in place and leaves the other headers put', async () => {
     const { fixture } = setup(LOG, {
       files: [],

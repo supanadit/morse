@@ -344,8 +344,10 @@ export class GitPanelState {
   /**
    * The repository whose section is open, by relative path. Only one is open at
    * a time — a pinned list + detail, the way the Explorer sits below the
-   * session list — so the other repository headers stay visible and never need
-   * to be scrolled to. `undefined` means every section is folded.
+   * session list — so the header order never changes. A parent directory that
+   * holds more repositories than the panel can show scrolls as one region
+   * instead of clipping the headers below the fold. `undefined` means every
+   * section is folded.
    */
   private readonly openPathSignal = signal<string | undefined>(readOpenRepo());
 

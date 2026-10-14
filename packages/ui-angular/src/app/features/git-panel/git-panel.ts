@@ -1,6 +1,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -72,6 +74,11 @@ const LANE_WIDTH = 16;
 const ROW_HEIGHT = 32;
 /** Dragging the panel's left edge keeps at least this much conversation visible. */
 const GIT_RESIZE_MIN_CHAT = 180;
+/**
+ * The open repository's detail may not be dragged shorter than this. Both sections live
+ * inside it, and the Changes form alone (title, sync row, commit box) wants about 100px.
+ */
+const DETAIL_MIN = 240;
 
 /** A commit row paired with its graph geometry and trimmed refs. */
 interface CommitEntry {
@@ -163,6 +170,16 @@ export class GitPanel {
   protected readonly historyCollapsed = this.shell.gitHistoryCollapsed;
   /** The dragged Changes height, or `null` while both sections share the room. */
   private readonly changesHeight = this.layout.changesSize;
+  /** The dragged detail height, or `undefined` while it takes what the headers leave. */
+  private readonly detailHeight = this.layout.detailSize;
+  /**
+   * Whether the reader dragged the detail's own height: a class, not the number.
+   * The flag flips once, when a drag begins, so a drag in flight repaints only the
+   * shell's CSS variable — this panel's template keeps reading a settled boolean
+   * and its rows stay put while the hand moves.
+   */
+  protected readonly detailSized = computed(() => this.detailHeight() !== undefined);
+  private readonly injector = inject(Injector);
 
   private viewOf(state: GitRepoState): RepoView {
     const commits = state.commits();
@@ -365,9 +382,37 @@ export class GitPanel {
     void state.push();
   }
 
-  /** Opens one repository, folding whichever was open; clicking it again folds it. */
-  protected toggleSection(path: string): void {
+  /**
+   * Opens one repository, folding whichever was open; clicking it again folds it.
+   * A crowded list then brings the opened detail into view: its header may sit below
+   * the fold, and a detail that opens off-screen reads as no reaction at all.
+   */
+  protected toggleSection(path: string, event: Event): void {
     this.git.toggleSection(path);
+    if (this.git.openPath() !== path) {
+      return;
+    }
+    const header = (event.currentTarget as HTMLElement | null)?.closest('.repo-head');
+    if (!(header instanceof HTMLElement)) {
+      return;
+    }
+    afterNextRender(
+      () => {
+        const body = header.closest('.body');
+        const detail = body?.querySelector('.repo-detail-pane');
+        if (!(body instanceof HTMLElement) || !(detail instanceof HTMLElement)) {
+          return;
+        }
+        const view = body.getBoundingClientRect();
+        if (detail.getBoundingClientRect().bottom <= view.bottom) {
+          return;
+        }
+        // The detail would open below the fold: pin its header to the top of the
+        // scroll region, which is the most of the detail the panel can show.
+        body.scrollTop += header.getBoundingClientRect().top - view.top;
+      },
+      { injector: this.injector },
+    );
   }
 
   /** Opens the branch switcher for a section, reading its branch list on the way in. */
@@ -626,6 +671,25 @@ export class GitPanel {
     const top = changes.getBoundingClientRect().top;
     const bottom = body.getBoundingClientRect().bottom;
     return Math.max(48, bottom - top - 80);
+  };
+
+  /** The smallest the open repository's own detail may be dragged. */
+  protected readonly detailMin = DETAIL_MIN;
+
+  /**
+   * The detail may grow until its handle would leave the scroll region's visible
+   * bottom — past that the reader could no longer grab it to take the height back.
+   * An unmeasured box (a test) has no room to speak of, so the drag runs on its
+   * own clamp alone.
+   */
+  protected readonly detailMax = (handle: HTMLElement): number => {
+    const detail = handle.parentElement;
+    const body = detail?.parentElement ?? null;
+    if (detail === null || body === null) {
+      return Number.POSITIVE_INFINITY;
+    }
+    const room = body.getBoundingClientRect().bottom - detail.getBoundingClientRect().top;
+    return Number.isFinite(room) && room > 0 ? Math.max(DETAIL_MIN, room - 4) : Number.POSITIVE_INFINITY;
   };
 
   /** The title bar's buttons, as data: the pane draws them, so they look like every other panel's. */

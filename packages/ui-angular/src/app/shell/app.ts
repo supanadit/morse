@@ -191,9 +191,9 @@ export class App {
     return width === undefined ? null : `${width}px`;
   });
   /**
-   * The dragged heights of the two panes that are sized but never placed — the Explorer and
-   * the git panel's Changes section. The shell puts them on screen, so a drag repaints the
-   * layout instead of re-rendering the rows inside the pane.
+   * The dragged heights of the panes that are sized but never placed — the Explorer, the
+   * git panel's Changes section and its repository detail. The shell puts them on screen,
+   * so a drag repaints the layout instead of re-rendering the rows inside the pane.
    */
   protected readonly explorerHeight = computed(() => {
     const height = this.layout.explorerSize();
@@ -201,6 +201,11 @@ export class App {
   });
   protected readonly changesHeight = computed(() => {
     const height = this.layout.changesSize();
+    return height === undefined ? null : `${height}px`;
+  });
+  /** The git panel's open-repository detail, dragged from its own handle under a crowded list. */
+  protected readonly detailHeight = computed(() => {
+    const height = this.layout.detailSize();
     return height === undefined ? null : `${height}px`;
   });
   /** The file the strip is showing, or `undefined` when a session tab is in front. */

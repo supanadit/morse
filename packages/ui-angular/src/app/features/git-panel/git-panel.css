@@ -33,12 +33,14 @@
 }
 /*
  * A drag in progress: no hover hit-testing under the pointer, and the
- * graph's flow stands still — that is what keeps the resize light.
+ * graph's flow stands still — that is what keeps the resize light. The
+ * detail's own handle says the same about its box while it drags.
  */
 .panel.resizing .body {
   pointer-events: none;
 }
-.panel.resizing .graph path.flow {
+.panel.resizing .graph path.flow,
+.repo-detail-pane.resizing .graph path.flow {
   animation: none;
 }
 /*
@@ -171,23 +173,45 @@ button.branch:disabled {
   stroke-linejoin: round;
 }
 /* The body is a column of fixed-order repository sections: each header stays in
-   place, and only the open section grows a detail below it. The detail is the
-   only part that scrolls, so the other headers never move. */
+   place, and only the open section grows a detail below it. It scrolls as one
+   region — a parent directory holding more repositories than the panel can show,
+   or an open detail that pushes the headers below it past the edge, stays
+   reachable instead of being clipped by the column with no way to scroll to it. */
 .body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 /* The open repository's detail: a "Changes" section on top, a drag handle,
-   then "History". The two share the room and resize apart, the way the panel
-   had it before; only the lists inside them scroll. */
+   then "History", and a handle of its own at the bottom. The two sections share
+   the room and resize apart; only the lists inside them scroll.
+
+   The floor is what keeps the detail alive under a crowded header list: a parent
+   directory of twenty repositories leaves it no free space to grow into, so the
+   floor turns the squeeze into scroll — the body scrolls around a detail that
+   still shows both sections, instead of clipping them to a couple of title bars
+   over the history below. */
 .repo-detail-pane {
   flex: 1;
-  min-height: 0;
+  min-height: 400px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* A dragged height replaces the floor: the reader asked for exactly this. */
+.repo-detail-pane.sized {
+  flex: none;
+  min-height: 0;
+  height: var(--morse-detail-height, 400px);
+}
+/* Both sections folded: the pane is two title bars — no floor, no dragged height. */
+.repo-detail-pane.changes-collapsed.history-collapsed {
+  flex: none;
+  min-height: 0;
+  height: auto;
 }
 /*
  * The two sections share the room evenly — an even half each, never taller than
@@ -202,9 +226,14 @@ button.branch:disabled {
   display: flex;
   flex-direction: column;
 }
-/* Once dragged, the split is the shell's variable; until then it is an even half. */
+/* Once dragged, the split is the shell's variable; until then it is an even half.
+   The clamp keeps the promise the divider makes: no matter how the detail is
+   dragged afterwards, History keeps the 80px it was promised when this height
+   was chosen — otherwise a changes section sized while the detail was tall
+   would push the History title out of a later, shorter detail. */
 .changes.sized {
   flex: 0 0 var(--morse-changes-height, 50%);
+  max-height: calc(100% - 80px);
 }
 /* Folded, a section is just its title bar; the other one takes the pane. The
    `:not()` guards matter when *both* are folded: without them the grow rule
@@ -237,6 +266,12 @@ button.branch:disabled {
 }
 .divider.gone {
   display: none;
+}
+/* The detail's own handle, at its bottom edge. Quiet at rest — the next
+   repository header draws the seam below it — and lit by the hover every
+   divider shares. */
+.detail-divider {
+  border-top-color: transparent;
 }
 /* One repository header: fold caret + name on the left, branch chip and changed
    count on the right, like a Source Control repository row. */
@@ -673,6 +708,10 @@ button.repo-toggle:hover {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  /* The chips inside are not shrinkable, so at sidebar width the row shrinks
+     this box: without the clip the chips would paint over the hash and the age
+     beside them instead of yielding the room. */
+  overflow: hidden;
 }
 .grow {
   flex: 1;
