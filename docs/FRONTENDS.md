@@ -173,10 +173,17 @@ VS Code has an Explorer and a text editor, so its host leaves `filePreview` off 
 The browser host has neither, so `filePreview: true` gives the frontend an Explorer in the sidebar and a tab
 strip above the conversation, where sessions and files open side by side.
 
-- The Explorer is built from the same flat `listFiles` listing the `@mention` picker uses (git-aware, the
-  active session's directory), turned into a tree in `@morse/ui-runtime` (`files/tree.ts`). Clicking a file opens a tab.
-  `WorkspaceFiles` holds that listing for both surfaces and re-reads it on a timer (`fresh: true` bypasses
-  the host's index cache), so a file added or deleted on disk appears without a restart. The same poll asks
+- The Explorer is drawn in levels. The flat `listFiles` listing the `@mention` picker uses (git-aware,
+  the active session's directory, capped at five thousand files in the host's index) paints the first
+  frame, and the `listDir` host command (`{ path? }` → `{ entries }`) completes it: the root level is
+  listed as soon as the pane mounts and each folder's own level is fetched the first time it opens —
+  one `readdir`, the same skip rules and the same trailing-`/` vocabulary as `listFiles`, so a level
+  merges straight into the flat listing. The two shapes one tree in `@morse/ui-runtime`
+  (`files/tree.ts`), which is what keeps a parent directory holding more projects than the flat index
+  has room for showing every folder up front. `WorkspaceFiles` holds both listings and re-reads the flat
+  one on a timer (`fresh: true` bypasses the host's index cache); a moved file list, a moved working
+  tree, a project switch or the refresh button throws the listed levels away, and whatever folder is
+  still open is asked for again. Clicking a file opens a tab. The same poll asks
   `gitStatus` (`{ isRepo, files: [{ path, status }] }`, porcelain codes), and a changed file shows the
   one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the folder that holds it.
   A **filter box** above the list narrows the project: a query replaces the tree with a flat, ranked list of

@@ -37,7 +37,7 @@ import {
   unstageGitPaths,
 } from '../workspace/git-log.js';
 import { readGitRepos } from '../workspace/git-repos.js';
-import { workspaceFiles } from '../workspace/workspace-index.js';
+import { listProjectDirectory, workspaceFiles } from '../workspace/workspace-index.js';
 import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/host-runtime';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
@@ -183,8 +183,9 @@ export class MorseSessionFactory {
 
   /**
    * The host commands this host answers: browsing the filesystem for a project
-   * folder, listing the active session's files for the composer's `@mention`
-   * picker, and writing a browser upload down next to the session.
+   * folder, listing the active session's files — the flat index behind the
+   * `@mention` picker, and one directory level at a time behind the Explorer's
+   * lazy tree — and writing a browser upload down next to the session.
    *
    * `listDirectories` is read-only and may look anywhere the server can read;
    * the commands that touch a session are scoped to its cwd (which
@@ -234,6 +235,16 @@ export class MorseSessionFactory {
         // cache: the Explorer polls, so a file added on disk has to appear.
         const files = await workspaceFiles(cwd, this.logger, { fresh: args?.fresh === true });
         return { files };
+      }
+      case 'listDir': {
+        // The Explorer's lazy tree: the root level the pane draws first, then
+        // one folder's level as it opens. One `readdir`, no index cap, so every
+        // entry of the level is listed — which is what the flat index's slice
+        // could not promise past its first five thousand files.
+        const cwd = this.requireWritableCwd(context);
+        const path = typeof args?.path === 'string' ? args.path : '';
+        const entries = await listProjectDirectory(cwd, path);
+        return { entries };
       }
       case 'readFile': {
         // The Explorer and the preview tabs. `readWorkspaceFile` resolves the

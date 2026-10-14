@@ -38,4 +38,25 @@ describe('WorkspaceFilesStore', () => {
     store.setStatus('packages/sub', { isRepo: true, files: [] });
     expect(store.status()?.files.map((file) => file.path)).toEqual(['root.ts']);
   });
+
+  it('holds the Explorer\u2019s listed levels, the ones on their way, and forgets both', () => {
+    const store = new WorkspaceFilesStore();
+    expect(store.directories()).toEqual({});
+    expect(store.pendingDirectories().size).toBe(0);
+
+    store.setDirectory('', ['src/', 'README.md']);
+    store.setDirectoryPending('src', true);
+
+    expect(store.directories()['']).toEqual(['src/', 'README.md']);
+    expect(store.pendingDirectories().has('src')).toBe(true);
+
+    // A level that landed stops being pending; setting either way twice is a no-op.
+    store.setDirectoryPending('src', false);
+    store.setDirectoryPending('src', false);
+    expect(store.pendingDirectories().size).toBe(0);
+
+    // A refresh, a moved tree or a project switch throws both away at once.
+    store.invalidateDirectories();
+    expect(store.directories()).toEqual({});
+  });
 });

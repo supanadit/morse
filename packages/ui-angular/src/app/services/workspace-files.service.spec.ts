@@ -3,13 +3,18 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HostCapabilities } from '@morse/protocol';
 import { MorseService } from '../host/morse.service';
+import { WorkspaceFilesStore } from '../state/workspace-files.store';
 import { WorkspaceFiles } from './workspace-files.service';
 
 function setup(capabilities: Partial<HostCapabilities>) {
   const state = signal({ workspace: { cwd: '/repo', name: 'repo' } });
   const requestHostCommand = vi.fn((command: string) =>
     Promise.resolve(
-      command === 'listFiles' ? { files: ['README.md'] } : { isRepo: false, files: [] },
+      command === 'listFiles'
+        ? { files: ['README.md'] }
+        : command === 'listDir'
+          ? { entries: ['src/main.ts'] }
+          : { isRepo: false, files: [] },
     ),
   );
   const morse = {
@@ -184,5 +189,58 @@ describe('WorkspaceFiles', () => {
 
     expect(commands(requestHostCommand)).not.toContain('gitStatus');
     expect(commands(requestHostCommand).filter((command) => command === 'listFiles')).toHaveLength(4);
+  });
+
+  it('lists one level per directory once, and again after a refresh throws it away', async () => {
+    const { files, requestHostCommand } = setup({
+      hostKind: 'server',
+      filePicker: true,
+      gitPanel: true,
+    });
+    const store = TestBed.inject(WorkspaceFilesStore);
+    const listDirCalls = (): unknown[][] =>
+      requestHostCommand.mock.calls.filter(([command]) => command === 'listDir');
+
+    files.loadDir('src');
+    files.loadDir('src'); // still on its way: one request, not two
+    expect(listDirCalls().map(([, args]) => args)).toEqual([{ path: 'src' }]);
+    expect(store.pendingDirectories().has('src')).toBe(true);
+    await settle();
+
+    expect(store.directories()['src']).toEqual(['src/main.ts']);
+    expect(store.pendingDirectories().has('src')).toBe(false);
+    files.loadDir('src'); // listed: left alone
+    expect(listDirCalls()).toHaveLength(1);
+
+    files.refresh(); // the reader's verdict: what is listed may not be the disk
+    expect(store.directories()['src']).toBeUndefined();
+    files.loadDir('src');
+    expect(listDirCalls().map(([, args]) => args)).toEqual([
+      { path: 'src' },
+      { path: 'src' },
+    ]);
+  });
+
+  it('drops a level asked for before a refresh, so a stale answer cannot land', async () => {
+    const { files, requestHostCommand } = setup({
+      hostKind: 'server',
+      filePicker: true,
+      gitPanel: true,
+    });
+    // Let the first read finish, so the deferred answer below is `listDir`'s.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const store = TestBed.inject(WorkspaceFilesStore);
+    let answer: ((value: { entries: string[] }) => void) | undefined;
+    requestHostCommand.mockImplementationOnce(
+      () => new Promise<{ entries: string[] }>((resolve) => (answer = resolve)),
+    );
+
+    files.loadDir('src');
+    files.refresh(); // throws the levels away while the answer is still out
+    answer!({ entries: ['src/stale.ts'] });
+    await settle();
+
+    expect(store.directories()['src']).toBeUndefined();
+    expect(store.pendingDirectories().has('src')).toBe(false);
   });
 });

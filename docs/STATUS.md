@@ -80,10 +80,13 @@ turns them on so the panel stands on its own:
 - **Git panel** (`Ctrl+Alt+G`): the repositories under the active project — its own plus any nested
   ones (a submodule, a separate checkout) — with their repository headers pinned at the top and one
   open repository's recent commits, branch graph, sync bar and uncommitted changes below it. Every
-  action targets the open repository. Resizable from its edge; long refs fold.
+  action targets the open repository. Resizable from its edge; the header list scrolls when a parent
+  directory holds more repositories than fit, the open detail keeps a floor (and drags taller from
+  its own handle) so Changes and History stay readable; long refs fold.
 - **Explorer**: the session project's files with git status badges, resizable, refreshed by polling
   `listFiles` (`fresh: true`) and `gitStatus`, with a filter box that narrows it to a flat, ranked list of
-  matching files.
+  matching files. The tree draws in levels: every top-level entry up front, then one folder's level
+  (`listDir`) as it opens — so a parent directory past the file index's cap still lists all of it.
 - **Preview tabs**: a file opens read-only as a chip of the session in front (its own tab when no session is
   open); over 512 kB is truncated and a binary
   is named rather than decoded. Drag the line numbers to pin a `path:start-end` range into your next message;

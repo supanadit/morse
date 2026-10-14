@@ -6,7 +6,7 @@ import { LayoutState } from '../../state/layout-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { FileExplorer, matchFiles } from './file-explorer';
 
-function setup(files: string[], status?: unknown) {
+function setup(files: string[], status?: unknown, levels?: Record<string, string[]>) {
   const state = signal({ workspace: { cwd: '/work/morse', name: 'morse' } });
   const morse = {
     state,
@@ -16,9 +16,18 @@ function setup(files: string[], status?: unknown) {
     // The browser host is the only one with an Explorer, and it also answers git:
     // `gitStatus` is gated on `gitPanel`, exactly as the real capabilities are.
     capabilities: signal({ hostKind: 'server', filePicker: true, filePreview: true, gitPanel: true }),
-    requestHostCommand: vi.fn((command: string) =>
-      Promise.resolve(command === 'gitStatus' ? status : { files }),
-    ),
+    requestHostCommand: vi.fn((command: string, args?: { path?: string }) => {
+      if (command === 'gitStatus') {
+        return Promise.resolve(status);
+      }
+      if (command === 'listDir') {
+        const path = typeof args?.path === 'string' ? args.path : '';
+        // An explicit `levels` answers the way the real host does — a level the
+        // flat listing never reached — and without one the flat list is the truth.
+        return Promise.resolve({ entries: levels?.[path] ?? level(files, path) });
+      }
+      return Promise.resolve({ files });
+    }),
   };
   const tabs = { openFile: vi.fn(), activeTab: signal<{ kind: 'file'; id: string; path: string; title: string } | undefined>(undefined) };
   TestBed.configureTestingModule({
@@ -35,6 +44,37 @@ function setup(files: string[], status?: unknown) {
 
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * One directory's level of the flat list — the fake host's `listDir`: the files
+ * under `dir`, and the folders they imply, all in the project-relative
+ * vocabulary the tree merges them by.
+ */
+function level(files: readonly string[], dir: string): string[] {
+  const prefix = dir.length > 0 ? `${dir}/` : '';
+  const entries = new Set<string>();
+  for (const file of files) {
+    if (!file.startsWith(prefix)) {
+      continue;
+    }
+    const rest = file.slice(prefix.length);
+    const slash = rest.indexOf('/');
+    entries.add(slash === -1 ? `${prefix}${rest}` : `${prefix}${rest.slice(0, slash)}/`);
+  }
+  return [...entries].sort();
+}
+
+/**
+ * Drives the lazy tree to settle: each landed level lets one effect fetch the
+ * next, and effects run with change detection — so the two take turns.
+ */
+async function settleTree(fixture: ComponentFixture<FileExplorer>, rounds = 5): Promise<void> {
+  for (let index = 0; index < rounds; index += 1) {
+    fixture.detectChanges();
+    await flush();
+  }
+  fixture.detectChanges();
 }
 
 /**
@@ -130,6 +170,96 @@ describe('FileExplorer', () => {
     fixture.nativeElement.querySelectorAll('.row')[1].click();
     fixture.detectChanges();
     expect(rows(fixture)).toEqual(['src', 'app', 'main.ts']);
+  });
+
+  it('draws every top-level folder, past where the flat listing was cut', async () => {
+    // The host's flat index is capped at five thousand files: under a parent
+    // directory of many projects it stops mid-listing, and every folder after
+    // the cut was missing from the tree entirely. The root level has no cap.
+    const { fixture } = setup(['alpha/a.ts'], undefined, {
+      '': ['alpha/', 'zulu/', 'README.md'],
+    });
+    await settleTree(fixture);
+
+    expect(rows(fixture)).toEqual(['alpha', 'zulu', 'README.md']);
+  });
+
+  it('fetches a folder\u2019s level the first time it opens, and holds it afterwards', async () => {
+    const { fixture, morse } = setup(['src/main.ts'], undefined, {
+      '': ['src/'],
+      src: ['src/app/', 'src/main.ts'],
+    });
+    await settleTree(fixture);
+    const dirCalls = (): unknown[][] =>
+      morse.requestHostCommand.mock.calls.filter(([command]) => command === 'listDir');
+
+    // The root level is drawn up front; the folder below it is not asked for yet.
+    expect(dirCalls().map(([, args]) => args)).toEqual([undefined]);
+
+    fixture.nativeElement.querySelector('.row').click();
+    await settleTree(fixture);
+
+    // One level, one request — and its children land under the folder that asked.
+    expect(dirCalls().map(([, args]) => args)).toEqual([undefined, { path: 'src' }]);
+    expect(rows(fixture)).toEqual(['src', 'app', 'main.ts']);
+
+    // Folding and reopening draws from the level already held: no third ask.
+    fixture.nativeElement.querySelector('.row').click();
+    fixture.detectChanges();
+    expect(rows(fixture)).toEqual(['src']);
+    fixture.nativeElement.querySelector('.row').click();
+    fixture.detectChanges();
+    expect(rows(fixture)).toEqual(['src', 'app', 'main.ts']);
+    expect(dirCalls()).toHaveLength(2);
+  });
+
+  it('re-reads the open levels on refresh, so a level cannot outlive the disk', async () => {
+    const { fixture, morse } = setup(['src/main.ts'], undefined, {
+      '': ['src/'],
+      src: ['src/app/', 'src/main.ts'],
+    });
+    await settleTree(fixture);
+    fixture.nativeElement.querySelector('.row').click();
+    await settleTree(fixture);
+    const dirCalls = (): unknown[][] =>
+      morse.requestHostCommand.mock.calls.filter(([command]) => command === 'listDir');
+    expect(dirCalls()).toHaveLength(2);
+
+    // Refresh throws the listed levels away; whatever is still open — the root
+    // and the folder the reader has open — is asked for again from scratch.
+    fixture.nativeElement.querySelector('.icon').click();
+    await settleTree(fixture);
+
+    expect(dirCalls().map(([, args]) => args)).toEqual([
+      undefined,
+      { path: 'src' },
+      undefined,
+      { path: 'src' },
+    ]);
+    expect(rows(fixture)).toEqual(['src', 'app', 'main.ts']);
+  });
+
+  it('reveals a file the flat listing never reached, loading folders on the way', async () => {
+    // The chip names a file past the flat index's cap: the root level (read in
+    // full) says the project owns its first folder, and each level on the way
+    // fetches as the reveal opens it.
+    const { fixture, tabs } = setup(['alpha/a.ts'], undefined, {
+      '': ['alpha/', 'zulu/'],
+      zulu: ['zulu/deep/'],
+      'zulu/deep': ['zulu/deep/target.ts'],
+    });
+    await settleTree(fixture);
+
+    tabs.activeTab.set({
+      kind: 'file',
+      id: 'file:zulu/deep/target.ts',
+      path: 'zulu/deep/target.ts',
+      title: 'target.ts',
+    });
+    await settleTree(fixture);
+
+    expect(rows(fixture)).toEqual(['alpha', 'zulu', 'deep', 'target.ts']);
+    expect(fixture.nativeElement.querySelector('.row.active')?.textContent).toContain('target.ts');
   });
 
   it('does not walk the project again when only the transcript changed', async () => {

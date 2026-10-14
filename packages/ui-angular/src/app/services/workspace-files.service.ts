@@ -19,6 +19,14 @@ const POLL_MS = 4_000;
 const LIST_MAX_AGE_MS = 60_000;
 
 /**
+ * The longest a listed directory level may stand without being read again.
+ * A project switch, a moved file list and a moved working tree all throw the
+ * levels away at once; this ceiling is for the staleness none of those signals
+ * can see — a change past the flat list's cap, on a host with no git to ask.
+ */
+const LEVELS_MAX_AGE_MS = 60_000;
+
+/**
  * The host's workspace files and their git status, read from the host.
  *
  * It is requested as soon as a host that can list files is ready, not when a
@@ -34,6 +42,12 @@ const LIST_MAX_AGE_MS = 60_000;
  *
  * The data itself lives in `WorkspaceFilesStore`; this service only decides when
  * to read it and writes the answer down.
+ *
+ * The Explorer's tree also travels in levels (`listDir`): this service issues
+ * those requests too, and decides when the levels already listed stop standing
+ * for the disk — a file list that moved, a working tree that moved, a project
+ * switch, or a minute of silence throws them away, and whatever is still open
+ * is asked for again from scratch.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkspaceFiles {
@@ -46,6 +60,17 @@ export class WorkspaceFiles {
   private listReadAt = 0;
   /** The working tree of the last tick, to tell a change from a quiet poll. */
   private statusSignature: string | undefined;
+  /** The file list as one comparable string, the same tell for the flat listing. */
+  private filesSignature: string | undefined;
+  /**
+   * The lazy tree's generation: bumped whenever its listed levels are thrown
+   * away, so an answer asked for before the change lands as if it were never
+   * asked — a stale level must not re-populate the cache a refresh just cleared.
+   */
+  private levelGeneration = 0;
+  /** When the listed levels were last thrown away, for their staleness ceiling.
+   *  Set at construction, so a first read is a baseline rather than a change. */
+  private levelsInvalidatedAt = Date.now();
 
   readonly available = computed(() => this.morse.capabilities()?.filePicker === true);
   /**
@@ -116,8 +141,13 @@ export class WorkspaceFiles {
     return workingTreeSignature(status) !== this.statusSignature;
   }
 
-  /** Forces a re-read now (the Explorer's refresh button). */
+  /**
+   * Forces a re-read now (the Explorer's refresh button). The levels the lazy
+   * tree already listed go with it: the reader pressed refresh because what is
+   * on screen may no longer be what is on disk.
+   */
   refresh(): void {
+    this.invalidateLevels();
     this.ensureLoaded(true);
   }
 
@@ -184,6 +214,11 @@ export class WorkspaceFiles {
     if (cwd.length === 0 || this.inFlight) {
       return;
     }
+    // A new project: its root level is not the old one's, whatever the old
+    // listings said. (The read below checks again, for a switch mid-flight.)
+    if (this.loadedFor !== undefined && this.loadedFor !== cwd) {
+      this.invalidateLevels();
+    }
     this.inFlight = true;
     if (!background) {
       this.store.setBusy(true);
@@ -229,15 +264,33 @@ export class WorkspaceFiles {
         this.store.setError('Could not list this project.');
         return;
       }
+      /*
+       * The lazy tree's levels answer to this moment. A project switch (a read
+       * that landed on a different directory than the one it was asked for), a
+       * file list that moved, or a working tree that moved throws them away; the
+       * age ceiling covers the change no signal can see. The signatures start as
+       * a baseline — the first read *is* the project, not a change in it — so the
+       * root level asked for on mount is not thrown away before it lands.
+       * Signatures are recorded from what was just read, so the next tick
+       * compares against the tree this answer described.
+       */
+      const nextFilesSignature = files.join('\n');
+      const nextStatusSignature = merged === undefined ? undefined : workingTreeSignature(merged);
+      const moved =
+        (this.loadedFor !== undefined && this.loadedFor !== cwd) ||
+        (this.filesSignature !== undefined && nextFilesSignature !== this.filesSignature) ||
+        (this.statusSignature !== undefined && nextStatusSignature !== this.statusSignature);
+      if (moved || Date.now() - this.levelsInvalidatedAt >= LEVELS_MAX_AGE_MS) {
+        this.invalidateLevels();
+      }
+      this.filesSignature = nextFilesSignature;
       this.loadedFor = cwd;
       this.store.setFiles(files);
       this.store.setStatuses(Object.fromEntries(statuses));
       if (fresh) {
         this.listReadAt = Date.now();
       }
-      // Recorded from what was just read, so the next tick compares against
-      // the tree this answer described.
-      this.statusSignature = merged === undefined ? undefined : workingTreeSignature(merged);
+      this.statusSignature = nextStatusSignature;
     } finally {
       this.inFlight = false;
       if (!background) {
@@ -247,6 +300,55 @@ export class WorkspaceFiles {
         this.ensureLoaded(true);
       }
     }
+  }
+
+  /**
+   * Lists one level of the Explorer's lazy tree: the root, which the pane draws
+   * first, or a folder opened for the first time. Safe to call repeatedly — a
+   * level already listed, or already on its way, is left alone — which is what
+   * lets the surface drive it from a plain "whatever is open has no level yet"
+   * effect without asking twice.
+   */
+  loadDir(path: string): void {
+    const cwd = this.morse.workspace().cwd;
+    if (
+      cwd.length === 0 ||
+      !this.available() ||
+      this.store.directories()[path] !== undefined ||
+      this.store.pendingDirectories().has(path)
+    ) {
+      return;
+    }
+    const generation = this.levelGeneration;
+    this.store.setDirectoryPending(path, true);
+    void this.morse
+      .requestHostCommand('listDir', path.length > 0 ? { path } : undefined)
+      .then((data) => {
+        if (generation !== this.levelGeneration || this.morse.workspace().cwd !== cwd) {
+          return;
+        }
+        const entries = asDirEntries(data);
+        if (entries !== undefined) {
+          this.store.setDirectory(path, entries);
+        }
+      })
+      .finally(() => {
+        if (generation === this.levelGeneration) {
+          this.store.setDirectoryPending(path, false);
+        }
+      });
+  }
+
+  /**
+   * Throws the lazy tree's listed levels away: the signals say the tree moved,
+   * the reader asked, or the project changed. The generation drops the requests
+   * already on their way, so an answer from before the change cannot land as if
+   * it were after it.
+   */
+  private invalidateLevels(): void {
+    this.levelGeneration += 1;
+    this.levelsInvalidatedAt = Date.now();
+    this.store.invalidateDirectories();
   }
 
   /**
@@ -312,4 +414,16 @@ function asFiles(value: unknown): string[] | undefined {
     return undefined;
   }
   return files.filter((file): file is string => typeof file === 'string');
+}
+
+/** What `listDir` answers with: one directory's entries, in `listFiles`' vocabulary. */
+function asDirEntries(value: unknown): string[] | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const entries = (value as { entries?: unknown }).entries;
+  if (!Array.isArray(entries)) {
+    return undefined;
+  }
+  return entries.filter((entry): entry is string => typeof entry === 'string');
 }

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { silentLogger } from '@morse/core';
-import { clearWorkspaceIndex, workspaceFiles } from './workspace-index';
+import { clearWorkspaceIndex, listProjectDirectory, workspaceFiles } from './workspace-index';
 
 let root = '';
 
@@ -70,5 +70,47 @@ describe('workspace index cache', () => {
     writeFileSync(join(dir, 'b.ts'), 'export const b = 2;\n');
     const fresh = await workspaceFiles(dir, silentLogger, { fresh: true });
     expect(fresh).toContain('b.ts');
+  });
+});
+
+/**
+ * The Explorer's lazy tree reads one level at a time from here: no cap, the
+ * `listFiles` vocabulary, and the same skip rules the index walks with — so a
+ * parent directory past the index's first five thousand files still draws every
+ * folder of the level it asks for.
+ */
+describe('listProjectDirectory', () => {
+  it('lists one level: files plainly, folders with the trailing slash', async () => {
+    const dir = project('levels');
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'src', 'main.ts'), 'export {};\n');
+    mkdirSync(join(dir, 'node_modules'));
+    writeFileSync(join(dir, 'node_modules', 'dep.js'), '');
+    mkdirSync(join(dir, '.git'));
+    writeFileSync(join(dir, '.gitignore'), '*~\n');
+
+    // The index's skip rules hold level by level: no build directory, no
+    // dot-folder — while a dot-*file* stays exactly as pickable as ever.
+    expect(await listProjectDirectory(dir, '')).toEqual(['.gitignore', 'a.ts', 'src/']);
+    // Entries stay project-relative, so a level merges into the flat listing.
+    expect(await listProjectDirectory(dir, 'src')).toEqual(['src/main.ts']);
+  });
+
+  it('refuses a directory outside the project, like the preview does', async () => {
+    const dir = project('guarded');
+
+    await expect(listProjectDirectory(dir, '..')).rejects.toThrow(
+      'The project only lists its own directories.',
+    );
+    await expect(listProjectDirectory(dir, '/etc')).rejects.toThrow(
+      'The project only lists its own directories.',
+    );
+    // The project root itself is the empty path, not an escape.
+    expect(await listProjectDirectory(dir, '')).toContain('a.ts');
+  });
+
+  it('answers a vanished directory with none, instead of failing the tree', async () => {
+    const dir = project('gone');
+    expect(await listProjectDirectory(dir, 'deleted')).toEqual([]);
   });
 });

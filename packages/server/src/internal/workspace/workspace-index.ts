@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
-import { join, relative } from 'node:path';
-import type { MorseLogger } from '@morse/core';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { UnsupportedByHostError, type MorseLogger } from '@morse/core';
 
 /**
  * Directories a file picker never wants, and which make a tree walk slow enough
@@ -87,6 +87,68 @@ export async function workspaceFiles(
   const { files, source } = await cachedIndex(cwd, options.fresh === true);
   logger.info(`File picker: ${files.length} entries via ${source} in ${cwd}`);
   return files;
+}
+
+/**
+ * One directory's entries for the Explorer's lazy tree: the root level the pane
+ * draws first, then each folder's own level as it opens. The vocabulary is
+ * `listFiles`' — paths relative to the project, directories carrying the
+ * trailing `/` — so the frontend merges a level straight into the flat listing
+ * it already holds. Unlike the index, this is one `readdir`: no cap, so every
+ * entry of the level is there, which is what keeps a parent directory of twenty
+ * repositories from losing the ones past the index's first five thousand files.
+ *
+ * The path resolves inside the project the way `readFile`'s does: the browser
+ * host never lists a directory the client names outside the session's
+ * directory, and an absolute path is a client naming a place the session does
+ * not own rather than a path to reinterpret.
+ */
+export async function listProjectDirectory(cwd: string, requested: string): Promise<string[]> {
+  const target = resolveDirectoryWithin(cwd, requested);
+  let listed: Dirent[];
+  try {
+    listed = await readdir(target, { withFileTypes: true });
+  } catch {
+    // An unreadable or vanished directory answers as none: the row that asked
+    // for it shows no children instead of the whole tree failing.
+    return [];
+  }
+  const parent = toPosix(relative(cwd, target));
+  const entries: string[] = [];
+  for (const entry of listed) {
+    const path = toPosix(join(parent, entry.name));
+    if (entry.isDirectory()) {
+      // The index's skip rules, level by level: no build directories, and no
+      // dot-folder (`.git`, `.github`) — while a dot-*file* stays pickable.
+      if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.')) {
+        continue;
+      }
+      entries.push(`${path}/`);
+      continue;
+    }
+    // A symlink reports as neither, so it is listed the way the walk lists it.
+    if (entry.isFile() || entry.isSymbolicLink()) {
+      entries.push(path);
+    }
+  }
+  return entries.sort();
+}
+
+/**
+ * Resolves a client's directory under `cwd` (empty is the project root itself)
+ * and refuses anything that escapes it, exactly like `resolveWithin` does for a
+ * previewed file.
+ */
+function resolveDirectoryWithin(cwd: string, requested: string): string {
+  if (isAbsolute(requested)) {
+    throw new UnsupportedByHostError('The project only lists its own directories.');
+  }
+  const target = resolve(cwd, requested);
+  const rel = relative(cwd, target);
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new UnsupportedByHostError('The project only lists its own directories.');
+  }
+  return target;
 }
 
 async function cachedIndex(cwd: string, fresh: boolean): Promise<FileIndex> {

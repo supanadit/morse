@@ -46,6 +46,13 @@ export interface FileMatch {
  * composer's `@mention` picker uses, and the same one that polls the working
  * tree), so a file added or deleted on disk appears here without a restart. A
  * changed file also carries the git badge its working-tree status earns.
+ *
+ * On top of that flat listing, the tree is drawn in levels: the root is listed
+ * as soon as the pane mounts, and a folder's level is fetched the first time it
+ * can be seen (`listDir`, one `readdir` per level). The flat list is capped —
+ * five thousand files, in the host's index — so for a parent directory holding
+ * more than that it is the *levels* that carry every folder: the flat listing
+ * paints the first frame, and each level completes its own folder.
  */
 @Component({
   selector: 'morse-file-explorer',
@@ -91,14 +98,22 @@ export class FileExplorer {
   /** Set by a reveal, cleared by the single scroll it schedules. */
   private scrollPending = false;
 
-  private readonly tree = computed(() => buildFileTree(this.workspaceStore.files()));
+  private readonly tree = computed(() =>
+    buildFileTree(mergedEntries(this.workspaceStore.files(), this.workspaceStore.directories())),
+  );
+  /**
+   * The project's file count, from the flat listing alone. The badge says how
+   * big the project is, not how much of it has been opened — a count that grew
+   * as folders were explored would read as the project changing.
+   */
+  private readonly flatTree = computed(() => buildFileTree(this.workspaceStore.files()));
   /**
    * The files as the shared tree wants them: a node with a label, a kind and its
    * children, carrying the `FileNode` itself so a click opens the right path. A
    * directory keeps its fold mark; a file shows its git badge.
    */
   protected readonly nodes = computed<TreeNode<FileNode>[]>(() => this.toNodes(this.tree()));
-  protected readonly fileCount = computed(() => countFiles(this.tree()));
+  protected readonly fileCount = computed(() => countFiles(this.flatTree()));
   protected readonly collapsed = this.folded.asReadonly();
   protected readonly isLoading = this.workspaceStore.busy;
   protected readonly errorMessage = this.workspaceStore.error;
@@ -155,14 +170,17 @@ export class FileExplorer {
     // Follow the file in front: open its folders and mark its row — but only the
     // first time it comes forward. Reading the file list as well means a file
     // opened before the tree loaded still gets revealed when the list arrives.
+    // The root level counts too: past the flat listing's cap, it is what says
+    // the path belongs to this project — and it arrives a beat later.
     effect(() => {
       const path = this.activePath();
       const files = this.workspaceStore.files();
+      const root = this.workspaceStore.directories()[''];
       untracked(() => {
         if (path === this.revealedPath) {
           return;
         }
-        if (this.revealActive(path, files)) {
+        if (this.revealActive(path, files, root)) {
           this.revealedPath = path;
           this.scrollPending = true;
         } else {
@@ -177,16 +195,45 @@ export class FileExplorer {
     // expands folders, which changes `rows`, so this runs after the tree grew.
     // Only a pending reveal may scroll — a poll or the reader's own
     // expand/collapse changes `rows` too, and must leave the pane where it is.
+    // A row whose folders are still being listed holds the reveal instead of
+    // consuming it: the lazy tree below keeps the levels coming, and this runs
+    // again the moment the row can actually be seen.
     effect(() => {
       this.nodes();
       this.selected();
       this.collapsed();
+      this.workspaceStore.directories();
       untracked(() => {
         if (!this.scrollPending) {
           return;
         }
+        if (!this.selectedInTree()) {
+          return;
+        }
         this.scrollPending = false;
         setTimeout(() => this.revealSelected(), 0);
+      });
+    });
+
+    // The lazy tree's one invariant: what is open has its level. The root is
+    // always open (it is the first thing the pane draws), a folder joins the set
+    // when the reader opens it, and a level thrown away by a refresh or a moved
+    // tree is asked for again — no caller has to remember to fetch anything.
+    // The host's readiness counts as a dependency too, so a capability that
+    // arrives after the pane mounted starts the root level then, not never.
+    effect(() => {
+      const listed = this.workspaceStore.directories();
+      const open = this.expanded();
+      const ready = this.workspace.available();
+      untracked(() => {
+        if (!ready) {
+          return;
+        }
+        for (const dir of ['', ...open]) {
+          if (listed[dir] === undefined) {
+            this.workspace.loadDir(dir);
+          }
+        }
       });
     });
   }
@@ -197,8 +244,12 @@ export class FileExplorer {
    * ignored, so a file chip belonging to another project does not expand a tree
    * that cannot contain it.
    */
-  private revealActive(path: string | undefined, files: readonly string[]): boolean {
-    if (path === undefined || !files.includes(path)) {
+  private revealActive(
+    path: string | undefined,
+    files: readonly string[],
+    root: readonly string[] | undefined,
+  ): boolean {
+    if (path === undefined || !this.knownToProject(path, files, root)) {
       this.selected.set(undefined);
       return false;
     }
@@ -219,6 +270,38 @@ export class FileExplorer {
       return changed ? next : set;
     });
     return true;
+  }
+
+  /**
+   * Whether the project could hold `path`: the flat listing says so directly,
+   * or — past that listing's cap — the root level, which is read in full, names
+   * the first folder on the way. A chip from another project finds neither, and
+   * the levels below the root load on the way to the row.
+   */
+  private knownToProject(
+    path: string,
+    files: readonly string[],
+    root: readonly string[] | undefined,
+  ): boolean {
+    if (files.includes(path)) {
+      return true;
+    }
+    if (root === undefined) {
+      return false;
+    }
+    const first = path.split('/')[0] ?? path;
+    return root.includes(first) || root.includes(`${first}/`);
+  }
+
+  /** Whether the marked row is in the tree the pane can draw right now. */
+  private selectedInTree(): boolean {
+    const wanted = this.selected();
+    if (wanted === undefined) {
+      return false;
+    }
+    const holds = (nodes: readonly FileNode[]): boolean =>
+      nodes.some((node) => node.path === wanted || (node.kind === 'dir' && holds(node.children)));
+    return holds(this.tree());
   }
 
   /** Scrolls the highlighted row into the pane's viewport, VS Code's behaviour. */
@@ -259,16 +342,20 @@ export class FileExplorer {
     if (node.kind === 'file') {
       return this.changeOf(node.path);
     }
+    if (this.workspaceStore.pendingDirectories().has(node.path)) {
+      return '…';
+    }
     return this.dirChanged(node.path) ? '•' : undefined;
   }
 
   /**
    * The colour that letter earns. The mapping is the Explorer's, not the tree's: a
    * modified file warns, an added one succeeds, a deleted or conflicted one errs.
+   * A folder fetching its level marks plainly — it is busy, not changed.
    */
   private toneFor(node: FileNode): TreeNode<FileNode>['badgeTone'] {
     if (node.kind === 'dir') {
-      return 'warn';
+      return this.workspaceStore.pendingDirectories().has(node.path) ? 'plain' : 'warn';
     }
     switch (this.changeOf(node.path)) {
       case 'M':
@@ -403,6 +490,21 @@ function countFiles(nodes: readonly FileNode[]): number {
     count += node.kind === 'file' ? 1 : countFiles(node.children);
   }
   return count;
+}
+
+/**
+ * The flat listing and every level the lazy tree has listed, as one entry list
+ * for `buildFileTree`. The two only ever add to each other: the flat list paints
+ * the first frame while the root level is still on its way, and a level that
+ * lands completes a folder the flat list could not reach — its index is capped,
+ * these levels are not.
+ */
+function mergedEntries(flat: readonly string[], levels: Record<string, string[]>): string[] {
+  const entries = [...flat];
+  for (const level of Object.values(levels)) {
+    entries.push(...level);
+  }
+  return entries;
 }
 
 /** Every directory above `path`, outermost first (`a/b/c.ts` -> `a`, `a/b`). */
