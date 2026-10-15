@@ -69,6 +69,25 @@ describe('readGitRepos', () => {
 
     expect(await readGitRepos(root)).toEqual({ isRepo: false, repos: [] });
   });
+
+  it('lists every repository, with no cap on how many', async () => {
+    // A parent directory of sibling checkouts — the shape that used to lose
+    // everything past the twenty-fourth (`MAX_REPOS`). There is deliberately no
+    // count cap now: every one under the project is reported.
+    initRepo(root);
+    const count = 30;
+    for (let index = 0; index < count; index += 1) {
+      initRepo(join(root, `repo-${String(index).padStart(2, '0')}`));
+    }
+
+    const result = await readGitRepos(root);
+
+    expect(result.repos).toHaveLength(count + 1);
+    expect(result.repos.map((repo) => repo.path)).toEqual([
+      '',
+      ...Array.from({ length: count }, (_, index) => `repo-${String(index).padStart(2, '0')}`),
+    ]);
+  });
 });
 
 describe('resolveRepoCwd', () => {

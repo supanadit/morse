@@ -6,13 +6,25 @@ import type { GitRepoInfo, GitRepos } from '@morse/protocol';
 import { resolveWithin } from './file-store.js';
 
 /**
- * How deep a project is scanned for nested repositories, and how many are kept.
- * A submodule usually sits one or two levels down; a monorepo of vendored
- * checkouts can go deeper, but the walk has to stop somewhere — past this the
- * repositories are not "under the project" in a way a panel can show.
+ * How deep a project is scanned for nested repositories. A submodule usually
+ * sits one or two levels down; a monorepo of vendored checkouts can go deeper,
+ * but the walk has to stop somewhere — past this the repositories are not
+ * "under the project" in a way a panel can show. There is deliberately no cap
+ * on how many repositories are found: a directory holding a hundred sibling
+ * checkouts lists all of them, and the walk prunes at the first `.git` it
+ * meets, so the count costs one `readdir` per level, not a deeper traversal.
  */
 const MAX_DEPTH = 3;
-const MAX_REPOS = 24;
+
+/**
+ * How many `git` processes branch resolution may have in flight at once. The
+ * scan itself is cheap (directory reads), but naming each repository's branch
+ * is one child process apiece — unbounded on a directory of hundreds of
+ * repositories that exhausts file descriptors, and sequential makes the scan
+ * slow where the walk was already done. A small pool keeps the count bounded
+ * without serialising the whole answer behind one process at a time.
+ */
+const BRANCH_CONCURRENCY = 16;
 
 /**
  * Directories the scan never descends into. Mirrors the file picker's skip list:
@@ -47,43 +59,66 @@ const SKIPPED_DIRECTORIES = new Set([
  * saying "no repository here".
  */
 export async function readGitRepos(cwd: string): Promise<GitRepos> {
-  const repos: GitRepoInfo[] = [];
   const seen = new Set<string>();
+  /** The repositories to report, the session's own first. `path` stays as the
+   *  client addresses it (`''` for the own). */
+  const roots: { path: string; root: string; current: boolean }[] = [];
 
   const own = await gitText(['rev-parse', '--show-toplevel'], cwd);
   const ownRoot = own?.trim();
   if (ownRoot) {
     seen.add(ownRoot);
-    repos.push({
-      path: '',
-      root: ownRoot,
-      name: basename(ownRoot) || basename(cwd),
-      current: true,
-      branch: await branchOf(cwd),
-    });
+    roots.push({ path: '', root: ownRoot, current: true });
   }
 
   const nested: string[] = [];
   await walk(cwd, cwd, 0, nested);
   for (const root of nested) {
-    if (repos.length >= MAX_REPOS) {
-      break;
-    }
     const absolute = resolveWithin(cwd, root);
     if (seen.has(absolute)) {
       continue;
     }
     seen.add(absolute);
-    repos.push({
-      path: toPosix(root),
-      root: absolute,
-      name: basename(absolute),
-      current: false,
-      branch: await branchOf(absolute),
-    });
+    roots.push({ path: toPosix(root), root: absolute, current: false });
   }
 
+  // Each repository's branch is one `git` spawn; resolve them through a bounded
+  // pool so a directory of many checkouts answers in roughly the time of one
+  // round rather than the sum of all of them.
+  const branches = await mapBounded(roots, BRANCH_CONCURRENCY, (entry) => branchOf(entry.root));
+
+  const repos: GitRepoInfo[] = roots.map((entry, index) => ({
+    path: entry.path,
+    root: entry.root,
+    name: basename(entry.root) || basename(cwd),
+    current: entry.current,
+    branch: branches[index],
+  }));
+
   return { isRepo: repos.length > 0, repos };
+}
+
+/**
+ * Maps over `items` with at most `limit` calls in flight, preserving order. A
+ * small pool rather than `Promise.all`: the work is child processes, and a
+ * project with hundreds of repositories must not fork hundreds at once.
+ */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /**
@@ -124,7 +159,7 @@ async function branchOf(cwd: string): Promise<string | undefined> {
  * submodule's own internals contribute nothing.
  */
 async function walk(root: string, directory: string, depth: number, found: string[]): Promise<void> {
-  if (depth > MAX_DEPTH || found.length >= MAX_REPOS) {
+  if (depth > MAX_DEPTH) {
     return;
   }
   let entries: Dirent[];
@@ -139,9 +174,6 @@ async function walk(root: string, directory: string, depth: number, found: strin
     return;
   }
   for (const entry of entries) {
-    if (found.length >= MAX_REPOS) {
-      return;
-    }
     if (!entry.isDirectory()) {
       continue;
     }
