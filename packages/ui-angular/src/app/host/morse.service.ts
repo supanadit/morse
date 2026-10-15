@@ -92,7 +92,19 @@ export class MorseService {
   /** What `agentError` means and what to do about it (see `AgentFailure`). */
   readonly agentFailure = computed(() => this.view().state.agentFailure);
   readonly running = computed(() => this.view().state.streaming || this.view().state.busy);
-  readonly workspace = computed(() => this.view().state.workspace);
+  /**
+   * The viewing project's directory and name. Equal by value, not identity: the
+   * host rebuilds this object on every `session/state` emit (`toSessionViewState`),
+   * which happens on every `agent/state` during a run. Returning it straight
+   * through made every effect that read it re-run on each emit — the git panel
+   * re-reading its repository list plus a history/status round trip per
+   * repository on every token, which on a crowded project is what timed out and
+   * reported that the host could not read its history.
+   */
+  readonly workspace = computed(
+    () => this.view().state.workspace,
+    { equal: (a, b) => a.cwd === b.cwd && a.name === b.name },
+  );
   readonly model = computed(() => this.view().state.model);
   readonly thinkingLevel = computed(() => this.view().state.thinkingLevel);
   readonly availableModels = computed(() => this.view().state.availableModels);
