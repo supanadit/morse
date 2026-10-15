@@ -332,15 +332,26 @@ export class ChatComposer {
   protected readonly running = computed(
     () => this.morse.state().streaming || this.morse.state().busy,
   );
+  /**
+   * When each session's current run began, keyed by session id. One composer
+   * draws whichever tab is in front, so a single clock leaked across tabs:
+   * switching between two running sessions kept the first one's start (running
+   * stayed true, so nothing reset it), and passing through an idle tab restarted
+   * the second's. Keyed here, every tab keeps its own time.
+   */
+  private readonly runStarts = signal<ReadonlyMap<string, number>>(new Map());
   protected readonly elapsed = computed(() => {
     this.tick();
-    const start = this.startedAt();
-    const ms = start === null ? 0 : Date.now() - start;
+    // Keyed by the tab in front (`composerKey`): a session id, or a draft tab's
+    // id before the first prompt names the session. A file tab resolves to the
+    // session that owns it, so its clock is that session's.
+    const key = this.tabs.composerKey();
+    const start = key === undefined ? undefined : this.runStarts().get(key);
+    const ms = start === undefined ? 0 : Date.now() - start;
     // Stay quiet for the first second; "0ms" would only flicker.
     return ms < 1000 ? '' : formatDuration(ms);
   });
 
-  private readonly startedAt = signal<number | null>(null);
   private readonly tick = signal(0);
 
   constructor() {
@@ -388,23 +399,77 @@ export class ChatComposer {
       this.attachments.seed(seed.images ?? [], seed.pins ?? []);
     });
 
+    // The elapsed clock is per session. The host's activity reports every live
+    // session, so a run's start is recorded the moment it begins — in the
+    // background too — and dropped only when that session's run ends, never by a
+    // tab switch that leaves it running.
+    effect(() => {
+      const activity = this.morse.sessionActivity();
+      untracked(() => {
+        this.runStarts.update((current) => {
+          let next: Map<string, number> | undefined;
+          for (const entry of activity.values()) {
+            const running = entry.streaming || entry.busy;
+            const known = current.has(entry.sessionKey);
+            if (running && !known) {
+              next ??= new Map(current);
+              next.set(entry.sessionKey, Date.now());
+            } else if (!running && known) {
+              next ??= new Map(current);
+              next.delete(entry.sessionKey);
+            }
+          }
+          return next ?? current;
+        });
+      });
+    });
+
     effect((onCleanup) => {
-      if (!this.running()) {
-        this.startedAt.set(null);
+      const key = this.tabs.composerKey();
+      // Tracking `key` re-runs this on a tab switch even while `running` stays
+      // true, so the timer and baseline always describe the tab in front.
+      if (!this.running() || key === undefined) {
         this.tokensPerSecond.set(undefined);
         this.throughput.length = 0;
         return;
       }
-      this.startedAt.update((value) => value ?? Date.now());
-      // Count growth from this point on. Reading `items()` untracked keeps this
-      // effect tied to the run state, and a baseline makes the figure survive a
-      // new assistant message mid-turn instead of resetting to zero.
+      // The host's activity seeds a run's start when it can (a session id in
+      // front); a draft tab, whose key is not yet in that map, is seeded here.
+      // The effect runs once per run (or per tab switch mid-run), so re-seeding
+      // the baseline from this tab's transcript is exactly right — a live figure
+      // never spans two tabs or two runs.
+      this.runStarts.update((current) =>
+        current.has(key) ? current : new Map(current).set(key, Date.now()),
+      );
       this.baseline.set(untracked(() => outputChars(this.morse.items())));
+      this.tokensPerSecond.set(undefined);
+      this.throughput.length = 0;
       const handle = setInterval(() => {
         this.tick.update((value) => value + 1);
         this.sampleThroughput();
       }, 500);
-      onCleanup(() => clearInterval(handle));
+      onCleanup(() => {
+        clearInterval(handle);
+        // Release this tab's start once its run is over, so a later run starts
+        // fresh. A `sessionActivity` entry for a still-running background tab
+        // says "not over", which is what keeps a switch from clearing it; a host
+        // that never emits activity has no entry, and its run has stopped (the
+        // effect re-ran), so clearing is right either way.
+        untracked(() => {
+          const entry = this.morse.sessionActivity().get(key);
+          const stillRunning = entry !== undefined && (entry.streaming || entry.busy);
+          if (!stillRunning) {
+            this.runStarts.update((current) => {
+              if (!current.has(key)) {
+                return current;
+              }
+              const next = new Map(current);
+              next.delete(key);
+              return next;
+            });
+          }
+        });
+      });
     });
   }
 
