@@ -7,9 +7,10 @@ import { UnsupportedByHostError, type MorseLogger } from '@morse/core';
 /**
  * Directories a file picker never wants, and which make a tree walk slow enough
  * to feel broken. Mirrors the VS Code host's list on purpose: a browser host and
- * a webview host should offer the same files for the same project.
+ * a webview host should offer the same files for the same project. Exported for
+ * `workspace-search.ts`, which skips the same noise while grepping.
  */
-const SKIPPED_DIRECTORIES = new Set([
+export const SKIPPED_DIRECTORIES = new Set([
   'node_modules',
   'dist',
   'out',

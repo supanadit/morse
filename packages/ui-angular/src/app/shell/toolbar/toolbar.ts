@@ -3,7 +3,7 @@ import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
 import { DisplayPrefs } from '../../state/display-prefs';
 import { McpState } from '../../state/mcp-state';
-import { ShellState } from '../../state/shell-state';
+import { ShellState, type RightPane } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { ShortcutService } from '../../services/shortcut.service';
 
@@ -100,7 +100,19 @@ export class Toolbar {
   protected readonly gitEnabled = computed(
     () => this.morse.capabilities()?.gitPanel === true && !this.tabs.noSessionInFront(),
   );
-  protected readonly gitOpen = this.layout.rightVisible;
+  /** Pressed when the column is open *and* git is its front face: the git and
+   * search panels take turns in one column, so each button says which is in front. */
+  protected readonly gitOpen = computed(
+    () => this.layout.rightVisible() && this.shell.rightPane() === 'git',
+  );
+  /** The search column's switch follows the same rule as git's: the host can
+   * grep (`searchPanel`) and a session is in front to name the project. */
+  protected readonly searchEnabled = computed(
+    () => this.morse.capabilities()?.searchPanel === true && !this.tabs.noSessionInFront(),
+  );
+  protected readonly searchOpen = computed(
+    () => this.layout.rightVisible() && this.shell.rightPane() === 'search',
+  );
   /**
    * The MCP indicator exists where the host can run the `pi` CLI. It is usable without a
    * session too — the panel is then global-only (the user's own `mcp.json`), so this is
@@ -128,8 +140,13 @@ export class Toolbar {
     // without `gitPanel`) is shown as unavailable rather than promised.
     const unbindGit = this.shortcuts.bind(
       'view.git',
-      () => this.layout.toggleVisible('right'),
+      () => this.toggleGit(),
       () => this.gitEnabled(),
+    );
+    const unbindSearch = this.shortcuts.bind(
+      'view.search',
+      () => this.toggleSearch(),
+      () => this.searchEnabled(),
     );
     const unbindMcp = this.shortcuts.bind(
       'view.mcp',
@@ -137,6 +154,7 @@ export class Toolbar {
       () => this.mcpEnabled(),
     );
     this.destroyRef.onDestroy(unbindGit);
+    this.destroyRef.onDestroy(unbindSearch);
     this.destroyRef.onDestroy(unbindMcp);
   }
 
@@ -166,7 +184,28 @@ export class Toolbar {
 
   /** Shows or hides the browser host's git column. */
   protected toggleGit(): void {
-    this.layout.toggleVisible('right');
+    this.switchRightPane('git');
+  }
+
+  /** Shows or hides the browser host's search column. */
+  protected toggleSearch(): void {
+    this.switchRightPane('search');
+  }
+
+  /**
+   * One column, two faces: pressing the button whose panel is already in front
+   * closes the column; pressing the other one switches faces instead — the
+   * reader asked for *that* panel, not for its absence.
+   */
+  private switchRightPane(pane: RightPane): void {
+    if (this.layout.rightVisible() && this.shell.rightPane() === pane) {
+      this.layout.toggleVisible('right');
+      return;
+    }
+    this.shell.setRightPane(pane);
+    if (!this.layout.rightVisible()) {
+      this.layout.toggleVisible('right');
+    }
   }
 
   /** Opens the MCP manager; the panel fetches the status when it mounts. */

@@ -14,6 +14,7 @@ import { PiUi } from '../features/pi-ui/pi-ui';
 import { TaskOverlay } from '../features/tasks/tasks';
 import { TabStrip } from '../features/tab-strip/tab-strip';
 import { GitPanel } from '../features/git-panel/git-panel';
+import { SearchPanel } from '../features/search-panel/search-panel';
 import { AnimationService } from '../ui/animation.service';
 import { AttachmentStore } from '../state/attachments';
 import { LayoutState } from '../state/layout-state';
@@ -76,6 +77,7 @@ function previewBoot(): boolean {
     TaskOverlay,
     FilePreview,
     GitPanel,
+    SearchPanel,
     EnterDirective,
     BootSplash,
     ConnectionScreen,
@@ -166,9 +168,29 @@ export class App {
    * Code advertises no `gitPanel` and keeps its own Source Control view.
    */
   protected readonly gitEnabled = computed(() => this.morse.capabilities()?.gitPanel === true);
-  /** The panel is a layout column, so it is only mounted (and refreshed) when shown. */
+  /**
+   * The panel is a layout column, so it is only mounted (and refreshed) when shown.
+   * The column holds one face at a time: `rightPane` says which (the git panel
+   * or the search panel), so this is "the column is open *and* git holds it".
+   */
   protected readonly gitOpen = computed(
-    () => this.gitEnabled() && this.layout.rightVisible() && !this.tabs.noSessionInFront(),
+    () =>
+      this.gitEnabled() &&
+      this.layout.rightVisible() &&
+      !this.tabs.noSessionInFront() &&
+      this.shell.rightPane() === 'git',
+  );
+  /**
+   * The browser host's search panel: the column's other face, grepping the
+   * active project's files. VS Code advertises no `searchPanel` and keeps its
+   * own Search view, so it never renders there either.
+   */
+  protected readonly searchOpen = computed(
+    () =>
+      this.morse.capabilities()?.searchPanel === true &&
+      this.layout.rightVisible() &&
+      !this.tabs.noSessionInFront() &&
+      this.shell.rightPane() === 'search',
   );
   /** Expanded: the git view spans the conversation area instead of the sidebar. */
   protected readonly gitExpanded = computed(

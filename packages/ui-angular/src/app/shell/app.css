@@ -27,7 +27,8 @@
 /* The columns share the middle row; the chrome takes its own, across all of them. */
 .nav,
 .chat,
-.git-panel {
+.git-panel,
+.search-panel {
   grid-row: 2;
 }
 
@@ -53,8 +54,10 @@
 }
 
 .shell.embedded.with-git,
+.shell.embedded.with-search,
 .shell.embedded.git-expanded,
 .shell.embedded.collapsed.with-git,
+.shell.embedded.collapsed.with-search,
 .shell.embedded.collapsed.git-expanded {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -62,13 +65,17 @@
 /*
  * The browser host's git panel is a third column. The track only exists while
  * the panel is mounted, so the conversation keeps the full width when it is
- * closed and the fold toggle still folds only the navigation.
+ * closed and the fold toggle still folds only the navigation. The search panel
+ * is that column's other face: same track, same dragged width (one region),
+ * and the two are never mounted at once.
  */
-.shell.with-git {
+.shell.with-git,
+.shell.with-search {
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr) var(--morse-git-width);
 }
 
-.git-panel {
+.git-panel,
+.search-panel {
   min-width: 0;
 }
 
@@ -116,7 +123,8 @@
     grid-template-columns: 0 minmax(0, 1fr);
   }
 
-  .shell.collapsed.with-git {
+  .shell.collapsed.with-git,
+  .shell.collapsed.with-search {
     grid-template-columns: 0 minmax(0, 1fr) var(--morse-git-width);
   }
 
@@ -478,11 +486,12 @@
   }
 
   /*
-   * Narrow: there is no room for a third column, so the git panel overlays the
-   * conversation from the right. It has its own close button; the layout below
-   * stays one column regardless of the panel.
+   * Narrow: there is no room for a third column, so the panel overlays the
+   * conversation from the right — git or search, whichever face is in front.
+   * It has its own close button; the layout below stays one column regardless.
    */
-  .shell.with-git {
+  .shell.with-git,
+  .shell.with-search {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -501,9 +510,10 @@
    * Specific enough to beat the component's own `:host { position: relative }`,
    * which the absolutely-positioned header/list rely on in every other mode.
    */
-  /* Same grid-area trap as the drawer: the git overlay spans the shell's height,
+  /* Same grid-area trap as the drawer: the overlay spans the shell's height,
      not just row 2 — but stays a right-side partial overlay. */
-  .shell > .git-panel {
+  .shell > .git-panel,
+  .shell > .search-panel {
     position: absolute;
     grid-row: auto;
     z-index: 20;

@@ -7,6 +7,31 @@ const GIT_EXPANDED_KEY = 'morse.git.expanded';
 /** The git panel's Changes section: whether it is folded. */
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
 const GIT_HISTORY_COLLAPSED_KEY = 'morse.git.historyCollapsed';
+/** Which panel holds the shell's right column. */
+const RIGHT_PANE_KEY = 'morse.right.pane';
+
+/**
+ * The panels that share the shell's right column — the git panel and the search
+ * panel. Only one is in front at a time: the column is one region with one
+ * width and one stored open flag, so the two take turns rather than stacking.
+ */
+export type RightPane = 'git' | 'search';
+
+function readRightPane(): RightPane {
+  try {
+    return globalThis.localStorage?.getItem(RIGHT_PANE_KEY) === 'search' ? 'search' : 'git';
+  } catch {
+    return 'git';
+  }
+}
+
+function storeRightPane(pane: RightPane): void {
+  try {
+    globalThis.localStorage?.setItem(RIGHT_PANE_KEY, pane);
+  } catch {
+    // As below: storage is a nicety, not a requirement.
+  }
+}
 
 function readGitExpanded(): boolean {
   try {
@@ -72,6 +97,20 @@ export class ShellState {
   /** The open repository's History section: whether it is folded. */
   private readonly historyCollapsedSignal = signal(readFlag(GIT_HISTORY_COLLAPSED_KEY));
   readonly gitHistoryCollapsed = this.historyCollapsedSignal.asReadonly();
+
+  /**
+   * Which panel the right column holds. The column's open flag and width are
+   * the git panel's stored keys (`morse.git.open`, `morse.git.width`) — a
+   * stored layout belongs to the reader and is not renamed — so this only says
+   * which of the two faces is in front when the column is open.
+   */
+  private readonly rightPaneSignal = signal<RightPane>(readRightPane());
+  readonly rightPane = this.rightPaneSignal.asReadonly();
+
+  setRightPane(pane: RightPane): void {
+    storeRightPane(pane);
+    this.rightPaneSignal.set(pane);
+  }
 
   /**
    * The "New session" folder browser (browser host only). It is shell state

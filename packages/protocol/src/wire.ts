@@ -101,6 +101,15 @@ export type HostCommand =
    * `#` session search.
    */
   | 'searchSessions'
+  /**
+   * Text across the viewing project's files (`{ query, caseSensitive?,
+   * include?, exclude? }` → `WorkspaceSearchResult`): matches grouped by file,
+   * each line carrying its number, a window of its text and where the matches
+   * fall in it. Backs the search panel — ripgrep where the host has it, a
+   * built-in walk otherwise, which the result's `engine` reports so the panel
+   * can suggest ripgrep. Only offered where `capabilities.searchPanel` is set.
+   */
+  | 'searchWorkspace'
   /** Writes the shell layout back, so the next visit opens the same tabs. */
   | 'saveWorkbench'
   /**

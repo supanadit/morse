@@ -14,6 +14,8 @@ export type ActionId =
   | 'command.palette'
   | 'project.filter'
   | 'view.git'
+  /** The search panel: grep the active project's files for text. */
+  | 'view.search'
   /** The MCP manager: list, enable and disable pi's MCP servers. */
   | 'view.mcp'
   /** The prompt-template editor: list, edit and test pi's `/commands`. */
@@ -138,6 +140,16 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     label: 'Toggle the git panel',
     detail: 'Shows or hides the history and graph for the active project. The browser host only — VS Code has its own Source Control view.',
     binding: { key: 'g', mod: true, alt: true },
+    overlay: true,
+    whileTyping: true,
+  },
+  {
+    id: 'view.search',
+    group: 'Navigate',
+    label: 'Toggle the search panel',
+    detail:
+      "Searches the active project's files for text, with include and exclude globs. The browser host only — VS Code has its own Search view.",
+    binding: { key: 'f', mod: true, alt: true },
     overlay: true,
     whileTyping: true,
   },

@@ -13,6 +13,7 @@ import {
   type SessionViewState,
   type ThinkingLevel,
   type TranscriptItem,
+  type WorkspaceSearchResult,
 } from '@morse/protocol';
 import { BaseHostTransport } from './host-transport.js';
 
@@ -29,6 +30,9 @@ const CAPABILITIES: HostCapabilities = {
   // The mock can draw the browser-only git panel from a scripted history, so
   // the panel and its graph are reviewable without a server or a real repo.
   gitPanel: true,
+  // Same for the search panel: a scripted answer draws the grouped rows, the
+  // highlights and the ripgrep notice with no filesystem behind them.
+  searchPanel: true,
   // The mock host fakes an upload inbox so the browser-only flow is exercisable
   // without running the NestJS server.
   fileUpload: true,
@@ -521,6 +525,17 @@ export class MemoryHostTransport extends BaseHostTransport {
           });
           return;
         }
+        if (message.payload.command === 'searchWorkspace' && message.payload.requestId) {
+          this.emit({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: mockSearchResult(typeof message.payload.args?.query === 'string' ? message.payload.args.query : ''),
+            },
+          });
+          return;
+        }
         if (message.payload.command === 'gitStatus' && message.payload.requestId) {
           this.emit({
             type: 'host/command/result',
@@ -998,6 +1013,38 @@ export class MemoryHostTransport extends BaseHostTransport {
   private emit(message: HostToClientMessage): void {
     this.emitMessage(message);
   }
+}
+
+/**
+ * The search panel's scripted answer: the query echoed into two files, so
+ * typing redraws real-looking rows — grouping, counts and a highlight that
+ * lands on the word. `engine: 'node'` on purpose: it is what keeps the panel's
+ * "install ripgrep" notice visible in the mock too.
+ */
+function mockSearchResult(query: string): WorkspaceSearchResult {
+  const term = query.trim();
+  if (term.length === 0) {
+    return { files: [], total: 0, truncated: false, engine: 'node' };
+  }
+  return {
+    files: [
+      {
+        path: 'src/mock.ts',
+        count: 1,
+        lines: [
+          { line: 7, text: `// ${term} appears in this scripted line`, columns: [4] },
+        ],
+      },
+      {
+        path: 'README.md',
+        count: 1,
+        lines: [{ line: 3, text: `Searching for ${term} without a disk.`, columns: [15] }],
+      },
+    ],
+    total: 2,
+    truncated: false,
+    engine: 'node',
+  };
 }
 
 /**

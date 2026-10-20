@@ -38,6 +38,7 @@ import {
 } from '../workspace/git-log.js';
 import { readGitRepos } from '../workspace/git-repos.js';
 import { listProjectDirectory, workspaceFiles } from '../workspace/workspace-index.js';
+import { searchWorkspace } from '../workspace/workspace-search.js';
 import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/host-runtime';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
@@ -101,6 +102,11 @@ export class MorseSessionFactory {
       // The same reasoning for history: VS Code has Source Control, so the
       // browser host is the one that answers `gitLog` for its own git panel.
       gitPanel: true,
+      // And the same for search: VS Code has its own Search view, so the browser
+      // host is the one that greps the project's files for the search panel
+      // (`searchWorkspace`) — ripgrep where it is installed, the built-in walk
+      // otherwise, which the answer's `engine` reports to the panel.
+      searchPanel: true,
       // VS Code already has an integrated terminal; the browser host has none, so
       // the bottom panel's terminal is this host's. It runs in the viewing
       // session's directory and is gated by `ProjectPolicy`, like a session.
@@ -255,6 +261,19 @@ export class MorseSessionFactory {
           throw new UnsupportedByHostError('readFile needs a "path" argument.');
         }
         return readWorkspaceFile(cwd, path);
+      }
+      case 'searchWorkspace': {
+        // The search panel's grep over the project in view. `commandCwd` is
+        // `readFile`'s rule — a restored preview tab names its own project —
+        // and the engine validates the query and the patterns themselves.
+        const cwd = this.commandCwd(context, args);
+        return searchWorkspace(cwd, {
+          query: typeof args?.query === 'string' ? args.query : '',
+          caseSensitive:
+            typeof args?.caseSensitive === 'boolean' ? args.caseSensitive : undefined,
+          include: args?.include,
+          exclude: args?.exclude,
+        });
       }
       case 'lspHover': {
         // The preview's hover card. The host owns the language server (a browser

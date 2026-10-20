@@ -1,0 +1,193 @@
+/*
+ * The panel takes the column's whole height — same frame, same seam, same
+ * background as the git panel, because they are two views of one column of the
+ * shell and must not look like two different apps when the reader switches.
+ */
+:host {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-left: 1px solid var(--morse-border);
+  background: var(--morse-nav-bg);
+}
+
+/* The left edge is the drag handle, the git panel's rule for the same seam. */
+.edge-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  z-index: 3;
+  cursor: ew-resize;
+}
+.edge-resize:hover,
+.edge-resize:active {
+  background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.panel > morse-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The form is fixed at the top of the body; the results scroll beneath it. */
+.form {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--morse-border);
+}
+.query-row {
+  display: flex;
+  gap: 4px;
+}
+.query {
+  flex: 1;
+  min-width: 0;
+}
+.pattern {
+  width: 100%;
+}
+/*
+ * The `Aa` toggle is a real state, so it reads as a switch that is on rather
+ * than as a label — the same grammar the toolbar's pressed buttons use.
+ */
+.toggle {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--morse-border);
+  border-radius: 4px;
+  background: none;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.toggle:hover {
+  background: var(--morse-hover);
+}
+.toggle.on {
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 18%, transparent);
+  color: var(--morse-fg);
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px 8px;
+}
+
+/* One file's group: header above its matching lines. */
+.file-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--morse-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.file-head:hover,
+.file-head:focus-visible {
+  background: var(--morse-hover);
+}
+.chevron {
+  flex: none;
+  width: 10px;
+  color: var(--morse-fg-muted);
+  transition: transform 120ms ease;
+}
+.chevron.open {
+  transform: rotate(90deg);
+}
+.file-head .name {
+  flex: none;
+  font-size: 12px;
+}
+.file-head .dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+.file-head .count {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--morse-fg-muted) 14%, transparent);
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* One matching line: the number gutter, then the text with its highlights. */
+.match {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 1px 6px 1px 16px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--morse-fg);
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+  line-height: 17px;
+  text-align: left;
+  cursor: pointer;
+}
+.match:hover,
+.match:focus-visible {
+  background: var(--morse-hover);
+}
+.match .lineno {
+  flex: none;
+  min-width: 26px;
+  color: var(--morse-fg-muted);
+  text-align: right;
+  user-select: none;
+}
+.match .text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The match itself: an accent wash, readable in both themes. */
+.hit {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--morse-accent) 32%, transparent);
+}
+
+.hint {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+}
+.hint.error {
+  color: var(--morse-warn);
+}
+.hint.warn {
+  color: var(--morse-warn);
+}

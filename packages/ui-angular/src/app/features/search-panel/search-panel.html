@@ -1,0 +1,120 @@
+<aside class="panel" aria-label="Search">
+  <div
+    class="edge-resize"
+    [morseSplitter]="'right'"
+    edge="left"
+    [max]="columnMax"
+    label="Resize the search panel"
+    title="Drag to resize"
+  ></div>
+  <morse-pane title="Search" [meta]="meta()" [actions]="paneActions()">
+    <!--
+      The form mirrors VS Code's Search view: the query with its match-case
+      toggle, then the two glob boxes. Everything below is the answer.
+    -->
+    <div class="form">
+      <div class="query-row">
+        <input
+          type="search"
+          class="query"
+          placeholder="Search"
+          aria-label="Search text in the project"
+          [value]="query()"
+          (input)="onQuery($event)"
+          (keydown.enter)="runNow()"
+        />
+        <button
+          type="button"
+          class="toggle"
+          [class.on]="caseSensitive()"
+          title="Match case"
+          aria-label="Match case"
+          [attr.aria-pressed]="caseSensitive()"
+          (click)="toggleCase()"
+        >
+          Aa
+        </button>
+      </div>
+      <input
+        type="text"
+        class="pattern"
+        placeholder="Files to include, e.g. *.ts, src/**"
+        aria-label="Files to include"
+        [value]="include()"
+        (input)="onInclude($event)"
+      />
+      <input
+        type="text"
+        class="pattern"
+        placeholder="Files to exclude"
+        aria-label="Files to exclude"
+        [value]="exclude()"
+        (input)="onExclude($event)"
+      />
+    </div>
+
+    @if (fallback()) {
+      <!-- The walk answered. Its limits are why the panel wants ripgrep. -->
+      <p class="hint warn">
+        ripgrep is not installed — using the slower built-in search. Install ripgrep for a
+        much faster search.
+      </p>
+    }
+    @if (errorMessage(); as message) {
+      <p class="hint error">{{ message }}</p>
+    } @else {
+      @if (truncated()) {
+        <p class="hint">
+          Showing the first {{ meta() }} matches — a longer query or an include pattern
+          narrows it down.
+        </p>
+      }
+      @if (files().length > 0) {
+        <div class="results">
+          @for (file of files(); track file.path) {
+            <div class="file">
+              <button
+                type="button"
+                class="file-head"
+                [attr.aria-expanded]="!isFolded(file.path)"
+                (click)="toggleFile(file.path)"
+              >
+                <span class="chevron" [class.open]="!isFolded(file.path)" aria-hidden="true"
+                  >›</span
+                >
+                <span class="name">{{ file.name }}</span>
+                @if (file.dir) {
+                  <span class="dir">{{ file.dir }}/</span>
+                }
+                <span class="count">{{ file.count }}</span>
+              </button>
+              @if (!isFolded(file.path)) {
+                @for (match of file.matches; track match.line) {
+                  <button
+                    type="button"
+                    class="match"
+                    [attr.title]="file.path + ':' + match.line"
+                    (click)="open(file, match)"
+                  >
+                    <span class="lineno">{{ match.line }}</span>
+                    <span class="text">
+                      @for (segment of match.segments; track $index) {
+                        <span [class.hit]="segment.hit">{{ segment.text }}</span>
+                      }
+                    </span>
+                  </button>
+                }
+              }
+            </div>
+          }
+        </div>
+      } @else if (searching()) {
+        <p class="hint">Searching…</p>
+      } @else if (isEmptyQuery()) {
+        <p class="hint">Type to search every file in the project.</p>
+      } @else {
+        <p class="hint">No matches.</p>
+      }
+    }
+  </morse-pane>
+</aside>
