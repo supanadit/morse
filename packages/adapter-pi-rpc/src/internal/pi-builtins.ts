@@ -187,6 +187,11 @@ function importInSubprocess(file: string): BuiltinSlashCommand[] | undefined {
   const run = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
     encoding: 'utf8',
     timeout: 5_000,
+    // The daemon runs detached on Windows and owns no console, so a child
+    // without CREATE_NO_WINDOW gets a fresh, visible console window — the
+    // split-second terminal flash seen on every session spawn and palette
+    // refresh. Hide it the way every other spawn from the daemon does.
+    windowsHide: true,
   });
   if (run.status !== 0 || typeof run.stdout !== 'string' || run.stdout.length === 0) {
     return undefined;

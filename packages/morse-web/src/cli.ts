@@ -433,6 +433,7 @@ async function startDaemon(
     cwd: workspace,
     env,
     detached: true,
+    windowsHide: true,
     // The daemon owns no terminal: closing the shell must not send it SIGHUP.
     stdio: ['ignore', logFd, logFd],
   });
@@ -554,11 +555,22 @@ async function update(options: Options): Promise<number> {
   const version = options.targetVersion ?? 'latest';
   console.log(`\n  ${bold('Updating')} @supanadit/morse-web@${version}\n`);
   const code = await new Promise<number>((resolveInstall) => {
-    const child = spawn('npm', ['install', '-g', `@supanadit/morse-web@${version}`], {
-      stdio: 'inherit',
-      // npm must see the user's environment, not Morse's.
-      env: cleanEnv(process.env),
-    });
+    // `npm` is npm.cmd on Windows; CreateProcess cannot run it directly, so it
+    // goes through cmd.exe with CREATE_NO_WINDOW (stdio is inherited, so npm's
+    // progress output still shows in this terminal — no new window is made).
+    const isWin = process.platform === 'win32';
+    const child = isWin
+      ? spawn('cmd.exe', ['/d', '/s', '/c', 'npm', 'install', '-g', `@supanadit/morse-web@${version}`], {
+          stdio: 'inherit',
+          // npm must see the user's environment, not Morse's.
+          env: cleanEnv(process.env),
+          windowsHide: true,
+        })
+      : spawn('npm', ['install', '-g', `@supanadit/morse-web@${version}`], {
+          stdio: 'inherit',
+          // npm must see the user's environment, not Morse's.
+          env: cleanEnv(process.env),
+        });
     child.on('exit', (exitCode) => resolveInstall(exitCode ?? 1));
     child.on('error', (error: Error) => {
       console.error(`${red('morse:')} npm could not be started (${error.message}).`);
@@ -679,7 +691,13 @@ function openBrowser(url: string): void {
     process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   try {
-    const child = spawn(command, args, { stdio: 'ignore', detached: true });
+    const child = spawn(command, args, {
+      stdio: 'ignore',
+      detached: true,
+      // A detached child owns no console; without CREATE_NO_WINDOW a console
+      // grandchild would allocate a visible one and flash a window.
+      windowsHide: true,
+    });
     child.unref();
   } catch {
     /* opening a browser is best-effort */

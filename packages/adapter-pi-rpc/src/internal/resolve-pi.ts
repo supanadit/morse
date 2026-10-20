@@ -1,4 +1,4 @@
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { AgentUnavailableError } from '@morse/core';
@@ -163,6 +163,38 @@ function siblingCliEntry(entry: string): string | undefined {
  */
 type WinShim = { command: string; prefix: string[]; shell: boolean };
 
+/**
+ * Detects an npm-generated `.cmd` shim and resolves it to `node.exe <script.js>`
+ * directly, bypassing `cmd.exe` entirely. On Windows, spawning `cmd.exe /d /s /c
+ * pi.cmd` creates a console window that `windowsHide` cannot fully suppress.
+ * By parsing the shim's last line (npm's standard pattern), we spawn the same
+ * `node.exe` without the intermediate shell.
+ *
+ * Returns `{ command, prefix, shell: false }` when the shim is a known npm
+ * pattern, or `undefined` when it is not (caller falls back to `shell: true`).
+ */
+function resolveNpmCmdShim(cmdPath: string): WinShim | undefined {
+  try {
+    const content = readFileSync(cmdPath, 'utf8');
+    // npm's pattern ends with:
+    //   ... & "%_prog%"  "%dp0%\node_modules\@scope\pkg\dist\bundle\cli.js" %*
+    // Capture the script path between the two quotes after `%_prog%`.
+    const match = /&\s*"%_prog%"\s+"%dp0%\\([^"]+\.js)"/.exec(content);
+    if (match === null) {
+      return undefined;
+    }
+    const relativeScript = match[1]!;
+    const dp0 = dirname(cmdPath);
+    const script = join(dp0, relativeScript.replace(/\\/g, '/'));
+    // Prefer node.exe next to the shim (npm ships it); fall back to PATH node.
+    const localNode = join(dp0, 'node.exe');
+    const nodeCmd = existsSync(localNode) ? localNode : process.execPath;
+    return { command: nodeCmd, prefix: [script], shell: false };
+  } catch {
+    return undefined;
+  }
+}
+
 /** `PATHEXT` is a shell variable and is often absent from GUI processes. */
 function windowsExtensions(env: NodeJS.ProcessEnv): string[] {
   const raw = env.PATHEXT ?? env.Pathext ?? process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD';
@@ -202,6 +234,12 @@ export function findWindowsShim(binary: string, env: NodeJS.ProcessEnv): WinShim
         return { command: candidate, prefix: [], shell: false };
       }
       if (lowered === '.cmd' || lowered === '.bat') {
+        // Try to bypass cmd.exe: if this is a standard npm .cmd shim, resolve
+        // it to `node.exe <script.js>` directly (avoids the console flash).
+        const resolved = resolveNpmCmdShim(candidate);
+        if (resolved !== undefined) {
+          return resolved;
+        }
         return { command: candidate, prefix: [], shell: true };
       }
     }

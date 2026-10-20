@@ -59,6 +59,11 @@ const SHELL_HOST = /^(?:powershell|pwsh)(?:\.exe)?$/i;
 const SHIM_REFERENCE = /[^\s"'`(){};,&|=<>]*node_modules[\\/][^\s"'`(){};,&|=<>]*/gi;
 /** A token's leading anchor for the shim's own directory (Windows / POSIX). */
 const SHIM_ANCHOR = /^(?:%~?dp0%?|\$\{?basedir(?:_win)?\}?)/i;
+
+/** `node`/`node.exe` — a host that runs the real entry passed as an argument. */
+function isNodeHost(command: string): boolean {
+  return /^node(?:\.exe)?$/i.test(basename(command));
+}
 /**
  * The anchor plus the separator right after it. `%~dp0` already ends in one
  * (`...\`); `$basedir` does not (`.../x`). Both shims therefore appear as
@@ -75,7 +80,11 @@ const SHIM_MAX_BYTES = 1024 * 1024;
  * a node launch, or the `.ps1` shim passed to `powershell -File`.
  */
 export function piEntry(spawn: PiSpawn): string | undefined {
-  if (spawn.source === 'node-entry') {
+  // A node launch: either the explicit bundled entry, or a Windows `.cmd` shim
+  // resolved to `node.exe <script.js>` (the npm-shim bypass that avoids the
+  // cmd.exe console). In both cases the entry is the first script argument —
+  // the command itself is node, not the package.
+  if (spawn.source === 'node-entry' || isNodeHost(spawn.command)) {
     return spawn.args.find((arg) => /\.(?:c|m)?js$/.test(arg));
   }
   if (SHELL_HOST.test(basename(spawn.command))) {

@@ -458,10 +458,18 @@ function run(
   shell = false,
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
+    // On Windows, `shell: true` wraps in cmd.exe which can flash a console
+    // window. Spawn cmd.exe directly with windowsHide instead.
+    const isWin = process.platform === 'win32';
+    const useShellDirect = shell && isWin;
+    const actualCommand = useShellDirect ? 'cmd.exe' : command;
+    const actualArgs = useShellDirect
+      ? ['/d', '/s', '/c', command, ...args]
+      : args;
     execFile(
-      command,
-      args,
-      { cwd, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, shell },
+      actualCommand,
+      actualArgs,
+      { cwd, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, shell: shell && !isWin, windowsHide: true },
       (error, stdout, stderr) => {
         const err = error as (NodeJS.ErrnoException & { killed?: boolean }) | null;
         const code = err?.code;

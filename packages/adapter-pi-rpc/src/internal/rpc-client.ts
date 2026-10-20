@@ -68,12 +68,22 @@ export class PiRpcClient {
       return;
     }
     this.failed = undefined;
-    const child = spawn(this.options.command, this.options.args, {
+    // On Windows, `shell: true` wraps the command in cmd.exe, which can
+    // briefly flash a console window even with windowsHide. Spawn cmd.exe
+    // directly with CREATE_NO_WINDOW instead of relying on shell:true.
+    const useShell = this.options.shell ?? false;
+    const isWin = process.platform === 'win32';
+    const spawnCommand = useShell && isWin ? 'cmd.exe' : this.options.command;
+    const spawnArgs = useShell && isWin
+      ? ['/d', '/s', '/c', this.options.command, ...this.options.args]
+      : this.options.args;
+    const spawnShell = useShell && !isWin;
+    const child = spawn(spawnCommand, spawnArgs, {
       cwd: this.options.cwd,
       env: cleanSpawnEnv(this.options.env),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      shell: this.options.shell ?? false,
+      shell: spawnShell,
     });
     this.child = child;
     child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk));

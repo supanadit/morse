@@ -69,7 +69,12 @@ export async function canSelfUpdate(env: NodeJS.ProcessEnv = process.env): Promi
     return false;
   }
   try {
-    const { stdout } = await run('npm', ['prefix', '-g'], { timeout: 10_000 });
+    const { stdout } = await run('npm', ['prefix', '-g'], {
+      timeout: 10_000,
+      windowsHide: true,
+      // `npm` is npm.cmd on Windows; execFile cannot run it without a shell.
+      shell: process.platform === 'win32',
+    });
     const prefix = stdout.trim();
     if (prefix.length === 0) return false;
     // The published bundle is loaded from <prefix>/lib/node_modules/@supanadit/morse-web,
@@ -118,7 +123,11 @@ export interface SelfUpdateOptions {
   /** The version the host is serving, for the result. */
   currentVersion: string;
   /** Injected for tests; the real helper spawns node. */
-  spawn?: (command: string, args: string[], options: { detached: boolean; stdio: 'ignore' }) => void;
+  spawn?: (
+    command: string,
+    args: string[],
+    options: { detached: true; stdio: 'ignore'; windowsHide: true },
+  ) => void;
   /** Injected for tests; the real helper exits the process. */
   exit?: (code: number) => void;
   /** How long to let the reply flush before exiting; tests shorten it. */
@@ -173,6 +182,10 @@ export async function performSelfUpdate(options: SelfUpdateOptions): Promise<Upd
     spawn(process.execPath, [helper, cli, String(process.pid)], {
       detached: true,
       stdio: 'ignore',
+      // The host is the detached (console-less) daemon on Windows; without
+      // CREATE_NO_WINDOW this detached helper would still be handed a visible
+      // console and flash a window while npm runs.
+      windowsHide: true,
     });
   } catch (error) {
     options.logger?.error('Failed to spawn the self-update helper', error);
@@ -217,7 +230,7 @@ function gracefulExit(code: number): void {
 function defaultSpawn(
   command: string,
   args: string[],
-  options: { detached: boolean; stdio: 'ignore' },
+  options: { detached: true; stdio: 'ignore'; windowsHide: true },
 ): void {
   const child = spawn(command, args, options);
   child.unref();
@@ -265,7 +278,19 @@ async function waitForExit(pid, timeoutMs) {
 
 async function run(command, args) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: 'ignore' });
+    // The helper is detached (no console on Windows). "npm" is npm.cmd there,
+    // which CreateProcess cannot run directly, so it goes through cmd.exe with
+    // CREATE_NO_WINDOW — the same pattern the RPC client uses. Node itself is
+    // an .exe and is spawned directly; shell-quoting a path with spaces would
+    // break it.
+    const isWin = process.platform === 'win32';
+    const useCmd = isWin && !command.endsWith('.exe');
+    const child = useCmd
+      ? spawn('cmd.exe', ['/d', '/s', '/c', command, ...args], {
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+      : spawn(command, args, { stdio: 'ignore', windowsHide: true });
     child.on('exit', (code) => resolve(code ?? 1));
     child.on('error', (error) => {
       log(\`\${command} failed to start: \${error.message}\`);
