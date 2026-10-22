@@ -3,6 +3,10 @@
   flex: none;
   padding: 0 10px 10px;
 }
+/* No question pending: an empty host is a 10px gap in the conversation. */
+:host(.gone) {
+  display: none;
+}
 .card {
   max-width: 780px;
   margin: 0 auto;

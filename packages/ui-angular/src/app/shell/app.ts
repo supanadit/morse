@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, ElementRef, inject, input, signal, viewChild } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
 import { BootSplash } from '../features/boot-splash/boot-splash';
 import { ConnectionScreen } from '../features/connection-screen/connection-screen';
@@ -132,6 +132,13 @@ export class App {
   protected readonly offline = signal(false);
 
   protected readonly navigationOpen = this.shell.navigationOpen;
+  /**
+   * The floating composer (and anything docked with it). Measured, not guessed: the
+   * transcript reserves this much at its end, so the last message clears the glass
+   * slab no matter how tall the box grows — attachments, a queued card, a long draft.
+   */
+  private readonly dockElement = viewChild<ElementRef<HTMLElement>>('dock');
+  protected readonly dockHeight = signal(0);
   /**
    * The browser host's tab strip (sessions + file previews). Gated on the host's
    * own capability, so VS Code — which has an editor already — stays as it was.
@@ -313,8 +320,7 @@ export class App {
       ? `${base} Your instructions: “${instructions}”.`
       : base;
   });
-  protected readonly connection = this.morse.connection;
-  protected readonly agentReady = this.morse.agentReady;
+  protected readonly connection = this.morse.connection;  protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
   protected readonly agentError = this.morse.agentError;
   /**
@@ -432,6 +438,24 @@ export class App {
     this.destroyRef.onDestroy(() => {
       this.clearNoticeTimer();
       this.clearBootTimer();
+    });
+    /*
+     * The transcript reserves the dock's height at its end, so the last message is
+     * never behind the glass. It is measured, not a CSS constant: the box grows
+     * with a long draft or an attachments row, and a fixed pad would be wrong by
+     * exactly the amount that matters — the bottom of the answer.
+     */
+    effect((onCleanup) => {
+      const dock = this.dockElement()?.nativeElement;
+      if (!dock || typeof ResizeObserver === 'undefined') {
+        this.dockHeight.set(0);
+        return;
+      }
+      const observer = new ResizeObserver(() => {
+        this.dockHeight.set(Math.round(dock.getBoundingClientRect().height));
+      });
+      observer.observe(dock);
+      onCleanup(() => observer.disconnect());
     });
     // A stop question is only ever about the run that was in flight when it was
     // asked. A fast answer can settle before the reader confirms, leaving the

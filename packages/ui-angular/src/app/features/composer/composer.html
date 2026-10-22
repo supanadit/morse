@@ -1,4 +1,18 @@
 <footer class="host">
+  <!-- Folded: the composer is a block under the conversation, not an overlay, so
+       it can be shrunk to this one pill and the transcript keeps the height. -->
+  @if (folded()) {
+    <button
+      type="button"
+      class="fold-open"
+      aria-expanded="false"
+      title="Show the composer"
+      (click)="toggleFolded()"
+    >
+      <span aria-hidden="true">▴</span>
+      <span>Ask Morse…</span>
+    </button>
+  } @else {
   @if (queuedMessages().length) {
     <div class="queue" role="region" aria-label="Queued follow-up messages">
       <div class="queue-head">
@@ -89,6 +103,16 @@
         drop files here · / for commands
       }
     </span>
+    <!-- Folds the composer to its pill, giving the conversation the room back. -->
+    <button
+      type="button"
+      class="fold-shut"
+      aria-expanded="true"
+      title="Fold the composer away"
+      (click)="toggleFolded()"
+    >
+      <span aria-hidden="true">▾</span>
+    </button>
   </div>
 
   @if (pickerOpen()) {
@@ -387,5 +411,6 @@
         (cancel)="closeAnnotation()"
       />
     }
+  }
   }
 </footer>

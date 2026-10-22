@@ -9,6 +9,10 @@
   padding: 6px 10px 0;
   min-height: 0;
 }
+/* No open work: no card, so the host must take no room either. */
+:host(.gone) {
+  display: none;
+}
 .card {
   max-width: 780px;
   margin: 0 auto;

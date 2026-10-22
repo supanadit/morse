@@ -14,7 +14,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px 16px 6px;
+  /* The composer floats over the conversation; this is the room it needs, so the
+     last message can scroll clear of the glass instead of ending under it. */
+  padding: 18px 16px calc(6px + var(--morse-dock-height, 0px));
   scrollbar-gutter: stable;
 }
 /* Sits outside the scroll container so it stays put while reading. */

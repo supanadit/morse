@@ -65,6 +65,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     CdkDragHandle,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.folded]': 'folded()' },
   styleUrl: './composer.css',
 })
 export class ChatComposer {
@@ -332,6 +333,16 @@ export class ChatComposer {
   protected readonly running = computed(
     () => this.morse.state().streaming || this.morse.state().busy,
   );
+  /**
+   * The composer folded to a single line. On a narrow window the box is a large
+   * block sitting under the conversation; folding it gives the transcript the
+   * room instead of covering it.
+   */
+  protected readonly folded = signal(false);
+
+  protected toggleFolded(): void {
+    this.folded.update((folded) => !folded);
+  }
   /**
    * When each session's current run began, keyed by session id. One composer
    * draws whichever tab is in front, so a single clock leaked across tabs:

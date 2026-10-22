@@ -108,8 +108,7 @@ describe('TaskOverlay', () => {
     expect(host.textContent).not.toContain('gone');
   });
 
-  it('folds and unfolds the rows, keeping the strip itself mounted', () => {
-    const fixture = render([
+  it('folds and unfolds the rows, keeping the strip itself mounted', () => {    const fixture = render([
       tool('t1', { tasks: [{ id: 1, subject: 'row one', status: 'pending' }] }),
     ]);
     const host = hostOf(fixture);
@@ -123,5 +122,15 @@ describe('TaskOverlay', () => {
     host.querySelector<HTMLElement>('.head')!.click();
     fixture.detectChanges();
     expect(host.querySelector('.body')).not.toBeNull();
+  });
+
+  /** No open work means no card, and an empty host would still be a gap above the composer. */
+  it('takes no room when there is nothing to show', () => {
+    const finished = render([
+      tool('t1', { tasks: [{ id: 1, subject: 'done', status: 'completed' }] }),
+    ]);
+    expect((finished.nativeElement as HTMLElement).classList.contains('gone')).toBe(true);
+    const open = render([tool('t1', { tasks: [{ id: 1, subject: 'x', status: 'pending' }] })]);
+    expect((open.nativeElement as HTMLElement).classList.contains('gone')).toBe(false);
   });
 });

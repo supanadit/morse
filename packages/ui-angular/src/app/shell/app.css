@@ -99,8 +99,7 @@
 .chat.bottom-full > morse-tab-strip,
 .chat.bottom-full > morse-file-preview,
 .chat.bottom-full > morse-chat-transcript,
-.chat.bottom-full > morse-interaction-panel,
-.chat.bottom-full > morse-chat-composer {
+.chat.bottom-full > .dock {
   display: none;
 }
 
@@ -147,12 +146,37 @@
   }
 }
 
+/*
+ * The composer floats over the conversation as a glass slab: it is not part of
+ * the column's height, so the transcript scrolls the whole way down under it
+ * instead of stopping above a solid block. The transcript reserves the slab's
+ * height at its end (`.dock` variable), so the last message is never hidden
+ * behind it.
+ */
 .chat {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   position: relative;
+}
+
+/*
+ * The floating composer (and anything docked with it) rides over the conversation.
+ * It stays a flex item — so the bottom panel keeps its place under it — and pulls
+ * itself up by exactly its own height, which is what makes it float instead of
+ * taking a slab out of the transcript.
+ */
+.dock {
+  flex: none;
+  position: relative;
+  z-index: 10;
+  margin-top: calc(-1 * var(--morse-dock-height, 0px));
+  pointer-events: none;
+}
+/* Only the slab itself takes the pointer; the strip around it lets it through. */
+.dock > * {
+  pointer-events: auto;
 }
 
 /*

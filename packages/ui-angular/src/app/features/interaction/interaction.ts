@@ -74,6 +74,7 @@ export function parseOption(option: SelectOption, position: number): ParsedOptio
   templateUrl: './interaction.html',
   imports: [EnterDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.gone]': '!visible()' },
   styleUrl: './interaction.css',
 })
 export class InteractionPanel {

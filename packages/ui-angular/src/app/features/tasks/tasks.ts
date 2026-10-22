@@ -34,6 +34,7 @@ import { TaskBoard } from '../tool-group/task-board';
   imports: [TaskBoard],
   templateUrl: './tasks.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.gone]': '!visible()' },
   styleUrl: './tasks.css',
 })
 export class TaskOverlay {

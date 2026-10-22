@@ -167,4 +167,13 @@ describe('InteractionPanel', () => {
 
     expect(fake.respond).toHaveBeenCalledWith({ requestId: 'r1', cancelled: true });
   });
+
+  /**
+   * With no question pending the host is an empty box whose padding is a gap in the
+   * conversation. The class is what takes it out of the layout.
+   */
+  it('takes no room from the conversation when nothing is being asked', () => {
+    expect(render(null).host.classList.contains('gone')).toBe(true);
+    expect(render(selectRequest).host.classList.contains('gone')).toBe(false);
+  });
 });

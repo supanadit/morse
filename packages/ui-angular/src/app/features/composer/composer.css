@@ -3,6 +3,50 @@
   position: relative;
   padding: 10px;
 }
+/*
+ * Folded: only the pill is left. Hiding the box rather than collapsing it keeps
+ * its popovers and its textarea from holding a size of their own.
+ */
+:host(.folded) .box,
+:host(.folded) .queue {
+  display: none;
+}
+.fold-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--morse-input-border);
+  border-radius: var(--morse-radius-lg);
+  background: var(--morse-input-bg);
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.fold-open:hover {
+  border-color: var(--morse-fg-muted);
+  color: var(--morse-fg);
+}
+/* In the toolbar, at the far edge: the composer's own fold handle. */
+.fold-shut {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fold-shut:hover {
+  color: var(--morse-fg);
+}
 .box {
   position: relative;
   container-type: inline-size;
@@ -10,9 +54,22 @@
   margin: 0 auto;
   border: 1px solid var(--morse-input-border);
   border-radius: var(--morse-radius-lg);
-  background: var(--morse-input-bg);
+  /*
+   * Glass: the slab floats over the conversation, so it must not be an opaque
+   * block over the last lines. The blur is what keeps the text above it legible
+   * as a background rather than as a second column of text.
+   */
+  background: color-mix(in srgb, var(--morse-bg) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: 0 -6px 24px rgb(0 0 0 / 22%);
   padding: 8px;
   transition: border-color 120ms ease;
+}
+/* A host that cannot blur still gets a legible slab: the heavier wash stands in. */
+@supports not (backdrop-filter: blur(1px)) {
+  .box {
+    background: color-mix(in srgb, var(--morse-bg) 92%, transparent);
+  }
 }
 /*
  * Follow-ups waiting their turn, above the composer. They stay the reader's

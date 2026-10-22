@@ -87,6 +87,7 @@
     class="chat"
     [class.dropping]="dragging()"
     [class.bottom-full]="bottomPanelFull()"
+    [style.--morse-dock-height]="dockHeight() + 'px'"
     (dragenter)="onDragEnter($event)"
     (dragover)="onDragOver($event)"
     (dragleave)="onDragLeave()"
@@ -185,8 +186,7 @@
       <ng-container [ngComponentOutlet]="promptEditorComponent()" />
     } @else if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
-    } @else {
-      @if (lastError(); as error) {
+    } @else {      @if (lastError(); as error) {
         <section class="alert offline" role="status">
           <strong>Offline — the host wouldn't take this frontend</strong>
           <p>{{ error.message }}<br />{{ error.detail }}</p>
@@ -233,14 +233,23 @@
         <morse-empty-session [hasTabs]="hasSessionTabs()" (create)="newSession()" />
       } @else {
         <morse-chat-transcript />
-        <morse-interaction-panel />
-        <!-- The session's todo list, docked just above the composer: pi's TUI
-             shows a todo widget there, and RPC cannot carry it (the extension
-             registers a component factory, which RPC mode drops). Rebuilt from
-             the transcript's task-shaped tool results instead. Self-hiding: with
-             no open work left it renders nothing. -->
-        <morse-task-overlay />
-        <morse-chat-composer />
+        <!--
+             The composer floats over the conversation, not under it: as a solid
+             row it took a slab of the column's height, which on a narrow window is
+             the room the transcript needs. Everything that reads as part of the
+             composer — the session's tasks and pi's question — rides in the same
+             dock, so they belong to the slab instead of shrinking the transcript.
+        -->
+        <div class="dock" #dock>
+          <!-- The session's todo list, docked just above the composer: pi's TUI
+               shows a todo widget there, and RPC cannot carry it (the extension
+               registers a component factory, which RPC mode drops). Rebuilt from
+               the transcript's task-shaped tool results instead. Self-hiding: with
+               no open work left it renders nothing. -->
+          <morse-task-overlay />
+          <morse-interaction-panel />
+          <morse-chat-composer />
+        </div>
       }
     }
 
