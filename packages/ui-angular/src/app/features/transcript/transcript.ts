@@ -156,9 +156,12 @@ export class ChatTranscript {
     // transcript has content and the hero is gone.
     effect(() => {
       const empty = this.rows().length === 0;
+      // The hero is withheld while the history is still being fetched, so the
+      // splash must not aim at a logo that is not on screen.
+      const loading = this.loadingOlderHistory();
       this.afterRender(() => {
         const mark = this.heroMark()?.nativeElement;
-        if (!empty || !mark) {
+        if (!empty || loading || !mark) {
           this.handoff.aim(null);
           return;
         }

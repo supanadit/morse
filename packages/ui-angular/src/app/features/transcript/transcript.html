@@ -1,6 +1,17 @@
 <div #scroll class="transcript" (scroll)="onScroll($event)">
   <div #inner class="inner" [class.blank]="rows().length === 0">
-    @if (hasOlderHistory() || loadingOlderHistory()) {
+    @if (loadingOlderHistory() && rows().length === 0) {
+      <!--
+           The panel is empty because the host is still fetching this session's
+           history. The wait takes the hero's place instead of sitting above
+           it: the wordmark says "type away", and it must not claim the screen
+           while the conversation it belongs to is still on its way.
+      -->
+      <div class="seeding" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading the conversation…</span>
+      </div>
+    } @else if (hasOlderHistory() || loadingOlderHistory()) {
       <div class="older">
         @if (loadingOlderHistory()) {
           <span class="older-label">Loading older messages…</span>
@@ -180,32 +191,34 @@
         }
       }
     } @empty {
-      <div class="hero">
-        <div class="hero-stage">
-          <span class="hero-glow" aria-hidden="true"></span>
-          <span #heroMark class="hero-mark" aria-hidden="true">
-            <span class="hero-dot"></span>
-            <span class="hero-dot"></span>
-            <span class="hero-dash"></span>
-          </span>
-        </div>
+      @if (!loadingOlderHistory()) {
+        <div class="hero">
+          <div class="hero-stage">
+            <span class="hero-glow" aria-hidden="true"></span>
+            <span #heroMark class="hero-mark" aria-hidden="true">
+              <span class="hero-dot"></span>
+              <span class="hero-dot"></span>
+              <span class="hero-dash"></span>
+            </span>
+          </div>
 
-        <div class="hero-wordmark" aria-label="Morse">
-          @for (letter of heroLetters; track $index) {
-            <span class="hero-letter" aria-hidden="true">{{ letter }}</span>
-          }
-        </div>
-        <div class="hero-tagline">the pi coding agent</div>
+          <div class="hero-wordmark" aria-label="Morse">
+            @for (letter of heroLetters; track $index) {
+              <span class="hero-letter" aria-hidden="true">{{ letter }}</span>
+            }
+          </div>
+          <div class="hero-tagline">the pi coding agent</div>
 
-        <p class="hero-hint">
-          It runs the same pi coding agent you use in the terminal, with your models, tools, skills
-          and sessions.
-        </p>
-        <p class="hero-tips">
-          Try <em>“explain this repository”</em> or <em>“why is this failing?”</em>@if (canPinSelection()) {, or select
-          code and pin it with the <span class="hero-key">⧉</span> button under the chat}.
-        </p>
-      </div>
+          <p class="hero-hint">
+            It runs the same pi coding agent you use in the terminal, with your models, tools, skills
+            and sessions.
+          </p>
+          <p class="hero-tips">
+            Try <em>“explain this repository”</em> or <em>“why is this failing?”</em>@if (canPinSelection()) {, or select
+            code and pin it with the <span class="hero-key">⧉</span> button under the chat}.
+          </p>
+        </div>
+      }
     }
   </div>
 </div>

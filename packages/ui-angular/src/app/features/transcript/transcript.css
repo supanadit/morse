@@ -135,6 +135,38 @@
   justify-content: center;
   padding: 2px 0 8px;
 }
+/*
+ * The empty panel while the host fetches this session's history. It stands in
+ * for the hero — same place on screen, same quiet weight — so the wordmark
+ * does not claim the screen before the conversation has arrived.
+ */
+.seeding {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+}
+.seeding .spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--morse-border);
+  border-top-color: var(--morse-accent);
+  animation: seed-spin 0.8s linear infinite;
+}
+@keyframes seed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seeding .spinner {
+    animation: none;
+  }
+}
 .older-label {
   color: var(--morse-fg-muted);
   font-size: 11px;

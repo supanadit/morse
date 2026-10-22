@@ -81,6 +81,58 @@ describe('ChatTranscript history paging', () => {
 });
 
 /**
+ * A resumed session opens on its newest history page, so the panel is empty
+ * while the host fetches it. The hero must wait for that: it says "type away",
+ * and it must not claim the screen over a conversation that is still arriving.
+ */
+describe('ChatTranscript empty state while history is loading', () => {
+  const loading = signal(false);
+  const items = signal<TranscriptItem[]>([]);
+
+  beforeEach(async () => {
+    loading.set(false);
+    items.set([]);
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state: signal(viewState()),
+            items,
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: loading,
+            capabilities: signal(null),
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  it('shows the wait instead of the hero while the conversation is still loading', () => {
+    loading.set(true);
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('.seeding')?.textContent).toContain('Loading the conversation');
+    // The hero would sit on top of it and claim the agent is ready.
+    expect(host.querySelector('.hero')).toBeNull();
+  });
+
+  it('brings the hero back once the conversation has arrived', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('.hero')).toBeTruthy();
+    expect(host.querySelector('.seeding')).toBeNull();
+  });
+});
+
+/**
  * Editing a past prompt is a host capability: the button must only appear when
  * the host can fork, and sending must carry the transcript item id.
  */
