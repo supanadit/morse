@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import type { WorkspaceSearchLine, WorkspaceSearchResult } from '@morse/protocol';
 import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
@@ -15,6 +23,10 @@ const SEARCH_TIMEOUT_MS = 30_000;
  * panel's rule, shared so both columns of the shell clamp the same way.
  */
 const RESIZE_MIN_CHAT = 180;
+/** Matches a file shows before the reader asks for the rest of them. */
+const MAX_ROWS_PER_FILE = 3;
+/** Files shown before the answer hands over the rest of them. */
+const MAX_FILES_SHOWN = 50;
 
 /** One highlighted run of a row's text. */
 interface Segment {
@@ -34,7 +46,24 @@ interface FileView {
   dir: string;
   name: string;
   count: number;
+  /** The rows on screen — the file's first few, or all of them when it is expanded. */
   matches: MatchView[];
+  /** The rows the file holds but does not show. */
+  hidden: number;
+  /** Where the file's first visible row sits in the panel's flat row order. */
+  start: number;
+}
+
+/** One row of the answer, in the order the panel draws them. */
+interface MatchRow {
+  path: string;
+  match: MatchView;
+}
+
+/** The answer as it is drawn: the file groups and the flat row order over them. */
+interface SearchView {
+  files: FileView[];
+  rows: MatchRow[];
 }
 
 /**
@@ -55,6 +84,11 @@ interface Searched {
  * The host answers with ripgrep where it is installed and a built-in walk
  * otherwise; `engine: 'node'` puts the panel's "install ripgrep" notice up,
  * which is the whole reason the result carries its engine.
+ *
+ * The panel is built for a thousand answers, not for one: a long answer is
+ * summarised, a file shows its first few rows, and the keyboard walks the rows
+ * without the mouse. A dump of a thousand lines is not a result a reader can
+ * use.
  *
  * VS Code never renders this (`capabilities.searchPanel`): it has its own
  * Search view, the way it has its own Explorer and Source Control.
@@ -81,29 +115,64 @@ export class SearchPanel {
   protected readonly errorMessage = signal<string | undefined>(undefined);
   /** Files the reader folded by hand; everything starts expanded. */
   private readonly folded = signal<ReadonlySet<string>>(new Set());
+  /** Files whose every row is shown, not only the first few. */
+  private readonly expandedFiles = signal<ReadonlySet<string>>(new Set());
+  /** The reader asked for the files past the first page. */
+  private readonly showAllFiles = signal(false);
+  /** The row the keyboard is on; `-1` is the answer's "no row yet". */
+  private readonly marked = signal(-1);
+
+  private readonly results = viewChild<ElementRef<HTMLElement>>('results');
 
   private seq = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
-  protected readonly files = computed<FileView[]>(() => {
+  /**
+   * The answer as it is drawn. The rows are capped twice — a few per file, and
+   * a page of files — because a thousand lines is a wall, not an answer; the
+   * reader opens what they want.
+   */
+  protected readonly view = computed<SearchView>(() => {
     const found = this.answer();
     if (found === undefined) {
-      return [];
+      return { files: [], rows: [] };
     }
+    const folded = this.folded();
+    const expanded = this.expandedFiles();
+    const every = this.showAllFiles();
     const length = found.query.length;
-    return found.result.files.map((file) => {
+    const files: FileView[] = [];
+    const rows: MatchRow[] = [];
+    for (const file of found.result.files) {
+      if (!every && files.length >= MAX_FILES_SHOWN) {
+        break;
+      }
       const slash = file.path.lastIndexOf('/');
-      return {
+      const matches = file.lines.map((line) => ({
+        line: line.line,
+        segments: toSegments(line.text, line.columns, length),
+      }));
+      const isFolded = folded.has(file.path);
+      const shown = isFolded
+        ? []
+        : expanded.has(file.path)
+          ? matches
+          : matches.slice(0, MAX_ROWS_PER_FILE);
+      const start = rows.length;
+      for (const match of shown) {
+        rows.push({ path: file.path, match });
+      }
+      files.push({
         path: file.path,
         dir: slash === -1 ? '' : file.path.slice(0, slash),
         name: slash === -1 ? file.path : file.path.slice(slash + 1),
         count: file.count,
-        matches: file.lines.map((line) => ({
-          line: line.line,
-          segments: toSegments(line.text, line.columns, length),
-        })),
-      };
-    });
+        matches: shown,
+        hidden: matches.length - shown.length,
+        start,
+      });
+    }
+    return { files, rows };
   });
 
   /** The pane's badge: how many matches, `+` when a cap ended the search short. */
@@ -119,8 +188,47 @@ export class SearchPanel {
   /** The walk answered, not ripgrep: the notice that asks for ripgrep is up. */
   protected readonly fallback = computed(() => this.answer()?.result.engine === 'node');
   protected readonly isEmptyQuery = computed(() => this.query().trim().length === 0);
+  /** There is an answer to summarise. */
+  protected readonly hasAnswer = computed(() => this.answer() !== undefined);
+  /** The summary line: matches, files, and the engine that answered. */
+  protected readonly summary = computed(() => {
+    const found = this.answer();
+    if (found === undefined) {
+      return undefined;
+    }
+    const files = found.result.files.length;
+    return {
+      matches: `${found.result.total}${found.result.truncated ? '+' : ''} matches`,
+      files: `${files} ${files === 1 ? 'file' : 'files'}`,
+      engine: found.result.engine === 'ripgrep' ? 'ripgrep' : 'built-in walk',
+    };
+  });
+  /** The files past the first page, waiting for the reader to ask for them. */
+  protected readonly hiddenFiles = computed(() => {
+    const found = this.answer();
+    if (found === undefined) {
+      return 0;
+    }
+    return Math.max(0, found.result.files.length - this.view().files.length);
+  });
+  /** Every file shows all of its rows: the expand button is on. */
+  protected readonly allExpanded = computed(() => {
+    const files = this.view().files;
+    if (files.length === 0) {
+      return false;
+    }
+    const expanded = this.expandedFiles();
+    return files.every((file) => expanded.has(file.path));
+  });
 
   protected readonly paneActions = computed<readonly PaneAction[]>(() => [
+    { id: 'refresh', label: 'Search again', run: () => this.run() },
+    {
+      id: 'rows',
+      label: this.allExpanded() ? 'Show fewer rows' : 'Show every row',
+      active: this.allExpanded(),
+      run: () => this.toggleAllRows(),
+    },
     { id: 'close', label: 'Hide the search panel', run: () => this.layout.setVisible('right', false) },
   ]);
 
@@ -164,6 +272,15 @@ export class SearchPanel {
     this.run();
   }
 
+  /** Down from the query box lands in the results, where the arrows work. */
+  protected onQueryKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowDown') {
+      return;
+    }
+    event.preventDefault();
+    this.results()?.nativeElement.focus();
+  }
+
   protected isFolded(path: string): boolean {
     return this.folded().has(path);
   }
@@ -178,8 +295,95 @@ export class SearchPanel {
     });
   }
 
-  protected open(file: FileView, match: MatchView): void {
-    this.tabs.openFile(file.path, match.line);
+  /** A file's rest: the rows the cap kept back. */
+  protected expandFile(path: string): void {
+    this.expandedFiles.update((set) => new Set(set).add(path));
+  }
+
+  /** Every file shows every row, or none does. */
+  protected toggleAllRows(): void {
+    const files = this.view().files;
+    if (this.allExpanded()) {
+      this.expandedFiles.set(new Set());
+      return;
+    }
+    this.expandedFiles.set(new Set(files.map((file) => file.path)));
+  }
+
+  /** The rest of the files, past the first page. */
+  protected showAll(): void {
+    this.showAllFiles.set(true);
+  }
+
+  /** The row the keyboard is on, and the file it belongs to. */
+  protected isMarked(index: number): boolean {
+    return this.marked() === index;
+  }
+
+  /** The panel's keyboard: the arrows walk the rows, Enter opens one. */
+  protected onResultsKeydown(event: KeyboardEvent): void {
+    const rows = this.view().rows;
+    if (rows.length === 0) {
+      return;
+    }
+    const last = rows.length - 1;
+    let next = this.marked();
+    switch (event.key) {
+      case 'ArrowDown':
+        next = next < 0 ? 0 : Math.min(last, next + 1);
+        break;
+      case 'ArrowUp':
+        next = next <= 0 ? 0 : next - 1;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = last;
+        break;
+      case 'Enter': {
+        const row = rows[Math.min(next, last)];
+        if (row !== undefined) {
+          this.tabs.openFile(row.path, row.match.line);
+        }
+        event.preventDefault();
+        return;
+      }
+      default:
+        return;
+    }
+    event.preventDefault();
+    this.marked.set(next);
+    this.revealMarked();
+  }
+
+  /** A row was clicked: open it, and let the keyboard carry on from there. */
+  protected openAt(index: number): void {
+    const row = this.view().rows[index];
+    if (row === undefined) {
+      return;
+    }
+    this.marked.set(index);
+    this.tabs.openFile(row.path, row.match.line);
+  }
+
+  /**
+   * Nudges the marked row into view. The scroll is done by hand, because the
+   * browser's own `scrollIntoView` moves the page, not just the list.
+   */
+  private revealMarked(): void {
+    const container = this.results()?.nativeElement;
+    const row = container?.querySelector('.match.marked') as HTMLElement | null;
+    if (!container || !row) {
+      return;
+    }
+    const view = container.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    if (rect.top < view.top) {
+      container.scrollTop -= view.top - rect.top;
+    } else if (rect.bottom > view.bottom) {
+      container.scrollTop += rect.bottom - view.bottom;
+    }
   }
 
   private schedule(): void {
@@ -222,6 +426,7 @@ export class SearchPanel {
           this.errorMessage.set("The search failed — the host's log has the detail.");
           return;
         }
+        this.marked.set(-1);
         this.answer.set({ query, result });
       });
   }

@@ -213,4 +213,80 @@ describe('SearchPanel', () => {
     expect(badges).toHaveLength(2);
     expect(text(fixture)).not.toContain('99');
   });
+
+  it('summarises the answer: how much matched, in how many files', async () => {
+    const { fixture } = setup();
+    type(fixture, 'input.query', 'needle');
+    await settle(fixture);
+    expect(text(fixture)).toContain('3 matches');
+    expect(text(fixture)).toContain('2 files');
+    expect(text(fixture)).toContain('ripgrep');
+  });
+
+  it('keeps a long file to its first rows and says how many it kept back', async () => {
+    const many = answer({
+      total: 9,
+      files: [
+        {
+          path: 'src/long.ts',
+          count: 9,
+          lines: Array.from({ length: 9 }, (_, index) => ({
+            line: index + 1,
+            text: `const needle${index} = ${index};`,
+            columns: [7],
+          })),
+        },
+      ],
+    });
+    const { fixture } = setup(many);
+    type(fixture, 'input.query', 'needle');
+    await settle(fixture);
+    expect(fixture.nativeElement.querySelectorAll('.match')).toHaveLength(3);
+    expect(text(fixture)).toContain('6 more lines');
+    // The reader asks for the rest by name.
+    (fixture.nativeElement.querySelector('.more') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.match')).toHaveLength(9);
+  });
+
+  it('walks the rows with the keyboard and opens the marked one', async () => {
+    const { fixture, tabs } = setup();
+    type(fixture, 'input.query', 'needle');
+    await settle(fixture);
+    const results = fixture.nativeElement.querySelector('.results') as HTMLElement;
+    results.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    fixture.detectChanges();
+    results.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.match.marked')).toHaveLength(1);
+    results.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(tabs.openFile).toHaveBeenCalledWith('src/app.ts', 9);
+  });
+
+  it('shows every row of every file when the expand button is on', async () => {
+    const many = answer({
+      total: 9,
+      files: [
+        {
+          path: 'src/long.ts',
+          count: 9,
+          lines: Array.from({ length: 9 }, (_, index) => ({
+            line: index + 1,
+            text: `const needle${index} = ${index};`,
+            columns: [7],
+          })),
+        },
+      ],
+    });
+    const { fixture } = setup(many);
+    type(fixture, 'input.query', 'needle');
+    await settle(fixture);
+    expect(fixture.nativeElement.querySelectorAll('.match')).toHaveLength(3);
+    const expand = [...fixture.nativeElement.querySelectorAll('.pane-action')].find(
+      (node) => (node as HTMLElement).getAttribute('aria-label') === 'Show every row',
+    ) as HTMLElement;
+    expand.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.match')).toHaveLength(9);
+  });
 });

@@ -59,6 +59,17 @@
             <path d="M12.5 12.5 8 8" />
           }
         </svg>
+      } @else if (action.id === 'rows') {
+        <!-- Double chevron: "more rows below", not the diagonal "bigger panel" arrows. -->
+        <svg class="pane-glyph" viewBox="0 0 16 16" aria-hidden="true">
+          @if (action.active) {
+            <path d="M4 12.5 8 8.5 12 12.5" />
+            <path d="M4 8.5 8 4.5 12 8.5" />
+          } @else {
+            <path d="M4 3.5 8 7.5 12 3.5" />
+            <path d="M4 7.5 8 11.5 12 7.5" />
+          }
+        </svg>
       } @else {
         <span class="pane-glyph">{{ glyph(action) }}</span>
       }

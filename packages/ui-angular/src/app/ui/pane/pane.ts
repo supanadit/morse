@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 /** The buttons a title bar can carry. The pane draws them, so they look the same everywhere. */
-export type PaneActionId = 'add' | 'remove' | 'refresh' | 'expand' | 'close';
+export type PaneActionId = 'add' | 'remove' | 'refresh' | 'expand' | 'rows' | 'close';
 
 /** One button on a title bar, as data — the panel says what it does, never how it looks. */
 export interface PaneAction {
@@ -23,6 +23,7 @@ const DEFAULT_LABELS: Record<PaneActionId, string> = {
   remove: 'Remove',
   refresh: 'Refresh',
   expand: 'Expand',
+  rows: 'Show every row',
   close: 'Close',
 };
 

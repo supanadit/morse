@@ -22,6 +22,7 @@
           [value]="query()"
           (input)="onQuery($event)"
           (keydown.enter)="runNow()"
+          (keydown)="onQueryKeydown($event)"
         />
         <button
           type="button"
@@ -63,15 +64,28 @@
     @if (errorMessage(); as message) {
       <p class="hint error">{{ message }}</p>
     } @else {
+      @if (summary(); as facts) {
+        <!-- The answer's size, in one line: how much matched, in how many files. -->
+        <p class="summary">
+          <span class="facts">{{ facts.matches }} in {{ facts.files }}</span>
+          <span class="engine">{{ facts.engine }}</span>
+        </p>
+      }
       @if (truncated()) {
         <p class="hint">
           Showing the first {{ meta() }} matches — a longer query or an include pattern
           narrows it down.
         </p>
       }
-      @if (files().length > 0) {
-        <div class="results">
-          @for (file of files(); track file.path) {
+      @if (view().files.length > 0) {
+        <div
+          class="results"
+          #results
+          tabindex="0"
+          aria-label="Search results"
+          (keydown)="onResultsKeydown($event)"
+        >
+          @for (file of view().files; track file.path) {
             <div class="file">
               <button
                 type="button"
@@ -93,8 +107,9 @@
                   <button
                     type="button"
                     class="match"
+                    [class.marked]="isMarked(file.start + $index)"
                     [attr.title]="file.path + ':' + match.line"
-                    (click)="open(file, match)"
+                    (click)="openAt(file.start + $index)"
                   >
                     <span class="lineno">{{ match.line }}</span>
                     <span class="text">
@@ -104,8 +119,19 @@
                     </span>
                   </button>
                 }
+                @if (file.hidden > 0) {
+                  <!-- The cap kept rows back; the reader asks for them by name. -->
+                  <button type="button" class="more" (click)="expandFile(file.path)">
+                    {{ file.hidden }} more {{ file.hidden === 1 ? 'line' : 'lines' }}
+                  </button>
+                }
               }
             </div>
+          }
+          @if (hiddenFiles() > 0) {
+            <button type="button" class="more files" (click)="showAll()">
+              {{ hiddenFiles() }} more {{ hiddenFiles() === 1 ? 'file' : 'files' }}
+            </button>
           }
         </div>
       } @else if (searching()) {

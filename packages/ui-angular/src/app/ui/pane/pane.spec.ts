@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
-import { Pane } from './pane';
+import { Pane, type PaneAction } from './pane';
 
 @Component({
   selector: 'morse-pane-host',
@@ -14,6 +14,7 @@ import { Pane } from './pane';
       title="Explorer"
       [meta]="meta()"
       [folded]="folded()"
+      [actions]="actions()"
       (foldToggle)="toggles.update((count) => count + 1)"
     >
       <button paneActions type="button" class="act">⟳</button>
@@ -26,6 +27,7 @@ class Host {
   readonly meta = signal<string | undefined>('12');
   readonly folded = signal<boolean | undefined>(false);
   readonly toggles = signal(0);
+  readonly actions = signal<readonly PaneAction[]>([]);
 }
 
 function render(): { host: HTMLElement; fixture: ComponentFixture<Host> } {
@@ -78,6 +80,21 @@ describe('Pane', () => {
     for (const name of new Set(classes)) {
       expect(css, `pane.css does not style .${name}`).toContain(`.${name}`);
     }
+  });
+
+  /** The two glyphs used to be one: "more rows" drew the panel's "bigger panel" arrows. */
+  it('draws "every row" with its own glyph, not the panel-expand one', () => {
+    const { host, fixture } = render();
+    fixture.componentInstance.actions.set([
+      { id: 'rows', run: () => {}, active: false },
+      { id: 'expand', run: () => {}, active: false },
+    ]);
+    fixture.detectChanges();
+    const paths = [...host.querySelectorAll('.pane-action svg')].map((svg) =>
+      [...svg.querySelectorAll('path')].map((path) => path.getAttribute('d')).join('|'),
+    );
+    expect(paths).toHaveLength(2);
+    expect(paths[0]).not.toBe(paths[1]);
   });
 
   it('marks its title bar as the grip a docking drag takes hold of', () => {

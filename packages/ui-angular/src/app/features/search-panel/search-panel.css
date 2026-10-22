@@ -90,9 +90,19 @@
   overflow: auto;
   padding: 0 4px 8px;
 }
+/* The list takes the keyboard, so it takes the focus ring too. */
+.results:focus-visible {
+  outline: 1px solid var(--morse-focus);
+  outline-offset: -1px;
+}
 
 /* One file's group: header above its matching lines. */
 .file-head {
+  /* The header stays put while its file's rows scroll under it, so the reader
+     always knows which file they are in. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -100,7 +110,7 @@
   padding: 3px 6px;
   border: 0;
   border-radius: 6px;
-  background: none;
+  background: var(--morse-nav-bg, var(--morse-bg));
   color: var(--morse-fg);
   font: inherit;
   text-align: left;
@@ -172,15 +182,67 @@
 .match .text {
   flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* The match itself: an accent wash, readable in both themes. */
 .hit {
   border-radius: 2px;
-  background: color-mix(in srgb, var(--morse-accent) 32%, transparent);
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--morse-accent) 70%, transparent);
+  text-underline-offset: 1px;
+}
+
+/* The marked row: the one the keyboard is on. */
+.match.marked {
+  background: var(--morse-active);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+/* The answer's size, in one line: how much matched, in how many files. */
+.summary {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px 4px;
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+}
+.summary .facts {
+  color: var(--morse-fg);
+}
+.summary .engine {
+  margin-left: auto;
+  font-size: 10.5px;
+  opacity: 0.8;
+}
+
+/* The cap kept rows back; the button says how many. */
+.more {
+  display: block;
+  width: 100%;
+  padding: 1px 6px 1px 16px;
+  border: 0;
+  background: none;
+  color: var(--morse-link);
+  font-family: var(--morse-font-mono);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+.more:hover {
+  text-decoration: underline;
+}
+.more.files {
+  padding-left: 8px;
 }
 
 .hint {
+  flex: none;
   padding: 6px 10px;
   font-size: 11.5px;
   color: var(--morse-fg-muted);
