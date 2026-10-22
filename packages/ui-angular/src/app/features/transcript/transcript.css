@@ -19,11 +19,13 @@
   padding: 18px 16px calc(6px + var(--morse-dock-height, 0px));
   scrollbar-gutter: stable;
 }
-/* Sits outside the scroll container so it stays put while reading. */
+/* Sits outside the scroll container so it stays put while reading. Lifted clear of
+   the floating dock: on a narrow window the slab spans the full width and would
+   otherwise cover the pill. */
 .latest {
   position: absolute;
   right: 18px;
-  bottom: 10px;
+  bottom: calc(10px + var(--morse-dock-height, 0px));
   padding: 3px 12px;
   border: 1px solid var(--morse-border);
   border-radius: 999px;
