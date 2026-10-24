@@ -337,7 +337,12 @@ export class MemoryHostTransport extends BaseHostTransport {
         this.notify('warn', 'Mock host: closing sessions is a no-op.');
         return;
       case 'session/compact':
-        this.notify('success', 'Mock host: context compacted.');
+        this.notify(
+          'success',
+          message.payload.schedule === true
+            ? 'Mock host: compaction scheduled for the end of the run.'
+            : 'Mock host: context compacted.',
+        );
         return;
       case 'model/set': {
         const known = this.state.availableModels.find(

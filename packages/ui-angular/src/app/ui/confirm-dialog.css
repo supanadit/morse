@@ -31,6 +31,8 @@ h2 {
 }
 .actions {
   display: flex;
+  /* Three choices in a 420px card: wrap rather than run off the edge. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
   margin-top: 2px;

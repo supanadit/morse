@@ -253,10 +253,11 @@ export class MorseService {
   /**
    * Summarizes one conversation's context. `sessionKey` pins it to the session the
    * confirmation was asked over, so switching sessions while the dialog is up cannot
-   * redirect a compaction to the wrong conversation.
+   * redirect a compaction to the wrong conversation. `schedule` hands it to the host
+   * as "run this when the conversation settles" instead of cutting the run short.
    */
-  compactSession(instructions?: string, sessionKey?: string): void {
-    this.actions.compactSession(instructions, sessionKey);
+  compactSession(instructions?: string, sessionKey?: string, schedule?: boolean): void {
+    this.actions.compactSession(instructions, sessionKey, schedule);
   }
 
   /** Asks the host for the previous page of history (scroll reached the top). */

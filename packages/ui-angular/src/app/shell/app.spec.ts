@@ -354,6 +354,53 @@ describe('App · compaction asks first', () => {
     });
   });
 
+  it('keeps the question a plain yes/no while the conversation is quiet', async () => {
+    const { host, fixture } = await renderApp();
+
+    (host.querySelector(
+      'morse-toolbar button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // Nothing is running, so there is nothing to wait for: one honest way to say
+    // yes, not two.
+    const labels = [...host.querySelectorAll('morse-confirm-dialog .actions button')].map(
+      (button) => button.textContent?.trim(),
+    );
+    expect(labels).toEqual(['Cancel', 'Compact context']);
+  });
+
+  it('offers Schedule Compact while a run is in flight, and hands the host a schedule', async () => {
+    const { host, fixture, sent } = await renderApp();
+
+    // The run the reader does not want aborted — the follow-ups queued behind it
+    // are exactly what a compaction now would take with it.
+    const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = 'go on';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    (host.querySelector(
+      'morse-toolbar button[aria-label="Compact the conversation"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const schedule = [...host.querySelectorAll('morse-confirm-dialog .actions button')].find(
+      (button) => button.textContent?.trim() === 'Schedule Compact',
+    ) as HTMLButtonElement;
+    schedule.click();
+    fixture.detectChanges();
+
+    // One message goes out, and it is the schedule rather than the compaction:
+    // the run keeps going and the host fires the compact at the settle.
+    const scheduled = compactions(sent);
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]).toMatchObject({ payload: { schedule: true } });
+    expect(host.querySelector('morse-confirm-dialog')).toBeNull();
+  });
+
   it('cancels quietly: Escape sends nothing and closes the question', async () => {
     const { host, fixture, sent } = await renderApp();
 

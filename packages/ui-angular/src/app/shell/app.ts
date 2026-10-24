@@ -320,6 +320,22 @@ export class App {
       ? `${base} Your instructions: “${instructions}”.`
       : base;
   });
+  /**
+   * "Schedule Compact" is only a real choice while the conversation is working:
+   * pi compacts by aborting the run in flight, so a session that is already quiet
+   * has nothing to wait for and the ordinary yes is the honest button. Empty label
+   * hides the choice (the dialog renders it only when it has one).
+   *
+   * The conversation pinned when the question opened is the one that answers — a
+   * tab switched while the dialog was up must not borrow another session's run.
+   * With no pin (the shared panel) the conversation in front answers.
+   */
+  protected readonly compactScheduleLabel = computed(() => {
+    const key = this.shell.compactSessionKey();
+    const activity = key === undefined ? undefined : this.morse.sessionActivity().get(key);
+    const working = activity ? activity.streaming : this.morse.state().streaming;
+    return working ? 'Schedule Compact' : '';
+  });
   protected readonly connection = this.morse.connection;  protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
   protected readonly agentError = this.morse.agentError;
@@ -767,6 +783,19 @@ export class App {
 
   protected cancelCompact(): void {
     this.shell.closeCompactPrompt();
+  }
+
+  /**
+   * The reader keeps the run (and the follow-ups queued behind it): the dialog
+   * steps aside, and the host arms the compaction to fire when this conversation
+   * settles. The same pin as `confirmCompact`, for the same reason — the question
+   * is about one conversation, whatever tab is in front by the time it is answered.
+   */
+  protected scheduleCompact(): void {
+    const instructions = this.shell.compactInstructions();
+    const sessionKey = this.shell.compactSessionKey();
+    this.shell.closeCompactPrompt();
+    this.morse.compactSession(instructions, sessionKey, true);
   }
 
   /**

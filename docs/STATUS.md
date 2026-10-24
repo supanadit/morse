@@ -19,7 +19,10 @@ Morse **v0.24.0**. This page is the honest inventory of what ships. Everything e
 - `steer`, follow-up and abort. Steering lands in the running turn; a prompt sent mid-run with no mode is
   **queued** as a follow-up rather than refused, and shown above the composer (`Queued messages`: edit, send
   now, remove) until it runs as the current turn settles.
-- Compaction behind an explicit confirmation, optionally with custom instructions (`session/compact`).
+- Compaction behind an explicit confirmation, optionally with custom instructions (`session/compact`). While
+  a run is in flight the same question also offers **Schedule Compact**: pi compacts by aborting whatever is
+  running, so the compaction is armed instead and fires the moment that conversation settles — queued
+  follow-ups included (`session/compact` with `schedule`).
 - pi's interaction requests: native QuickPick/InputBox in VS Code, rendered inline in the browser.
 - Failures surface as notices (`error` message) instead of a dead panel.
 

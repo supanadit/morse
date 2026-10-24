@@ -17,6 +17,10 @@
     <button type="button" class="secondary" #cancel (click)="cancelled.emit()">
       {{ cancelLabel() }}
     </button>
+    @if (altLabel(); as label) {
+      <!-- A second yes, so it reads as a choice rather than the primary. -->
+      <button type="button" class="secondary" (click)="altConfirmed.emit()">{{ label }}</button>
+    }
     <button type="button" (click)="confirmed.emit()">{{ confirmLabel() }}</button>
   </div>
 </morse-dialog>

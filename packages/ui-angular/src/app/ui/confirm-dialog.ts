@@ -38,8 +38,15 @@ export class ConfirmDialog {
   readonly note = input('');
   readonly confirmLabel = input('Confirm');
   readonly cancelLabel = input('Cancel');
+  /**
+   * An optional third choice: a *different* way to say yes, not a way out. Empty
+   * hides it, so the dialog stays a plain yes/no unless the caller offers one —
+   * the compact question's "Schedule Compact", the same compaction run later.
+   */
+  readonly altLabel = input('');
 
   readonly confirmed = output<void>();
+  readonly altConfirmed = output<void>();
   readonly cancelled = output<void>();
 
   private readonly cancelButton = viewChild<ElementRef<HTMLButtonElement>>('cancel');

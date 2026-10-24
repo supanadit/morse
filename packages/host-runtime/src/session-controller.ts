@@ -140,6 +140,7 @@ export class HostSessionController {
   private summaries = new Map<string, SessionSummary>();
   private detachRegistry: (() => void) | undefined;
   private detachTranscripts: (() => void) | undefined;
+  private detachRemovals: (() => void) | undefined;
   private detachMcpWatch: (() => void) | undefined;
   private activeKey: string | undefined;
   /** True while the panel shows the intentional no-session draft state. */
@@ -172,6 +173,14 @@ export class HostSessionController {
   private switchBusy = false;
   /** Keys of the sessions a compaction is running for (`session/compact`). */
   private readonly compacting = new Set<string>();
+  /**
+   * Compactions the reader scheduled while their conversation was still working
+   * (`session/compact` with `schedule`): session key -> the instructions it was
+   * asked with. pi compacts by aborting the run in flight, so these wait for that
+   * session's settle — `agent/run-end`, which only fires once the queued
+   * follow-ups have drained too.
+   */
+  private readonly scheduledCompacts = new Map<string, string | undefined>();
   /**
    * The session a switch is heading for, set the moment `session/activate`
    * arrives and cleared once `adopt` has landed. Every state emitted in between
@@ -256,6 +265,12 @@ export class HostSessionController {
         this.options.emit(update.message);
       }
     });
+    // A scheduled compaction belongs to a live session: when one leaves the hot
+    // set (a close, a delete, the LRU) its schedule goes with it, so a session
+    // reopened later cannot inherit a compact nobody is waiting for anymore.
+    this.detachRemovals = this.options.services.registry.onRemoval((key) => {
+      this.scheduledCompacts.delete(key);
+    });
     // A host watch over pi's `mcp.json` files: a config edited in a terminal (or
     // by another window) reaches this client without it having to poll the
     // expensive `pi mcp list` itself.
@@ -331,6 +346,8 @@ export class HostSessionController {
     this.detachRegistry = undefined;
     this.detachTranscripts?.();
     this.detachTranscripts = undefined;
+    this.detachRemovals?.();
+    this.detachRemovals = undefined;
     this.detachMcpWatch?.();
     this.detachMcpWatch = undefined;
     if (this.options.ownsRegistry === true) {
@@ -423,14 +440,6 @@ export class HostSessionController {
         await this.deleteSession(message.payload.sessionId);
         return;
       case 'session/compact': {
-        // Compaction is part of the process, not a side note: like a run, it
-        // lights the composer's Working indicator (spinner, elapsed chip, Stop
-        // button) for the conversation it runs in. Tracked per session — the
-        // flag this used to share with a session switch is why switching tabs
-        // mid-compaction cleared the indicator and left the run invisible.
-        // Reset in `finally` — a failed compaction must hand the composer back,
-        // not wedge it on "Working".
-        //
         // The key the frontend sends pins the compaction to the conversation its
         // dialog was opened over. Without it (older frontends, the shared panel)
         // the session in front is the target, which is the only sensible default;
@@ -440,23 +449,27 @@ export class HostSessionController {
           message.payload.sessionKey ??
           this.promptTarget() ??
           this.options.services.registry.activeKeyOf();
-        if (targetKey !== undefined) {
-          this.compacting.add(targetKey);
-        }
-        this.emitState();
-        try {
-          await this.guard(() =>
-            this.options.services.chat.compact(
-              message.payload.instructions,
-              message.payload.sessionKey ?? this.promptTarget(),
+        // "Schedule Compact": pi compacts by aborting whatever is running, so a
+        // reader with a run (and queued follow-ups) in flight wants this at the
+        // settle instead. A run that already ended while the question was up
+        // would never fire it again — there is nothing left to wait for — so
+        // that case falls through and compacts now.
+        if (
+          message.payload.schedule === true &&
+          targetKey !== undefined &&
+          this.options.services.registry.stateOf(targetKey)?.streaming === true
+        ) {
+          this.scheduledCompacts.set(targetKey, message.payload.instructions);
+          this.options.emit(
+            noticeMessage(
+              'info',
+              'Compaction scheduled — it runs when this conversation finishes.',
+              Date.now(),
             ),
           );
-        } finally {
-          if (targetKey !== undefined) {
-            this.compacting.delete(targetKey);
-          }
-          this.emitState();
+          return;
         }
+        await this.runCompact(message.payload.instructions, message.payload.sessionKey);
         return;
       }
       case 'history/load':
@@ -1423,6 +1436,13 @@ export class HostSessionController {
   }
 
   private async onTaggedEvent(sessionKey: string, event: AgentEvent): Promise<void> {
+    // A scheduled compaction waits for exactly this moment — the run and its
+    // queued follow-ups settling — so it is checked before the split below: a
+    // background conversation schedules (and settles) the same way as one in
+    // front. It never blocks this dispatch: a compaction is a model call.
+    if (event.type === 'agent/run-end' && this.scheduledCompacts.has(sessionKey)) {
+      void this.runScheduledCompact(sessionKey);
+    }
     // A dialog can arrive in any live session, not only the one in front. It is
     // tracked per session either way; only the active session's owns this
     // client's single dialog slot (see `syncInteraction`).
@@ -1476,6 +1496,58 @@ export class HostSessionController {
       default:
         this.options.transcripts.apply(sessionKey, event);
     }
+  }
+
+  /**
+   * One compaction, wherever the ask came from: the dialog's yes, or a schedule
+   * firing at the settle.
+   *
+   * Compaction is part of the process, not a side note: like a run, it lights the
+   * composer's Working indicator (spinner, elapsed chip, Stop button) for the
+   * conversation it runs in. Tracked per session — the flag this used to share
+   * with a session switch is why switching tabs mid-compaction cleared the
+   * indicator and left the run invisible. Reset in `finally` — a failed
+   * compaction must hand the composer back, not wedge it on "Working".
+   *
+   * `requestedKey` is the conversation the ask was pinned to; without it the
+   * session in front is the target.
+   */
+  private async runCompact(instructions?: string, requestedKey?: string): Promise<void> {
+    const targetKey =
+      requestedKey ?? this.promptTarget() ?? this.options.services.registry.activeKeyOf();
+    if (targetKey !== undefined) {
+      this.compacting.add(targetKey);
+    }
+    this.emitState();
+    try {
+      await this.guard(() =>
+        this.options.services.chat.compact(instructions, requestedKey ?? this.promptTarget()),
+      );
+    } finally {
+      if (targetKey !== undefined) {
+        this.compacting.delete(targetKey);
+      }
+      this.emitState();
+    }
+  }
+
+  /**
+   * Runs a compaction the reader scheduled while this conversation was working.
+   *
+   * pi compacts by aborting, so a prompt landing between the settle and this call
+   * would be cut short: a session that is streaming again keeps its schedule for
+   * the next settle rather than losing it — or the run it would have aborted.
+   */
+  private async runScheduledCompact(sessionKey: string): Promise<void> {
+    if (!this.scheduledCompacts.has(sessionKey)) {
+      return;
+    }
+    if (this.options.services.registry.stateOf(sessionKey)?.streaming === true) {
+      return;
+    }
+    const instructions = this.scheduledCompacts.get(sessionKey);
+    this.scheduledCompacts.delete(sessionKey);
+    await this.runCompact(instructions, sessionKey);
   }
 
   private async handleInteraction(

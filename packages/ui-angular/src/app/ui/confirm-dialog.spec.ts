@@ -65,6 +65,33 @@ describe('ConfirmDialog', () => {
     expect(cancelled).not.toHaveBeenCalled();
   });
 
+  it('offers the second yes only when the caller gives it a label, and never focuses it', async () => {
+    const { host, fixture } = render();
+    const altConfirmed = vi.fn();
+    fixture.componentInstance.altConfirmed.subscribe(altConfirmed);
+    const labels = () =>
+      [...host.querySelectorAll('.actions button')].map((button) => button.textContent?.trim());
+
+    // No label, no third button: the question stays a plain yes/no.
+    expect(labels()).toEqual(['Cancel', 'Compact context']);
+
+    fixture.componentRef.setInput('altLabel', 'Schedule Compact');
+    fixture.detectChanges();
+
+    // Between the safe choice and the primary one, and styled as a choice rather
+    // than as the way out — so the focused button is still Cancel.
+    expect(labels()).toEqual(['Cancel', 'Schedule Compact', 'Compact context']);
+    await nextTick();
+    expect(document.activeElement?.textContent?.trim()).toBe('Cancel');
+
+    const schedule = [...host.querySelectorAll('.actions button')].find(
+      (button) => button.textContent?.trim() === 'Schedule Compact',
+    ) as HTMLButtonElement;
+    schedule.click();
+
+    expect(altConfirmed).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels on Escape and on the backdrop, but not when the card is clicked', () => {
     const { host, fixture } = render();
     const cancelled = vi.fn();

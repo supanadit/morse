@@ -280,9 +280,14 @@ export type ClientToHostMessage =
   /**
    * Summarizes one session's context. `sessionKey` pins it to the conversation
    * the question was asked about; omitted, it means "whatever is in front", the
-   * shared panel's behaviour.
+   * shared panel's behaviour. `schedule` asks the host to wait instead: pi
+   * compacts by aborting the run in flight, so a conversation still working
+   * (with queued follow-ups) gets its compaction when that run settles.
    */
-  | { type: 'session/compact'; payload: { instructions?: string; sessionKey?: string } }
+  | {
+      type: 'session/compact';
+      payload: { instructions?: string; sessionKey?: string; schedule?: boolean };
+    }
   | { type: 'history/load'; payload: Record<string, never> }
   | {
       type: 'session/list';

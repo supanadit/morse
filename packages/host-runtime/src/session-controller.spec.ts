@@ -576,6 +576,182 @@ describe('HostSessionController compaction', () => {
   });
 });
 
+/**
+ * pi compacts by aborting the run in flight, so a reader with a run — and the
+ * follow-ups queued behind it — wants the compaction at the settle instead. These
+ * tests drive a gateway that reports streaming on demand and can settle its run,
+ * which are the two moments a schedule turns on and fires.
+ */
+describe('HostSessionController scheduled compaction', () => {
+  interface ScheduledHost {
+    host: HostSessionController;
+    messages: HostToClientMessage[];
+    /** The instructions each compaction was called with, in order. */
+    compacted: (string | undefined)[];
+    /** What pi reports: the agent is (or is not) producing a response. */
+    streaming(value: boolean): void;
+    /** The run settling: the event pi sends once the queues have drained. */
+    settle(): void;
+  }
+
+  async function scheduledHost(): Promise<ScheduledHost> {
+    const messages: HostToClientMessage[] = [];
+    const compacted: (string | undefined)[] = [];
+    const listeners: AgentEventListener[] = [];
+    const agentState: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: true,
+      sessionId: 'sess-1',
+    };
+    const emit = (event: AgentEvent): void => {
+      for (const listener of [...listeners]) {
+        listener(event);
+      }
+    };
+    const gateway: AgentGateway = {
+      subscribe(listener) {
+        listeners.push(listener);
+        return () => {
+          const index = listeners.indexOf(listener);
+          if (index >= 0) {
+            listeners.splice(index, 1);
+          }
+        };
+      },
+      state: () => Promise.resolve({ ...agentState }),
+      history: () => Promise.resolve({ entries: [], hasOlder: false }),
+      prompt: () => Promise.resolve<PromptDisposition>('started'),
+      forkMessages: () => Promise.resolve([]),
+      fork: () => Promise.resolve({ text: '', cancelled: true }),
+      abort: () => Promise.resolve(),
+      setModel: () => Promise.resolve(),
+      setThinkingLevel: () => Promise.resolve(),
+      compact: (instructions) => {
+        compacted.push(instructions);
+        return Promise.resolve();
+      },
+      respondToInteraction: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    };
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(gateway) },
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const host = connect(registry, chat, new SessionTranscriptStore(), messages);
+    await host.start();
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    return {
+      host,
+      messages,
+      compacted,
+      streaming: (value) => {
+        agentState.streaming = value;
+        // A real gateway reports its state before it reports the settle; the
+        // registry's cached state is what the schedule reads.
+        emit({ type: 'agent/state', at: Date.now(), state: { ...agentState } });
+      },
+      settle: () => emit({ type: 'agent/run-end', at: Date.now(), reason: 'settled' }),
+    };
+  }
+
+  /** The scheduled compaction runs off the dispatch, so let its microtasks land. */
+  const flushed = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('arms instead of compacting while the run is in flight, then compacts at the settle', async () => {
+    const h = await scheduledHost();
+    h.messages.length = 0;
+
+    await h.host.handleClientMessage({
+      type: 'session/compact',
+      payload: { schedule: true, sessionKey: 'sess-1', instructions: 'keep the schema' },
+    });
+
+    // Nothing was asked of pi: the run (and the follow-ups behind it) is still
+    // going, and aborting it is exactly what the schedule exists to avoid.
+    expect(h.compacted).toEqual([]);
+    const notices = h.messages.filter(
+      (message): message is Extract<HostToClientMessage, { type: 'notice' }> =>
+        message.type === 'notice',
+    );
+    expect(notices.at(-1)?.payload.text).toContain('scheduled');
+
+    h.streaming(false);
+    h.settle();
+    await flushed();
+
+    // The conversation is quiet, and it carried the instructions it was asked with.
+    expect(h.compacted).toEqual(['keep the schema']);
+  });
+
+  it('compacts at once when the conversation had already gone quiet', async () => {
+    const h = await scheduledHost();
+    h.streaming(false);
+
+    await h.host.handleClientMessage({
+      type: 'session/compact',
+      payload: { schedule: true, sessionKey: 'sess-1' },
+    });
+    await flushed();
+
+    // The run ended while the question was up: no settle is coming, so a schedule
+    // would wait forever. It falls back to the compaction the reader asked for.
+    expect(h.compacted).toEqual([undefined]);
+  });
+
+  it('waits for the next settle while the host still sees the session working', async () => {
+    const h = await scheduledHost();
+
+    await h.host.handleClientMessage({
+      type: 'session/compact',
+      payload: { schedule: true, sessionKey: 'sess-1' },
+    });
+
+    // A run-end that arrives while the state still says "working" is not this
+    // conversation's rest; compacting then would abort whatever is running.
+    h.settle();
+    await flushed();
+    expect(h.compacted).toEqual([]);
+
+    h.streaming(false);
+    h.settle();
+    await flushed();
+    expect(h.compacted).toEqual([undefined]);
+  });
+
+  it('drops the schedule when the session closes — a reopened one inherits nothing', async () => {
+    const h = await scheduledHost();
+
+    await h.host.handleClientMessage({
+      type: 'session/compact',
+      payload: { schedule: true, sessionKey: 'sess-1' },
+    });
+    await h.host.handleClientMessage({
+      type: 'session/close',
+      payload: { sessionId: 'sess-1' },
+    });
+    await h.host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+
+    h.streaming(false);
+    h.settle();
+    await flushed();
+
+    expect(h.compacted).toEqual([]);
+  });
+});
+
 describe('HostSessionController seeding', () => {
   it('a cold resume seeds the full history — the compaction boundary is a marker row, not a shrink', async () => {
     const h = harness({

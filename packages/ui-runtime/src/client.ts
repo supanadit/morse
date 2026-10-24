@@ -60,9 +60,11 @@ export interface MorseActions {
    * Summarizes the context of one session. `sessionKey` pins it to the conversation
    * the ask belonged to, so a dialog opened over session A cannot compact whichever
    * session happens to be in front when the user says yes; omitted, it targets the
-   * session in front, the shared panel's behaviour.
+   * session in front, the shared panel's behaviour. `schedule` keeps the run in
+   * flight: the host arms the compaction and runs it when that conversation
+   * settles, instead of aborting the run now.
    */
-  compactSession(instructions?: string, sessionKey?: string): void;
+  compactSession(instructions?: string, sessionKey?: string, schedule?: boolean): void;
   /** Fetches the previous page of a resumed session's history. */
   loadOlderHistory(): void;
   requestSessions(): void;
@@ -285,8 +287,11 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       send({ type: 'session/activate', payload: { sessionId, cwd } }),
     closeSession: (sessionId) => send({ type: 'session/close', payload: { sessionId } }),
     deleteSession: (sessionId) => send({ type: 'session/delete', payload: { sessionId } }),
-    compactSession: (instructions, sessionKey) =>
-      send({ type: 'session/compact', payload: { instructions, sessionKey } }),
+    compactSession: (instructions, sessionKey, schedule) =>
+      send({
+        type: 'session/compact',
+        payload: { instructions, sessionKey, ...(schedule === true ? { schedule } : {}) },
+      }),
     loadOlderHistory: () => send({ type: 'history/load', payload: {} }),
     requestSessions: () => send({ type: 'session/list', payload: {} }),
     requestSessionPage: (cwd) => send({ type: 'session/list', payload: { cwd } }),
