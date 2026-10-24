@@ -1,152 +1,28 @@
 import type {
   AgentEvent,
-  AgentForkMessage,
-  AgentHistoryEntry,
-  AgentInteractionResponse,
   AgentSessionState,
-  ChatPin,
   ModelRef,
   ProjectSummary,
-  PromptImage,
   SessionSummary,
-  ThinkingLevel,
   WorkspaceRef,
 } from '../domain.js';
 import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
-
-/** Re-exported so the chat use case (and older imports) keep their import path. */
-export type { PromptImage };
-
-export type PromptMode = 'new' | 'steer' | 'followUp';
-
-export type PromptDisposition = 'started' | 'queued' | 'handled';
-
-export type AgentEventListener = (event: AgentEvent) => void;
+import type {
+  AgentGateway,
+  AgentGatewayFactory,
+  SessionCatalog,
+  SessionPage,
+} from './ports.js';
 
 /**
- * Driven port (R2): the coding agent Morse drives, one instance per session.
- * Declared in the module that owns the gateway lifetime, implemented by
- * `@morse/adapter-pi-rpc` (subprocess) — or an SDK adapter later.
+ * Session use case: owns every live agent gateway, keeps the most recent ones hot
+ * (LRU), fans their events out tagged with the session key, and reads the session
+ * catalog for the sidebar.
+ *
+ * The ports it consumes are in `ports.ts`; the record it writes is in `record.ts`
+ * and `reconcile.ts`. Only the use case lives here.
  */
-export interface AgentGateway {
-  subscribe(listener: AgentEventListener): () => void;
-  state(): Promise<AgentSessionState>;
-  /**
-   * Finished exchanges of a resumed session (empty for a new one), newest page
-   * first. Page from the end so a large session opens without loading it all.
-   */
-  history(options?: { limit?: number; before?: string }): Promise<AgentHistoryPage>;
-  prompt(
-    text: string,
-    mode: PromptMode,
-    images?: PromptImage[],
-    pins?: ChatPin[],
-  ): Promise<PromptDisposition>;
-  /**
-   * Past user messages the agent can fork from, in conversation order. A
-   * frontend uses this to turn "edit my old prompt" into a fork of that entry.
-   */
-  forkMessages(): Promise<AgentForkMessage[]>;
-  /**
-   * Re-parents the conversation before `entryId`, discarding that message and
-   * everything after it, and returns the message text that was dropped. The
-   * agent keeps running, but its session id changes: a fork is a new session.
-   */
-  fork(entryId: string): Promise<{ text: string; cancelled: boolean }>;
-  abort(): Promise<void>;
-  /**
-   * Re-reads the commands the agent exposes — prompt templates especially, which
-   * pi caches at spawn. Optional: an adapter that cannot re-read resources simply
-   * omits it and the palette keeps what the last `state()` reported.
-   */
-  refreshCommands?(): Promise<void>;
-  /**
-   * Optional: re-reads the model catalog for this session. The model picker
-   * calls it when it opens, so a model added to `models.json` while the host
-   * runs shows up without restarting the host or the session. Adapters that
-   * cannot re-read the catalog simply omit it.
-   */
-  refreshModels?(): Promise<void>;
-  setModel(model: ModelRef): Promise<void>;
-  setThinkingLevel(level: ThinkingLevel): Promise<void>;
-  compact(customInstructions?: string): Promise<void>;
-  respondToInteraction(response: AgentInteractionResponse): Promise<void>;
-  dispose(): Promise<void>;
-}
-
-/** Driven port (R2): creates a gateway for a workspace / persisted session. */
-export interface AgentGatewayFactory {
-  create(options: { workspace: WorkspaceRef; sessionId?: string }): Promise<AgentGateway>;
-  /**
-   * Optional: a gateway that never records — pi spawned with `--no-session` —
-   * used only to read what the backend offers before any session exists (model
-   * catalog, thinking levels, commands). Adapters without a session-less mode
-   * omit it, and the draft state simply ships without a catalog. `model` asks
-   * the probe for the levels of a specific model, so the draft picker can follow
-   * a model the user selected before the session exists.
-   */
-  probeDefaults?(options: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway>;
-}
-
-/**
- * How many sessions of one project a catalog returns in a first list. The
- * sidebar shows this page and offers "Load more" for the rest, so a catalog with
- * hundreds of sessions in one project does not make the first paint read all of
- * them. Chosen to keep the cold scan cheap (a real catalog measured ~0.4 s for
- * every project's top 20) while still filling a screen without a click.
- */
-export const DEFAULT_SESSIONS_PER_PROJECT = 10;
-/**
- * How many sessions the palette's server-side search returns at most. Enough to
- * fill the palette's Sessions section generously; the reader narrows the query
- * rather than scrolling a thousand matches.
- */
-export const DEFAULT_SESSION_SEARCH_LIMIT = 50;
-
-/** One project's sessions, newest first, plus whether the catalog holds more. */
-export interface SessionPage {
-  sessions: SessionSummary[];
-  /** True when sessions past this page exist for the same `cwd`. */
-  hasMore: boolean;
-}
-
-/** Driven port (R2): reads persisted sessions. */
-export interface SessionCatalog {
-  /**
-   * Every project's sessions, newest first, each project capped to a first page
-   * so a huge catalog does not have to be read whole. The cap is the catalog's
-   * own; `listPage` fetches the rest of one project on demand.
-   */
-  list(): Promise<SessionSummary[]>;
-  /**
-   * More of one project's sessions, newest first, starting at `offset`.
-   * Optional: a catalog that can only answer `list()` in full omits it, and the
-   * sidebar simply has nothing more to load for that project.
-   */
-  listPage?(options: { cwd: string; offset?: number; limit?: number }): Promise<SessionPage>;
-  /**
-   * Sessions whose title or project path contains `query`, newest first, capped
-   * to `limit`. The palette asks the host this while the reader types, so the
-   * frontend never has to hold the whole catalog to search it. Optional: a
-   * catalog that cannot search omits it and the palette falls back to the pages
-   * it already holds.
-   */
-  search?(query: string, limit?: number): Promise<SessionSummary[]>;  /**
-   * True number of stored sessions per project path. Optional: `list()` caps each
-   * project to a page, so a caller that needs the real total (the sidebar's
-   * "Load more" and the project counts) asks here. A catalog that cannot answer
-   * cheaply omits it and callers fall back to counting the sessions they hold.
-   */
-  countByProject?(): Promise<Map<string, number>>;
-  /**
-   * Deletes a persisted session. Optional on purpose: a catalog whose storage
-   * Morse must not touch simply omits it, and the use case reports that
-   * instead of pretending the session is gone. How a session is stored — and
-   * therefore what deleting it means — belongs to the implementation.
-   */
-  remove?(id: string): Promise<void>;
-}
 
 /** An event from any hot session, tagged with the session it came from. */
 export interface TaggedAgentEvent {
@@ -159,15 +35,6 @@ export interface OpenedSession {
   state: AgentSessionState;
   /** True when an already-running session was reused (no new `pi` process). */
   reused: boolean;
-}
-
-/** One page of a resumed session's finished exchanges. */
-export interface AgentHistoryPage {
-  entries: AgentHistoryEntry[];
-  /** True when entries exist before this page. */
-  hasOlder: boolean;
-  /** Opaque cursor to pass as `before` for the next older page. */
-  before?: string;
 }
 
 /** Result of forking the active session before a past user message. */

@@ -159,6 +159,11 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 
 ## Not built yet
 
+- **A session Morse owns** — in progress. Session identity, title and the session index are still pi's:
+  `sessionKey` is pi's session file path, and the sidebar reads `~/.pi/agent/sessions`. The foundation for
+  Morse-owned records has landed in `@morse/core` (`MorseSessionRecord`, `SessionStore`, `SessionEngine`,
+  `abstract class Session`) but nothing keys on it yet. See
+  [`NOTES-AGENT-AGNOSTIC.md`](NOTES-AGENT-AGNOSTIC.md) for what is left and why.
 - **Session rename** — sessions are named by pi and only by pi; Morse has no rename path on the wire.
 - **Editing files in the browser** — the preview is read-only on purpose. VS Code is the host with an editor;
   the browser host reads, quotes and diffs, but does not write.

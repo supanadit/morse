@@ -28,6 +28,14 @@ import { Uploader } from '../../services/uploads';
 import { WorkspaceFiles } from '../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
+
+/** What `getEditorContext` answers: the editor in front, as the composer pins it. */
+interface EditorSnapshot {
+  path?: string;
+  languageId?: string;
+  selection?: { startLine: number; endLine: number; text: string };
+  openEditors: string[];
+}
 import { pinNoteHint } from '@morse/ui-runtime';
 import { PopoverFit } from '../../ui/popover-fit.directive';
 import { EnterDirective } from '../../ui/enter.directive';
@@ -1298,13 +1306,7 @@ export class ChatComposer {
   /** Reads the editor snapshot; `undefined` when the host cannot report it. */
   private async requestSelectionSnapshot() {
     return this.morse.requestHostCommand('getEditorContext') as Promise<
-      | {
-          path?: string;
-          languageId?: string;
-          selection?: { startLine: number; endLine: number; text: string };
-          openEditors: string[];
-        }
-      | undefined
+      EditorSnapshot | undefined
     >;
   }
 

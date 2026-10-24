@@ -12,16 +12,62 @@ import type {
  * Interleaving these in a single timeline is what makes a long turn readable —
  * you see the reasoning and the actions in the order they happened.
  */
-export type ProcessStep =
-  | { kind: 'tool'; key: string; item: ToolTranscriptItem }
-  | { kind: 'thinking'; key: string; item: AssistantTranscriptItem };
+/** The shape every process step shares: a stable key and its transcript item. */
+export interface ProcessStepBase {
+  key: string;
+}
+
+/** A tool call the agent made. */
+export interface ToolStep extends ProcessStepBase {
+  kind: 'tool';
+  item: ToolTranscriptItem;
+}
+
+/** A note the agent thought out loud. */
+export interface ThinkingStep extends ProcessStepBase {
+  kind: 'thinking';
+  item: AssistantTranscriptItem;
+}
+
+export type ProcessStep = ToolStep | ThinkingStep;
+
+/** The shape every transcript row shares: a stable key, and the item it renders. */
+export interface TranscriptRowBase {
+  key: string;
+}
+
+export interface UserRow extends TranscriptRowBase {
+  kind: 'user';
+  item: UserTranscriptItem;
+}
+
+export interface AssistantRow extends TranscriptRowBase {
+  kind: 'assistant';
+  item: AssistantTranscriptItem;
+}
+
+/** A collapsed run of tool calls and thinking notes from one turn. */
+export interface ProcessRow extends TranscriptRowBase {
+  kind: 'process';
+  steps: ProcessStep[];
+}
+
+export interface NoticeRow extends TranscriptRowBase {
+  kind: 'notice';
+  item: NoticeTranscriptItem;
+}
+
+export interface CompactionRow extends TranscriptRowBase {
+  kind: 'compaction';
+  item: CompactionTranscriptItem;
+}
 
 export type TranscriptRow =
-  | { kind: 'user'; key: string; item: UserTranscriptItem }
-  | { kind: 'assistant'; key: string; item: AssistantTranscriptItem }
-  | { kind: 'process'; key: string; steps: ProcessStep[] }
-  | { kind: 'notice'; key: string; item: NoticeTranscriptItem }
-  | { kind: 'compaction'; key: string; item: CompactionTranscriptItem };
+  | UserRow
+  | AssistantRow
+  | ProcessRow
+  | NoticeRow
+  | CompactionRow;
 
 /**
  * Turns the flat transcript into rows:
@@ -107,9 +153,22 @@ export function activeProcessKey(rows: readonly TranscriptRow[]): string | null 
 }
 
 /** One slice of a user message: plain text, or an `@mention` rendered as a chip. */
-export type MentionSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'mention'; token: string; path: string; startLine?: number; endLine?: number };
+/** Plain text between mentions. */
+export interface TextSegment {
+  kind: 'text';
+  text: string;
+}
+
+/** An `@path` (optionally `@path:10-20`) rendered as a chip. */
+export interface MentionSegmentChip {
+  kind: 'mention';
+  token: string;
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+export type MentionSegment = TextSegment | MentionSegmentChip;
 
 const MENTION_TOKEN = /(^|\s)@([^\s:]+(?::\d+(?:-\d+)?)?)(?=$|\s)/g;
 

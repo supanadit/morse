@@ -1,44 +1,14 @@
-import type { AgentSessionState, ChatPin, ModelRef, NoticeLevel, ThinkingLevel } from '../domain.js';
+import type {
+  AgentSessionState,
+  ChatPin,
+  ModelRef,
+  NoticeLevel,
+  ThinkingLevel,
+} from '../domain.js';
 import { AgentUnavailableError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
-import type { PromptDisposition, PromptImage, PromptMode } from '../session/service.js';
-
-/**
- * Local port (R10): the slice of the agent the chat use case needs. The concrete
- * `SessionRegistry` satisfies it structurally — the chat module never imports the
- * session module's class.
- */
-export interface ChatAgent {
-  state(): Promise<AgentSessionState>;
-  prompt(
-    text: string,
-    mode: PromptMode,
-    images?: PromptImage[],
-    pins?: ChatPin[],
-  ): Promise<PromptDisposition>;
-  abort(): Promise<void>;
-  setModel(model: ModelRef): Promise<void>;
-  setThinkingLevel(level: ThinkingLevel): Promise<void>;
-  compact(customInstructions?: string): Promise<void>;
-}
-
-/** Also satisfied structurally by `SessionRegistry`. */
-export interface ChatAgentHolder {
-  requireActive(): ChatAgent;
-  /**
-   * The agent of one live session, when the host still has it hot. A prompt can
-   * then be addressed to a session other than the active one — a queued follow-up
-   * that must run while the reader looks elsewhere. Optional: a holder that only
-   * tracks the active session omits it, and such a prompt is dropped.
-   */
-  agentFor?(key: string): ChatAgent | undefined;
-}
-
-export interface PromptOutcome {
-  accepted: boolean;
-  disposition?: PromptDisposition;
-  reason?: string;
-}
+import type { PromptImage, PromptMode } from '../session/ports.js';
+import type { ChatAgent, ChatAgentHolder, PromptOutcome } from './ports.js';
 
 export interface ChatServiceDeps {
   agent: ChatAgentHolder;

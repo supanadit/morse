@@ -102,9 +102,9 @@ reviewer. `packages/ui-angular/AGENTS.md` § *Layers* is the working copy of the
 
 | Port | Declared in (consumer) | Implementations |
 |---|---|---|
-| `AgentGateway`, `AgentGatewayFactory`, `SessionCatalog` | `core/src/session/service.ts` | `adapter-pi-rpc` (subprocess); an SDK adapter could be added without touching core |
-| `ChatAgent`, `ChatAgentHolder`, `ChatContextProvider` | `core/src/chat/service.ts` | satisfied structurally by `SessionService` / `ContextService` (module-to-module ports) |
-| `EditorContextProvider` | `core/src/context/service.ts` | `VsCodeContextProvider` (real editor), `ClientContextProvider` (fed by `context/attach`) |
+| `AgentGateway`, `AgentGatewayFactory`, `SessionCatalog`, `SessionStore`, `SessionSource` | `core/src/session/ports.ts` | `adapter-pi-rpc` (subprocess); a store on disk; an SDK adapter could be added without touching core |
+| `ChatAgent`, `ChatAgentHolder` | `core/src/chat/ports.ts` | satisfied structurally by `SessionRegistry` (module-to-module ports) |
+| `EditorContextProvider` | `core/src/context/ports.ts` | `VsCodeContextProvider` (real editor), `ClientContextProvider` (fed by `context/attach`) |
 | `NativeDialogs`, `HostCommandHandler` | `host-runtime/src/native-dialogs.ts` | `VsCodeDialogs` (QuickPick/InputBox); absent in the NestJS host, which forwards to the frontend |
 | `HostTransport` | `ui-runtime/src/transport/host-transport.ts` | `VsCodeHostTransport`, `WebSocketHostTransport`, `MemoryHostTransport` |
 | `MORSE_TRANSPORT` (DI token) | `ui-angular/src/app/host/transport.token.ts` | resolved per runtime |
@@ -124,7 +124,7 @@ Port types never leak `vscode`, NestJS or child-process types: `pi`'s protocol r
   no `child_process`), which is why both hosts render byte-identical conversations.
 - **R5 1:1 port → adapter** — one adapter file per port role per technology (`pi-rpc-agent.ts`,
   `pi-rpc-session-catalog.ts`).
-- **R6 module = use case** — `session`, `chat`, `context`; `chat` and `context` are pure logic with no I/O of
+- **R6 module = use case + its ports** — `session`, `chat`, `context`; a module's ports live in its own `ports.ts`, its use case in `service.ts`. `chat` and `context` are pure logic with no I/O of
   their own.
 - **R7 single wiring point** — exactly two composition roots:
   `packages/extension/src/app/main.ts` and `packages/server/src/app.module.ts` + `src/main.ts`. NestJS's DI

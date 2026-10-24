@@ -28,8 +28,14 @@ export interface ParsedDiff {
   binary: boolean;
 }
 
+/** A hunk header row in the unified view. */
+export interface HunkRow {
+  kind: 'hunk';
+  text: string;
+}
+
 /** A row for the unified view: a hunk header or a diff line. */
-export type UnifiedRow = DiffRow | { kind: 'hunk'; text: string };
+export type UnifiedRow = DiffRow | HunkRow;
 
 /** A row for the side-by-side view; a hunk header spans both sides. */
 export interface SplitRow {

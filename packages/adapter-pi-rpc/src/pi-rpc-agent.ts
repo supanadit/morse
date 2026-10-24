@@ -3,10 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import {
   THINKING_LEVELS,
   type AgentDiagnostic,
-  type AgentEvent,
-  type AgentEventListener,
   type AgentForkMessage,
-  type AgentGateway,
   type AgentHistoryEntry,
   type AgentHistoryPage,
   type AgentInteractionRequest,
@@ -27,6 +24,7 @@ import {
   type PromptMode,
   type ThinkingLevel,
   type WorkspaceRef,
+  Session,
 } from '@morse/core';
 import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
 import {
@@ -79,15 +77,14 @@ export interface PiRpcAgentOptions {
 const COMPACT_REQUEST_TIMEOUT_MS = 600_000;
 
 /**
- * `AgentGateway` implemented on top of a `pi --mode rpc` subprocess.
- * Swapping transports (SDK in-process, remote container, ...) means writing
- * another implementation of this port — nothing above it changes.
+ * `Session` implemented on top of a `pi --mode rpc` subprocess.
+ * Swapping harnesses (OpenCode, an in-process SDK, a remote container, ...) means
+ * writing another subclass — nothing above `Session` changes.
  */
-export class PiRpcAgent implements AgentGateway {
+export class PiRpcAgent extends Session {
+  readonly kind = 'pi';
   private readonly client: PiRpcClient;
-  private readonly listeners = new Set<AgentEventListener>();
   private readonly now: () => number;
-  private sessionState: AgentSessionState;
   private ready = false;
   private disposed = false;
   /**
@@ -106,15 +103,15 @@ export class PiRpcAgent implements AgentGateway {
   private speedStored: StoredSessionSpeed | undefined;
 
   constructor(private readonly options: PiRpcAgentOptions) {
-    this.now = options.now ?? (() => Date.now());
-    this.sessionState = {
+    super(options.logger, {
       workspace: options.workspace,
       thinkingLevel: 'off',
       availableModels: [],
       availableThinkingLevels: [],
       availableCommands: [],
       streaming: false,
-    };
+    });
+    this.now = options.now ?? (() => Date.now());
     this.client = new PiRpcClient({
       command: options.spawn.command,
       args: options.spawn.args,
@@ -163,21 +160,16 @@ export class PiRpcAgent implements AgentGateway {
   async initialize(): Promise<AgentSessionState> {
     this.client.start();
     await this.refreshState();
-    return this.snapshotState();
+    return this.state();
   }
 
-  subscribe(listener: AgentEventListener): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  async state(): Promise<AgentSessionState> {
+  override async state(): Promise<AgentSessionState> {
+    // pi keeps the truth: a session resumed after the host restarted has no
+    // state until `get_state` answers, so the base class's snapshot is not enough.
     if (!this.ready) {
       await this.refreshState();
     }
-    return this.snapshotState();
+    return super.state();
   }
 
   /**
@@ -303,10 +295,7 @@ export class PiRpcAgent implements AgentGateway {
     // model's levels for a beat — and pi scopes the levels to the current model,
     // so switching models can change which ones exist (or drop reasoning entirely).
     const thinking = await this.readThinkingLevels();
-    this.patchState({
-      model: data ? toModelRef(data) : model,
-      ...thinking,
-    });
+    this.patch({ model: data ? toModelRef(data) : model, ...thinking }, this.now());
   }
 
   /**
@@ -336,7 +325,7 @@ export class PiRpcAgent implements AgentGateway {
 
   async setThinkingLevel(level: ThinkingLevel): Promise<void> {
     await this.client.request({ type: 'set_thinking_level', level });
-    this.patchState({ thinkingLevel: level });
+    this.patch({ thinkingLevel: level }, this.now());
   }
 
   async compact(customInstructions?: string): Promise<void> {
@@ -367,7 +356,7 @@ export class PiRpcAgent implements AgentGateway {
   async dispose(): Promise<void> {
     this.disposed = true;
     this.promptWatcher.stop();
-    this.listeners.clear();
+    this.clearListeners();
     await this.client.dispose();
   }
 
@@ -398,12 +387,12 @@ export class PiRpcAgent implements AgentGateway {
         ? await loadSpeed(this.options.dataDir, sessionKey)
         : undefined;
 
-    this.sessionState = {
-      ...this.sessionState,
+    this.setState({
+      ...this.box,
       sessionId: sessionKey,
       sessionTitle: state.sessionName,
-      model: state.model ? toModelRef(state.model) : this.sessionState.model,
-      thinkingLevel: thinkingLevel ?? this.sessionState.thinkingLevel,
+      model: state.model ? toModelRef(state.model) : this.box.model,
+      thinkingLevel: thinkingLevel ?? this.box.thinkingLevel,
       availableModels,
       availableThinkingLevels:
         availableThinkingLevels.length > 0 ? availableThinkingLevels : [...THINKING_LEVELS],
@@ -413,10 +402,10 @@ export class PiRpcAgent implements AgentGateway {
       // Explicitly (re)set: attaching to another session must not keep the
       // previous one's speed while the new file loads.
       speed: snapshotSpeed(this.speedStored),
-    };
+    });
     this.ready = true;
     await this.refreshStats();
-    this.emit({ type: 'agent/ready', at: this.now(), state: this.snapshotState() });
+    this.emitReady(this.now());
   }
 
   /**
@@ -432,12 +421,12 @@ export class PiRpcAgent implements AgentGateway {
       .request<{ commands?: RpcCommandInfo[] }>({ type: 'get_commands' })
       .catch(() => undefined);
     const built = await buildCommandList(commands?.commands, this.commandContext());
-    this.sessionState = {
-      ...this.sessionState,
+    this.setState({
+      ...this.box,
       availableCommands: built.commands,
       diagnostics: built.diagnostics,
-    };
-    this.emit({ type: 'agent/state', at: this.now(), state: this.snapshotState() });
+    });
+    this.emitState(this.now());
   }
 
   /** Where a command list is rebuilt from: the session's workspace and env. */
@@ -461,7 +450,7 @@ export class PiRpcAgent implements AgentGateway {
     if (models === undefined) {
       return;
     }
-    this.patchState({ availableModels: (models.models ?? []).map(toModelRef) });
+    this.patch({ availableModels: (models.models ?? []).map(toModelRef) }, this.now());
   }
 
   /**
@@ -477,8 +466,7 @@ export class PiRpcAgent implements AgentGateway {
     if (Object.keys(patch).length === 0) {
       return;
     }
-    this.sessionState = { ...this.sessionState, ...patch };
-    this.emit({ type: 'agent/state', at: this.now(), state: this.snapshotState() });
+    this.patch(patch, this.now());
   }
 
   private onRecord(record: RpcRecord): void {
@@ -492,7 +480,7 @@ export class PiRpcAgent implements AgentGateway {
 
     switch (record['type']) {
       case 'agent_settled':
-        this.patchState({ streaming: false });
+        this.patch({ streaming: false }, this.now());
         this.emit({ type: 'agent/run-end', at: this.now(), reason: 'settled' });
         // A settled run is the moment cumulative tokens/cost/context are final.
         void this.refreshStats();
@@ -500,12 +488,12 @@ export class PiRpcAgent implements AgentGateway {
       case 'thinking_level_changed': {
         const level = toThinkingLevel(asString(record['level']));
         if (level) {
-          this.patchState({ thinkingLevel: level });
+          this.patch({ thinkingLevel: level }, this.now());
         }
         return;
       }
       case 'session_info_changed':
-        this.patchState({ sessionTitle: asString(record['name']) });
+        this.patch({ sessionTitle: asString(record['name']) }, this.now());
         return;
       case 'queue_update':
         return;
@@ -522,9 +510,9 @@ export class PiRpcAgent implements AgentGateway {
         break;
     }
 
-    const mapped = mapSessionEvent(record, this.now, this.sessionState);
+    const mapped = mapSessionEvent(record, this.now, this.box);
     if (mapped.state) {
-      this.patchState(mapped.state);
+      this.patch(mapped.state, this.now());
     }
     for (const event of mapped.events) {
       this.emit(event);
@@ -562,11 +550,11 @@ export class PiRpcAgent implements AgentGateway {
     // session state and reach every frontend that renders it (the browser panel
     // and the VS Code webview alike).
     if (method === 'setWidget') {
-      this.patchState({ widgets: upsertWidget(this.sessionState.widgets ?? [], request) });
+      this.patch({ widgets: upsertWidget(this.box.widgets ?? [], request) }, this.now());
       return;
     }
     if (method === 'setStatus') {
-      this.patchState({ statuses: upsertStatus(this.sessionState.statuses ?? [], request) });
+      this.patch({ statuses: upsertStatus(this.box.statuses ?? [], request) }, this.now());
       return;
     }
     if (
@@ -587,11 +575,6 @@ export class PiRpcAgent implements AgentGateway {
     });
   }
 
-  private patchState(patch: Partial<AgentSessionState>): void {
-    this.sessionState = { ...this.sessionState, ...patch };
-    this.emit({ type: 'agent/state', at: this.now(), state: this.snapshotState() });
-  }
-
   /**
    * Folds one assistant message's span (`message_start` → `message_end`) into
    * the session's speed accumulator and persists it. Best-effort: a message
@@ -607,7 +590,7 @@ export class PiRpcAgent implements AgentGateway {
     const startedAt = this.assistantStartedAt;
     this.assistantStartedAt = undefined;
     const dataDir = this.options.dataDir;
-    const session = this.sessionState.sessionId;
+    const session = this.box.sessionId;
     if (startedAt === undefined || dataDir === undefined || session === undefined) {
       return;
     }
@@ -623,43 +606,9 @@ export class PiRpcAgent implements AgentGateway {
     this.speedStored = updated;
     const speed = snapshotSpeed(updated);
     if (speed !== undefined) {
-      this.patchState({ speed });
+      this.patch({ speed }, this.now());
     }
     void saveSpeed(dataDir, updated);
-  }
-
-  private snapshotState(): AgentSessionState {
-    return {
-      ...this.sessionState,
-      workspace: { ...this.sessionState.workspace },
-      availableModels: [...this.sessionState.availableModels],
-      availableThinkingLevels: [...this.sessionState.availableThinkingLevels],
-      availableCommands: [...this.sessionState.availableCommands],
-      ...(this.sessionState.diagnostics
-        ? { diagnostics: [...this.sessionState.diagnostics] }
-        : {}),
-      ...(this.sessionState.widgets
-        ? {
-            widgets: this.sessionState.widgets.map((widget) => ({
-              ...widget,
-              lines: [...widget.lines],
-            })),
-          }
-        : {}),
-      ...(this.sessionState.statuses
-        ? { statuses: this.sessionState.statuses.map((status) => ({ ...status })) }
-        : {}),
-    };
-  }
-
-  private emit(event: AgentEvent): void {
-    for (const listener of [...this.listeners]) {
-      try {
-        listener(event);
-      } catch (error: unknown) {
-        this.options.logger.error('Agent event listener failed', error);
-      }
-    }
   }
 }
 

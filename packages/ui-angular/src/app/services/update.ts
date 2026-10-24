@@ -1,6 +1,12 @@
 import { InjectionToken, Injectable, computed, effect, inject, signal } from '@angular/core';
 import { MorseService } from '../host/morse.service';
 
+/** What `updateHost` answers: whether this host replaced itself and is restarting. */
+interface UpdateHostAnswer {
+  ok?: boolean;
+  restarting?: boolean;
+  message?: string;
+}
 /**
  * Where a newer release announces itself. One tag publishes both artifacts (the
  * VSIX and the npm package) with the same version, so reading the npm one covers
@@ -272,7 +278,7 @@ export class UpdateCheck {
     this.updateStatus.set('Starting the update…');
     try {
       const result = (await this.morse.requestHostCommand('updateHost', undefined, timeoutMs)) as
-        | { ok?: boolean; restarting?: boolean; message?: string }
+        | UpdateHostAnswer
         | undefined;
       if (result === undefined) {
         this.updateStatus.set('The host did not answer. Update it from a terminal instead.');

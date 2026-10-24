@@ -151,7 +151,12 @@ interface RgMatchEvent {
   };
 }
 
-type RgEvent = RgMatchEvent | { type: string };
+/** A ripgrep event Morse does not parse; only its `type` is read. */
+interface RgOtherEvent {
+  type: string;
+}
+
+type RgEvent = RgMatchEvent | RgOtherEvent;
 
 /**
  * The ripgrep run: `--json` for machine-readable matches (byte-accurate

@@ -69,10 +69,19 @@ export interface ProjectPolicy {
   canOpen(path: string): boolean;
 }
 
+/** Every project the host knows about, which is what the browser host shows. */
+export interface GlobalHostScope {
+  kind: 'global';
+}
+
+/** Only the given roots, which is what the VS Code host shows. */
+export interface WorkspaceHostScope {
+  kind: 'workspace';
+  roots: string[];
+}
+
 /** The directories a host is allowed to show and work in. */
-export type HostScopeOptions =
-  | { kind: 'global' }
-  | { kind: 'workspace'; roots: string[] };
+export type HostScopeOptions = GlobalHostScope | WorkspaceHostScope;
 
 export interface HostSessionControllerOptions {
   services: HostSessionServices;
@@ -119,7 +128,18 @@ export interface HostSessionControllerOptions {
   policy?: ProjectPolicy;
 }
 
-type Guarded<T> = { ok: true; value: T } | { ok: false };
+/** A value the controller accepted after validating it against something. */
+interface GuardedOk<T> {
+  ok: true;
+  value: T;
+}
+
+/** A value the controller refused; the caller answers with its own error. */
+interface GuardedFailed {
+  ok: false;
+}
+
+type Guarded<T> = GuardedOk<T> | GuardedFailed;
 
 /** How many history entries one page carries when a resumed session is seeded. */
 const HISTORY_PAGE_SIZE = 50;

@@ -1,4 +1,11 @@
-import type { AgentGatewayFactory, MorseLogger, SessionCatalog } from '@morse/core';
+import {
+  deriveSessionId,
+  SessionEngine,
+  type AgentGatewayFactory,
+  type MorseLogger,
+  type SessionCatalog,
+  type SessionScanEntry,
+} from '@morse/core';
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
 import { PiMcp } from './pi-mcp.js';
 import { PiPrompts } from './pi-prompts.js';
@@ -51,65 +58,130 @@ export interface PiRpcAdapter {
  * call this and receive the same ports — only the delivery differs.
  */
 export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogger): PiRpcAdapter {
-  const factory = new PiRpcAgentFactory(config, logger);
-  const catalog = new PiRpcSessionCatalog({
-    sessionDir: config.sessionDir,
-    maxSessionsPerProject: config.maxSessionsPerProject,
-    maxSessions: config.maxSessions,
-    env: config.env,
-    removeFile: config.removeSessionFile,
-  });
-  const cliOptions = {
-    piPath: config.piPath,
-    nodeEntryPath: config.nodeEntryPath,
-    env: config.env,
-  };
-  const mcp = new PiMcp(cliOptions);
-  const prompts = new PiPrompts({ env: config.env });
-  const inspector = new McpInspector({
-    clientVersion: config.clientVersion,
-  });
-  // Cached across connections: reading it touches the filesystem, and the
-  // answer only changes when the host restarts with a new pi on disk.
-  let cachedVersion: string | null | undefined;
-  return {
-    factory,
-    catalog,
-    mcp,
-    prompts,
-    inspector,
-    describe: () =>
-      resolvePi({
-        piPath: config.piPath,
-        nodeEntryPath: config.nodeEntryPath,
-        sessionDir: config.sessionDir,
-        noSession: config.noSession,
-        extraArgs: config.extraArgs,
-        env: config.env,
-      }),
-    version: () => {
-      if (cachedVersion === undefined) {
-        try {
-          cachedVersion =
-            readPiVersion(
-              resolvePi({
-                piPath: config.piPath,
-                nodeEntryPath: config.nodeEntryPath,
-                env: config.env,
+  return new PiRpcEngine(config, logger);
+}
+
+/**
+ * The pi engine, as `SessionEngine` rather than a bare object.
+ *
+ * Extending the abstract engine is what gives `reconcile()` its `scan()`: the pi
+ * catalog is the one thing in this repo that can enumerate sessions Morse did not
+ * create, so pi is the engine that makes a session started with the `pi` CLI in a
+ * terminal appear in the sidebar.
+ */
+class PiRpcEngine extends SessionEngine implements PiRpcAdapter {
+  readonly kind = 'pi';
+  readonly factory: AgentGatewayFactory;
+  readonly catalog: SessionCatalog;
+  readonly mcp: PiMcp;
+  readonly prompts: PiPrompts;
+  readonly inspector: McpInspector;
+  /** The unpaged catalog `scan()` reads, so a reconcile never mistakes a page for the whole. */
+  private readonly scanCatalog: PiRpcSessionCatalog;
+  private cachedVersion: string | null | undefined;
+
+  constructor(
+    private readonly config: PiRpcAdapterConfig,
+    logger: MorseLogger,
+  ) {
+    super();
+    this.factory = new PiRpcAgentFactory(config, logger);
+    this.catalog = new PiRpcSessionCatalog({
+      sessionDir: config.sessionDir,
+      maxSessionsPerProject: config.maxSessionsPerProject,
+      maxSessions: config.maxSessions,
+      env: config.env,
+      removeFile: config.removeSessionFile,
+    });
+    // The catalog pages its list for the sidebar, but `scan()` must see every
+    // session: reconciling a page would remove the 482 sessions it did not read.
+    this.scanCatalog = new PiRpcSessionCatalog({
+      sessionDir: config.sessionDir,
+      maxSessionsPerProject: Number.MAX_SAFE_INTEGER,
+      env: config.env,
+      removeFile: config.removeSessionFile,
+    });
+    this.mcp = new PiMcp({
+      piPath: config.piPath,
+      nodeEntryPath: config.nodeEntryPath,
+      env: config.env,
+    });
+    this.prompts = new PiPrompts({ env: config.env });
+    this.inspector = new McpInspector({ clientVersion: config.clientVersion });
+  }
+
+  /**
+   * Every session pi holds, mapped into Morse's own record shape.
+   *
+   * The token is `updatedAt:messageCount`: both come from the catalog's cached
+   * scan, so an unchanged session costs the catalog nothing on top of what it
+   * already does, and any appended message moves the count. A session added by
+   * `pi` in a terminal therefore shows up on the next reconcile, without Morse
+   * ever reading the transcript.
+   */
+  override async scan(): Promise<SessionScanEntry[]> {
+    const summaries = await this.scanCatalog.list();
+    return summaries.map((summary) => {
+      const engineRef = { engine: this.kind, sessionId: summary.id, file: summary.id };
+      return {
+        token: `${summary.updatedAt}:${summary.messageCount}`,
+        record: {
+          version: 1 as const,
+          id: deriveSessionId(engineRef),
+          title: summary.title,
+          cwd: summary.cwd,
+          engineRef,
+          createdAt: summary.updatedAt,
+          updatedAt: summary.updatedAt,
+          messageCount: summary.messageCount,
+          ...(summary.parentId === undefined
+            ? {}
+            : {
+                parentId: deriveSessionId({ engine: this.kind, sessionId: summary.parentId }),
               }),
-            ) ?? null;
-        } catch {
-          cachedVersion = null;
-        }
-      }
-      return cachedVersion ?? undefined;
-    },
-    describeCli: () => {
+        },
+      };
+    });
+  }
+
+  describe(): PiSpawn {
+    return resolvePi({
+      piPath: this.config.piPath,
+      nodeEntryPath: this.config.nodeEntryPath,
+      sessionDir: this.config.sessionDir,
+      noSession: this.config.noSession,
+      extraArgs: this.config.extraArgs,
+      env: this.config.env,
+    });
+  }
+
+  version(): string | undefined {
+    if (this.cachedVersion === undefined) {
       try {
-        return resolvePiCli(cliOptions);
+        this.cachedVersion =
+          readPiVersion(
+            resolvePi({
+              piPath: this.config.piPath,
+              nodeEntryPath: this.config.nodeEntryPath,
+              env: this.config.env,
+            }),
+          ) ?? null;
       } catch {
-        return undefined;
+        this.cachedVersion = null;
       }
-    },
-  };
+    }
+    return this.cachedVersion ?? undefined;
+  }
+
+  describeCli(): PiCliSpawn | undefined {
+    try {
+      return resolvePiCli({
+        piPath: this.config.piPath,
+        nodeEntryPath: this.config.nodeEntryPath,
+        env: this.config.env,
+      });
+    } catch {
+      return undefined;
+    }
+  }
 }
