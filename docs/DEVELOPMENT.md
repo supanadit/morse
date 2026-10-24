@@ -66,7 +66,7 @@ code, so changing them without measuring is how this gets slow again.
 
 What keeps them cheap:
 
-- `packages/adapter-pi-rpc/src/pi-rpc-session-catalog.ts` caches a summary per file, keyed by size + mtime, shares
+- `packages/integration-pi/src/pi-rpc-session-catalog.ts` caches a summary per file, keyed by size + mtime, shares
   one build between concurrent callers, reads a line's `type` with a string search instead of `JSON.parse` on
   every one of tens of thousands of lines, and resumes a file that only grew from the byte offset the last scan
   stopped at. Re-reading files per list, or parsing every line again, brings the 600 ms back.

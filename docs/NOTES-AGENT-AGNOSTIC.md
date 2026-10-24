@@ -54,8 +54,8 @@ Morse has no id or history of its own.
 | `core/src/session/reconcile.ts` | `planReconcile` (pure), `reconcileSessions` (+ `onProgress`) |
 | `core/src/session/engine.ts` | `abstract class SessionEngine` — `kind`, `factory`, `catalog`, `scan?()`, `reconcile()` |
 | `core/src/session/session.ts` | `abstract class Session implements AgentGateway` — listener fan-out, `box`/`patch`/`emitState`/`emitReady`, copying `state()` |
-| `adapter-pi-rpc/src/pi-rpc-agent.ts` | `PiRpcAgent extends Session` (−127 lines of duplicated fan-out/state) |
-| `adapter-pi-rpc/src/create-pi-rpc-adapter.ts` | `PiRpcEngine extends SessionEngine`, `scan()` over the pi catalog |
+| `integration-pi/src/pi-rpc-agent.ts` | `PiRpcAgent extends Session` (−127 lines of duplicated fan-out/state) |
+| `integration-pi/src/create-pi-rpc-adapter.ts` | `PiRpcEngine extends SessionEngine`, `scan()` over the pi catalog |
 
 `npm run check-types --workspaces` clean, `npm test` 85 files / 765 tests passing — the same
 count as before the change, so nothing broke and nothing new is covered yet.

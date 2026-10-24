@@ -1,7 +1,7 @@
 {
   "name": "morse",
   "displayName": "Morse",
-  "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
+  "description": "Comfortable Pi Interface \u2014 chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
   "version": "0.26.1",
   "publisher": "supanadit",
   "author": "Supan Adit Pratama",
@@ -191,9 +191,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@morse/adapter-pi-rpc": "*",
-    "@morse/core": "*",
-    "@morse/host-runtime": "*",
+    "@morse/integration-pi": "*",
     "@morse/protocol": "*",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
@@ -205,6 +203,14 @@
     "eslint": "^10.5.0",
     "npm-run-all": "^4.1.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.61.1"
+    "typescript-eslint": "^8.61.1",
+    "@morse/agent": "*",
+    "@morse/system": "*"
+  },
+  "dependencies": {
+    "@morse/agent": "*",
+    "@morse/system": "*",
+    "@morse/integration-pi": "*",
+    "@morse/protocol": "*"
   }
 }

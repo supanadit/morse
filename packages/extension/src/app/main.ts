@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
-import { createPiRpcAdapter, findOnPathBinary, type PiRpcAdapterConfig } from '@morse/adapter-pi-rpc';
-import { ChatService, SessionRegistry } from '@morse/core';
-import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/host-runtime';
+import { createPiRpcAdapter, findOnPathBinary, type PiRpcAdapterConfig } from '@morse/integration-pi';
+import { ChatService, SessionRegistry } from '@morse/system';
+import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/system';
 import {
   FRONTEND_MANIFEST_FILE,
   PROTOCOL_VERSION,

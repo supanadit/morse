@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/core';
-import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
-import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/adapter-pi-rpc';
+import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/system';
+import type { PiRpcAdapter } from '@morse/integration-pi';
+import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/integration-pi';
 import {
   HostSessionController,
   type HostCommandContext,
   type HostSessionServices,
   type SessionTranscriptStore,
-} from '@morse/host-runtime';
+} from '@morse/system';
 import type { HostCapabilities, HostToClientMessage, LspPosition, UpdateHostResult } from '@morse/protocol';
 import type { MorseServerConfig } from '../../app/config.js';
 import {
@@ -39,7 +39,7 @@ import {
 import { readGitRepos } from '../workspace/git-repos.js';
 import { listProjectDirectory, workspaceFiles } from '../workspace/workspace-index.js';
 import { searchWorkspace } from '../workspace/workspace-search.js';
-import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/host-runtime';
+import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/system';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
 import { ServerLanguageServers } from '../lsp/lsp.service.js';

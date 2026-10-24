@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import type { WorkspaceRef } from '@morse/core';
-import type { PiRpcAdapterConfig } from '@morse/adapter-pi-rpc';
+import type { WorkspaceRef } from '@morse/agent';
+import type { PiRpcAdapterConfig } from '@morse/integration-pi';
 
 /** Reads the pi-related settings that configure the driven adapter. */
 export function readPiAdapterConfig(): PiRpcAdapterConfig {

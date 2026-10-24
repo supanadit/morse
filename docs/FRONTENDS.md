@@ -344,7 +344,7 @@ the directory the session is viewing.
 
 - The indicator and the panel are gated on `capabilities.mcp`, which a host sets only when it found
 the `pi` CLI. The VS Code webview and the browser host both run `pi mcp list --json` through the same
-`@morse/adapter-pi-rpc` `PiMcp` adapter; a host without the CLI leaves the capability off and the
+`@morse/integration-pi` `PiMcp` adapter; a host without the CLI leaves the capability off and the
 button is not rendered, rather than promising a manager it cannot run.
 - **State comes from pi, not from Morse.** `mcpStatus` runs `pi mcp list --json` in the viewing
 session's directory and returns each server's `name`, `scope`, `source`, `enabled`, `exposure`,
@@ -400,7 +400,7 @@ that holds a terminal is not discarded as untouched (`TerminalStore.hasOwner`). 
 directory the shell reported over **OSC 7** (`cwdChange` → `TerminalStore.setCwd`), so a shell restored
 after `morse stop`/`start` reopens where the reader `cd`'d instead of at the session root; the pane's own
 directory wins over its owner's in `terminalsWithOwnerCwd`.
-- The backend is a port (`TerminalBackend`, `packages/host-runtime/src/terminal.ts`), so the controller
+- The backend is a port (`TerminalBackend`, `packages/host/src/terminal.ts`), so the controller
 owns the wire conversation and the host owns the process. The NestJS host implements it in
 `ServerTerminalBackend` with **`node-pty`** — a real pseudo-terminal in the viewing session's directory,
 gated by `ProjectPolicy` like opening a session — so prompts, colours, line editing, resize and
@@ -451,8 +451,8 @@ npm run sync-webview -- --frontend=ui-react     # VS Code host (no `--` = the fl
 MORSE_UI_DIR=packages/ui-react/dist npm run start:server   # NestJS host
 ```
 
-Nothing in `core`, `host-runtime`, `adapter-pi-rpc`, `extension` or `server` changes. If a new screen needs
-data the protocol does not carry yet, add a wire message in `@morse/protocol`, map it in `host-runtime`, and
+Nothing in `agent`, `system`, `host`, `integration-pi`, `extension` or `server` changes. If a new screen needs
+data the protocol does not carry yet, add a wire message in `@morse/protocol`, map it in `host`, and
 bump `PROTOCOL_VERSION` — that is the only place where "frontend work" can leak into hosts.
 
 ## Developing a frontend without any host

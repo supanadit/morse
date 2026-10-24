@@ -1150,7 +1150,7 @@ const MOCK_FILES = [
   'packages/core/src/chat/service.ts',
   'packages/core/src/domain.ts',
   'packages/core/src/session/service.ts',
-  'packages/host-runtime/src/session-controller.ts',
+  'packages/host/src/session-controller.ts',
   'packages/protocol/src/wire.ts',
   'packages/ui-angular/src/app/app.ts',
   'packages/ui-angular/src/app/chat/chat-composer/chat-composer.ts',

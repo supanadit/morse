@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import type { MorseLogger } from '@morse/core';
+import type { MorseLogger } from '@morse/system';
 
 /** Morse's logging port implemented on top of the NestJS logger. */
 export class NestMorseLogger implements MorseLogger {

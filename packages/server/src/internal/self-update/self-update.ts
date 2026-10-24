@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { UpdateHostResult } from '@morse/protocol';
-import type { MorseLogger } from '@morse/core';
+import type { MorseLogger } from '@morse/system';
 
 const run = promisify(execFile);
 

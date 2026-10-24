@@ -8,7 +8,7 @@ Morse ships as **two independent artifacts** for the same product. Install which
 | Browser / CLI | `@supanadit/morse-web` on npm | `npm install -g @supanadit/morse-web` | `morse start` |
 
 Both hosts load the **same Angular bundle** (`@morse/ui-angular`) and drive the **same `pi` subprocess**
-through `@morse/adapter-pi-rpc`; only the delivery differs. Their requirements are therefore identical:
+through `@morse/integration-pi`; only the delivery differs. Their requirements are therefore identical:
 
 - Node.js 20+ (developed on 24) and npm 10+.
 - The `pi` CLI on `PATH` and already authenticated (`pi --version`), or a path to it via `morse.pi.path`
@@ -90,7 +90,7 @@ nested `npm run`). The `--frontend` flag is ignored if passed without `--`.
 Open the repository in VS Code and press <kbd>F5</kbd> (**Morse: run extension**). The launch config in
 `.vscode/launch.json` uses the prelaunch task **morse: dev (build + watch)**, which runs `npm run dev:extension`:
 
-- builds the libraries once (`@morse/protocol`, `core`, `host-runtime`, `adapter-pi-rpc`, `ui-runtime`),
+- builds the libraries once (`@morse/protocol`, `agent`, `system`, `host`, `integration-pi`, `ui-runtime`),
 - builds the Angular bundle and syncs it into `media/webview`,
 - starts esbuild watch (extension), `ng build --watch` (UI) and the webview watcher in parallel.
 

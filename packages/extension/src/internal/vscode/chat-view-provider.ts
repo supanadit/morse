@@ -1,12 +1,6 @@
 import * as vscode from 'vscode';
-import {
-  ChatService,
-  SessionRegistry,
-  UnsupportedByHostError,
-  type EditorContextProvider,
-  type MorseLogger,
-} from '@morse/core';
-import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/adapter-pi-rpc';
+import { ChatService, SessionRegistry, UnsupportedByHostError, type EditorContextProvider, type MorseLogger } from '@morse/system';
+import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/integration-pi';
 import {
   HostSessionController,
   readDrafts,
@@ -16,7 +10,7 @@ import {
   type HostSessionServices,
   type ProjectPolicy,
   type SessionTranscriptStore,
-} from '@morse/host-runtime';
+} from '@morse/system';
 import {
   parseClientMessage,
   type ClientToHostMessage,

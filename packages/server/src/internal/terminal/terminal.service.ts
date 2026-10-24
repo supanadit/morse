@@ -1,6 +1,6 @@
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
-import { UnsupportedByHostError, type MorseLogger } from '@morse/core';
+import { UnsupportedByHostError, type MorseLogger } from '@morse/system';
 import {
   TERMINAL_BUFFER_CHARS,
   trimTail,
@@ -8,7 +8,7 @@ import {
   type TerminalOpenOptions,
   type TerminalSession,
   type TerminalSink,
-} from '@morse/host-runtime';
+} from '@morse/system';
 import type { MorseServerConfig } from '../../app/config.js';
 import { MORSE_CONFIG, MORSE_LOGGER, MORSE_PROJECT_POLICY } from '../../app/tokens.js';
 import { childProcessEnv } from '../child-env.js';

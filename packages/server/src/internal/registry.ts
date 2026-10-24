@@ -1,7 +1,7 @@
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
-import { SessionRegistry, type MorseLogger } from '@morse/core';
-import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/host-runtime';
-import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
+import { SessionRegistry, type MorseLogger } from '@morse/system';
+import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/system';
+import type { PiRpcAdapter } from '@morse/integration-pi';
 import type { MorseServerConfig } from '../app/config.js';
 import { MORSE_SESSION_REGISTRY, MORSE_TRANSCRIPT_STORE } from '../app/tokens.js';
 import { clearWorkspaceIndex } from './workspace/workspace-index.js';

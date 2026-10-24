@@ -12,8 +12,8 @@ import {
   parseClientMessage,
   type HostToClientMessage,
 } from '@morse/protocol';
-import { HostSessionController } from '@morse/host-runtime';
-import type { MorseLogger } from '@morse/core';
+import { HostSessionController } from '@morse/system';
+import type { MorseLogger } from '@morse/system';
 import { MORSE_LOGGER } from '../../app/tokens.js';
 import { MorseSessionFactory } from './session-factory.service.js';
 

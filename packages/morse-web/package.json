@@ -56,12 +56,12 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "ws": "^8.22.0",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "@morse/agent": "*",
+    "@morse/system": "*"
   },
   "devDependencies": {
-    "@morse/adapter-pi-rpc": "*",
-    "@morse/core": "*",
-    "@morse/host-runtime": "*",
+    "@morse/integration-pi": "*",
     "@morse/protocol": "*",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.1",

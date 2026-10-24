@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TERMINAL_BUFFER_CHARS } from '@morse/host-runtime';
+import { TERMINAL_BUFFER_CHARS } from '@morse/system';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   readTerminalLog,

@@ -2,7 +2,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import type { WorkspaceRef } from '@morse/core';
+import type { WorkspaceRef } from '@morse/agent';
 import { FRONTEND_MANIFEST_FILE, frontendIdentity, parseFrontendManifest } from '@morse/protocol';
 import type { FrontendIdentity } from '@morse/protocol';
 import { DEFAULT_UPLOAD_DIR } from '../internal/uploads/upload-store.js';

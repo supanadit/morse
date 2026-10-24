@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
-import type { MorseLogger } from '@morse/core';
+import type { MorseLogger } from '@morse/system';
 
 /**
  * Directories a file picker never wants, and which make a workspace walk slow

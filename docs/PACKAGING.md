@@ -11,11 +11,11 @@ package**: no source of its own beyond the CLI, only build glue.
 The monorepo ships nine workspace packages, and eight of them are `private: true`:
 
 ```
-protocol, core, host-runtime, adapter-pi-rpc, ui-runtime, ui-angular, extension, server
+protocol, agent, system, host, integration-pi, ui-runtime, ui-angular, extension, server
 ```
 
 npm installs a package's dependency tree from the registry, so a published `@morse/server` could never
-resolve `@morse/core` — those names are not on npm. There are only three honest options:
+resolve `@morse/agent` and `@morse/system` — those names are not on npm. There are only three honest options:
 
 | Option | Why not |
 |---|---|
@@ -23,7 +23,7 @@ resolve `@morse/core` — those names are not on npm. There are only three hones
 | `bundleDependencies` (vendor `node_modules/@morse/*`) | Workspace symlinks + `*` versions make `npm pack` output fragile and hard to reason about |
 | **Bundle the workspace code, externalize the runtime** | Chosen: one tarball, one version, deterministic output |
 
-All of `protocol`, `core`, `host-runtime`, `adapter-pi-rpc` are pure ESM libraries with no `vscode`, no
+All of `protocol`, `agent`, `system`, `host`, `integration-pi` are pure ESM libraries with no `vscode`, no
 NestJS and (except the adapter) no I/O, so inlining them is free. The NestJS runtime is *not* workspace code,
 so it stays a normal dependency and is installed by npm.
 
@@ -141,7 +141,7 @@ morse stop
 
 | Symptom | Cause / fix |
 |---|---|
-| `Cannot find package '@morse/core'` at runtime | bundling did not inline it — the libs were not built before `build.mjs`; run `npm run build:libs` |
+| `Cannot find package '@morse/agent'` at runtime | bundling did not inline it — the libs were not built before `build.mjs`; run `npm run build:libs` |
 | `Nest can't resolve dependencies of X (?, …)` in the bundle only | a constructor parameter lost its `@Inject(...)`; esbuild cannot emit `design:paramtypes` |
 | `ERR_MODULE_NOT_FOUND: @nestjs/platform-express` | `main.ts` imports the platform only as a type; keep `@nestjs/platform-express` in `dependencies` — Nest loads it dynamically at runtime |
 | `morse start` prints "failed to start" | read `morse logs`; most often `pi` is not on the `PATH` of the daemon (set `MORSE_PI_PATH`) |

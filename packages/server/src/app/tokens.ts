@@ -1,5 +1,5 @@
-import type { MorseLogger } from '@morse/core';
-import type { PiRpcAdapter } from '@morse/adapter-pi-rpc';
+import type { MorseLogger } from '@morse/system';
+import type { PiRpcAdapter } from '@morse/integration-pi';
 
 export const MORSE_CONFIG = 'MORSE_CONFIG';
 export const MORSE_LOGGER = 'MORSE_LOGGER';

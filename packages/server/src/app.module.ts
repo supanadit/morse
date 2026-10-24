@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { createPiRpcAdapter, type PiRpcAdapter } from '@morse/adapter-pi-rpc';
-import { SessionRegistry, type MorseLogger } from '@morse/core';
-import type { ProjectPolicy } from '@morse/host-runtime';
-import { SessionTranscriptStore } from '@morse/host-runtime';
+import { createPiRpcAdapter, type PiRpcAdapter } from '@morse/integration-pi';
+import { SessionRegistry, type MorseLogger } from '@morse/system';
+import type { ProjectPolicy } from '@morse/system';
+import { SessionTranscriptStore } from '@morse/system';
 import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';

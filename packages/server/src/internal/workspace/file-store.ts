@@ -1,6 +1,6 @@
 import { open, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { UnsupportedByHostError } from '@morse/core';
+import { UnsupportedByHostError } from '@morse/system';
 
 /**
  * How much of a file a preview reads. A 40 MB bundle in a text view is not a

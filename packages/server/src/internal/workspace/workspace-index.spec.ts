@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { silentLogger } from '@morse/core';
+import { silentLogger } from '@morse/system';
 import { clearWorkspaceIndex, listProjectDirectory, workspaceFiles } from './workspace-index';
 
 let root = '';

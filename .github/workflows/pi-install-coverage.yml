@@ -30,16 +30,16 @@ on:
   push:
     branches: [master]
     paths:
-      - packages/adapter-pi-rpc/src/internal/pi-install.ts
-      - packages/adapter-pi-rpc/src/internal/resolve-pi.ts
-      - packages/adapter-pi-rpc/src/internal/pi-builtins.ts
+      - packages/integration-pi/src/internal/pi-install.ts
+      - packages/integration-pi/src/internal/resolve-pi.ts
+      - packages/integration-pi/src/internal/pi-builtins.ts
       - scripts/check-pi-coverage.mjs
       - .github/workflows/pi-install-coverage.yml
   pull_request:
     paths:
-      - packages/adapter-pi-rpc/src/internal/pi-install.ts
-      - packages/adapter-pi-rpc/src/internal/resolve-pi.ts
-      - packages/adapter-pi-rpc/src/internal/pi-builtins.ts
+      - packages/integration-pi/src/internal/pi-install.ts
+      - packages/integration-pi/src/internal/resolve-pi.ts
+      - packages/integration-pi/src/internal/pi-builtins.ts
       - scripts/check-pi-coverage.mjs
       - .github/workflows/pi-install-coverage.yml
   # pi ships continuously, and a release can change a shim shape without changing

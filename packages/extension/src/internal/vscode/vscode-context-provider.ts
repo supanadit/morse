@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { EditorContextProvider, EditorContextSnapshot } from '@morse/core';
+import type { EditorContextProvider, EditorContextSnapshot } from '@morse/system';
 
 /**
  * `EditorContextProvider` implemented with the VS Code editor APIs. The host

@@ -12,7 +12,7 @@ import type {
   GitSync,
 } from '@morse/protocol';
 import { resolveWithin } from './file-store.js';
-import { UnsupportedByHostError } from '@morse/core';
+import { UnsupportedByHostError } from '@morse/system';
 import { resolveRepoCwd } from './git-repos.js';
 
 /**
