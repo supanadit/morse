@@ -90,6 +90,109 @@
             <button type="button" (click)="submit()">Submit</button>
           </div>
         }
+        @case ('form') {
+          @if (overflowTitle(); as text) {
+            <p class="message">{{ text }}</p>
+          }
+          @if (messageOf(req); as message) {
+            <p class="message">{{ message }}</p>
+          }
+          <div class="form">
+            @for (field of visibleFormFields(); track field.key) {
+              <div class="form-field">
+                <label class="form-label" [attr.for]="'form-' + field.key">
+                  {{ field.label }}@if (field.required) {<span class="required" aria-hidden="true"> *</span>}
+                </label>
+                @switch (field.type) {
+                  @case ('boolean') {
+                    <label class="form-check">
+                      <input
+                        type="checkbox"
+                        [id]="'form-' + field.key"
+                        [checked]="fieldValue(field.key) === true"
+                        (change)="setChecked(field.key, $event)"
+                      />
+                      <span>{{ field.placeholder ?? field.label }}</span>
+                    </label>
+                  }
+                  @case ('select') {
+                    <select
+                      class="field"
+                      [id]="'form-' + field.key"
+                      [value]="textValue(field)"
+                      (change)="setSelect(field.key, $event)"
+                    >
+                      @if (field.required !== true) {
+                        <option value="">—</option>
+                      }
+                      @for (option of field.options ?? []; track option.value) {
+                        <option [value]="option.value">{{ option.label }}</option>
+                      }
+                    </select>
+                  }
+                  @case ('multiselect') {
+                    <div class="form-checks">
+                      @for (option of field.options ?? []; track option.value) {
+                        <label class="form-check">
+                          <input
+                            type="checkbox"
+                            [checked]="isSelected(field.key, option.value)"
+                            (change)="toggleMulti(field.key, option.value, $event)"
+                          />
+                          <span>{{ option.label }}</span>
+                        </label>
+                      }
+                    </div>
+                  }
+                  @case ('number') {
+                    <input
+                      class="field"
+                      type="number"
+                      [id]="'form-' + field.key"
+                      [placeholder]="field.placeholder ?? ''"
+                      [value]="textValue(field)"
+                      [attr.min]="field.min"
+                      [attr.max]="field.max"
+                      (input)="setInput(field, $event)"
+                    />
+                  }
+                  @case ('integer') {
+                    <input
+                      class="field"
+                      type="number"
+                      step="1"
+                      [id]="'form-' + field.key"
+                      [placeholder]="field.placeholder ?? ''"
+                      [value]="textValue(field)"
+                      [attr.min]="field.min"
+                      [attr.max]="field.max"
+                      (input)="setInput(field, $event)"
+                    />
+                  }
+                  @default {
+                    <input
+                      class="field"
+                      type="text"
+                      [id]="'form-' + field.key"
+                      [placeholder]="field.placeholder ?? ''"
+                      [value]="textValue(field)"
+                      (input)="setInput(field, $event)"
+                    />
+                  }
+                }
+              </div>
+            }
+            @if (formError(); as error) {
+              <p class="note">{{ error }}</p>
+            }
+            <div class="actions">
+              <button type="button" class="secondary" (click)="cancel()">Cancel</button>
+              <button type="button" [disabled]="formError() !== undefined" (click)="submitForm()">
+                Submit
+              </button>
+            </div>
+          </div>
+        }
       }
     </div>
 

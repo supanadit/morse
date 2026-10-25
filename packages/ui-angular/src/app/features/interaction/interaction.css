@@ -162,6 +162,47 @@ h2.flow {
   padding: 7px 9px;
   font-size: 12.5px;
 }
+/*
+ * One row per field: label above its control, so a long label wraps without
+ * pushing the control sideways the way an inline label would.
+ */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.required {
+  color: var(--morse-warn);
+}
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.form-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-check input {
+  margin: 0;
+}
+.form .actions {
+  margin-top: 2px;
+}
 textarea.field {
   min-height: 96px;
   resize: vertical;

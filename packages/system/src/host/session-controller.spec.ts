@@ -177,6 +177,8 @@ function harness(options: {
   refreshModels?: () => Promise<void>;
   /** Persisted sessions the catalog reports, so a test can seed a real title. */
   catalogSessions?: SessionSummary[];
+  /** Session ids the factory refuses, as the engine router does for a stale id. */
+  unknownSessionIds?: string[];
   /** Warnings the agent carries on its state (pi's refused prompt templates). */
   diagnostics?: AgentDiagnostic[];
   /** Records each compaction call's instructions and target session key. */
@@ -198,8 +200,14 @@ function harness(options: {
   const spawns = { count: 0 };
   const probes = { count: 0 };
   const factory: AgentGatewayFactory = {
-    create: () => {
+    create: (input) => {
       spawns.count += 1;
+      if (input.sessionId !== undefined && options.unknownSessionIds?.includes(input.sessionId)) {
+        // What the router reports for an id no index row and no engine holds.
+        return Promise.reject(
+          new AgentUnavailableError(`No session for ${input.sessionId} is in the index.`),
+        );
+      }
       return options.spawnError
         ? Promise.reject(options.spawnError)
         : Promise.resolve(gateway);
@@ -799,6 +807,35 @@ describe('HostSessionController failures', () => {
     // An unknown failure must not be dressed up as "not installed": the frontend
     // would offer the wrong remedy.
     expect(h.lastState()?.agentFailure).toEqual({ hint: 'Check the pi path.' });
+  });
+
+  it('reports an unknown session id instead of attaching to something else', async () => {
+    // A persisted tab (VS Code restores its open editors across reloads) can name a
+    // session the index no longer holds: deleted elsewhere, or from before the
+    // Morse-id migration. Opening it must fail visibly — never fall back to an
+    // arbitrary conversation.
+    const h = harness({ unknownSessionIds: ['stale-tab-id'] });
+    await h.controller.start();
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'session/load',
+      payload: { sessionId: 'stale-tab-id', cwd: WORKSPACE.cwd },
+    });
+
+    // The host tried exactly one open — the stale id — and adopted nothing.
+    expect(h.spawns()).toBe(1);
+    expect(h.lastState()?.agentReady).toBe(false);
+    expect(h.lastState()?.agentError).toContain('stale-tab-id');
+    expect(h.lastState()?.sessionId).toBeUndefined();
+    // With no conversation to attach the failure to, it is said as a notice; the
+    // wire `error` channel stays reserved for the handshake.
+    expect(
+      h.messages.some(
+        (message) => message.type === 'notice' && message.payload.level === 'error',
+      ),
+    ).toBe(true);
+    expect(h.messages.some((message) => message.type === 'error')).toBe(false);
   });
 
   it('reports a missing pi on load, before any prompt is sent', async () => {
@@ -2170,6 +2207,100 @@ describe('HostSessionController session-scoped dialogs', () => {
           message.type === 'interaction/dismiss' && message.payload.requestId === 'req-1',
       ),
     ).toBe(true);
+  });
+
+  it('sends a form to the frontend even when this host answers other kinds natively', async () => {
+    const messages: HostToClientMessage[] = [];
+    const created: Controlled[] = [];
+    const factory: AgentGatewayFactory = {
+      create: (options) => {
+        const sessionId = options.sessionId ?? `generated-${created.length + 1}`;
+        const session = controlled(sessionId);
+        created.push(session);
+        return Promise.resolve(session.gateway);
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const dialogs = {
+      select: vi.fn(async () => undefined),
+      confirm: vi.fn(async () => false),
+      input: vi.fn(async () => undefined),
+      editor: vi.fn(async () => undefined),
+    };
+    // A VS Code host: QuickPick/InputBox answer the four single-value kinds.
+    const host = new HostSessionController({
+      services: { registry, chat },
+      capabilities: CAPABILITIES,
+      emit: (message) => messages.push(message),
+      logger: silentLogger,
+      transcripts,
+      autoOpen: false,
+      dialogs,
+    });
+    await host.start();
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+
+    // A form is multi-field, so it must not go through QuickPick.
+    created[0].emit({
+      type: 'agent/interaction',
+      at: Date.now(),
+      request: {
+        requestId: 'form-1',
+        kind: 'form',
+        title: 'Set up the task',
+        message: 'Two answers',
+        fields: [
+          { key: 'name', label: 'Name', type: 'text', required: true },
+          { key: 'retries', label: 'Retries', type: 'integer', min: 1, max: 9 },
+          {
+            key: 'details',
+            label: 'Details',
+            type: 'text',
+            when: { field: 'name', equals: 'other' },
+          },
+        ],
+      },
+    });
+    await Promise.resolve();
+
+    const shown = messages.filter((message) => message.type === 'interaction/request').at(-1);
+    expect(shown?.payload.kind).toBe('form');
+    expect(shown?.payload.kind === 'form' ? shown.payload.fields.map((field) => field.key) : []).toEqual([
+      'name',
+      'retries',
+      'details',
+    ]);
+    expect(dialogs.select).not.toHaveBeenCalled();
+    expect(dialogs.input).not.toHaveBeenCalled();
+
+    // The answer is the keyed map, not a single value.
+    await host.handleClientMessage({
+      type: 'interaction/respond',
+      payload: { requestId: 'form-1', values: { name: 'Ada', retries: 3 } },
+    });
+    expect(created[0].respond).toHaveBeenCalledWith({
+      requestId: 'form-1',
+      values: { name: 'Ada', retries: 3 },
+    });
+
+    // The other kinds keep their native path.
+    created[0].emit({
+      type: 'agent/interaction',
+      at: Date.now(),
+      request: { requestId: 'sel-1', kind: 'select', title: 'Pick', options: [{ value: 'a', label: 'a' }] },
+    });
+    await Promise.resolve();
+    expect(dialogs.select).toHaveBeenCalledTimes(1);
   });
 
   it('dismisses a dialog when the reader switches away from its session', async () => {

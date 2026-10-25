@@ -21,6 +21,12 @@ import type { SessionStore } from './ports.js';
 export interface ReconcilePlan {
   /** Records to write: new sessions, or ones whose engine token changed. */
   upserts: MorseSessionRecord[];
+  /**
+   * The token the report carried for each upsert, keyed by the record's Morse
+   * id. The caller writes it beside the record, so the *next* reconcile can
+   * skip this session again without re-deriving it.
+   */
+  upsertTokens: ReadonlyMap<string, string>;
   /** Morse ids whose engine storage is gone and that the index must forget. */
   removals: string[];
 }
@@ -44,20 +50,33 @@ export function planReconcile(
   reported: readonly AgentSessionInfo[],
   records: readonly MorseSessionRecord[],
   tokens: ReadonlyMap<string, string>,
+  /**
+   * Sessions Morse is running right now. A report that omits one is stale (the
+   * engine may still be writing its session file), so its row is never removed:
+   * only the engine's *finished* sessions can be declared gone.
+   */
+  running?: ReadonlySet<string>,
 ): ReconcilePlan {
   const present = new Set<string>();
   const upserts: MorseSessionRecord[] = [];
+  const upsertTokens = new Map<string, string>();
   for (const info of reported) {
     const record = toSessionRecord(kind, info);
     present.add(record.id);
     if (tokens.get(record.id) !== info.token) {
       upserts.push(record);
+      upsertTokens.set(record.id, info.token);
     }
   }
   const removals = records
-    .filter((record) => record.engineRef.engine === kind && !present.has(record.id))
+    .filter(
+      (record) =>
+        record.engineRef.engine === kind &&
+        !present.has(record.id) &&
+        running?.has(record.id) !== true,
+    )
     .map((record) => record.id);
-  return { upserts, removals };
+  return { upserts, upsertTokens, removals };
 }
 
 /** What one reconcile did, for the caller's log line and a test's assertion. */
@@ -81,7 +100,22 @@ export async function reconcileSessions(deps: {
   kind: string;
   scan: () => Promise<readonly AgentSessionInfo[]>;
   store: SessionStore;
-  tokens: ReadonlyMap<string, string>;
+  /**
+   * The tokens of the sessions already indexed, keyed by Morse id — used only
+   * when the store itself cannot report them (`store.tokens` absent). The store
+   * is preferred: it is where the last write kept them, so its map is the one
+   * that survives restarts, while a caller-held map is the host's own memory of
+   * it. Without either, every reported session is treated as changed, which is
+   * correct — only not cheap.
+   */
+  tokens?: ReadonlyMap<string, string>;
+  /**
+   * Sessions this process is running. Their rows are never removed by a report
+   * that does not mention them: an engine may not have flushed a live session to
+   * the storage the report reads, and a session in front of the reader cannot be
+   * deleted by a snapshot taken mid-write.
+   */
+  running?: ReadonlySet<string>;
   /**
    * Called once per upsert and per removal, so a caller can report progress. A
    * first reconcile of a large catalog is otherwise a silent ten thousand awaits.
@@ -90,7 +124,8 @@ export async function reconcileSessions(deps: {
 }): Promise<ReconcileResult> {
   const reported = await deps.scan();
   const records = await deps.store.list();
-  const plan = planReconcile(deps.kind, reported, records, deps.tokens);
+  const tokens = (await deps.store.tokens?.()) ?? deps.tokens ?? new Map<string, string>();
+  const plan = planReconcile(deps.kind, reported, records, tokens, deps.running);
   const total = plan.upserts.length + plan.removals.length;
   let done = 0;
   const tick = (): void => {
@@ -98,7 +133,7 @@ export async function reconcileSessions(deps: {
     deps.onProgress?.(done, total);
   };
   for (const record of plan.upserts) {
-    await deps.store.write(record);
+    await deps.store.write(record, plan.upsertTokens.get(record.id));
     tick();
   }
   for (const id of plan.removals) {

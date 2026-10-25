@@ -28,9 +28,13 @@ Morse started as a _vibe-coded prototype_, **but not anymore**. I fell in love w
 
 ## Highlights
 
-- **Multiple sessions across multiple projects** — one `pi` process per session, kept warm (LRU), alive while
-  you switch projects or reload the page. An **In progress** section lifts the sessions working right now, and
-  a refresh reattaches and replays the transcript.
+- **Two engines, one session list** — pi and OpenCode drive the same sidebar, transcript and tabs. A session's
+  id belongs to Morse and records which engine holds its conversation, so reopening it returns to that engine.
+  pi is the default; `MORSE_ENGINE=opencode` / `morse.engine` starts new sessions on OpenCode when it is
+  installed or a server is configured.
+- **Multiple sessions across multiple projects** — one gateway per session, kept warm (LRU), alive while you
+  switch projects or reload the page. An **In progress** section lifts the sessions working right now, and a
+  refresh reattaches and replays the transcript.
 - **A real transcript** — markdown with highlighted, copyable code blocks; tool calls as a compact tree by
   default (one summary line per turn, steps and their files nested under it — the always-open timeline is one
   toggle away); thinking that streams as it arrives; paged history for long sessions.
@@ -46,8 +50,9 @@ Morse started as a _vibe-coded prototype_, **but not anymore**. I fell in love w
   and pasted images everywhere; browser uploads land next to the session and ride as `@mentions`.
 - **`@mention` anything** — a gitignore-aware picker for files _and_ directories (`@docs/` drills in), opened
   with `+` or by typing `@`, with markdown formatting in your own prompts too.
-- **Native interactions in VS Code** — pi's interaction requests become QuickPick/InputBox there, and are
-  rendered inline in the browser.
+- **Native interactions in VS Code** — single-value interaction requests become QuickPick/InputBox there, and
+  are rendered inline in the browser. A multi-field **form** is always rendered in the panel, because no native
+  dialog can express it.
 - **Git, files and a terminal where there is no editor** — on the browser host, a git panel (commit list,
   branch graph, uncommitted changes), an Explorer and a terminal, with read-only previews, diff views, and
   line ranges you drag to pin into your next message. VS Code keeps its own Explorer, editor, Source Control
@@ -66,8 +71,11 @@ Morse started as a _vibe-coded prototype_, **but not anymore**. I fell in love w
 - Node.js 20+ (developed on 24) and npm 10+.
 - The `pi` CLI installed and authenticated (`pi --version`), or a path to it via `morse.pi.path` /
   `MORSE_PI_PATH`.
+- *Optional:* OpenCode for the second engine — its binary on `PATH`, or a running `opencode serve` plus its
+  password (`MORSE_OPENCODE_URL` / `morse.opencode.url`). A machine with neither simply stays pi-only.
 - VS Code 1.138+ for the extension host.
-- Morse reuses your existing pi configuration: models, credentials, tools and sessions under `~/.pi`.
+- Morse reuses each engine's own configuration: pi's models, credentials, tools and sessions under `~/.pi`;
+  OpenCode's providers, agents and sessions in its server.
 
 ## Install
 

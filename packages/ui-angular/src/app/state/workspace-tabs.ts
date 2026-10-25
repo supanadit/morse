@@ -846,6 +846,10 @@ export class WorkspaceTabs {
    * list but not this strip, and a host with no tab strip — VS Code — gives the
    * reader no way to close the orphan, so it would sit there, counted, forever.
    *
+   * This is also how a persisted layout survives the id scheme changing: a tab
+   * stored under an engine's own id names nothing the host knows any more, so it
+   * is dropped here instead of being reopened as a different conversation.
+   *
    * `known` is every session the host still has (see `MorseService.sessions`). The
    * session in front and every draft are kept whatever the list says: the list can
    * lag the very session the reader just opened, and a draft is not a session yet.

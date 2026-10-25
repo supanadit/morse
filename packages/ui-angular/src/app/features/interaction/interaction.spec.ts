@@ -21,7 +21,7 @@ interface Fake {
 function render(
   request: InteractionRequest | null,
   nativeDialogs = false,
-): { host: HTMLElement; fake: Fake } {
+): { host: HTMLElement; fake: Fake; fixture: ReturnType<typeof TestBed.createComponent<InteractionPanel>> } {
   const fake: Fake = {
     pendingInteraction: signal(request).asReadonly(),
     capabilities: signal({ nativeDialogs } as HostCapabilities).asReadonly(),
@@ -34,7 +34,7 @@ function render(
   });
   const fixture = TestBed.createComponent(InteractionPanel);
   fixture.detectChanges();
-  return { host: fixture.nativeElement as HTMLElement, fake };
+  return { host: fixture.nativeElement as HTMLElement, fake, fixture };
 }
 
 /**
@@ -63,6 +63,32 @@ describe('parseOption', () => {
     expect(parseOption({ value: 'a', label: '3.5 days left' }, 0).label).toBe('3.5 days left');
   });
 });
+
+const formRequest: InteractionRequest = {
+  requestId: 'form-1',
+  kind: 'form',
+  title: 'Set up the task',
+  message: 'Answer what applies.',
+  fields: [
+    { key: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Ada' },
+    { key: 'retries', label: 'Retries', type: 'integer', min: 1, max: 9, defaultValue: 3 },
+    {
+      key: 'reason',
+      label: 'Why retry?',
+      type: 'text',
+      when: { field: 'name', equals: 'Ada' },
+    },
+    {
+      key: 'targets',
+      label: 'Targets',
+      type: 'multiselect',
+      options: [
+        { value: 'linux', label: 'Linux' },
+        { value: 'macos', label: 'macOS' },
+      ],
+    },
+  ],
+};
 
 const selectRequest: InteractionRequest = {
   requestId: 'r1',
@@ -166,6 +192,126 @@ describe('InteractionPanel', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
     expect(fake.respond).toHaveBeenCalledWith({ requestId: 'r1', cancelled: true });
+  });
+
+  it('renders a form even where the host answers other kinds natively', () => {
+    const { host } = render(formRequest, true);
+    expect(host.querySelector('.card')).not.toBeNull();
+    expect(host.querySelector('h2')?.textContent?.trim()).toBe('Set up the task');
+  });
+
+  it('renders one control per field type and hides a field until its condition holds', () => {
+    const { host, fixture } = render(formRequest);
+
+    // name (text), retries (integer, defaulted), targets (multiselect) — reason
+    // is conditional on name === 'Ada' and starts hidden.
+    expect(host.querySelectorAll('.form-field')).toHaveLength(3);
+    expect((host.querySelector('#form-name') as HTMLInputElement).placeholder).toBe('Ada');
+    expect((host.querySelector('#form-retries') as HTMLInputElement).value).toBe('3');
+    expect(host.querySelector('#form-targets')).toBeNull();
+
+    const name = host.querySelector('#form-name') as HTMLInputElement;
+    name.value = 'Ada';
+    name.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(host.querySelector('#form-reason')).not.toBeNull();
+    expect([...host.querySelectorAll('.form-check')].map((row) => row.textContent?.trim())).toEqual([
+      'Linux',
+      'macOS',
+    ]);
+  });
+
+  it('holds Submit until a required field is answered, then sends every keyed value', () => {
+    const { host, fake, fixture } = render(formRequest);
+
+    const submit = (): HTMLButtonElement =>
+      host.querySelector('.form .actions button:not(.secondary)') as HTMLButtonElement;
+    expect(submit().disabled).toBe(true);
+    expect(host.querySelector('.note')?.textContent).toContain('Name is required.');
+
+    const name = host.querySelector('#form-name') as HTMLInputElement;
+    name.value = 'Ada';
+    name.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(submit().disabled).toBe(false);
+
+    // The conditional field is now visible but optional, so it is not required.
+    expect(host.querySelector('.note')).toBeNull();
+
+    submit().click();
+    expect(fake.respond).toHaveBeenCalledWith({
+      requestId: 'form-1',
+      values: { name: 'Ada', retries: 3 },
+    });
+  });
+
+  it('checks ranges, integers and patterns locally before sending', () => {
+    const { host, fixture } = render({
+      requestId: 'form-2',
+      kind: 'form',
+      title: 'Tune',
+      fields: [
+        { key: 'retries', label: 'Retries', type: 'integer', min: 2, max: 5 },
+        { key: 'slug', label: 'Slug', type: 'text', pattern: '^[a-z-]+$' },
+      ],
+    });
+    const retries = host.querySelector('#form-retries') as HTMLInputElement;
+    const slug = host.querySelector('#form-slug') as HTMLInputElement;
+
+    retries.value = '1';
+    retries.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(host.querySelector('.note')?.textContent).toContain('at least 2');
+
+    retries.value = '3';
+    retries.dispatchEvent(new Event('input'));
+    slug.value = 'Not A Slug';
+    slug.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(host.querySelector('.note')?.textContent).toContain('expected format');
+
+    slug.value = 'a-slug';
+    slug.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(host.querySelector('.note')).toBeNull();
+  });
+
+  it('sends multiselect answers as a list, and cancel as a cancellation', () => {
+    const { host, fake, fixture } = render({
+      requestId: 'form-3',
+      kind: 'form',
+      title: 'Targets',
+      fields: [
+        {
+          key: 'targets',
+          label: 'Targets',
+          type: 'multiselect',
+          options: [
+            { value: 'linux', label: 'Linux' },
+            { value: 'macos', label: 'macOS' },
+          ],
+        },
+      ],
+    });
+    const boxes = [...host.querySelectorAll('.form-check input')] as HTMLInputElement[];
+    boxes[0]!.click();
+    boxes[1]!.click();
+    fixture.detectChanges();
+    (host.querySelector('.form .actions button:not(.secondary)') as HTMLButtonElement).click();
+    expect(fake.respond).toHaveBeenCalledWith({
+      requestId: 'form-3',
+      values: { targets: ['linux', 'macos'] },
+    });
+  });
+
+  it('cancels a form without values, which is not the same as submitting', () => {
+    const { host, fake } = render(formRequest);
+    (host.querySelector('.form .actions button.secondary') as HTMLButtonElement).click();
+    expect(fake.respond).toHaveBeenCalledWith({ requestId: 'form-1', cancelled: true });
+    expect(fake.respond).not.toHaveBeenCalledWith(
+      expect.objectContaining({ values: expect.anything() }),
+    );
   });
 
   /**

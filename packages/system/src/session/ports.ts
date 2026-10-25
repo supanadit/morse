@@ -80,8 +80,28 @@ export interface SessionStore {
   list(): Promise<MorseSessionRecord[]>;
   /** One session by Morse id. Undefined when it is gone (deleted outside Morse). */
   read(id: string): Promise<MorseSessionRecord | undefined>;
-  /** Writes (or replaces) one session. Idempotent: the same record twice is one write. */
-  write(record: MorseSessionRecord): Promise<void>;
+  /**
+   * Writes (or replaces) one session. Idempotent: the same record twice is one
+   * write.
+   *
+   * `token` is the engine-reported marker (`AgentSessionInfo.token`) the record
+   * was built from, kept *beside* the record rather than inside it: the record
+   * stays free of engine storage detail, and a reconcile compares against the
+   * last report instead of re-reading every transcript. Optional: a store that
+   * cannot keep tokens (or a write of a Morse-only change, like a rename)
+   * omits it, and reconcile simply considers that session changed on the next
+   * report.
+   */
+  write(record: MorseSessionRecord, token?: string): Promise<void>;
+  /**
+   * The tokens last reported for each session, keyed by Morse id. Optional on
+   * purpose: a store that keeps no tokens can never say "unchanged", so a
+   * reconcile without it re-writes everything it is given — correct, just not
+   * cheap. The map must survive restarts for the skipping to pay off, which is
+   * what makes the file store carry tokens in its index rather than deriving
+   * them at read time.
+   */
+  tokens?(): Promise<ReadonlyMap<string, string>>;
   /**
    * Removes one session from the index. Optional on purpose: a store whose
    * backing files live somewhere Morse must not write omits it, and the delete

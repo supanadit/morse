@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { createPiRpcAdapter, type PiRpcAdapter } from '@morse/integration-pi';
-import { SessionRegistry, type MorseLogger } from '@morse/system';
+import { AgentRouter, SessionRegistry, type MorseLogger } from '@morse/system';
 import type { ProjectPolicy } from '@morse/system';
 import { SessionTranscriptStore } from '@morse/system';
 import { HealthController } from './internal/http/health.controller.js';
@@ -8,11 +8,12 @@ import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
 import { ServerTerminalBackend } from './internal/terminal/terminal.service.js';
 import { ServerLanguageServers } from './internal/lsp/lsp.service.js';
-import { createSessionRegistry, MorseRegistryLifecycle } from './internal/registry.js';
+import { createAgentRouter, createSessionRegistry, MorseRegistryLifecycle } from './internal/registry.js';
 import { MorseGateway } from './internal/ws/morse.gateway.js';
 import { MorseSessionFactory } from './internal/ws/session-factory.service.js';
 import { loadConfig, type MorseServerConfig } from './app/config.js';
 import {
+  MORSE_AGENT_ROUTER,
   MORSE_CONFIG,
   MORSE_LOGGER,
   MORSE_PI_ADAPTER,
@@ -61,13 +62,22 @@ import {
       inject: [MORSE_CONFIG, MORSE_LOGGER],
     },
     {
-      provide: MORSE_SESSION_REGISTRY,
+      provide: MORSE_AGENT_ROUTER,
       useFactory: (
         adapter: PiRpcAdapter,
         config: MorseServerConfig,
         logger: MorseLogger,
-      ): SessionRegistry => createSessionRegistry(adapter, config, logger),
+      ): Promise<AgentRouter> => createAgentRouter(adapter, config, logger),
       inject: [MORSE_PI_ADAPTER, MORSE_CONFIG, MORSE_LOGGER],
+    },
+    {
+      provide: MORSE_SESSION_REGISTRY,
+      useFactory: (
+        router: AgentRouter,
+        config: MorseServerConfig,
+        logger: MorseLogger,
+      ): SessionRegistry => createSessionRegistry(router, config, logger),
+      inject: [MORSE_AGENT_ROUTER, MORSE_CONFIG, MORSE_LOGGER],
     },
     {
       provide: MORSE_TRANSCRIPT_STORE,

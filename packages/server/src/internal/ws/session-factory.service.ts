@@ -1,5 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ChatService, SessionRegistry, UnsupportedByHostError, type MorseLogger } from '@morse/system';
+import {
+  AgentRouter,
+  ChatService,
+  SessionRegistry,
+  UnsupportedByHostError,
+  type AgentExtras,
+  type MorseLogger,
+} from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
 import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/integration-pi';
 import {
@@ -13,6 +20,7 @@ import type { MorseServerConfig } from '../../app/config.js';
 import {
   MORSE_CONFIG,
   MORSE_LOGGER,
+  MORSE_AGENT_ROUTER,
   MORSE_PI_ADAPTER,
   MORSE_PROJECT_POLICY,
   MORSE_SESSION_REGISTRY,
@@ -55,7 +63,8 @@ import { canSelfUpdate, performSelfUpdate } from '../self-update/self-update.js'
  */
 @Injectable()
 export class MorseSessionFactory {
-  private readonly mcpWatch: McpWatcher;
+  private readonly mcpWatch: McpWatcher | undefined;
+  private readonly extras: AgentExtras | undefined;
 
   constructor(
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
@@ -65,21 +74,31 @@ export class MorseSessionFactory {
     @Inject(MORSE_CONFIG) private readonly config: MorseServerConfig,
     @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
     @Inject(ServerLanguageServers) private readonly lsp: ServerLanguageServers,
+    @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
     @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
   ) {
+    // The default engine's administration, not pi's unconditionally: with
+    // OpenCode selected as the new-session engine, this host has no MCP editor,
+    // no prompt editor and no pi update notice to offer.
+    this.extras = this.router.defaultExtras();
     // One watcher for the whole host: every connected client subscribes, so a
     // config edited in a terminal (or by another window) reaches all of them.
-    // It polls nothing until a controller is subscribed.
-    this.mcpWatch = new McpWatcher({
-      signature: (cwd) => this.pi.mcp.configSignature(cwd),
-      // The global file always; a project file only while one of its sessions is
-      // warm — exactly when the indicator can show it.
-      cwds: () =>
-        this.registry
-          .hotKeys()
-          .map((key) => this.registry.stateOf(key)?.workspace.cwd ?? '')
-          .filter((cwd) => cwd.length > 0),
-    });
+    // It polls nothing until a controller is subscribed, and it does not exist at
+    // all when the engine keeps no MCP config to watch.
+    const mcp = this.extras?.mcp;
+    this.mcpWatch =
+      mcp === undefined
+        ? undefined
+        : new McpWatcher({
+            signature: (cwd) => mcp.configSignature(cwd),
+            // The global file always; a project file only while one of its
+            // sessions is warm — exactly when the indicator can show it.
+            cwds: () =>
+              this.registry
+                .hotKeys()
+                .map((key) => this.registry.stateOf(key)?.workspace.cwd ?? '')
+                .filter((cwd) => cwd.length > 0),
+          });
   }
 
   capabilities(): HostCapabilities {
@@ -138,15 +157,14 @@ export class MorseSessionFactory {
       // the sidebar can say when a newer Morse is out. A host without it stays
       // quiet; this one is on unless `MORSE_UPDATE_CHECK=0` says otherwise.
       updateCheck: this.config.updateCheck,
-      // The same notice covers pi itself: the version this host runs, so the
-      // frontend can compare it against the published one.
-      piVersion: this.pi.version(),
-      // Managing MCP servers runs the `pi` CLI, so this host offers it only when
-      // it found one. A host without it hides the affordance.
-      mcp: this.pi.describeCli() !== undefined,
-      // Editing prompt templates is plain file I/O into pi's prompt directories,
-      // which this host already owns. The editor works without the pi CLI.
-      promptEditor: true,
+      // The same notice covers the engine itself: the version this host runs, so
+      // the frontend can compare it against the published one.
+      piVersion: this.extras?.version?.(),
+      // Managing MCP servers needs both a config to edit and the CLI that reads
+      // it; a harness that supplies neither (OpenCode) hides the affordance.
+      mcp: this.extras?.mcp !== undefined && this.extras.cli !== undefined,
+      // Editing prompt templates needs an engine that loads them from files.
+      promptEditor: this.extras?.prompts !== undefined,
       // One-click self-update: only when the operator opted in
       // (`MORSE_SELF_UPDATE=1`). The frontend turns the footer's update notice into
       // a button when this is set; the command itself re-checks the install and
@@ -159,7 +177,7 @@ export class MorseSessionFactory {
     const services: HostSessionServices = {
       registry: this.registry,
       chat: new ChatService({ agent: this.registry, logger: this.logger }),
-      mcpWatch: this.mcpWatch,
+      ...(this.mcpWatch === undefined ? {} : { mcpWatch: this.mcpWatch }),
     };
 
     return new HostSessionController({
@@ -398,8 +416,9 @@ export class MorseSessionFactory {
         // `scope: 'global'` is the empty-session view: no project, so no session
         // is required and only the user's `mcp.json` is read.
         const cwd = args?.scope === 'global' ? undefined : this.requireWritableCwd(context);
+        const mcp = this.requireMcp();
         try {
-          return await this.pi.mcp.status(cwd);
+          return await mcp.status(cwd);
         } catch (error: unknown) {
           return { servers: [], errors: [describeError(error)] };
         }
@@ -407,7 +426,7 @@ export class MorseSessionFactory {
       case 'mcpAdd': {
         const input = parseMcpServerInput(args);
         const cwd = input.scope === 'project' ? this.requireWritableCwd(context) : undefined;
-        return this.pi.mcp.add(input, cwd);
+        return this.requireMcp().add(input, cwd);
       }
       case 'mcpInspect': {
         // Probing spawns the server, so its directory is policy-checked like a
@@ -419,6 +438,7 @@ export class MorseSessionFactory {
         if (spec.cwd === undefined && cwd.length > 0) {
           spec.cwd = cwd;
         }
+        this.requireMcp();
         return this.pi.inspector.inspect(spec, {
           cwd: spec.cwd ?? this.registry.defaultWorkspace.cwd,
         });
@@ -426,12 +446,12 @@ export class MorseSessionFactory {
       case 'mcpRemove': {
         const scope = mcpScope(args);
         const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
-        return this.pi.mcp.remove(stringArg(args, 'name'), cwd, scope);
+        return this.requireMcp().remove(stringArg(args, 'name'), cwd, scope);
       }
       case 'mcpSetEnabled': {
         const scope = mcpScope(args);
         const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
-        return this.pi.mcp.setEnabled(
+        return this.requireMcp().setEnabled(
           stringArg(args, 'name'),
           args?.enabled === true,
           cwd,
@@ -443,18 +463,18 @@ export class MorseSessionFactory {
         // process (mcp.json, settings, skills, prompts), the same decision pi's
         // own prompt writes. Nothing else about the project is touched.
         const cwd = this.requireWritableCwd(context);
-        return this.pi.mcp.trustProject(cwd);
+        return this.requireMcp().trustProject(cwd);
       }
       case 'promptTemplates': {
         // The user's prompts, plus this project's once it is trusted. No session
         // is required: with no directory, the user templates still list.
-        return this.pi.prompts.list(this.optionalCwd(context, args));
+        return this.requirePrompts().list(this.optionalCwd(context, args));
       }
       case 'promptTemplateSave': {
-        return this.pi.prompts.save(parsePromptTemplateInput(args), this.optionalCwd(context, args));
+        return this.requirePrompts().save(parsePromptTemplateInput(args), this.optionalCwd(context, args));
       }
       case 'promptTemplateDelete': {
-        return this.pi.prompts.delete(
+        return this.requirePrompts().delete(
           stringArg(args, 'name'),
           promptScope(args),
           this.optionalCwd(context, args),
@@ -518,6 +538,24 @@ export class MorseSessionFactory {
    * The controller hands in what the client is viewing; the registry's active
    * session is only a fallback for a host command issued without one.
    */
+  /** The MCP port, or a refusal when the selected engine has no MCP config. */
+  private requireMcp(): NonNullable<AgentExtras['mcp']> {
+    const mcp = this.extras?.mcp;
+    if (mcp === undefined) {
+      throw new UnsupportedByHostError('The selected agent engine has no MCP administration.');
+    }
+    return mcp;
+  }
+
+  /** The prompt-template port, or a refusal for an engine without one. */
+  private requirePrompts(): NonNullable<AgentExtras['prompts']> {
+    const prompts = this.extras?.prompts;
+    if (prompts === undefined) {
+      throw new UnsupportedByHostError('The selected agent engine has no prompt templates.');
+    }
+    return prompts;
+  }
+
   private requireWritableCwd(context?: HostCommandContext): string {
     const cwd = context?.cwd ?? this.activeCwd();
     if (!cwd) {

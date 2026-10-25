@@ -23,6 +23,29 @@ export function readPiAdapterConfig(): PiRpcAdapterConfig {
   };
 }
 
+/** The engine a new session starts in; undefined leaves the host's default (pi). */
+export function readDefaultEngine(): string | undefined {
+  const value = vscode.workspace.getConfiguration('morse').get<string>('engine', '').trim();
+  return value.length > 0 ? value : undefined;
+}
+
+/**
+ * How to reach OpenCode. A URL attaches to a server the user runs; without one,
+ * the path (or PATH) decides whether Morse spawns its own. Empty everything
+ * means "not installed", and the window stays pi-only.
+ */
+export function readOpenCodeConfig(): { url?: string; password?: string; bin?: string } {
+  const configuration = vscode.workspace.getConfiguration('morse');
+  const url = configuration.get<string>('opencode.url', '').trim();
+  const password = configuration.get<string>('opencode.password', '').trim();
+  const bin = configuration.get<string>('opencode.path', '').trim();
+  return {
+    ...(url.length > 0 ? { url } : {}),
+    ...(password.length > 0 ? { password } : {}),
+    ...(bin.length > 0 ? { bin } : {}),
+  };
+}
+
 /** How many `pi` processes the window keeps alive at once. */
 export function readHotLimit(): number {
   const value = vscode.workspace.getConfiguration('morse').get<number>('sessions.hotLimit', 4);

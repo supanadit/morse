@@ -52,15 +52,15 @@ export interface SessionRegistryDeps {
   catalog: SessionCatalog;
   /** Workspace for sessions started without an explicit project. */
   defaultWorkspace: WorkspaceRef;
-  /** How many `pi` processes stay alive at once (least recently used first). */
+  /** How many agent sessions stay hot at once (least recently used first). */
   hotLimit?: number;
   logger: MorseLogger;
   /**
-   * The harness behind this registry, when the host has one. Used only by
-   * `reconcile()`, which needs the engine's optional `scan()`; a registry built
-   * without it simply cannot reconcile.
+   * The engines behind this registry, when the host has several. Used only by
+   * `reconcile()`, which needs each engine's optional `scan()`; a registry built
+   * without them simply cannot reconcile.
    */
-  engine?: SessionEngine;
+  engines?: readonly SessionEngine[];
 }
 
 const DEFAULT_HOT_LIMIT = 4;
@@ -349,31 +349,37 @@ export class SessionRegistry {
   }
 
   /**
-   * Merges what the harness says it already holds into Morse's session index.
+   * Merges what every installed engine says it already holds into Morse's
+   * session index, once per engine and scoped to its own kind.
    *
-   * The use case owns the *order* and the refusal; the engine owns the report and
-   * the store owns the writes. `undefined` means this registry was built without
-   * an engine that can report, which is deliberately distinct from a report that
-   * found nothing.
+   * The use case owns the *order* and the refusal; each engine owns its report,
+   * and the store owns the writes. An empty result means no engine can report —
+   * deliberately distinct from reports that found nothing.
    */
   async reconcile(options: {
     store: SessionStore;
-    tokens: ReadonlyMap<string, string>;
+    /** Used only when the store cannot report its own tokens. */
+    tokens?: ReadonlyMap<string, string>;
     onProgress?: (done: number, total: number) => void;
-  }): Promise<ReconcileResult | undefined> {
-    const engine = this.deps.engine;
-    const scan = engine?.scan;
-    if (engine === undefined || scan === undefined) {
-      return undefined;
+  }): Promise<ReconcileResult[]> {
+    const results: ReconcileResult[] = [];
+    for (const engine of this.deps.engines ?? []) {
+      const scan = engine.scan;
+      if (scan === undefined) {
+        continue;
+      }
+      results.push(
+        await reconcileSessions({
+          kind: engine.kind,
+          // Bound, so `scan` keeps `this` when a harness overrides it as a method.
+          scan: () => scan.call(engine),
+          store: options.store,
+          ...(options.tokens === undefined ? {} : { tokens: options.tokens }),
+          ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
+        }),
+      );
     }
-    return reconcileSessions({
-      kind: engine.kind,
-      // Bound, so `scan` keeps `this` when a harness overrides it as a method.
-      scan: () => scan.call(engine),
-      store: options.store,
-      tokens: options.tokens,
-      ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
-    });
+    return results;
   }
 
   listSessions(): Promise<SessionSummary[]> {
@@ -423,7 +429,7 @@ export class SessionRegistry {
     return search.call(this.deps.catalog, query, limit);
   }
 
-  /** Projects are the directories pi has session buckets for. */
+  /** Projects are the directories the index holds sessions for. */
   async listProjects(sessions?: readonly SessionSummary[]): Promise<ProjectSummary[]> {
     const all = sessions ?? (await this.listSessions());
     // The list is paged per project, so counting only the sessions in it would

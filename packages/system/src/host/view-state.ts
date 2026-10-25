@@ -203,6 +203,21 @@ export function toInteractionRequest(request: AgentInteractionRequest): Interact
         value: request.value,
         language: request.language,
       };
+    case 'form':
+      return {
+        requestId: request.requestId,
+        kind: 'form',
+        title: request.title,
+        message: request.message,
+        fields: request.fields.map((field) => ({
+          ...field,
+          ...(field.options === undefined ? {} : { options: field.options.map((option) => ({ ...option })) }),
+          ...(field.when === undefined ? {} : { when: { ...field.when } }),
+          ...(field.defaultValue === undefined
+            ? {}
+            : { defaultValue: Array.isArray(field.defaultValue) ? [...field.defaultValue] : field.defaultValue }),
+        })),
+      };
   }
 }
 

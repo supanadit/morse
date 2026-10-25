@@ -3,10 +3,10 @@ import {
   type AgentGatewayFactory,
   type AgentSessionInfo,
 } from '@morse/agent';
-import type { AgentIntegration, MorseLogger, SessionCatalog } from '@morse/system';
+import type { AgentExtras, AgentIntegration, MorseLogger, SessionCatalog } from '@morse/system';
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
-import { PiMcp } from './pi-mcp.js';
-import { PiPrompts } from './pi-prompts.js';
+import { PiMcp, type McpConfigScope, type McpServerInput } from './pi-mcp.js';
+import { PiPrompts, type PromptScope, type PromptTemplateInput } from './pi-prompts.js';
 import { McpInspector } from './internal/mcp-client.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 import { resolvePi, resolvePiCli, readPiVersion, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
@@ -27,9 +27,7 @@ export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
   clientVersion?: string;
 }
 
-export interface PiRpcAdapter {
-  factory: AgentGatewayFactory;
-  catalog: SessionCatalog;
+export interface PiRpcAdapter extends AgentIntegration {
   /** pi's MCP configuration, read and written through the CLI and `mcp.json`. */
   mcp: PiMcp;
   /** pi's prompt templates, read and written as the `.md` files pi loads. */
@@ -78,6 +76,8 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
   readonly inspector: McpInspector;
   /** The unpaged catalog `scan()` reads, so a reconcile never mistakes a page for the whole. */
   private readonly scanCatalog: PiRpcSessionCatalog;
+  /** pi's host-side administration, behind the optional capability ports. */
+  readonly extras: AgentExtras;
   private cachedVersion: string | null | undefined;
 
   constructor(
@@ -108,6 +108,30 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
     });
     this.prompts = new PiPrompts({ env: config.env });
     this.inspector = new McpInspector({ clientVersion: config.clientVersion });
+    // Small wrappers rather than the classes themselves: the ports speak in
+    // `Record<string, unknown>` and `string` scopes, because `@morse/system` must
+    // not know pi's payload types. The casts live here, at the adapter edge.
+    this.extras = {
+      mcp: {
+        configSignature: (cwd) => this.mcp.configSignature(cwd),
+        status: (cwd) => this.mcp.status(cwd),
+        add: (input, cwd) => this.mcp.add(input as unknown as McpServerInput, cwd),
+        remove: (name, cwd, scope) =>
+          this.mcp.remove(name, cwd, scope as McpConfigScope | undefined),
+        setEnabled: (name, enabled, cwd, scope) =>
+          this.mcp.setEnabled(name, enabled, cwd, scope as McpConfigScope | undefined),
+        trustProject: (cwd) => Promise.resolve(this.mcp.trustProject(cwd)),
+      },
+      prompts: {
+        list: (cwd) => Promise.resolve(this.prompts.list(cwd)),
+        save: (input, cwd) =>
+          Promise.resolve(this.prompts.save(input as unknown as PromptTemplateInput, cwd)),
+        delete: (name, scope, cwd) =>
+          Promise.resolve(this.prompts.delete(name, scope as PromptScope, cwd)),
+      },
+      version: () => this.version(),
+      cli: this.describeCli(),
+    };
   }
 
   /**

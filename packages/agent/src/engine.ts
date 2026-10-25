@@ -75,6 +75,16 @@ export abstract class SessionEngine {
   get hasScan(): boolean {
     return typeof this.scan === 'function';
   }
+
+  /**
+   * Releases engine-wide resources when the host shuts down — a server Morse
+   * spawned, a shared event stream, a connection pool.
+   *
+   * Optional on purpose: an engine whose sessions each own their whole process
+   * (pi) has nothing engine-wide to release, and a host calling it must not
+   * require one. A harness that *did* start something shared overrides it.
+   */
+  dispose?(): Promise<void>;
 }
 
 /**

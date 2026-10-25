@@ -9,7 +9,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { InteractionRequest, SelectOption } from '@morse/protocol';
+import type { FormField, FormValue, InteractionRequest, SelectOption } from '@morse/protocol';
 import { MorseService } from '../../host/morse.service';
 import { EnterDirective } from '../../ui/enter.directive';
 
@@ -83,9 +83,30 @@ export class InteractionPanel {
 
   protected readonly request = this.morse.pendingInteraction;
   protected readonly value = signal('');
-  protected readonly visible = computed(
-    () => this.request() !== null && this.morse.capabilities()?.nativeDialogs !== true,
-  );
+  /** A form's answers, keyed by field. */
+  protected readonly formValues = signal<Record<string, FormValue>>({});
+  protected readonly visible = computed(() => {
+    const request = this.request();
+    if (request === null) {
+      return false;
+    }
+    // A form is the one kind a native-dialog host cannot answer itself (a
+    // QuickPick has no room for several fields), so it is always rendered here.
+    return request.kind === 'form' || this.morse.capabilities()?.nativeDialogs !== true;
+  });
+
+  /** The form's fields, in the order the agent asked them. */
+  protected readonly formFields = computed<FormField[]>(() => {
+    const request = this.request();
+    return request?.kind === 'form' ? request.fields : [];
+  });
+  /** Only the fields whose `when` condition holds for the answers so far. */
+  protected readonly visibleFormFields = computed<FormField[]>(() => {
+    const values = this.formValues();
+    return this.formFields().filter((field) => this.fieldVisible(field, values));
+  });
+  /** The first constraint an answer breaks, so Submit can stay disabled. */
+  protected readonly formError = computed<string | undefined>(() => this.validationError());
   /** The option rows as rendered, so the gutter number is never printed twice. */
   protected readonly options = computed(() =>
     this.optionsOf(this.request()).map((option, index) => parseOption(option, index)),
@@ -113,7 +134,9 @@ export class InteractionPanel {
     // whenever the field was empty, so an intentionally empty answer could never
     // be submitted. Seeding once keeps that possible.
     effect(() => {
-      this.value.set(this.prefillOf(this.request()));
+      const request = this.request();
+      this.value.set(this.prefillOf(request));
+      this.formValues.set(this.defaultsOf(request));
     });
 
     /*
@@ -136,6 +159,151 @@ export class InteractionPanel {
 
   protected choose(option: ParsedOption): void {
     this.respond({ value: option.value });
+  }
+
+  /** Seeds a form from each field's default, so a required value starts filled. */
+  private defaultsOf(request: InteractionRequest | null | undefined): Record<string, FormValue> {
+    if (request?.kind !== 'form') {
+      return {};
+    }
+    const values: Record<string, FormValue> = {};
+    for (const field of request.fields) {
+      if (field.defaultValue !== undefined) {
+        values[field.key] = field.defaultValue;
+      }
+    }
+    return values;
+  }
+
+  protected fieldValue(key: string): FormValue | undefined {
+    return this.formValues()[key];
+  }
+
+  /** A field's value as the text an input/select shows. */
+  protected textValue(field: FormField): string {
+    const value = this.fieldValue(field.key);
+    if (typeof value === 'string' || typeof value === 'number') {
+      return String(value);
+    }
+    return '';
+  }
+
+  /** A text/number input changed; an empty number means "no answer yet". */
+  protected setInput(field: FormField, event: Event): void {
+    const raw = (event.target as HTMLInputElement).value;
+    const value: FormValue | undefined =
+      raw.length === 0 ? undefined : field.type === 'number' || field.type === 'integer' ? Number(raw) : raw;
+    this.setField(field.key, value);
+  }
+
+  protected setChecked(key: string, event: Event): void {
+    this.setField(key, (event.target as HTMLInputElement).checked);
+  }
+
+  protected setSelect(key: string, event: Event): void {
+    const raw = (event.target as HTMLSelectElement).value;
+    this.setField(key, raw.length === 0 ? undefined : raw);
+  }
+
+  protected isSelected(key: string, option: string): boolean {
+    const value = this.fieldValue(key);
+    return Array.isArray(value) && value.includes(option);
+  }
+
+  protected toggleMulti(key: string, option: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    const current = this.fieldValue(key);
+    const selected = Array.isArray(current) ? [...current] : [];
+    const next = checked ? [...new Set([...selected, option])] : selected.filter((entry) => entry !== option);
+    this.setField(key, next.length === 0 ? undefined : next);
+  }
+
+  /** Submits every visible answer under its field key; cancel stays distinct. */
+  protected submitForm(): void {
+    if (this.formError() !== undefined) {
+      return;
+    }
+    const values: Record<string, FormValue> = {};
+    for (const field of this.visibleFormFields()) {
+      const value = this.fieldValue(field.key);
+      if (value !== undefined) {
+        values[field.key] = value;
+      }
+    }
+    this.respond({ values });
+    this.formValues.set({});
+  }
+
+  private setField(key: string, value: FormValue | undefined): void {
+    const values = { ...this.formValues() };
+    if (value === undefined) {
+      delete values[key];
+    } else {
+      values[key] = value;
+    }
+    this.formValues.set(values);
+  }
+
+  /** Whether a field is shown for the answers so far (`when` visibility). */
+  private fieldVisible(field: FormField, values: Record<string, FormValue>): boolean {
+    const when = field.when;
+    if (when === undefined) {
+      return true;
+    }
+    const current = values[when.field];
+    if (when.equals !== undefined && !sameValue(current, when.equals)) {
+      return false;
+    }
+    if (when.notEquals !== undefined && sameValue(current, when.notEquals)) {
+      return false;
+    }
+    if (when.in !== undefined && !when.in.some((option) => sameValue(current, option))) {
+      return false;
+    }
+    return true;
+  }
+
+  /** Every constraint a renderer can check locally; the first broken one. */
+  private validationError(): string | undefined {
+    const values = this.formValues();
+    for (const field of this.visibleFormFields()) {
+      const value = values[field.key];
+      if (field.required === true && isEmptyAnswer(value, field.type)) {
+        return `${field.label} is required.`;
+      }
+      if (value === undefined) {
+        continue;
+      }
+      if (field.type === 'number' || field.type === 'integer') {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+          return `${field.label} must be a number.`;
+        }
+        if (field.type === 'integer' && !Number.isInteger(value)) {
+          return `${field.label} must be a whole number.`;
+        }
+        if (field.min !== undefined && value < field.min) {
+          return `${field.label} must be at least ${field.min}.`;
+        }
+        if (field.max !== undefined && value > field.max) {
+          return `${field.label} must be at most ${field.max}.`;
+        }
+      }
+      if (field.type === 'text' && field.pattern !== undefined && typeof value === 'string') {
+        const pattern = safePattern(field.pattern);
+        if (pattern !== undefined && !pattern.test(value)) {
+          return `${field.label} is not in the expected format.`;
+        }
+      }
+      if (
+        field.type === 'select' &&
+        field.options !== undefined &&
+        typeof value === 'string' &&
+        !field.options.some((option) => option.value === value)
+      ) {
+        return `${field.label} must be one of the offered choices.`;
+      }
+    }
+    return undefined;
   }
 
   protected decide(confirmed: boolean): void {
@@ -163,11 +331,15 @@ export class InteractionPanel {
         return 'Answer';
       case 'editor':
         return 'Edit';
+      case 'form':
+        return 'Form';
     }
   }
 
   protected messageOf(request: InteractionRequest): string {
-    return request.kind === 'select' || request.kind === 'confirm' ? (request.message ?? '') : '';
+    return request.kind === 'select' || request.kind === 'confirm' || request.kind === 'form'
+      ? (request.message ?? '')
+      : '';
   }
 
   protected placeholderOf(request: InteractionRequest): string {
@@ -241,8 +413,10 @@ export class InteractionPanel {
         ? card.querySelector<HTMLElement>('.option')
         : request.kind === 'input' || request.kind === 'editor'
           ? card.querySelector<HTMLElement>('.field')
-          : // A confirmation: the safe choice, like `ConfirmDialog`.
-            card.querySelector<HTMLElement>('.actions button.secondary');
+          : request.kind === 'form'
+            ? card.querySelector<HTMLElement>('.form input, .form select, .form textarea')
+            : // A confirmation: the safe choice, like `ConfirmDialog`.
+              card.querySelector<HTMLElement>('.actions button.secondary');
     target?.focus();
   }
 
@@ -261,7 +435,12 @@ export class InteractionPanel {
     );
   }
 
-  private respond(partial: { value?: string; confirmed?: boolean; cancelled?: boolean }): void {
+  private respond(partial: {
+    value?: string;
+    confirmed?: boolean;
+    cancelled?: boolean;
+    values?: Record<string, FormValue>;
+  }): void {
     const request = this.request();
     if (!request) {
       return;
@@ -271,5 +450,39 @@ export class InteractionPanel {
 
   private optionsOf(request: InteractionRequest | null | undefined): SelectOption[] {
     return request?.kind === 'select' ? request.options : [];
+  }
+}
+
+/** Form-value equality for `when` conditions: primitives, or element-wise arrays. */
+function sameValue(left: FormValue | undefined, right: FormValue): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((entry, index) => entry === right[index]);
+  }
+  return left === right;
+}
+
+/** A missing answer: no value, an empty string, or an empty selection. */
+function isEmptyAnswer(value: FormValue | undefined, type: FormField['type']): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (type === 'boolean') {
+    return value !== true;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  return typeof value === 'string' && value.length === 0;
+}
+
+/** A malformed pattern is not the reader's problem; validation simply skips it. */
+function safePattern(source: string): RegExp | undefined {
+  try {
+    return new RegExp(source, 'u');
+  } catch {
+    return undefined;
   }
 }

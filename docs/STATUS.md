@@ -23,7 +23,9 @@ Morse **v0.24.0**. This page is the honest inventory of what ships. Everything e
   a run is in flight the same question also offers **Schedule Compact**: pi compacts by aborting whatever is
   running, so the compaction is armed instead and fires the moment that conversation settles — queued
   follow-ups included (`session/compact` with `schedule`).
-- pi's interaction requests: native QuickPick/InputBox in VS Code, rendered inline in the browser.
+- Interaction requests: native QuickPick/InputBox in VS Code for the single-value kinds, rendered inline in the
+  browser everywhere — and **forms** (several typed fields, constraints, conditional visibility) always rendered
+  in the panel, because no native dialog can express them.
 - Failures surface as notices (`error` message) instead of a dead panel.
 
 ### Model and thinking level
@@ -43,11 +45,26 @@ Morse **v0.24.0**. This page is the honest inventory of what ships. Everything e
 - A brand-new, empty panel probes an untouched pi spawn (pi `--no-session`) for the real model and command
   catalog, so the first picker is populated before any session exists.
 
+### Engines
+
+- **pi and OpenCode** drive the same sessions, sidebar and transcript. pi is the default new-session engine; set
+  `MORSE_ENGINE=opencode` (browser) or `morse.engine` (VS Code) to start there.
+- OpenCode registers itself when its binary is on `PATH` or `MORSE_OPENCODE_URL` / `morse.opencode.url` is set —
+  attaching to a running `opencode serve`, or spawning a private one (which stops with the host). A machine with
+  neither stays pi-only.
+- Each engine's sessions are listed, opened, forked and deleted through the same commands. Engine-only extras
+  (MCP administration, prompt templates, version notice) come from the selected engine: OpenCode has none, so
+  those affordances are absent rather than empty.
+
 ### Sessions and projects
 
-- One `pi` process per session, kept warm LRU-style (`MORSE_HOT_SESSIONS`, default 4), so switching projects or
-  reloading the page reattaches instead of respawning. A live session is a whole pi process (275–450 MB);
-  the cap is the number to size a box by.
+- A session id is **Morse's**, derived from the engine's own id (`deriveSessionId`), and is what the registry,
+  the transcript, the tabs and the wire use. Morse's index (`<data dir>/sessions/`) is the sidebar's source of
+  truth, so it keeps listing sessions when an engine's storage is unreadable, and reconciles what each engine
+  reports so a session started outside Morse still appears.
+- One gateway per session, kept warm LRU-style (`MORSE_HOT_SESSIONS`, default 4), so switching projects or
+  reloading the page reattaches instead of respawning. A pi session is a whole process (275–450 MB); an OpenCode
+  session is a view onto the shared server. The cap is the number to size a box by.
 - An **In progress** section lifts the sessions working right now, so several active sessions are visible at
   once instead of only the selected one (`session/activity`).
 - Project browser with a searchable filter, session search, activate, close (retire the process) and delete
@@ -159,12 +176,12 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 
 ## Not built yet
 
-- **A session Morse owns** — in progress. Session identity, title and the session index are still pi's:
-  `sessionKey` is pi's session file path, and the sidebar reads `~/.pi/agent/sessions`. The foundation for
-  Morse-owned records has landed in `@morse/system` (`MorseSessionRecord`, `SessionStore`, `SessionEngine`,
-  `abstract class Session`) but nothing keys on it yet. See
-  [`NOTES-AGENT-AGNOSTIC.md`](NOTES-AGENT-AGNOSTIC.md) for what is left and why.
-- **Session rename** — sessions are named by pi and only by pi; Morse has no rename path on the wire.
+- **Session rename** — a session is named by its engine (pi's session name, OpenCode's title). Morse displays
+  that title and derives one from the first prompt before the engine names it, but has no rename command.
+- **OpenCode-only gaps, by design** — no agent picker, no custom compaction instructions, no MCP/prompt-template
+  editor, and no automatic restart of a crashed owned server. Each is reported rather than simulated: a
+  compaction with instructions warns and compacts without them; an MCP or prompt command from the OpenCode
+  engine is refused.
 - **Editing files in the browser** — the preview is read-only on purpose. VS Code is the host with an editor;
   the browser host reads, quotes and diffs, but does not write.
 - **Staging, approving or rejecting changes as a set** — diffs are shown (tool-call diffs in the transcript,

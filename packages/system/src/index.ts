@@ -10,6 +10,8 @@ export * from './session/record.js';
 export * from './session/identity.js';
 export * from './session/ports.js';
 export * from './session/reconcile.js';
+export * from './session/file-store.js';
+export * from './session/agent-router.js';
 export * from './session/service.js';
 export * from './session/integration.js';
 

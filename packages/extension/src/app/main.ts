@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { createPiRpcAdapter, findOnPathBinary, type PiRpcAdapterConfig } from '@morse/integration-pi';
-import { ChatService, SessionRegistry } from '@morse/system';
+import { findOpenCodeBinary, openOpenCodeEngine } from '@morse/integration-opencode';
+import { AgentRouter, ChatService, FileSessionStore, SessionRegistry } from '@morse/system';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/system';
 import {
   FRONTEND_MANIFEST_FILE,
@@ -11,7 +13,14 @@ import {
   type FrontendManifest,
 } from '@morse/protocol';
 import { MorseChatViewProvider } from '../internal/vscode/chat-view-provider';
-import { readHotLimit, readPiAdapterConfig, readWorkspaceRef, readWorkspaceRoots } from '../internal/vscode/config';
+import {
+  readDefaultEngine,
+  readHotLimit,
+  readOpenCodeConfig,
+  readPiAdapterConfig,
+  readWorkspaceRef,
+  readWorkspaceRoots,
+} from '../internal/vscode/config';
 import { OutputChannelLogger } from '../internal/vscode/logger';
 import { VsCodeProjectPolicy } from '../internal/vscode/project-policy';
 import { VsCodeContextProvider } from '../internal/vscode/vscode-context-provider';
@@ -73,7 +82,8 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
   // The catalog deletes a session the VS Code way (workspace filesystem, into
   // the OS trash); the browser host keeps the adapter's default `unlink`.
   const piConfig = readPiAdapterConfig();
-  const env = await resolvePiEnv(piConfig, logger);
+  const openCodeConfig = readOpenCodeConfig();
+  const env = await resolveSpawnEnv(piConfig, openCodeConfig, logger);
   const adapter = createPiRpcAdapter(
     {
       ...piConfig,
@@ -88,12 +98,35 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
   );
   const workspace = readWorkspaceRef();
 
+  // Morse's index lives in the extension's *global* storage: the derived ids are
+  // the same in every window, and the sidebar should keep listing a session
+  // after another window created it. The shell layout stays per-workspace.
+  // OpenCode registers only when this window can reach it: a configured server,
+  // or a binary on PATH (including the login shell's, resolved above). A
+  // pi-only window never starts an OpenCode server.
+  const openCode = await openOpenCodeEngine({
+    logger,
+    ...openCodeConfig,
+    ...(env ? { env } : {}),
+    maxSessionsPerProject: piConfig.maxSessionsPerProject,
+  });
+  const defaultIsOpenCode = readDefaultEngine() === 'opencode' && openCode !== undefined;
+
+  const store = new FileSessionStore(join(context.globalStorageUri.fsPath, 'sessions'));
+  const router = new AgentRouter({ store, defaultWorkspace: workspace, logger });
+  router.register(adapter.engine, { catalog: adapter.catalog, default: !defaultIsOpenCode });
+  if (openCode !== undefined) {
+    router.register(openCode.engine, { catalog: openCode.catalog, default: defaultIsOpenCode });
+  }
+
+  const extras = router.defaultExtras();
   const sessions = new SessionRegistry({
-    factory: adapter.factory,
-    catalog: adapter.catalog,
+    factory: router,
+    catalog: router,
     defaultWorkspace: workspace,
     hotLimit: readHotLimit(),
     logger,
+    engines: router.registeredEngines(),
   });
   const chat = new ChatService({ agent: sessions, logger });
   const editor = new VsCodeContextProvider();
@@ -114,17 +147,27 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     logger,
     webviewRoot,
     frontend: frontendIdentity(manifest),
-    mcp: adapter.mcp,
+    ...(extras?.mcp === undefined ? {} : { mcp: extras.mcp }),
     inspector: adapter.inspector,
-    prompts: adapter.prompts,
-    mcpAvailable: adapter.describeCli() !== undefined,
-    piVersion: adapter.version(),
+    ...(extras?.prompts === undefined ? {} : { prompts: extras.prompts }),
+    mcpAvailable: extras?.mcp !== undefined && extras.cli !== undefined,
+    ...(extras?.version === undefined ? {} : { piVersion: extras.version() }),
     workbenchDataDir: workbenchDataDir(context),
   });
 
   context.subscriptions.push(
     logger,
     { dispose: () => void sessions.dispose() },
+    // Engine-wide resources (an owned OpenCode server, its stream) stop with the
+    // window; an attached server and pi's per-session processes are untouched by
+    // this — the registry above already disposed the sessions.
+    {
+      dispose: () => {
+        for (const engine of router.registeredEngines()) {
+          void engine.dispose?.();
+        }
+      },
+    },
     { dispose: detachTranscripts },
     vscode.window.registerWebviewViewProvider(MorseChatViewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
@@ -179,29 +222,45 @@ function describePi(adapter: { describe(): { source: string; command: string } }
 }
 
 /**
- * The environment the pi adapter resolves and spawns with.
+ * The environment the adapters resolve and spawn with.
  *
  * VS Code started from the Dock/launcher does not source the user's profile, so
- * a `pi` installed through nvm, asdf, volta or fnm is on the login shell's PATH
- * but not the extension host's — the setup screen then claims pi is missing
- * while it works in the integrated terminal. Only when pi is not already visible
- * do we pay for running the login shell, and an explicit `morse.pi.path` always
- * wins. The enriched PATH is handed to the adapter as `env`, so the spawned pi
- * finds its own `node` too.
+ * a `pi` (or `opencode`) installed through nvm, asdf, volta or fnm is on the
+ * login shell's PATH but not the extension host's — the setup screen then claims
+ * the agent is missing while it works in the integrated terminal. Only when an
+ * engine is not already visible do we pay for running the login shell, and an
+ * explicit path always wins. The enriched PATH is handed to both adapters, so a
+ * spawned agent finds its own `node` too.
  */
-async function resolvePiEnv(
-  config: Pick<PiRpcAdapterConfig, 'piPath'>,
+async function resolveSpawnEnv(
+  piConfig: Pick<PiRpcAdapterConfig, 'piPath'>,
+  openCodeConfig: { url?: string; bin?: string },
   logger: OutputChannelLogger,
 ): Promise<NodeJS.ProcessEnv | undefined> {
-  if (config.piPath !== undefined || findOnPathBinary('pi', process.env) !== undefined) {
+  const piVisible =
+    piConfig.piPath !== undefined || findOnPathBinary('pi', process.env) !== undefined;
+  const openCodeVisible =
+    openCodeConfig.url !== undefined ||
+    openCodeConfig.bin !== undefined ||
+    findOpenCodeBinary('opencode', process.env) !== undefined;
+  if (piVisible && openCodeVisible) {
     return undefined;
   }
   const path = await loginShellPath(process.env);
-  if (path === undefined || findOnPathBinary('pi', { ...process.env, PATH: path }) === undefined) {
+  if (path === undefined) {
     return undefined;
   }
-  logger.info('pi was not on the extension host PATH; using the login shell PATH instead');
-  return { ...process.env, PATH: path };
+  const enriched = { ...process.env, PATH: path };
+  const gainedPi = !piVisible && findOnPathBinary('pi', enriched) !== undefined;
+  const gainedOpenCode = !openCodeVisible && findOpenCodeBinary('opencode', enriched) !== undefined;
+  if (!gainedPi && !gainedOpenCode) {
+    return undefined;
+  }
+  logger.info(
+    `An agent was not on the extension host PATH; using the login shell PATH instead` +
+      `${gainedPi ? ' (pi)' : ''}${gainedOpenCode ? ' (opencode)' : ''}`,
+  );
+  return enriched;
 }
 
 function describeError(error: unknown): string {

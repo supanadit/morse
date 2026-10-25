@@ -426,8 +426,8 @@ export class HostSessionController {
         await this.guard(() => this.options.services.chat.abort(this.promptTarget()));
         return;
       case 'session/new':
-        // "New session" is an empty draft, not a spawn: no agent process, no
-        // session file, no navigator entry. The first prompt opens the actual
+        // "New session" is an empty draft, not a spawn: no engine session, no
+        // index row, no navigator entry. The first prompt opens the actual
         // session (see `prompt`). The optional cwd targets it — the browser
         // nav's "New session here" picks a project this way.
         await this.enterDraft(message.payload.cwd ? workspaceOf(message.payload.cwd) : undefined);
@@ -1072,9 +1072,10 @@ export class HostSessionController {
       // The transcript shows the message with its attachments: the pins and
       // images stay chips on the user item, whatever a later reload replays.
       this.options.transcripts.userPrompt(key, text, images, pins);
-      // A nameless session takes its title from the first message (pi's name, or
-      // the text the catalog derives), so refresh the navigator right away
-      // instead of leaving it on "New session" until the next list request.
+      // A nameless session takes its title from the first message (an engine may
+      // name it, or the catalog derives it from the text), so refresh the
+      // navigator right away instead of leaving it on "New session" until the
+      // next list request.
       void this.publishSessions();
     }
   }
@@ -1120,10 +1121,11 @@ export class HostSessionController {
 
   /**
    * Branches the conversation before a past user message without sending
-   * anything. pi's fork writes a new session file while the old branch stays
-   * resumable; the transcript re-homes onto the new, shorter branch and the
-   * forked prompt goes back to the composer, so the user continues from the
-   * fork point instead of retyping it.
+   * anything. A fork moves the conversation to a new engine session (a new
+   * harness id, hence a new Morse id) while the old branch stays resumable; the
+   * transcript re-homes onto the new, shorter branch and the forked prompt goes
+   * back to the composer, so the user continues from the fork point instead of
+   * retyping it.
    */
   private async forkPrompt(itemId: string): Promise<void> {
     const target = await this.forkBefore(itemId, 'fork');
@@ -1139,8 +1141,9 @@ export class HostSessionController {
         ...(target.pins ? { pins: target.pins } : {}),
       },
     });
-    // The fork is a new session (pi wrote a new file): surface it in the
-    // navigator now instead of waiting for a prompt to refresh the list.
+    // The fork is a new session (the engine moved to a new id, so the router
+    // derived a new one): surface it in the navigator now instead of waiting
+    // for a prompt to refresh the list.
     void this.publishSessions();
   }
 
@@ -1479,9 +1482,10 @@ export class HostSessionController {
         return;
       case 'agent/run-end':
         this.options.transcripts.apply(sessionKey, event);
-        // pi writes the session file at the first user message and the catalog
-        // derives its title from that text, so a finished run is the moment to
-        // replace the placeholder "New session" in the navigator.
+        // An engine persists and names a session at its first user message (pi
+        // writes the session file then, and the catalog derives the title from
+        // that text), so a finished run is the moment to replace the placeholder
+        // "New session" in the navigator.
         void this.publishSessions();
         return;
       case 'agent/fatal':
@@ -1558,7 +1562,10 @@ export class HostSessionController {
     request: AgentInteractionRequest,
   ): Promise<void> {
     const dialogs = this.options.dialogs;
-    if (!dialogs) {
+    // A form is multi-field: a QuickPick/InputBox cannot render it, so it always
+    // goes to the frontend, even in a host that answers every other kind
+    // natively. Those other kinds keep their native path below.
+    if (!dialogs || request.kind === 'form') {
       this.pendingInteractions.set(request.requestId, { sessionKey, request });
       this.syncInteraction();
       this.publishActivity();
@@ -1630,6 +1637,10 @@ export class HostSessionController {
           ? { requestId: request.requestId, cancelled: true }
           : { requestId: request.requestId, value };
       }
+      case 'form':
+        // Unreachable: a form is queued for the frontend above. A native-dialog
+        // host that somehow gets here cancels rather than guessing an answer.
+        return { requestId: request.requestId, cancelled: true };
     }
   }
 
@@ -1688,9 +1699,10 @@ export class HostSessionController {
         }
       }
       const known = new Set(sessions.map((session) => session.id));
-      // A session pi has not persisted yet is invisible in the catalog, so the
-      // list would be missing the very session the user just created. Fold the
-      // live ones in (id = registry key) so the list always matches reality.
+      // A session the engine has not persisted yet is invisible in the index, so
+      // the list would be missing the very session the user just created. Fold
+      // the live ones in (id = registry key, which is the Morse-derived id) so
+      // the list always matches reality.
       for (const key of this.options.services.registry.hotKeys()) {
         if (known.has(key)) {
           continue;
@@ -1822,11 +1834,11 @@ export class HostSessionController {
   }
 
   /**
-   * Title for a session pi has not persisted yet. pi names a session only when
-   * something calls `set_session_name`, and until the file exists the catalog
-   * cannot derive a title from the file either — so derive it from the first
-   * user message here, the same way the catalog does. A session must not stay
-   * "New session" once the user has said something.
+   * Title for a session the engine has not persisted yet. An engine may name a
+   * session only once something asks it to, and until its storage exists no
+   * report can derive a title either — so derive it from the first user message
+   * here, the same way a catalog does. A session must not stay "New session"
+   * once the user has said something.
    */
   private derivedTitle(key: string): string | undefined {
     for (const item of this.options.transcripts.items(key)) {
