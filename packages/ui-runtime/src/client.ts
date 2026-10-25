@@ -79,7 +79,13 @@ export interface MorseActions {
   refreshCommands(): void;
   /** Re-reads the model catalog so a model added while the host runs is visible. */
   refreshModels(): void;
+  /** Re-reads the modes a harness offers, so one added to its config is visible. */
+  refreshModes(): void;
   openProject(path: string): void;
+  /** Picks the engine a new session starts in; only meaningful on a draft. */
+  setEngine(kind: string): void;
+  /** Picks a mode for the draft or the running session. */
+  setMode(mode: string): void;
   setModel(provider: string, id: string): void;
   setThinkingLevel(level: ThinkingLevel): void;
   respond(response: InteractionResponse): void;
@@ -298,7 +304,10 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     requestProjects: () => send({ type: 'project/list', payload: {} }),
     refreshCommands: () => send({ type: 'commands/refresh', payload: {} }),
     refreshModels: () => send({ type: 'models/refresh', payload: {} }),
+    refreshModes: () => send({ type: 'modes/refresh', payload: {} }),
     openProject: (path) => send({ type: 'project/open', payload: { path } }),
+    setEngine: (kind) => send({ type: 'engine/set', payload: { kind } }),
+    setMode: (mode) => send({ type: 'mode/set', payload: { mode } }),
     setModel: (provider, id) => send({ type: 'model/set', payload: { provider, id } }),
     setThinkingLevel: (level) => send({ type: 'thinking/set', payload: { level } }),
     respond: (response) => send({ type: 'interaction/respond', payload: response }),

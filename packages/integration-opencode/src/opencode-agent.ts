@@ -11,6 +11,7 @@ import {
   type AgentHistoryPage,
   type AgentSelectRequest,
   type AgentInteractionResponse,
+  type AgentMode,
   type AgentSessionState,
   type ChatPin,
   type ModelRef,
@@ -22,6 +23,7 @@ import {
 } from '@morse/agent';
 import { AgentUnavailableError, UnsupportedByHostError, type MorseLogger } from '@morse/system';
 import type { OpenCodeApi } from './internal/client.js';
+import { defaultModeId, readAgentModes, readDefaultModel } from './internal/catalog.js';
 import { OpenCodeEventMapper, toTokenUsage } from './internal/event-mapping.js';
 import type { OpenCodeEvent, OpenCodeEventStream } from './internal/event-stream.js';
 import {
@@ -99,6 +101,8 @@ export interface OpenCodeAgentOptions {
   logger: MorseLogger;
   /** Attach to a persisted engine session instead of creating one. */
   sessionId?: string;
+  /** The mode a newly created session should start in. Ignored when attaching. */
+  mode?: string;
 }
 
 export class OpenCodeAgent extends Session {
@@ -143,6 +147,9 @@ export class OpenCodeAgent extends Session {
       options.sessionId === undefined
         ? await options.api.post<ApiSessionInfo>('/session', {
             location: { directory: options.workspace.cwd },
+            // An explicit choice; omitted means OpenCode applies its own
+            // configuration's default agent.
+            ...(options.mode === undefined ? {} : { agent: options.mode }),
           })
         : await options.api.get<ApiSessionInfo>(
             `/session/${encodeURIComponent(options.sessionId)}`,
@@ -154,7 +161,7 @@ export class OpenCodeAgent extends Session {
     // The catalog is a nicety: a server that cannot answer it still serves the
     // conversation, so a failure degrades the pickers instead of the session.
     const directory = session.location?.directory ?? options.workspace.cwd;
-    const [models, commands] = await Promise.all([
+    const [models, commands, modes] = await Promise.all([
       options.api
         .get<ApiModel[]>('/model', { directory })
         .catch((error: unknown): ApiModel[] => {
@@ -162,14 +169,30 @@ export class OpenCodeAgent extends Session {
           return [];
         }),
       readAvailableCommands(options.api, directory, options.logger),
+      readAgentModes(options.api, directory, options.logger),
     ]);
+    // A fresh session has no model until its first prompt, so read the one the
+    // server would pick. It may not be in the catalog a stale server returned;
+    // append it so the picker can name it.
+    const defaultModel =
+      session.model === undefined
+        ? await readDefaultModel(options.api, directory, options.logger)
+        : undefined;
+    const catalogModels =
+      defaultModel === undefined ||
+      models.some(
+        (model) =>
+          model.providerID === defaultModel.providerID && model.id === defaultModel.id,
+      )
+        ? models
+        : [...models, defaultModel];
 
     const agent = new OpenCodeAgent(
       options,
       session,
-      initialStateOf(session, options.workspace, models, commands),
+      initialStateOf(session, options.workspace, catalogModels, commands, modes, defaultModel),
     );
-    for (const model of models) {
+    for (const model of catalogModels) {
       agent.models.set(modelKey(model), model);
     }
     agent.attach();
@@ -314,6 +337,43 @@ export class OpenCodeAgent extends Session {
       model: { id: ref.id, providerID: ref.provider, variant },
     });
     this.mergeState({ thinkingLevel: level });
+    this.emitState(Date.now());
+  }
+
+  // ---------------------------------------------------------------- modes
+
+  /**
+   * Switches the session's agent. OpenCode owns the record, so the choice is
+   * sent there rather than kept as a Morse-only field; the state follows.
+   */
+  async setMode(mode: string): Promise<void> {
+    const offered = this.box.availableModes ?? [];
+    if (!offered.some((option) => option.id === mode)) {
+      throw new UnsupportedByHostError(
+        `The selected OpenCode configuration does not offer the "${mode}" mode.`,
+      );
+    }
+    await this.api.post(`/session/${encodeURIComponent(this.engineId)}/agent`, { agent: mode });
+    this.mergeState({ mode });
+    this.emitState(Date.now());
+  }
+
+  /**
+   * Re-reads the primary agents and the configured default. The current mode is
+   * kept even when the configuration no longer lists it: OpenCode may still have
+   * it on the session, and forcing another would change the conversation behind
+   * the reader's back.
+   */
+  async refreshModes(): Promise<void> {
+    const modes = await readAgentModes(this.api, this.box.workspace.cwd, this.log);
+    const patch: Partial<AgentSessionState> = { availableModes: modes };
+    if (this.box.mode === undefined) {
+      const mode = defaultModeId(modes);
+      if (mode !== undefined) {
+        patch.mode = mode;
+      }
+    }
+    this.mergeState(patch);
     this.emitState(Date.now());
   }
 
@@ -597,6 +657,11 @@ export class OpenCodeAgent extends Session {
     if (typeof session.title === 'string' && session.title.length > 0) {
       patch.sessionTitle = session.title;
     }
+    if (typeof session.agent === 'string' && session.agent.length > 0) {
+      // Another OpenCode client may have switched the agent (its Tab key); the
+      // server's record is the truth, and Morse follows it.
+      patch.mode = session.agent;
+    }
     if (apiModel !== undefined) {
       patch.model = toModelRef(apiModel);
       patch.availableThinkingLevels = thinkingLevelsOf(apiModel);
@@ -674,10 +739,12 @@ function initialStateOf(
   workspace: WorkspaceRef,
   models: readonly ApiModel[],
   commands: readonly AgentCommand[],
+  modes: readonly AgentMode[],
+  defaultModel: ApiModel | undefined,
 ): AgentSessionState {
   const apiModel =
     session.model === undefined
-      ? undefined
+      ? defaultModel
       : models.find(
           (model) =>
             model.providerID === session.model?.providerID && model.id === session.model?.id,
@@ -685,6 +752,11 @@ function initialStateOf(
   const model = apiModel === undefined ? modelRefOf(session.model) : toModelRef(apiModel);
   const usage = toTokenUsage(session.tokens);
   const directory = session.location?.directory;
+  // A session created without an agent has none on its record until the first
+  // prompt; report the default the configuration resolves so the picker has a
+  // current choice. A session that already names one keeps it even if the
+  // configuration no longer lists it.
+  const mode = session.agent ?? defaultModeId(modes);
   return {
     sessionId: session.id,
     ...(session.title === undefined ? {} : { sessionTitle: session.title }),
@@ -697,6 +769,8 @@ function initialStateOf(
     availableModels: toModelRefs(models),
     availableThinkingLevels: thinkingLevelsOf(apiModel),
     availableCommands: [...commands],
+    ...(mode === undefined ? {} : { mode }),
+    ...(modes.length === 0 ? {} : { availableModes: [...modes] }),
     streaming: false,
     ...(usage === undefined ? {} : { usage }),
     ...(typeof session.cost === 'number' && Number.isFinite(session.cost)

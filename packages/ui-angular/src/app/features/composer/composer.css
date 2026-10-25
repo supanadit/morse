@@ -645,6 +645,18 @@ textarea:focus-visible {
     justify-content: flex-end;
   }
 }
+/* Engine and mode join the model/thinking row on a draft. They may be the two
+   most important choices there, so they wrap before they truncate to nothing. */
+.engine-host,
+.mode-host {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+@container (max-width: 560px) {
+  .controls-metrics {
+    flex-wrap: wrap;
+  }
+}
 @container (max-width: 360px) {
   .thinking-host {
     display: none;

@@ -11,6 +11,18 @@ export interface ModelOption {
   input?: ModelInput[];
 }
 
+/**
+ * One named way of working a harness offers (OpenCode's plan/build agents).
+ * Optional on the view state: an engine with no modes (pi) reports none.
+ */
+export interface ModeOption {
+  id: string;
+  name: string;
+  description?: string;
+  /** True for the mode the harness resolves as its default. */
+  default?: boolean;
+}
+
 export type CommandSource = 'builtin' | 'extension' | 'prompt' | 'skill';
 
 /**

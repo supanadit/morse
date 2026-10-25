@@ -5,7 +5,7 @@ import type {
   NoticeLevel,
   ThinkingLevel,
 } from '@morse/agent';
-import { AgentUnavailableError } from '../errors.js';
+import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import type { PromptImage, PromptMode } from '@morse/agent';
 import type { ChatAgent, ChatAgentHolder, PromptOutcome } from './ports.js';
@@ -107,6 +107,15 @@ export class ChatService {
 
   async setThinkingLevel(level: ThinkingLevel, sessionKey?: string): Promise<void> {
     await this.chatAgent(sessionKey).setThinkingLevel(level);
+  }
+
+  /** Moves a session to another mode, when its harness offers any. */
+  async setMode(mode: string, sessionKey?: string): Promise<void> {
+    const agent = this.chatAgent(sessionKey);
+    if (agent.setMode === undefined) {
+      throw new UnsupportedByHostError('The selected agent engine has no modes to switch.');
+    }
+    await agent.setMode(mode);
   }
 
   /** Shrinks the conversation context (`/compact` in the TUI). */

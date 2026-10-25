@@ -159,9 +159,20 @@ export class HostSessionController {
   private sessionOffsets = new Map<string, number>();
   /** Catalog of a never-recording probe — fills the draft pickers. */
   private draftCatalog: AgentSessionState | undefined;
+  /**
+   * The engine the draft chose. Sticky across drafts in this host session;
+   * undefined means the host's configured default.
+   */
+  private draftEngine: string | undefined;
   /** Picks made in the draft, applied to the session the first prompt opens. */
   private draftModel: ModelRef | undefined;
   private draftThinking: ThinkingLevel | undefined;
+  /** The mode the first prompt opens in; consumed by that session. */
+  private draftMode: string | undefined;
+  /** True while a newly chosen engine's catalogs are being re-read. */
+  private loadingEngine = false;
+  /** Identifies the newest engine probe, so a stale answer cannot overwrite it. */
+  private engineRefresh = 0;
   private agentReady = false;
   private agentStarting = false;
   private agentError: string | undefined;
@@ -487,6 +498,15 @@ export class HostSessionController {
       case 'models/refresh':
         await this.refreshModels();
         return;
+      case 'modes/refresh':
+        await this.refreshModes();
+        return;
+      case 'engine/set':
+        await this.setEngine(message.payload.kind);
+        return;
+      case 'mode/set':
+        await this.setMode(message.payload.mode);
+        return;
       case 'project/list':
         await this.publishProjects();
         return;
@@ -713,26 +733,102 @@ export class HostSessionController {
     this.agentFailure = undefined;
   }
 
-  /** Fills the draft pickers from the registry's session-less probe. */
-  private async warmDraft(): Promise<void> {
+  /**
+   * Fills the draft pickers from the registry's session-less probe. A ticket is
+   * passed when a newly chosen engine triggered the read, so an older probe
+   * cannot land after the reader moved on; the engine/model comparison covers
+   * the initial probe and a model pick made while it was in flight.
+   */
+  private async warmDraft(ticket?: number): Promise<void> {
+    const engine = this.draftEngine;
+    const model = this.draftModel;
     try {
-      this.draftCatalog = await this.options.services.registry.draftDefaults(this.draftModel);
+      const catalog = await this.options.services.registry.draftDefaults(engine, model);
+      if (!this.draftProbeIsCurrent(ticket, engine, model)) {
+        return;
+      }
+      this.draftCatalog = catalog;
+      this.clearAgentFailure();
+      this.emitState();
     } catch (error: unknown) {
-      // The session-less probe is where a missing pi shows up on load. Without
-      // this the draft looked healthy (empty pickers) until the first prompt
-      // failed to spawn, and a reader with a restored ~/.pi — sessions in the
-      // sidebar, no binary on PATH — had no way to know the agent was gone.
+      if (!this.draftProbeIsCurrent(ticket, engine, model)) {
+        return;
+      }
+      // The session-less probe is where a missing engine shows up on load.
+      // Without this the draft looked healthy (empty pickers) until the first
+      // prompt failed to spawn, and a reader with sessions in the sidebar but no
+      // engine on PATH had no way to know the agent was gone.
       this.agentError = describeError(error);
       this.agentFailure = describeAgentFailure(error, this.options.agentHint);
-      this.options.logger.warn('Could not probe the draft model catalog', error);
+      this.options.logger.warn('Could not probe the draft catalog', error);
       this.emitState();
+    } finally {
+      if (ticket !== undefined) {
+        this.endEngineRefresh(ticket);
+      }
+    }
+  }
+
+  /** True while the answer still belongs to the draft the reader is looking at. */
+  private draftProbeIsCurrent(
+    ticket: number | undefined,
+    engine: string | undefined,
+    model: ModelRef | undefined,
+  ): boolean {
+    if (this.activeKey !== undefined || this.disposed) {
+      return false;
+    }
+    if (ticket !== undefined && ticket !== this.engineRefresh) {
+      return false;
+    }
+    return this.draftEngine === engine && this.draftModel === model;
+  }
+
+  /** Clears the engine-loading flag, unless a newer switch has taken it over. */
+  private endEngineRefresh(ticket: number): void {
+    if (ticket !== this.engineRefresh) {
       return;
     }
-    // The catalog lands a moment after the handshake; this refresh is what
-    // turns the disabled "no model" pickers on while the reader is looking.
-    if (this.activeKey === undefined && !this.disposed) {
-      this.emitState();
+    this.loadingEngine = false;
+    this.emitState();
+  }
+
+  /**
+   * Switches the empty session to another installed engine. Everything that
+   * belonged to the previous engine's catalog is dropped: its models, thinking
+   * levels and modes are not comparable, and the first prompt must open under
+   * the new engine's defaults until the reader picks again.
+   */
+  private async setEngine(kind: string): Promise<void> {
+    if (!this.isDraft || this.activeKey !== undefined) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          'The agent engine can only change before a session starts.',
+          Date.now(),
+        ),
+      );
+      return;
     }
+    if (!this.options.services.registry.engineKinds().includes(kind)) {
+      this.options.emit(
+        noticeMessage('warn', `The ${kind} agent engine is not installed here.`, Date.now()),
+      );
+      return;
+    }
+    if (this.draftEngine === kind) {
+      return;
+    }
+    this.draftEngine = kind;
+    this.draftModel = undefined;
+    this.draftThinking = undefined;
+    this.draftMode = undefined;
+    this.draftCatalog = undefined;
+    this.clearAgentFailure();
+    const ticket = ++this.engineRefresh;
+    this.loadingEngine = true;
+    this.emitState();
+    await this.warmDraft(ticket);
   }
 
   private async activateSession(sessionId: string, cwd?: string): Promise<void> {
@@ -757,6 +853,7 @@ export class HostSessionController {
     this.draftWorkspace = undefined;
     this.draftModel = undefined;
     this.draftThinking = undefined;
+    this.draftMode = undefined;
     await this.runSessionChange(
       () =>
         this.options.services.registry.activate(
@@ -1018,12 +1115,22 @@ export class HostSessionController {
     if (!this.agentReady) {
       if (this.isDraft) {
         // The draft becomes the session it was waiting for: a fresh, recorded
-        // one in the pending workspace — never a re-activation of whatever
-        // session another connection happens to have active.
+        // one in the chosen engine and mode, in the pending workspace — never a
+        // re-activation of whatever session another connection happens to have
+        // active.
+        const engine = this.draftEngine;
+        const draftMode = this.draftMode;
         await this.runSessionChange(() =>
-          this.options.services.registry.open({ workspace: this.draftWorkspace }),
+          this.options.services.registry.open({
+            workspace: this.draftWorkspace,
+            ...(engine === undefined ? {} : { engine }),
+            ...(draftMode === undefined ? {} : { mode: draftMode }),
+          }),
         );
         this.draftWorkspace = undefined;
+        // The mode belonged to the session just created; the next draft starts
+        // on the engine's own default. The engine choice stays sticky.
+        this.draftMode = undefined;
       } else {
         await this.openDefaultSession();
       }
@@ -1251,7 +1358,7 @@ export class HostSessionController {
       // re-probed for the model the reader just chose before a session exists —
       // unless that model was probed before, in which case its levels are
       // already known and land in the same frame as the pick.
-      const cached = this.options.services.registry.cachedDraftDefaults(picked);
+      const cached = this.options.services.registry.cachedDraftDefaults(this.draftEngine, picked);
       if (cached) {
         this.draftCatalog = cached;
         this.emitState();
@@ -1301,12 +1408,14 @@ export class HostSessionController {
    * opens while the probe is in flight.
    */
   private async refreshDraftCatalog(model: ModelRef, ticket: number): Promise<void> {
+    const engine = this.draftEngine;
     try {
-      const catalog = await this.options.services.registry.draftDefaults(model);
+      const catalog = await this.options.services.registry.draftDefaults(engine, model);
       if (
         catalog &&
         this.activeKey === undefined &&
         !this.disposed &&
+        this.draftEngine === engine &&
         this.draftModel === model
       ) {
         this.draftCatalog = catalog;
@@ -1325,6 +1434,52 @@ export class HostSessionController {
     }
     const result = await this.guard(() =>
       this.options.services.chat.setThinkingLevel(level, this.promptTarget()),
+    );
+    if (result.ok) {
+      this.emitState();
+    }
+  }
+
+  /**
+   * Picks a named way of working. A draft holds it for the session the first
+   * prompt opens; a running session switches through its own gateway. An id the
+   * harness does not offer is refused instead of being sent blindly.
+   */
+  private async setMode(mode: string): Promise<void> {
+    if (this.isDraft) {
+      const offered = this.draftCatalog?.availableModes ?? [];
+      if (!offered.some((option) => option.id === mode)) {
+        this.options.emit(
+          noticeMessage(
+            'warn',
+            `The selected agent engine does not offer the "${mode}" mode.`,
+            Date.now(),
+          ),
+        );
+        return;
+      }
+      this.draftMode = mode;
+      this.emitState();
+      return;
+    }
+    const key = this.viewKey();
+    const state =
+      key === undefined ? undefined : this.options.services.registry.stateOf(key);
+    if (
+      state?.availableModes !== undefined &&
+      !state.availableModes.some((option) => option.id === mode)
+    ) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          `The selected agent engine does not offer the "${mode}" mode.`,
+          Date.now(),
+        ),
+      );
+      return;
+    }
+    const result = await this.guard(() =>
+      this.options.services.chat.setMode(mode, this.promptTarget()),
     );
     if (result.ok) {
       this.emitState();
@@ -1378,6 +1533,32 @@ export class HostSessionController {
       return;
     }
     await this.guard(() => gateway.refreshModels!());
+  }
+
+  /**
+   * Re-reads the modes the selected engine offers. A draft re-probes its whole
+   * catalog (the mode list came from there); a warm session asks its own gateway
+   * and drops a pick that the new list no longer offers.
+   */
+  private async refreshModes(): Promise<void> {
+    if (this.isDraft) {
+      this.options.services.registry.refreshDraftDefaults();
+      await this.warmDraft();
+      if (
+        this.draftMode !== undefined &&
+        !(this.draftCatalog?.availableModes ?? []).some((mode) => mode.id === this.draftMode)
+      ) {
+        this.draftMode = undefined;
+        this.emitState();
+      }
+      return;
+    }
+    const gateway = this.addressedGateway();
+    if (gateway?.refreshModes === undefined) {
+      return;
+    }
+    await this.guard(() => gateway.refreshModes!());
+    this.emitState();
   }
 
   private async runHostCommand(
@@ -1930,6 +2111,7 @@ export class HostSessionController {
       hasOlderHistory: this.hasOlderHistory,
       loadingOlderHistory: this.loadingOlderHistory,
       loadingThinkingLevels: this.loadingThinkingLevels,
+      loadingEngine: this.loadingEngine,
     };
     const key = this.viewKey();
     const state = key === undefined
@@ -1953,13 +2135,25 @@ export class HostSessionController {
     }
     // The autoOpen:false draft: a truthful workspace line, and — once the
     // session-less probe lands — pickers that work before any session exists.
-    return draftSessionViewState(
+    // This fallback is also used while a session switch is heading for a key
+    // whose state has not arrived: `isDraft` keeps the engine choice hidden in
+    // that gap instead of flashing a draft under a running conversation.
+    const view = draftSessionViewState(
       this.draftWorkspace ?? this.options.services.registry.defaultWorkspace,
       meta,
-      this.draftCatalog,
-      this.draftModel,
-      this.draftThinking,
+      {
+        ...(this.draftCatalog === undefined ? {} : { catalog: this.draftCatalog }),
+        ...(this.draftEngine === undefined ? {} : { engine: this.draftEngine }),
+        ...(this.draftMode === undefined ? {} : { mode: this.draftMode }),
+        ...(this.draftModel === undefined ? {} : { model: this.draftModel }),
+        ...(this.draftThinking === undefined ? {} : { thinking: this.draftThinking }),
+      },
     );
+    // Before any session key exists this is the initial handshake, which is a
+    // draft; a pending key with no state yet is a switch and must not look like
+    // one.
+    view.draft = this.isDraft || this.viewKey() === undefined;
+    return view;
   }
 
   private fail(message: string, detail?: string): void {

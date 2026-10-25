@@ -203,7 +203,9 @@ The registry is handed an **`AgentRouter`** (`system/src/session/agent-router.ts
 3. resolves an id back to the engine that owns it, using the record's `engineRef`, so resuming never guesses;
 4. serves the sidebar `SessionCatalog` from the index, refreshing it on demand (`ensureFresh()`: debounced,
    one scan per engine, and a scan that cannot report never removes that engine's rows);
-5. keeps a running session's row protected from a stale report while its engine is mid-write.
+5. keeps a running session's row protected from a stale report while its engine is mid-write;
+6. reports the engines it can start (kind, label, default) and accepts the empty session's chosen engine and
+   mode when creating a new session — a resumed record still resolves to its own engine.
 
 `FileSessionStore` keeps one JSON per record under `<data dir>/sessions/records/<shard>/` plus an append-only
 `index.jsonl` of `{token, record}` lines (last-wins; compacted when it outgrows the records). The token is the
@@ -211,7 +213,14 @@ last report marker, so a reconcile skips an unchanged session without reading it
 
 `HostCapabilities` still describes the host, but the engine-specific affordances (MCP administration, prompt
 templates, version) now come from the **default engine's** optional `AgentExtras`; an engine that has none —
-OpenCode — leaves the host showing no MCP editor, no prompt editor and no update notice.
+OpenCode — leaves the host showing no MCP editor, no prompt editor and no update notice. `capabilities.engines`
+carries the pickable engines; `SessionViewState.draft` marks the empty panel, where the engine may still change.
+
+A harness that offers named ways of working reports `mode` and `availableModes` on its session state. The shared
+controller can create a session in a named mode, switch a running one (`mode/set`), and re-read the catalog
+(`modes/refresh`). These are optional contract operations: pi omits them, so the panel shows no mode picker.
+OpenCode maps them to its primary agents, including user-defined ones; its default comes from the agent
+configuration (`default_agent`, otherwise the server's order), never from a Morse constant.
 
 ## Why RPC subprocesses (and not the SDK)
 

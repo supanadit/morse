@@ -105,10 +105,20 @@ export class MorseService {
     () => this.view().state.workspace,
     { equal: (a, b) => a.cwd === b.cwd && a.name === b.name },
   );
+  /** Installed engines, for the draft's engine picker; empty on older hosts. */
+  readonly engines = computed(() => this.view().capabilities?.engines ?? []);
+  /** True only for the intentional no-session draft. */
+  readonly draft = computed(() => this.view().state.draft === true);
+  /** The engine the draft chose; absent means the host's configured default. */
+  readonly engine = computed(() => this.view().state.engine);
   readonly model = computed(() => this.view().state.model);
   readonly thinkingLevel = computed(() => this.view().state.thinkingLevel);
   readonly availableModels = computed(() => this.view().state.availableModels);
   readonly availableThinkingLevels = computed(() => this.view().state.availableThinkingLevels);
+  readonly mode = computed(() => this.view().state.mode);
+  readonly availableModes = computed(() => this.view().state.availableModes ?? []);
+  /** True while a newly chosen engine's draft catalogs are being read. */
+  readonly loadingEngine = computed(() => this.view().state.loadingEngine === true);
   /** True while the host re-reads the picked model's thinking levels. */
   readonly loadingThinkingLevels = computed(
     () => this.view().state.loadingThinkingLevels === true,
@@ -299,6 +309,21 @@ export class MorseService {
   /** Re-reads the model catalog, so a model added to `models.json` shows up. */
   refreshModels(): void {
     this.actions.refreshModels();
+  }
+
+  /** Re-reads the mode catalog, so an agent added to the engine's config shows up. */
+  refreshModes(): void {
+    this.actions.refreshModes();
+  }
+
+  /** Picks the engine a new session starts in (only meaningful on a draft). */
+  setEngine(kind: string): void {
+    this.actions.setEngine(kind);
+  }
+
+  /** Picks the named way of working for the draft or the running session. */
+  setMode(mode: string): void {
+    this.actions.setMode(mode);
   }
 
   setModel(provider: string, id: string): void {

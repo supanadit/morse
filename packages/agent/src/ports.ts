@@ -73,6 +73,16 @@ export interface AgentGateway {
   refreshModels?(): Promise<void>;
   setModel(model: ModelRef): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  /**
+   * Optional: moves a running session to another mode the harness offers. A
+   * harness with no named modes omits it and the application offers no switch.
+   */
+  setMode?(mode: string): Promise<void>;
+  /**
+   * Optional: re-reads the modes the harness offers, so a mode added to the
+   * agent's configuration becomes selectable without restarting the session.
+   */
+  refreshModes?(): Promise<void>;
   compact(customInstructions?: string): Promise<void>;
   respondToInteraction(response: AgentInteractionResponse): Promise<void>;
   dispose(): Promise<void>;
@@ -80,16 +90,26 @@ export interface AgentGateway {
 
 /** Driven port (R2): creates a gateway for a workspace / persisted session. */
 export interface AgentGatewayFactory {
-  create(options: { workspace: WorkspaceRef; sessionId?: string }): Promise<AgentGateway>;
+  create(options: {
+    workspace: WorkspaceRef;
+    sessionId?: string;
+    /** The mode the new session should start in, when the caller chose one. */
+    mode?: string;
+  }): Promise<AgentGateway>;
   /**
    * Optional: a gateway that never records — pi spawned with `--no-session` —
    * used only to read what the backend offers before any session exists (model
    * catalog, thinking levels, commands). Adapters without a session-less mode
-   * omit it, and the draft state simply ships without a catalog. `model` asks
-   * the probe for the levels of a specific model, so the draft picker can follow
-   * a model the user selected before the session exists.
+   * omit it, and the draft state simply ships without a catalog. `engine` asks
+   * for a specific registered engine's catalogs (the draft's choice), and
+   * `model` asks for the levels of a specific model, so the draft picker can
+   * follow a model the user selected before the session exists.
    */
-  probeDefaults?(options: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway>;
+  probeDefaults?(options: {
+    workspace: WorkspaceRef;
+    engine?: string;
+    model?: ModelRef;
+  }): Promise<AgentGateway>;
 }
 
 /** One page of a resumed session's finished exchanges. */

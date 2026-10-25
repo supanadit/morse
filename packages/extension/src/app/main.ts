@@ -114,9 +114,17 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
 
   const store = new FileSessionStore(join(context.globalStorageUri.fsPath, 'sessions'));
   const router = new AgentRouter({ store, defaultWorkspace: workspace, logger });
-  router.register(adapter.engine, { catalog: adapter.catalog, default: !defaultIsOpenCode });
+  router.register(adapter.engine, {
+    label: 'pi',
+    catalog: adapter.catalog,
+    default: !defaultIsOpenCode,
+  });
   if (openCode !== undefined) {
-    router.register(openCode.engine, { catalog: openCode.catalog, default: defaultIsOpenCode });
+    router.register(openCode.engine, {
+      label: 'OpenCode',
+      catalog: openCode.catalog,
+      default: defaultIsOpenCode,
+    });
   }
 
   const extras = router.defaultExtras();
@@ -141,6 +149,7 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     registry: sessions,
     transcripts,
     chat,
+    engines: router.engineOptions(),
     editor,
     policy: new VsCodeProjectPolicy(),
     roots: readWorkspaceRoots(),

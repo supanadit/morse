@@ -28,6 +28,7 @@ import {
 import {
   parseClientMessage,
   type ClientToHostMessage,
+  type EngineOption,
   type HostCapabilities,
   type HostToClientMessage,
   type NoticeLevel,
@@ -81,6 +82,8 @@ export interface ChatViewProviderDeps {
   registry: SessionRegistry;
   transcripts: SessionTranscriptStore;
   chat: ChatService;
+  /** The engines this window can start, for the draft's engine picker. */
+  engines: EngineOption[];
   editor: EditorContextProvider;
   policy: ProjectPolicy;
   /** Directories this window is scoped to. */
@@ -107,6 +110,7 @@ export interface ChatViewProviderDeps {
 
 /** What this host can do — the frontend reads this instead of guessing. */
 function buildCapabilities(
+  engines: EngineOption[],
   mcp: boolean,
   piVersion: string | undefined,
   promptEditor: boolean,
@@ -116,6 +120,9 @@ function buildCapabilities(
     // VS Code is scoped to the folders this window has open:
     // no project switcher, only sessions inside them.
     scope: 'workspace',
+    // Every engine this window can start. The draft's engine picker needs the
+    // list; a window that could not initialize OpenCode reports pi alone.
+    engines,
     // The host can answer `getEditorContext` so the frontend can pin a selection
     // chip; the context itself is an attachment, never prompt text.
     editorContext: true,
@@ -278,6 +285,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const controller = new HostSessionController({
       services,
       capabilities: buildCapabilities(
+          this.deps.engines,
           this.deps.mcpAvailable,
           this.deps.piVersion,
           this.deps.prompts !== undefined,
@@ -484,6 +492,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const controller = new HostSessionController({
       services,
       capabilities: buildCapabilities(
+          this.deps.engines,
           this.deps.mcpAvailable,
           this.deps.piVersion,
           this.deps.prompts !== undefined,
@@ -631,6 +640,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const controller = new HostSessionController({
       services,
       capabilities: buildCapabilities(
+          this.deps.engines,
           this.deps.mcpAvailable,
           this.deps.piVersion,
           this.deps.prompts !== undefined,
@@ -697,6 +707,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const controller = new HostSessionController({
       services,
       capabilities: buildCapabilities(
+          this.deps.engines,
           this.deps.mcpAvailable,
           this.deps.piVersion,
           this.deps.prompts !== undefined,

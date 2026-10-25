@@ -32,6 +32,10 @@ Morse started as a _vibe-coded prototype_, **but not anymore**. I fell in love w
   id belongs to Morse and records which engine holds its conversation, so reopening it returns to that engine.
   pi is the default; `MORSE_ENGINE=opencode` / `morse.engine` starts new sessions on OpenCode when it is
   installed or a server is configured.
+- **Pick the engine and the mode** — an empty session offers every installed engine, and switching re-reads the
+  chosen engine's model/mode catalogs before the first prompt. An OpenCode session offers its primary agents
+  (`build`, `plan`, and any you define) and can switch between them while it runs; the default follows your
+  OpenCode configuration, not a Morse constant.
 - **Multiple sessions across multiple projects** — one gateway per session, kept warm (LRU), alive while you
   switch projects or reload the page. An **In progress** section lifts the sessions working right now, and a
   refresh reattaches and replays the transcript.

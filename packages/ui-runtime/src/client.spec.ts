@@ -185,6 +185,22 @@ describe('createMorseClient', () => {
 });
 
 /** A minimal transport the tests can push host messages into and inspect with. */
+describe('engine and mode actions', () => {
+  it('sends the engine, mode and refresh messages', () => {
+    const transport = stubTransport();
+    const client = createMorseClient({ transport });
+
+    client.actions.setEngine('opencode');
+    client.actions.setMode('plan');
+    client.actions.refreshModes();
+
+    expect(transport.sent).toContainEqual({ type: 'engine/set', payload: { kind: 'opencode' } });
+    expect(transport.sent).toContainEqual({ type: 'mode/set', payload: { mode: 'plan' } });
+    expect(transport.sent).toContainEqual({ type: 'modes/refresh', payload: {} });
+    client.dispose();
+  });
+});
+
 function stubTransport(): HostTransport & { emit(message: HostToClientMessage): void; sent: unknown[] } {
   let listener: ((message: HostToClientMessage) => void) | undefined;
   return {

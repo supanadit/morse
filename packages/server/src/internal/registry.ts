@@ -47,12 +47,17 @@ export async function createAgentRouter(
   // start never becomes the default: the host keeps working on pi.
   const defaultIsOpenCode = config.engine === 'opencode' && openCode !== undefined;
   router.register(adapter.engine, {
+    label: 'pi',
     catalog: adapter.catalog,
     extras: adapter.extras,
     default: !defaultIsOpenCode,
   });
   if (openCode !== undefined) {
-    router.register(openCode.engine, { catalog: openCode.catalog, default: defaultIsOpenCode });
+    router.register(openCode.engine, {
+      label: 'OpenCode',
+      catalog: openCode.catalog,
+      default: defaultIsOpenCode,
+    });
     logger.info(
       `OpenCode engine registered (${openCode.owned ? 'Morse owns its server' : `attached to ${openCode.baseUrl}`})`,
     );

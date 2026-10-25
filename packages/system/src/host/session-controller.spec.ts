@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type AgentEventListener, type AgentDiagnostic, type AgentEvent, type AgentForkMessage, type AgentGateway, type AgentGatewayFactory, type AgentHistoryEntry, type AgentInteractionRequest, type AgentSessionState, type ModelRef, type PromptDisposition } from '@morse/agent';
+import { type AgentEventListener, type AgentDiagnostic, type AgentEvent, type AgentForkMessage, type AgentGateway, type AgentGatewayFactory, type AgentHistoryEntry, type AgentInteractionRequest, type AgentMode, type AgentSessionState, type ModelRef, type PromptDisposition, type SessionEngine } from '@morse/agent';
 import { AgentUnavailableError, ChatService, SessionRegistry, silentLogger } from '@morse/system';
 import {
   PROTOCOL_VERSION,
@@ -56,6 +56,14 @@ function fakeGateway(
     refreshCommands?: () => Promise<void>;
     /** Counts model-catalog re-reads; omitted means the adapter can't. */
     refreshModels?: () => Promise<void>;
+    /** Counts mode-catalog re-reads; omitted means the adapter can't. */
+    refreshModes?: () => Promise<void>;
+    /** The mode a live session reports. */
+    mode?: string;
+    /** The modes a live session offers. */
+    availableModes?: AgentMode[];
+    /** Records a live mode switch; omitted means the adapter can't switch. */
+    onSetMode?: (mode: string) => void;
     /** Warnings the agent carries on its state (pi's refused prompt templates). */
     diagnostics?: AgentDiagnostic[];
     /** Records each compaction call's instructions and target session key. */
@@ -69,14 +77,30 @@ function fakeGateway(
     availableModels: [],
     availableThinkingLevels: [],
     availableCommands: [],
+    ...(options.mode === undefined ? {} : { mode: options.mode }),
+    ...(options.availableModes === undefined ? {} : { availableModes: options.availableModes }),
     ...(options.diagnostics ? { diagnostics: options.diagnostics } : {}),
     streaming: false,
   };
+  const listeners = new Set<AgentEventListener>();
+  const snapshot = (): AgentSessionState => ({
+    ...state,
+    ...(sessionId === undefined ? {} : { sessionId }),
+  });
+  const announce = (): void => {
+    const event: AgentEvent = { type: 'agent/state', at: Date.now(), state: snapshot() };
+    for (const listener of [...listeners]) {
+      listener(event);
+    }
+  };
   return {
-    subscribe(_listener: AgentEventListener) {
-      return () => undefined;
+    subscribe(listener: AgentEventListener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
-    state: () => Promise.resolve({ ...state, ...(sessionId ? { sessionId } : {}) }),
+    state: () => Promise.resolve(snapshot()),
     history: () =>
       Promise.resolve({ entries: options.historyEntries ?? [], hasOlder: false }),
     prompt: () => Promise.resolve<PromptDisposition>('started'),
@@ -102,8 +126,19 @@ function fakeGateway(
         : Promise.reject(options.compactError ?? new Error('compact failed'));
     },
     respondToInteraction: () => Promise.resolve(),
+    ...(options.onSetMode
+      ? {
+          setMode: (mode: string) => {
+            options.onSetMode!(mode);
+            state.mode = mode;
+            announce();
+            return Promise.resolve();
+          },
+        }
+      : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
+    ...(options.refreshModes ? { refreshModes: options.refreshModes } : {}),
     dispose: () => Promise.resolve(),
   };
 }
@@ -121,6 +156,8 @@ interface Harness extends FreshClient {
   removed: string[];
   /** Spawns over the whole harness: a warm reattach never adds one. */
   spawns(): number;
+  /** The inputs the factory was asked to create sessions with. */
+  created(): { workspace: typeof WORKSPACE; sessionId?: string; engine?: string; mode?: string }[];
   /** Session-less draft probes: how often the draft asked pi for its catalog. */
   probes(): number;
   replaces(): TranscriptItem[][];
@@ -163,8 +200,16 @@ function harness(options: {
   spawnError?: Error;
   /** The draft probe refuses too: the same missing pi, seen before any prompt. */
   probeError?: Error;
-  /** A successful session-less probe whose catalog depends on the requested model. */
-  probeState?: (model?: ModelRef) => AgentSessionState | undefined;
+  /** A successful session-less probe whose catalog depends on the requested model/engine. */
+  probeState?: (model?: ModelRef, engine?: string) => AgentSessionState | undefined;
+  /** Engines the registry reports, so `engine/set` can validate a kind. */
+  engines?: readonly SessionEngine[];
+  /** The mode a live gateway reports. */
+  mode?: string;
+  /** The modes a live gateway offers. */
+  availableModes?: AgentMode[];
+  /** Records a live mode switch. */
+  onSetMode?: (mode: string) => void;
   /**
    * Parks a draft probe until a test says so, to look at the panel mid-probe.
    * `call` is 1-based, so a test can let the load-time probe through and park
@@ -196,12 +241,18 @@ function harness(options: {
     ...(options.fork ? { fork: options.fork } : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
+    ...(options.mode === undefined ? {} : { mode: options.mode }),
+    ...(options.availableModes === undefined ? {} : { availableModes: options.availableModes }),
+    ...(options.onSetMode === undefined ? {} : { onSetMode: options.onSetMode }),
   });
   const spawns = { count: 0 };
   const probes = { count: 0 };
+  const created: { workspace: typeof WORKSPACE; sessionId?: string; engine?: string; mode?: string }[] =
+    [];
   const factory: AgentGatewayFactory = {
     create: (input) => {
       spawns.count += 1;
+      created.push(input);
       if (input.sessionId !== undefined && options.unknownSessionIds?.includes(input.sessionId)) {
         // What the router reports for an id no index row and no engine holds.
         return Promise.reject(
@@ -214,9 +265,13 @@ function harness(options: {
     },
     ...(options.probeState
       ? {
-          probeDefaults: (input: { workspace: typeof WORKSPACE; model?: ModelRef }) => {
+          probeDefaults: (input: {
+            workspace: typeof WORKSPACE;
+            engine?: string;
+            model?: ModelRef;
+          }) => {
             probes.count += 1;
-            const state = options.probeState!(input.model);
+            const state = options.probeState!(input.model, input.engine);
             if (!state) {
               return Promise.reject(new Error('no probe state'));
             }
@@ -246,6 +301,7 @@ function harness(options: {
     },
     defaultWorkspace: WORKSPACE,
     logger: silentLogger,
+    ...(options.engines === undefined ? {} : { engines: options.engines }),
   });
   const chat = new ChatService({ agent: registry, logger: silentLogger });
   const transcripts = new SessionTranscriptStore();
@@ -259,6 +315,7 @@ function harness(options: {
     controller,
     removed,
     spawns: () => spawns.count,
+    created: () => created,
     probes: () => probes.count,
     replaces: () => messages
       .filter(
@@ -2435,5 +2492,127 @@ describe('HostSessionController (pinned to one session)', () => {
     // Another live session exists, but showing it here would silently turn this
     // tab into a different conversation.
     expect(lastStateOf(messages)?.sessionId).toBeUndefined();
+  });
+});
+
+describe('HostSessionController engine and mode picks', () => {
+  const engines = [{ kind: 'pi' }, { kind: 'opencode' }] as unknown as SessionEngine[];
+  const modes: AgentMode[] = [
+    { id: 'build', name: 'Build', default: true },
+    { id: 'plan', name: 'Plan' },
+  ];
+  const base = (): AgentSessionState => ({
+    workspace: WORKSPACE,
+    thinkingLevel: 'off',
+    availableModels: [],
+    availableThinkingLevels: [],
+    availableCommands: [],
+    streaming: false,
+  });
+
+  it('switches the draft engine, applies its default mode, and opens there', async () => {
+    const switched: string[] = [];
+    const h = harness({
+      engines,
+      mode: 'plan',
+      availableModes: modes,
+      onSetMode: (mode) => switched.push(mode),
+      probeState: (_model, engine) =>
+        engine === 'opencode'
+          ? { ...base(), mode: 'plan', availableModes: modes }
+          : base(),
+    });
+    await h.controller.start();
+    expect(h.lastState()).toMatchObject({ draft: true, availableModes: [] });
+
+    // A pick from the previous engine must not survive the switch.
+    await h.controller.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'pi', id: 'pi-model' },
+    });
+    expect(h.lastState()?.model).toMatchObject({ id: 'pi-model' });
+
+    await h.controller.handleClientMessage({ type: 'engine/set', payload: { kind: 'opencode' } });
+    expect(h.lastState()).toMatchObject({
+      draft: true,
+      engine: 'opencode',
+      mode: 'plan',
+      loadingEngine: false,
+    });
+    expect(h.lastState()?.availableModes?.map((mode) => mode.id)).toEqual(['build', 'plan']);
+    expect(h.lastState()?.model).toBeUndefined();
+
+    // The reader explicitly keeps plan (the default is already plan), so the
+    // creation carries it rather than relying on OpenCode's default.
+    await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
+    expect(h.lastState()?.mode).toBe('plan');
+
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
+    expect(h.created().at(-1)).toMatchObject({ engine: 'opencode', mode: 'plan' });
+    expect(h.lastState()).toMatchObject({ sessionId: 'sess-1', mode: 'plan' });
+    expect(h.lastState()?.draft).toBeUndefined();
+
+    await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'build' } });
+    expect(switched).toEqual(['build']);
+    expect(h.lastState()?.mode).toBe('build');
+
+    // The mode belonged to the conversation; a fresh draft starts on the
+    // engine's default again while the engine choice stays sticky.
+    await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
+    expect(h.lastState()).toMatchObject({ draft: true, engine: 'opencode', mode: 'plan' });
+  });
+
+  it('ignores a slow probe for an engine the reader already left', async () => {
+    let releaseOpenCode: (() => void) | undefined;
+    const h = harness({
+      engines,
+      probeState: (_model, engine) =>
+        engine === 'opencode'
+          ? { ...base(), mode: 'plan', availableModes: modes }
+          : { ...base(), availableModes: [] },
+      probeGate: (call) =>
+        call === 2
+          ? new Promise<void>((resolve) => {
+              releaseOpenCode = resolve;
+            })
+          : Promise.resolve(),
+    });
+    await h.controller.start();
+
+    const toOpenCode = h.controller.handleClientMessage({
+      type: 'engine/set',
+      payload: { kind: 'opencode' },
+    });
+    await Promise.resolve();
+    expect(h.lastState()?.loadingEngine).toBe(true);
+
+    await h.controller.handleClientMessage({ type: 'engine/set', payload: { kind: 'pi' } });
+    releaseOpenCode?.();
+    await toOpenCode;
+
+    expect(h.lastState()).toMatchObject({
+      engine: 'pi',
+      loadingEngine: false,
+      availableModes: [],
+    });
+  });
+
+  it('refuses a mode the draft engine does not offer', async () => {
+    const h = harness({
+      engines,
+      probeState: () => base(),
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
+
+    expect(h.lastState()?.mode).toBeUndefined();
+    expect(
+      h.messages.some(
+        (message) =>
+          message.type === 'notice' &&
+          message.payload.level === 'warn' &&
+          message.payload.text.includes('does not offer'),
+      ),
+    ).toBe(true);
   });
 });

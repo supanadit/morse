@@ -47,6 +47,8 @@ export class ThinkingPicker {
    */
   readonly loading = input(false);
   readonly pick = output<ThinkingLevel>();
+  /** The panel opened, so a sibling picker can dismiss itself. */
+  readonly opened = output<void>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly shortcuts = inject(ShortcutService);
@@ -89,6 +91,7 @@ export class ThinkingPicker {
     this.bump();
     const index = this.levels().indexOf(this.current());
     this.active.set(index >= 0 ? index : 0);
+    this.opened.emit();
     this.open.set(true);
   }
 

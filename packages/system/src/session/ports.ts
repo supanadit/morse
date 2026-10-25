@@ -1,3 +1,4 @@
+import type { AgentGateway, AgentGatewayFactory, WorkspaceRef } from '@morse/agent';
 import type { MorseSessionRecord } from './record.js';
 import type { SessionSummary } from '../domain/index.js';
 
@@ -7,6 +8,21 @@ import type { SessionSummary } from '../domain/index.js';
  * The harness ports moved to `@morse/agent`; what stays here is Morse's own — the
  * session catalog the sidebar reads, and the store and source behind Morse's index.
  */
+
+/**
+ * The session factory the registry drives. It is the harness factory plus the
+ * application's own routing choice: an engine kind names which registered
+ * harness should create the session. Only `AgentRouter` implements the routing
+ * part; a bare harness factory ignores the extra fields and keeps its default.
+ */
+export interface SessionFactory extends AgentGatewayFactory {
+  create(options: {
+    workspace: WorkspaceRef;
+    sessionId?: string;
+    engine?: string;
+    mode?: string;
+  }): Promise<AgentGateway>;
+}
 
 /**
  * How many sessions of one project a catalog returns in a first list. The

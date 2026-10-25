@@ -42,13 +42,31 @@ Morse **v0.24.0**. This page is the honest inventory of what ships. Everything e
 - This **is** the per-session model override. A session records its own model and thinking-level changes, and
   resuming it restores them, so the choice follows that session across eviction, resume and host restart
   without touching pi's defaults for new sessions.
-- A brand-new, empty panel probes an untouched pi spawn (pi `--no-session`) for the real model and command
-  catalog, so the first picker is populated before any session exists.
+- A brand-new, empty panel probes the selected engine without creating a session (pi `--no-session`, OpenCode's
+  catalog reads) for the real model, mode and command catalog, so the first picker is populated before any
+  session exists. OpenCode's probe also reports its default model, so switching the draft to OpenCode shows a
+  usable model instead of "no model".
+
+### Modes
+
+- A harness that offers named ways of working (OpenCode's primary agents: `build`, `plan`, and any the user
+  defines) gets a mode pill next to the model. It is part of the session state, not a Morse enum.
+- OpenCode's list is read from its own configuration. The default is the last `default_agent` the configuration
+  documents set, otherwise the first primary agent the server orders first — never a hardcoded `build`. Opening
+  the picker re-reads the list, so a mode added, renamed, disabled or removed in `opencode.json` appears without
+  restarting Morse.
+- The mode can be changed while the conversation runs (`mode/set` → OpenCode's `/session/{id}/agent`), which is
+  the same thing OpenCode's Tab key does. A session created without an explicit choice omits the agent field and
+  lets OpenCode apply its own default.
+- pi has no modes; the pill is absent rather than empty.
 
 ### Engines
 
 - **pi and OpenCode** drive the same sessions, sidebar and transcript. pi is the default new-session engine; set
-  `MORSE_ENGINE=opencode` (browser) or `morse.engine` (VS Code) to start there.
+  `MORSE_ENGINE=opencode` (browser) or `morse.engine` (VS Code) to start there. When both are installed, the
+  empty composer offers an engine picker: choosing one re-reads that engine's model/mode catalogs, and the first
+  prompt creates the session there. The choice is sticky for later new sessions in the same host; the configured
+  default is still what starts a host.
 - OpenCode registers itself when its binary is on `PATH` or `MORSE_OPENCODE_URL` / `morse.opencode.url` is set —
   attaching to a running `opencode serve`, or spawning a private one (which stops with the host). A machine with
   neither stays pi-only.
@@ -178,10 +196,10 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 
 - **Session rename** — a session is named by its engine (pi's session name, OpenCode's title). Morse displays
   that title and derives one from the first prompt before the engine names it, but has no rename command.
-- **OpenCode-only gaps, by design** — no agent picker, no custom compaction instructions, no MCP/prompt-template
-  editor, and no automatic restart of a crashed owned server. Each is reported rather than simulated: a
-  compaction with instructions warns and compacts without them; an MCP or prompt command from the OpenCode
-  engine is refused.
+- **OpenCode-only gaps, by design** — no Morse-side mode editor (modes are OpenCode's own agents), no custom
+  compaction instructions, no MCP/prompt-template editor, and no automatic restart of a crashed owned server.
+  Each is reported rather than simulated: a compaction with instructions warns and compacts without them; an
+  MCP or prompt command from the OpenCode engine is refused.
 - **Editing files in the browser** — the preview is read-only on purpose. VS Code is the host with an editor;
   the browser host reads, quotes and diffs, but does not write.
 - **Staging, approving or rejecting changes as a set** — diffs are shown (tool-call diffs in the transcript,

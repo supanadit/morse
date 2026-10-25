@@ -49,7 +49,24 @@ class FakeApi {
       return Promise.resolve([{ id: 'opencode', name: 'OpenCode', description: 'about it' }] as unknown as T);
     }
     if (path === '/agent') {
-      return Promise.resolve([{ id: 'build', name: 'Build' }] as unknown as T);
+      return Promise.resolve([
+        { id: 'build', name: 'Build', mode: 'primary', hidden: false },
+        { id: 'plan', name: 'Plan', mode: 'primary', hidden: false },
+        { id: 'general', name: 'General', mode: 'subagent', hidden: false },
+      ] as unknown as T);
+    }
+    if (path === '/config') {
+      return Promise.resolve([
+        { type: 'document', info: { default_agent: 'plan' } },
+      ] as unknown as T);
+    }
+    if (path === '/model/default') {
+      return Promise.resolve({
+        id: 'flint-40b-free',
+        providerID: 'opencode',
+        name: 'Flint 40B Free',
+        variants: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }],
+      } as unknown as T);
     }
     const id = path.split('/')[2];
     const session = this.sessions.find((row) => row.id === id);
@@ -161,9 +178,17 @@ describe('OpenCodeEngine', () => {
     const { engine, api } = engineWith();
 
     const created = await engine.factory.create({ workspace: WORKSPACE });
-    expect(api.calls.some((call) => call.method === 'POST' && call.path === '/session')).toBe(true);
+    const createCall = api.calls.find((call) => call.method === 'POST' && call.path === '/session');
+    expect(createCall?.body).toEqual({ location: { directory: WORKSPACE.cwd } });
     expect((await created.state()).sessionId).toBe('ses_new');
     await created.dispose();
+
+    const planned = await engine.factory.create({ workspace: WORKSPACE, mode: 'plan' });
+    const plannedCall = api.calls
+      .filter((call) => call.method === 'POST' && call.path === '/session')
+      .at(-1);
+    expect(plannedCall?.body).toEqual({ location: { directory: WORKSPACE.cwd }, agent: 'plan' });
+    await planned.dispose();
 
     const resumed = await engine.factory.create({ workspace: WORKSPACE, sessionId: 'ses_1' });
     expect(api.calls.some((call) => call.method === 'GET' && call.path === '/session/ses_1')).toBe(true);
@@ -177,10 +202,21 @@ describe('OpenCodeEngine', () => {
     const state = await probe.state();
 
     expect(api.calls.filter((call) => call.method === 'POST')).toEqual([]);
-    expect(api.calls.map((call) => call.path).sort()).toEqual(['/agent', '/command', '/model', '/skill']);
+    expect(api.calls.map((call) => call.path).sort()).toEqual([
+      '/agent',
+      '/command',
+      '/config',
+      '/model',
+      '/model/default',
+      '/skill',
+    ]);
     expect(state.availableModels).toHaveLength(1);
     expect(state.availableCommands.map((command) => command.name)).toEqual(['init', 'OpenCode']);
-    expect(state.availableThinkingLevels).toEqual([]);
+    expect(state.model).toMatchObject({ provider: 'opencode', id: 'flint-40b-free' });
+    expect(state.availableThinkingLevels).toEqual(['low', 'medium', 'high']);
+    expect(state.mode).toBe('plan');
+    expect(state.availableModes?.map((mode) => mode.id)).toEqual(['build', 'plan']);
+    expect(state.availableModes?.find((mode) => mode.id === 'plan')?.default).toBe(true);
 
     await probe.dispose();
     // A draft refuses what it cannot do instead of pretending.

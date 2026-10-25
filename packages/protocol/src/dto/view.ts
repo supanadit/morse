@@ -11,7 +11,7 @@ export type AgentErrorCode =
   | 'agent-protocol';
 
 import type { ThinkingLevel, NoticeLevel } from './primitives.js';
-import type { ModelOption, CommandOption } from './model.js';
+import type { ModelOption, CommandOption, ModeOption } from './model.js';
 import type { WorkspaceInfo, TokenUsage, ContextUsage, SessionCounts, SessionSpeed } from './session.js';
 
 export interface AgentFailure {
@@ -53,12 +53,30 @@ export interface SessionViewState {
   sessionId?: string;
   sessionTitle?: string;
   workspace: WorkspaceInfo;
+  /**
+   * True only for the intentional empty panel before the first prompt. A
+   * frontend uses it to offer choices that only make sense for a new session,
+   * such as the engine; it is not "no state has arrived yet".
+   */
+  draft?: boolean;
+  /** The engine the draft chose; absent means the host's default. */
+  engine?: string;
   model?: ModelOption;
   thinkingLevel: ThinkingLevel;
   availableModels: ModelOption[];
   availableThinkingLevels: ThinkingLevel[];
   /** Commands pi exposes (`get_commands`): extensions, templates, skills. */
   availableCommands: CommandOption[];
+  /** The named way of working this session is in, when the harness offers any. */
+  mode?: string;
+  /** The modes the harness offers, with its default marked. */
+  availableModes?: ModeOption[];
+  /**
+   * True while the draft is re-reading a newly chosen engine's catalogs, so the
+   * composer can hold Send instead of starting a session against a half-read
+   * catalog.
+   */
+  loadingEngine?: boolean;
   streaming: boolean;
   busy: boolean;
   /** Cumulative session tokens (input/output/cache) reported by the agent. */

@@ -146,6 +146,31 @@ export interface ModelsRefreshMessage extends ClientMessageBase {
   payload: Record<string, never>;
 }
 
+/**
+ * Re-reads the modes the harness offers. OpenCode keeps its primary agents in
+ * configuration, so a newly added mode is invisible until this — the host
+ * re-reads the catalog and answers with a fresh `session/state`.
+ */
+export interface ModesRefreshMessage extends ClientMessageBase {
+  type: 'modes/refresh';
+  payload: Record<string, never>;
+}
+
+/**
+ * Picks the engine a new session starts in. Only meaningful while the panel is
+ * the empty draft; a running session's engine is fixed by its record.
+ */
+export interface EngineSetMessage extends ClientMessageBase {
+  type: 'engine/set';
+  payload: { kind: string };
+}
+
+/** Picks the named way of working for a draft or a running session. */
+export interface ModeSetMessage extends ClientMessageBase {
+  type: 'mode/set';
+  payload: { mode: string };
+}
+
 export interface ProjectListRequestMessage extends ClientMessageBase {
   type: 'project/list';
   payload: Record<string, never>;
@@ -220,8 +245,11 @@ export type ClientToHostMessage =
   | SessionListRequestMessage
   | CommandsRefreshMessage
   | ModelsRefreshMessage
+  | ModesRefreshMessage
   | ProjectListRequestMessage
   | ProjectOpenMessage
+  | EngineSetMessage
+  | ModeSetMessage
   | ModelSetMessage
   | ThinkingSetMessage
   | InteractionRespondMessage

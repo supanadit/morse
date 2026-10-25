@@ -331,6 +331,29 @@
 
   <div class="controls">
     <div class="controls-metrics">
+      @if (showEnginePicker()) {
+        <morse-option-picker
+          #enginePicker
+          class="engine-host"
+          label="Agent engine"
+          [options]="engineOptions()"
+          [current]="currentEngine()"
+          [loading]="loadingEngine()"
+          (opened)="onEngineOpen()"
+          (pick)="onEnginePick($event)"
+        />
+      }
+      @if (showModePicker()) {
+        <morse-option-picker
+          #modePicker
+          class="mode-host"
+          label="Mode"
+          [options]="modeOptions()"
+          [current]="currentMode()"
+          (opened)="onModeOpen()"
+          (pick)="onModePick($event)"
+        />
+      }
       <button
         type="button"
         class="model-button"
@@ -364,6 +387,7 @@
         [levels]="levels()"
         [current]="thinkingLevel()"
         [loading]="loadingThinkingLevels()"
+        (opened)="onThinkingOpen()"
         (pick)="onThinkingPick($event)"
       />
     </div>

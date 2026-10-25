@@ -1,8 +1,9 @@
-import type { AgentCommand, AgentInteractionRequest, AgentSessionState, ModelRef, ThinkingLevel, TokenUsage, WorkspaceRef } from '@morse/agent';
+import type { AgentCommand, AgentInteractionRequest, AgentMode, AgentSessionState, ModelRef, ThinkingLevel, TokenUsage, WorkspaceRef } from '@morse/agent';
 import type {
   AgentFailure,
   CommandOption,
   InteractionRequest,
+  ModeOption,
   ModelOption,
   NoticeLevel,
   SessionViewState,
@@ -21,6 +22,8 @@ export interface SessionStateMeta {
   loadingOlderHistory?: boolean;
   /** True while the host re-reads the picked model's thinking levels. */
   loadingThinkingLevels?: boolean;
+  /** True while a newly chosen engine's draft catalogs are being re-read. */
+  loadingEngine?: boolean;
 }
 
 export function emptySessionViewState(
@@ -29,10 +32,12 @@ export function emptySessionViewState(
 ): SessionViewState {
   return {
     workspace: { cwd: workspace.cwd, name: workspace.name },
+    draft: true,
     thinkingLevel: 'off',
     availableModels: [],
     availableThinkingLevels: [],
     availableCommands: [],
+    availableModes: [],
     streaming: false,
     busy: meta.busy,
     agentReady: meta.agentReady,
@@ -42,6 +47,7 @@ export function emptySessionViewState(
     hasOlderHistory: meta.hasOlderHistory,
     loadingOlderHistory: meta.loadingOlderHistory,
     loadingThinkingLevels: meta.loadingThinkingLevels,
+    loadingEngine: meta.loadingEngine,
   };
 }
 
@@ -52,16 +58,37 @@ export function emptySessionViewState(
  * .draftDefaults`) — plus whatever the user has already picked. Those pending
  * picks are applied to the session the first prompt opens.
  */
+export interface DraftPicks {
+  /** The session-less catalog of the selected engine, when it landed. */
+  catalog?: AgentSessionState;
+  /** The engine the draft chose; absent means the host's default. */
+  engine?: string;
+  /** The mode the reader picked; absent falls back to the harness default. */
+  mode?: string;
+  model?: ModelRef;
+  thinking?: ThinkingLevel;
+}
+
 export function draftSessionViewState(
   workspace: WorkspaceRef,
   meta: SessionStateMeta,
-  catalog: AgentSessionState | undefined,
-  pendingModel: ModelRef | undefined,
-  pendingThinking: ThinkingLevel | undefined,
+  picks: DraftPicks,
 ): SessionViewState {
   const empty = emptySessionViewState(workspace, meta);
+  const catalog = picks.catalog;
+  const mode = picks.mode ?? catalog?.mode;
+  const modes = catalog?.availableModes ?? [];
+  // The engine and its current mode are useful even while the catalog is still
+  // loading (or failed): the picker can name the choice and explain the wait,
+  // while the model and thinking lists stay empty.
+  const base: SessionViewState = {
+    ...empty,
+    ...(picks.engine === undefined ? {} : { engine: picks.engine }),
+    ...(mode === undefined ? {} : { mode }),
+    availableModes: modes.map(toModeOption),
+  };
   if (!catalog) {
-    return empty;
+    return base;
   }
   // While the picked model's levels are being re-read, the catalog still holds
   // the *previous* model's — pi scopes them per current model. Showing its
@@ -72,8 +99,8 @@ export function draftSessionViewState(
   // the picker shows only its reading status. The model pick itself stands.
   if (meta.loadingThinkingLevels) {
     return {
-      ...empty,
-      model: toModelOption(pendingModel ?? catalog.model),
+      ...base,
+      model: toModelOption(picks.model ?? catalog.model),
       thinkingLevel: 'off',
       availableModels: catalog.availableModels.map(toModelOption).filter(isModelOption),
       availableThinkingLevels: [],
@@ -81,9 +108,9 @@ export function draftSessionViewState(
     };
   }
   return {
-    ...empty,
-    model: toModelOption(pendingModel ?? catalog.model),
-    thinkingLevel: pendingThinking ?? catalog.thinkingLevel ?? 'off',
+    ...base,
+    model: toModelOption(picks.model ?? catalog.model),
+    thinkingLevel: picks.thinking ?? catalog.thinkingLevel ?? 'off',
     availableModels: catalog.availableModels.map(toModelOption).filter(isModelOption),
     availableThinkingLevels: catalog.availableThinkingLevels.map(toThinkingLevel),
     availableCommands: catalog.availableCommands.map(toCommandOption),
@@ -103,6 +130,10 @@ export function toSessionViewState(
     availableModels: state.availableModels.map(toModelOption).filter(isModelOption),
     availableThinkingLevels: state.availableThinkingLevels.map(toThinkingLevel),
     availableCommands: state.availableCommands.map(toCommandOption),
+    ...(state.mode === undefined ? {} : { mode: state.mode }),
+    ...(state.availableModes === undefined
+      ? {}
+      : { availableModes: state.availableModes.map(toModeOption) }),
     streaming: state.streaming,
     busy: meta.busy,
     usage: toUsage(state.usage),
@@ -158,6 +189,15 @@ function toCommandOption(command: AgentCommand): CommandOption {
     description: command.description,
     source: command.source,
     template: command.template,
+  };
+}
+
+function toModeOption(mode: AgentMode): ModeOption {
+  return {
+    id: mode.id,
+    name: mode.name,
+    ...(mode.description === undefined ? {} : { description: mode.description }),
+    ...(mode.default === true ? { default: true } : {}),
   };
 }
 

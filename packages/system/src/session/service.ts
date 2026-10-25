@@ -1,7 +1,6 @@
 import type {
   AgentEvent,
   AgentGateway,
-  AgentGatewayFactory,
   AgentSessionState,
   ModelRef,
   SessionEngine,
@@ -10,7 +9,7 @@ import type { ProjectSummary, SessionSummary } from '../domain/index.js';
 import type { WorkspaceRef } from '@morse/agent';
 import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
-import type { SessionCatalog, SessionPage, SessionStore } from './ports.js';
+import type { SessionCatalog, SessionFactory, SessionPage, SessionStore } from './ports.js';
 import { reconcileSessions, type ReconcileResult } from './reconcile.js';
 
 /**
@@ -48,7 +47,7 @@ export interface ForkedSession {
 }
 
 export interface SessionRegistryDeps {
-  factory: AgentGatewayFactory;
+  factory: SessionFactory;
   catalog: SessionCatalog;
   /** Workspace for sessions started without an explicit project. */
   defaultWorkspace: WorkspaceRef;
@@ -98,7 +97,7 @@ export class SessionRegistry {
   private readonly hotLimit: number;
   private activeKey: string | undefined;
   private syntheticKeys = 0;
-  /** Cached snapshots of never-recording spawns, keyed by model (`''` = the default). */
+  /** Cached snapshots of never-recording probes, keyed by `(engine, model)`. */
   private readonly draftCache = new Map<string, AgentSessionState>();
   private readonly draftProbes = new Map<string, Promise<AgentSessionState | undefined>>();
 
@@ -173,25 +172,26 @@ export class SessionRegistry {
   }
 
   /**
-   * The catalog already probed for a model, when there is one. Synchronous on
-   * purpose: a reader switching back to a model Morse has already read the
-   * levels of gets them in the same frame as the pick instead of watching a
-   * loading row for a probe that is not needed.
+   * The catalog already probed for an engine and model, when there is one.
+   * Synchronous on purpose: a reader switching back to a model Morse has already
+   * read the levels of gets them in the same frame as the pick instead of
+   * watching a loading row for a probe that is not needed.
    */
-  cachedDraftDefaults(model?: ModelRef): AgentSessionState | undefined {
-    return this.draftCache.get(model ? `${model.provider}/${model.id}` : '');
+  cachedDraftDefaults(engine?: string, model?: ModelRef): AgentSessionState | undefined {
+    return this.draftCache.get(draftKey(engine, model));
   }
 
   /**
    * What the backend offers before any session exists: the model catalog,
-   * thinking levels and commands of an untouched spawn. Probed once per model —
-   * never per client — from a gateway that never records itself (pi
-   * `--no-session`), so the empty state can ship a real model picker without
-   * creating a session. Passing `model` asks for that model's thinking levels,
-   * which pi reports per current model.
+   * thinking levels, modes and commands of an untouched probe. Probed once per
+   * `(engine, model)` — never per client — from a gateway that never records
+   * itself (pi `--no-session`, OpenCode's catalog reads), so the empty state can
+   * ship real pickers without creating a session. Passing `engine` probes the
+   * engine the draft selected; passing `model` asks for that model's thinking
+   * levels, which pi reports per current model.
    */
-  async draftDefaults(model?: ModelRef): Promise<AgentSessionState | undefined> {
-    const key = model ? `${model.provider}/${model.id}` : '';
+  async draftDefaults(engine?: string, model?: ModelRef): Promise<AgentSessionState | undefined> {
+    const key = draftKey(engine, model);
     const cached = this.draftCache.get(key);
     if (cached) {
       return cached;
@@ -199,8 +199,8 @@ export class SessionRegistry {
     let probe = this.draftProbes.get(key);
     if (!probe) {
       // A rejected probe must not be memoized: the setup screen's Retry (or the
-      // next draft) has to be able to reach pi once the user installed it.
-      probe = this.probeDraft(model)
+      // next draft) has to be able to reach the engine once the user installed it.
+      probe = this.probeDraft(engine, model)
         .then((state) => {
           if (state) {
             this.draftCache.set(key, state);
@@ -216,12 +216,21 @@ export class SessionRegistry {
     return probe;
   }
 
+  /** The engine kinds this registry can open, for validating a draft choice. */
+  engineKinds(): string[] {
+    return (this.deps.engines ?? []).map((engine) => engine.kind);
+  }
+
   /** Opens a new (or resumes an existing) session and makes it active. */
-  async open(options: { workspace?: WorkspaceRef; sessionId?: string } = {}): Promise<OpenedSession> {
+  async open(
+    options: { workspace?: WorkspaceRef; sessionId?: string; engine?: string; mode?: string } = {},
+  ): Promise<OpenedSession> {
     const workspace = options.workspace ?? this.deps.defaultWorkspace;
     const gateway = await this.deps.factory.create({
       workspace,
       sessionId: options.sessionId,
+      ...(options.engine === undefined ? {} : { engine: options.engine }),
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
     });
     const state = await gateway.state();
     const key = state.sessionId ?? this.nextSyntheticKey(workspace);
@@ -571,7 +580,10 @@ export class SessionRegistry {
   }
 
   /** Asks the factory for a never-recording gateway and snapshots its state. */
-  private async probeDraft(model?: ModelRef): Promise<AgentSessionState | undefined> {
+  private async probeDraft(
+    engine: string | undefined,
+    model: ModelRef | undefined,
+  ): Promise<AgentSessionState | undefined> {
     const factory = this.deps.factory.probeDefaults;
     if (!factory) {
       return undefined;
@@ -579,6 +591,7 @@ export class SessionRegistry {
     try {
       const gateway = await factory.call(this.deps.factory, {
         workspace: this.deps.defaultWorkspace,
+        ...(engine === undefined ? {} : { engine }),
         ...(model ? { model } : {}),
       });
       const state = await gateway.state();
@@ -596,6 +609,11 @@ export class SessionRegistry {
       return undefined;
     }
   }
+}
+
+/** Cache identity for a draft probe: the engine kind plus the model, if any. */
+function draftKey(engine: string | undefined, model: ModelRef | undefined): string {
+  return `${engine ?? ''}|${model ? `${model.provider}/${model.id}` : ''}`;
 }
 
 function baseName(path: string): string {

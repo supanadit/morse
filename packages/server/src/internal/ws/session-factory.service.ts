@@ -106,6 +106,9 @@ export class MorseSessionFactory {
       hostKind: 'server',
       // The browser host is global: every project pi knows about.
       scope: 'global',
+      // Every installed engine, so the draft can choose one. Labels are the
+      // host's presentation, not a frontend hardcoding `pi`/`opencode`.
+      engines: this.router.engineOptions(),
       // A browser has no local editor to read, so there is nothing to pin.
       editorContext: false,
       // No QuickPick/InputBox here, so the frontend renders interactions.

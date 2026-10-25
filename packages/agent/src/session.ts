@@ -183,6 +183,9 @@ function cloneState(state: AgentSessionState): AgentSessionState {
     availableModels: [...state.availableModels],
     availableThinkingLevels: [...state.availableThinkingLevels],
     availableCommands: [...state.availableCommands],
+    ...(state.availableModes === undefined
+      ? {}
+      : { availableModes: state.availableModes.map((mode) => ({ ...mode })) }),
     ...(state.diagnostics === undefined ? {} : { diagnostics: [...state.diagnostics] }),
     ...(state.widgets === undefined
       ? {}

@@ -36,6 +36,10 @@ is never duplicated.
    prompt editor and pi version notice are absent instead of dead UI.
 6. **A form is its own interaction kind.** Several typed fields do not fit a select; `AgentFormRequest` travels
    the same contract/wire/panel path, and a host with native dialogs still sends it to the frontend.
+7. **Modes are optional harness vocabulary.** A harness that offers named ways of working reports them on the
+   session state, and may implement creation-in-a-mode and live switching. A harness without the distinction
+   (pi) omits both, so the frontend offers no mode picker instead of an empty one. Modes are not a Morse
+   enum: the harness owns the ids, names and default.
 
 ## OpenCode specifics worth remembering
 
@@ -59,5 +63,6 @@ is never duplicated.
 - An `external` form field (a browser handshake) becomes a "finished" checkbox; the frontend has no browser to
   open outside the host.
 - OpenCode reports no message count on a session record, so its rows show `0` until the transcript replays.
-- The OpenCode agent picker is deliberately not wired; the catalog is read but nothing in the session state
-  carries selectable agents yet.
+- OpenCode's primary agents are the mode list. The default is resolved from the last configuration document
+  setting `default_agent`, falling back to the first primary agent the server orders first. A session created
+  without an explicit mode omits `agent`, so OpenCode applies its own configured default.

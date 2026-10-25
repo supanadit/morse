@@ -26,6 +26,11 @@ const CAPABILITIES: HostCapabilities = {
   nativeDialogs: false,
   insertIntoEditor: false,
   revealFile: false,
+  // Two engines, so the draft's engine picker is reviewable with no server.
+  engines: [
+    { kind: 'pi', label: 'pi', default: true },
+    { kind: 'opencode', label: 'OpenCode' },
+  ],
   filePicker: true,
   // The mock can draw the browser-only git panel from a scripted history, so
   // the panel and its graph are reviewable without a server or a real repo.
@@ -98,6 +103,12 @@ const MOCK_THINKING: Record<string, ThinkingLevel[]> = {
 function mockThinkingLevels(provider: string, id: string): ThinkingLevel[] {
   return MOCK_THINKING[`${provider}/${id}`] ?? ['off', 'low', 'high'];
 }
+
+/** OpenCode-shaped modes for the mock, so the pill and its live switch are visible. */
+const MOCK_MODES = [
+  { id: 'build', name: 'Build', description: 'The default agent. Executes tools.', default: true },
+  { id: 'plan', name: 'Plan', description: 'Think before acting.' },
+];
 
 /**
  * Scripted host used when there is no backend at all (`ng serve --mock`, tests).
@@ -225,8 +236,19 @@ export class MemoryHostTransport extends BaseHostTransport {
     speed: { avgTokensPerSecond: 42.7, peakTokensPerSecond: 88.9, slowestTokensPerSecond: 11.2 },
     // The fixture keeps one call running, so the host must look busy too.
     busy: this.items.some((item) => item.kind === 'tool' && item.status === 'running'),
-    agentReady: true,
+    agentReady: !isBlankSession(),
     agentStarting: false,
+    // `?empty=1` is the intentional draft, with OpenCode selected so the engine
+    // and mode pills can be reviewed together; the usual fixture is a live
+    // conversation with the same modes.
+    ...(isBlankSession()
+      ? {
+          draft: true,
+          engine: 'opencode',
+          mode: 'build',
+          availableModes: MOCK_MODES.map((mode) => ({ ...mode })),
+        }
+      : { mode: 'build', availableModes: MOCK_MODES.map((mode) => ({ ...mode })) }),
   };
 
   connect(): void {
@@ -373,6 +395,41 @@ export class MemoryHostTransport extends BaseHostTransport {
         this.emit({ type: 'session/state', payload: this.state });
         return;
       }
+      case 'engine/set': {
+        // Only the draft has an engine choice; switching clears the catalogs
+        // that belonged to the previous engine, as the real host does.
+        if (this.state.draft !== true) {
+          this.notify('warn', 'Mock host: the engine can only change before a session starts.');
+          return;
+        }
+        const openCode = message.payload.kind === 'opencode';
+        const next: SessionViewState = {
+          ...this.state,
+          engine: message.payload.kind,
+          ...(openCode
+            ? { mode: 'build', availableModes: MOCK_MODES.map((mode) => ({ ...mode })) }
+            : { availableModes: [] }),
+        };
+        if (!openCode) {
+          delete next.mode;
+        }
+        this.state = next;
+        this.emit({ type: 'session/state', payload: this.state });
+        return;
+      }
+      case 'mode/set': {
+        const offered = this.state.availableModes ?? [];
+        if (!offered.some((mode) => mode.id === message.payload.mode)) {
+          this.notify('warn', 'Mock host: that mode is not offered.');
+          return;
+        }
+        this.state = { ...this.state, mode: message.payload.mode };
+        this.emit({ type: 'session/state', payload: this.state });
+        return;
+      }
+      case 'modes/refresh':
+        this.emit({ type: 'session/state', payload: this.state });
+        return;
       case 'terminal/open': {
         this.terminals.add(message.payload.terminalId);
         this.emit({

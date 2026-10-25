@@ -20,6 +20,8 @@ export interface ChatAgent {
   abort(): Promise<void>;
   setModel(model: ModelRef): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  /** Optional: only a harness that reports modes can switch between them. */
+  setMode?(mode: string): Promise<void>;
   compact(customInstructions?: string): Promise<void>;
 }
 

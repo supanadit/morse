@@ -61,8 +61,29 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
 - **Own a private server** — with no URL, Morse runs `opencode serve --hostname 127.0.0.1 --port 0`, reads the
   address and password the process announces, and stops it when the host shuts down. Point
   `MORSE_OPENCODE_BIN` / `morse.opencode.path` at a binary outside `PATH` if needed.
-- **Which engine a new session uses** is `MORSE_ENGINE` / `morse.engine`. Existing sessions always reopen
-  through the engine recorded for them, whatever the default is.
+- **Which engine a new session uses** is `MORSE_ENGINE` / `morse.engine`. When more than one engine is installed,
+  the empty composer also offers an engine picker; choosing one re-reads that engine's catalogs and the first
+  prompt creates the session there. The choice is remembered for later new sessions in the same host, while the
+  configured default still decides where a fresh host starts. Existing sessions always reopen through the engine
+  recorded for them, whatever the default or draft choice is.
+- **Modes** are OpenCode's primary agents. `plan`, `build` and any primary agent you define are offered; hidden
+  and subagent-only agents are not. The current mode can be changed while a conversation runs (OpenCode's Tab
+  behaviour), and the mode picker re-reads the catalog when it opens.
+- **Default mode** — OpenCode resolves it from your configuration. Set `default_agent` in `opencode.json` (or a
+  project `.opencode/opencode.json`):
+
+  ```json
+  { "default_agent": "plan" }
+  ```
+
+  Morse reads the configuration documents from lowest to highest priority, so the last `default_agent` wins,
+  exactly as OpenCode does. When none is set, it uses the first primary agent OpenCode reports, which is where
+  the server places its resolved default. Morse never hardcodes `build` or `plan`. A session created without an
+  explicit mode omits the agent field, so OpenCode applies the same default at prompt time.
+- **Adding or changing modes** — define a primary agent in `opencode.json` under `agents`, or add a Markdown file
+  under `.opencode/agent/` (or `~/.config/opencode/agent/`). OpenCode reloads its configuration; opening the
+  mode picker (or starting a new session) re-reads `/api/agent` and `/api/config`, so the new, renamed, disabled
+  or removed agent appears without restarting Morse.
 - OpenCode exposes no MCP editor, no prompt templates and no version notice to Morse, so those affordances are
   absent while it is the selected engine. A compaction asked for with custom instructions runs without them and
   says so.

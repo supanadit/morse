@@ -47,6 +47,7 @@ import {
 } from '../prompt-template-dialog/prompt-template-dialog';
 import { ModelPicker } from '../model-picker/model-picker';
 import { ModelInputs } from '../model-picker/model-inputs';
+import { OptionPicker, type PickerOption } from '../option-picker/option-picker';
 import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive';
 import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import type { PopoverAnchor } from '@morse/ui-runtime';
@@ -63,6 +64,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     CommandPicker,
     ModelPicker,
     ModelInputs,
+    OptionPicker,
     ThinkingPicker,
     PromptTemplateDialog,
     PinAnnotation,
@@ -91,6 +93,8 @@ export class ChatComposer {
   private readonly promptInput = viewChild<ElementRef<HTMLTextAreaElement>>('promptInput');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly thinkingPicker = viewChild(ThinkingPicker);
+  private readonly enginePicker = viewChild<OptionPicker>('enginePicker');
+  private readonly modePicker = viewChild<OptionPicker>('modePicker');
 
   protected readonly text = this.drafts.text;
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
@@ -118,7 +122,9 @@ export class ChatComposer {
    * Enter is a no-op until the pick settles. Typing stays enabled: only the send
    * is held.
    */
-  protected readonly settingsSettled = computed(() => !this.loadingThinkingLevels());
+  protected readonly settingsSettled = computed(
+    () => !this.loadingThinkingLevels() && !this.morse.loadingEngine(),
+  );
   protected readonly canAttachSelection = computed(
     () => this.morse.capabilities()?.editorContext === true,
   );
@@ -127,6 +133,44 @@ export class ChatComposer {
   protected readonly levels = this.morse.availableThinkingLevels;
   /** True while the host re-reads the picked model's levels (see the picker). */
   protected readonly loadingThinkingLevels = this.morse.loadingThinkingLevels;
+  /** Installed engines and the draft's choice; the engine can only change on a draft. */
+  protected readonly engines = this.morse.engines;
+  protected readonly draft = this.morse.draft;
+  protected readonly currentEngine = computed(
+    () =>
+      this.morse.state().engine ??
+      this.engines().find((engine) => engine.default === true)?.kind ??
+      '',
+  );
+  protected readonly engineOptions = computed<PickerOption[]>(() =>
+    this.engines().map((engine) => ({
+      id: engine.kind,
+      label: engine.label,
+      ...(engine.default === true ? { badge: 'default' } : {}),
+    })),
+  );
+  protected readonly showEnginePicker = computed(
+    () => this.draft() && this.engines().length > 1,
+  );
+  /** The modes the selected engine offers; absent for pi, so the pill is absent. */
+  protected readonly availableModes = this.morse.availableModes;
+  protected readonly currentMode = computed(
+    () =>
+      this.morse.state().mode ??
+      this.availableModes().find((mode) => mode.default === true)?.id ??
+      this.availableModes()[0]?.id ??
+      '',
+  );
+  protected readonly modeOptions = computed<PickerOption[]>(() =>
+    this.availableModes().map((mode) => ({
+      id: mode.id,
+      label: mode.name,
+      ...(mode.description === undefined ? {} : { description: mode.description }),
+      ...(mode.default === true ? { badge: 'default' } : {}),
+    })),
+  );
+  protected readonly showModePicker = computed(() => this.availableModes().length > 0);
+  protected readonly loadingEngine = this.morse.loadingEngine;
   protected readonly modelKey = computed(() => {
     const model = this.morse.state().model;
     return model ? `${model.provider}/${model.id}` : '';
@@ -1086,6 +1130,8 @@ export class ChatComposer {
     // Two dropdowns must never overlap: the chooser opening over the thinking
     // panel dismisses it, whether it was opened by click or by its shortcut.
     this.thinkingPicker()?.close();
+    this.enginePicker()?.close();
+    this.modePicker()?.close();
     // pi caches its configured models while the session is warm, so opening the
     // picker asks for a fresh catalog: a model added to `models.json` shows up
     // here without restarting the host or the session.
@@ -1375,8 +1421,40 @@ export class ChatComposer {
     this.onPickFile(path, true);
   }
 
+  protected onThinkingOpen(): void {
+    this.modelPickerOpen.set(false);
+    this.enginePicker()?.close();
+    this.modePicker()?.close();
+  }
+
   protected onThinkingPick(level: ThinkingLevel): void {
     this.morse.setThinkingLevel(level);
+  }
+
+  /** The engine panel is the only other popover that may be open with this one. */
+  protected onEngineOpen(): void {
+    this.thinkingPicker()?.close();
+    this.modelPickerOpen.set(false);
+    this.modePicker()?.close();
+  }
+
+  protected onEnginePick(kind: string): void {
+    this.morse.setEngine(kind);
+  }
+
+  /**
+   * The mode list lives in the engine's configuration, so opening the panel
+   * asks for a fresh read; a mode added while Morse runs appears then.
+   */
+  protected onModeOpen(): void {
+    this.thinkingPicker()?.close();
+    this.modelPickerOpen.set(false);
+    this.enginePicker()?.close();
+    this.morse.refreshModes();
+  }
+
+  protected onModePick(mode: string): void {
+    this.morse.setMode(mode);
   }
 
   /**

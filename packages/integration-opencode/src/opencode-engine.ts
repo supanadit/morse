@@ -18,6 +18,11 @@ import { connectOpenCode, type OpenCodeConnection, type OpenCodeConnectionOption
 import { OpenCodeApi } from './internal/client.js';
 import { OpenCodeEventStream } from './internal/event-stream.js';
 import {
+  defaultModeId,
+  readAgentModes,
+  readDefaultModel,
+} from './internal/catalog.js';
+import {
   thinkingLevelOf,
   thinkingLevelsOf,
   toModelRef,
@@ -193,13 +198,18 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
     },
   ) {}
 
-  create(input: { workspace: WorkspaceRef; sessionId?: string }): Promise<AgentGateway> {
+  create(input: {
+    workspace: WorkspaceRef;
+    sessionId?: string;
+    mode?: string;
+  }): Promise<AgentGateway> {
     return OpenCodeAgent.open({
       api: this.deps.api,
       stream: this.deps.stream,
       workspace: input.workspace,
       logger: this.deps.logger,
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+      ...(input.mode === undefined ? {} : { mode: input.mode }),
     });
   }
 
@@ -208,32 +218,44 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
    * commands/skills, read straight from the server's catalogs. No session is
    * created, so opening the empty panel does not litter the server's history.
    */
-  async probeDefaults(input: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway> {
+  async probeDefaults(input: {
+    workspace: WorkspaceRef;
+    model?: ModelRef;
+  }): Promise<AgentGateway> {
     const directory = input.workspace.cwd;
-    const [models, commands] = await Promise.all([
+    const [models, commands, modes, defaultModel] = await Promise.all([
       this.deps.api.get<ApiModel[]>('/model', { directory }).catch((error: unknown): ApiModel[] => {
         this.deps.logger.warn('Could not read the OpenCode model catalog', error);
         return [];
       }),
       readAvailableCommands(this.deps.api, directory, this.deps.logger),
-      // The agent catalog is read for the same reason as the others: it proves the
-      // server describes its resources before a session exists. Selectable agents
-      // are a later change, so nothing in the state carries them yet.
-      this.deps.api.get('/agent', { directory }).catch(() => undefined),
+      readAgentModes(this.deps.api, directory, this.deps.logger),
+      readDefaultModel(this.deps.api, directory, this.deps.logger),
     ]);
+    const catalog =
+      defaultModel === undefined ||
+      models.some(
+        (model) =>
+          model.providerID === defaultModel.providerID && model.id === defaultModel.id,
+      )
+        ? models
+        : [...models, defaultModel];
     const selected =
       input.model === undefined
-        ? undefined
-        : models.find(
+        ? defaultModel
+        : catalog.find(
             (model) => model.providerID === input.model?.provider && model.id === input.model?.id,
           );
+    const mode = defaultModeId(modes);
     const state: AgentSessionState = {
       workspace: input.workspace,
       ...(selected === undefined ? {} : { model: toModelRef(selected) }),
       thinkingLevel: thinkingLevelOf(selected, undefined),
-      availableModels: toModelRefs(models),
+      availableModels: toModelRefs(catalog),
       availableThinkingLevels: thinkingLevelsOf(selected),
       availableCommands: [...commands],
+      ...(mode === undefined ? {} : { mode }),
+      ...(modes.length === 0 ? {} : { availableModes: [...modes] }),
       streaming: false,
     };
     return new ProbeGateway(state);

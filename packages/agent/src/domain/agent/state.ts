@@ -7,6 +7,7 @@
 
 import type { ContextUsage, SessionCounts, SessionSpeed, TokenUsage } from '../usage.js';
 import type { AgentCommand, ModelRef, NoticeLevel, ThinkingLevel } from '../model.js';
+import type { AgentMode } from './mode.js';
 import type { WorkspaceRef } from '../workspace.js';
 
 /**
@@ -70,6 +71,13 @@ export interface AgentSessionState {
   thinkingLevel: ThinkingLevel;
   availableModels: ModelRef[];
   availableThinkingLevels: ThinkingLevel[];
+  /**
+   * The named way of working this session is in, when the harness offers any.
+   * Optional: a harness without modes (pi today) leaves it out.
+   */
+  mode?: string;
+  /** The modes this harness offers, with the harness's default marked. */
+  availableModes?: AgentMode[];
   /** Commands pi exposes (`get_commands`): extensions, templates, skills. */
   availableCommands: AgentCommand[];
   /**

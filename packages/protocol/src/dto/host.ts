@@ -1,9 +1,29 @@
 /** What a host is and offers, plus the shell state it persists across reloads. */
 import type { HostKind, HostScope } from './primitives.js';
 
+/**
+ * One agent engine the host can start, as the frontend's engine picker names it.
+ * The list is fixed for the host's lifetime; choosing one is a draft decision,
+ * not a capability.
+ */
+export interface EngineOption {
+  /** The stable engine kind (`pi`, `opencode`). */
+  kind: string;
+  /** The display label. */
+  label: string;
+  /** True for the engine new sessions start in when the draft has no choice. */
+  default?: boolean;
+}
+
 export interface HostCapabilities {
   hostKind: HostKind;
   scope: HostScope;
+  /**
+   * Every engine this host can start, with labels and the configured default.
+   * Optional: a host that predates engine selection, or one that cannot enumerate
+   * its engines, leaves it out and the frontend shows no engine picker.
+   */
+  engines?: EngineOption[];
   /** Host can read the active editor selection / open files. */
   editorContext: boolean;
   /**

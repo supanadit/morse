@@ -46,9 +46,19 @@ export interface AgentRouterDeps {
   freshMs?: number;
 }
 
+/** One engine a host can start, as the frontend's picker names it. */
+export interface EngineDescriptor {
+  kind: string;
+  label: string;
+  /** True for the engine new sessions start in when the draft names none. */
+  default?: boolean;
+}
+
 export interface AgentRouterRegistration {
   /** Marks this engine as the one new sessions go to. The first registered wins by default. */
   default?: boolean;
+  /** The display label; defaults to the kind when a host does not name one. */
+  label?: string;
   /**
    * The engine's own catalog, when it keeps conversations Morse may delete.
    * Only the delete path needs it: listing is served from the index, so a
@@ -63,7 +73,12 @@ export interface AgentRouterRegistration {
 export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   private readonly engines = new Map<
     string,
-    { engine: SessionEngine; catalog?: SessionCatalog; extras?: AgentExtras }
+    {
+      engine: SessionEngine;
+      label: string;
+      catalog?: SessionCatalog;
+      extras?: AgentExtras;
+    }
   >();
   private defaultKind: string | undefined;
   /** Morse ids of the sessions this process is running right now. */
@@ -81,6 +96,7 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   register(engine: SessionEngine, options: AgentRouterRegistration = {}): void {
     this.engines.set(engine.kind, {
       engine,
+      label: options.label?.trim() || engine.kind,
       catalog: options.catalog,
       extras: options.extras,
     });
@@ -96,6 +112,23 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   /** Every registered engine, for a registry that reconciles them. */
   registeredEngines(): SessionEngine[] {
     return [...this.engines.values()].map((entry) => entry.engine);
+  }
+
+  /**
+   * The engines a frontend may choose between: kind, label, and which one new
+   * sessions start in. Registration order is kept so the list is stable.
+   */
+  engineOptions(): EngineDescriptor[] {
+    return [...this.engines.entries()].map(([kind, entry]) => ({
+      kind,
+      label: entry.label,
+      ...(kind === this.defaultKind ? { default: true } : {}),
+    }));
+  }
+
+  /** The kind new sessions start in, when an engine is registered. */
+  get defaultEngineKind(): string | undefined {
+    return this.defaultKind;
   }
 
   /**
@@ -126,7 +159,14 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
    * nothing here can open, which is a reported failure — other sessions are
    * untouched.
    */
-  async create(options: { workspace?: WorkspaceRef; sessionId?: string }): Promise<AgentGateway> {
+  async create(options: {
+    workspace?: WorkspaceRef;
+    sessionId?: string;
+    /** The engine a new session should start in; omitted means the default. */
+    engine?: string;
+    /** The mode a new session should start in, when the caller chose one. */
+    mode?: string;
+  }): Promise<AgentGateway> {
     if (options.sessionId !== undefined) {
       await this.ensureFresh();
       const record = await this.deps.store.read(options.sessionId);
@@ -147,15 +187,22 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     }
 
     const workspace = options.workspace ?? this.deps.defaultWorkspace;
-    const defaultKind = this.defaultKind;
-    if (defaultKind === undefined) {
+    const kind = options.engine ?? this.defaultKind;
+    if (kind === undefined) {
       throw new UnsupportedByHostError('No agent engine is registered, so a new session cannot start.');
     }
-    const registered = this.engines.get(defaultKind);
+    const registered = this.engines.get(kind);
     if (registered === undefined) {
-      throw new AgentUnavailableError(`The default engine ${defaultKind} is not registered.`);
+      throw new AgentUnavailableError(
+        options.engine === undefined
+          ? `The default engine ${kind} is not registered.`
+          : `The ${kind} engine is not installed here.`,
+      );
     }
-    const inner = await registered.engine.factory.create({ workspace });
+    const inner = await registered.engine.factory.create({
+      workspace,
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+    });
     return this.route(inner, { cwd: workspace.cwd });
   }
 
@@ -164,15 +211,30 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
    * before any session exists. It is *not* routed: a probe never becomes a
    * session, so there is no id to wrap and nothing may touch the index.
    */
-  async probeDefaults(options: { workspace?: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway> {
+  async probeDefaults(options: {
+    workspace?: WorkspaceRef;
+    engine?: string;
+    model?: ModelRef;
+  }): Promise<AgentGateway> {
     await this.ensureFresh();
-    const engine = this.defaultEngine;
-    const probe = engine?.factory.probeDefaults;
-    if (engine === undefined || probe === undefined) {
-      throw new UnsupportedByHostError('No registered engine offers a draft probe.');
+    const engine =
+      options.engine === undefined ? this.defaultEngine : this.engineFor(options.engine);
+    if (engine === undefined) {
+      throw new AgentUnavailableError(
+        options.engine === undefined
+          ? 'No engine is registered as the default, so a draft cannot be probed.'
+          : `The ${options.engine} engine is not installed here.`,
+      );
+    }
+    const probe = engine.factory.probeDefaults;
+    if (probe === undefined) {
+      throw new UnsupportedByHostError(
+        `The ${engine.kind} engine does not offer a session-less probe.`,
+      );
     }
     return await probe.call(engine.factory, {
       workspace: options.workspace ?? this.deps.defaultWorkspace,
+      ...(options.engine === undefined ? {} : { engine: options.engine }),
       ...(options.model === undefined ? {} : { model: options.model }),
     });
   }
@@ -392,6 +454,8 @@ export class RoutedGateway implements AgentGateway {
   /** Given through only when the harness gateway has it, so presence mirrors it. */
   readonly refreshCommands: (() => Promise<void>) | undefined;
   readonly refreshModels: (() => Promise<void>) | undefined;
+  readonly setMode: ((mode: string) => Promise<void>) | undefined;
+  readonly refreshModes: (() => Promise<void>) | undefined;
 
   constructor(options: RoutedOptions) {
     this.options = options;
@@ -400,6 +464,9 @@ export class RoutedGateway implements AgentGateway {
     this.refreshCommands =
       inner.refreshCommands === undefined ? undefined : () => inner.refreshCommands!();
     this.refreshModels = inner.refreshModels === undefined ? undefined : () => inner.refreshModels!();
+    this.setMode = inner.setMode === undefined ? undefined : (mode) => inner.setMode!(mode);
+    this.refreshModes =
+      inner.refreshModes === undefined ? undefined : () => inner.refreshModes!();
   }
 
   subscribe(listener: (event: AgentEvent) => void): () => void {

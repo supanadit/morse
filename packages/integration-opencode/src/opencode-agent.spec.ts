@@ -115,6 +115,7 @@ async function harness(
   options: {
     handler?: Handler;
     sessionId?: string;
+    mode?: string;
   } = {},
 ): Promise<Harness> {
   const handler: Handler = options.handler ?? defaultHandler();
@@ -126,6 +127,7 @@ async function harness(
     workspace: WORKSPACE,
     logger: silentLogger,
     ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+    ...(options.mode === undefined ? {} : { mode: options.mode }),
   });
   const events: AgentEvent[] = [];
   agent.subscribe((event) => events.push(event));
@@ -152,6 +154,23 @@ function defaultHandler(): Handler {
     }
     if (method === 'GET' && path === '/model') {
       return MODELS;
+    }
+    if (method === 'GET' && path === '/model/default') {
+      return MODELS[0];
+    }
+    if (method === 'GET' && path === '/agent') {
+      return [
+        { id: 'build', name: 'Build', mode: 'primary', hidden: false },
+        { id: 'plan', name: 'Plan', mode: 'primary', hidden: false },
+        { id: 'general', name: 'General', mode: 'subagent', hidden: false },
+        { id: 'title', name: 'Title', mode: 'primary', hidden: true },
+      ];
+    }
+    if (method === 'GET' && path === '/config') {
+      return [{ type: 'document', info: { default_agent: 'build' } }];
+    }
+    if (method === 'POST' && path.endsWith('/agent')) {
+      return undefined;
     }
     if (method === 'GET' && path === '/command') {
       return [
@@ -205,7 +224,9 @@ describe('OpenCodeAgent', () => {
       streaming: false,
       usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
       costUsd: 0.012,
+      mode: 'build',
     });
+    expect(state.availableModes?.map((mode) => mode.id)).toEqual(['build', 'plan']);
     expect(state.availableCommands.map((command) => command.name)).toEqual([
       'init',
       'review',
@@ -220,6 +241,106 @@ describe('OpenCodeAgent', () => {
     expect(api.calls.some((call) => call.method === 'POST' && call.path === '/session')).toBe(false);
     expect(api.calls[0]).toMatchObject({ method: 'GET', path: '/session/ses_9' });
     expect((await agent.state()).sessionId).toBe('ses_9');
+    await agent.dispose();
+  });
+
+  it('creates in the chosen mode and omits the field when none was chosen', async () => {
+    const plain = await harness();
+    expect(plain.api.calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/session',
+      body: { location: { directory: WORKSPACE.cwd } },
+    });
+    expect((plain.api.calls[0]?.body as Record<string, unknown>)['agent']).toBeUndefined();
+    await plain.agent.dispose();
+
+    const planned = await harness({ mode: 'plan' });
+    expect(planned.api.calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/session',
+      body: { location: { directory: WORKSPACE.cwd }, agent: 'plan' },
+    });
+    await planned.agent.dispose();
+  });
+
+  it('switches the live agent and refuses one the configuration does not offer', async () => {
+    const { agent, api } = await harness();
+    await agent.setMode('plan');
+
+    expect(api.calls.find((call) => call.method === 'POST' && call.path === '/session/ses_1/agent')).toMatchObject({
+      body: { agent: 'plan' },
+    });
+    expect((await agent.state()).mode).toBe('plan');
+    await expect(agent.setMode('missing')).rejects.toBeInstanceOf(UnsupportedByHostError);
+    await agent.dispose();
+  });
+
+  it('re-reads the agent list and keeps a current mode that still exists', async () => {
+    let includePlan = true;
+    const handler: Handler = (method, path, query, body) => {
+      if (method === 'GET' && path === '/agent') {
+        return [
+          { id: 'build', name: 'Build', mode: 'primary' },
+          ...(includePlan ? [{ id: 'plan', name: 'Plan', mode: 'primary' }] : []),
+        ];
+      }
+      return defaultHandler()(method, path, query, body);
+    };
+    const { agent } = await harness({ handler });
+    await agent.setMode('plan');
+    includePlan = false;
+    await agent.refreshModes();
+
+    expect((await agent.state()).availableModes?.map((mode) => mode.id)).toEqual(['build']);
+    // OpenCode may still hold the mode on the session; Morse does not force a
+    // different one behind the reader's back.
+    expect((await agent.state()).mode).toBe('plan');
+    await agent.dispose();
+  });
+
+  it('re-reads a changed configured default without changing the current mode', async () => {
+    let defaultAgent = 'build';
+    const handler: Handler = (method, path, query, body) => {
+      if (method === 'GET' && path === '/config') {
+        return [{ type: 'document', info: { default_agent: defaultAgent } }];
+      }
+      return defaultHandler()(method, path, query, body);
+    };
+    const { agent } = await harness({ handler });
+    expect(
+      (await agent.state()).availableModes?.find((mode) => mode.default)?.id,
+    ).toBe('build');
+
+    defaultAgent = 'plan';
+    await agent.refreshModes();
+
+    expect(
+      (await agent.state()).availableModes?.find((mode) => mode.default)?.id,
+    ).toBe('plan');
+    expect((await agent.state()).mode).toBe('build');
+    await agent.dispose();
+  });
+
+  it('observes an agent another OpenCode client changed', async () => {
+    let agentId = 'build';
+    const handler: Handler = (method, path, query, body) => {
+      if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+        return sessionInfo({ id: 'ses_1', agent: agentId });
+      }
+      return defaultHandler()(method, path, query, body);
+    };
+    const { agent, stream } = await harness({ handler });
+    expect((await agent.state()).mode).toBe('build');
+
+    agentId = 'plan';
+    stream.emit('ses_1', {
+      type: 'stream.connected',
+      data: { sessionID: 'ses_1' },
+      created: Date.now(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((await agent.state()).mode).toBe('plan');
     await agent.dispose();
   });
 

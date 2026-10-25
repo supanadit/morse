@@ -5,6 +5,7 @@ import {
   type AgentGatewayFactory,
   type AgentSessionInfo,
   type AgentSessionState,
+  type ModelRef,
   type PromptMode,
   type WorkspaceRef,
 } from '@morse/agent';
@@ -135,13 +136,23 @@ class FakeGateway implements AgentGateway {
 
 class FakeEngine extends SessionEngine {
   readonly factory: AgentGatewayFactory;
-  readonly created: { workspace: WorkspaceRef; sessionId?: string }[] = [];
+  readonly created: { workspace: WorkspaceRef; sessionId?: string; mode?: string }[] = [];
+  readonly probed: { workspace: WorkspaceRef; engine?: string; model?: ModelRef }[] = [];
   declare scan?: () => Promise<AgentSessionInfo[]>;
 
   constructor(
     readonly kind: string,
-    private readonly gatewayFor: (input: { workspace: WorkspaceRef; sessionId?: string }) => FakeGateway,
+    private readonly gatewayFor: (input: {
+      workspace: WorkspaceRef;
+      sessionId?: string;
+      mode?: string;
+    }) => FakeGateway,
     scan?: () => Promise<AgentSessionInfo[]>,
+    private readonly probe?: (input: {
+      workspace: WorkspaceRef;
+      engine?: string;
+      model?: ModelRef;
+    }) => FakeGateway,
   ) {
     super();
     this.factory = {
@@ -149,6 +160,18 @@ class FakeEngine extends SessionEngine {
         this.created.push(input);
         return Promise.resolve(this.gatewayFor(input));
       },
+      ...(probe === undefined
+        ? {}
+        : {
+            probeDefaults: (input: {
+              workspace: WorkspaceRef;
+              engine?: string;
+              model?: ModelRef;
+            }) => {
+              this.probed.push(input);
+              return Promise.resolve(probe(input));
+            },
+          }),
     };
     if (scan !== undefined) {
       this.scan = scan;
@@ -187,7 +210,13 @@ function build(options: {
   store?: MemoryStore;
   engines: {
     kind: string;
-    gatewayFor?: (input: { workspace: WorkspaceRef; sessionId?: string }) => FakeGateway;
+    label?: string;
+    gatewayFor?: (input: {
+      workspace: WorkspaceRef;
+      sessionId?: string;
+      mode?: string;
+    }) => FakeGateway;
+    probe?: (input: { workspace: WorkspaceRef; engine?: string }) => FakeGateway;
     scan?: () => Promise<AgentSessionInfo[]>;
     catalog?: SessionCatalog;
     default?: boolean;
@@ -207,9 +236,11 @@ function build(options: {
       spec.kind,
       spec.gatewayFor ?? (() => new FakeGateway(state({ sessionId: `${spec.kind}-new` }))),
       spec.scan,
+      spec.probe,
     );
     engines.set(spec.kind, engine);
     router.register(engine, {
+      ...(spec.label === undefined ? {} : { label: spec.label }),
       ...(spec.catalog === undefined ? {} : { catalog: spec.catalog }),
       ...(spec.default === undefined ? {} : { default: spec.default }),
     });
@@ -375,6 +406,71 @@ describe('AgentRouter', () => {
     const { router } = build({ store, engines: [{ kind: 'pi' }] });
     await expect(router.remove(record.id)).rejects.toBeInstanceOf(UnsupportedByHostError);
     expect(await store.read(record.id)).toMatchObject({ id: record.id });
+  });
+
+  it('reports every engine with its label and marks exactly one default', () => {
+    const { router } = build({
+      engines: [
+        { kind: 'pi', label: 'pi' },
+        { kind: 'opencode', label: 'OpenCode', default: true },
+      ],
+    });
+
+    expect(router.engineOptions()).toEqual([
+      { kind: 'pi', label: 'pi' },
+      { kind: 'opencode', label: 'OpenCode', default: true },
+    ]);
+    expect(router.defaultEngineKind).toBe('opencode');
+  });
+
+  it('creates a new session in the chosen engine and forwards its mode', async () => {
+    const { router, engines } = build({
+      engines: [{ kind: 'pi', default: true }, { kind: 'opencode' }],
+    });
+
+    await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      engine: 'opencode',
+      mode: 'plan',
+    });
+
+    expect(engines.get('opencode')?.created).toEqual([
+      { workspace: { cwd: '/work/project', name: 'project' }, mode: 'plan' },
+    ]);
+    expect(engines.get('pi')?.created).toEqual([]);
+  });
+
+  it('probes the chosen engine rather than the default', async () => {
+    const { router, engines } = build({
+      engines: [
+        { kind: 'pi', default: true },
+        {
+          kind: 'opencode',
+          probe: () => new FakeGateway(state({ mode: 'plan', availableModes: [] })),
+        },
+      ],
+    });
+
+    const probe = await router.probeDefaults({
+      workspace: { cwd: '/work/project', name: 'project' },
+      engine: 'opencode',
+    });
+    expect((await probe.state()).mode).toBe('plan');
+    expect(engines.get('opencode')?.probed).toEqual([
+      { workspace: { cwd: '/work/project', name: 'project' }, engine: 'opencode' },
+    ]);
+    expect(engines.get('pi')?.probed).toEqual([]);
+  });
+
+  it('refuses a chosen engine that is not installed', async () => {
+    const { router, engines } = build({ engines: [{ kind: 'pi' }] });
+    await expect(
+      router.create({
+        workspace: { cwd: '/work/project', name: 'project' },
+        engine: 'opencode',
+      }),
+    ).rejects.toBeInstanceOf(AgentUnavailableError);
+    expect(engines.get('pi')?.created).toEqual([]);
   });
 });
 
