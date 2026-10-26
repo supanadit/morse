@@ -65,7 +65,7 @@ export function decorateMarkdown(text: string): MarkdownDecorSpan[] {
     if (fence !== undefined) {
       const close = FENCE_CLOSE.exec(line);
       if (close && close[1][0] === fence.marker[0] && close[1].length >= fence.marker.length) {
-        pushCode(spans, text, fence, offset);
+        pushCode(spans, blocked, text, fence, offset);
         spans.push({ start: offset, end: lineEnd, kind: 'fence' });
         blocked.push([offset, lineEnd]);
         fence = undefined;
@@ -90,7 +90,7 @@ export function decorateMarkdown(text: string): MarkdownDecorSpan[] {
     offset = lineEnd + 1;
   }
   if (fence !== undefined) {
-    pushCode(spans, text, fence, text.length);
+    pushCode(spans, blocked, text, fence, text.length);
   }
 
   // Built in forward scan order: sorted and disjoint, so one moving gate walks
@@ -146,6 +146,7 @@ export function decoratedMarkdownHtml(text: string): string {
 /** Adds the fenced content as one highlighted span, skipping an empty block. */
 function pushCode(
   spans: MarkdownDecorSpan[],
+  blocked: Array<[number, number]>,
   text: string,
   fence: { contentStart: number; lang: string },
   end: number,
@@ -155,6 +156,10 @@ function pushCode(
   }
   const body = text.slice(fence.contentStart, end);
   spans.push({ start: fence.contentStart, end, kind: 'code', html: highlightCode(body, fence.lang).html });
+  // Code content is its own decoration: the inline pass must not reach inside
+  // it (a `*em*` line in a fenced block used to get double-decorated, which
+  // duplicated the text and drifted every wrapped line under the caret).
+  blocked.push([fence.contentStart, end]);
 }
 
 /** One inline construct starting at `at`, or undefined when this is plain text. */

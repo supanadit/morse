@@ -14,8 +14,9 @@
   inset: 0;
   overflow: hidden;
   padding: var(--mdp-padding);
-  line-height: var(--mdp-line-height);
+  /* font FIRST: the shorthand resets line-height, so it must come before. */
   font: inherit;
+  line-height: var(--mdp-line-height);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   scrollbar-gutter: stable;

@@ -550,15 +550,28 @@ textarea {
   /*
    * The markdown paint layer below shows the draft, styled (fenced blocks,
    * inline code, emphasis…); the textarea is the surface for the caret,
-   * selection and input, so its own glyphs stay hidden.
+   * selection and input, so its own glyphs stay hidden. It sits ABOVE the
+   * mirror (position + z-index): the caret and the selection band must paint
+   * over the styled text, not under it.
    */
+  position: relative;
+  z-index: 1;
   color: transparent;
   caret-color: var(--morse-fg);
   resize: none;
   min-height: 44px;
-  /* One set of metrics with the paint layer (see --mdp-* in markdown-paint). */
+  /* Block, so no baseline gap: one box with the mirror, not 4px taller. */
+  display: block;
+  /*
+   * One set of metrics with the paint layer (see --mdp-* in markdown-paint),
+   * and the same wrapping inputs: same wrap width (gutter reserved on both),
+   * same break rules — any difference here drifts every wrapped line.
+   */
   padding: var(--mdp-padding, 4px 6px);
   line-height: var(--mdp-line-height, 1.5);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  scrollbar-gutter: stable;
 }
 /*
  * The placeholder belongs to the empty draft, where the mirror paints nothing:

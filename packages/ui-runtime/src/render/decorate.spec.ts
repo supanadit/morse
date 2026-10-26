@@ -102,6 +102,36 @@ describe('decorateMarkdown', () => {
     }
   });
 
+  it('keeps inline constructs inside a fenced block single-decorated', () => {
+    // The regression behind duplicated text: `*em*` and `**strong**` in a
+    // fenced block used to get their own inline spans on top of the code span,
+    // re-emitting the text and drifting the mirror's line wrapping.
+    const text = [
+      '```md',
+      '# heading that is quite long and keeps going until it must wrap around',
+      '*emphasized text with enough words to matter here*',
+      '**strong text with enough words to matter here**',
+      '```',
+      'tail',
+    ].join('\n');
+    const spans = decorateMarkdown(text);
+
+    let at = -1;
+    for (const span of spans) {
+      expect(span.end).toBeGreaterThan(span.start);
+      expect(span.start).toBeGreaterThanOrEqual(at);
+      at = span.end;
+    }
+    // The fence is one code span: no heading/em/strong spans inside it.
+    expect(spans.filter((span) => span.kind === 'code')).toHaveLength(1);
+    expect(spans.some((span) => span.kind === 'em')).toBe(false);
+    expect(spans.some((span) => span.kind === 'strong')).toBe(false);
+    expect(spans.some((span) => span.kind === 'heading')).toBe(false);
+    // And the rendered text is the buffer, character for character.
+    const html = decoratedMarkdownHtml(text);
+    expect(undecorated(html)).toBe(text);
+  });
+
   it('decorated HTML holds the exact characters of the source', () => {
     const text = [
       '# Title',

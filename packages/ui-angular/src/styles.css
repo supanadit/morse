@@ -561,6 +561,18 @@ code {
 .md-list {
   color: var(--morse-accent);
 }
+/*
+ * Inside the composer mirror the hljs emphasis styles must stay geometry-
+ * neutral: italic and bold change glyph widths, the wrapped lines drift, and
+ * the caret (drawn by the textarea on its own lines) lands apart from the
+ * glyphs. The transcript keeps the real italic/bold.
+ */
+morse-markdown-paint .hljs-strong {
+  font-weight: inherit;
+}
+morse-markdown-paint .hljs-emphasis {
+  font-style: normal;
+}
 
 
 /* ---------------------------------------------------------------------------
