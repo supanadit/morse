@@ -15,7 +15,7 @@ import {
 import type { ModelOption } from '@morse/protocol';
 import { EnterDirective } from '../../ui/enter.directive';
 import { formatTokens } from '@morse/ui-runtime';
-import { ModelInputs, modelInputKeywords } from './model-inputs';
+import { modelInputKeywords } from './model-inputs';
 
 export interface ModelGroup {
   provider: string;
@@ -66,7 +66,7 @@ interface ModelRow {
  */
 @Component({
   selector: 'morse-model-picker',
-  imports: [EnterDirective, ModelInputs],
+  imports: [EnterDirective],
   templateUrl: './model-picker.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './model-picker.css',
@@ -149,15 +149,6 @@ export class ModelPicker {
 
   protected context(model: ModelOption): string {
     return model.contextWindow ? formatTokens(model.contextWindow) : '';
-  }
-
-  /**
-   * Whether the second line has anything to say. A model pi described fully
-   * (modalities and a context window) renders two lines; one with neither stays
-   * a single line rather than an empty shelf under the name.
-   */
-  protected hasDetails(model: ModelOption): boolean {
-    return (model.input?.length ?? 0) > 0 || model.contextWindow !== undefined;
   }
 
   protected onFilter(event: Event): void {

@@ -66,8 +66,8 @@ export function modelInputKeywords(input: readonly ModelInput[] | undefined): st
  * The input modalities a model accepts, as small icons with a tooltip each.
  *
  * pi reports `input` on every model it lists (`["text"]`, `["text","image"]`,
- * …). The badge is how the picker tells a vision model from a text-only one
- * before the reader picks it — an icon per modality, not a wall of words.
+ * …). The composer's model button carries the icons to hint what the active
+ * model takes in its tight space; the picker spells the modalities out as tags.
  */
 @Component({
   selector: 'morse-model-inputs',

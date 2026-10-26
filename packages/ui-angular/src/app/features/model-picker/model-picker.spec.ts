@@ -77,35 +77,30 @@ describe('ModelPicker', () => {
     return fixture.nativeElement as HTMLElement;
   }
 
-  /** One badge per modality, and each names itself in its tooltip. */
-  it('badges each row with the modalities pi reported', () => {
+  /** Words beat glyphs in a listing: TEXT and IMAGE read at 9.5px, an icon did not. */
+  it('tags each row with the modalities pi reported', () => {
     const host = create();
     const rows = host.querySelectorAll('.row');
 
-    expect(rows[0]?.querySelectorAll('.details .badge')).toHaveLength(1);
-    expect(rows[1]?.querySelectorAll('.details .badge')).toHaveLength(2);
-    expect(rows[1]?.querySelector('.badge[data-modality="image"]')?.getAttribute('title')).toBe(
-      'Vision (images)',
-    );
+    const tagsOf = (row: Element | undefined): (string | null | undefined)[] =>
+      [...(row?.querySelectorAll('.tag') ?? [])].map((tag) => tag.textContent?.trim());
+
+    expect(tagsOf(rows[0])).toEqual(['text']);
+    expect(tagsOf(rows[1])).toEqual(['text', 'image']);
   });
 
-  /**
-   * Two lines per model: the name (and the selected check) on top, the
-   * modalities and context size below. This is what keeps a row from reading as
-   * a jumble when a long name meets several badges and a token count.
-   */
-  it('puts the name and its check on the first line, the badges and context below', () => {
+  /** One line per model: name, tags, the context size and — when picked — the check. */
+  it('keeps the name, tags, context and selected check on one line', () => {
     const host = create('ollama/sees-images');
-    const selected = host.querySelectorAll('.row')[1] as HTMLElement;
+    const rows = host.querySelectorAll('.row');
 
-    const title = selected.querySelector('.title') as HTMLElement;
-    expect(title.querySelector('.name')?.textContent?.trim()).toBe('Sees Images');
-    expect(title.querySelector('.check')).not.toBeNull();
-    expect(title.querySelector('.badge')).toBeNull();
+    expect(rows[0]?.querySelector('.name')?.textContent?.trim()).toBe('Text Only');
+    expect(rows[0]?.querySelector('.meta')?.textContent?.trim()).toBe('33k');
+    expect(rows[0]?.querySelector('.check')).toBeNull();
 
-    const details = selected.querySelector('.details') as HTMLElement;
-    expect(details.querySelector('.badge[data-modality="text"]')).not.toBeNull();
-    expect(details.querySelector('.badge[data-modality="image"]')).not.toBeNull();
-    expect(details.querySelector('.meta')?.textContent?.trim()).toBe('128k');
+    const selected = rows[1] as HTMLElement;
+    expect(selected.querySelector('.name')?.textContent?.trim()).toBe('Sees Images');
+    expect(selected.querySelector('.meta')?.textContent?.trim()).toBe('128k');
+    expect(selected.querySelector('.check')).not.toBeNull();
   });
 });
