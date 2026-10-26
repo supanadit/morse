@@ -28,28 +28,9 @@
   visibility: hidden;
 }
 /*
- * Colors and backgrounds only — never font, weight, style or spacing: a
- * decoration that reflows text breaks the line-for-line contract with the
- * textarea underneath. `.hljs-*` colors come from the global stylesheet.
+ * The `.md-*` decoration rules live in the global stylesheet: they style
+ * `[innerHTML]` content, which Angular's emulated encapsulation never scopes
+ * to this component — component-scoped selectors cannot match it. Colours and
+ * backgrounds only there: a decoration that reflows text breaks the
+ * line-for-line contract with the textarea underneath.
  */
-.md-fence {
-  color: var(--morse-fg-muted);
-}
-.md-code,
-.md-inline-code {
-  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
-}
-.md-strong,
-.md-heading {
-  color: var(--morse-accent);
-}
-.md-em {
-  color: color-mix(in srgb, var(--morse-accent) 75%, var(--morse-fg));
-}
-.md-link {
-  color: var(--morse-info);
-  text-decoration: underline;
-}
-.md-list {
-  color: var(--morse-accent);
-}

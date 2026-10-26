@@ -533,6 +533,35 @@ code {
   font-weight: 600;
 }
 
+/*
+ * Markdown composer decorations. These style the spans the mirror injects via
+ * `[innerHTML]`, and Angular's emulated encapsulation does not scope injected
+ * HTML — component-scoped selectors would never match them (same reason the
+ * hljs colours and DropFlight above live here). Decoration may change colour
+ * and background only: it has to wrap exactly like the textarea beneath it.
+ */
+.md-fence {
+  color: var(--morse-fg-muted);
+}
+.md-code,
+.md-inline-code {
+  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
+}
+.md-strong,
+.md-heading {
+  color: var(--morse-accent);
+}
+.md-em {
+  color: color-mix(in srgb, var(--morse-accent) 75%, var(--morse-fg));
+}
+.md-link {
+  color: var(--morse-info);
+  text-decoration: underline;
+}
+.md-list {
+  color: var(--morse-accent);
+}
+
 
 /* ---------------------------------------------------------------------------
  * The ghost that flies from a drop into the composer, and the chip that pops in
