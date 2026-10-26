@@ -4,10 +4,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/supanadit/morse/blob/master/LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
 
-**Morse in your browser, as one npm package.** It serves the same Angular chat UI and drives the same
-[Pi](https://github.com/earendil-works/pi) coding agent as the VS Code extension — no editor required. Start it,
-open the URL, and you get your existing pi models, credentials, tools and sessions in a real interface instead
-of a terminal TUI.
+**Morse in your browser, as one npm package.** It serves the same Angular chat UI and drives your coding agent
+(**[Pi](https://github.com/earendil-works/pi)** or **[OpenCode](https://github.com/sst/opencode)**) — no editor
+required. Start it, open the URL, and you get your existing models, credentials, tools and sessions in a real
+interface instead of a terminal TUI. Agent-agnostic: one session list, one transcript, regardless of engine.
+
+A **web UI for Pi** and a **web UI for OpenCode**: a **GUI for Pi** and a **GUI for OpenCode** you can open in any
+browser — `morse start` and go. A **comfortable UI for Pi** and a **comfortable UI for OpenCode**.
 
 ```bash
 npm install -g @supanadit/morse-web

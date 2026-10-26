@@ -26,11 +26,14 @@
   "keywords": [
     "pi",
     "pi-coding-agent",
+    "opencode",
     "agent",
     "chat",
     "ai",
     "mcp",
     "reasoning",
+    "gui",
+    "comfortable-ui",
     "copilot-alternative"
   ],
   "activationEvents": [

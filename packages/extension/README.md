@@ -1,4 +1,8 @@
-# Morse — the Pi coding agent, as a chat panel in VS Code
+# Morse — an agent-agnostic chat panel in VS Code (Pi, OpenCode)
+
+A comfortable **Pi GUI** and **OpenCode GUI** for VS Code: chat panel, sessions, models, tools and MCP — a VS Code
+Pi / VS Code OpenCode client (also searched as **Pi VS Code** and **OpenCode VS Code**) that drives your existing
+agent over RPC. A **comfortable UI for Pi** and a **comfortable UI for OpenCode**.
 
 [![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-Install-0e639c)](https://marketplace.visualstudio.com/items?itemName=supanadit.morse)
 [![Open VSX](https://img.shields.io/badge/Open%20VSX-Install-9a5cd0)](https://open-vsx.org/extension/supanadit/morse)

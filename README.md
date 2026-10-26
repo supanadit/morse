@@ -4,11 +4,20 @@
 [![CI](https://github.com/supanadit/morse/actions/workflows/ci.yml/badge.svg)](https://github.com/supanadit/morse/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](package.json)
 
-**A comfortable GUI for the [Pi](https://github.com/earendil-works/pi) coding agent** — a chat panel inside
-VS Code, or a browser UI served by a small NestJS host.
+**An agent-agnostic GUI for coding agents** — a chat panel inside VS Code, or a browser UI served by a small
+NestJS host. It works with **[Pi](https://github.com/earendil-works/pi)** and **[OpenCode](https://github.com/sst/opencode)**, and stays engine-neutral: one session list, one transcript, one set of shortcuts, regardless of which agent is driving.
 
-Pi normally lives in your terminal as a TUI. Morse gives the same agent, models, tools and sessions a real
-interface without reimplementing any of it. **This project doesn't embed Pi**; it uses Pi's RPC instead, which is why you must install Pi yourself.
+Whether you search for a **Pi GUI**, an **OpenCode GUI**, a **VS Code Pi** extension, a **VS Code OpenCode** client,
+a **web UI for Pi/OpenCode**, a **comfortable UI for Pi**, or a **comfortable UI for OpenCode**, Morse is the same
+comfortable interface.
+
+It is built agent-agnostic on purpose: Pi and OpenCode are the engines today, and the same session list, transcript
+and UI are ready to host more (Grok Bot, Hermes, and other agents) as integrations land — no fork of the interface.
+
+Pi normally lives in your terminal as a TUI; OpenCode can run as a TUI or a server. Morse gives either agent —
+its models, tools and sessions — a real interface without reimplementing any of it. **This project doesn't embed
+an agent**; it talks to each one through its own RPC/API, which is why you install the agent you want to use
+yourself.
 
 ## Demo
 
