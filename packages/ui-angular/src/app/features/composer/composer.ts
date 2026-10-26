@@ -50,6 +50,7 @@ import { ModelPicker } from '../model-picker/model-picker';
 import { ModelInputs } from '../model-picker/model-inputs';
 import { OptionPicker, type PickerOption } from '../option-picker/option-picker';
 import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive';
+import { MarkdownPaint } from '../../ui/markdown-paint/markdown-paint';
 import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import type { PopoverAnchor } from '@morse/ui-runtime';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
@@ -70,6 +71,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     PromptTemplateDialog,
     PinAnnotation,
     NoteHoverDirective,
+    MarkdownPaint,
     PopoverFit,
     CdkDropList,
     CdkDrag,

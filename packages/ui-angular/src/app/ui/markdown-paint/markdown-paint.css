@@ -1,0 +1,55 @@
+:host {
+  position: relative;
+  display: block;
+  /*
+   * One set of metrics for both layers. The textarea is projected inside
+   * :host, so it reads the same custom properties — the two surfaces cannot
+   * drift apart.
+   */
+  --mdp-padding: 4px 6px;
+  --mdp-line-height: 1.5;
+}
+.paint {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: var(--mdp-padding);
+  line-height: var(--mdp-line-height);
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  scrollbar-gutter: stable;
+  color: var(--morse-fg);
+  pointer-events: none;
+  user-select: none;
+}
+/* IME mid-composition: the textarea shows its own text until it settles. */
+.paint.composing {
+  visibility: hidden;
+}
+/*
+ * Colors and backgrounds only — never font, weight, style or spacing: a
+ * decoration that reflows text breaks the line-for-line contract with the
+ * textarea underneath. `.hljs-*` colors come from the global stylesheet.
+ */
+.md-fence {
+  color: var(--morse-fg-muted);
+}
+.md-code,
+.md-inline-code {
+  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
+}
+.md-strong,
+.md-heading {
+  color: var(--morse-accent);
+}
+.md-em {
+  color: color-mix(in srgb, var(--morse-accent) 75%, var(--morse-fg));
+}
+.md-link {
+  color: var(--morse-info);
+  text-decoration: underline;
+}
+.md-list {
+  color: var(--morse-accent);
+}

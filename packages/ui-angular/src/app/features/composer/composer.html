@@ -295,28 +295,30 @@
       <span><kbd>Esc</kbd> restore</span>
     </div>
   }
-  <textarea
-    #promptInput
-    rows="2"
-    aria-label="Prompt"
-    [value]="text()"
-    [style.height.px]="maximized() ? null : dragHeight()"
-    [disabled]="!canSend()"
-    [placeholder]="
-      !connected()
-        ? 'Waiting for a Morse host…'
-        : agentStarting()
-          ? 'Starting the agent…'
-          : agentError()
-            ? 'The agent is unavailable.'
-            : agentReady()
-              ? 'Ask Morse… (' + sendHint() + ')'
-              : 'Type to start a session… (' + sendHint() + ')'
-    "
-    (input)="onInput($event)"
-    (keydown)="onKeydown($event)"
-    (paste)="onPaste($event)"
-  ></textarea>
+  <morse-markdown-paint [value]="text()">
+    <textarea
+      #promptInput
+      rows="2"
+      aria-label="Prompt"
+      [value]="text()"
+      [style.height.px]="maximized() ? null : dragHeight()"
+      [disabled]="!canSend()"
+      [placeholder]="
+        !connected()
+          ? 'Waiting for a Morse host…'
+          : agentStarting()
+            ? 'Starting the agent…'
+            : agentError()
+              ? 'The agent is unavailable.'
+              : agentReady()
+                ? 'Ask Morse… (' + sendHint() + ')'
+                : 'Type to start a session… (' + sendHint() + ')'
+      "
+      (input)="onInput($event)"
+      (keydown)="onKeydown($event)"
+      (paste)="onPaste($event)"
+    ></textarea>
+  </morse-markdown-paint>
 
   @if (showStatusRow()) {
     <div class="status-row">

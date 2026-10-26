@@ -158,6 +158,28 @@ describe('ChatComposer palette', () => {
     expect(host.querySelector('morse-prompt-template-dialog')).not.toBeNull();
   });
 
+  it('opens the palette and runs a row over a formatted draft', async () => {
+    const { host, fixture, transport } = await render();
+    const textarea = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
+
+    // A fenced draft above the token: the palette trigger reads the caret
+    // token, so formatting in the buffer changes nothing (the paint layer is
+    // decoration only — see the byte-for-byte contract in composer.markdown.spec).
+    textarea.value = ['```sh', 'npm run build', '```', '/indexing-cbm'].join('\n');
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(host.querySelector('morse-command-picker')).not.toBeNull();
+
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const prompt = transport.sent.find((message) => message.type === 'chat/prompt');
+    expect(prompt?.payload.text).toBe('Index this repository.');
+  });
+
   it('expands an inline-argument template when Enter sends without the palette', async () => {
     const { host, fixture, transport } = await render();
     const textarea = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
