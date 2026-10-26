@@ -91,7 +91,13 @@ export class MarkdownPaint implements AfterContentInit {
         return;
       }
       const value = this.value();
-      this.html.set(decoratedMarkdownHtml(value));
+      // The trailing <br> is the line-box sentinel: a textarea renders the
+      // empty line after a trailing newline (the caret lives there after
+      // Enter), while pre-wrap drops that line box — without this, the mirror
+      // is one line short and the caret floats under the text until more
+      // typing materializes the line. <br> adds no characters, so the mirror
+      // stays byte-identical to the buffer.
+      this.html.set(decoratedMarkdownHtml(value) + '<br>');
       this.syncScroll();
     });
   }

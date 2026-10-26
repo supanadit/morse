@@ -79,6 +79,24 @@ describe('MarkdownPaint', () => {
     expect(component.classList.contains('composing')).toBe(false);
   });
 
+  it('keeps the caret’s empty line after Enter: a trailing newline still mirrors', () => {
+    const frames = frameQueue();
+    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    const { fixture, paint } = mount();
+
+    // After Enter at the end of the draft the buffer ends in "\n" and the
+    // caret sits on the empty last line: the mirror must show that line too
+    // (via the character-free <br> sentinel) or the caret floats under the
+    // text until typing. textContent stays byte-identical either way.
+    fixture.componentInstance.value.set('```json\nasdasdasd\n');
+    fixture.detectChanges();
+    frames.flush();
+    fixture.detectChanges();
+
+    expect(paint.textContent).toBe('```json\nasdasdasd\n');
+    expect(paint.innerHTML.trimEnd().endsWith('<br>')).toBe(true);
+  });
+
   /**
    * The mirror and the textarea are one view: identical metrics mean identical
    * wrapping, so a painted line sits exactly under the line it decorates.
