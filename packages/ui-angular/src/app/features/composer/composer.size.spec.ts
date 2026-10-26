@@ -8,12 +8,14 @@ import { ChatComposer } from './composer';
 /** Answers the handshake so the composer renders in its normal, ready shape. */
 class ReadyHostTransport extends BaseHostTransport {
   readonly kind = 'memory' as const;
+  readonly sent: ClientToHostMessage[] = [];
 
   connect(): void {
     this.emitStatus('open');
   }
 
   send(message: ClientToHostMessage): void {
+    this.sent.push(message);
     if (message.type !== 'client/ready') {
       return;
     }
@@ -49,14 +51,24 @@ class ReadyHostTransport extends BaseHostTransport {
   }
 }
 
-async function mount(): Promise<{ fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>; host: HTMLElement }> {
+async function mount(): Promise<{
+  fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>;
+  host: HTMLElement;
+  transport: ReadyHostTransport;
+}> {
+  const transport = new ReadyHostTransport();
   await TestBed.configureTestingModule({
     imports: [ChatComposer],
-    providers: [{ provide: MORSE_TRANSPORT, useValue: new ReadyHostTransport() }],
+    providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
   }).compileComponents();
   const fixture = TestBed.createComponent(ChatComposer);
   fixture.detectChanges();
-  return { fixture, host: fixture.nativeElement as HTMLElement };
+  return { fixture, host: fixture.nativeElement as HTMLElement, transport };
+}
+
+/** Sends the prompt the way the host would see it: only a `prompt/send`-shaped message counts. */
+function prompts(transport: ReadyHostTransport): ClientToHostMessage[] {
+  return transport.sent.filter((message) => message.type !== 'client/ready');
 }
 
 describe('ChatComposer sizing', () => {
@@ -88,6 +100,38 @@ describe('ChatComposer sizing', () => {
 
     const textarea = host.querySelector('textarea') as HTMLElement;
     expect(textarea.style.height).toBe('180px');
+  });
+
+  it('writes a new line on Enter while maximized, and sends on Shift+Enter', async () => {
+    const { fixture, host, transport } = await mount();
+    (host.querySelector('button[aria-pressed="false"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = 'hello';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(prompts(transport)).toHaveLength(0);
+
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(prompts(transport)).toHaveLength(1);
+  });
+
+  it('shows the shortcut legend only in full screen', async () => {
+    const { fixture, host } = await mount();
+    expect(host.querySelector('.legend')).toBeNull();
+
+    (host.querySelector('button[aria-pressed="false"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.legend')?.textContent).toContain('Shift');
   });
 });
 

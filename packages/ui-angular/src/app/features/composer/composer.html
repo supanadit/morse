@@ -288,6 +288,13 @@
     </div>
   }
 
+  @if (maximized()) {
+    <div class="legend" aria-label="Keyboard shortcuts">
+      <span><kbd>Enter</kbd> new line</span>
+      <span><kbd>Shift</kbd>+<kbd>Enter</kbd> send</span>
+      <span><kbd>Esc</kbd> restore</span>
+    </div>
+  }
   <textarea
     #promptInput
     rows="2"
@@ -303,8 +310,8 @@
           : agentError()
             ? 'The agent is unavailable.'
             : agentReady()
-              ? 'Ask Morse… (Enter to send, Shift+Enter for a new line)'
-              : 'Type to start a session… (Enter to send, Shift+Enter for a new line)'
+              ? 'Ask Morse… (' + sendHint() + ')'
+              : 'Type to start a session… (' + sendHint() + ')'
     "
     (input)="onInput($event)"
     (keydown)="onKeydown($event)"

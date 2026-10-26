@@ -407,6 +407,13 @@ export class ChatComposer {
     if (this.maximized()) this.folded.set(false);
     this.promptInput()?.nativeElement.focus();
   }
+
+  /** The send shortcut the placeholder advertises, per mode. */
+  protected readonly sendHint = computed(() =>
+    this.maximized()
+      ? 'Enter for a new line, Shift+Enter to send'
+      : 'Enter to send, Shift+Enter for a new line',
+  );
   /**
    * Height the user dragged the prompt to, in px. Null keeps the stylesheet's
    * small default; a drag pins the box and the text scrolls inside it.
@@ -661,7 +668,12 @@ export class ChatComposer {
       this.maximized.set(false);
       return;
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    // Maximized, the prompt behaves like a page: Enter writes a line and
+    // sending takes Shift+Enter (or the Send button). Docked, Enter sends.
+    const enterSends = this.maximized()
+      ? event.shiftKey || event.ctrlKey || event.metaKey
+      : !event.shiftKey;
+    if (event.key === 'Enter' && enterSends && !event.isComposing) {
       event.preventDefault();
       // A model pick's thinking levels are still being read: the send would be
       // held by the host anyway, and looking like it left with the previous

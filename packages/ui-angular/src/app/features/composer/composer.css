@@ -522,6 +522,22 @@ button.chip-body:focus-visible {
 :host(.maximized) .resize {
   display: none;
 }
+/* The shortcut legend only exists in full screen, where the keys change. */
+.legend {
+  display: flex;
+  gap: 14px;
+  padding: 2px 6px 6px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.legend kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  font: inherit;
+  font-size: 10.5px;
+}
 textarea {
   width: 100%;
   border: 0;
