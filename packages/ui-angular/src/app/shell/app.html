@@ -217,8 +217,11 @@
              `morse-agent-screen` instead, which can say a great deal more; a window
              with no session yet (lazy open) is a normal empty state and gets neither. -->
         <section class="alert" role="alert">
-          <strong>Pi agent unavailable</strong>
-          <p>{{ agentError() || 'Morse could not start the pi coding agent.' }}</p>
+          <!-- Not named after an engine: the session may be running pi or
+               OpenCode, and the host's own message below already names which
+               one failed and why. -->
+          <strong>Agent unavailable</strong>
+          <p>{{ agentError() || 'Morse could not start the coding agent.' }}</p>
           <div class="actions">
             <button type="button" (click)="retryAgent()">Retry</button>
             <button type="button" class="secondary" (click)="openSettings()">Open settings</button>

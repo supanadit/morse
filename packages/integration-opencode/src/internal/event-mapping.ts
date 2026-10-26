@@ -42,6 +42,12 @@ interface PendingMessage {
 export class OpenCodeEventMapper {
   /** Whether a run is in flight, so a settled/failed event ends it only once. */
   private running = false;
+  /**
+   * Whether the current run's failure was already reported: OpenCode emits
+   * `session.step.failed` for the step and `session.execution.failed` for the
+   * run around it, both carrying the same provider error.
+   */
+  private failureReported = false;
   /** The step being accumulated, keyed by the assistant message the server named. */
   private pending: PendingMessage | undefined;
   /** Tool ids → the name their input.started announced (`session.tool.called` omits it). */
@@ -64,6 +70,7 @@ export class OpenCodeEventMapper {
           return { events: [] };
         }
         this.running = true;
+        this.failureReported = false;
         return { events: [{ type: 'agent/run-start', at }], state: { streaming: true } };
 
       case 'session.text.delta': {
@@ -170,15 +177,37 @@ export class OpenCodeEventMapper {
       case 'session.execution.aborted':
         return this.endRun('aborted', at);
 
+      case 'session.step.failed': {
+        // A step failure is reported now, because the user is watching the turn
+        // stall; the execution-level failure that follows repeats the same error,
+        // so it must not become a second row.
+        const failure = asFailure(data['error']);
+        if (failure === undefined || failure.type === 'aborted' || this.failureReported) {
+          return { events: [] };
+        }
+        this.failureReported = true;
+        return {
+          events: [
+            {
+              type: 'agent/notice',
+              at,
+              level: 'error',
+              text: `The run failed: ${failure.message}`,
+            },
+          ],
+        };
+      }
+
       case 'session.execution.failed': {
         const ended = this.endRun('error', at);
-        const message = asString(data['error']) ?? asString(data['message']);
-        if (message !== undefined) {
+        const failure = asFailure(data['error'] ?? data['message']);
+        if (failure !== undefined && failure.type !== 'aborted' && !this.failureReported) {
+          this.failureReported = true;
           ended.events.push({
             type: 'agent/notice',
             at,
             level: 'error',
-            text: `The run failed: ${message}`,
+            text: `The run failed: ${failure.message}`,
           });
         }
         return ended;
@@ -218,8 +247,14 @@ export class OpenCodeEventMapper {
         // to release its pending map, so there is no transcript event.
         return { events: [] };
 
-      case 'session.retried': {
-        const reason = asString(data['reason']) ?? asString(data['message']);
+      case 'session.retried':
+      case 'session.retry.scheduled': {
+        // Installed servers send `retry.scheduled` with a structured error
+        // (`{type, message}`); the pre-release SDK used `retried` with a `reason`
+        // string. Both mean the same thing to a reader.
+        const failure = asFailure(data['error']);
+        const reason =
+          failure?.message ?? asString(data['reason']) ?? asString(data['message']);
         const attempt = asNumber(data['attempt']);
         const suffix = attempt === undefined ? '' : ` (attempt ${attempt})`;
         return {
@@ -430,6 +465,36 @@ export function describeToolCall(
     return `${toolName}: ${truncate(pattern, 100)}`;
   }
   return toolName;
+}
+
+/** A readable failure from OpenCode's structured error, or an older string payload. */
+interface EngineFailure {
+  message: string;
+  /** OpenCode's taxonomy tag (`provider.free-limit`, `provider.auth`, …). */
+  type?: string;
+}
+
+/**
+ * OpenCode reports failures as `{ type, message, status?, response? }`; some
+ * events and older builds used a bare string. Both must reach the transcript:
+ * a provider that refused the request for credits is exactly the thing a reader
+ * needs to see, and `asString()` alone silently dropped it.
+ */
+function asFailure(value: unknown): EngineFailure | undefined {
+  if (typeof value === 'string') {
+    return value.length > 0 ? { message: value } : undefined;
+  }
+  const record = asRecord(value);
+  if (record === undefined) {
+    return undefined;
+  }
+  const message = asString(record['message']);
+  const type = asString(record['type']);
+  if (message !== undefined && message.length > 0) {
+    return { message, ...(type === undefined ? {} : { type }) };
+  }
+  // A bare tag is still more useful than saying nothing.
+  return type !== undefined && type.length > 0 ? { message: type, type } : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

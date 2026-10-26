@@ -185,10 +185,21 @@ describe('OpenCodeEventMapper', () => {
     expect(events.filter((entry) => entry.type === 'agent/message')).toEqual([]);
   });
 
-  it('ends a failed run once and says what failed', () => {
+  it('ends a failed run once and says what the provider refused', () => {
+    // Recorded from a real 2.1.4 server: the error is an object, not a string.
     const { events } = mapAll([
       event('session.execution.started', {}, 4_000),
-      event('session.execution.failed', { error: 'provider overloaded' }, 4_001),
+      event(
+        'session.execution.failed',
+        {
+          error: {
+            type: 'provider.free-limit',
+            message:
+              'Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.',
+          },
+        },
+        4_001,
+      ),
       // A repeated terminal event must not end the run a second time.
       event('session.execution.succeeded', {}, 4_002),
     ]);
@@ -198,14 +209,54 @@ describe('OpenCodeEventMapper', () => {
     ]);
     expect(events.find((entry) => entry.type === 'agent/notice')).toMatchObject({
       level: 'error',
-      text: expect.stringContaining('provider overloaded'),
+      text: expect.stringContaining('Free usage limit reached'),
     });
   });
 
-  it('reports a retry as a warning notice', () => {
-    const { events } = mapAll([event('session.retried', { attempt: 2, reason: 'rate limited' }, 5_000)]);
+  it('reports a step failure once, before the execution failure repeats it', () => {
+    const error = { type: 'provider.quota', message: 'Insufficient credits.' };
+    const { events } = mapAll([
+      event('session.execution.started', {}, 4_100),
+      event('session.step.failed', { assistantMessageID: 'msg_1', error }, 4_101),
+      event('session.execution.failed', { error }, 4_102),
+    ]);
+
+    const notices = events.filter((entry) => entry.type === 'agent/notice');
+    expect(notices).toEqual([
+      { type: 'agent/notice', at: 4_101, level: 'error', text: 'The run failed: Insufficient credits.' },
+    ]);
+    expect(events.filter((entry) => entry.type === 'agent/run-end')).toEqual([
+      { type: 'agent/run-end', at: 4_102, reason: 'error' },
+    ]);
+  });
+
+  it('reports a retry as a warning notice, with the provider message', () => {
+    const { events } = mapAll([
+      event(
+        'session.retry.scheduled',
+        {
+          assistantMessageID: 'msg_1',
+          attempt: 2,
+          at: 5_001,
+          error: { type: 'provider.rate-limit', message: 'Rate limit exceeded, retry later.' },
+        },
+        5_000,
+      ),
+    ]);
     expect(events).toEqual([
-      { type: 'agent/notice', at: 5_000, level: 'warn', text: expect.stringContaining('rate limited') },
+      {
+        type: 'agent/notice',
+        at: 5_000,
+        level: 'warn',
+        text: 'OpenCode is retrying the request (attempt 2): Rate limit exceeded, retry later.',
+      },
+    ]);
+  });
+
+  it('still understands the pre-release retry shape', () => {
+    const { events } = mapAll([event('session.retried', { attempt: 2, reason: 'rate limited' }, 5_100)]);
+    expect(events).toEqual([
+      { type: 'agent/notice', at: 5_100, level: 'warn', text: expect.stringContaining('rate limited') },
     ]);
   });
 

@@ -101,6 +101,19 @@ OpenCode's primary agents SHALL be the modes Morse offers, with hidden and subag
 - **AND** a removed agent is no longer offered
 - **AND** the picker can be re-read without restarting Morse
 
+#### Scenario: A failed re-read does not take the mode picker away
+
+- **WHEN** re-reading the agent catalog returns nothing, because the server is starting or the
+  request failed
+- **THEN** the session keeps the modes it already reported
+- **AND** the composer still offers the mode picker for the running session
+
+#### Scenario: A session opened during a slow start recovers its modes
+
+- **WHEN** a session is opened while OpenCode cannot yet list its agents
+- **THEN** a later connect or finished run re-reads them
+- **AND** the mode picker appears without restarting the session
+
 ### Requirement: A session starts and runs in the chosen OpenCode agent
 
 Creating a session SHALL send the chosen agent to OpenCode, and SHALL omit the field when the user made no choice so OpenCode applies its own default. Changing the mode of a running session SHALL change the agent OpenCode uses without disturbing the conversation, and a change made by another OpenCode client SHALL be reported rather than overwritten.
@@ -174,6 +187,47 @@ and the turn ending with the reason it ended.
 - **WHEN** the execution succeeds, fails or is interrupted
 - **THEN** the session reports the turn ended with that reason
 - **AND** a further event of an already-ended turn does not end it twice
+
+### Requirement: A failed run is visible in the transcript
+
+When OpenCode refuses or fails a request, the engine SHALL report the provider's own message as an
+error notice before the run ends, once per failure, and SHALL report a scheduled retry as a warning
+with its attempt number. A run the reader aborted is not a failure.
+
+#### Scenario: A provider error reaches the transcript
+
+- **WHEN** OpenCode fails a step with a structured error, then fails the execution around it
+- **THEN** the session reports one error notice with the provider's message
+- **AND** the run ends with the error reason, without a second notice for the same failure
+
+#### Scenario: A retry is visible while it waits
+
+- **WHEN** OpenCode schedules a retry with an attempt number and a reason
+- **THEN** the session reports a warning notice naming the attempt and the reason
+
+#### Scenario: An aborted step is not reported as a failure
+
+- **WHEN** the step fails because the reader aborted it
+- **THEN** no failure notice is written to the transcript
+
+### Requirement: Usage and the context window follow OpenCode's own accounting
+
+The engine SHALL report the session's cumulative token usage and cost from OpenCode's record, and
+SHALL derive how full the context window is from the newest assistant message — its prompt, output,
+reasoning and cache tokens — against the selected model's context limit, because the server reports
+totals but not the window in use.
+
+#### Scenario: A finished step moves the context ring
+
+- **WHEN** OpenCode ends a step with token counts
+- **THEN** the session reports those tokens as the last answer's usage
+- **AND** reports the context in use as that answer's tokens over the model's window
+
+#### Scenario: A resumed session still knows how full its window is
+
+- **WHEN** a session is opened with no new step to report
+- **THEN** the engine reads the newest assistant message from the server
+- **AND** reports the same context fullness as the live session did
 
 ### Requirement: Opening a session replays its finished exchanges
 

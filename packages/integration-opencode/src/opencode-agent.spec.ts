@@ -321,6 +321,56 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
+  it('keeps the mode list when a refresh cannot read it', async () => {
+    let available = true;
+    const handler: Handler = (method, path, query, body) => {
+      if (method === 'GET' && path === '/agent') {
+        return available
+          ? [
+              { id: 'build', name: 'Build', mode: 'primary' },
+              { id: 'plan', name: 'Plan', mode: 'primary' },
+            ]
+          : [];
+      }
+      return defaultHandler()(method, path, query, body);
+    };
+    const { agent } = await harness({ handler });
+
+    available = false;
+    await agent.refreshModes();
+
+    // An empty answer is a failed read, not "this configuration has no modes".
+    expect((await agent.state()).availableModes?.map((mode) => mode.id)).toEqual([
+      'build',
+      'plan',
+    ]);
+    await agent.dispose();
+  });
+
+  it('restores the mode list on reconnect after an unreadable open', async () => {
+    let readable = false;
+    const handler: Handler = (method, path, query, body) => {
+      if (method === 'GET' && path === '/agent') {
+        return readable ? [{ id: 'build', name: 'Build', mode: 'primary' }] : [];
+      }
+      return defaultHandler()(method, path, query, body);
+    };
+    const { agent, stream } = await harness({ handler });
+    expect((await agent.state()).availableModes ?? []).toEqual([]);
+
+    readable = true;
+    stream.emit('ses_1', {
+      type: 'stream.connected',
+      data: { sessionID: 'ses_1' },
+      created: Date.now(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((await agent.state()).availableModes?.map((mode) => mode.id)).toEqual(['build']);
+    expect((await agent.state()).mode).toBe('build');
+    await agent.dispose();
+  });
+
   it('observes an agent another OpenCode client changed', async () => {
     let agentId = 'build';
     const handler: Handler = (method, path, query, body) => {
@@ -539,6 +589,75 @@ describe('OpenCodeAgent', () => {
     ]);
     const state = await agent.state();
     expect(state.streaming).toBe(false);
+    await agent.dispose();
+  });
+
+  it('moves the context ring as a step reports its tokens', async () => {
+    const { agent, stream } = await harness();
+
+    stream.emit('ses_1', {
+      type: 'session.execution.started',
+      data: { sessionID: 'ses_1' },
+      created: 10,
+    });
+    stream.emit('ses_1', {
+      type: 'session.step.ended',
+      data: {
+        sessionID: 'ses_1',
+        tokens: { input: 1_000, output: 200, reasoning: 0, cache: { read: 100, write: 50 } },
+      },
+      created: 11,
+    });
+
+    // OpenCode's sidebar counts the answer's whole footprint — prompt, output,
+    // reasoning and the cache it read and wrote — against the model's window.
+    expect((await agent.state()).contextUsage).toEqual({
+      tokens: 1_350,
+      contextWindow: 262_144,
+      percent: 0.5,
+    });
+    await agent.dispose();
+  });
+
+  it('restores the context ring from the newest answer when a session is opened', async () => {
+    const { agent, stream } = await harness({
+      handler: (method, path, query, body) => {
+        if (method === 'GET' && path === '/session/ses_1/message') {
+          return {
+            data: [
+              { id: 'msg_idle', type: 'idle', time: { created: 3 } },
+              {
+                id: 'msg_a',
+                type: 'assistant',
+                time: { created: 2 },
+                tokens: {
+                  input: 2_000,
+                  output: 120,
+                  reasoning: 0,
+                  cache: { read: 400, write: 0 },
+                },
+              },
+            ],
+          };
+        }
+        return defaultHandler()(method, path, query, body);
+      },
+    });
+
+    stream.emit('ses_1', {
+      type: 'stream.connected',
+      data: { sessionID: 'ses_1' },
+      created: Date.now(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = await agent.state();
+    expect(state.lastUsage).toMatchObject({ inputTokens: 2_000, outputTokens: 120 });
+    expect(state.contextUsage).toEqual({
+      tokens: 2_520,
+      contextWindow: 262_144,
+      percent: 1,
+    });
     await agent.dispose();
   });
 

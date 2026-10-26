@@ -19,6 +19,7 @@ import {
   type PromptImage,
   type PromptMode,
   type ThinkingLevel,
+  type TokenUsage,
   type WorkspaceRef,
 } from '@morse/agent';
 import { AgentUnavailableError, UnsupportedByHostError, type MorseLogger } from '@morse/system';
@@ -93,6 +94,14 @@ interface ApiSkill {
 const MAX_HISTORY_PAGES = 20;
 /** `history`'s page size in messages when the caller does not name one. */
 const DEFAULT_HISTORY_LIMIT = 40;
+/**
+ * How far back a state refresh walks for the newest assistant message. The
+ * context ring needs one answer, and the newest page normally starts with it;
+ * the walk only cushions a run of bookkeeping rows (idle markers, tool rows)
+ * landing on top of it.
+ */
+const LATEST_USAGE_PAGES = 3;
+const LATEST_USAGE_LIMIT = 20;
 
 export interface OpenCodeAgentOptions {
   api: OpenCodeApi;
@@ -136,6 +145,36 @@ export class OpenCodeAgent extends Session {
     this.stream = options.stream;
     this.log = options.logger;
     this.engineId = session.id;
+  }
+
+  /**
+   * Every state change goes through here, because the context window is derived
+   * rather than reported: OpenCode keeps cumulative totals on the session record
+   * (and in `session.usage.updated`), not how full the window is. Its own sidebar
+   * counts the latest answer's tokens — prompt, output, reasoning and the cache
+   * it read and wrote — against the model's window, which is what the ring in the
+   * composer should show.
+   */
+  protected override mergeState(patch: Partial<AgentSessionState>): void {
+    super.mergeState(patch);
+    const last = this.box.lastUsage;
+    const contextWindow = this.box.model?.contextWindow;
+    if (last === undefined || contextWindow === undefined || contextWindow <= 0) {
+      return;
+    }
+    const tokens =
+      last.inputTokens +
+      last.outputTokens +
+      (last.reasoningTokens ?? 0) +
+      (last.cacheReadTokens ?? 0) +
+      (last.cacheWriteTokens ?? 0);
+    super.mergeState({
+      contextUsage: {
+        tokens,
+        contextWindow,
+        percent: Math.round((tokens / contextWindow) * 1000) / 10,
+      },
+    });
   }
 
   /**
@@ -366,6 +405,13 @@ export class OpenCodeAgent extends Session {
    */
   async refreshModes(): Promise<void> {
     const modes = await readAgentModes(this.api, this.box.workspace.cwd, this.log);
+    // OpenCode always ships primary agents, so an empty answer is a read that
+    // failed or raced a starting project, not a configuration without modes.
+    // Dropping the list would take the mode picker away from a session that can
+    // still use it; keep the last one until the server answers again.
+    if (modes.length === 0) {
+      return;
+    }
     const patch: Partial<AgentSessionState> = { availableModes: modes };
     if (this.box.mode === undefined) {
       const mode = defaultModeId(modes);
@@ -644,10 +690,29 @@ export class OpenCodeAgent extends Session {
   }
 
   private async loadServerState(): Promise<void> {
-    const session = await this.api.get<ApiSessionInfo>(
-      `/session/${encodeURIComponent(this.engineId)}`,
-    );
+    // A session opened while the server was still starting can miss its primary
+    // agents; the mode picker then never appears. Re-read them on a refresh
+    // (connect or run end) until one lands, and leave a known list alone.
+    const modesMissing = (this.box.availableModes ?? []).length === 0;
+    const [session, lastUsage, modes] = await Promise.all([
+      this.api.get<ApiSessionInfo>(`/session/${encodeURIComponent(this.engineId)}`),
+      // Resuming has no step event to report the last answer, so the ring would
+      // stay empty until the reader prompts again. This is the one read that
+      // makes an opened conversation look like a live one.
+      this.latestAssistantUsage().catch((error: unknown) => {
+        this.log.warn('Could not read the OpenCode context usage', { error });
+        return undefined;
+      }),
+      modesMissing
+        ? readAgentModes(this.api, this.box.workspace.cwd, this.log)
+        : Promise.resolve(undefined),
+    ]);
     if (this.disposed) {
+      return;
+    }
+    // A server that answered 204 has no record to fold in; keep what we have
+    // rather than reporting a session that lost its title and model.
+    if (session === undefined || typeof session.id !== 'string') {
       return;
     }
     const apiModel = session.model === undefined
@@ -672,6 +737,18 @@ export class OpenCodeAgent extends Session {
     if (usage !== undefined) {
       patch.usage = usage;
     }
+    if (lastUsage !== undefined) {
+      patch.lastUsage = lastUsage;
+    }
+    if (modes !== undefined && modes.length > 0) {
+      patch.availableModes = modes;
+      if (this.box.mode === undefined) {
+        const mode = defaultModeId(modes);
+        if (mode !== undefined) {
+          patch.mode = mode;
+        }
+      }
+    }
     if (typeof session.cost === 'number' && Number.isFinite(session.cost)) {
       patch.costUsd = session.cost;
     }
@@ -679,6 +756,32 @@ export class OpenCodeAgent extends Session {
       this.mergeState(patch);
       this.emitState(Date.now());
     }
+  }
+
+  /** The newest finished answer's tokens, for the context window and the last-message panel. */
+  private async latestAssistantUsage(): Promise<TokenUsage | undefined> {
+    let cursor: string | undefined;
+    for (let page = 0; page < LATEST_USAGE_PAGES; page += 1) {
+      const result = await this.api.page<ApiMessage>(
+        `/session/${encodeURIComponent(this.engineId)}/message`,
+        {
+          limit: String(LATEST_USAGE_LIMIT),
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+      );
+      const assistant = result.data.find(
+        (message) => message.type === 'assistant' && message.tokens !== undefined,
+      );
+      const usage = toTokenUsage(assistant?.tokens);
+      if (usage !== undefined) {
+        return usage;
+      }
+      cursor = result.cursor?.next ?? undefined;
+      if (cursor === undefined) {
+        return undefined;
+      }
+    }
+    return undefined;
   }
 
   private selectedModel(): ApiModel | undefined {

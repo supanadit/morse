@@ -33,6 +33,8 @@ class MissingAgentTransport extends BaseHostTransport {
     private readonly hostKind: 'server' | 'vscode',
     /** A resumed session: history on screen, agent still down. */
     private readonly withTranscript = false,
+    /** Another engine's failure, so the copy must name that one. */
+    private readonly engine?: { kind: string; label: string },
   ) {
     super();
   }
@@ -46,8 +48,20 @@ class MissingAgentTransport extends BaseHostTransport {
     if (message.type !== 'client/ready') {
       return;
     }
+    const failure =
+      this.engine === undefined
+        ? { message: MESSAGE, install: INSTALL, hint: HINT }
+        : {
+            message: `The ${this.engine.label} coding agent was not found.`,
+            install:
+              this.engine.kind === 'opencode'
+                ? 'npm install -g opencode-ai'
+                : `npm install -g @earendil-works/pi-coding-agent`,
+            hint: `Install the ${this.engine.label} CLI so that it is on PATH.`,
+          };
     const state: SessionViewState = {
       workspace: { cwd: '/work/morse', name: 'morse' },
+      ...(this.engine === undefined ? {} : { engine: this.engine.kind }),
       thinkingLevel: 'off',
       availableModels: [],
       availableThinkingLevels: [],
@@ -56,12 +70,12 @@ class MissingAgentTransport extends BaseHostTransport {
       busy: false,
       agentReady: false,
       agentStarting: false,
-      agentError: MESSAGE,
-      agentFailure: { code: 'agent-unavailable', install: INSTALL, hint: HINT },
+      agentError: failure.message,
+      agentFailure: { code: 'agent-unavailable', install: failure.install, hint: failure.hint },
     };
     this.emitMessage({
       type: 'host/ready',
-      payload: { protocolVersion: PROTOCOL_VERSION, capabilities: capabilities(this.hostKind), state },
+      payload: { protocolVersion: PROTOCOL_VERSION, capabilities: capabilities(this.hostKind, this.engine), state },
     });
     if (this.withTranscript) {
       this.emitMessage({
@@ -76,11 +90,15 @@ class MissingAgentTransport extends BaseHostTransport {
   }
 }
 
-function capabilities(hostKind: 'server' | 'vscode'): HostCapabilities {
+function capabilities(
+  hostKind: 'server' | 'vscode',
+  engine?: { kind: string; label: string },
+): HostCapabilities {
   const scoped = hostKind === 'vscode';
   return {
     hostKind,
     scope: scoped ? 'workspace' : 'global',
+    ...(engine === undefined ? {} : { engines: [{ ...engine, default: true }] }),
     editorContext: scoped,
     nativeDialogs: scoped,
     insertIntoEditor: scoped,
@@ -88,13 +106,16 @@ function capabilities(hostKind: 'server' | 'vscode'): HostCapabilities {
   };
 }
 
-async function renderScreen(hostKind: 'server' | 'vscode'): Promise<{
+async function renderScreen(
+  hostKind: 'server' | 'vscode',
+  engine?: { kind: string; label: string },
+): Promise<{
   host: HTMLElement;
   fixture: ComponentFixture<AgentScreen>;
   transport: MissingAgentTransport;
 }> {
   TestBed.resetTestingModule();
-  const transport = new MissingAgentTransport(hostKind);
+  const transport = new MissingAgentTransport(hostKind, false, engine);
   await TestBed.configureTestingModule({
     imports: [AgentScreen],
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
@@ -123,7 +144,7 @@ describe('AgentScreen', () => {
   it('offers the command the adapter named, plus the host’s own next step', async () => {
     const { host } = await renderScreen('server');
 
-    expect(host.textContent).toContain('The pi coding agent is not installed');
+    expect(host.textContent).toContain('The pi agent is not installed');
     expect(host.querySelector('.command code')?.textContent?.trim()).toBe(INSTALL);
     expect(host.textContent).toContain(HINT);
     // The raw failure is one click away, not the headline.
@@ -135,6 +156,17 @@ describe('AgentScreen', () => {
     expect(
       [...host.querySelectorAll('button')].some((button) => button.textContent === 'Open settings'),
     ).toBe(false);
+  });
+
+  it('names the engine the host reports, not always pi', async () => {
+    const { host } = await renderScreen('server', { kind: 'opencode', label: 'OpenCode' });
+
+    expect(host.textContent).toContain('The OpenCode agent is not installed');
+    expect(host.textContent).toContain('npm install -g opencode-ai');
+    // The pi setting and environment variable are not this engine's business.
+    expect(host.textContent).not.toContain('MORSE_PI_PATH');
+    expect(host.textContent).not.toContain('morse.pi.path');
+    expect(host.textContent).toContain('morse restart');
   });
 
   it('copies the install command and confirms it in place', async () => {
@@ -201,7 +233,7 @@ describe('App · agent failure', () => {
     expect(host.querySelector('morse-chat-transcript')).not.toBeNull();
     expect(host.querySelector('morse-chat-composer')).not.toBeNull();
     const banner = host.querySelector('.alert');
-    expect(banner?.textContent).toContain('Pi agent unavailable');
+    expect(banner?.textContent).toContain('Agent unavailable');
     expect(banner?.textContent).toContain('was not found');
   });
 });
