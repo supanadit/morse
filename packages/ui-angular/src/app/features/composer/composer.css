@@ -47,6 +47,10 @@
 .fold-shut:hover {
   color: var(--morse-fg);
 }
+/* Only the first of the pair is pushed to the edge; the second hugs it. */
+.fold-shut + .fold-shut {
+  margin-left: 2px;
+}
 .box {
   position: relative;
   container-type: inline-size;
@@ -487,13 +491,43 @@ button.chip-body:focus-visible {
 .box:focus-within {
   border-color: var(--morse-focus);
 }
+/* The top edge is the resize grip: drag it to give the prompt more room. */
+.resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.resize:hover {
+  background: color-mix(in srgb, var(--morse-focus) 30%, transparent);
+  border-radius: inherit;
+}
+/* Maximized: the prompt becomes a page of its own over the conversation. */
+:host(.maximized) .box {
+  position: fixed;
+  inset: 24px;
+  max-width: none;
+  z-index: var(--morse-z-dialog);
+  display: flex;
+  flex-direction: column;
+}
+:host(.maximized) textarea {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+:host(.maximized) .resize {
+  display: none;
+}
 textarea {
   width: 100%;
   border: 0;
   background: transparent;
   resize: none;
   min-height: 44px;
-  max-height: 220px;
   padding: 4px 6px;
   line-height: 1.5;
 }

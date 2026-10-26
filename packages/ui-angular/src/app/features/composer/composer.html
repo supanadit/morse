@@ -70,6 +70,8 @@
     </div>
   }
   <div class="box">
+  <!-- Drag the top edge to size the prompt by hand. -->
+  <div class="resize" title="Drag to resize the prompt" (pointerdown)="onResizeStart($event)"></div>
   <div class="toolbar">
     <button
       type="button"
@@ -112,6 +114,24 @@
       (click)="toggleFolded()"
     >
       <span aria-hidden="true">▾</span>
+    </button>
+    <!-- Fills the window with the prompt: long prompts deserve a page, not a slot. -->
+    <button
+      type="button"
+      class="fold-shut"
+      [attr.aria-pressed]="maximized()"
+      [title]="maximized() ? 'Restore the prompt' : 'Maximize the prompt'"
+      (click)="toggleMaximized()"
+    >
+      @if (maximized()) {
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
+        </svg>
+      } @else {
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+        </svg>
+      }
     </button>
   </div>
 
@@ -273,6 +293,7 @@
     rows="2"
     aria-label="Prompt"
     [value]="text()"
+    [style.height.px]="maximized() ? null : dragHeight()"
     [disabled]="!canSend()"
     [placeholder]="
       !connected()

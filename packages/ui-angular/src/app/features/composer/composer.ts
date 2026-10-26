@@ -38,6 +38,7 @@ interface EditorSnapshot {
 }
 import { pinNoteHint } from '@morse/ui-runtime';
 import { PopoverFit } from '../../ui/popover-fit.directive';
+import { startResize } from '../../ui/resize-drag';
 import { EnterDirective } from '../../ui/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
 import { CommandPicker, rankPalette, type PaletteItem } from '../command-picker/command-picker';
@@ -75,7 +76,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     CdkDragHandle,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.folded]': 'folded()' },
+  host: { '[class.folded]': 'folded()', '[class.maximized]': 'maximized()' },
   styleUrl: './composer.css',
 })
 export class ChatComposer {
@@ -396,6 +397,37 @@ export class ChatComposer {
     this.folded.update((folded) => !folded);
   }
   /**
+   * The prompt expanded to fill the window: long prompts deserve a page, not a
+   * two-line slot. Same box, same draft — only its room changes.
+   */
+  protected readonly maximized = signal(false);
+
+  protected toggleMaximized(): void {
+    this.maximized.update((maximized) => !maximized);
+    if (this.maximized()) this.folded.set(false);
+    this.promptInput()?.nativeElement.focus();
+  }
+  /**
+   * Height the user dragged the prompt to, in px. Null keeps the stylesheet's
+   * small default; a drag pins the box and the text scrolls inside it.
+   */
+  protected readonly dragHeight = signal<number | null>(null);
+
+  protected onResizeStart(event: PointerEvent): void {
+    const startY = event.clientY;
+    const measured = this.promptInput()?.nativeElement.getBoundingClientRect().height ?? 0;
+    const startHeight = this.dragHeight() ?? (measured > 0 ? measured : 60);
+    startResize(event, {
+      value: (pointer) =>
+        Math.min(
+          Math.max(startHeight + (startY - pointer.clientY), 60),
+          window.innerHeight - 200,
+        ),
+      preview: (height) => this.dragHeight.set(Math.round(height)),
+      commit: (height) => this.dragHeight.set(Math.round(height)),
+    });
+  }
+  /**
    * When each session's current run began, keyed by session id. One composer
    * draws whichever tab is in front, so a single clock leaked across tabs:
    * switching between two running sessions kept the first one's start (running
@@ -621,6 +653,13 @@ export class ChatComposer {
         default:
           return;
       }
+    }
+    // Escape shrinks a maximized prompt back to the dock. Pickers above
+    // consumed their own Escape first, so this only fires with none open.
+    if (event.key === 'Escape' && this.maximized()) {
+      event.preventDefault();
+      this.maximized.set(false);
+      return;
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
