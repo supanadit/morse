@@ -582,9 +582,10 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 /*
- * Row 1 is status only: live throughput on the left, run progress and the
- * context indicator on the right. Row 2 stays pure controls (dropdowns +
- * send/steer), so the buttons never move around while the numbers tick.
+ * Row 1 is status only: live throughput and the session facts on the left,
+ * run progress and the context indicator on the right. Row 2 stays pure
+ * controls (dropdowns + send/steer), so the buttons never move around while
+ * the numbers tick.
  */
 .status-row {
   display: flex;
@@ -609,7 +610,9 @@ textarea:focus-visible {
 }
 /*
  * The model trigger replaces a native <select>, whose flat list hid which
- * provider a model belongs to. It opens the grouped, searchable picker.
+ * provider a model belongs to. It opens the grouped, searchable picker. The
+ * provider itself rides the session facts on the status strip: an inline
+ * pill ate the width the model name needs and truncated the label it shows.
  */
 .model-button {
   display: inline-flex;
@@ -633,20 +636,34 @@ textarea:focus-visible {
   opacity: 0.5;
   cursor: default;
 }
-.model-button .provider {
-  flex: none;
-  max-width: 90px;
+/*
+ * Session facts: muted plain text on the status strip, right after the live
+ * rate — the engine this session runs and where its model comes from. Facts
+ * are plain text; the controls below stay a single aligned row.
+ */
+.facts {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.fact {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 1px 5px;
-  border-radius: var(--morse-radius-sm);
-  background: var(--morse-hover);
-  color: var(--morse-fg-muted);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+}
+.fact + .fact::before {
+  content: '·';
+  margin: 0 6px;
+  opacity: 0.6;
+}
+/* The live rate and the facts are two groups on one line: same separator. */
+.throughput + .facts .fact:first-child::before {
+  content: '·';
+  margin: 0 6px;
+  opacity: 0.6;
 }
 .model-button .label {
   min-width: 0;

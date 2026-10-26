@@ -259,7 +259,9 @@ describe('AgentRouter', () => {
     store.rows.set(openCodeRecord.id, openCodeRecord);
     expect(piRecord.id).not.toBe(openCodeRecord.id);
 
-    const inner = new FakeGateway(state({ sessionId: piEngineId }));
+    // The adapter names the session by pi's UUID even though it keys it by the
+    // session file; the router must keep that name alongside Morse's id.
+    const inner = new FakeGateway(state({ sessionId: piEngineId, engineSessionId: 'pi-uuid' }));
     const { router, engines } = build({
       store,
       engines: [
@@ -278,7 +280,9 @@ describe('AgentRouter', () => {
     ]);
     expect(engines.get('opencode')?.created).toEqual([]);
 
-    expect((await gateway.state()).sessionId).toBe(piRecord.id);
+    const routed = await gateway.state();
+    expect(routed.sessionId).toBe(piRecord.id);
+    expect(routed.engineSessionId).toBe('pi-uuid');
 
     const seen: AgentEvent[] = [];
     gateway.subscribe((event) => seen.push(event));
@@ -291,6 +295,8 @@ describe('AgentRouter', () => {
     const ready = seen[0];
     expect(ready?.type).toBe('agent/ready');
     expect(ready?.type === 'agent/ready' ? ready.state.sessionId : undefined).toBe(piRecord.id);
+    // An engine that names its session no other way is stamped from its id.
+    expect(ready?.type === 'agent/ready' ? ready.state.engineSessionId : undefined).toBe(piEngineId);
   });
 
   it('seeds the index under the derived id as soon as a new session reports one', async () => {

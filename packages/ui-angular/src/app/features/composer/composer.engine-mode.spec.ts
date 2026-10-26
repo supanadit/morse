@@ -147,6 +147,21 @@ describe('ChatComposer engine and mode pills', () => {
     expect(picker(host, 'engine')).toBeNull();
     expect(picker(host, 'mode')).not.toBeNull();
     expect(trigger(host, 'mode').textContent).toContain('Build');
+    // The engine is fixed for the session, so the session facts bar carries it
+    // — and names the session itself.
+    expect(host.querySelector('.facts')?.textContent).toContain('pi');
+    expect(host.querySelector('.facts')?.textContent).toContain('sess-1');
+  });
+
+  it('names the session by the engine’s own id, not Morse’s derived one', async () => {
+    const transport = new PickersTransport(
+      TWO_ENGINES,
+      state({ sessionId: 'morse-derived-id', engineSessionId: 'ses_native', draft: false }),
+    );
+    const { host } = await mount(transport);
+    const facts = host.querySelector('.facts')?.textContent ?? '';
+    expect(facts).toContain('ses_native');
+    expect(facts).not.toContain('morse-derived-id');
   });
 
   it('picks a mode and refreshes the catalog when the panel opens', async () => {

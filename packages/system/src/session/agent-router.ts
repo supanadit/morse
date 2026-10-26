@@ -31,7 +31,8 @@ import { toSessionSummary, UNTITLED_SESSION, type MorseSessionRecord } from './r
  * expected) and a `SessionCatalog` (so the sidebar reads Morse's index). Every
  * gateway it returns is a `RoutedGateway`, whose state and events name the
  * session by the Morse-derived id — `SessionRegistry` keeps keying by
- * `state.sessionId` and no longer has to know that the id is Morse's.
+ * `state.sessionId` and no longer has to know that the id is Morse's — with the
+ * engine's own id kept alongside as `engineSessionId`.
  */
 
 /** How long a refresh counts as current, so a busy sidebar does not scan on each read. */
@@ -551,11 +552,24 @@ export class RoutedGateway implements AgentGateway {
       if (this.row === undefined) {
         return value;
       }
-      return { ...value, state: { ...value.state, sessionId: this.row.id } };
+      return {
+        ...value,
+        state: {
+          ...value.state,
+          sessionId: this.row.id,
+          engineSessionId: value.state.engineSessionId ?? value.state.sessionId,
+        },
+      };
     }
     this.absorb(value);
     this.announce();
-    return this.row === undefined ? value : { ...value, sessionId: this.row.id };
+    return this.row === undefined
+      ? value
+      : {
+          ...value,
+          sessionId: this.row.id,
+          engineSessionId: value.engineSessionId ?? value.sessionId,
+        };
   }
 
   /** Tells the router this gateway is now running the row (or the forked one). */

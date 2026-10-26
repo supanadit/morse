@@ -411,6 +411,7 @@ describe('PiRpcAgent mid-run stats', () => {
 const FIRST = ${JSON.stringify(FIRST_STATS)};
 const SECOND = ${JSON.stringify(SECOND_STATS)};
 const SESSION_FILE = '/tmp/morse-speed-spec-session.jsonl';
+const SESSION_ID = '01a10f28-3ca1-7426-b33a-cf46ed5b22af';
 let buffered = '';
 let statsCalls = 0;
 let modelCalls = 0;
@@ -419,7 +420,7 @@ const respond = (req, data) =>
   write({ type: 'response', id: req.id, command: req.type, success: true, data });
 const handle = (req) => {
   if (req.type === 'get_state') {
-    respond(req, { sessionFile: SESSION_FILE });
+    respond(req, { sessionFile: SESSION_FILE, sessionId: SESSION_ID });
     return;
   }
   if (req.type === 'get_session_stats') {
@@ -494,6 +495,9 @@ process.stdin.on('data', (chunk) => {
     const attached = await agent.initialize();
     expect(attached.usage?.inputTokens).toBe(10);
     expect(attached.counts?.totalMessages).toBe(2);
+    // pi's UUID rides along even though the session file is the identity key.
+    expect(attached.sessionId).toBe('/tmp/morse-speed-spec-session.jsonl');
+    expect(attached.engineSessionId).toBe('01a10f28-3ca1-7426-b33a-cf46ed5b22af');
 
     // The fake pi lands its message in answer to this mid-run request; no
     // `agent_settled` ever arrives, so anything the panel shows must come from

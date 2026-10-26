@@ -90,8 +90,13 @@ describe('App', () => {
     fixture.detectChanges();
 
     const trigger = fixture.nativeElement.querySelector('.model-button') as HTMLElement;
-    expect(trigger.querySelector('.provider')?.textContent?.trim()).toBe('mock-cloud');
     expect(trigger.querySelector('.label')?.textContent?.trim()).toBe('Mock Model (pro)');
+    // The provider rides the session facts bar under the controls, never inside
+    // the trigger: an inline pill would truncate the model name it shows.
+    expect(trigger.querySelector('.provider')).toBeNull();
+    expect(
+      (fixture.nativeElement.querySelector('.facts') as HTMLElement).textContent,
+    ).toContain('mock-cloud');
 
     // Reopening highlights the active model, not the first row of the list.
     (trigger as HTMLButtonElement).click();

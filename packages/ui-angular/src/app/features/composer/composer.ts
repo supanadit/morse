@@ -183,11 +183,11 @@ export class ChatComposer {
   });
   /**
    * The composer's status strip, above the dropdowns. It only takes a row when
-   * it has something to say: live throughput / run progress while working, or
-   * the context indicator once usage is known.
+   * it has something to say: live throughput / run progress while working, the
+   * context indicator once usage is known, or the session facts.
    */
   protected readonly showStatusRow = computed(
-    () => this.running() || this.showUsage(),
+    () => this.running() || this.showUsage() || this.sessionFacts().length > 0,
   );
   /**
    * Estimated output tokens generated so far in the current run: assistant prose
@@ -361,14 +361,41 @@ export class ChatComposer {
   protected readonly currentModel = this.morse.model;
   /**
    * The provider of the active model. Two providers can expose a model with the
-   * same display name, so the footer shows where it came from — otherwise the
-   * user has no way to tell which provider a pick landed on.
+   * same display name, so the session facts bar names where the model came
+   * from — never inside the trigger, whose width belongs to the model name —
+   * otherwise the user has no way to tell which provider a pick landed on.
    */
   protected readonly currentProvider = computed(() => this.morse.model()?.provider ?? '');
   /** Full `provider · name` label for the trigger's tooltip. */
   protected readonly modelLabel = computed(() => {
     const model = this.morse.model();
     return model ? `${model.provider} · ${model.name}` : 'no model';
+  });
+  /**
+   * The composer's bottom bar: one muted line of session facts — the engine
+   * this session runs (fixed once the draft is sent), where its model comes
+   * from, and which session it is (pi and opencode alike). Plain text on
+   * purpose: anything session-scoped can join the line.
+   */
+  protected readonly sessionFacts = computed(() => {
+    const facts: { text: string; title: string }[] = [];
+    const kind = this.currentEngine();
+    const engine = this.engines().find((entry) => entry.kind === kind);
+    if (engine) {
+      facts.push({ text: engine.label, title: `Session engine: ${engine.label}` });
+    }
+    const provider = this.currentProvider();
+    if (provider) {
+      facts.push({ text: provider, title: `Model provider: ${provider}` });
+    }
+    // The engine's own id when the host reports one — Morse's derived id is
+    // internal bookkeeping; routerless hosts name the session by the engine's.
+    const state = this.morse.state();
+    const id = state.engineSessionId ?? state.sessionId;
+    if (id) {
+      facts.push({ text: id, title: `Session id: ${id}` });
+    }
+    return facts;
   });
   protected readonly canAddFiles = computed(
     () => this.canPickFiles() || this.canUpload() || this.canAttachSelection(),

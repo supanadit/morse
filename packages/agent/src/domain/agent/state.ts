@@ -65,6 +65,15 @@ export type ToolResultDetails = { [key: string]: JsonValue };
 
 export interface AgentSessionState {
   sessionId?: string;
+  /**
+   * What the engine calls this session (OpenCode's `ses_…`, pi's UUID), so a
+   * reader can line it up with the engine's own CLI. Once a session is recorded,
+   * `sessionId` is re-keyed to Morse's derived id and this keeps the engine's.
+   * An adapter sets it itself when the key it identifies sessions by is not
+   * that id (pi keys by session file); otherwise the router stamps it when it
+   * re-keys. Absent while `sessionId` is still the engine's.
+   */
+  engineSessionId?: string;
   sessionTitle?: string;
   workspace: WorkspaceRef;
   model?: ModelRef;

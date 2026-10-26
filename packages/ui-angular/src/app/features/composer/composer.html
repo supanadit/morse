@@ -329,6 +329,17 @@
             ↓{{ streamedTokens() }} · {{ tokensPerSecond() ?? 0 }} t/s
           </span>
         }
+        <!-- Session facts: anything session-scoped — the engine this session
+             runs (fixed once the draft is sent), where its model comes from,
+             and which session it is (pi and opencode alike). Plain text, so
+             more facts can join the line later. -->
+        @if (sessionFacts().length) {
+          <div class="facts" aria-label="Session facts">
+            @for (fact of sessionFacts(); track fact.text) {
+              <span class="fact" [title]="fact.title">{{ fact.text }}</span>
+            }
+          </div>
+        }
       </div>
 
       <div class="status-end">
@@ -391,9 +402,6 @@
         (pointerdown)="onModelTriggerPointerdown($event)"
         (click)="toggleModelPicker()"
       >
-        @if (currentProvider(); as provider) {
-          <span class="provider" [title]="provider">{{ provider }}</span>
-        }
         <span class="label">{{ currentModel()?.name || 'no model' }}</span>
         <morse-model-inputs class="inputs" [input]="currentModel()?.input" />
         <span class="caret" aria-hidden="true">▾</span>

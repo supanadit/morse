@@ -366,6 +366,10 @@ export class PiRpcAgent extends Session {
     this.setState({
       ...this.box,
       sessionId: sessionKey,
+      // pi's own id — the UUID in the session file's name — kept apart from the
+      // file-path identity above, so a reader can line the session up with what
+      // pi's own CLI lists. Explicitly (re)set: a fork must not keep the parent's.
+      engineSessionId: state.sessionId,
       sessionTitle: state.sessionName,
       model: state.model ? toModelRef(state.model) : this.box.model,
       thinkingLevel: thinkingLevel ?? this.box.thinkingLevel,

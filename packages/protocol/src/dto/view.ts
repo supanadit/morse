@@ -51,6 +51,12 @@ export interface StatusLine {
 
 export interface SessionViewState {
   sessionId?: string;
+  /**
+   * What the engine calls this session — OpenCode's `ses_…`, pi's own id — when
+   * `sessionId` has been re-keyed to Morse's derived id. A frontend shows this
+   * one to a reader lining the session up with the engine's own CLI.
+   */
+  engineSessionId?: string;
   sessionTitle?: string;
   workspace: WorkspaceInfo;
   /**

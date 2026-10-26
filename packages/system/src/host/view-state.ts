@@ -123,6 +123,7 @@ export function toSessionViewState(
 ): SessionViewState {
   return {
     sessionId: state.sessionId,
+    ...(state.engineSessionId === undefined ? {} : { engineSessionId: state.engineSessionId }),
     sessionTitle: state.sessionTitle,
     workspace: { cwd: state.workspace.cwd, name: state.workspace.name },
     model: toModelOption(state.model),
