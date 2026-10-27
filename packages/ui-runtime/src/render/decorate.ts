@@ -7,6 +7,8 @@ import { escapeHtml, highlightCode } from './highlight.js';
  */
 export type MarkdownDecorKind =
   | 'fence'
+  | 'hide'
+  | 'block'
   | 'code'
   | 'inline-code'
   | 'strong'
@@ -25,6 +27,16 @@ export interface MarkdownDecorSpan {
    * painted code block line-identical to its source.
    */
   html?: string;
+  /**
+   * For `block`: language identifier from the opening fence (e.g. 'ts', 'json').
+   */
+  lang?: string;
+}
+
+export interface DecorateOptions {
+  viewMode?: boolean;
+  /** Caret/selection range [start, end) to gate block vs source presentation */
+  selection?: [number, number];
 }
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})[ \t]*(\S*)/;
@@ -32,6 +44,21 @@ const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 const LIST_MARKER = /^([ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)/;
 const WORD_CHAR = /[A-Za-z0-9]/;
+
+function isSelectionInside(
+  blockStart: number,
+  blockEnd: number,
+  selection: [number, number] | undefined,
+): boolean {
+  if (!selection) {
+    return false;
+  }
+  const [start, end] = selection;
+  if (start === end) {
+    return start >= blockStart && start <= blockEnd;
+  }
+  return start < blockEnd && end > blockStart;
+}
 
 /**
  * Finds the markdown constructs worth decorating in a draft and returns them as
@@ -51,12 +78,19 @@ const WORD_CHAR = /[A-Za-z0-9]/;
  * within a line; a closer on a later line reads as "unclosed" and decorates to
  * the end of the draft — a decoration nicety only, the text is never touched.
  */
-export function decorateMarkdown(text: string): MarkdownDecorSpan[] {
+export function decorateMarkdown(text: string, options?: DecorateOptions): MarkdownDecorSpan[] {
   const spans: MarkdownDecorSpan[] = [];
   /** Regions the inline pass must not re-decorate (code, headings, markers). */
   const blocked: Array<[number, number]> = [];
   let offset = 0;
-  let fence: { marker: string; contentStart: number; lang: string } | undefined;
+  let fence: {
+    marker: string;
+    blockStart: number;
+    openSpanIndex: number;
+    contentStart: number;
+    lang: string;
+  } | undefined;
+  const viewMode = options?.viewMode ?? false;
 
   while (offset < text.length) {
     const newline = text.indexOf('\n', offset);
@@ -66,16 +100,33 @@ export function decorateMarkdown(text: string): MarkdownDecorSpan[] {
       const close = FENCE_CLOSE.exec(line);
       if (close && close[1][0] === fence.marker[0] && close[1].length >= fence.marker.length) {
         pushCode(spans, blocked, text, fence, offset);
-        spans.push({ start: offset, end: lineEnd, kind: 'fence' });
+        const inside = isSelectionInside(fence.blockStart, lineEnd, options?.selection);
+        const isPanel = viewMode && !inside;
+        // Update opening span kind based on inside/outside gating
+        spans[fence.openSpanIndex].kind = isPanel ? 'block' : 'fence';
+        spans.push({ start: offset, end: lineEnd, kind: isPanel ? 'hide' : 'fence' });
         blocked.push([offset, lineEnd]);
         fence = undefined;
       }
     } else {
       const open = FENCE_OPEN.exec(line);
       if (open) {
-        spans.push({ start: offset, end: lineEnd, kind: 'fence' });
+        const lang = open[2] || undefined;
+        const openSpanIndex = spans.length;
+        spans.push({
+          start: offset,
+          end: lineEnd,
+          kind: viewMode ? 'block' : 'fence',
+          ...(lang ? { lang } : {}),
+        });
         blocked.push([offset, lineEnd]);
-        fence = { marker: open[1], contentStart: Math.min(lineEnd + 1, text.length), lang: open[2] };
+        fence = {
+          marker: open[1],
+          blockStart: offset,
+          openSpanIndex,
+          contentStart: Math.min(lineEnd + 1, text.length),
+          lang: open[2],
+        };
       } else if (HEADING.test(line)) {
         spans.push({ start: offset, end: lineEnd, kind: 'heading' });
         blocked.push([offset, lineEnd]);
@@ -91,6 +142,9 @@ export function decorateMarkdown(text: string): MarkdownDecorSpan[] {
   }
   if (fence !== undefined) {
     pushCode(spans, blocked, text, fence, text.length);
+    const inside = isSelectionInside(fence.blockStart, text.length, options?.selection);
+    const isPanel = viewMode && !inside;
+    spans[fence.openSpanIndex].kind = isPanel ? 'block' : 'fence';
   }
 
   // Built in forward scan order: sorted and disjoint, so one moving gate walks
@@ -123,10 +177,10 @@ export function decorateMarkdown(text: string): MarkdownDecorSpan[] {
  * decoration wrapped in a span. `stripTags(html)` returns `text` exactly — that
  * is the geometry contract the composer's paint layer depends on.
  */
-export function decoratedMarkdownHtml(text: string): string {
+export function decoratedMarkdownHtml(text: string, options?: DecorateOptions): string {
   let html = '';
   let at = 0;
-  for (const span of decorateMarkdown(text)) {
+  for (const span of decorateMarkdown(text, options)) {
     if (span.start > at) {
       html += escapeHtml(text.slice(at, span.start));
     }
@@ -134,7 +188,8 @@ export function decoratedMarkdownHtml(text: string): string {
       span.kind === 'code' && span.html !== undefined
         ? span.html
         : escapeHtml(text.slice(span.start, span.end));
-    html += `<span class="md-${span.kind}">${body}</span>`;
+    const extra = span.kind === 'block' && span.lang ? ` data-lang="${escapeHtml(span.lang)}"` : '';
+    html += `<span class="md-${span.kind}"${extra}>${body}</span>`;
     at = span.end;
   }
   if (at < text.length) {

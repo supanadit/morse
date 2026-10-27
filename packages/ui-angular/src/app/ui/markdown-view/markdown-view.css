@@ -24,9 +24,34 @@
   pointer-events: none;
   user-select: none;
 }
+.view-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
 /* IME mid-composition: the textarea shows its own text until it settles. */
 .paint.composing {
   visibility: hidden;
+}
+.caret-bar {
+  position: absolute;
+  width: 2px;
+  background: var(--morse-fg, #ffffff);
+  pointer-events: none;
+  z-index: 2;
+  animation: mdp-blink 1s step-start infinite;
+}
+@keyframes mdp-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.selection-band {
+  position: absolute;
+  background: color-mix(in srgb, var(--morse-accent, #007acc) 30%, transparent);
+  pointer-events: none;
+  z-index: 1;
 }
 /*
  * The `.md-*` decoration rules live in the global stylesheet: they style

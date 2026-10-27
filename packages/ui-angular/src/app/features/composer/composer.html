@@ -295,7 +295,7 @@
       <span><kbd>Esc</kbd> restore</span>
     </div>
   }
-  <morse-markdown-paint [value]="text()">
+  <morse-markdown-view [value]="text()" [viewMode]="markdownViewMode()">
     <textarea
       #promptInput
       rows="2"
@@ -318,7 +318,7 @@
       (keydown)="onKeydown($event)"
       (paste)="onPaste($event)"
     ></textarea>
-  </morse-markdown-paint>
+  </morse-markdown-view>
 
   @if (showStatusRow()) {
     <div class="status-row">

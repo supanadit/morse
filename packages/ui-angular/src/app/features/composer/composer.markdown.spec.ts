@@ -139,7 +139,8 @@ describe('ChatComposer markdown paint', () => {
     const { fixture, host, area, paint } = await mount();
     type(fixture, area, DRAFT);
 
-    const paintHost = host.querySelector('morse-markdown-paint') as HTMLElement;
+    const paintHost = (host.querySelector('morse-markdown-view') ??
+      host.querySelector('morse-markdown-paint')) as HTMLElement;
     const styles = [...document.querySelectorAll('style')]
       .map((style) => style.textContent ?? '')
       .join('\n');
@@ -149,7 +150,7 @@ describe('ChatComposer markdown paint', () => {
     expect(styles).toMatch(/textarea[^{]*\{[^}]*padding: var\(--mdp-padding, 4px 6px\)/);
     expect(styles).toMatch(/textarea[^{]*\{[^}]*line-height: var\(--mdp-line-height, 1\.5\)/);
     // Maximize hands the height to the shared wrapper, not to one layer alone.
-    expect(styles).toMatch(/morse-markdown-paint[^{]*\{[^}]*flex: 1[^}]*min-height: 0/);
+    expect(styles).toMatch(/morse-markdown-(?:view|paint)[^{]*\{[^}]*flex: 1[^}]*min-height: 0/);
 
     for (const maximized of [false, true]) {
       const button = host.querySelector('.fold-shut[aria-pressed]') as HTMLButtonElement;
@@ -253,5 +254,88 @@ describe('ChatComposer markdown paint', () => {
     expect(host.classList.contains('maximized')).toBe(false);
     // The draft survives the size change untouched.
     expect(area.value).toBe(DRAFT);
+  });
+
+  it('gates code block presentation on selectionchange (D4: panel when outside, source when inside)', async () => {
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 1);
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+    const { fixture, area, paint } = await mount();
+    fixture.componentInstance.markdownViewMode.set(true);
+
+    const text = 'before\n```json\n{"a": 1}\n```\nafter';
+    type(fixture, area, text);
+    flush();
+    fixture.detectChanges();
+
+    // Caret at offset 0 (in 'before', outside the block)
+    area.setSelectionRange(0, 0);
+    area.dispatchEvent(new Event('select'));
+    fixture.detectChanges();
+
+    expect(paint.querySelector('.md-block')).not.toBeNull();
+    expect(paint.querySelector('.md-hide')).not.toBeNull();
+
+    // Move caret inside the fence block (e.g. into '{"a": 1}')
+    const insideOffset = text.indexOf('{"a": 1}');
+    area.setSelectionRange(insideOffset, insideOffset);
+    area.dispatchEvent(new Event('select'));
+    flush();
+    fixture.detectChanges();
+
+    // Transitions to source: opening fence and closing fence are visible as source
+    expect(paint.querySelectorAll('.md-fence').length).toBeGreaterThanOrEqual(1);
+
+    // Move caret outside the fence block again (into 'after')
+    const outsideOffset = text.indexOf('after');
+    area.setSelectionRange(outsideOffset, outsideOffset);
+    area.dispatchEvent(new Event('select'));
+    flush();
+    fixture.detectChanges();
+
+    // Collapses back to panel
+    expect(paint.querySelector('.md-block')).not.toBeNull();
+    expect(paint.querySelector('.md-hide')).not.toBeNull();
+  });
+
+  it('toggling composer.markdown.viewMode at runtime switches presentations without losing draft', async () => {
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 1);
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
+    const { fixture, area, paint } = await mount();
+
+    const draft = 'Some text\n```ts\nconst x = 1;\n```\ntail';
+    type(fixture, area, draft);
+    flush();
+    fixture.detectChanges();
+
+    // Default off: mirror mode (fence lines visible as md-fence)
+    expect(fixture.componentInstance.markdownViewMode()).toBe(false);
+    expect(paint.querySelectorAll('.md-fence').length).toBe(2);
+    expect(paint.querySelector('.md-block')).toBeNull();
+    expect(area.value).toBe(draft);
+
+    // Toggle on at runtime
+    fixture.componentInstance.markdownViewMode.set(true);
+    fixture.detectChanges();
+    flush();
+    fixture.detectChanges();
+
+    // Switched to view mode (panel presentation when caret outside)
+    area.setSelectionRange(0, 0);
+    area.dispatchEvent(new Event('select'));
+    flush();
+    fixture.detectChanges();
+
+    expect(paint.querySelector('.md-block')).not.toBeNull();
+    expect(area.value).toBe(draft);
+
+    // Toggle back off at runtime
+    fixture.componentInstance.markdownViewMode.set(false);
+    fixture.detectChanges();
+    flush();
+    fixture.detectChanges();
+
+    expect(paint.querySelectorAll('.md-fence').length).toBe(2);
+    expect(paint.querySelector('.md-block')).toBeNull();
+    expect(area.value).toBe(draft);
   });
 });

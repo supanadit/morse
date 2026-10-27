@@ -50,7 +50,7 @@ import { ModelPicker } from '../model-picker/model-picker';
 import { ModelInputs } from '../model-picker/model-inputs';
 import { OptionPicker, type PickerOption } from '../option-picker/option-picker';
 import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive';
-import { MarkdownPaint } from '../../ui/markdown-paint/markdown-paint';
+import { MarkdownView } from '../../ui/markdown-view/markdown-view';
 import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import type { PopoverAnchor } from '@morse/ui-runtime';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
@@ -71,7 +71,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
     PromptTemplateDialog,
     PinAnnotation,
     NoteHoverDirective,
-    MarkdownPaint,
+    MarkdownView,
     PopoverFit,
     CdkDropList,
     CdkDrag,
@@ -247,6 +247,9 @@ export class ChatComposer {
 
   /** The markdown the editor opens with (the pin's own note, if it has one). */
   protected readonly annotationNote = computed(() => this.annotationPin()?.note ?? '');
+
+  /** Feature flag: composer.markdown.viewMode (default off). */
+  readonly markdownViewMode = signal(false);
 
   /** The ✎ was pressed: open the editor anchored to it. */
   protected openAnnotation(pin: PendingPin, event: Event): void {

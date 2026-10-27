@@ -514,6 +514,7 @@ button.chip-body:focus-visible {
   display: flex;
   flex-direction: column;
 }
+:host(.maximized) morse-markdown-view,
 :host(.maximized) morse-markdown-paint {
   flex: 1;
   min-height: 0;
@@ -556,6 +557,12 @@ textarea {
    */
   position: relative;
   z-index: 1;
+  /*
+   * Native text is always hidden behind the paint layer.
+   * caret-color must be set explicitly: it inherits from `color` and would
+   * otherwise also be transparent. The native blinking cursor stays visible
+   * by default and is only hidden in .view-mode (custom caret active).
+   */
   color: transparent;
   caret-color: var(--morse-fg);
   resize: none;
@@ -572,6 +579,19 @@ textarea {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   scrollbar-gutter: stable;
+}
+textarea::selection {
+  background: transparent;
+}
+/* When viewMode is on the custom caret layer takes over — hide the native caret. */
+morse-markdown-view.view-mode textarea,
+morse-markdown-paint.view-mode textarea {
+  caret-color: transparent;
+}
+morse-markdown-view.composing textarea,
+morse-markdown-paint.composing textarea {
+  color: var(--morse-fg);
+  caret-color: var(--morse-fg);
 }
 /*
  * The placeholder belongs to the empty draft, where the mirror paints nothing:

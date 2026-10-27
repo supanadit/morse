@@ -36,9 +36,9 @@
 - [x] 4.1 Measure typing in a worst-case draft (~50 KB): keystrokes land immediately and paints stay
       coalesced, verified by a perf test with a recorded measurement; only if it fails, window the
       scan to the visible region (per design.md)
-- [ ] 4.2 Judge the look in `ng serve` (tinted code panel, dimmed fences, inline styles, maximized
+- [x] 4.2 Judge the look in `ng serve` (tinted code panel, dimmed fences, inline styles, maximized
       composer) and tune spacing/colors; verified by observation and the full `ui-angular` suite
-      passing (789 tests at the time of writing)
+      passing (815 tests after shim-view-composer)
 
 ## Workflow follow-up
 

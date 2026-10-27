@@ -175,4 +175,32 @@ describe('decorateMarkdown', () => {
       `\n[decorate] 50 KB draft scanned and rendered in ${elapsed.toFixed(2)} ms\n`,
     );
   });
+
+  it('emits block and hide spans in viewMode while preserving non-overlap/order and exact text', () => {
+    const text = 'before\n```json\n{"a": 1}\n```\nafter';
+    const spans = decorateMarkdown(text, { viewMode: true });
+
+    expect(kinds(spans)).toEqual(['block', 'code', 'hide']);
+    expect(text.slice(spans[0].start, spans[0].end)).toBe('```json');
+    expect(spans[0].lang).toBe('json');
+    expect(text.slice(spans[1].start, spans[1].end)).toBe('{"a": 1}\n');
+    expect(text.slice(spans[2].start, spans[2].end)).toBe('```');
+
+    // Non-overlap / order postcondition: strictly ascending, disjoint
+    let at = 0;
+    for (const span of spans) {
+      expect(span.end).toBeGreaterThan(span.start);
+      expect(span.start).toBeGreaterThanOrEqual(at);
+      at = span.end;
+    }
+
+    // Fence content is highlighted code
+    expect(undecorated(spans[1].html ?? '')).toBe('{"a": 1}\n');
+
+    // And decorated HTML renders exact source text
+    const html = decoratedMarkdownHtml(text, { viewMode: true });
+    expect(undecorated(html)).toBe(text);
+    expect(html).toContain('class="md-block" data-lang="json"');
+    expect(html).toContain('class="md-hide"');
+  });
 });

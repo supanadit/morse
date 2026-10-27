@@ -1,14 +1,15 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MarkdownPaint } from './markdown-paint';
+import { MarkdownView } from './markdown-view';
 
 @Component({
-  imports: [MarkdownPaint],
-  template: `<morse-markdown-paint [value]="value()"><textarea></textarea></morse-markdown-paint>`,
+  imports: [MarkdownView],
+  template: `<morse-markdown-view [value]="value()" [viewMode]="viewMode()"><textarea></textarea></morse-markdown-view>`,
 })
 class PaintHost {
   readonly value = signal('plain **bold** `code`');
+  readonly viewMode = signal(false);
 }
 
 const SAMPLE = ['# H', '```json', '{"a": 1}', '```', '- `x` **y** [z](u)'].join('\n');
@@ -38,7 +39,7 @@ function mount(): {
 function frameQueue(): { mine(): number; flush(): void } {
   const pending: Array<{ callback: FrameRequestCallback; mine: boolean }> = [];
   vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
-    pending.push({ callback, mine: (new Error().stack ?? '').includes('MarkdownPaint') });
+    pending.push({ callback, mine: (new Error().stack ?? '').includes('MarkdownView') });
     return pending.length;
   });
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
@@ -52,7 +53,7 @@ function frameQueue(): { mine(): number; flush(): void } {
   };
 }
 
-describe('MarkdownPaint', () => {
+describe('MarkdownView', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
@@ -60,9 +61,9 @@ describe('MarkdownPaint', () => {
 
   it('paints the buffer’s exact characters, decorated and hidden from AT', () => {
     const frames = frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, root, paint } = mount();
-    const component = root.querySelector('morse-markdown-paint') as HTMLElement;
+    const component = root.querySelector('morse-markdown-view') as HTMLElement;
 
     fixture.componentInstance.value.set(SAMPLE);
     fixture.detectChanges();
@@ -81,7 +82,7 @@ describe('MarkdownPaint', () => {
 
   it('keeps the caret’s empty line after Enter: a trailing newline still mirrors', () => {
     const frames = frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, paint } = mount();
 
     // After Enter at the end of the draft the buffer ends in "\n" and the
@@ -106,12 +107,12 @@ describe('MarkdownPaint', () => {
    */
   it('keeps the mirror aligned with the textarea: one set of metrics, one box', () => {
     frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, root, paint, area } = mount();
     fixture.componentInstance.value.set(SAMPLE);
     fixture.detectChanges();
 
-    const host = root.querySelector('morse-markdown-paint') as HTMLElement;
+    const host = root.querySelector('morse-markdown-view') as HTMLElement;
     const styles = [...document.querySelectorAll('style')]
       .map((style) => style.textContent ?? '')
       .join('\n');
@@ -128,7 +129,7 @@ describe('MarkdownPaint', () => {
 
   it('coalesces a burst of typing into one paint per frame, never on the input path', () => {
     const frames = frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, paint, root } = mount();
     const host = fixture.componentInstance;
     // Drain the initial paint so the frame window starts empty.
@@ -160,7 +161,7 @@ describe('MarkdownPaint', () => {
 
   it('scrolls the mirror where the textarea scrolls', () => {
     const frames = frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, paint, area } = mount();
     fixture.componentInstance.value.set(SAMPLE);
     fixture.detectChanges();
@@ -181,10 +182,10 @@ describe('MarkdownPaint', () => {
 
   it('shows the textarea’s own text during IME composition, painting after it settles', () => {
     const frames = frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, paint, area, root } = mount();
     const host = fixture.componentInstance;
-    const component = root.querySelector('morse-markdown-paint') as HTMLElement;
+    const component = root.querySelector('morse-markdown-view') as HTMLElement;
 
     area.dispatchEvent(new CompositionEvent('compositionstart'));
     fixture.detectChanges();
@@ -193,18 +194,19 @@ describe('MarkdownPaint', () => {
 
     // While composing, the buffer lags behind the composition; painting it now
     // would show stale text under the textarea's own composition text.
-    host.value.set('partial');
+    host.value.set('```json\n{"a": 1}\n```');
     fixture.detectChanges();
     frames.flush();
     fixture.detectChanges();
     expect(paint.textContent).toBe('');
+    expect(paint.querySelector('.md-block')).toBeNull();
 
     area.dispatchEvent(new CompositionEvent('compositionend'));
     fixture.detectChanges();
     frames.flush();
     fixture.detectChanges();
     expect(component.classList.contains('composing')).toBe(false);
-    expect(paint.textContent).toBe('partial');
+    expect(paint.textContent).toBe('```json\n{"a": 1}\n```');
   });
 
   /**
@@ -216,7 +218,7 @@ describe('MarkdownPaint', () => {
    */
   it('paints a ~50 KB draft in one frame and keeps keystrokes off the scan', () => {
     const frames = frameQueue();
-    TestBed.configureTestingModule({ imports: [MarkdownPaint] });
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
     const { fixture, paint } = mount();
     const host = fixture.componentInstance;
     frames.flush();
@@ -253,5 +255,36 @@ describe('MarkdownPaint', () => {
     process.stdout.write(
       `\n[markdown-paint] 50 KB draft: keystroke ${keystrokeMs.toFixed(2)} ms, paint ${paintMs.toFixed(2)} ms\n`,
     );
+  });
+
+  it('renders caret bar and selection bands sourced from buffer positions', () => {
+    const frames = frameQueue();
+    TestBed.configureTestingModule({ imports: [MarkdownView] });
+    const { fixture, root, area } = mount();
+    const host = fixture.componentInstance;
+    host.viewMode.set(true);
+    host.value.set('first line\nsecond line');
+    area.value = 'first line\nsecond line';
+    fixture.detectChanges();
+    frames.flush();
+    fixture.detectChanges();
+
+    // Focus area to reveal caret
+    area.focus();
+    area.dispatchEvent(new Event('focus'));
+    area.setSelectionRange(5, 5);
+    area.dispatchEvent(new Event('select'));
+    fixture.detectChanges();
+
+    const caret = root.querySelector('.caret-bar') as HTMLElement;
+    expect(caret).not.toBeNull();
+
+    // Select text range to reveal selection bands
+    area.setSelectionRange(0, 5);
+    area.dispatchEvent(new Event('select'));
+    fixture.detectChanges();
+
+    const bands = root.querySelectorAll('.selection-band');
+    expect(bands.length).toBeGreaterThanOrEqual(1);
   });
 });
