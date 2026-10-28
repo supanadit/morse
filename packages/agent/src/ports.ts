@@ -33,6 +33,8 @@ export type AgentEventListener = (event: AgentEvent) => void;
  * `@morse/integration-pi` (subprocess) — or an SDK adapter later.
  */
 export interface AgentGateway {
+  /** The `AgentEngineRef.engine` value this session's records carry. */
+  readonly kind: string;
   subscribe(listener: AgentEventListener): () => void;
   state(): Promise<AgentSessionState>;
   /**

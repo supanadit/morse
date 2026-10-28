@@ -31,6 +31,19 @@ describe('toSessionViewState', () => {
     expect(view.widgets?.[0]?.lines).not.toBe(state.widgets?.[0]?.lines);
   });
 
+  it('names the engine that owns the session when it is supplied', () => {
+    const view = toSessionViewState(base(), META, 'opencode');
+
+    expect(view.engine).toBe('opencode');
+  });
+
+  it('omits the engine when none is supplied', () => {
+    // A host that cannot name it must not guess: the frontend falls back.
+    const view = toSessionViewState(base(), META);
+
+    expect(view.engine).toBeUndefined();
+  });
+
   it('leaves them out when the agent has none', () => {
     const view = toSessionViewState(base(), META);
 

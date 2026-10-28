@@ -65,7 +65,7 @@ export interface SessionViewState {
    * such as the engine; it is not "no state has arrived yet".
    */
   draft?: boolean;
-  /** The engine the draft chose; absent means the host's default. */
+  /** The engine that owns this view, when the host can name it; absent means the host's default. */
   engine?: string;
   model?: ModelOption;
   thinkingLevel: ThinkingLevel;

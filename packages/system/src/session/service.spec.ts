@@ -23,7 +23,10 @@ import { SessionRegistry } from './service.js';
 const WORKSPACE: WorkspaceRef = { cwd: '/work/project', name: 'project' };
 
 class FakeGateway implements AgentGateway {
-  constructor(readonly current: AgentSessionState) {}
+  constructor(
+    readonly current: AgentSessionState,
+    readonly kind = 'pi',
+  ) {}
 
   subscribe(_listener: (event: AgentEvent) => void): () => void {
     return () => undefined;
@@ -64,6 +67,9 @@ class FakeGateway implements AgentGateway {
 }
 
 class FakeFactory implements AgentGatewayFactory {
+  /** The engine kind its gateways report, so a test can open a non-default one. */
+  constructor(private readonly kind = 'pi') {}
+
   readonly created: { workspace: WorkspaceRef; sessionId?: string; engine?: string; mode?: string }[] =
     [];
   readonly probed: { engine?: string; model?: ModelRef }[] = [];
@@ -82,7 +88,7 @@ class FakeFactory implements AgentGatewayFactory {
         availableCommands: [],
         ...(input.mode === undefined ? {} : { mode: input.mode }),
         streaming: false,
-      }),
+      }, this.kind),
     );
   }
 
@@ -192,5 +198,25 @@ describe('SessionRegistry draft engine', () => {
     await expect(sessions.draftDefaults('opencode')).rejects.toThrow('no server');
     await expect(sessions.draftDefaults('opencode')).resolves.toBeDefined();
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('SessionRegistry engineOf', () => {
+  it('names the engine that owns a hot session', async () => {
+    const sessions = registry(new FakeFactory('opencode'));
+    const opened = await sessions.open({ engine: 'opencode' });
+    expect(sessions.engineOf(opened.key)).toBe('opencode');
+  });
+
+  it('reports nothing for a key it never opened', () => {
+    expect(registry(new FakeFactory()).engineOf('derived-id-nobody-opened')).toBeUndefined();
+  });
+
+  it('reports nothing once the session is closed', async () => {
+    const sessions = registry(new FakeFactory());
+    const opened = await sessions.open();
+    expect(sessions.engineOf(opened.key)).toBe('pi');
+    await sessions.close(opened.key);
+    expect(sessions.engineOf(opened.key)).toBeUndefined();
   });
 });

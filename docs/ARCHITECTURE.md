@@ -205,7 +205,8 @@ The registry is handed an **`AgentRouter`** (`system/src/session/agent-router.ts
    one scan per engine, and a scan that cannot report never removes that engine's rows);
 5. keeps a running session's row protected from a stale report while its engine is mid-write;
 6. reports the engines it can start (kind, label, default) and accepts the empty session's chosen engine and
-   mode when creating a new session — a resumed record still resolves to its own engine.
+   mode when creating a new session — the new record and its derived id are stamped with the engine that created
+   it, never the default, and an existing session keeps the engine its record names.
 
 `FileSessionStore` keeps one JSON per record under `<data dir>/sessions/records/<shard>/` plus an append-only
 `index.jsonl` of `{token, record}` lines (last-wins; compacted when it outgrows the records). The token is the

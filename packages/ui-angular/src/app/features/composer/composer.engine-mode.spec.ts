@@ -140,17 +140,33 @@ describe('ChatComposer engine and mode pills', () => {
   it('hides the engine pill once a session exists, but keeps the mode pill', async () => {
     const transport = new PickersTransport(
       TWO_ENGINES,
-      state({ sessionId: 'sess-1', draft: false, mode: 'build', availableModes: MODES }),
+      state({
+        sessionId: 'sess-1',
+        draft: false,
+        engine: 'opencode',
+        mode: 'build',
+        availableModes: MODES,
+      }),
     );
     const { host } = await mount(transport);
 
     expect(picker(host, 'engine')).toBeNull();
     expect(picker(host, 'mode')).not.toBeNull();
     expect(trigger(host, 'mode').textContent).toContain('Build');
-    // The engine is fixed for the session, so the session facts bar carries it
-    // — and names the session itself.
-    expect(host.querySelector('.facts')?.textContent).toContain('pi');
+    // The engine is fixed for the session, so the session facts bar carries the
+    // one the host reports — not the default — and names the session itself.
+    expect(host.querySelector('.facts')?.textContent).toContain('OpenCode');
     expect(host.querySelector('.facts')?.textContent).toContain('sess-1');
+  });
+
+  it('falls back to the default engine when an older host reports none', async () => {
+    // A host that predates the reported engine: absent means "the default".
+    const transport = new PickersTransport(
+      TWO_ENGINES,
+      state({ sessionId: 'sess-1', draft: false }),
+    );
+    const { host } = await mount(transport);
+    expect(host.querySelector('.facts')?.textContent).toContain('pi');
   });
 
   it('names the session by the engine’s own id, not Morse’s derived one', async () => {

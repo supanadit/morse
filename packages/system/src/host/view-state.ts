@@ -120,9 +120,12 @@ export function draftSessionViewState(
 export function toSessionViewState(
   state: AgentSessionState,
   meta: SessionStateMeta,
+  /** The engine that owns this session, when the caller can name it. */
+  engine?: string,
 ): SessionViewState {
   return {
     sessionId: state.sessionId,
+    ...(engine === undefined ? {} : { engine }),
     ...(state.engineSessionId === undefined ? {} : { engineSessionId: state.engineSessionId }),
     sessionTitle: state.sessionTitle,
     workspace: { cwd: state.workspace.cwd, name: state.workspace.name },

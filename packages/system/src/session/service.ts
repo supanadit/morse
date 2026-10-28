@@ -157,6 +157,11 @@ export class SessionRegistry {
     return this.hot.get(key)?.state;
   }
 
+  /** The kind of the engine that owns a hot session; undefined once it is cold. */
+  engineOf(key: string): string | undefined {
+    return this.hot.get(key)?.gateway.kind;
+  }
+
   hotKeys(): string[] {
     return [...this.recency];
   }

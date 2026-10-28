@@ -62,6 +62,7 @@ class RecordingCatalog implements SessionCatalog {
 }
 
 class FakeGateway implements AgentGateway {
+  readonly kind: string = 'pi';
   current: AgentSessionState;
   /** The engine id this session moves to on a fork, when one is configured. */
   private readonly forkTo: string | undefined;
@@ -334,6 +335,66 @@ describe('AgentRouter', () => {
       cwd: '/work/project',
       engineRef: { engine: 'pi', sessionId: 'fresh-engine-id' },
       messageCount: 2,
+    });
+  });
+
+  it('stamps a new session with the engine that created it, not the default', async () => {
+    const { router, store } = build({
+      engines: [
+        { kind: 'pi', default: true },
+        {
+          kind: 'opencode',
+          gatewayFor: () => new FakeGateway(state({ sessionId: 'oc-engine-id' })),
+        },
+      ],
+    });
+
+    const gateway = (await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      engine: 'opencode',
+    })) as RoutedGateway;
+
+    // The wrapped kind is the one whose factory produced the gateway.
+    expect(gateway.kind).toBe('opencode');
+
+    const expected = recordOf('opencode', 'oc-engine-id');
+    expect((await gateway.state()).sessionId).toBe(expected.id);
+    // A pi-derived id would be a different row, so the id proves the kind too.
+    expect(expected.id).not.toBe(recordOf('pi', 'oc-engine-id').id);
+    expect(await store.read(expected.id)).toMatchObject({
+      id: expected.id,
+      engineRef: { engine: 'opencode', sessionId: 'oc-engine-id' },
+    });
+  });
+
+  it('resumes into the record\'s engine even when the default is another, and a fork keeps it', async () => {
+    const record = recordOf('opencode', 'oc-engine-id');
+    const store = new MemoryStore();
+    store.rows.set(record.id, record);
+    const { router, engines } = build({
+      store,
+      engines: [
+        { kind: 'pi', default: true },
+        {
+          kind: 'opencode',
+          gatewayFor: () =>
+            new FakeGateway(state({ sessionId: 'oc-engine-id' }), 'oc-forked-id'),
+        },
+      ],
+    });
+
+    const gateway = (await router.create({ sessionId: record.id })) as RoutedGateway;
+    expect(gateway.kind).toBe('opencode');
+    expect(engines.get('pi')?.created).toEqual([]);
+    expect((await gateway.state()).sessionId).toBe(record.id);
+
+    // The fork moves the engine session id, not the engine.
+    await gateway.fork('entry-1');
+    expect(gateway.kind).toBe('opencode');
+    const forked = recordOf('opencode', 'oc-forked-id');
+    expect((await gateway.state()).sessionId).toBe(forked.id);
+    expect(await store.read(forked.id)).toMatchObject({
+      engineRef: { engine: 'opencode', sessionId: 'oc-forked-id' },
     });
   });
 

@@ -184,7 +184,8 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
         workspace: { cwd: record.cwd, name: baseName(record.cwd) },
         sessionId: record.engineRef.sessionId,
       });
-      return this.route(inner, { record });
+      // Resume keeps the record's engine: the default may be a different one now.
+      return this.route(inner, { record, kind: record.engineRef.engine });
     }
 
     const workspace = options.workspace ?? this.deps.defaultWorkspace;
@@ -204,7 +205,8 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
       workspace,
       ...(options.mode === undefined ? {} : { mode: options.mode }),
     });
-    return this.route(inner, { cwd: workspace.cwd });
+    // Stamp the engine whose factory produced this session, never the default.
+    return this.route(inner, { cwd: workspace.cwd, kind });
   }
 
   /**
@@ -386,6 +388,8 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     inner: AgentGateway,
     options: {
       cwd?: string;
+      /** The harness kind whose factory produced `inner` — the record's on resume. */
+      kind: string;
       /** The persisted record, when this resumes one. */
       record?: MorseSessionRecord;
     },
@@ -393,7 +397,7 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     const record = options.record;
     return new RoutedGateway({
       inner,
-      kind: record?.engineRef.engine ?? this.defaultKind ?? '',
+      kind: options.kind,
       cwd: record?.cwd ?? options.cwd ?? this.deps.defaultWorkspace.cwd,
       store: this.deps.store,
       logger: this.deps.logger,
@@ -446,6 +450,8 @@ interface RoutedOptions {
  * reported stays valid and a later reconcile still skips unchanged sessions.
  */
 export class RoutedGateway implements AgentGateway {
+  /** The harness kind whose factory produced this session; its records carry it. */
+  readonly kind: string;
   private row: MorseSessionRecord | undefined;
   /** The id last reported to `onIdChange`, so a re-key is announced once. */
   private announcedId: string | undefined;
@@ -460,6 +466,7 @@ export class RoutedGateway implements AgentGateway {
 
   constructor(options: RoutedOptions) {
     this.options = options;
+    this.kind = options.kind;
     this.carried = options.record;
     const inner = options.inner;
     this.refreshCommands =
@@ -592,7 +599,7 @@ export class RoutedGateway implements AgentGateway {
     if (engineId === undefined) {
       return; // A never-recording probe, most likely.
     }
-    const derivedId = deriveSessionId({ engine: this.options.kind, sessionId: engineId });
+    const derivedId = deriveSessionId({ engine: this.kind, sessionId: engineId });
     const row = this.row;
 
     if (row !== undefined && row.engineRef.sessionId === engineId) {
@@ -612,7 +619,7 @@ export class RoutedGateway implements AgentGateway {
       this.row = {
         ...row,
         id: derivedId,
-        engineRef: { engine: this.options.kind, sessionId: engineId },
+        engineRef: { engine: this.kind, sessionId: engineId },
         title: state.sessionTitle ?? row.title,
         createdAt: row.createdAt,
         updatedAt: nowOr(row.createdAt),
@@ -649,7 +656,7 @@ export class RoutedGateway implements AgentGateway {
       id: derivedId,
       title: state.sessionTitle ?? UNTITLED_SESSION,
       cwd: this.options.cwd,
-      engineRef: { engine: this.options.kind, sessionId: engineId },
+      engineRef: { engine: this.kind, sessionId: engineId },
       createdAt: nowOr(0),
       updatedAt: nowOr(0),
       messageCount: state.counts?.totalMessages ?? 0,

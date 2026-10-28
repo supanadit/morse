@@ -68,6 +68,8 @@ function fakeGateway(
     diagnostics?: AgentDiagnostic[];
     /** Records each compaction call's instructions and target session key. */
     onCompact?: (instructions: string | undefined, sessionKey: string | undefined) => void;
+    /** The engine kind this gateway reports; pi unless a test says otherwise. */
+    kind?: string;
   } = {},
 ): AgentGateway {
   let sessionId = options.sessionId;
@@ -94,6 +96,7 @@ function fakeGateway(
     }
   };
   return {
+    kind: options.kind ?? 'pi',
     subscribe(listener: AgentEventListener) {
       listeners.add(listener);
       return () => {
@@ -204,6 +207,13 @@ function harness(options: {
   probeState?: (model?: ModelRef, engine?: string) => AgentSessionState | undefined;
   /** Engines the registry reports, so `engine/set` can validate a kind. */
   engines?: readonly SessionEngine[];
+  /** The kind of engine the gateway reports; pi unless a test says otherwise. */
+  kind?: string;
+  /**
+   * Parks the open until a test says so, to look at the switch gap: a tab in
+   * front whose session state has not arrived yet.
+   */
+  openGate?: () => Promise<void>;
   /** The mode a live gateway reports. */
   mode?: string;
   /** The modes a live gateway offers. */
@@ -244,6 +254,7 @@ function harness(options: {
     ...(options.mode === undefined ? {} : { mode: options.mode }),
     ...(options.availableModes === undefined ? {} : { availableModes: options.availableModes }),
     ...(options.onSetMode === undefined ? {} : { onSetMode: options.onSetMode }),
+    ...(options.kind === undefined ? {} : { kind: options.kind }),
   });
   const spawns = { count: 0 };
   const probes = { count: 0 };
@@ -259,9 +270,12 @@ function harness(options: {
           new AgentUnavailableError(`No session for ${input.sessionId} is in the index.`),
         );
       }
-      return options.spawnError
+      const resolved = options.spawnError
         ? Promise.reject(options.spawnError)
         : Promise.resolve(gateway);
+      return options.openGate === undefined
+        ? resolved
+        : options.openGate().then(() => resolved);
     },
     ...(options.probeState
       ? {
@@ -2649,5 +2663,64 @@ describe('HostSessionController engine and mode picks', () => {
           message.payload.text.includes('does not offer'),
       ),
     ).toBe(true);
+  });
+});
+
+describe('HostSessionController reported engine', () => {
+  const engines = [{ kind: 'pi' }, { kind: 'opencode' }] as unknown as SessionEngine[];
+  const base = (): AgentSessionState => ({
+    workspace: WORKSPACE,
+    thinkingLevel: 'off',
+    availableModels: [],
+    availableThinkingLevels: [],
+    availableCommands: [],
+    streaming: false,
+  });
+
+  it('reports the engine that owns a live session, not the draft pick', async () => {
+    const h = harness({ engines, kind: 'opencode', probeState: () => base() });
+    await h.controller.start();
+
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
+    expect(h.lastState()).toMatchObject({ sessionId: 'sess-1', engine: 'opencode' });
+
+    // A fresh empty session still reports the engine it chose.
+    await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
+    await h.controller.handleClientMessage({ type: 'engine/set', payload: { kind: 'pi' } });
+    expect(h.lastState()).toMatchObject({ draft: true, engine: 'pi' });
+  });
+
+  it('names no engine in the switch gap, before the new session reports state', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let opens = 0;
+    const h = harness({
+      engines,
+      kind: 'opencode',
+      probeState: () => base(),
+      // The first open is the session in front; the switch parks on the second.
+      openGate: () => {
+        opens += 1;
+        return opens === 1 ? Promise.resolve() : gate;
+      },
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
+    expect(h.lastState()).toMatchObject({ sessionId: 'sess-1', engine: 'opencode' });
+
+    const switching = h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-2', cwd: WORKSPACE.cwd },
+    });
+    // The gap: a tab is in front whose state has not arrived, so nothing here
+    // knows an engine — the old draft path must not lend it one.
+    expect(h.lastState()?.draft).toBe(false);
+    expect(h.lastState()?.engine).toBeUndefined();
+
+    release?.();
+    await switching;
+    expect(h.lastState()?.engine).toBe('opencode');
   });
 });

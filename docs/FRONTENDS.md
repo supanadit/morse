@@ -59,6 +59,10 @@ needs.
    `session/activity` lists every *hot* session, so a frontend can mark several as active at once —
    the transcript still belongs to the selected session only. `session/list` also folds those live
    sessions in, so a session shows up as soon as it opens, even before pi has persisted it.
+   `session/state.engine` names the engine that *owns* a running session — the one it was created in,
+   never the draft's current pick — and the composer's session-facts line labels the session from it.
+   A host that predates the field omits it, and only then does a frontend fall back to the engine
+   marked `default` in `capabilities.engines`; an unknown kind is left unlabelled rather than guessed.
 3. **Drive the agent through actions** — `prompt(text, mode)`, `editMessage(itemId, text)` (forks the
    conversation before a past user message) and `forkMessage(itemId)` (branches there without sending;
    the host answers with `composer/seed`), `abort()`, `newSession(cwd?)`,

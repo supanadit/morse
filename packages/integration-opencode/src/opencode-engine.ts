@@ -190,6 +190,9 @@ export async function openOpenCodeEngine(options: {
 
 /** Creates one session per workspace, or attaches to a persisted engine session. */
 export class OpenCodeAgentFactory implements AgentGatewayFactory {
+  /** The `AgentEngineRef.engine` value this factory's sessions carry. */
+  readonly kind = 'opencode';
+
   constructor(
     private readonly deps: {
       api: OpenCodeApi;
@@ -258,7 +261,7 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       ...(modes.length === 0 ? {} : { availableModes: [...modes] }),
       streaming: false,
     };
-    return new ProbeGateway(state);
+    return new ProbeGateway(state, this.kind);
   }
 }
 
@@ -268,7 +271,10 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
  * on — the registry calls `state()` and `dispose()` only.
  */
 class ProbeGateway implements AgentGateway {
-  constructor(private readonly snapshot: AgentSessionState) {}
+  constructor(
+    private readonly snapshot: AgentSessionState,
+    readonly kind: string,
+  ) {}
 
   subscribe(_listener: AgentEventListener): () => void {
     return () => undefined;

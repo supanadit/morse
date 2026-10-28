@@ -2118,7 +2118,13 @@ export class HostSessionController {
       ? undefined
       : this.options.services.registry.stateOf(key);
     if (state) {
-      const view = toSessionViewState(state, meta);
+      // The engine comes from the live gateway, never from the draft's choice:
+      // a session keeps the engine it was created in.
+      const view = toSessionViewState(
+        state,
+        meta,
+        key === undefined ? undefined : this.options.services.registry.engineOf(key),
+      );
       // pi names a session only when it emits `session_name`, so a *resumed*
       // session arrives without one — and the panel then falls back to the
       // workspace name for a title it already knows. The catalog is the
