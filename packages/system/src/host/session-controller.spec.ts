@@ -1251,6 +1251,41 @@ describe('HostSessionController chat/fork', () => {
     expect(h.transcripts.items('sess-1')).toEqual([]);
     expect(h.transcripts.items('sess-2')).toEqual([]);
   });
+
+  it('seeds the composer with the column range and its excerpt', async () => {
+    const pin = {
+      path: 'src/app.ts',
+      startLine: 18,
+      endLine: 18,
+      startColumn: 45,
+      endColumn: 79,
+      characters: 35,
+      text: 'the highlighted words of one line',
+    };
+    const h = harness({
+      forkMessages: [{ entryId: 'entry-1', text: 'hello' }],
+      fork: { text: 'hello', sessionId: 'sess-2' },
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'chat/prompt',
+      payload: { text: 'hello', pins: [pin] },
+    });
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/fork',
+      payload: { itemId: 'morse-user-1' },
+    });
+
+    const seed = h.messages.find(
+      (message): message is Extract<HostToClientMessage, { type: 'composer/seed' }> =>
+        message.type === 'composer/seed',
+    );
+    // The fork hands back the same span, so the composer re-renders the exact
+    // chip the reader sent instead of a line-only approximation.
+    expect(seed?.payload).toEqual({ text: 'hello', pins: [pin] });
+  });
 });
 
 /**

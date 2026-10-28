@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { EditorContextProvider, EditorContextSnapshot } from '@morse/system';
+import { selectionSpan, type EditorContextProvider, type EditorContextSnapshot } from '@morse/system';
 
 /**
  * `EditorContextProvider` implemented with the VS Code editor APIs. The host
@@ -14,20 +14,24 @@ export class VsCodeContextProvider implements EditorContextProvider {
       return Promise.resolve(undefined);
     }
 
-    const selection = editor.selection;
-    const hasSelection = !selection.isEmpty;
+    const span = selectionSpan(
+      editor.selections,
+      (selection) =>
+        editor.document.getText(
+          new vscode.Range(
+            selection.start.line,
+            selection.start.character,
+            selection.end.line,
+            selection.end.character,
+          ),
+        ),
+      (line) => editor.document.lineAt(line).text.length,
+    );
 
     return Promise.resolve({
       path: vscode.workspace.asRelativePath(editor.document.uri, false),
       languageId: editor.document.languageId,
-      selection:
-        editor && hasSelection
-          ? {
-              startLine: selection.start.line + 1,
-              endLine: selection.end.line + 1,
-              text: editor.document.getText(selection),
-            }
-          : undefined,
+      ...(span === undefined ? {} : { selection: { ...span } }),
       openEditors: vscode.window.visibleTextEditors.map((visible) =>
         vscode.workspace.asRelativePath(visible.document.uri, false),
       ),

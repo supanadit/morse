@@ -195,8 +195,9 @@ strip above the conversation, where sessions and files open side by side.
   project `ProjectPolicy` already approved. A restored tab also carries the project it was read from
   (`cwd`), because the host may still be on another session when that tab is loaded; the server policy-checks
   it exactly like a terminal's directory. Files over 512 KB are cut short, and a binary file is reported
-  as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
-  prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat". In the `@`
+  as such instead of being decoded. Dragging across the line numbers picks a whole-line range and pins it to
+  the next prompt as `path:start-end` — the browser host's line-only stand-in for VS Code's "add selection to
+  chat" (the VS Code host also captures columns, so its chips read `L18:45-79`). In the `@`
   picker, **Enter (or a row click) is a plain mention**; the file is opened only for the explicit quote intent
   — **Shift+Enter**, or the row's `⧉` — so a reference never steals the view from the conversation. A file
   opened **while a session is in front** — from the Explorer, the git panel, or a quote — becomes that

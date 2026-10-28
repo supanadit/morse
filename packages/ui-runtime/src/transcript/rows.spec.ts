@@ -5,7 +5,7 @@ import type {
   ToolTranscriptItem,
   TranscriptItem,
 } from '@morse/protocol';
-import { activeProcessKey, groupTranscriptItems, parseMentionToken, pinNoteHint, splitMentionTokens, userMessageMarkdown } from './rows.js';
+import { activeProcessKey, groupTranscriptItems, parseMentionToken, pinNoteHint, pinRangeLabel, splitMentionTokens, userMessageMarkdown } from './rows.js';
 
 function tool(id: string, status: ToolTranscriptItem['status'] = 'ok'): ToolTranscriptItem {
   return { kind: 'tool', id, at: 0, name: 'read', title: `read: ${id}`, status };
@@ -116,6 +116,31 @@ describe('parseMentionToken', () => {
     });
   });
 
+  it('parses a one-line column range', () => {
+    expect(parseMentionToken('src/app.ts:18:45-18:79')).toEqual({
+      path: 'src/app.ts',
+      startLine: 18,
+      startColumn: 45,
+      endLine: 18,
+      endColumn: 79,
+    });
+  });
+
+  it('parses a cross-line column range', () => {
+    expect(parseMentionToken('src/app.ts:18:45-20:12')).toEqual({
+      path: 'src/app.ts',
+      startLine: 18,
+      startColumn: 45,
+      endLine: 20,
+      endColumn: 12,
+    });
+  });
+
+  it('does not read a half column range as a line range', () => {
+    expect(parseMentionToken('src/app.ts:18:45')).toBeUndefined();
+    expect(parseMentionToken('src/app.ts:18:45-79')).toBeUndefined();
+  });
+
   it('parses a single line range into start and end', () => {
     expect(parseMentionToken('src/app.ts:9')).toEqual({ path: 'src/app.ts', startLine: 9, endLine: 9 });
   });
@@ -123,6 +148,38 @@ describe('parseMentionToken', () => {
   it('rejects non line ranges so prose stays prose', () => {
     expect(parseMentionToken('readme:rug')).toBeUndefined();
     expect(parseMentionToken('')).toBeUndefined();
+  });
+
+  it('treats a numeric path as a path, not a range', () => {
+    expect(parseMentionToken('2024:18-20')).toEqual({ path: '2024', startLine: 18, endLine: 20 });
+  });
+});
+
+describe('pinRangeLabel', () => {
+  it('has no label for a whole-file pin', () => {
+    expect(pinRangeLabel({})).toBe('');
+  });
+
+  it('labels a single line and a whole-line range', () => {
+    expect(pinRangeLabel({ startLine: 18 })).toBe('L18');
+    expect(pinRangeLabel({ startLine: 18, endLine: 20 })).toBe('L18-20');
+  });
+
+  it('labels part of one line with its columns', () => {
+    expect(pinRangeLabel({ startLine: 18, endLine: 18, startColumn: 45, endColumn: 79 })).toBe(
+      'L18:45-79',
+    );
+  });
+
+  it('labels a partial range across lines with both endpoints', () => {
+    expect(pinRangeLabel({ startLine: 18, endLine: 20, startColumn: 45, endColumn: 12 })).toBe(
+      'L18:45-20:12',
+    );
+  });
+
+  it('falls back to lines when only one column is known', () => {
+    expect(pinRangeLabel({ startLine: 18, startColumn: 45 })).toBe('L18');
+    expect(pinRangeLabel({ startLine: 18, endLine: 20, endColumn: 12 })).toBe('L18-20');
   });
 });
 

@@ -408,12 +408,42 @@ describe('OpenCodeAgent', () => {
   it('turns pins into mention lines instead of losing them', async () => {
     const text = appendPinMentions('look here', [
       { path: 'src/app.ts', startLine: 4, endLine: 9, note: 'the bug' },
+      {
+        path: 'src/app.ts',
+        startLine: 18,
+        endLine: 18,
+        startColumn: 45,
+        endColumn: 79,
+        characters: 35,
+        text: 'the highlighted words of one line',
+      },
       { path: 'README.md' },
     ]);
     expect(text).toBe(
-      'look here\n\n@src/app.ts:4-9\n  > the bug\n@README.md',
+      [
+        'look here',
+        '',
+        '@src/app.ts:4-9',
+        '  > the bug',
+        '@src/app.ts:18:45-18:79',
+        '  | the highlighted words of one line',
+        '@README.md',
+      ].join('\n'),
     );
     expect(appendPinMentions('', [{ path: 'a.ts' }])).toBe('@a.ts');
+    // A cross-line range carries no excerpt — the agent reads the range.
+    expect(
+      appendPinMentions('', [
+        {
+          path: 'src/app.ts',
+          startLine: 18,
+          startColumn: 45,
+          endLine: 20,
+          endColumn: 12,
+          text: 'not generated across lines',
+        },
+      ]),
+    ).toBe('@src/app.ts:18:45-20:12');
   });
 
   it('writes image attachments as files the server can read, and cleans them up', async () => {

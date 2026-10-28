@@ -23,6 +23,7 @@ import {
   offsetAt,
   parseUnifiedDiff,
   pinNoteHint,
+  pinRangeLabel,
   pointAt,
   sourceOffsetIn,
   splitRows,
@@ -48,6 +49,10 @@ interface Highlight {
   id: string;
   start: number;
   end: number;
+  /** 1-based first column, when the pin is a partial range on one line. */
+  startColumn?: number;
+  /** 1-based last column, paired with `startColumn`. */
+  endColumn?: number;
   /** The range's annotation, when the chip carries one. The live band has none. */
   note?: string;
 }
@@ -62,6 +67,8 @@ interface AnnotationPinRef {
   note?: string;
   startLine?: number;
   endLine?: number;
+  startColumn?: number;
+  endColumn?: number;
 }
 
 /** The hover card: what the language server said, and where to pin it. */
@@ -106,11 +113,12 @@ interface DiagnosticMark {
   height: number;
 }
 
+/** A line drag's label, through the one shared formatter (`L14-23`). */
 function rangeText(range: { start: number; end: number } | undefined): string {
   if (range === undefined) {
     return '';
   }
-  return range.start === range.end ? `L${range.start}` : `L${range.start}–${range.end}`;
+  return pinRangeLabel({ startLine: range.start, endLine: range.end });
 }
 
 /** First guess for the code line box; measured from the DOM after the first paint. */
@@ -370,6 +378,8 @@ export class FilePreview {
         id: pin.id,
         start: pin.startLine as number,
         end: pin.endLine ?? (pin.startLine as number),
+        startColumn: pin.startColumn,
+        endColumn: pin.endColumn,
         note: pin.note,
       }));
     const live = this.selected();
@@ -414,7 +424,14 @@ export class FilePreview {
   /** The ✎ on a band: the highlight maps onto the pin shape the editor wants. */
   protected openBandAnnotation(highlight: Highlight, event: Event): void {
     this.openAnnotation(
-      { id: highlight.id, note: highlight.note, startLine: highlight.start, endLine: highlight.end },
+      {
+        id: highlight.id,
+        note: highlight.note,
+        startLine: highlight.start,
+        endLine: highlight.end,
+        startColumn: highlight.startColumn,
+        endColumn: highlight.endColumn,
+      },
       event,
     );
   }
@@ -451,11 +468,8 @@ export class FilePreview {
 
   /** The `L30-31` label the editor's header shows (absent for a whole-file pin). */
   private rangeOf(pin: AnnotationPinRef): string | undefined {
-    if (pin.startLine === undefined) {
-      return undefined;
-    }
-    const end = pin.endLine ?? pin.startLine;
-    return end !== pin.startLine ? `L${pin.startLine}-${end}` : `L${pin.startLine}`;
+    const label = pinRangeLabel(pin);
+    return label.length === 0 ? undefined : label;
   }
 
   /** A chip's annotation hint: first line, cut short — the hover card has the rest. */

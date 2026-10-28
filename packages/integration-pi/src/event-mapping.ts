@@ -592,7 +592,13 @@ export function contentToImages(content: unknown): PromptImage[] {
   return images;
 }
 
-const PIN_MENTION = /^@([^\s]+?)(?::(\d+)-(\d+))?$/;
+const PIN_MENTION =
+  /^@(\S+?)(?::(\d+):(\d+)-(\d+):(\d+)|:(\d+)(?:-(\d+))?)?$/;
+/**
+ * A generated excerpt line as appendPinMentions wrote it: `  | the words`, two
+ * spaces deep like a note so it can never be read as the user's own prose.
+ */
+const PIN_EXCERPT_LINE = /^ {2}\|(?: (.*))?$/;
 /**
  * A pin's annotation line as appendPinMentions wrote it: `  > the note`, two
  * spaces deep so it can never be read as the user's own prose blockquote, and
@@ -605,22 +611,39 @@ const PIN_NOTE_LINE = /^ {2}>(?: (.*))?$/;
  * Inverse of the adapter's `appendPinMentions`: the trailing `@path[:s-e]`
  * blocks a prompt was sent with come back out, so a resumed session renders the
  * pins as attachment chips and the bubble keeps the user's own words only. Each
- * block is the mention line followed by zero or more `  > ` annotation lines
- * that belong to the pin directly above them; walking bottom-up, a buffered run
- * of note lines is handed to the next pin line met, and a run whose pin never
- * comes (a stray indented blockquote, nothing Morse generates) is simply left
- * in the prose where it always was.
+ * block is the mention line followed by zero or more generated `  | ` excerpt
+ * and `  > ` annotation lines that belong to the pin directly above them;
+ * walking bottom-up, a buffered run of those lines is handed to the next pin
+ * line met, and a run whose pin never comes (a stray indented blockquote,
+ * nothing Morse generates) is simply left in the prose where it always was.
  */
 export function splitTrailingMentions(
   text: string,
 ): {
   text: string;
-  pins: Array<{ path: string; startLine?: number; endLine?: number; note?: string }>;
+  pins: Array<{
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    startColumn?: number;
+    endColumn?: number;
+    text?: string;
+    note?: string;
+  }>;
 } {
   const lines = text.split('\n');
   let cursor = lines.length;
-  const pins: Array<{ path: string; startLine?: number; endLine?: number; note?: string }> = [];
+  const pins: Array<{
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    startColumn?: number;
+    endColumn?: number;
+    text?: string;
+    note?: string;
+  }> = [];
   const notes: string[] = [];
+  const excerpts: string[] = [];
   while (cursor > 0) {
     const note = PIN_NOTE_LINE.exec(lines[cursor - 1] ?? '');
     if (note !== null) {
@@ -628,12 +651,23 @@ export function splitTrailingMentions(
       cursor -= 1;
       continue;
     }
+    const excerpt = PIN_EXCERPT_LINE.exec(lines[cursor - 1] ?? '');
+    if (excerpt !== null) {
+      excerpts.unshift(excerpt[1] ?? '');
+      cursor -= 1;
+      continue;
+    }
     const match = PIN_MENTION.exec(lines[cursor - 1] ?? '');
+    const startLine = match?.[2] ?? match?.[6];
+    const endLine = match?.[2] !== undefined ? match[4] : match?.[7];
     const record = match
       ? {
           path: match[1] ?? '',
-          ...(match[2] !== undefined ? { startLine: Number(match[2]) } : {}),
-          ...(match[3] !== undefined ? { endLine: Number(match[3]) } : {}),
+          ...(startLine !== undefined ? { startLine: Number(startLine) } : {}),
+          ...(endLine !== undefined ? { endLine: Number(endLine) } : {}),
+          ...(match?.[3] !== undefined ? { startColumn: Number(match[3]) } : {}),
+          ...(match?.[5] !== undefined ? { endColumn: Number(match[5]) } : {}),
+          ...(excerpts.length > 0 ? { text: excerpts.join('\n') } : {}),
           ...(notes.length > 0 ? { note: notes.join('\n') } : {}),
         }
       : undefined;
@@ -643,6 +677,7 @@ export function splitTrailingMentions(
       break;
     }
     notes.length = 0;
+    excerpts.length = 0;
     pins.unshift(record);
     cursor -= 1;
   }

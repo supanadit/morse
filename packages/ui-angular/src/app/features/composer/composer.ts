@@ -14,6 +14,8 @@ import type { CommandOption, ModelOption, PromptMode, ThinkingLevel } from '@mor
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import {
   parseCommandArgs,
+  pinNoteHint,
+  pinRangeLabel,
   promptTemplateForm,
   readPromptTemplate,
   substituteArgs,
@@ -33,10 +35,16 @@ import { WorkspaceTabs } from '../../state/workspace-tabs';
 interface EditorSnapshot {
   path?: string;
   languageId?: string;
-  selection?: { startLine: number; endLine: number; text: string };
+  selection?: {
+    startLine: number;
+    endLine: number;
+    startColumn?: number;
+    endColumn?: number;
+    characters?: number;
+    text?: string;
+  };
   openEditors: string[];
 }
-import { pinNoteHint } from '@morse/ui-runtime';
 import { PopoverFit } from '../../ui/popover-fit.directive';
 import { startResize } from '../../ui/resize-drag';
 import { EnterDirective } from '../../ui/enter.directive';
@@ -897,10 +905,9 @@ export class ChatComposer {
 
   /**
    * Pins the active editor selection as an attachment chip. The host only
-   * reports; the chip rides with the next message as a `@path:start-end`
-   * mention, exactly like a picked file would.
-   */
-  /**
+   * reports; the chip rides with the next message as a `@path:start-end` or
+   * `@path:start:col-end:col` mention, exactly like a picked file would.
+   *
    * The ⧉ shortcut and the live chip do the same thing — lock the current
    * selection — so when the host already streams the live preview there is no
    * round trip: locking what is on screen is instant. Only hosts without live
@@ -921,6 +928,10 @@ export class ChatComposer {
         path: snapshot.path ?? '',
         startLine: selection.startLine,
         endLine: selection.endLine,
+        startColumn: selection.startColumn,
+        endColumn: selection.endColumn,
+        characters: selection.characters,
+        text: selection.text,
       });
       this.attachments.say('info', 'Selection pinned to this message.');
     });
@@ -1440,16 +1451,36 @@ export class ChatComposer {
   }
 
   /**
-   * A pin's range label: `L13-17` for a range, `L13` for a single line. A
-   * single-line pin has no `endLine`, which must not read as "L13-".
+   * A pin's range label, shared with the transcript and the preview:
+   * `L18:45-79` for part of a line, `L18-20` for whole lines, no label for a
+   * whole file.
    */
-  protected pinRange(pin: Pick<PendingPin, 'startLine' | 'endLine'>): string {
-    if (pin.startLine === undefined) {
-      return '';
+  protected pinRange(pin: Pick<PendingPin, 'startLine' | 'endLine' | 'startColumn' | 'endColumn'>): string {
+    return pinRangeLabel(pin);
+  }
+
+  /** A chip's tooltip: its path and range, then the count and excerpt when known. */
+  protected pinTitle(pin: PendingPin, prefix: string): string {
+    const details: string[] = [];
+    if (pin.startLine !== undefined) {
+      const endLine = pin.endLine ?? pin.startLine;
+      details.push(
+        pin.startColumn !== undefined && pin.endColumn !== undefined
+          ? endLine === pin.startLine
+            ? `line ${pin.startLine}, columns ${pin.startColumn}-${pin.endColumn}`
+            : `lines ${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`
+          : endLine === pin.startLine
+            ? `line ${pin.startLine}`
+            : `lines ${pin.startLine}-${endLine}`,
+      );
     }
-    return pin.endLine !== undefined && pin.endLine !== pin.startLine
-      ? `L${pin.startLine}-${pin.endLine}`
-      : `L${pin.startLine}`;
+    if (pin.characters !== undefined) {
+      details.push(`${pin.characters} selected`);
+    }
+    if (pin.text !== undefined) {
+      details.push(pin.text);
+    }
+    return details.length === 0 ? prefix : `${prefix} · ${details.join(' · ')}`;
   }
 
   /** Closing the picker returns the keyboard to the prompt. */

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
   Session,
+  MAX_PIN_EXCERPT,
   type AgentCommand,
   type AgentForkMessage,
   type AgentFormRequest,
@@ -943,17 +944,35 @@ export function appendPinMentions(text: string, pins: ChatPin[] | undefined): st
   if (pins === undefined || pins.length === 0) {
     return text;
   }
-  const mentions = pins
-    .map((pin) => {
-      if (pin.startLine === undefined) {
-        return [`@${pin.path}`, ...noteLines(pin.note)].join('\n');
-      }
-      const end = pin.endLine ?? pin.startLine;
-      return [`@${pin.path}:${pin.startLine}-${end}`, ...noteLines(pin.note)].join('\n');
-    })
-    .join('\n');
+  const mentions = pins.map((pin) => pinBlock(pin).join('\n')).join('\n');
   const prose = text.trim();
   return prose.length > 0 ? `${prose}\n\n${mentions}` : mentions;
+}
+
+/** One pin's wire block: its mention, its excerpt, then its annotation lines. */
+function pinBlock(pin: ChatPin): string[] {
+  return [mentionOf(pin), ...excerptLines(pin), ...noteLines(pin.note)];
+}
+
+/** `@path`, `@path:18-20`, or `@path:18:45-18:79`; the end line is always written. */
+function mentionOf(pin: ChatPin): string {
+  if (pin.startLine === undefined) {
+    return `@${pin.path}`;
+  }
+  const endLine = pin.endLine ?? pin.startLine;
+  if (pin.startColumn !== undefined && pin.endColumn !== undefined) {
+    return `@${pin.path}:${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`;
+  }
+  return `@${pin.path}:${pin.startLine}-${endLine}`;
+}
+
+/** The selected words, one line only, re-capped so a hand-built pin stays bounded. */
+function excerptLines(pin: ChatPin): string[] {
+  if (pin.startLine === undefined || (pin.endLine !== undefined && pin.endLine !== pin.startLine)) {
+    return [];
+  }
+  const excerpt = pin.text?.replace(/\r?\n/g, ' ').slice(0, MAX_PIN_EXCERPT);
+  return excerpt === undefined || excerpt.length === 0 ? [] : [`  | ${excerpt}`];
 }
 
 function noteLines(note: string | undefined): string[] {

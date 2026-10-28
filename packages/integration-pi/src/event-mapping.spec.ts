@@ -339,6 +339,14 @@ describe('splitTrailingMentions', () => {
   it('round-trips appendPinMentions, prose and annotations included', () => {
     const pins = [
       { path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+      {
+        path: 'src/app.ts',
+        startLine: 18,
+        endLine: 18,
+        startColumn: 45,
+        endColumn: 79,
+        text: 'the highlighted words of one line',
+      },
       { path: 'README.md' },
       { path: 'docs/notes.md', note: 'first line\nsecond line' },
     ];
@@ -346,6 +354,41 @@ describe('splitTrailingMentions', () => {
     const split = splitTrailingMentions(sent);
     expect(split.text).toBe('what is going on here');
     expect(split.pins).toEqual(pins);
+  });
+
+  it('recovers a column range and consumes its generated excerpt', () => {
+    const split = splitTrailingMentions(
+      [
+        'look here',
+        '',
+        '@src/app.ts:18:45-18:79',
+        '  | the highlighted words of one line',
+        '  > the parser',
+      ].join('\n'),
+    );
+    expect(split.text).toBe('look here');
+    expect(split.pins).toEqual([
+      {
+        path: 'src/app.ts',
+        startLine: 18,
+        endLine: 18,
+        startColumn: 45,
+        endColumn: 79,
+        text: 'the highlighted words of one line',
+        note: 'the parser',
+      },
+    ]);
+  });
+
+  it('leaves an old line-only mention exactly as before', () => {
+    const split = splitTrailingMentions(['look here', '', '@src/app.ts:18-20'].join('\n'));
+    expect(split.text).toBe('look here');
+    expect(split.pins).toEqual([{ path: 'src/app.ts', startLine: 18, endLine: 20 }]);
+  });
+
+  it('does not eat the reader’s own pipe line outside the pin block', () => {
+    const text = 'thoughts:\n  | an indented aside of my own\n';
+    expect(splitTrailingMentions(text)).toEqual({ text, pins: [] });
   });
 
   it('keeps a pins-only message pins-only', () => {

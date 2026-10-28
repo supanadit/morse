@@ -27,6 +27,23 @@ export interface ChatPin {
   path: string;
   startLine?: number;
   endLine?: number;
+  /**
+   * 1-based column of the first selected character, matching the editor's own
+   * status bar (a tab counts as one). Present together with `endColumn`, and
+   * only when `startLine` is present; absent for a whole-line pin and for a host
+   * that does not capture columns.
+   */
+  startColumn?: number;
+  /** 1-based column of the last selected character (the selection's end is exclusive). */
+  endColumn?: number;
+  /** How many UTF-16 characters the selection covers, line breaks included. */
+  characters?: number;
+  /**
+   * The selected words, for a one-line selection only and capped so a huge
+   * highlight cannot flood the prompt. Multi-line and whole-line pins carry no
+   * excerpt.
+   */
+  text?: string;
   note?: string;
 }
 

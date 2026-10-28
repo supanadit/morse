@@ -1,9 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
-import type { AssistantTranscriptItem, PromptImage, UserTranscriptItem } from '@morse/protocol';
+import type { AssistantTranscriptItem, ChatPin, PromptImage, UserTranscriptItem } from '@morse/protocol';
 import {
   activeProcessKey,
   groupTranscriptItems,
   pinNoteHint,
+  pinRangeLabel,
   userMessageMarkdown,
   type TranscriptRow,
 } from '@morse/ui-runtime';
@@ -350,14 +351,38 @@ export class ChatTranscript {
     return item.pins;
   }
 
-  /** `L13-17` for a range, `L13` for a single line (a pin may carry no end). */
-  protected pinRange(pin: { startLine?: number; endLine?: number }): string {
-    if (pin.startLine === undefined) {
-      return '';
+  /** The shared range label: `L18`, `L18-20`, `L18:45-79` or `L18:45-20:12`. */
+  protected pinRange(pin: {
+    startLine?: number;
+    endLine?: number;
+    startColumn?: number;
+    endColumn?: number;
+  }): string {
+    return pinRangeLabel(pin);
+  }
+
+  /** A chip's tooltip: path, range and selected count, plus the excerpt when known. */
+  protected pinTitle(pin: ChatPin): string {
+    const details: string[] = [pin.path];
+    if (pin.startLine !== undefined) {
+      const endLine = pin.endLine ?? pin.startLine;
+      details.push(
+        pin.startColumn !== undefined && pin.endColumn !== undefined
+          ? endLine === pin.startLine
+            ? `line ${pin.startLine}, columns ${pin.startColumn}-${pin.endColumn}`
+            : `lines ${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`
+          : endLine === pin.startLine
+            ? `line ${pin.startLine}`
+            : `lines ${pin.startLine}-${endLine}`,
+      );
     }
-    return pin.endLine !== undefined && pin.endLine !== pin.startLine
-      ? `L${pin.startLine}-${pin.endLine}`
-      : `L${pin.startLine}`;
+    if (pin.characters !== undefined) {
+      details.push(`${pin.characters} selected`);
+    }
+    if (pin.text !== undefined) {
+      details.push(pin.text);
+    }
+    return details.join(' · ');
   }
 
   /** A pin chip's annotation: first line only as a hint, full text on hover. */

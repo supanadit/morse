@@ -1,7 +1,18 @@
 export interface EditorSelection {
   startLine: number;
   endLine: number;
-  text: string;
+  /**
+   * 1-based column of the first selected character, matching the editor's own
+   * status bar (a tab counts as one). Present with `endColumn`, absent for a
+   * line-only selection.
+   */
+  startColumn?: number;
+  /** 1-based column of the last selected character (the selection's end is exclusive). */
+  endColumn?: number;
+  /** How many UTF-16 characters the selection covers, line breaks included. */
+  characters?: number;
+  /** The selected words, capped for a one-line selection; absent across lines. */
+  text?: string;
 }
 
 export interface EditorContextSnapshot {

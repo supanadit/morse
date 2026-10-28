@@ -3,6 +3,7 @@ import {
   ChatService,
   SessionRegistry,
   UnsupportedByHostError,
+  selectionSpan,
   type AgentMcpExtras,
   type AgentPromptExtras,
   type EditorContextProvider,
@@ -766,7 +767,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
   async attachSelection(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.selection.isEmpty) {
+    if (!editor || editor.selections.every((selection) => selection.isEmpty)) {
       void vscode.window.showInformationMessage('Morse: select some text in the editor first.');
       return;
     }
@@ -999,20 +1000,33 @@ function mcpScope(args: Record<string, unknown> | undefined): 'global' | 'projec
   return args?.scope === 'global' || args?.scope === 'project' ? args.scope : undefined;
 }
 
-/** The selection lines of an editor, if any, as a `context/selection` payload. */
+/** The selection span of an editor, if any, as a `context/selection` payload. */
 function toSelectionPayload(
   path: string,
   editor: vscode.TextEditor,
-): { path: string; startLine?: number; endLine?: number } {
-  const selection = editor.selection;
-  if (selection.isEmpty) {
-    return { path };
-  }
-  return {
-    path,
-    startLine: selection.start.line + 1,
-    endLine: selection.end.line + 1,
-  };
+): {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  startColumn?: number;
+  endColumn?: number;
+  characters?: number;
+  text?: string;
+} {
+  const span = selectionSpan(
+    editor.selections,
+    (selection) =>
+      editor.document.getText(
+        new vscode.Range(
+          selection.start.line,
+          selection.start.character,
+          selection.end.line,
+          selection.end.character,
+        ),
+      ),
+    (line) => editor.document.lineAt(line).text.length,
+  );
+  return span === undefined ? { path } : { path, ...span };
 }
 
 /** Mention paths are workspace-relative; the editor usually wants an absolute one. */

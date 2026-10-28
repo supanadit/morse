@@ -586,6 +586,27 @@ describe('FilePreview annotations', () => {
     expect(host.querySelector('.corner .note')?.textContent).toContain('fix');
   });
 
+  it('names the exact column range in the annotation header', () => {
+    const { fixture, pins } = render({ content: 'a\nb\nc\nd\n' });
+    pins.set([
+      {
+        id: 'p1',
+        path: 'src/main.ts',
+        startLine: 1,
+        endLine: 1,
+        startColumn: 5,
+        endColumn: 12,
+      },
+    ]);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    host.querySelector<HTMLButtonElement>('.corner .note')?.click();
+    fixture.detectChanges();
+    const card = host.querySelector('morse-pin-annotation') as HTMLElement;
+    expect(card.querySelector('.range')?.textContent).toContain('L1:5-12');
+  });
+
   it('saves nothing as no annotation when the editor is emptied', () => {
     const { fixture, attachments, pins } = render({ content: 'a\nb\nc\nd\n' });
     pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 1, endLine: 2, note: 'old words' }]);

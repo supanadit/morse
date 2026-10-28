@@ -30,8 +30,8 @@
           <div class="user" [morseEnter]="0" [attr.data-prompt-id]="row.item.id">
             @if (pinsOf(row.item) !== undefined || row.item.images !== undefined) {
               <ul class="user-attachments">
-                @for (pin of row.item.pins ?? []; track pin.path + (pin.startLine ?? '')) {
-                  <li class="mention-pin" [title]="pin.path">
+                @for (pin of row.item.pins ?? []; track pin.path + (pin.startLine ?? '') + (pin.startColumn ?? '')) {
+                  <li class="mention-pin" [title]="pinTitle(pin)">
                     <span class="pin-icon" aria-hidden="true">⧉</span>
                     <span class="name">{{ basename(pin.path) }}</span>
                     @if (pin.startLine !== undefined) {

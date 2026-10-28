@@ -266,7 +266,19 @@ export interface NoticeMessage extends HostMessageBase {
  */
 export interface ContextSelectionMessage extends HostMessageBase {
   type: 'context/selection';
-  payload: { path: string; startLine?: number; endLine?: number };
+  payload: {
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    /** 1-based first selected column; present with `endColumn` for a partial-line range. */
+    startColumn?: number;
+    /** 1-based last selected column. */
+    endColumn?: number;
+    /** Selected UTF-16 character count, line breaks included. */
+    characters?: number;
+    /** The selected words for a one-line range, capped by the host. */
+    text?: string;
+  };
 }
 
 /**
@@ -280,7 +292,19 @@ export interface ContextSelectionMessage extends HostMessageBase {
  */
 export interface ContextSelectionLiveMessage extends HostMessageBase {
   type: 'context/selectionLive';
-  payload: { path: string; startLine?: number; endLine?: number };
+  payload: {
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    /** 1-based first selected column, matching the editor's status bar. */
+    startColumn?: number;
+    /** 1-based last selected column; the selection's end is exclusive. */
+    endColumn?: number;
+    /** Selected UTF-16 character count, line breaks included. */
+    characters?: number;
+    /** The selected words for a one-line range, capped by the host. */
+    text?: string;
+  };
 }
 
 /**

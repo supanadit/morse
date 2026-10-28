@@ -21,5 +21,6 @@ export * from './logger.js';
 export * from './chat/service.js';
 export * from './chat/ports.js';
 export * from './context/ports.js';
+export * from './context/selection-span.js';
 
 export * from './host/index.js';

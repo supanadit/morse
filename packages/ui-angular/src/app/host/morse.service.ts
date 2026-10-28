@@ -12,7 +12,7 @@ import {
   type SessionView,
   type ThinkingLevel,
 } from '@morse/protocol';
-import { asSessionSummaries, createMorseClient, type MorseActions, type MorseClient } from '@morse/ui-runtime';
+import { asSessionSummaries, createMorseClient, type EditorSelectionPayload, type MorseActions, type MorseClient } from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from './transport.token';
 
 /**
@@ -212,7 +212,7 @@ export class MorseService {
    * turns them into attachment chips in the composer strip.
    */
   onContextSelection(
-    listener: (pin: { path: string; startLine?: number; endLine?: number }) => void,
+    listener: (pin: EditorSelectionPayload) => void,
   ): () => void {
     return this.client.onContextSelection(listener);
   }
@@ -222,7 +222,7 @@ export class MorseService {
    * composer shows one unlocked chip that updates in real time until clicked.
    */
   onContextSelectionLive(
-    listener: (preview: { path: string; startLine?: number; endLine?: number }) => void,
+    listener: (preview: EditorSelectionPayload) => void,
   ): () => void {
     return this.client.onContextSelectionLive(listener);
   }

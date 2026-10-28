@@ -100,6 +100,25 @@ export interface MorseActions {
 }
 
 /**
+ * A selection the host reports: a focused whole file (path alone), a line
+ * range, or a partial range with columns. The optional span fields are absent
+ * from a host that does not capture columns, so both sides stay compatible.
+ */
+export interface EditorSelectionPayload {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  /** 1-based first selected column. */
+  startColumn?: number;
+  /** 1-based last selected column. */
+  endColumn?: number;
+  /** Selected UTF-16 character count, line breaks included. */
+  characters?: number;
+  /** The selected words for a one-line range, capped by the host. */
+  text?: string;
+}
+
+/**
  * The framework-agnostic Morse client. Angular, React and Svelte bindings all
  * wrap exactly this object — the reducer and the wire protocol live here, not in
  * the components.
@@ -112,14 +131,14 @@ export interface MorseClient {
    * frontend turns them into attachment chips; the prompt text never gains a
    * context preamble behind the user's back.
    */
-  onContextSelection(listener: (pin: { path: string; startLine?: number; endLine?: number }) => void): () => void;
+  onContextSelection(listener: (pin: EditorSelectionPayload) => void): () => void;
   /**
    * Live, unlocked previews of the editor's current state, streamed as the
    * user moves. The frontend shows one chip until it is clicked to lock (into a
-   * pin) — a selection reads as `Lstart-end`, and the focused file with nothing
-   * selected reads as a whole-file chip with no line number.
+   * pin) — a selection reads as `Lstart-end` (or `L18:45-79`), and the focused
+   * file with nothing selected reads as a whole-file chip with no line number.
    */
-  onContextSelectionLive(listener: (preview: { path: string; startLine?: number; endLine?: number }) => void): () => void;
+  onContextSelectionLive(listener: (preview: EditorSelectionPayload) => void): () => void;
   /**
    * A prompt handed back by the host after a fork (`composer/seed`). The
    * composer drops it into the editor so the user continues the new branch;
@@ -178,13 +197,9 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
   let hostRequestCounter = 0;
 
   /** Listeners for host-pinned editor selections (`context/selection`). */
-  const selectionListeners = new Set<
-    (pin: { path: string; startLine?: number; endLine?: number }) => void
-  >();
+  const selectionListeners = new Set<(pin: EditorSelectionPayload) => void>();
   /** Listeners for live selection previews (`context/selectionLive`). */
-  const liveSelectionListeners = new Set<
-    (pin: { path: string; startLine?: number; endLine?: number }) => void
-  >();
+  const liveSelectionListeners = new Set<(pin: EditorSelectionPayload) => void>();
   /** Listeners for a forked prompt handed back to the composer (`composer/seed`). */
   const composerSeedListeners = new Set<(seed: ComposerSeed) => void>();
   /** Listeners for terminal output (`terminal/output`). */

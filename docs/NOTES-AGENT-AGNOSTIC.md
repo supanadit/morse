@@ -51,7 +51,9 @@ is never duplicated.
   `variants` (`none` means `off`, `default` is a sentinel mapped to a real level), fork returns a new session,
   compaction takes no instructions.
 - Prompts take `files: [{uri}]` (real paths), so images are written to a temp directory for the session's
-  lifetime; pins become `@path[:start:end]` mentions in the prompt.
+  lifetime; pins become mentions in the prompt — `@path`, `@path:18-20` for whole lines, or
+  `@path:18:45-18:79` for a column range, with a one-line selection's words following as a generated
+  `  | ` line and the reader's own annotation as `  > ` lines.
 - Forms and permissions are pulled from the server's pending lists on connect and at execution boundaries, with
   the SSE events (`form.created`, `permission.asked`) as the primary source; the announced set keeps the two
   from showing a request twice.

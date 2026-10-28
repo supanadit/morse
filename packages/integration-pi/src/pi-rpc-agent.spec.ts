@@ -370,6 +370,79 @@ describe('appendPinMentions', () => {
       ['@README.md', '  > focus'].join('\n'),
     );
   });
+
+  it('writes a one-line column range and its excerpt', () => {
+    expect(
+      appendPinMentions('look here', [
+        {
+          path: 'src/app.ts',
+          startLine: 18,
+          startColumn: 45,
+          endLine: 18,
+          endColumn: 79,
+          characters: 35,
+          text: 'the highlighted words of one line',
+        },
+      ]),
+    ).toBe(
+      [
+        'look here',
+        '',
+        '@src/app.ts:18:45-18:79',
+        '  | the highlighted words of one line',
+      ].join('\n'),
+    );
+  });
+
+  it('re-caps a long one-line excerpt without losing the range', () => {
+    const sent = appendPinMentions('', [
+      {
+        path: 'src/app.ts',
+        startLine: 18,
+        startColumn: 1,
+        endLine: 18,
+        endColumn: 200,
+        text: 'x'.repeat(200),
+      },
+    ]);
+    expect(sent.split('\n')).toEqual([
+      '@src/app.ts:18:1-18:200',
+      `  | ${'x'.repeat(120)}`,
+    ]);
+  });
+
+  it('writes no excerpt for a cross-line column range', () => {
+    expect(
+      appendPinMentions('', [
+        {
+          path: 'src/app.ts',
+          startLine: 18,
+          startColumn: 45,
+          endLine: 20,
+          endColumn: 12,
+          text: 'not generated across lines',
+        },
+      ]),
+    ).toBe('@src/app.ts:18:45-20:12');
+  });
+
+  it('puts the excerpt before the reader’s notes', () => {
+    expect(
+      appendPinMentions('', [
+        {
+          path: 'src/app.ts',
+          startLine: 18,
+          startColumn: 45,
+          endLine: 18,
+          endColumn: 79,
+          text: 'the words',
+          note: 'the parser',
+        },
+      ]),
+    ).toBe(
+      ['@src/app.ts:18:45-18:79', '  | the words', '  > the parser'].join('\n'),
+    );
+  });
 });
 
 /**

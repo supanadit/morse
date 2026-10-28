@@ -210,7 +210,18 @@ describe('WorkbenchPersistence', () => {
         attachments: {
           s1: {
             images: [],
-            pins: [{ id: 'pin-1', path: 'a.ts', startLine: 4 }],
+            pins: [
+              {
+                id: 'pin-1',
+                path: 'a.ts',
+                startLine: 4,
+                endLine: 4,
+                startColumn: 7,
+                endColumn: 19,
+                characters: 13,
+                text: 'const answer',
+              },
+            ],
             mentions: ['b.ts'],
           },
         },
@@ -229,7 +240,18 @@ describe('WorkbenchPersistence', () => {
     drafts.use('s1');
     expect(drafts.text()).toBe('a long prompt');
     expect(attachments.mentions()).toEqual(['b.ts']);
-    expect(attachments.pins()).toEqual([{ id: 'pin-1', path: 'a.ts', startLine: 4 }]);
+    expect(attachments.pins()).toEqual([
+      {
+        id: 'pin-1',
+        path: 'a.ts',
+        startLine: 4,
+        endLine: 4,
+        startColumn: 7,
+        endColumn: 19,
+        characters: 13,
+        text: 'const answer',
+      },
+    ]);
     // A second tab stays isolated from the first.
     drafts.use('s2');
     expect(drafts.text()).toBe('another tab');

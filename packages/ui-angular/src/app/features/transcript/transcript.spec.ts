@@ -297,3 +297,76 @@ describe('ChatTranscript live thinking', () => {
     ).toBeNull();
   });
 });
+
+/**
+ * A stored prompt's chips must name the exact range the reader pinned, whether
+ * that range is a column span, whole lines, or the whole file.
+ */
+describe('ChatTranscript attachment chips', () => {
+  const items = signal<TranscriptItem[]>([]);
+
+  beforeEach(async () => {
+    items.set([
+      {
+        kind: 'user',
+        id: 'u1',
+        at: 1,
+        text: 'look at this',
+        pins: [
+          {
+            path: 'src/app.ts',
+            startLine: 18,
+            startColumn: 45,
+            endLine: 18,
+            endColumn: 79,
+            characters: 35,
+            text: 'the highlighted words of one line',
+          },
+          { path: 'src/lines.ts', startLine: 18, endLine: 20 },
+          { path: 'src/whole.ts' },
+        ],
+      },
+    ]);
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state: signal(viewState()),
+            items,
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: signal(false),
+            capabilities: signal(null),
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  it('labels a column pin with its exact columns', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const lines = [...host.querySelectorAll('.mention-pin .lines')].map(
+      (node) => node.textContent?.trim() ?? '',
+    );
+    expect(lines).toEqual(['L18:45-79', 'L18-20']);
+    const title = host.querySelector('.mention-pin')?.getAttribute('title') ?? '';
+    expect(title).toContain('src/app.ts');
+    expect(title).toContain('line 18, columns 45-79');
+    expect(title).toContain('35 selected');
+    expect(title).toContain('the highlighted words of one line');
+  });
+
+  it('shows no range for a whole-file pin', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const chips = [...(fixture.nativeElement as HTMLElement).querySelectorAll('.mention-pin')];
+    expect(chips).toHaveLength(3);
+    expect(chips[2]?.querySelector('.lines')).toBeNull();
+    expect(chips[2]?.querySelector('.name')?.textContent).toBe('whole.ts');
+  });
+});
