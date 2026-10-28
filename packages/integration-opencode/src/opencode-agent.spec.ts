@@ -233,6 +233,12 @@ describe('OpenCodeAgent', () => {
       'OpenCode',
     ]);
     expect(state.availableCommands.map((command) => command.source)).toEqual(['prompt', 'prompt', 'skill']);
+    // The server resolves the project from `location[directory]`; a bare
+    // `directory` param is ignored and would answer for the server's own cwd.
+    for (const path of ['/command', '/skill', '/model']) {
+      const call = api.calls.find((entry) => entry.method === 'GET' && entry.path === path);
+      expect(call?.query).toEqual({ 'location[directory]': WORKSPACE.cwd });
+    }
     await agent.dispose();
   });
 

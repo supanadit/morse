@@ -227,10 +227,12 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
   }): Promise<AgentGateway> {
     const directory = input.workspace.cwd;
     const [models, commands, modes, defaultModel] = await Promise.all([
-      this.deps.api.get<ApiModel[]>('/model', { directory }).catch((error: unknown): ApiModel[] => {
-        this.deps.logger.warn('Could not read the OpenCode model catalog', error);
-        return [];
-      }),
+      this.deps.api
+        .get<ApiModel[]>('/model', { 'location[directory]': directory })
+        .catch((error: unknown): ApiModel[] => {
+          this.deps.logger.warn('Could not read the OpenCode model catalog', error);
+          return [];
+        }),
       readAvailableCommands(this.deps.api, directory, this.deps.logger),
       readAgentModes(this.deps.api, directory, this.deps.logger),
       readDefaultModel(this.deps.api, directory, this.deps.logger),

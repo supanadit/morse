@@ -104,6 +104,16 @@ const DEFAULT_HISTORY_LIMIT = 40;
 const LATEST_USAGE_PAGES = 3;
 const LATEST_USAGE_LIMIT = 20;
 
+/**
+ * How often, and for how long, the command catalog is re-read after a session
+ * opens. OpenCode fills it asynchronously behind the project instance it lazily
+ * creates, so a fresh server answers with nothing at first and only has the
+ * project's own commands after ~2s. Four reads spread over ~3s cover that; the
+ * poll stops early once the list stops growing.
+ */
+const COMMAND_SETTLE_ROUNDS = 4;
+const COMMAND_SETTLE_MS = 800;
+
 export interface OpenCodeAgentOptions {
   api: OpenCodeApi;
   stream: OpenCodeEventStream;
@@ -203,7 +213,7 @@ export class OpenCodeAgent extends Session {
     const directory = session.location?.directory ?? options.workspace.cwd;
     const [models, commands, modes] = await Promise.all([
       options.api
-        .get<ApiModel[]>('/model', { directory })
+        .get<ApiModel[]>('/model', { 'location[directory]': directory })
         .catch((error: unknown): ApiModel[] => {
           options.logger.warn('Could not read the OpenCode model catalog', error);
           return [];
@@ -236,6 +246,7 @@ export class OpenCodeAgent extends Session {
       agent.models.set(modelKey(model), model);
     }
     agent.attach();
+    agent.settleCommands(directory);
     return agent;
   }
 
@@ -533,6 +544,35 @@ export class OpenCodeAgent extends Session {
 
   private attach(): void {
     this.unsubscribe = this.stream.subscribe(this.engineId, (event) => this.handle(event));
+  }
+
+  /**
+   * Re-reads the command catalog until it stops growing, and repaints the
+   * composer when it does.
+   *
+   * The first read on a session lands while OpenCode is still populating the
+   * catalog (built-ins first, the project's `.opencode/commands` and skills a
+   * second or two later), so without this the palette stays empty for the whole
+   * session — the one a user opens right after the server boots.
+   */
+  private settleCommands(directory: string): void {
+    void (async () => {
+      for (let round = 0; round < COMMAND_SETTLE_ROUNDS; round += 1) {
+        await new Promise((resolve) => setTimeout(resolve, COMMAND_SETTLE_MS));
+        if (this.disposed) {
+          return;
+        }
+        const commands = await readAvailableCommands(this.api, directory, this.log);
+        if (this.disposed) {
+          return;
+        }
+        if (commands.length > this.box.availableCommands.length) {
+          this.patch({ availableCommands: commands }, Date.now());
+          continue;
+        }
+        return;
+      }
+    })();
   }
 
   /**
@@ -896,15 +936,18 @@ export async function readAvailableCommands(
   directory: string,
   logger: MorseLogger,
 ): Promise<AgentCommand[]> {
+  // The project travels as `location[directory]`, the same way the agent catalog
+  // asks for it: a plain `directory` query param is ignored, and the server would
+  // answer for its own working directory instead.
   const [commands, skills] = await Promise.all([
     api
-      .get<ApiCommand[]>('/command', { directory })
+      .get<ApiCommand[]>('/command', { 'location[directory]': directory })
       .catch((error: unknown): ApiCommand[] => {
         logger.warn('Could not read the OpenCode command catalog', error);
         return [];
       }),
     api
-      .get<ApiSkill[]>('/skill', { directory })
+      .get<ApiSkill[]>('/skill', { 'location[directory]': directory })
       .catch((error: unknown): ApiSkill[] => {
         logger.warn('Could not read the OpenCode skill catalog', error);
         return [];
