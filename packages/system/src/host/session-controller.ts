@@ -1,6 +1,25 @@
-import { AgentUnavailableError, MorseError } from '@morse/system';
-import type { AgentEvent, AgentForkMessage, AgentGateway, AgentHistoryEntry, AgentInteractionRequest, AgentInteractionResponse, AgentSessionState, ModelRef, PromptImage, PromptMode, ThinkingLevel, WorkspaceRef } from '@morse/agent';
-import type { ChatService, MorseLogger, OpenedSession, SessionRegistry, SessionSummary } from '@morse/system';
+import { AgentUnavailableError, MorseError } from "@morse/system";
+import type {
+  AgentEvent,
+  AgentForkMessage,
+  AgentGateway,
+  AgentHistoryEntry,
+  AgentInteractionRequest,
+  AgentInteractionResponse,
+  AgentSessionState,
+  ModelRef,
+  PromptImage,
+  PromptMode,
+  ThinkingLevel,
+  WorkspaceRef,
+} from "@morse/agent";
+import type {
+  ChatService,
+  MorseLogger,
+  OpenedSession,
+  SessionRegistry,
+  SessionSummary,
+} from "@morse/system";
 import {
   PROTOCOL_VERSION,
   type AgentErrorCode,
@@ -15,16 +34,16 @@ import {
   type SessionViewState,
   type TranscriptItem,
   type UserTranscriptItem,
-} from '@morse/protocol';
-import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
-import type { TerminalBackend, TerminalSession } from './terminal.js';
-import { SessionTranscriptStore } from './transcript-store.js';
+} from "@morse/protocol";
+import type { HostCommandHandler, NativeDialogs } from "./native-dialogs.js";
+import type { TerminalBackend, TerminalSession } from "./terminal.js";
+import { SessionTranscriptStore } from "./transcript-store.js";
 import {
   draftSessionViewState,
   noticeMessage,
   toInteractionRequest,
   toSessionViewState,
-} from './view-state.js';
+} from "./view-state.js";
 
 export interface HostSessionServices {
   registry: SessionRegistry;
@@ -54,12 +73,12 @@ export interface ProjectPolicy {
 
 /** Every project the host knows about, which is what the browser host shows. */
 export interface GlobalHostScope {
-  kind: 'global';
+  kind: "global";
 }
 
 /** Only the given roots, which is what the VS Code host shows. */
 export interface WorkspaceHostScope {
-  kind: 'workspace';
+  kind: "workspace";
   roots: string[];
 }
 
@@ -128,7 +147,7 @@ type Guarded<T> = GuardedOk<T> | GuardedFailed;
 const HISTORY_PAGE_SIZE = 50;
 
 /** The title a session without a name shows until the user says something. */
-const UNTITLED_SESSION = 'New session';
+const UNTITLED_SESSION = "New session";
 
 /**
  * The application service both hosts share: it owns the wire conversation for
@@ -289,9 +308,12 @@ export class HostSessionController {
     // by another window) reaches this client without it having to poll the
     // expensive `pi mcp list` itself.
     this.detachMcpWatch = this.options.services.mcpWatch?.subscribe((cwd) => {
-      this.options.emit({ type: 'mcp/changed', payload: { cwd } });
+      this.options.emit({ type: "mcp/changed", payload: { cwd } });
     });
-    if (this.options.autoOpen !== false || this.options.pinnedSessionId !== undefined) {
+    if (
+      this.options.autoOpen !== false ||
+      this.options.pinnedSessionId !== undefined
+    ) {
       // Answer the handshake immediately with a truthful state: the agent is
       // starting. Otherwise the client renders its defaults for the whole spawn.
       this.agentStarting = true;
@@ -304,7 +326,9 @@ export class HostSessionController {
       // `activate` reuses a warm process, or resumes the session by id, so this
       // spawns nothing it does not have to — and the sidebar's own session in
       // front is left exactly where it was until the reader acts in this tab.
-      await this.runSessionChange(() => this.options.services.registry.activate(pinned));
+      await this.runSessionChange(() =>
+        this.options.services.registry.activate(pinned),
+      );
       // Re-read the model catalog so a model added while the panel was away
       // shows up without restarting the host.
       void this.refreshModels();
@@ -323,7 +347,9 @@ export class HostSessionController {
         this.isDraft = true;
         void this.warmDraft();
       } else {
-        await this.runSessionChange(() => this.options.services.registry.activate(existingKey));
+        await this.runSessionChange(() =>
+          this.options.services.registry.activate(existingKey),
+        );
         // A reload keeps the warm session: re-read its model catalog so a model
         // added while the panel was away shows up without restarting the host.
         void this.refreshModels();
@@ -379,28 +405,32 @@ export class HostSessionController {
     // must echo without waiting on a slow model switch, and a list refresh has
     // nothing to order against.
     const mutatesSettings =
-      message.type === 'model/set' ||
-      message.type === 'thinking/set' ||
-      message.type === 'chat/prompt';
+      message.type === "model/set" ||
+      message.type === "thinking/set" ||
+      message.type === "chat/prompt";
     if (!mutatesSettings) {
       await this.dispatchClientMessage(message);
       return;
     }
-    const run = this.clientChain.then(() => this.dispatchClientMessage(message));
+    const run = this.clientChain.then(() =>
+      this.dispatchClientMessage(message),
+    );
     // Keep the chain alive even when this message throws, or one failed send
     // would wedge every later pick.
     this.clientChain = run.catch(() => undefined);
     await run;
   }
 
-  private async dispatchClientMessage(message: ClientToHostMessage): Promise<void> {
+  private async dispatchClientMessage(
+    message: ClientToHostMessage,
+  ): Promise<void> {
     switch (message.type) {
-      case 'client/ready':
+      case "client/ready":
         if (message.payload.protocolVersion !== PROTOCOL_VERSION) {
           // A refused handshake is a banner, not a conversation entry: only the
           // transient error is sent, so no transcript is polluted.
           this.emitWireError(
-            'Frontend and host speak different protocol versions.',
+            "Frontend and host speak different protocol versions.",
             `frontend=${message.payload.protocolVersion} host=${PROTOCOL_VERSION}`,
           );
           return;
@@ -418,7 +448,7 @@ export class HostSessionController {
         this.emitReady();
         void this.publishLists();
         return;
-      case 'chat/prompt':
+      case "chat/prompt":
         await this.prompt(
           message.payload.text,
           message.payload.mode,
@@ -427,33 +457,40 @@ export class HostSessionController {
           message.payload.sessionKey,
         );
         return;
-      case 'chat/edit':
+      case "chat/edit":
         await this.editPrompt(message.payload.itemId, message.payload.text);
         return;
-      case 'chat/fork':
+      case "chat/fork":
         await this.forkPrompt(message.payload.itemId);
         return;
-      case 'chat/abort':
-        await this.guard(() => this.options.services.chat.abort(this.promptTarget()));
+      case "chat/abort":
+        await this.guard(() =>
+          this.options.services.chat.abort(this.promptTarget()),
+        );
         return;
-      case 'session/new':
+      case "session/new":
         // "New session" is an empty draft, not a spawn: no engine session, no
         // index row, no navigator entry. The first prompt opens the actual
         // session (see `prompt`). The optional cwd targets it — the browser
         // nav's "New session here" picks a project this way.
-        await this.enterDraft(message.payload.cwd ? workspaceOf(message.payload.cwd) : undefined);
+        await this.enterDraft(
+          message.payload.cwd ? workspaceOf(message.payload.cwd) : undefined,
+        );
         return;
-      case 'session/activate':
-      case 'session/load':
-        await this.activateSession(message.payload.sessionId, message.payload.cwd);
+      case "session/activate":
+      case "session/load":
+        await this.activateSession(
+          message.payload.sessionId,
+          message.payload.cwd,
+        );
         return;
-      case 'session/close':
+      case "session/close":
         await this.closeSession(message.payload.sessionId);
         return;
-      case 'session/delete':
+      case "session/delete":
         await this.deleteSession(message.payload.sessionId);
         return;
-      case 'session/compact': {
+      case "session/compact": {
         // The key the frontend sends pins the compaction to the conversation its
         // dialog was opened over. Without it (older frontends, the shared panel)
         // the session in front is the target, which is the only sensible default;
@@ -476,73 +513,78 @@ export class HostSessionController {
           this.scheduledCompacts.set(targetKey, message.payload.instructions);
           this.options.emit(
             noticeMessage(
-              'info',
-              'Compaction scheduled — it runs when this conversation finishes.',
+              "info",
+              "Compaction scheduled — it runs when this conversation finishes.",
               Date.now(),
             ),
           );
           return;
         }
-        await this.runCompact(message.payload.instructions, message.payload.sessionKey);
+        await this.runCompact(
+          message.payload.instructions,
+          message.payload.sessionKey,
+        );
         return;
       }
-      case 'history/load':
+      case "history/load":
         await this.loadOlderHistory();
         return;
-      case 'session/list':
+      case "session/list":
         await this.publishSessions(message.payload);
         return;
-      case 'commands/refresh':
+      case "commands/refresh":
         await this.refreshCommands();
         return;
-      case 'models/refresh':
+      case "models/refresh":
         await this.refreshModels();
         return;
-      case 'modes/refresh':
+      case "modes/refresh":
         await this.refreshModes();
         return;
-      case 'engine/set':
+      case "engine/set":
         await this.setEngine(message.payload.kind);
         return;
-      case 'mode/set':
+      case "mode/set":
         await this.setMode(message.payload.mode);
         return;
-      case 'project/list':
+      case "project/list":
         await this.publishProjects();
         return;
-      case 'project/open':
+      case "project/open":
         // Target the draft at that project (browser navigation): still no
         // spawn — the first prompt opens the session there.
         await this.enterDraft(workspaceOf(message.payload.path));
         return;
-      case 'model/set':
+      case "model/set":
         await this.setModel(message.payload.provider, message.payload.id);
         return;
-      case 'thinking/set':
+      case "thinking/set":
         await this.setThinkingLevel(message.payload.level);
         return;
-      case 'interaction/respond':
+      case "interaction/respond":
         await this.respondToInteraction(message.payload);
         return;
-      case 'host/command':
+      case "host/command":
         await this.runHostCommand(
           message.payload.command,
           message.payload.args,
           message.payload.requestId,
         );
         return;
-      case 'terminal/open':
+      case "terminal/open":
         await this.openTerminal(message.payload);
         return;
-      case 'terminal/input':
-        this.terminals.get(message.payload.terminalId)?.write(message.payload.data);
+      case "terminal/input":
+        this.terminals
+          .get(message.payload.terminalId)
+          ?.write(message.payload.data);
         return;
-      case 'terminal/resize':
+      case "terminal/resize":
         this.terminals
           .get(message.payload.terminalId)
           ?.resize(message.payload.cols, message.payload.rows);
         return;
-      case 'terminal/close':
+      case "terminal/close":
         this.closeTerminal(message.payload.terminalId);
         return;
       default:
@@ -568,7 +610,11 @@ export class HostSessionController {
   }): Promise<void> {
     const backend = this.options.terminal;
     if (backend === undefined) {
-      this.emitTerminalExit(payload.terminalId, undefined, 'This host has no terminal.');
+      this.emitTerminalExit(
+        payload.terminalId,
+        undefined,
+        "This host has no terminal.",
+      );
       return;
     }
     // A repeat open on this connection is a *reattach*: a pane that remounted
@@ -588,7 +634,8 @@ export class HostSessionController {
     }
     this.openedTerminals.add(payload.terminalId);
     // Any pending exit for a superseded shell is now stale.
-    const generation = (this.terminalGenerations.get(payload.terminalId) ?? 0) + 1;
+    const generation =
+      (this.terminalGenerations.get(payload.terminalId) ?? 0) + 1;
     this.terminalGenerations.set(payload.terminalId, generation);
 
     const cwd = payload.cwd ?? this.currentState().workspace.cwd;
@@ -601,14 +648,18 @@ export class HostSessionController {
         { cwd, cols, rows },
         {
           output: (data) => {
-            if (this.terminalGenerations.get(payload.terminalId) === generation) {
+            if (
+              this.terminalGenerations.get(payload.terminalId) === generation
+            ) {
               this.emitTerminalOutput(payload.terminalId, data);
             }
           },
           exit: (code, error) => {
             // A shell replaced or closed after this one opened is not the shell
             // the client is looking at; its end is not news.
-            if (this.terminalGenerations.get(payload.terminalId) !== generation) {
+            if (
+              this.terminalGenerations.get(payload.terminalId) !== generation
+            ) {
               return;
             }
             this.terminals.delete(payload.terminalId);
@@ -617,12 +668,19 @@ export class HostSessionController {
         },
       );
     } catch (error: unknown) {
-      this.options.logger.warn('Failed to open a terminal', error);
-      this.emitTerminalExit(payload.terminalId, undefined, describeTerminalError(error));
+      this.options.logger.warn("Failed to open a terminal", error);
+      this.emitTerminalExit(
+        payload.terminalId,
+        undefined,
+        describeTerminalError(error),
+      );
       return;
     }
     // The client may have closed it while `attach` was still awaiting the shell.
-    if (!this.disposed && this.terminalGenerations.get(payload.terminalId) === generation) {
+    if (
+      !this.disposed &&
+      this.terminalGenerations.get(payload.terminalId) === generation
+    ) {
       this.terminals.set(payload.terminalId, session);
       // Catch the viewer up before the shell's next chunk: what it missed while
       // no page was attached is the whole point of a surviving terminal.
@@ -640,7 +698,10 @@ export class HostSessionController {
    * so a late `exit` for the shell being replaced is not reported as news.
    */
   private closeTerminal(terminalId: string): void {
-    this.terminalGenerations.set(terminalId, (this.terminalGenerations.get(terminalId) ?? 0) + 1);
+    this.terminalGenerations.set(
+      terminalId,
+      (this.terminalGenerations.get(terminalId) ?? 0) + 1,
+    );
     const session = this.terminals.get(terminalId);
     this.terminals.delete(terminalId);
     this.openedTerminals.delete(terminalId);
@@ -650,20 +711,32 @@ export class HostSessionController {
 
   private emitTerminalOutput(terminalId: string, data: string): void {
     if (data.length > 0 && !this.disposed) {
-      this.options.emit({ type: 'terminal/output', payload: { terminalId, data } });
+      this.options.emit({
+        type: "terminal/output",
+        payload: { terminalId, data },
+      });
     }
   }
 
-  private emitTerminalExit(terminalId: string, code?: number, error?: string): void {
+  private emitTerminalExit(
+    terminalId: string,
+    code?: number,
+    error?: string,
+  ): void {
     if (!this.disposed) {
-      this.options.emit({ type: 'terminal/exit', payload: { terminalId, code, error } });
+      this.options.emit({
+        type: "terminal/exit",
+        payload: { terminalId, code, error },
+      });
     }
   }
 
   private async openDefaultSession(): Promise<void> {
     const existingKey = this.options.services.registry.activeKeyOf();
     if (existingKey) {
-      await this.runSessionChange(() => this.options.services.registry.activate(existingKey));
+      await this.runSessionChange(() =>
+        this.options.services.registry.activate(existingKey),
+      );
       return;
     }
     await this.runSessionChange(() => this.options.services.registry.open());
@@ -699,7 +772,7 @@ export class HostSessionController {
     if (workspace && !this.canOpen(workspace.cwd)) {
       this.fail(
         `Morse is not allowed to run an agent in ${workspace.cwd}.`,
-        'Add it to MORSE_PROJECTS first.',
+        "Add it to MORSE_PROJECTS first.",
       );
       return;
     }
@@ -708,7 +781,7 @@ export class HostSessionController {
     this.draftWorkspace = workspace;
     this.syncInteraction();
     this.resetViewState();
-    this.options.emit({ type: 'transcript/replace', payload: { items: [] } });
+    this.options.emit({ type: "transcript/replace", payload: { items: [] } });
     this.emitState();
     await this.warmDraft();
   }
@@ -743,7 +816,10 @@ export class HostSessionController {
     const engine = this.draftEngine;
     const model = this.draftModel;
     try {
-      const catalog = await this.options.services.registry.draftDefaults(engine, model);
+      const catalog = await this.options.services.registry.draftDefaults(
+        engine,
+        model,
+      );
       if (!this.draftProbeIsCurrent(ticket, engine, model)) {
         return;
       }
@@ -760,7 +836,7 @@ export class HostSessionController {
       // engine on PATH had no way to know the agent was gone.
       this.agentError = describeError(error);
       this.agentFailure = describeAgentFailure(error, this.options.agentHint);
-      this.options.logger.warn('Could not probe the draft catalog', error);
+      this.options.logger.warn("Could not probe the draft catalog", error);
       this.emitState();
     } finally {
       if (ticket !== undefined) {
@@ -803,8 +879,8 @@ export class HostSessionController {
     if (!this.isDraft || this.activeKey !== undefined) {
       this.options.emit(
         noticeMessage(
-          'warn',
-          'The agent engine can only change before a session starts.',
+          "warn",
+          "The agent engine can only change before a session starts.",
           Date.now(),
         ),
       );
@@ -812,7 +888,11 @@ export class HostSessionController {
     }
     if (!this.options.services.registry.engineKinds().includes(kind)) {
       this.options.emit(
-        noticeMessage('warn', `The ${kind} agent engine is not installed here.`, Date.now()),
+        noticeMessage(
+          "warn",
+          `The ${kind} agent engine is not installed here.`,
+          Date.now(),
+        ),
       );
       return;
     }
@@ -831,7 +911,10 @@ export class HostSessionController {
     await this.warmDraft(ticket);
   }
 
-  private async activateSession(sessionId: string, cwd?: string): Promise<void> {
+  private async activateSession(
+    sessionId: string,
+    cwd?: string,
+  ): Promise<void> {
     const pinned = this.options.pinnedSessionId;
     if (pinned !== undefined && sessionId !== pinned) {
       // A pinned client is bound to its own conversation, so it must not follow
@@ -843,7 +926,10 @@ export class HostSessionController {
     const known = this.summaries.get(sessionId);
     const path = cwd ?? known?.cwd;
     if (path && !this.canOpen(path)) {
-      this.fail(`Morse is not allowed to run an agent in ${path}.`, 'Add it to MORSE_PROJECTS first.');
+      this.fail(
+        `Morse is not allowed to run an agent in ${path}.`,
+        "Add it to MORSE_PROJECTS first.",
+      );
       return;
     }
     // Activating a session ends any draft, and its pending picks belonged to
@@ -882,17 +968,19 @@ export class HostSessionController {
     if (path !== undefined && path.length > 0 && !this.canOpen(path)) {
       this.fail(
         `Morse is not allowed to delete sessions in ${path}.`,
-        'Add it to MORSE_PROJECTS first.',
+        "Add it to MORSE_PROJECTS first.",
       );
       return;
     }
-    const result = await this.guard(() => this.options.services.registry.remove(sessionId));
+    const result = await this.guard(() =>
+      this.options.services.registry.remove(sessionId),
+    );
     if (!result.ok) {
       return;
     }
     this.options.transcripts.clear(sessionId);
     await this.fallBackAfterSessionGone(sessionId);
-    this.options.emit(noticeMessage('info', 'Session deleted.', Date.now()));
+    this.options.emit(noticeMessage("info", "Session deleted.", Date.now()));
   }
 
   /** The panel must stay usable once the session it showed is gone. */
@@ -920,7 +1008,10 @@ export class HostSessionController {
       // was closed or deleted from the sidebar.
       await this.enterDraft();
     } else if (next) {
-      await this.runSessionChange(() => this.options.services.registry.activate(next), next);
+      await this.runSessionChange(
+        () => this.options.services.registry.activate(next),
+        next,
+      );
     } else {
       // Return to the draft the way session/new made it: no replacement
       // session nobody asked for; the next prompt opens one.
@@ -958,7 +1049,7 @@ export class HostSessionController {
       this.agentReady = false;
       this.agentError = describeError(error);
       this.agentFailure = describeAgentFailure(error, this.options.agentHint);
-      this.options.logger.warn('Could not start the Morse agent', error);
+      this.options.logger.warn("Could not start the Morse agent", error);
       this.fail(
         `Could not start the Morse agent: ${this.agentError}`,
         this.options.agentHint,
@@ -1034,9 +1125,15 @@ export class HostSessionController {
     // than claiming "Start of conversation".
     this.loadingOlderHistory = true;
     this.emitState();
-    const result = await this.guard(() => gateway.history({ limit: HISTORY_PAGE_SIZE }));
+    const result = await this.guard(() =>
+      gateway.history({ limit: HISTORY_PAGE_SIZE }),
+    );
     this.loadingOlderHistory = false;
-    if (!result.ok || this.options.transcripts.items(key).length > 0 || this.activeKey !== key) {
+    if (
+      !result.ok ||
+      this.options.transcripts.items(key).length > 0 ||
+      this.activeKey !== key
+    ) {
       this.emitState();
       return;
     }
@@ -1087,16 +1184,16 @@ export class HostSessionController {
   }
 
   private canOpen(path: string): boolean {
-    const scope = this.options.scope ?? { kind: 'global' };
-    if (scope.kind === 'workspace' && !insideRoots(path, scope.roots)) {
+    const scope = this.options.scope ?? { kind: "global" };
+    if (scope.kind === "workspace" && !insideRoots(path, scope.roots)) {
       return false;
     }
     return this.options.policy?.canOpen(path) ?? true;
   }
 
   private withinScope(path: string): boolean {
-    const scope = this.options.scope ?? { kind: 'global' };
-    return scope.kind === 'global' || insideRoots(path, scope.roots);
+    const scope = this.options.scope ?? { kind: "global" };
+    return scope.kind === "global" || insideRoots(path, scope.roots);
   }
 
   private async prompt(
@@ -1159,13 +1256,16 @@ export class HostSessionController {
     }
     if (pendingThinking) {
       await this.guard(() =>
-        this.options.services.chat.setThinkingLevel(pendingThinking, this.promptTarget()),
+        this.options.services.chat.setThinkingLevel(
+          pendingThinking,
+          this.promptTarget(),
+        ),
       );
     }
     const result = await this.guard(() =>
       this.options.services.chat.prompt(
         text,
-        mode ?? 'new',
+        mode ?? "new",
         images,
         pins,
         this.promptTarget(),
@@ -1200,7 +1300,13 @@ export class HostSessionController {
     pins: ChatPin[] | undefined,
   ): Promise<void> {
     const result = await this.guard(() =>
-      this.options.services.chat.prompt(text, mode ?? 'new', images, pins, sessionKey),
+      this.options.services.chat.prompt(
+        text,
+        mode ?? "new",
+        images,
+        pins,
+        sessionKey,
+      ),
     );
     if (!result.ok || !result.value.accepted) {
       return;
@@ -1219,11 +1325,11 @@ export class HostSessionController {
    * along, so an image or pin is not silently dropped by the edit.
    */
   private async editPrompt(itemId: string, text: string): Promise<void> {
-    const target = await this.forkBefore(itemId, 'edit');
+    const target = await this.forkBefore(itemId, "edit");
     if (!target) {
       return;
     }
-    await this.prompt(text, 'new', target.images, target.pins);
+    await this.prompt(text, "new", target.images, target.pins);
   }
 
   /**
@@ -1235,13 +1341,13 @@ export class HostSessionController {
    * retyping it.
    */
   private async forkPrompt(itemId: string): Promise<void> {
-    const target = await this.forkBefore(itemId, 'fork');
+    const target = await this.forkBefore(itemId, "fork");
     if (!target) {
       return;
     }
     // Only a committed fork seeds the composer; a cancelled one leaves it alone.
     this.options.emit({
-      type: 'composer/seed',
+      type: "composer/seed",
       payload: {
         text: target.text,
         ...(target.images ? { images: target.images } : {}),
@@ -1262,15 +1368,19 @@ export class HostSessionController {
    */
   private async forkBefore(
     itemId: string,
-    action: 'edit' | 'fork',
+    action: "edit" | "fork",
   ): Promise<UserTranscriptItem | undefined> {
-    const gerund = action === 'edit' ? 'editing' : 'forking';
-    const past = action === 'edit' ? 'edited' : 'forked';
+    const gerund = action === "edit" ? "editing" : "forking";
+    const past = action === "edit" ? "edited" : "forked";
     if (this.isDraft) {
       // No session exists in a draft, so there is nothing to fork: do not spawn
       // one just to fail the lookup (or re-activate another session).
       this.options.emit(
-        noticeMessage('warn', `Nothing to ${action} yet — this session has no messages.`, Date.now()),
+        noticeMessage(
+          "warn",
+          `Nothing to ${action} yet — this session has no messages.`,
+          Date.now(),
+        ),
       );
       return undefined;
     }
@@ -1283,21 +1393,27 @@ export class HostSessionController {
     const key = this.activeKey;
     const gateway = this.addressedGateway();
     if (key === undefined || !gateway) {
-      this.options.emit(noticeMessage('warn', `No session to ${action}.`, Date.now()));
+      this.options.emit(
+        noticeMessage("warn", `No session to ${action}.`, Date.now()),
+      );
       return undefined;
     }
     const items = this.options.transcripts.items(key);
     const target = items.find((item) => item.id === itemId);
-    if (!target || target.kind !== 'user') {
+    if (!target || target.kind !== "user") {
       this.options.emit(
-        noticeMessage('warn', `That message is no longer available to ${action}.`, Date.now()),
+        noticeMessage(
+          "warn",
+          `That message is no longer available to ${action}.`,
+          Date.now(),
+        ),
       );
       return undefined;
     }
     if (this.options.services.registry.stateOf(key)?.streaming === true) {
       this.options.emit(
         noticeMessage(
-          'warn',
+          "warn",
           `Wait for the agent to finish before ${gerund} a message.`,
           Date.now(),
         ),
@@ -1313,7 +1429,7 @@ export class HostSessionController {
     if (entryId === undefined) {
       this.options.emit(
         noticeMessage(
-          'warn',
+          "warn",
           `This message cannot be ${past} — the agent has no fork point for it.`,
           Date.now(),
         ),
@@ -1321,12 +1437,16 @@ export class HostSessionController {
       return undefined;
     }
 
-    const forked = await this.guard(() => this.options.services.registry.forkActive(entryId));
+    const forked = await this.guard(() =>
+      this.options.services.registry.forkActive(entryId),
+    );
     if (!forked.ok) {
       return undefined;
     }
     if (forked.value.cancelled) {
-      this.options.emit(noticeMessage('warn', 'The fork was cancelled.', Date.now()));
+      this.options.emit(
+        noticeMessage("warn", "The fork was cancelled.", Date.now()),
+      );
       return undefined;
     }
 
@@ -1358,7 +1478,10 @@ export class HostSessionController {
       // re-probed for the model the reader just chose before a session exists —
       // unless that model was probed before, in which case its levels are
       // already known and land in the same frame as the pick.
-      const cached = this.options.services.registry.cachedDraftDefaults(this.draftEngine, picked);
+      const cached = this.options.services.registry.cachedDraftDefaults(
+        this.draftEngine,
+        picked,
+      );
       if (cached) {
         this.draftCatalog = cached;
         this.emitState();
@@ -1370,7 +1493,10 @@ export class HostSessionController {
     }
     const ticket = this.beginThinkingLevelsRefresh();
     await this.guard(() =>
-      this.options.services.chat.setModel({ provider, id, name: id }, this.promptTarget()),
+      this.options.services.chat.setModel(
+        { provider, id, name: id },
+        this.promptTarget(),
+      ),
     );
     this.endThinkingLevelsRefresh(ticket);
   }
@@ -1407,10 +1533,16 @@ export class HostSessionController {
    * model's. The request is dropped when the reader picks again or a session
    * opens while the probe is in flight.
    */
-  private async refreshDraftCatalog(model: ModelRef, ticket: number): Promise<void> {
+  private async refreshDraftCatalog(
+    model: ModelRef,
+    ticket: number,
+  ): Promise<void> {
     const engine = this.draftEngine;
     try {
-      const catalog = await this.options.services.registry.draftDefaults(engine, model);
+      const catalog = await this.options.services.registry.draftDefaults(
+        engine,
+        model,
+      );
       if (
         catalog &&
         this.activeKey === undefined &&
@@ -1421,12 +1553,17 @@ export class HostSessionController {
         this.draftCatalog = catalog;
       }
     } catch (error: unknown) {
-      this.options.logger.warn('Could not probe the draft catalog for the picked model', error);
+      this.options.logger.warn(
+        "Could not probe the draft catalog for the picked model",
+        error,
+      );
     }
     this.endThinkingLevelsRefresh(ticket);
   }
 
-  private async setThinkingLevel(level: SessionViewState['thinkingLevel']): Promise<void> {
+  private async setThinkingLevel(
+    level: SessionViewState["thinkingLevel"],
+  ): Promise<void> {
     if (this.activeKey === undefined) {
       this.draftThinking = level;
       this.emitState();
@@ -1451,7 +1588,7 @@ export class HostSessionController {
       if (!offered.some((option) => option.id === mode)) {
         this.options.emit(
           noticeMessage(
-            'warn',
+            "warn",
             `The selected agent engine does not offer the "${mode}" mode.`,
             Date.now(),
           ),
@@ -1464,14 +1601,16 @@ export class HostSessionController {
     }
     const key = this.viewKey();
     const state =
-      key === undefined ? undefined : this.options.services.registry.stateOf(key);
+      key === undefined
+        ? undefined
+        : this.options.services.registry.stateOf(key);
     if (
       state?.availableModes !== undefined &&
       !state.availableModes.some((option) => option.id === mode)
     ) {
       this.options.emit(
         noticeMessage(
-          'warn',
+          "warn",
           `The selected agent engine does not offer the "${mode}" mode.`,
           Date.now(),
         ),
@@ -1486,15 +1625,22 @@ export class HostSessionController {
     }
   }
 
-  private async respondToInteraction(response: InteractionResponse, owner?: string): Promise<void> {
+  private async respondToInteraction(
+    response: InteractionResponse,
+    owner?: string,
+  ): Promise<void> {
     const sessionKey =
-      owner ?? this.pendingInteractions.get(response.requestId)?.sessionKey ?? this.activeKey;
+      owner ??
+      this.pendingInteractions.get(response.requestId)?.sessionKey ??
+      this.activeKey;
     this.pendingInteractions.delete(response.requestId);
     this.syncInteraction();
     // A session that is no longer hot has no process left to answer; the dialog
     // it was waiting on is already gone with it.
     const gateway =
-      sessionKey === undefined ? undefined : this.options.services.registry.agentFor(sessionKey);
+      sessionKey === undefined
+        ? undefined
+        : this.options.services.registry.agentFor(sessionKey);
     if (!gateway) {
       this.publishActivity();
       return;
@@ -1546,7 +1692,9 @@ export class HostSessionController {
       await this.warmDraft();
       if (
         this.draftMode !== undefined &&
-        !(this.draftCatalog?.availableModes ?? []).some((mode) => mode.id === this.draftMode)
+        !(this.draftCatalog?.availableModes ?? []).some(
+          (mode) => mode.id === this.draftMode,
+        )
       ) {
         this.draftMode = undefined;
         this.emitState();
@@ -1570,25 +1718,39 @@ export class HostSessionController {
     // the registry (and so the whole catalog) lives in this controller, and the
     // result must respect the host's scope. Routing it through every host would
     // duplicate the scope filter in each one.
-    if (command === 'searchSessions') {
-      const query = typeof args?.query === 'string' ? args.query : '';
-      const limit = typeof args?.limit === 'number' ? args.limit : undefined;
+    if (command === "searchSessions") {
+      const query = typeof args?.query === "string" ? args.query : "";
+      const limit = typeof args?.limit === "number" ? args.limit : undefined;
       const sessions = await this.options.services.registry
         .searchSessions(query, limit)
         .catch((error: unknown) => {
-          this.options.logger.warn(`Session search failed: ${describeError(error)}`, error);
+          this.options.logger.warn(
+            `Session search failed: ${describeError(error)}`,
+            error,
+          );
           return [];
         });
-      const scoped = sessions.filter((session) => this.withinScope(session.cwd));
+      const scoped = sessions.filter((session) =>
+        this.withinScope(session.cwd),
+      );
       this.answerHostCommand(requestId, true, { sessions: scoped });
       return;
     }
     const handler = this.options.onHostCommand;
     if (!handler) {
       this.options.emit(
-        noticeMessage('warn', `This host does not support "${command}".`, Date.now()),
+        noticeMessage(
+          "warn",
+          `This host does not support "${command}".`,
+          Date.now(),
+        ),
       );
-      this.answerHostCommand(requestId, false, undefined, `This host does not support "${command}".`);
+      this.answerHostCommand(
+        requestId,
+        false,
+        undefined,
+        `This host does not support "${command}".`,
+      );
       return;
     }
     // A host command answers a surface that asked for a value — the folder a user
@@ -1600,10 +1762,20 @@ export class HostSessionController {
     // stays for the session/agent commands, whose failure *is* the panel's news.
     let value: unknown;
     try {
-      value = await handler(command, args, { cwd: this.currentState().workspace.cwd });
+      value = await handler(command, args, {
+        cwd: this.currentState().workspace.cwd,
+      });
     } catch (error: unknown) {
-      this.options.logger.error(`Morse command failed: ${describeError(error)}`, error);
-      this.answerHostCommand(requestId, false, undefined, `"${command}" failed`);
+      this.options.logger.error(
+        `Morse command failed: ${describeError(error)}`,
+        error,
+      );
+      this.answerHostCommand(
+        requestId,
+        false,
+        undefined,
+        `"${command}" failed`,
+      );
       return;
     }
     this.answerHostCommand(requestId, true, value);
@@ -1619,21 +1791,30 @@ export class HostSessionController {
     if (!requestId) {
       return;
     }
-    this.options.emit({ type: 'host/command/result', payload: { requestId, ok, data, error } });
+    this.options.emit({
+      type: "host/command/result",
+      payload: { requestId, ok, data, error },
+    });
   }
 
-  private async onTaggedEvent(sessionKey: string, event: AgentEvent): Promise<void> {
+  private async onTaggedEvent(
+    sessionKey: string,
+    event: AgentEvent,
+  ): Promise<void> {
     // A scheduled compaction waits for exactly this moment — the run and its
     // queued follow-ups settling — so it is checked before the split below: a
     // background conversation schedules (and settles) the same way as one in
     // front. It never blocks this dispatch: a compaction is a model call.
-    if (event.type === 'agent/run-end' && this.scheduledCompacts.has(sessionKey)) {
+    if (
+      event.type === "agent/run-end" &&
+      this.scheduledCompacts.has(sessionKey)
+    ) {
       void this.runScheduledCompact(sessionKey);
     }
     // A dialog can arrive in any live session, not only the one in front. It is
     // tracked per session either way; only the active session's owns this
     // client's single dialog slot (see `syncInteraction`).
-    if (event.type === 'agent/interaction') {
+    if (event.type === "agent/interaction") {
       await this.handleInteraction(sessionKey, event.request);
       return;
     }
@@ -1641,9 +1822,9 @@ export class HostSessionController {
       // Keep inactive sessions' transcripts warm without streaming them, and
       // still report their activity: that is what makes several sessions show
       // as working at once in the navigator.
-      if (event.type !== 'agent/ready' && event.type !== 'agent/state') {
+      if (event.type !== "agent/ready" && event.type !== "agent/state") {
         this.options.transcripts.apply(sessionKey, event);
-        if (event.type === 'agent/run-end') {
+        if (event.type === "agent/run-end") {
           void this.publishSessions();
         }
       } else {
@@ -1653,15 +1834,15 @@ export class HostSessionController {
     }
 
     switch (event.type) {
-      case 'agent/ready':
+      case "agent/ready":
         this.agentReady = true;
         this.clearAgentFailure();
         this.emitState();
         return;
-      case 'agent/state':
+      case "agent/state":
         this.emitState();
         return;
-      case 'agent/run-end':
+      case "agent/run-end":
         this.options.transcripts.apply(sessionKey, event);
         // An engine persists and names a session at its first user message (pi
         // writes the session file then, and the catalog derives the title from
@@ -1669,7 +1850,7 @@ export class HostSessionController {
         // "New session" in the navigator.
         void this.publishSessions();
         return;
-      case 'agent/fatal':
+      case "agent/fatal":
         this.agentReady = false;
         this.agentError = event.message;
         // A process that died carries no code the frontend could act on, but the
@@ -1700,16 +1881,24 @@ export class HostSessionController {
    * `requestedKey` is the conversation the ask was pinned to; without it the
    * session in front is the target.
    */
-  private async runCompact(instructions?: string, requestedKey?: string): Promise<void> {
+  private async runCompact(
+    instructions?: string,
+    requestedKey?: string,
+  ): Promise<void> {
     const targetKey =
-      requestedKey ?? this.promptTarget() ?? this.options.services.registry.activeKeyOf();
+      requestedKey ??
+      this.promptTarget() ??
+      this.options.services.registry.activeKeyOf();
     if (targetKey !== undefined) {
       this.compacting.add(targetKey);
     }
     this.emitState();
     try {
       await this.guard(() =>
-        this.options.services.chat.compact(instructions, requestedKey ?? this.promptTarget()),
+        this.options.services.chat.compact(
+          instructions,
+          requestedKey ?? this.promptTarget(),
+        ),
       );
     } finally {
       if (targetKey !== undefined) {
@@ -1730,7 +1919,9 @@ export class HostSessionController {
     if (!this.scheduledCompacts.has(sessionKey)) {
       return;
     }
-    if (this.options.services.registry.stateOf(sessionKey)?.streaming === true) {
+    if (
+      this.options.services.registry.stateOf(sessionKey)?.streaming === true
+    ) {
       return;
     }
     const instructions = this.scheduledCompacts.get(sessionKey);
@@ -1746,7 +1937,7 @@ export class HostSessionController {
     // A form is multi-field: a QuickPick/InputBox cannot render it, so it always
     // goes to the frontend, even in a host that answers every other kind
     // natively. Those other kinds keep their native path below.
-    if (!dialogs || request.kind === 'form') {
+    if (!dialogs || request.kind === "form") {
       this.pendingInteractions.set(request.requestId, { sessionKey, request });
       this.syncInteraction();
       this.publishActivity();
@@ -1759,7 +1950,9 @@ export class HostSessionController {
   }
 
   /** The pending dialog the active session owns, if any. */
-  private pendingFor(sessionKey: string | undefined): AgentInteractionRequest | undefined {
+  private pendingFor(
+    sessionKey: string | undefined,
+  ): AgentInteractionRequest | undefined {
     if (sessionKey === undefined) {
       return undefined;
     }
@@ -1780,15 +1973,21 @@ export class HostSessionController {
   private syncInteraction(): void {
     const next = this.pendingFor(this.activeKey);
     const nextId = next?.requestId;
-    if (this.shownInteractionId !== undefined && this.shownInteractionId !== nextId) {
+    if (
+      this.shownInteractionId !== undefined &&
+      this.shownInteractionId !== nextId
+    ) {
       this.options.emit({
-        type: 'interaction/dismiss',
+        type: "interaction/dismiss",
         payload: { requestId: this.shownInteractionId },
       });
       this.shownInteractionId = undefined;
     }
     if (next && this.shownInteractionId !== nextId) {
-      this.options.emit({ type: 'interaction/request', payload: toInteractionRequest(next) });
+      this.options.emit({
+        type: "interaction/request",
+        payload: toInteractionRequest(next),
+      });
       this.shownInteractionId = nextId;
     }
   }
@@ -1798,27 +1997,30 @@ export class HostSessionController {
     request: AgentInteractionRequest,
   ): Promise<AgentInteractionResponse> {
     switch (request.kind) {
-      case 'select': {
+      case "select": {
         const value = await dialogs.select(request);
         return value === undefined
           ? { requestId: request.requestId, cancelled: true }
           : { requestId: request.requestId, value };
       }
-      case 'confirm':
-        return { requestId: request.requestId, confirmed: await dialogs.confirm(request) };
-      case 'input': {
+      case "confirm":
+        return {
+          requestId: request.requestId,
+          confirmed: await dialogs.confirm(request),
+        };
+      case "input": {
         const value = await dialogs.input(request);
         return value === undefined
           ? { requestId: request.requestId, cancelled: true }
           : { requestId: request.requestId, value };
       }
-      case 'editor': {
+      case "editor": {
         const value = await dialogs.editor(request);
         return value === undefined
           ? { requestId: request.requestId, cancelled: true }
           : { requestId: request.requestId, value };
       }
-      case 'form':
+      case "form":
         // Unreachable: a form is queued for the frontend above. A native-dialog
         // host that somehow gets here cancels rather than guessing an answer.
         return { requestId: request.requestId, cancelled: true };
@@ -1837,12 +2039,18 @@ export class HostSessionController {
    * just built instead of making the registry read the catalog again. That also
    * lets a brand-new project show up before pi has persisted its first session.
    */
-  private async publishProjects(sessions?: readonly SessionSummary[]): Promise<void> {
-    const result = await this.guard(() => this.options.services.registry.listProjects(sessions));
+  private async publishProjects(
+    sessions?: readonly SessionSummary[],
+  ): Promise<void> {
+    const result = await this.guard(() =>
+      this.options.services.registry.listProjects(sessions),
+    );
     if (result.ok) {
       // A workspace-scoped host only ever shows the folders it has open.
-      const projects = result.value.filter((project) => this.withinScope(project.path));
-      this.options.emit({ type: 'project/list', payload: { projects } });
+      const projects = result.value.filter((project) =>
+        this.withinScope(project.path),
+      );
+      this.options.emit({ type: "project/list", payload: { projects } });
     }
   }
 
@@ -1856,9 +2064,13 @@ export class HostSessionController {
       await this.publishSessionPage(request.cwd);
       return;
     }
-    const result = await this.guard(() => this.options.services.registry.listSessions());
+    const result = await this.guard(() =>
+      this.options.services.registry.listSessions(),
+    );
     if (result.ok) {
-      const sessions = result.value.filter((session) => this.withinScope(session.cwd));
+      const sessions = result.value.filter((session) =>
+        this.withinScope(session.cwd),
+      );
       // A full republish must not collapse the pages a reader has already loaded:
       // for each project with more than its first page revealed, send that whole
       // revealed range back. The list is authoritative (deletions prune), so the
@@ -1871,7 +2083,9 @@ export class HostSessionController {
       // is the offset "Load more" must resume from. A project the reader has not
       // paged starts (and stays) at its first-page count.
       const pageCounts = new Map<string, number>();
-      for (const session of result.value.filter((session) => this.withinScope(session.cwd))) {
+      for (const session of result.value.filter((session) =>
+        this.withinScope(session.cwd),
+      )) {
         pageCounts.set(session.cwd, (pageCounts.get(session.cwd) ?? 0) + 1);
       }
       for (const [cwd, count] of pageCounts) {
@@ -1889,21 +2103,29 @@ export class HostSessionController {
           continue;
         }
         const state = this.options.services.registry.stateOf(key);
-        const cwd = state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
+        const cwd =
+          state?.workspace.cwd ??
+          this.options.services.registry.defaultWorkspace.cwd;
         if (!this.withinScope(cwd)) {
           continue;
         }
         sessions.push({
           id: key,
-          title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
+          title:
+            state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
           cwd,
           updatedAt: Date.now(),
           messageCount: 0,
         });
       }
-      this.summaries = new Map(sessions.map((session) => [session.id, session]));
+      this.summaries = new Map(
+        sessions.map((session) => [session.id, session]),
+      );
       const hasMoreByProject = await this.projectHasMore(sessions);
-      this.options.emit({ type: 'session/list', payload: { sessions, hasMoreByProject } });
+      this.options.emit({
+        type: "session/list",
+        payload: { sessions, hasMoreByProject },
+      });
       // A session change is a project change (cwd, count, last-used), and the
       // navigator builds its groups from `project/list`. Without this the group
       // for a new project — and every session inside a project missing from the
@@ -1932,10 +2154,18 @@ export class HostSessionController {
         continue;
       }
       const result = await this.guard(() =>
-        this.options.services.registry.listSessionPage({ cwd, offset: have, limit: revealed - have }),
+        this.options.services.registry.listSessionPage({
+          cwd,
+          offset: have,
+          limit: revealed - have,
+        }),
       );
       if (result.ok) {
-        extra.push(result.value.sessions.filter((session) => this.withinScope(session.cwd)));
+        extra.push(
+          result.value.sessions.filter((session) =>
+            this.withinScope(session.cwd),
+          ),
+        );
       }
     }
     return extra;
@@ -1948,7 +2178,10 @@ export class HostSessionController {
    */
   private async publishSessionPage(cwd: string): Promise<void> {
     if (!this.withinScope(cwd)) {
-      this.options.emit({ type: 'session/list', payload: { sessions: [], hasMore: false, cwd } });
+      this.options.emit({
+        type: "session/list",
+        payload: { sessions: [], hasMore: false, cwd },
+      });
       return;
     }
     const offset = this.sessionOffsets.get(cwd) ?? 0;
@@ -1958,7 +2191,9 @@ export class HostSessionController {
     if (!result.ok) {
       return;
     }
-    const sessions = result.value.sessions.filter((session) => this.withinScope(session.cwd));
+    const sessions = result.value.sessions.filter((session) =>
+      this.withinScope(session.cwd),
+    );
     this.sessionOffsets.set(cwd, offset + sessions.length);
     const known = new Set(sessions.map((session) => session.id));
     // A hot session is only added on the first page; a later page must not repeat
@@ -1969,13 +2204,16 @@ export class HostSessionController {
           continue;
         }
         const state = this.options.services.registry.stateOf(key);
-        const sessionCwd = state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
+        const sessionCwd =
+          state?.workspace.cwd ??
+          this.options.services.registry.defaultWorkspace.cwd;
         if (sessionCwd !== cwd) {
           continue;
         }
         sessions.push({
           id: key,
-          title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
+          title:
+            state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
           cwd: sessionCwd,
           updatedAt: Date.now(),
           messageCount: 0,
@@ -1986,7 +2224,7 @@ export class HostSessionController {
       this.summaries.set(session.id, session);
     }
     this.options.emit({
-      type: 'session/list',
+      type: "session/list",
       payload: { sessions, hasMore: result.value.hasMore, cwd },
     });
   }
@@ -2023,10 +2261,10 @@ export class HostSessionController {
    */
   private derivedTitle(key: string): string | undefined {
     for (const item of this.options.transcripts.items(key)) {
-      if (item.kind !== 'user' || item.text.trim().length === 0) {
+      if (item.kind !== "user" || item.text.trim().length === 0) {
         continue;
       }
-      const single = item.text.replace(/\s+/g, ' ').trim();
+      const single = item.text.replace(/\s+/g, " ").trim();
       return single.length > 72 ? `${single.slice(0, 72)}…` : single;
     }
     return undefined;
@@ -2035,11 +2273,15 @@ export class HostSessionController {
   private emitReady(): void {
     this.hostReadyEmitted = true;
     this.options.emit({
-      type: 'transcript/replace',
-      payload: { items: this.activeKey ? this.options.transcripts.items(this.activeKey) : [] },
+      type: "transcript/replace",
+      payload: {
+        items: this.activeKey
+          ? this.options.transcripts.items(this.activeKey)
+          : [],
+      },
     });
     this.options.emit({
-      type: 'host/ready',
+      type: "host/ready",
       payload: {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: this.options.capabilities,
@@ -2052,13 +2294,13 @@ export class HostSessionController {
 
   private emitTranscript(key: string): void {
     this.options.emit({
-      type: 'transcript/replace',
+      type: "transcript/replace",
       payload: { items: this.options.transcripts.items(key) },
     });
   }
 
   private emitState(): void {
-    this.options.emit({ type: 'session/state', payload: this.currentState() });
+    this.options.emit({ type: "session/state", payload: this.currentState() });
     this.publishActivity();
   }
 
@@ -2081,10 +2323,12 @@ export class HostSessionController {
           agentReady: isActive ? this.agentReady : state !== undefined,
           agentStarting: isActive ? this.agentStarting : false,
           needsInput,
-          ...(isActive && this.agentError !== undefined ? { agentError: this.agentError } : {}),
+          ...(isActive && this.agentError !== undefined
+            ? { agentError: this.agentError }
+            : {}),
         };
       });
-    this.options.emit({ type: 'session/activity', payload: { sessions } });
+    this.options.emit({ type: "session/activity", payload: { sessions } });
   }
 
   /**
@@ -2114,16 +2358,19 @@ export class HostSessionController {
       loadingEngine: this.loadingEngine,
     };
     const key = this.viewKey();
-    const state = key === undefined
-      ? undefined
-      : this.options.services.registry.stateOf(key);
+    const state =
+      key === undefined
+        ? undefined
+        : this.options.services.registry.stateOf(key);
     if (state) {
       // The engine comes from the live gateway, never from the draft's choice:
       // a session keeps the engine it was created in.
       const view = toSessionViewState(
         state,
         meta,
-        key === undefined ? undefined : this.options.services.registry.engineOf(key),
+        key === undefined
+          ? undefined
+          : this.options.services.registry.engineOf(key),
       );
       // pi names a session only when it emits `session_name`, so a *resumed*
       // session arrives without one — and the panel then falls back to the
@@ -2148,11 +2395,15 @@ export class HostSessionController {
       this.draftWorkspace ?? this.options.services.registry.defaultWorkspace,
       meta,
       {
-        ...(this.draftCatalog === undefined ? {} : { catalog: this.draftCatalog }),
+        ...(this.draftCatalog === undefined
+          ? {}
+          : { catalog: this.draftCatalog }),
         ...(this.draftEngine === undefined ? {} : { engine: this.draftEngine }),
         ...(this.draftMode === undefined ? {} : { mode: this.draftMode }),
         ...(this.draftModel === undefined ? {} : { model: this.draftModel }),
-        ...(this.draftThinking === undefined ? {} : { thinking: this.draftThinking }),
+        ...(this.draftThinking === undefined
+          ? {}
+          : { thinking: this.draftThinking }),
       },
     );
     // Before any session key exists this is the initial handshake, which is a
@@ -2174,14 +2425,27 @@ export class HostSessionController {
     // Reload button then wiped the panel for an error that never touched the
     // connection. A spawn failure additionally sets `agentError`, which shows
     // the banner that actually fits.
-    this.options.emit(noticeMessage('error', detail ? `${message}\n${detail}` : message, Date.now()));
+    this.options.emit(
+      noticeMessage(
+        "error",
+        detail ? `${message}\n${detail}` : message,
+        Date.now(),
+      ),
+    );
   }
 
   /** Transient error for the client (banner), never a transcript item. */
   private emitWireError(message: string, detail?: string): void {
-    this.options.emit({ type: 'error', payload: { message, detail, at: Date.now() } });
+    this.options.emit({
+      type: "error",
+      payload: { message, detail, at: Date.now() },
+    });
     this.options.emit(
-      noticeMessage('error', detail ? `${message}\n${detail}` : message, Date.now()),
+      noticeMessage(
+        "error",
+        detail ? `${message}\n${detail}` : message,
+        Date.now(),
+      ),
     );
   }
 
@@ -2203,17 +2467,26 @@ function workspaceOf(path: string): WorkspaceRef {
 }
 
 function insideRoots(path: string, roots: string[]): boolean {
-  return roots.some((root) => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`));
+  return roots.some(
+    (root) =>
+      path === root ||
+      path.startsWith(`${root}/`) ||
+      path.startsWith(`${root}\\`),
+  );
 }
 
 /** Domain history -> transcript items (presentation mapping stays in this layer). */
-function historyItems(key: string, entries: AgentHistoryEntry[], page: number): TranscriptItem[] {
+function historyItems(
+  key: string,
+  entries: AgentHistoryEntry[],
+  page: number,
+): TranscriptItem[] {
   return entries.map((entry, index): TranscriptItem => {
     const id = `${key}#history-${page}-${index}`;
     const at = entry.at ?? 0;
-    if (entry.role === 'user') {
+    if (entry.role === "user") {
       return {
-        kind: 'user',
+        kind: "user",
         id,
         at,
         text: entry.text,
@@ -2221,9 +2494,9 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
         ...(entry.pins ? { pins: entry.pins } : {}),
       };
     }
-    if (entry.role === 'tool') {
+    if (entry.role === "tool") {
       return {
-        kind: 'tool',
+        kind: "tool",
         id,
         at,
         name: entry.name,
@@ -2232,26 +2505,31 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
         input: entry.input,
         output: entry.output,
         ...(entry.details !== undefined ? { details: entry.details } : {}),
+        ...(entry.childSession !== undefined
+          ? { child: entry.childSession }
+          : {}),
       };
     }
-    if (entry.role === 'compaction') {
+    if (entry.role === "compaction") {
       // A marker row, not a message: the transcript keeps every folded entry —
       // the divider says where the agent's context was reset, not where history
       // ends ("Start of conversation" belongs to the real beginning again).
       return {
-        kind: 'compaction',
+        kind: "compaction",
         id,
         at,
         summary: entry.summary,
-        ...(entry.tokensBefore !== undefined ? { tokensBefore: entry.tokensBefore } : {}),
+        ...(entry.tokensBefore !== undefined
+          ? { tokensBefore: entry.tokensBefore }
+          : {}),
       };
     }
     return {
-      kind: 'assistant',
+      kind: "assistant",
       id,
       at,
       text: entry.text,
-      thinking: entry.thinking ?? '',
+      thinking: entry.thinking ?? "",
       streaming: false,
       model: entry.model,
     };
@@ -2273,7 +2551,8 @@ function entryIdForEdit(
 ): string | undefined {
   const forkable = items.filter(
     (item): item is UserTranscriptItem =>
-      item.kind === 'user' && (item.text.trim().length > 0 || (item.pins?.length ?? 0) > 0),
+      item.kind === "user" &&
+      (item.text.trim().length > 0 || (item.pins?.length ?? 0) > 0),
   );
   const index = forkable.findIndex((item) => item.id === itemId);
   if (index === -1) {
@@ -2287,7 +2566,7 @@ function describeError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return typeof error === 'string' ? error : JSON.stringify(error);
+  return typeof error === "string" ? error : JSON.stringify(error);
 }
 
 /** Terminal geometry the wire named: a positive integer, or the default. */
@@ -2313,7 +2592,8 @@ function describeAgentFailure(
   hint: string | undefined,
 ): AgentFailure | undefined {
   const code = agentErrorCode(error);
-  const install = error instanceof AgentUnavailableError ? error.remedy?.install : undefined;
+  const install =
+    error instanceof AgentUnavailableError ? error.remedy?.install : undefined;
   const failure: AgentFailure = {
     ...(code ? { code } : {}),
     ...(install ? { install } : {}),
@@ -2327,7 +2607,7 @@ function agentErrorCode(error: unknown): AgentErrorCode | undefined {
     return undefined;
   }
   // `MorseError.code` is a plain string; only the two the UI can help with pass.
-  return error.code === 'agent-unavailable' || error.code === 'agent-protocol'
+  return error.code === "agent-unavailable" || error.code === "agent-protocol"
     ? error.code
     : undefined;
 }

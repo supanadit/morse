@@ -75,6 +75,28 @@ export class MorseService {
    */
   readonly hostEpoch = computed(() => this.view().hostEpoch);
   readonly sessions = computed(() => this.view().sessions);
+  /**
+   * The catalog row of the session in front, when the list has it. A freshly
+   * spawned subagent can be missing until the next `session/list` — the shell
+   * re-asks when it opens one, so the flag below settles a beat later.
+   */
+  readonly activeSessionSummary = computed(() => {
+    const id = this.state().sessionId;
+    return id === undefined ? undefined : this.sessions().find((session) => session.id === id);
+  });
+  /**
+   * The session in front was spawned as a subagent: it is watched read-only —
+   * no composer, no draft. A fork child never sets this, so a branched
+   * conversation stays a normal session.
+   */
+  readonly activeIsSubagent = computed(() => this.activeSessionSummary()?.subagent === true);
+  /** The session the one in front was spawned from (subagent) or forked from. */
+  readonly parentOfActive = computed(() => {
+    const parentId = this.activeSessionSummary()?.parentId;
+    return parentId === undefined
+      ? undefined
+      : this.sessions().find((session) => session.id === parentId);
+  });
   /** Whether `session/list` has arrived at least once; see `SessionView.sessionsLoaded`. */
   readonly sessionsLoaded = computed(() => this.view().sessionsLoaded);
   /** Per-project flag that the host holds sessions past the first page. */

@@ -1,5 +1,5 @@
-import type { AgentGatewayFactory, AgentHistoryPage } from './ports.js';
-import type { WorkspaceRef } from './domain/index.js';
+import type { AgentGatewayFactory, AgentHistoryPage } from "./ports.js";
+import type { WorkspaceRef } from "./domain/index.js";
 
 /**
  * What a harness knows about one of its own sessions, in its own terms.
@@ -30,6 +30,13 @@ export interface AgentSessionInfo {
   messageCount: number;
   /** The harness's own id for the session this one was forked from, when it records one. */
   parentSessionId?: string;
+  /**
+   * True when the harness spawned this session as a subagent — a delegation
+   * child its parent's tool call created and steers itself. A subagent is
+   * watched, not prompted: a host renders its transcript read-only. A plain
+   * fork stays a normal session (`parentSessionId` alone does not make one).
+   */
+  subagent?: boolean;
   /**
    * An opaque marker for "this session has not changed since the last report".
    * Comparing it lets a caller skip reading a huge transcript. Typically
@@ -73,7 +80,7 @@ export abstract class SessionEngine {
 
   /** Whether this engine has a `scan()` at all, so a caller has something to merge. */
   get hasScan(): boolean {
-    return typeof this.scan === 'function';
+    return typeof this.scan === "function";
   }
 
   /**

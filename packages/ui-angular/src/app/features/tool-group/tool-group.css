@@ -379,3 +379,24 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/*
+ * The link to a spawned session (a subagent run). It reads as a chip, not as
+ * part of the row's title, and clicking it must not fold the step open — the
+ * template stops the propagation; the pointer cursor here promises navigation.
+ */
+.child-link {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--morse-accent) 55%, transparent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
+  cursor: pointer;
+}
+
+.child-link:hover {
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+}

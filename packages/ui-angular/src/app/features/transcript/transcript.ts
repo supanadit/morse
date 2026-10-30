@@ -1,5 +1,22 @@
-import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
-import type { AssistantTranscriptItem, ChatPin, PromptImage, UserTranscriptItem } from '@morse/protocol';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  ElementRef,
+  HostListener,
+  inject,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import type {
+  AssistantTranscriptItem,
+  ChatPin,
+  ChildSessionRef,
+  PromptImage,
+  UserTranscriptItem,
+} from '@morse/protocol';
 import {
   activeProcessKey,
   groupTranscriptItems,
@@ -45,6 +62,11 @@ function previewPrompt(text: string): string {
 })
 export class ChatTranscript {
   private readonly morse = inject(MorseService);
+  /**
+   * A tool row linked to a session it spawned (a subagent run): handed to the
+   * shell, which swaps the panel to the child's transcript.
+   */
+  readonly openChild = output<ChildSessionRef>();
   private readonly animation = inject(AnimationService);
   private readonly handoff = inject(BootHandoff);
   private readonly scrollHost = viewChild.required<ElementRef<HTMLElement>>('scroll');
@@ -111,7 +133,7 @@ export class ChatTranscript {
   /** True while the host is fetching the previous history page. */
   protected readonly loadingOlderHistory = computed(() => this.morse.loadingOlderHistory());
   /** Guards against recomputing the scroll spy on every scroll event. */
-  private activePending = false;  /** Distance from the bottom, kept so a history prepend does not move the view. */
+  private activePending = false; /** Distance from the bottom, kept so a history prepend does not move the view. */
   private bottomDistance = 0;
   /** False when the transcript had no scrollbar, so there is nothing to anchor. */
   private anchorScroll = false;
@@ -513,7 +535,10 @@ export class ChatTranscript {
       return item.text;
     }
     const mentions = pins
-      .map((pin) => `${pin.path}${pin.startLine !== undefined ? `:${pin.startLine}-${pin.endLine ?? pin.startLine}` : ''}`)
+      .map(
+        (pin) =>
+          `${pin.path}${pin.startLine !== undefined ? `:${pin.startLine}-${pin.endLine ?? pin.startLine}` : ''}`,
+      )
       .map((token) => `@${token}`)
       .join('\n');
     return item.text.trim().length > 0 ? `${item.text}\n\n${mentions}` : mentions;

@@ -265,7 +265,19 @@
              says so and offers the one action that changes it. -->
         <morse-empty-session [hasTabs]="hasSessionTabs()" (create)="newSession()" />
       } @else {
-        <morse-chat-transcript />
+        @if (activeIsSubagent()) {
+          <!-- A spawned session watched from its tool row: read-only. The dock
+               (composer, tasks, pi's question) belongs to a conversation the
+               reader steers — a subagent's parent does that — so none of it
+               mounts here, and the bar offers the way back. -->
+          <div class="subagent-bar" role="status">
+            <button type="button" class="back" (click)="backToParent()">
+              ← {{ activeParent()?.title ?? 'back to parent' }}
+            </button>
+            <span class="watching">watching subagent</span>
+          </div>
+        }
+        <morse-chat-transcript (openChild)="openSubagent($event)" />
         <!--
              The composer floats over the conversation, not under it: as a solid
              row it took a slab of the column's height, which on a narrow window is
@@ -273,16 +285,18 @@
              composer — the session's tasks and pi's question — rides in the same
              dock, so they belong to the slab instead of shrinking the transcript.
         -->
-        <div class="dock" #dock>
-          <!-- The session's todo list, docked just above the composer: pi's TUI
-               shows a todo widget there, and RPC cannot carry it (the extension
-               registers a component factory, which RPC mode drops). Rebuilt from
-               the transcript's task-shaped tool results instead. Self-hiding: with
-               no open work left it renders nothing. -->
-          <morse-task-overlay />
-          <morse-interaction-panel />
-          <morse-chat-composer />
-        </div>
+        @if (!activeIsSubagent()) {
+          <div class="dock" #dock>
+            <!-- The session's todo list, docked just above the composer: pi's TUI
+                 shows a todo widget there, and RPC cannot carry it (the extension
+                 registers a component factory, which RPC mode drops). Rebuilt from
+                 the transcript's task-shaped tool results instead. Self-hiding: with
+                 no open work left it renders nothing. -->
+            <morse-task-overlay />
+            <morse-interaction-panel />
+            <morse-chat-composer />
+          </div>
+        }
       }
     }
 

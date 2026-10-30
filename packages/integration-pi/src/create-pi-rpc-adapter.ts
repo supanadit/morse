@@ -2,14 +2,32 @@ import {
   SessionEngine,
   type AgentGatewayFactory,
   type AgentSessionInfo,
-} from '@morse/agent';
-import type { AgentExtras, AgentIntegration, MorseLogger, SessionCatalog } from '@morse/system';
-import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
-import { PiMcp, type McpConfigScope, type McpServerInput } from './pi-mcp.js';
-import { PiPrompts, type PromptScope, type PromptTemplateInput } from './pi-prompts.js';
-import { McpInspector } from './internal/mcp-client.js';
-import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
-import { resolvePi, resolvePiCli, readPiVersion, type PiCliSpawn, type PiSpawn } from './internal/resolve-pi.js';
+} from "@morse/agent";
+import type {
+  AgentExtras,
+  AgentIntegration,
+  MorseLogger,
+  SessionCatalog,
+} from "@morse/system";
+import {
+  PiRpcAgentFactory,
+  type PiRpcAgentFactoryOptions,
+} from "./pi-rpc-agent-factory.js";
+import { PiMcp, type McpConfigScope, type McpServerInput } from "./pi-mcp.js";
+import {
+  PiPrompts,
+  type PromptScope,
+  type PromptTemplateInput,
+} from "./pi-prompts.js";
+import { McpInspector } from "./internal/mcp-client.js";
+import { PiRpcSessionCatalog } from "./pi-rpc-session-catalog.js";
+import {
+  resolvePi,
+  resolvePiCli,
+  readPiVersion,
+  type PiCliSpawn,
+  type PiSpawn,
+} from "./internal/resolve-pi.js";
 
 export interface PiRpcAdapterConfig extends PiRpcAgentFactoryOptions {
   sessionDir?: string;
@@ -53,7 +71,10 @@ export interface PiRpcAdapter extends AgentIntegration {
  * Wires the pi RPC adapter. Both hosts (VS Code extension and NestJS server)
  * call this and receive the same ports — only the delivery differs.
  */
-export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogger): PiRpcAdapter {
+export function createPiRpcAdapter(
+  config: PiRpcAdapterConfig,
+  logger: MorseLogger,
+): PiRpcAdapter {
   return new PiRpcEngine(config, logger);
 }
 
@@ -65,8 +86,11 @@ export function createPiRpcAdapter(config: PiRpcAdapterConfig, logger: MorseLogg
  * create, so pi is the engine that makes a session started with the `pi` CLI in a
  * terminal appear in the sidebar.
  */
-class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegration {
-  readonly kind = 'pi';
+class PiRpcEngine
+  extends SessionEngine
+  implements PiRpcAdapter, AgentIntegration
+{
+  readonly kind = "pi";
   /** This object *is* the engine, so the composite points at itself. */
   readonly engine: SessionEngine = this;
   readonly factory: AgentGatewayFactory;
@@ -115,17 +139,25 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
       mcp: {
         configSignature: (cwd) => this.mcp.configSignature(cwd),
         status: (cwd) => this.mcp.status(cwd),
-        add: (input, cwd) => this.mcp.add(input as unknown as McpServerInput, cwd),
+        add: (input, cwd) =>
+          this.mcp.add(input as unknown as McpServerInput, cwd),
         remove: (name, cwd, scope) =>
           this.mcp.remove(name, cwd, scope as McpConfigScope | undefined),
         setEnabled: (name, enabled, cwd, scope) =>
-          this.mcp.setEnabled(name, enabled, cwd, scope as McpConfigScope | undefined),
+          this.mcp.setEnabled(
+            name,
+            enabled,
+            cwd,
+            scope as McpConfigScope | undefined,
+          ),
         trustProject: (cwd) => Promise.resolve(this.mcp.trustProject(cwd)),
       },
       prompts: {
         list: (cwd) => Promise.resolve(this.prompts.list(cwd)),
         save: (input, cwd) =>
-          Promise.resolve(this.prompts.save(input as unknown as PromptTemplateInput, cwd)),
+          Promise.resolve(
+            this.prompts.save(input as unknown as PromptTemplateInput, cwd),
+          ),
         delete: (name, scope, cwd) =>
           Promise.resolve(this.prompts.delete(name, scope as PromptScope, cwd)),
       },
@@ -155,7 +187,10 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
       createdAt: summary.updatedAt,
       updatedAt: summary.updatedAt,
       messageCount: summary.messageCount,
-      ...(summary.parentId === undefined ? {} : { parentSessionId: summary.parentId }),
+      ...(summary.parentId === undefined
+        ? {}
+        : { parentSessionId: summary.parentId }),
+      ...(summary.subagent === undefined ? {} : { subagent: summary.subagent }),
       token: `${summary.updatedAt}:${summary.messageCount}`,
     }));
   }

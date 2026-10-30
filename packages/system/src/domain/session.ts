@@ -19,6 +19,13 @@ export interface SessionSummary {
    * Mirrors `SessionSummary` in `@morse/protocol`.
    */
   parentId?: string;
+  /**
+   * True when this session was spawned as a subagent — a delegation child the
+   * parent's tool call created and steers itself: watched read-only, never
+   * resumed with a composer. A plain fork stays a normal session. Mirrors
+   * `SessionSummary` in `@morse/protocol`.
+   */
+  subagent?: boolean;
 }
 
 /** A project is a directory the agent has worked in (one pi session bucket). */

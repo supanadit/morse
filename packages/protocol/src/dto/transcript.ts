@@ -1,5 +1,20 @@
 /** Transcript items: the rows a frontend renders, and what a prompt carries. */
-import type { NoticeLevel, ToolStatus, ToolResultDetails } from './primitives.js';
+import type {
+  NoticeLevel,
+  ToolStatus,
+  ToolResultDetails,
+} from "./primitives.js";
+
+/**
+ * A session a tool call spawned: the engine's own session id (the same id the
+ * session catalog lists) and the agent that ran it, when the engine names one.
+ * Mirrors `@morse/agent`'s `AgentChildSessionRef` by structure — the wire
+ * contract stays dependency-free.
+ */
+export interface ChildSessionRef {
+  sessionId: string;
+  agent?: string;
+}
 
 export interface BaseTranscriptItem {
   id: string;
@@ -59,7 +74,7 @@ export interface ComposerSeed {
 }
 
 export interface UserTranscriptItem extends BaseTranscriptItem {
-  kind: 'user';
+  kind: "user";
   text: string;
   /** Image attachments pinned to this message, rendered as thumbnails. */
   images?: PromptImage[];
@@ -68,7 +83,7 @@ export interface UserTranscriptItem extends BaseTranscriptItem {
 }
 
 export interface AssistantTranscriptItem extends BaseTranscriptItem {
-  kind: 'assistant';
+  kind: "assistant";
   text: string;
   thinking: string;
   streaming: boolean;
@@ -76,7 +91,7 @@ export interface AssistantTranscriptItem extends BaseTranscriptItem {
 }
 
 export interface ToolTranscriptItem extends BaseTranscriptItem {
-  kind: 'tool';
+  kind: "tool";
   name: string;
   title: string;
   status: ToolStatus;
@@ -90,10 +105,18 @@ export interface ToolTranscriptItem extends BaseTranscriptItem {
    */
   details?: ToolResultDetails;
   durationMs?: number;
+  /**
+   * The session this call spawned, when it delegated to one — a subagent run.
+   * Presence is the whole contract: any engine or extension that spawns a
+   * session links it here, and the frontend offers the child's transcript from
+   * this row without knowing the tool's name. Optional: most tools spawn
+   * nothing.
+   */
+  child?: ChildSessionRef;
 }
 
 export interface NoticeTranscriptItem extends BaseTranscriptItem {
-  kind: 'notice';
+  kind: "notice";
   level: NoticeLevel;
   text: string;
 }
@@ -105,7 +128,7 @@ export interface NoticeTranscriptItem extends BaseTranscriptItem {
  * session does not silently shrink to the post-compaction tail.
  */
 export interface CompactionTranscriptItem extends BaseTranscriptItem {
-  kind: 'compaction';
+  kind: "compaction";
   summary?: string;
   /** Approximate tokens that the summary folded away, when the agent reports it. */
   tokensBefore?: number;

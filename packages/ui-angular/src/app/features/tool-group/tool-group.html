@@ -1,10 +1,5 @@
 <div class="group" [class.compact]="compact()">
-  <button
-    type="button"
-    class="summary"
-    [attr.aria-expanded]="isOpen()"
-    (click)="toggle()"
-  >
+  <button type="button" class="summary" [attr.aria-expanded]="isOpen()" (click)="toggle()">
     <span class="state" [class]="state()">
       @if (state() === 'running') {
         <span class="spinner"></span>
@@ -61,6 +56,16 @@
 
               <span class="grow"></span>
 
+              @if (step.item.child; as child) {
+                <button
+                  type="button"
+                  class="child-link"
+                  [title]="'Open the ' + (child.agent ?? 'subagent') + ' session'"
+                  (click)="openChild.emit(child); $event.stopPropagation()"
+                >
+                  {{ child.agent ?? 'subagent' }} ›
+                </button>
+              }
               @if (step.item.status === 'running') {
                 <span class="dots"><i></i><i></i><i></i></span>
               }
@@ -124,108 +129,121 @@
       }
     </ul>
   } @else {
-  <ul #list class="rows">
-    @for (step of steps(); track step.key; let index = $index) {
-      <li [morseEnter]="index" [morseEnterY]="6">
-        @switch (step.kind) {
-          @case ('tool') {
-            <div
-              class="card"
-              [class.running]="step.item.status === 'running'"
-              [class.failed]="step.item.status === 'error'"
-            >
-              <button
-                type="button"
-                class="head"
-                [attr.aria-expanded]="isStepOpen(step.key)"
-                (click)="toggleStep(step.key)"
+    <ul #list class="rows">
+      @for (step of steps(); track step.key; let index = $index) {
+        <li [morseEnter]="index" [morseEnterY]="6">
+          @switch (step.kind) {
+            @case ('tool') {
+              <div
+                class="card"
+                [class.running]="step.item.status === 'running'"
+                [class.failed]="step.item.status === 'error'"
               >
-                <span class="status" [class]="step.item.status">
-                  @if (step.item.status === 'running') {
-                    <span class="spinner"></span>
-                  } @else if (step.item.status === 'error') {
-                    <span class="fail">✗</span>
-                  } @else {
-                    <span class="ok">✓</span>
-                  }
-                </span>
-
-                <span class="glyph" [class]="glyphClass(step.item)">{{ glyph(step.item) }}</span>
-                <span class="chip">{{ step.item.name }}</span>
-                <span class="args" [title]="step.item.title">
-                  <span class="dir">{{ target(step.item).dir }}</span><span class="base">{{ target(step.item).base }}</span>
-                </span>
-
-                @if (diff(step.item); as changes) {
-                  <span class="diff">
-                    @if (changes.added) {
-                      <span class="add">+{{ changes.added }}</span>
-                    }
-                    @if (changes.removed) {
-                      <span class="del">−{{ changes.removed }}</span>
+                <button
+                  type="button"
+                  class="head"
+                  [attr.aria-expanded]="isStepOpen(step.key)"
+                  (click)="toggleStep(step.key)"
+                >
+                  <span class="status" [class]="step.item.status">
+                    @if (step.item.status === 'running') {
+                      <span class="spinner"></span>
+                    } @else if (step.item.status === 'error') {
+                      <span class="fail">✗</span>
+                    } @else {
+                      <span class="ok">✓</span>
                     }
                   </span>
-                }
 
-                <span class="grow"></span>
+                  <span class="glyph" [class]="glyphClass(step.item)">{{ glyph(step.item) }}</span>
+                  <span class="chip">{{ step.item.name }}</span>
+                  <span class="args" [title]="step.item.title">
+                    <span class="dir">{{ target(step.item).dir }}</span
+                    ><span class="base">{{ target(step.item).base }}</span>
+                  </span>
 
-                @if (step.item.status === 'running') {
-                  <span class="dots"><i></i><i></i><i></i></span>
-                }
-
-                @if (elapsed(step.item); as time) {
-                  <span class="meta">{{ time }}</span>
-                }
-                <span class="chev" [class.open]="isStepOpen(step.key)">›</span>
-              </button>
-
-              @if (isStepOpen(step.key)) {
-                <div class="body" [attr.data-body]="step.key">
-                  @if (taskBoard(step.item); as board) {
-                    <morse-task-board [tasks]="board" />
-                  } @else {
-                    @if (step.item.input) {
-                      <span class="label-small">input</span>
-                      <pre>{{ step.item.input }}</pre>
-                    }
-                    @if (step.item.output) {
-                      <span class="label-small">output</span>
-                      <pre>{{ step.item.output }}</pre>
-                    }
-                    @if (!step.item.input && !step.item.output) {
-                      <span class="label-small">no details reported</span>
-                    }
+                  @if (diff(step.item); as changes) {
+                    <span class="diff">
+                      @if (changes.added) {
+                        <span class="add">+{{ changes.added }}</span>
+                      }
+                      @if (changes.removed) {
+                        <span class="del">−{{ changes.removed }}</span>
+                      }
+                    </span>
                   }
-                </div>
-              }
-            </div>
-          }
 
-          @case ('thinking') {
-            <!-- The timeline branch only mounts when the display is not compact. -->
-            <div class="card thought">
-              <button
-                type="button"
-                class="head"
-                [attr.aria-expanded]="isStepOpen(step.key)"
-                (click)="toggleStep(step.key)"
-              >
-                <span class="status"><span class="bulb" [class.live]="isThoughtLive(step.key)">✻</span></span>
-                <span class="chip thought-chip">thinking</span>
-                <span class="preview">{{ preview(step.item.thinking) }}</span>
-                <span class="chev" [class.open]="isStepOpen(step.key)">›</span>
-              </button>
+                  <span class="grow"></span>
 
-              @if (isStepOpen(step.key)) {
-                <div class="body" [attr.data-body]="step.key">
-                  <pre>{{ step.item.thinking }}</pre>
-                </div>
-              }
-            </div>
+                  @if (step.item.child; as child) {
+                    <button
+                      type="button"
+                      class="child-link"
+                      [title]="'Open the ' + (child.agent ?? 'subagent') + ' session'"
+                      (click)="openChild.emit(child); $event.stopPropagation()"
+                    >
+                      {{ child.agent ?? 'subagent' }} ›
+                    </button>
+                  }
+                  @if (step.item.status === 'running') {
+                    <span class="dots"><i></i><i></i><i></i></span>
+                  }
+
+                  @if (elapsed(step.item); as time) {
+                    <span class="meta">{{ time }}</span>
+                  }
+                  <span class="chev" [class.open]="isStepOpen(step.key)">›</span>
+                </button>
+
+                @if (isStepOpen(step.key)) {
+                  <div class="body" [attr.data-body]="step.key">
+                    @if (taskBoard(step.item); as board) {
+                      <morse-task-board [tasks]="board" />
+                    } @else {
+                      @if (step.item.input) {
+                        <span class="label-small">input</span>
+                        <pre>{{ step.item.input }}</pre>
+                      }
+                      @if (step.item.output) {
+                        <span class="label-small">output</span>
+                        <pre>{{ step.item.output }}</pre>
+                      }
+                      @if (!step.item.input && !step.item.output) {
+                        <span class="label-small">no details reported</span>
+                      }
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            @case ('thinking') {
+              <!-- The timeline branch only mounts when the display is not compact. -->
+              <div class="card thought">
+                <button
+                  type="button"
+                  class="head"
+                  [attr.aria-expanded]="isStepOpen(step.key)"
+                  (click)="toggleStep(step.key)"
+                >
+                  <span class="status"
+                    ><span class="bulb" [class.live]="isThoughtLive(step.key)">✻</span></span
+                  >
+                  <span class="chip thought-chip">thinking</span>
+                  <span class="preview">{{ preview(step.item.thinking) }}</span>
+                  <span class="chev" [class.open]="isStepOpen(step.key)">›</span>
+                </button>
+
+                @if (isStepOpen(step.key)) {
+                  <div class="body" [attr.data-body]="step.key">
+                    <pre>{{ step.item.thinking }}</pre>
+                  </div>
+                }
+              </div>
+            }
           }
-        }
-      </li>
-    }
-  </ul>
+        </li>
+      }
+    </ul>
   }
 </div>

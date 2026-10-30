@@ -11,6 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
+import type { ChildSessionRef } from '@morse/protocol';
 import { BootSplash } from '../features/boot-splash/boot-splash';
 import { ConnectionScreen } from '../features/connection-screen/connection-screen';
 import { ChatComposer } from '../features/composer/composer';
@@ -280,6 +281,32 @@ export class App {
     const tab = this.tabs.activeTab();
     return tab === undefined || (tab.kind === 'session' && tab.draft !== true);
   });
+  /**
+   * The session in front is a subagent: watched read-only. The dock stays
+   * unmounted (nothing to prompt a subagent with — its parent steers it), and a
+   * slim bar offers the way back to the conversation that spawned it.
+   */
+  protected readonly activeIsSubagent = this.morse.activeIsSubagent;
+  protected readonly activeParent = this.morse.parentOfActive;
+
+  /**
+   * Opens a spawned session from its tool row: swaps the panel to the child's
+   * transcript. The catalog is refreshed first (fire and forget) because a child
+   * created mid-run is often not in the list yet, and the read-only flag and the
+   * back link both read from that list.
+   */
+  protected openSubagent(child: ChildSessionRef): void {
+    this.morse.requestSessions();
+    this.morse.activateSession(child.sessionId);
+  }
+
+  /** Back from a watched subagent to the conversation that spawned it. */
+  protected backToParent(): void {
+    const parent = this.activeParent();
+    if (parent !== undefined) {
+      this.morse.activateSession(parent.id);
+    }
+  }
   /**
    * Pi's extension chrome is worth mounting only while an extension has set a
    * widget or status for the session in front; an empty host stays out of the

@@ -1,5 +1,10 @@
-import type { AgentForkMessage, AgentHistoryEntry, ToolResultDetails } from '@morse/agent';
-import { describeToolCall } from './event-mapping.js';
+import type {
+  AgentForkMessage,
+  AgentHistoryEntry,
+  ToolResultDetails,
+} from "@morse/agent";
+import { describeToolCall } from "./event-mapping.js";
+import { childSessionOf } from "./child-session.js";
 
 /**
  * OpenCode's stored messages → the harness contract's history entries.
@@ -49,23 +54,27 @@ interface ApiContentPart {
 export function messageEntries(message: ApiMessage): AgentHistoryEntry[] {
   const at = message.time?.created;
   switch (message.type) {
-    case 'user': {
-      const text = message.text ?? '';
+    case "user": {
+      const text = message.text ?? "";
       // Attachments-only prompts still count as prompts the reader can fork.
-      return [{ role: 'user', text, ...(at === undefined ? {} : { at }) }];
+      return [{ role: "user", text, ...(at === undefined ? {} : { at }) }];
     }
-    case 'assistant':
+    case "assistant":
       return assistantEntries(message, at);
-    case 'compaction': {
+    case "compaction": {
       // A failed compaction is a bookkeeping row ("Nothing to compact yet"), not
       // a boundary in the conversation.
-      if (message.status !== 'completed' || typeof message.summary !== 'string' || message.summary.length === 0) {
+      if (
+        message.status !== "completed" ||
+        typeof message.summary !== "string" ||
+        message.summary.length === 0
+      ) {
         return [];
       }
-      const tokensBefore = asNumber(asRecord(message.tokens)?.['input']);
+      const tokensBefore = asNumber(asRecord(message.tokens)?.["input"]);
       return [
         {
-          role: 'compaction',
+          role: "compaction",
           summary: message.summary,
           ...(tokensBefore === undefined ? {} : { tokensBefore }),
           ...(at === undefined ? {} : { at }),
@@ -79,44 +88,62 @@ export function messageEntries(message: ApiMessage): AgentHistoryEntry[] {
   }
 }
 
-function assistantEntries(message: ApiMessage, at: number | undefined): AgentHistoryEntry[] {
+function assistantEntries(
+  message: ApiMessage,
+  at: number | undefined,
+): AgentHistoryEntry[] {
   const parts = asArray(message.content) ?? [];
   const text = parts
-    .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
-    .join('');
+    .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+    .join("");
   const thinking = parts
-    .map((part) => (part.type === 'reasoning' || part.type === 'thinking' ? (part.thinking ?? part.text ?? '') : ''))
-    .join('');
+    .map((part) =>
+      part.type === "reasoning" || part.type === "thinking"
+        ? (part.thinking ?? part.text ?? "")
+        : "",
+    )
+    .join("");
   const entries: AgentHistoryEntry[] = [];
   if (text.length > 0 || thinking.length > 0) {
     entries.push({
-      role: 'assistant',
+      role: "assistant",
       text,
       ...(thinking.length === 0 ? {} : { thinking }),
       ...(message.model?.id === undefined
         ? {}
-        : { model: `${message.model.providerID ?? ''}/${message.model.id}`.replace(/^\//, '') }),
+        : {
+            model:
+              `${message.model.providerID ?? ""}/${message.model.id}`.replace(
+                /^\//,
+                "",
+              ),
+          }),
       ...(at === undefined ? {} : { at }),
     });
   }
   for (const part of parts) {
-    if (part.type !== 'tool' || part.id === undefined) {
+    if (part.type !== "tool" || part.id === undefined) {
       continue;
     }
-    const name = part.name ?? 'tool';
+    const name = part.name ?? "tool";
     const state = part.state;
     const input = asRecord(state?.input);
     const output = contentToText(state?.content);
     const details = asRecord(state?.metadata);
     entries.push({
-      role: 'tool',
+      role: "tool",
       toolCallId: part.id,
       name,
       title: describeToolCall(name, input),
       ...(input === undefined ? {} : { input: safeStringify(input) }),
       ...(output === undefined ? {} : { output }),
       status: toolStatus(state?.status),
-      ...(details === undefined ? {} : { details: details as ToolResultDetails }),
+      ...(details === undefined
+        ? {}
+        : { details: details as ToolResultDetails }),
+      ...(childSessionOf(name, state?.metadata) ??
+        childSessionOf(name, input) ??
+        {}),
       ...(at === undefined ? {} : { at }),
     });
   }
@@ -124,7 +151,9 @@ function assistantEntries(message: ApiMessage, at: number | undefined): AgentHis
 }
 
 /** The history entries for a page of stored messages, preserving their order. */
-export function toHistoryEntries(messages: readonly ApiMessage[]): AgentHistoryEntry[] {
+export function toHistoryEntries(
+  messages: readonly ApiMessage[],
+): AgentHistoryEntry[] {
   return messages.flatMap(messageEntries);
 }
 
@@ -134,20 +163,22 @@ export function toHistoryEntries(messages: readonly ApiMessage[]): AgentHistoryE
  * The newest-first page is reversed once for the whole list, so the caller sees
  * prompts oldest first — the order a menu of "edit that message" expects.
  */
-export function toForkMessages(messages: readonly ApiMessage[]): AgentForkMessage[] {
+export function toForkMessages(
+  messages: readonly ApiMessage[],
+): AgentForkMessage[] {
   return messages
-    .filter((message) => message.type === 'user')
+    .filter((message) => message.type === "user")
     .reverse()
-    .map((message) => ({ entryId: message.id, text: message.text ?? '' }));
+    .map((message) => ({ entryId: message.id, text: message.text ?? "" }));
 }
 
-function toolStatus(status: string | undefined): 'ok' | 'error' {
-  return status === 'error' || status === 'failed' ? 'error' : 'ok';
+function toolStatus(status: string | undefined): "ok" | "error" {
+  return status === "error" || status === "failed" ? "error" : "ok";
 }
 
 /** `content: [{type:'text',text}]` → its text, when a tool result carries one. */
 function contentToText(content: unknown): string | undefined {
-  if (typeof content === 'string') {
+  if (typeof content === "string") {
     return content;
   }
   const parts = asArray(content);
@@ -155,8 +186,8 @@ function contentToText(content: unknown): string | undefined {
     return undefined;
   }
   const text = parts
-    .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
-    .join('');
+    .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+    .join("");
   return text.length > 0 ? text : undefined;
 }
 
@@ -165,23 +196,25 @@ function asArray(value: unknown): ApiContentPart[] | undefined {
     return undefined;
   }
   return value.filter(
-    (part): part is ApiContentPart => part !== null && typeof part === 'object',
+    (part): part is ApiContentPart => part !== null && typeof part === "object",
   ) as ApiContentPart[];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function safeStringify(value: unknown): string {
   try {
-    return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return typeof value === "string" ? value : JSON.stringify(value, null, 2);
   } catch {
     return String(value);
   }

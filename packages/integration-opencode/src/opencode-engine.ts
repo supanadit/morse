@@ -8,30 +8,34 @@ import {
   type AgentSessionState,
   type ModelRef,
   type WorkspaceRef,
-} from '@morse/agent';
+} from "@morse/agent";
 import {
   UnsupportedByHostError,
   type AgentIntegration,
   type MorseLogger,
-} from '@morse/system';
-import { connectOpenCode, type OpenCodeConnection, type OpenCodeConnectionOptions } from './internal/connection.js';
-import { OpenCodeApi } from './internal/client.js';
-import { OpenCodeEventStream } from './internal/event-stream.js';
+} from "@morse/system";
+import {
+  connectOpenCode,
+  type OpenCodeConnection,
+  type OpenCodeConnectionOptions,
+} from "./internal/connection.js";
+import { OpenCodeApi } from "./internal/client.js";
+import { OpenCodeEventStream } from "./internal/event-stream.js";
 import {
   defaultModeId,
   readAgentModes,
   readDefaultModel,
-} from './internal/catalog.js';
+} from "./internal/catalog.js";
 import {
   thinkingLevelOf,
   thinkingLevelsOf,
   toModelRef,
   toModelRefs,
   type ApiModel,
-} from './internal/model-mapping.js';
-import { OpenCodeAgent, readAvailableCommands } from './opencode-agent.js';
-import { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
-import { findOpenCodeBinary } from './internal/resolve-opencode.js';
+} from "./internal/model-mapping.js";
+import { OpenCodeAgent, readAvailableCommands } from "./opencode-agent.js";
+import { OpenCodeSessionCatalog } from "./opencode-session-catalog.js";
+import { findOpenCodeBinary } from "./internal/resolve-opencode.js";
 
 /**
  * OpenCode as a `SessionEngine`: the kind, the factory, the catalog, and the
@@ -45,7 +49,10 @@ import { findOpenCodeBinary } from './internal/resolve-opencode.js';
 
 /** The pieces a host can inject; production builds them in `createOpenCodeEngine`. */
 export interface OpenCodeEngineDeps {
-  connection: Pick<OpenCodeConnection, 'baseUrl' | 'password' | 'owned' | 'close'>;
+  connection: Pick<
+    OpenCodeConnection,
+    "baseUrl" | "password" | "owned" | "close"
+  >;
   api: OpenCodeApi;
   stream: OpenCodeEventStream;
   logger: MorseLogger;
@@ -53,7 +60,7 @@ export interface OpenCodeEngineDeps {
 }
 
 export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
-  readonly kind = 'opencode';
+  readonly kind = "opencode";
   /** This object *is* the engine, so the composite points at itself. */
   readonly engine: SessionEngine = this;
   readonly factory: OpenCodeAgentFactory;
@@ -107,8 +114,12 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
           createdAt: session.time?.created ?? updatedAt,
           updatedAt,
           messageCount: 0,
-          ...(session.fork?.sessionID === undefined ? {} : { parentSessionId: session.fork.sessionID }),
-          token: `${updatedAt}:${session.outcome ?? ''}`,
+          ...(session.parentID !== undefined && session.parentID.length > 0
+            ? { parentSessionId: session.parentID, subagent: true }
+            : session.fork?.sessionID === undefined
+              ? {}
+              : { parentSessionId: session.fork.sessionID }),
+          token: `${updatedAt}:${session.outcome ?? ""}`,
         },
       ];
     });
@@ -135,8 +146,12 @@ export async function createOpenCodeEngine(
   const api = new OpenCodeApi(connection);
   const stream = new OpenCodeEventStream(connection, {
     logger: options.logger,
-    ...(options.reconnectBaseMs === undefined ? {} : { reconnectBaseMs: options.reconnectBaseMs }),
-    ...(options.reconnectMaxMs === undefined ? {} : { reconnectMaxMs: options.reconnectMaxMs }),
+    ...(options.reconnectBaseMs === undefined
+      ? {}
+      : { reconnectBaseMs: options.reconnectBaseMs }),
+    ...(options.reconnectMaxMs === undefined
+      ? {}
+      : { reconnectMaxMs: options.reconnectMaxMs }),
   });
   return new OpenCodeEngine({
     connection,
@@ -167,7 +182,9 @@ export async function openOpenCodeEngine(options: {
   const configuredBin = options.bin?.trim();
   if (options.url === undefined) {
     const binary = findOpenCodeBinary(
-      configuredBin === undefined || configuredBin.length === 0 ? 'opencode' : configuredBin,
+      configuredBin === undefined || configuredBin.length === 0
+        ? "opencode"
+        : configuredBin,
       options.env ?? process.env,
     );
     if (binary === undefined) {
@@ -176,14 +193,17 @@ export async function openOpenCodeEngine(options: {
     try {
       return await createOpenCodeEngine({ ...options, bin: binary });
     } catch (error: unknown) {
-      options.logger.error('Could not start the OpenCode engine', error);
+      options.logger.error("Could not start the OpenCode engine", error);
       return undefined;
     }
   }
   try {
     return await createOpenCodeEngine(options);
   } catch (error: unknown) {
-    options.logger.error('Could not connect to the configured OpenCode server', error);
+    options.logger.error(
+      "Could not connect to the configured OpenCode server",
+      error,
+    );
     return undefined;
   }
 }
@@ -191,7 +211,7 @@ export async function openOpenCodeEngine(options: {
 /** Creates one session per workspace, or attaches to a persisted engine session. */
 export class OpenCodeAgentFactory implements AgentGatewayFactory {
   /** The `AgentEngineRef.engine` value this factory's sessions carry. */
-  readonly kind = 'opencode';
+  readonly kind = "opencode";
 
   constructor(
     private readonly deps: {
@@ -228,9 +248,12 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
     const directory = input.workspace.cwd;
     const [models, commands, modes, defaultModel] = await Promise.all([
       this.deps.api
-        .get<ApiModel[]>('/model', { 'location[directory]': directory })
+        .get<ApiModel[]>("/model", { "location[directory]": directory })
         .catch((error: unknown): ApiModel[] => {
-          this.deps.logger.warn('Could not read the OpenCode model catalog', error);
+          this.deps.logger.warn(
+            "Could not read the OpenCode model catalog",
+            error,
+          );
           return [];
         }),
       readAvailableCommands(this.deps.api, directory, this.deps.logger),
@@ -241,7 +264,8 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       defaultModel === undefined ||
       models.some(
         (model) =>
-          model.providerID === defaultModel.providerID && model.id === defaultModel.id,
+          model.providerID === defaultModel.providerID &&
+          model.id === defaultModel.id,
       )
         ? models
         : [...models, defaultModel];
@@ -249,7 +273,9 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       input.model === undefined
         ? defaultModel
         : catalog.find(
-            (model) => model.providerID === input.model?.provider && model.id === input.model?.id,
+            (model) =>
+              model.providerID === input.model?.provider &&
+              model.id === input.model?.id,
           );
     const mode = defaultModeId(modes);
     const state: AgentSessionState = {
@@ -291,35 +317,49 @@ class ProbeGateway implements AgentGateway {
   }
 
   prompt(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no session to prompt.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no session to prompt."),
+    );
   }
 
   forkMessages(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no conversation to fork.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no conversation to fork."),
+    );
   }
 
   fork(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no conversation to fork.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no conversation to fork."),
+    );
   }
 
   abort(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no run to abort.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no run to abort."),
+    );
   }
 
   setModel(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no session to change.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no session to change."),
+    );
   }
 
   setThinkingLevel(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no session to change.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no session to change."),
+    );
   }
 
   compact(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft has no context to compact.'));
+    return Promise.reject(
+      new UnsupportedByHostError("A draft has no context to compact."),
+    );
   }
 
   respondToInteraction(): Promise<never> {
-    return Promise.reject(new UnsupportedByHostError('A draft asked nothing.'));
+    return Promise.reject(new UnsupportedByHostError("A draft asked nothing."));
   }
 
   dispose(): Promise<void> {

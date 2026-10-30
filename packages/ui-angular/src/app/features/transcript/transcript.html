@@ -30,7 +30,10 @@
           <div class="user" [morseEnter]="0" [attr.data-prompt-id]="row.item.id">
             @if (pinsOf(row.item) !== undefined || row.item.images !== undefined) {
               <ul class="user-attachments">
-                @for (pin of row.item.pins ?? []; track pin.path + (pin.startLine ?? '') + (pin.startColumn ?? '')) {
+                @for (
+                  pin of row.item.pins ?? [];
+                  track pin.path + (pin.startLine ?? '') + (pin.startColumn ?? '')
+                ) {
                   <li class="mention-pin" [title]="pinTitle(pin)">
                     <span class="pin-icon" aria-hidden="true">⧉</span>
                     <span class="name">{{ basename(pin.path) }}</span>
@@ -41,7 +44,9 @@
                          note as rendered markdown on hover. Old sessions have
                          none and stay as they are. -->
                     @if (pin.note !== undefined) {
-                      <span class="note" [morseNoteHover]="pin.note">✎ {{ pinNoteHint(pin.note) }}</span>
+                      <span class="note" [morseNoteHover]="pin.note"
+                        >✎ {{ pinNoteHint(pin.note) }}</span
+                      >
                     }
                   </li>
                 }
@@ -154,6 +159,7 @@
             [morseEnter]="0"
             [steps]="row.steps"
             [working]="working() && row.key === activeProcess()"
+            (openChild)="openChild.emit($event)"
           />
         }
         @case ('notice') {
@@ -178,7 +184,9 @@
               <span class="sep-line" aria-hidden="true"></span>
               <span class="sep-label">⚡ Compacted</span>
               @if (row.item.tokensBefore) {
-                <span class="sep-tokens">~{{ formatTokens(row.item.tokensBefore) }} tokens folded</span>
+                <span class="sep-tokens"
+                  >~{{ formatTokens(row.item.tokensBefore) }} tokens folded</span
+                >
               }
               <span class="sep-line" aria-hidden="true"></span>
             </button>
@@ -210,12 +218,16 @@
           <div class="hero-tagline">the pi coding agent</div>
 
           <p class="hero-hint">
-            It runs the same pi coding agent you use in the terminal, with your models, tools, skills
-            and sessions.
+            It runs the same pi coding agent you use in the terminal, with your models, tools,
+            skills and sessions.
           </p>
           <p class="hero-tips">
-            Try <em>“explain this repository”</em> or <em>“why is this failing?”</em>@if (canPinSelection()) {, or select
-            code and pin it with the <span class="hero-key">⧉</span> button under the chat}.
+            Try <em>“explain this repository”</em> or <em>“why is this failing?”</em>
+            @if (canPinSelection()) {
+              , or select code and pin it with the <span class="hero-key">⧉</span> button under the
+              chat
+            }
+            .
           </p>
         </div>
       }

@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@morse/agent';
+import type { AgentChildSessionRef, AgentEvent } from "@morse/agent";
 import type {
   AssistantTranscriptItem,
   ChatPin,
@@ -9,7 +9,7 @@ import type {
   ToolTranscriptItem,
   TranscriptItem,
   UserTranscriptItem,
-} from '@morse/protocol';
+} from "@morse/protocol";
 
 export interface TranscriptProjectorOptions {
   emit: (message: HostToClientMessage) => void;
@@ -32,7 +32,7 @@ export class TranscriptProjector {
 
   constructor(private readonly options: TranscriptProjectorOptions) {
     this.now = options.now ?? (() => Date.now());
-    this.idPrefix = options.idPrefix ?? 'morse';
+    this.idPrefix = options.idPrefix ?? "morse";
   }
 
   snapshot(): TranscriptItem[] {
@@ -43,13 +43,13 @@ export class TranscriptProjector {
     this.items.length = 0;
     this.toolIndexes.clear();
     this.assistantIndex = -1;
-    this.options.emit({ type: 'transcript/replace', payload: { items: [] } });
+    this.options.emit({ type: "transcript/replace", payload: { items: [] } });
   }
 
   userPrompt(text: string, images?: PromptImage[], pins?: ChatPin[]): void {
     const item: UserTranscriptItem = {
-      kind: 'user',
-      id: this.nextId('user'),
+      kind: "user",
+      id: this.nextId("user"),
       at: this.now(),
       text,
       ...(images && images.length > 0 ? { images } : {}),
@@ -62,7 +62,7 @@ export class TranscriptProjector {
   /** Appends an item that already happened (a seeded history entry). */
   append(item: TranscriptItem): void {
     this.items.push(item);
-    this.options.emit({ type: 'transcript/append', payload: { ...item } });
+    this.options.emit({ type: "transcript/append", payload: { ...item } });
   }
 
   /**
@@ -75,7 +75,10 @@ export class TranscriptProjector {
     this.items.push(...items);
     this.toolIndexes.clear();
     this.assistantIndex = -1;
-    this.options.emit({ type: 'transcript/replace', payload: { items: this.snapshot() } });
+    this.options.emit({
+      type: "transcript/replace",
+      payload: { items: this.snapshot() },
+    });
   }
 
   /**
@@ -93,19 +96,29 @@ export class TranscriptProjector {
     for (const [toolCallId, index] of this.toolIndexes) {
       this.toolIndexes.set(toolCallId, index + items.length);
     }
-    this.options.emit({ type: 'transcript/prepend', payload: { items } });
+    this.options.emit({ type: "transcript/prepend", payload: { items } });
   }
 
   notice(level: NoticeLevel, text: string): void {
-    this.appendItem({ kind: 'notice', id: this.nextId('notice'), at: this.now(), level, text });
+    this.appendItem({
+      kind: "notice",
+      id: this.nextId("notice"),
+      at: this.now(),
+      level,
+      text,
+    });
   }
 
   /** The live compaction boundary: a marker row for where the context reset. */
-  private appendMarker(event: { at: number; summary: string; tokensBefore?: number }): void {
+  private appendMarker(event: {
+    at: number;
+    summary: string;
+    tokensBefore?: number;
+  }): void {
     const { summary, tokensBefore } = event;
     this.appendItem({
-      kind: 'compaction',
-      id: this.nextId('compaction'),
+      kind: "compaction",
+      id: this.nextId("compaction"),
       at: this.now(),
       ...(summary.length > 0 ? { summary } : {}),
       ...(tokensBefore !== undefined ? { tokensBefore } : {}),
@@ -121,47 +134,67 @@ export class TranscriptProjector {
     // looked like a dead connection. The wire error stays reserved for a
     // refusing handshake (see the controller's `emitWireError`).
     this.appendItem({
-      kind: 'notice',
-      id: this.nextId('error'),
+      kind: "notice",
+      id: this.nextId("error"),
       at: this.now(),
-      level: 'error',
+      level: "error",
       text: detail ? `${message}\n${detail}` : message,
     });
   }
 
   apply(event: AgentEvent): void {
     switch (event.type) {
-      case 'agent/run-start':
+      case "agent/run-start":
         this.assistantIndex = -1;
         break;
-      case 'agent/delta':
+      case "agent/delta":
         this.applyDelta(event.channel, event.delta);
         break;
-      case 'agent/message':
+      case "agent/message":
         this.applyMessage(event.text, event.thinking);
         break;
-      case 'agent/tool-start':
-        this.applyToolStart(event.toolCallId, event.name, event.title, event.input);
+      case "agent/tool-start":
+        this.applyToolStart(
+          event.toolCallId,
+          event.name,
+          event.title,
+          event.input,
+          event.childSession,
+        );
         break;
-      case 'agent/tool-update':
-        this.applyToolUpdate(event.toolCallId, event.output, event.status);
+      case "agent/tool-update":
+        this.applyToolUpdate(
+          event.toolCallId,
+          event.output,
+          event.status,
+          event.childSession,
+        );
         break;
-      case 'agent/tool-end':
-        this.applyToolEnd(event.toolCallId, event.status, event.output, event.details, event.durationMs);
+      case "agent/tool-end":
+        this.applyToolEnd(
+          event.toolCallId,
+          event.status,
+          event.output,
+          event.details,
+          event.durationMs,
+          event.childSession,
+        );
         break;
-      case 'agent/run-end':
-        this.finishAssistant(event.reason === 'error' ? undefined : event.reason);
+      case "agent/run-end":
+        this.finishAssistant(
+          event.reason === "error" ? undefined : event.reason,
+        );
         break;
-      case 'agent/notice':
+      case "agent/notice":
         this.notice(event.level, event.text);
         break;
-      case 'agent/compaction':
+      case "agent/compaction":
         // Live compaction: the marker lands right here, in the middle of the
         // conversation it summarizes — the transcript row and the divider stay
         // in place for every later replay of this warm transcript.
         this.appendMarker(event);
         break;
-      case 'agent/fatal':
+      case "agent/fatal":
         this.error(event.message, event.detail);
         break;
       default:
@@ -169,11 +202,14 @@ export class TranscriptProjector {
     }
   }
 
-  private applyDelta(channel: 'text' | 'thinking', delta: string): void {
+  private applyDelta(channel: "text" | "thinking", delta: string): void {
     const item = this.ensureAssistant();
     this.options.emit({
-      type: 'transcript/delta',
-      payload: channel === 'text' ? { id: item.id, text: delta } : { id: item.id, thinking: delta },
+      type: "transcript/delta",
+      payload:
+        channel === "text"
+          ? { id: item.id, text: delta }
+          : { id: item.id, thinking: delta },
     });
     item[channel] += delta;
     item.streaming = true;
@@ -185,20 +221,20 @@ export class TranscriptProjector {
     item.thinking = thinking;
     item.streaming = false;
     this.assistantIndex = -1;
-    this.options.emit({ type: 'transcript/update', payload: { ...item } });
+    this.options.emit({ type: "transcript/update", payload: { ...item } });
   }
 
-  private finishAssistant(reason: 'settled' | 'aborted' | undefined): void {
+  private finishAssistant(reason: "settled" | "aborted" | undefined): void {
     if (this.assistantIndex === -1) {
       return;
     }
     const item = this.items[this.assistantIndex];
-    if (item && item.kind === 'assistant') {
+    if (item && item.kind === "assistant") {
       item.streaming = false;
-      if (reason === 'aborted' && item.text.length === 0) {
-        item.text = '_Run aborted._';
+      if (reason === "aborted" && item.text.length === 0) {
+        item.text = "_Run aborted._";
       }
-      this.options.emit({ type: 'transcript/update', payload: { ...item } });
+      this.options.emit({ type: "transcript/update", payload: { ...item } });
     }
     this.assistantIndex = -1;
   }
@@ -208,15 +244,17 @@ export class TranscriptProjector {
     name: string,
     title: string,
     input: string | undefined,
+    child?: AgentChildSessionRef,
   ): void {
     const item: ToolTranscriptItem = {
-      kind: 'tool',
-      id: this.nextId('tool'),
+      kind: "tool",
+      id: this.nextId("tool"),
       at: this.now(),
       name,
       title,
-      status: 'running',
+      status: "running",
       input,
+      ...(child !== undefined ? { child } : {}),
     };
     this.toolIndexes.set(toolCallId, this.items.length);
     this.appendItem(item);
@@ -225,7 +263,8 @@ export class TranscriptProjector {
   private applyToolUpdate(
     toolCallId: string,
     output: string | undefined,
-    status: 'running' | 'ok' | 'error' | undefined,
+    status: "running" | "ok" | "error" | undefined,
+    child?: AgentChildSessionRef,
   ): void {
     const item = this.toolItem(toolCallId);
     if (!item) {
@@ -237,15 +276,21 @@ export class TranscriptProjector {
     if (status !== undefined) {
       item.status = status;
     }
+    // The child id often arrives with the first progress report rather than the
+    // call, so the link lands on the row as soon as either names it.
+    if (child !== undefined) {
+      item.child = child;
+    }
     this.updateItem(item);
   }
 
   private applyToolEnd(
     toolCallId: string,
-    status: 'ok' | 'error',
+    status: "ok" | "error",
     output: string | undefined,
     details: ToolResultDetails | undefined,
     durationMs: number | undefined,
+    child?: AgentChildSessionRef,
   ): void {
     const item = this.toolItem(toolCallId);
     if (!item) {
@@ -261,6 +306,9 @@ export class TranscriptProjector {
     if (details !== undefined) {
       item.details = details;
     }
+    if (child !== undefined) {
+      item.child = child;
+    }
     // pi's `tool_execution_end` carries no duration, and a finished turn can
     // only show "Worked for Ns" if one is recorded. Measure it from the start
     // we stamped ourselves; a host that does report one still wins.
@@ -270,16 +318,17 @@ export class TranscriptProjector {
   }
 
   private ensureAssistant(): AssistantTranscriptItem {
-    const existing = this.assistantIndex >= 0 ? this.items[this.assistantIndex] : undefined;
-    if (existing && existing.kind === 'assistant') {
+    const existing =
+      this.assistantIndex >= 0 ? this.items[this.assistantIndex] : undefined;
+    if (existing && existing.kind === "assistant") {
       return existing;
     }
     const item: AssistantTranscriptItem = {
-      kind: 'assistant',
-      id: this.nextId('assistant'),
+      kind: "assistant",
+      id: this.nextId("assistant"),
       at: this.now(),
-      text: '',
-      thinking: '',
+      text: "",
+      thinking: "",
       streaming: true,
     };
     this.assistantIndex = this.items.length;
@@ -293,16 +342,16 @@ export class TranscriptProjector {
       return undefined;
     }
     const item = this.items[index];
-    return item && item.kind === 'tool' ? item : undefined;
+    return item && item.kind === "tool" ? item : undefined;
   }
 
   private appendItem(item: TranscriptItem): void {
     this.items.push(item);
-    this.options.emit({ type: 'transcript/append', payload: { ...item } });
+    this.options.emit({ type: "transcript/append", payload: { ...item } });
   }
 
   private updateItem(item: TranscriptItem): void {
-    this.options.emit({ type: 'transcript/update', payload: { ...item } });
+    this.options.emit({ type: "transcript/update", payload: { ...item } });
   }
 
   private nextId(kind: string): string {

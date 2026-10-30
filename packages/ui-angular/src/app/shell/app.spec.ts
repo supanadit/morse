@@ -1,8 +1,15 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ClientToHostMessage } from '@morse/protocol';
+import type {
+  ClientToHostMessage,
+  SessionSummary,
+  SessionViewState,
+  TranscriptItem,
+} from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { App } from './app';
+import { MorseService } from '../host/morse.service';
 import { AttachmentStore } from '../state/attachments';
 import { RestoreState } from '../state/restore-state';
 import { ShellState } from '../state/shell-state';
@@ -618,5 +625,101 @@ describe('App · restoring screen', () => {
     const sendSpy = vi.spyOn(transport, 'send');
     (composer!.componentInstance as { sendWith: (mode: string) => void }).sendWith('new');
     expect(sendSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A spawned session (a subagent run) is watched, not prompted: the panel swaps
+ * to its transcript with a bar that names the state and offers the way back,
+ * and the composer dock never mounts. A fork child never carries the flag and
+ * stays a normal session with its composer.
+ */
+describe('App · watching a subagent', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  /**
+   * The subagent feature reads four things off `MorseService`: the catalog, the
+   * two flags derived from it, and which session is in front. Everything else
+   * keeps running on the real service and its mock host. `defineProperty` wins
+   * over a fake because the service is otherwise a web of computeds over one
+   * private view — stubbing the whole class drags every consumer along.
+   */
+  function watchSubagent(fixture: ComponentFixture<App>): void {
+    const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
+    const state = signal<SessionViewState>({
+      workspace: { cwd: '/work/morse', name: 'morse' },
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: false,
+      busy: false,
+      agentReady: true,
+      agentStarting: false,
+      sessionId: 'kid',
+    } as SessionViewState);
+    Object.defineProperty(morse, 'state', { value: state });
+    Object.defineProperty(morse, 'sessions', {
+      value: signal<SessionSummary[]>([
+        {
+          id: 'parent',
+          title: 'The parent conversation',
+          cwd: '/work/morse',
+          updatedAt: 1,
+          messageCount: 2,
+        },
+        {
+          id: 'kid',
+          title: 'explore',
+          cwd: '/work/morse',
+          updatedAt: 2,
+          messageCount: 1,
+          parentId: 'parent',
+          subagent: true,
+        },
+      ]),
+    });
+    Object.defineProperty(morse, 'activeIsSubagent', { value: signal(true) });
+    Object.defineProperty(morse, 'parentOfActive', {
+      value: signal({
+        id: 'parent',
+        title: 'The parent conversation',
+        cwd: '/work/morse',
+        updatedAt: 1,
+        messageCount: 2,
+      }),
+    });
+    Object.defineProperty(morse, 'activateSession', {
+      value: (id: string) =>
+        state.update((value: SessionViewState) => ({ ...value, sessionId: id })),
+    });
+    fixture.detectChanges();
+  }
+
+  it('hides the composer and offers the way back while watching a subagent', () => {
+    const fixture = TestBed.createComponent(App);
+    watchSubagent(fixture);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.subagent-bar')).toBeTruthy();
+    expect(element.querySelector('.subagent-bar .back')?.textContent).toContain(
+      'The parent conversation',
+    );
+    expect(element.querySelector('morse-chat-composer')).toBeNull();
+  });
+
+  it('returns to the parent when the back affordance is used', () => {
+    const fixture = TestBed.createComponent(App);
+    watchSubagent(fixture);
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.subagent-bar .back')
+      ?.click();
+    fixture.detectChanges();
+
+    const morse = TestBed.inject(MorseService) as unknown as { state(): { sessionId?: string } };
+    expect(morse.state().sessionId).toBe('parent');
   });
 });

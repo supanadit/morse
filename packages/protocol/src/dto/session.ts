@@ -59,6 +59,14 @@ export interface SessionSummary {
    * same way — the frontend nests a child under its parent by it.
    */
   parentId?: string;
+  /**
+   * True when this session was spawned as a subagent — a delegation child the
+   * parent's tool call created and steers itself. A subagent is watched, not
+   * chatted with: the frontend renders its transcript read-only, without a
+   * composer. A plain fork (a conversation the user branched) stays a normal
+   * session, composer and all, even though it also has a `parentId`.
+   */
+  subagent?: boolean;
 }
 
 /**
