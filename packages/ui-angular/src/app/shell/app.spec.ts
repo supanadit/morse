@@ -742,7 +742,7 @@ describe('App · watching a subagent', () => {
     fixture.detectChanges();
 
     const bar = (fixture.nativeElement as HTMLElement).querySelector('.subagent-bar');
-    const chips = [...(bar?.querySelectorAll('.chip') ?? [])].map((chip) => chip.textContent);
+    const chips = [...(bar?.querySelectorAll('.meta') ?? [])].map((chip) => chip.textContent);
     expect(chips).toContain('opencode');
     expect(chips.some((text) => text?.includes('DeepSeek V4.1'))).toBe(true);
     expect(chips).toContain('explore');

@@ -287,19 +287,19 @@
                  names one per agent in its settings), so this is the child's,
                  not the parent's. Read-only: the parent steers. -->
             <div class="row child-status">
-              <span class="chip engine">{{ morse.engine() ?? 'agent' }}</span>
+              <span class="meta">{{ morse.engine() ?? 'agent' }}</span>
               @if (morse.model(); as model) {
-                <span class="chip model" [title]="model.provider + '/' + model.id">
+                <span class="meta model" [title]="model.provider + '/' + model.id">
                   {{ model.name }}
                 </span>
               }
               @if (childAgent(); as agent) {
-                <span class="chip agent">{{ agent }}</span>
+                <span class="meta agent">{{ agent }}</span>
               }
               @if (morse.mode(); as mode) {
-                <span class="chip mode">{{ mode }}</span>
+                <span class="meta">{{ mode }}</span>
               }
-              <span class="chip thinking">{{ morse.thinkingLevel() }}</span>
+              <span class="meta">{{ morse.thinkingLevel() }}</span>
             </div>
           </div>
         }
