@@ -6,7 +6,7 @@ import {
   type ApiForm,
   type ApiPermissionRequest,
 } from './form-mapping.js';
-import { childSessionOf } from './child-session.js';
+import { childSessionOf, childSessionFromText } from './child-session.js';
 
 /**
  * OpenCode session events → the harness contract's events.
@@ -137,7 +137,9 @@ export class OpenCodeEventMapper {
         const output = toolOutput(data);
         // A child session often announces itself with the first progress report
         // rather than the call, so the link is retried here and on the end.
-        const child = childSessionOf(this.toolNames.get(id) ?? '', data['metadata']);
+        const child =
+          childSessionOf(this.toolNames.get(id) ?? '', data['metadata']) ??
+          childSessionFromText(output);
         return {
           events: [
             {
@@ -168,7 +170,9 @@ export class OpenCodeEventMapper {
         const status = type === 'session.tool.success' ? 'ok' : 'error';
         const details = asDetails(data['metadata']);
         const output = toolOutput(data) ?? asString(data['error']);
-        const child = childSessionOf(this.toolNames.get(id) ?? '', data['metadata']);
+        const child =
+          childSessionOf(this.toolNames.get(id) ?? '', data['metadata']) ??
+          childSessionFromText(output);
         events.push({
           type: 'agent/tool-end',
           at,

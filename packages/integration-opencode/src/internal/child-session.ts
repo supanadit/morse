@@ -36,6 +36,36 @@ export function childSessionOf(
   return { sessionId: id, ...(agent === undefined ? {} : { agent }) };
 }
 
+/**
+ * The child a delegation tool's *result text* carries, when the metadata and
+ * the input do not: builds that put the id only in the content mark it there —
+ * `<subagent sessionID="ses_…" state="completed">`. Probed last, on the text
+ * the row already shows, so it costs one regex only when the structured probes
+ * missed. `source` is the delegation input, whose `agent` names the child the
+ * way the tag itself rarely does.
+ */
+export function childSessionFromText(
+  text: string | undefined,
+  source?: unknown,
+): AgentChildSessionRef | undefined {
+  if (text === undefined) {
+    return undefined;
+  }
+  const tag = /<subagent\b[^>]*>/.exec(text)?.[0];
+  if (tag === undefined) {
+    return undefined;
+  }
+  const sessionId = /\bsessionID="([^"]+)"/.exec(tag)?.[1];
+  if (sessionId === undefined || sessionId.length === 0) {
+    return undefined;
+  }
+  const agent =
+    /\bagent="([^"]+)"/.exec(tag)?.[1] ??
+    asString(asRecord(source)?.['agent']) ??
+    asString(asRecord(source)?.['subagentType']);
+  return { sessionId, ...(agent === undefined ? {} : { agent }) };
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)

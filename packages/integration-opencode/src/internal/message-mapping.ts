@@ -1,6 +1,6 @@
 import type { AgentForkMessage, AgentHistoryEntry, ToolResultDetails } from '@morse/agent';
 import { describeToolCall } from './event-mapping.js';
-import { childSessionOf } from './child-session.js';
+import { childSessionOf, childSessionFromText } from './child-session.js';
 
 /**
  * OpenCode's stored messages → the harness contract's history entries.
@@ -117,6 +117,10 @@ function assistantEntries(message: ApiMessage, at: number | undefined): AgentHis
     const input = asRecord(state?.input);
     const output = contentToText(state?.content);
     const details = asRecord(state?.metadata);
+    const child =
+      childSessionOf(name, state?.metadata) ??
+      childSessionOf(name, input) ??
+      childSessionFromText(output, input);
     entries.push({
       role: 'tool',
       toolCallId: part.id,
@@ -126,7 +130,7 @@ function assistantEntries(message: ApiMessage, at: number | undefined): AgentHis
       ...(output === undefined ? {} : { output }),
       status: toolStatus(state?.status),
       ...(details === undefined ? {} : { details: details as ToolResultDetails }),
-      ...(childSessionOf(name, state?.metadata) ?? childSessionOf(name, input) ?? {}),
+      ...(child === undefined ? {} : { childSession: child }),
       ...(at === undefined ? {} : { at }),
     });
   }

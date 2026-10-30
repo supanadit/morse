@@ -41,6 +41,31 @@ const ASSISTANT_WITH_TOOL: ApiMessage = {
   ],
 };
 
+const ASSISTANT_WITH_SUBAGENT: ApiMessage = {
+  id: 'msg_171c48428001qos7fDugUEJFsa',
+  time: { created: 1_001, streamed: 1_010, completed: 1_011 },
+  type: 'assistant',
+  agent: 'build',
+  model: { id: 'flint-40b-free', providerID: 'opencode' },
+  content: [
+    {
+      type: 'tool',
+      id: 'call_subagent_1',
+      name: 'subagent',
+      executed: false,
+      state: {
+        status: 'completed',
+        // A build that reports the child only in the result text: the id
+        // lives in the marker tag, the agent only in the delegation input.
+        input: { agent: 'explore', description: 'Explore', prompt: 'Look around' },
+        content: [
+          { type: 'text', text: '<subagent sessionID="ses_kid" state="completed">\n# Overview\n' },
+        ],
+      },
+    },
+  ],
+};
+
 const ASSISTANT_TEXT: ApiMessage = {
   id: 'msg_171c48f9e0010tIKCiHKxzTDY1',
   time: { created: 1_012 },
@@ -110,6 +135,16 @@ describe('message mapping', () => {
     const textEntries = messageEntries(ASSISTANT_TEXT);
     expect(textEntries).toHaveLength(1);
     expect(textEntries[0]).toMatchObject({ role: 'assistant', text: '5', thinking: 'The count returned 5.' });
+  });
+
+  it('links a delegation row to the child its result text names', () => {
+    const entries = messageEntries(ASSISTANT_WITH_SUBAGENT);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      role: 'tool',
+      name: 'subagent',
+      childSession: { sessionId: 'ses_kid', agent: 'explore' },
+    });
   });
 
   it('records a completed compaction boundary and skips a failed one', () => {

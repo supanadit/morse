@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { childSessionOf } from './child-session.js';
+import { childSessionFromText, childSessionOf } from './child-session.js';
 
 /**
  * The engine-agnostic seam: a tool call that spawned a session links to it, so
@@ -43,5 +43,32 @@ describe('childSessionOf', () => {
     expect(childSessionOf('task', undefined)).toBeUndefined();
     expect(childSessionOf('task', { output: 'plain text' })).toBeUndefined();
     expect(childSessionOf('task', { sessionID: '' })).toBeUndefined();
+  });
+});
+
+describe('childSessionFromText', () => {
+  it('reads the session marker a delegation result carries in its text', () => {
+    expect(
+      childSessionFromText(
+        '<subagent sessionID="ses_kid" state="completed">\n# Summary\n',
+      ),
+    ).toEqual({ sessionId: 'ses_kid' });
+  });
+
+  it('names the agent from the tag, then from the delegation input', () => {
+    expect(
+      childSessionFromText('<subagent agent="reviewer" sessionID="ses_kid">done'),
+    ).toEqual({ sessionId: 'ses_kid', agent: 'reviewer' });
+    expect(
+      childSessionFromText('<subagent sessionID="ses_kid">done', {
+        agent: 'explore',
+      }),
+    ).toEqual({ sessionId: 'ses_kid', agent: 'explore' });
+  });
+
+  it('returns nothing without the marker or the id', () => {
+    expect(childSessionFromText(undefined)).toBeUndefined();
+    expect(childSessionFromText('plain text, no tag')).toBeUndefined();
+    expect(childSessionFromText('<subagent state="completed">no id')).toBeUndefined();
   });
 });
