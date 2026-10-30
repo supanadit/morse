@@ -676,15 +676,25 @@
  *
  * In flow, not floating: an overlay would cover the transcript's first row
  * ("Load older messages"), which is exactly where a long child opens.
+ *
+ * Two rows: the way back on one, what the child runs with beneath — one line
+ * cannot hold a long parent title and five read-outs without elbowing both.
  */
 .subagent-bar {
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 14px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 14px 6px;
   background: color-mix(in srgb, var(--morse-accent) 10%, var(--morse-bg));
   border-bottom: 1px solid color-mix(in srgb, var(--morse-accent) 35%, transparent);
+}
+
+.subagent-bar .nav-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .subagent-bar .back {
@@ -732,7 +742,8 @@
   white-space: nowrap;
 }
 
-.subagent-bar .chip.engine {
+.subagent-bar .chip.engine,
+.subagent-bar .chip.agent {
   color: var(--morse-accent);
 }
 

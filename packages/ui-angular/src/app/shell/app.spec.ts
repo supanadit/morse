@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  ChildSessionRef,
   ClientToHostMessage,
   SessionSummary,
   SessionViewState,
@@ -731,11 +732,20 @@ describe('App · watching a subagent', () => {
       mode: 'plan',
       thinkingLevel: 'low',
     });
+    // The row that opened the child named the agent running it.
+    (
+      fixture.componentInstance as unknown as { openSubagent: (child: ChildSessionRef) => void }
+    ).openSubagent({
+      sessionId: 'kid',
+      agent: 'explore',
+    });
+    fixture.detectChanges();
 
     const bar = (fixture.nativeElement as HTMLElement).querySelector('.subagent-bar');
     const chips = [...(bar?.querySelectorAll('.chip') ?? [])].map((chip) => chip.textContent);
     expect(chips).toContain('opencode');
     expect(chips.some((text) => text?.includes('DeepSeek V4.1'))).toBe(true);
+    expect(chips).toContain('explore');
     expect(chips).toContain('plan');
     expect(chips).toContain('low');
   });

@@ -296,9 +296,15 @@ export class App {
    * back link both read from that list.
    */
   protected openSubagent(child: ChildSessionRef): void {
+    // Remembered for the watching bar: OpenCode's `task` names the agent that
+    // runs the child (explore, general, …), and the bar labels the view with it.
+    this.childAgent.set(child.agent);
     this.morse.requestSessions();
     this.morse.activateSession(child.sessionId);
   }
+
+  /** The agent the watched child runs as, when its spawning tool named one. */
+  private readonly childAgent = signal<string | undefined>(undefined);
 
   /** Back from a watched subagent to the conversation that spawned it. */
   protected backToParent(): void {
