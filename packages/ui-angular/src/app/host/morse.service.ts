@@ -12,7 +12,13 @@ import {
   type SessionView,
   type ThinkingLevel,
 } from '@morse/protocol';
-import { asSessionSummaries, createMorseClient, type EditorSelectionPayload, type MorseActions, type MorseClient } from '@morse/ui-runtime';
+import {
+  asSessionSummaries,
+  createMorseClient,
+  type EditorSelectionPayload,
+  type MorseActions,
+  type MorseClient,
+} from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from './transport.token';
 
 /**
@@ -101,10 +107,9 @@ export class MorseService {
    * repository on every token, which on a crowded project is what timed out and
    * reported that the host could not read its history.
    */
-  readonly workspace = computed(
-    () => this.view().state.workspace,
-    { equal: (a, b) => a.cwd === b.cwd && a.name === b.name },
-  );
+  readonly workspace = computed(() => this.view().state.workspace, {
+    equal: (a, b) => a.cwd === b.cwd && a.name === b.name,
+  });
   /** Installed engines, for the draft's engine picker; empty on older hosts. */
   readonly engines = computed(() => this.view().capabilities?.engines ?? []);
   /** True only for the intentional no-session draft. */
@@ -120,18 +125,14 @@ export class MorseService {
   /** True while a newly chosen engine's draft catalogs are being read. */
   readonly loadingEngine = computed(() => this.view().state.loadingEngine === true);
   /** True while the host re-reads the picked model's thinking levels. */
-  readonly loadingThinkingLevels = computed(
-    () => this.view().state.loadingThinkingLevels === true,
-  );
+  readonly loadingThinkingLevels = computed(() => this.view().state.loadingThinkingLevels === true);
   /** Commands pi exposes (`get_commands`); the frontend merges its own built-ins. */
   readonly availableCommands = computed(() => this.view().state.availableCommands);
   readonly usage = computed(() => this.view().state.usage);
   /** True when older transcript entries can still be loaded. */
   readonly hasOlderHistory = computed(() => this.view().state.hasOlderHistory === true);
   /** True while the host is fetching the previous history page. */
-  readonly loadingOlderHistory = computed(
-    () => this.view().state.loadingOlderHistory === true,
-  );
+  readonly loadingOlderHistory = computed(() => this.view().state.loadingOlderHistory === true);
 
   constructor() {
     this.client = createMorseClient({ transport: this.transport, frontend: FRONTEND_IDENTITY });
@@ -211,9 +212,7 @@ export class MorseService {
    * Selections the host pinned (the title-bar attach command). The composer
    * turns them into attachment chips in the composer strip.
    */
-  onContextSelection(
-    listener: (pin: EditorSelectionPayload) => void,
-  ): () => void {
+  onContextSelection(listener: (pin: EditorSelectionPayload) => void): () => void {
     return this.client.onContextSelection(listener);
   }
 
@@ -221,9 +220,7 @@ export class MorseService {
    * Live selection previews, streamed while the user draws a selection. The
    * composer shows one unlocked chip that updates in real time until clicked.
    */
-  onContextSelectionLive(
-    listener: (preview: EditorSelectionPayload) => void,
-  ): () => void {
+  onContextSelectionLive(listener: (preview: EditorSelectionPayload) => void): () => void {
     return this.client.onContextSelectionLive(listener);
   }
 
@@ -360,10 +357,7 @@ export class MorseService {
    * streamed back. Only offered where `capabilities.terminal` is set — the
    * browser host; VS Code keeps its own integrated terminal.
    */
-  openTerminal(
-    terminalId: string,
-    options?: { cwd?: string; cols?: number; rows?: number },
-  ): void {
+  openTerminal(terminalId: string, options?: { cwd?: string; cols?: number; rows?: number }): void {
     this.actions.openTerminal(terminalId, options);
   }
 
@@ -380,9 +374,7 @@ export class MorseService {
   }
 
   /** Streams a terminal's output; the caller keeps it in its own buffer. */
-  onTerminalOutput(
-    listener: (event: { terminalId: string; data: string }) => void,
-  ): () => void {
+  onTerminalOutput(listener: (event: { terminalId: string; data: string }) => void): () => void {
     return this.client.onTerminalOutput(listener);
   }
 
