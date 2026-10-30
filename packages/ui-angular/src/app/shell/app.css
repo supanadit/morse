@@ -673,13 +673,12 @@
  * The watched-subagent bar. A spawned session is read-only — its parent steers
  * it — so the panel shows the transcript under a slim strip that names the
  * state and offers the way back, where the composer dock would otherwise sit.
+ *
+ * In flow, not floating: an overlay would cover the transcript's first row
+ * ("Load older messages"), which is exactly where a long child opens.
  */
 .subagent-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 5;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -712,6 +711,35 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
+}
+
+/* What the child runs with. Chips, not controls: nothing here is clickable —
+   the parent steers — so they read as a label, muted like the bar itself. */
+.subagent-bar .child-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.subagent-bar .chip {
+  padding: 1px 8px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--morse-fg) 75%, transparent);
+  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.subagent-bar .chip.engine {
+  color: var(--morse-accent);
+}
+
+.subagent-bar .chip.model {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .subagent-bar .refresh {

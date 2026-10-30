@@ -646,7 +646,15 @@ describe('App · watching a subagent', () => {
    * over a fake because the service is otherwise a web of computeds over one
    * private view — stubbing the whole class drags every consumer along.
    */
-  function watchSubagent(fixture: ComponentFixture<App>): void {
+  function watchSubagent(
+    fixture: ComponentFixture<App>,
+    readouts: {
+      engine?: string;
+      model?: { name: string; provider: string; id: string };
+      mode?: string;
+      thinkingLevel?: string;
+    } = {},
+  ): void {
     const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
     const state = signal<SessionViewState>({
       workspace: { cwd: '/work/morse', name: 'morse' },
@@ -695,8 +703,42 @@ describe('App · watching a subagent', () => {
       value: (id: string) =>
         state.update((value: SessionViewState) => ({ ...value, sessionId: id })),
     });
+    // The bar reads the child's own state; overrides must land before the
+    // first render, when the bindings are first evaluated.
+    if (readouts.engine !== undefined) {
+      Object.defineProperty(morse, 'engine', { value: () => readouts.engine });
+    }
+    if (readouts.model !== undefined) {
+      Object.defineProperty(morse, 'model', { value: () => readouts.model });
+    }
+    if (readouts.mode !== undefined) {
+      Object.defineProperty(morse, 'mode', { value: () => readouts.mode });
+    }
+    if (readouts.thinkingLevel !== undefined) {
+      Object.defineProperty(morse, 'thinkingLevel', { value: () => readouts.thinkingLevel });
+    }
     fixture.detectChanges();
   }
+
+  it('shows what the child runs with in the subagent bar', () => {
+    const fixture = TestBed.createComponent(App);
+    // A subagent can be configured with a model of its own (OpenCode names one
+    // per agent in its settings), so the bar reads the child's state, not the
+    // parent's pickers.
+    watchSubagent(fixture, {
+      engine: 'opencode',
+      model: { provider: 'deepseek', id: 'v4.1', name: 'DeepSeek V4.1' },
+      mode: 'plan',
+      thinkingLevel: 'low',
+    });
+
+    const bar = (fixture.nativeElement as HTMLElement).querySelector('.subagent-bar');
+    const chips = [...(bar?.querySelectorAll('.chip') ?? [])].map((chip) => chip.textContent);
+    expect(chips).toContain('opencode');
+    expect(chips.some((text) => text?.includes('DeepSeek V4.1'))).toBe(true);
+    expect(chips).toContain('plan');
+    expect(chips).toContain('low');
+  });
 
   it('hides the composer and offers the way back while watching a subagent', () => {
     const fixture = TestBed.createComponent(App);

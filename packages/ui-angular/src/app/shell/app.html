@@ -274,7 +274,23 @@
             <button type="button" class="back" (click)="backToParent()">
               ← {{ activeParent()?.title ?? 'back to parent' }}
             </button>
-            <span class="watching">watching subagent</span>
+            <!-- What the child runs with, read from its own session state: a
+                 subagent can be configured with a model of its own (OpenCode
+                 names one per agent in its settings), so this is the child's,
+                 not the parent's. Read-only: the parent steers. -->
+            <span class="watching">subagent</span>
+            <span class="child-status">
+              <span class="chip engine">{{ morse.engine() ?? 'agent' }}</span>
+              @if (morse.model(); as model) {
+                <span class="chip model" [title]="model.provider + '/' + model.id">
+                  {{ model.name }}
+                </span>
+              }
+              @if (morse.mode(); as mode) {
+                <span class="chip mode">{{ mode }}</span>
+              }
+              <span class="chip thinking">{{ morse.thinkingLevel() }}</span>
+            </span>
             <!-- The child is written by its parent's process, so what is on
                  screen ages; this pulls the latest from the agent's storage. -->
             <button type="button" class="refresh" (click)="morse.refreshSession()">
