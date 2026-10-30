@@ -109,8 +109,10 @@ export interface AgentToolEndEvent extends AgentEventBase {
 }
 
 /**
- * A session a tool call spawned: the engine's own session id (the same id the
- * session catalog lists) and the agent that ran it, when the engine names one.
+ * A session a tool call spawned: the engine's own child session id and the
+ * agent that ran it, when the engine names one. Adapters report engine ids;
+ * the host's router derives Morse's id from them before anything reaches a
+ * frontend, so a link is openable by the ids the sidebar uses.
  */
 export interface AgentChildSessionRef {
   sessionId: string;

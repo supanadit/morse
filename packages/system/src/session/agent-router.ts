@@ -1,4 +1,5 @@
 import type {
+  AgentChildSessionRef,
   AgentEvent,
   AgentGateway,
   AgentGatewayFactory,
@@ -170,7 +171,16 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   }): Promise<AgentGateway> {
     if (options.sessionId !== undefined) {
       await this.ensureFresh();
-      const record = await this.deps.store.read(options.sessionId);
+      let record = await this.deps.store.read(options.sessionId);
+      if (record === undefined) {
+        // Not found in an index that may simply be a few seconds old: a session
+        // started mid-run (a subagent's child, most often) is in the engine's
+        // listing before any scan has read it, and the debounce would happily
+        // answer "unknown" for the rest of the window. One forced scan settles
+        // it; only a session no engine reports is really missing.
+        await this.ensureFresh(true);
+        record = await this.deps.store.read(options.sessionId);
+      }
       if (record === undefined) {
         throw new AgentUnavailableError(`No session for ${options.sessionId} is in the index.`);
       }
@@ -191,7 +201,9 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     const workspace = options.workspace ?? this.deps.defaultWorkspace;
     const kind = options.engine ?? this.defaultKind;
     if (kind === undefined) {
-      throw new UnsupportedByHostError('No agent engine is registered, so a new session cannot start.');
+      throw new UnsupportedByHostError(
+        'No agent engine is registered, so a new session cannot start.',
+      );
     }
     const registered = this.engines.get(kind);
     if (registered === undefined) {
@@ -275,12 +287,16 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   }
 
   /** Sessions whose title or project path contains the query, capped to a ceiling. */
-  async search(query: string, limit: number = DEFAULT_SESSION_SEARCH_LIMIT): Promise<SessionSummary[]> {
+  async search(
+    query: string,
+    limit: number = DEFAULT_SESSION_SEARCH_LIMIT,
+  ): Promise<SessionSummary[]> {
     await this.ensureFresh(true);
     const needle = query.toLowerCase();
     return sortedByRecency(await this.deps.store.list())
       .filter(
-        (record) => record.title.toLowerCase().includes(needle) || record.cwd.toLowerCase().includes(needle),
+        (record) =>
+          record.title.toLowerCase().includes(needle) || record.cwd.toLowerCase().includes(needle),
       )
       .slice(0, limit)
       .map(toSessionSummary);
@@ -463,6 +479,8 @@ export class RoutedGateway implements AgentGateway {
   readonly refreshModels: (() => Promise<void>) | undefined;
   readonly setMode: ((mode: string) => Promise<void>) | undefined;
   readonly refreshModes: (() => Promise<void>) | undefined;
+  /** Given through only when the harness gateway has it, so presence mirrors it. */
+  readonly refreshHistory: (() => Promise<void>) | undefined;
 
   constructor(options: RoutedOptions) {
     this.options = options;
@@ -471,10 +489,12 @@ export class RoutedGateway implements AgentGateway {
     const inner = options.inner;
     this.refreshCommands =
       inner.refreshCommands === undefined ? undefined : () => inner.refreshCommands!();
-    this.refreshModels = inner.refreshModels === undefined ? undefined : () => inner.refreshModels!();
+    this.refreshModels =
+      inner.refreshModels === undefined ? undefined : () => inner.refreshModels!();
     this.setMode = inner.setMode === undefined ? undefined : (mode) => inner.setMode!(mode);
-    this.refreshModes =
-      inner.refreshModes === undefined ? undefined : () => inner.refreshModes!();
+    this.refreshModes = inner.refreshModes === undefined ? undefined : () => inner.refreshModes!();
+    this.refreshHistory =
+      inner.refreshHistory === undefined ? undefined : () => inner.refreshHistory!();
   }
 
   subscribe(listener: (event: AgentEvent) => void): () => void {
@@ -497,8 +517,16 @@ export class RoutedGateway implements AgentGateway {
     return result;
   }
 
-  history(options?: { limit?: number; before?: string }) {
-    return this.options.inner.history(options);
+  async history(options?: { limit?: number; before?: string }) {
+    const page = await this.options.inner.history(options);
+    return {
+      ...page,
+      entries: page.entries.map((entry) =>
+        entry.role === 'tool' && entry.childSession !== undefined
+          ? { ...entry, childSession: this.rekeyChild(entry.childSession) }
+          : entry,
+      ),
+    };
   }
 
   prompt(
@@ -552,7 +580,7 @@ export class RoutedGateway implements AgentGateway {
     // A state has no `type`; only events do. That is the whole discrimination.
     if ('type' in value) {
       if (value.type !== 'agent/ready' && value.type !== 'agent/state') {
-        return value; // Other events carry no session id to route.
+        return this.rekeyChildInEvent(value);
       }
       this.absorb(value.state);
       this.announce();
@@ -577,6 +605,33 @@ export class RoutedGateway implements AgentGateway {
           sessionId: this.row.id,
           engineSessionId: value.engineSessionId ?? value.sessionId,
         };
+  }
+
+  /**
+   * A child link arrives naming the engine's own session; a frontend opens it
+   * by the Morse id, the same key the sidebar and every tab use. The kind is
+   * fixed per gateway, so the derivation is exactly the one this session's own
+   * id uses. Adapters keep reporting engine ids — only this layer, which owns
+   * the id scheme, translates.
+   */
+  private rekeyChild(child: AgentChildSessionRef): AgentChildSessionRef {
+    return {
+      ...child,
+      sessionId: deriveSessionId({ engine: this.kind, sessionId: child.sessionId }),
+    };
+  }
+
+  /** Translates a tool event's child link, when the event carries one. */
+  private rekeyChildInEvent(event: AgentEvent): AgentEvent {
+    if (
+      (event.type !== 'agent/tool-start' &&
+        event.type !== 'agent/tool-update' &&
+        event.type !== 'agent/tool-end') ||
+      event.childSession === undefined
+    ) {
+      return event;
+    }
+    return { ...event, childSession: this.rekeyChild(event.childSession) };
   }
 
   /** Tells the router this gateway is now running the row (or the forked one). */
@@ -687,5 +742,10 @@ function sortedByRecency(records: readonly MorseSessionRecord[]): MorseSessionRe
 }
 
 function baseName(path: string): string {
-  return path.split(/[\\/]/).filter((part) => part.length > 0).at(-1) ?? path;
+  return (
+    path
+      .split(/[\\/]/)
+      .filter((part) => part.length > 0)
+      .at(-1) ?? path
+  );
 }

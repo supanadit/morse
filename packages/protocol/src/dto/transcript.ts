@@ -2,10 +2,12 @@
 import type { NoticeLevel, ToolStatus, ToolResultDetails } from './primitives.js';
 
 /**
- * A session a tool call spawned: the engine's own session id (the same id the
- * session catalog lists) and the agent that ran it, when the engine names one.
- * Mirrors `@morse/agent`'s `AgentChildSessionRef` by structure — the wire
- * contract stays dependency-free.
+ * A session a tool call spawned, and the agent that ran it, when the engine
+ * names one. The id is Morse's own session id — the same key the sidebar and
+ * tabs use — derived by the host from the engine's child id, so activating it
+ * is a plain `session/activate`. Mirrors `@morse/agent`'s
+ * `AgentChildSessionRef` by structure — the wire contract stays
+ * dependency-free.
  */
 export interface ChildSessionRef {
   sessionId: string;

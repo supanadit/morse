@@ -1,8 +1,10 @@
 import {
   SessionEngine,
+  type AgentChildSessionRef,
   type AgentEvent,
   type AgentGateway,
   type AgentGatewayFactory,
+  type AgentHistoryEntry,
   type AgentSessionInfo,
   type AgentSessionState,
   type ModelRef,
@@ -64,6 +66,18 @@ class RecordingCatalog implements SessionCatalog {
 class FakeGateway implements AgentGateway {
   readonly kind: string = 'pi';
   current: AgentSessionState;
+  /** What `history()` serves; empty unless a test says otherwise. */
+  entries: {
+    role: 'user' | 'assistant' | 'tool';
+    text?: string;
+    name?: string;
+    title?: string;
+    status?: 'ok' | 'error' | 'running';
+    at?: number;
+    childSession?: { sessionId: string; agent?: string };
+  }[] = [];
+  /** Counts transcript-cache drops; omitted means the adapter has no cache. */
+  refreshHistory?: () => Promise<void>;
   /** The engine id this session moves to on a fork, when one is configured. */
   private readonly forkTo: string | undefined;
   private readonly listeners = new Set<(event: AgentEvent) => void>();
@@ -90,8 +104,8 @@ class FakeGateway implements AgentGateway {
     return Promise.resolve(this.current);
   }
 
-  history(): Promise<{ entries: never[]; hasOlder: boolean }> {
-    return Promise.resolve({ entries: [], hasOlder: false });
+  history(): Promise<{ entries: AgentHistoryEntry[]; hasOlder: boolean }> {
+    return Promise.resolve({ entries: this.entries, hasOlder: false });
   }
 
   prompt(_text: string, _mode: PromptMode): Promise<'started'> {
@@ -297,7 +311,9 @@ describe('AgentRouter', () => {
     expect(ready?.type).toBe('agent/ready');
     expect(ready?.type === 'agent/ready' ? ready.state.sessionId : undefined).toBe(piRecord.id);
     // An engine that names its session no other way is stamped from its id.
-    expect(ready?.type === 'agent/ready' ? ready.state.engineSessionId : undefined).toBe(piEngineId);
+    expect(ready?.type === 'agent/ready' ? ready.state.engineSessionId : undefined).toBe(
+      piEngineId,
+    );
   });
 
   it('seeds the index under the derived id as soon as a new session reports one', async () => {
@@ -367,7 +383,7 @@ describe('AgentRouter', () => {
     });
   });
 
-  it('resumes into the record\'s engine even when the default is another, and a fork keeps it', async () => {
+  it("resumes into the record's engine even when the default is another, and a fork keeps it", async () => {
     const record = recordOf('opencode', 'oc-engine-id');
     const store = new MemoryStore();
     store.rows.set(record.id, record);
@@ -377,8 +393,7 @@ describe('AgentRouter', () => {
         { kind: 'pi', default: true },
         {
           kind: 'opencode',
-          gatewayFor: () =>
-            new FakeGateway(state({ sessionId: 'oc-engine-id' }), 'oc-forked-id'),
+          gatewayFor: () => new FakeGateway(state({ sessionId: 'oc-engine-id' }), 'oc-forked-id'),
         },
       ],
     });
@@ -427,10 +442,146 @@ describe('AgentRouter', () => {
     expect(await store.read(parentRecord.id)).toMatchObject({ id: parentRecord.id });
   });
 
+  it('translates a child link from the engine id to the Morse id a frontend opens', async () => {
+    const inner = new FakeGateway(state({ sessionId: 'parent-engine' }));
+    const { router } = build({
+      engines: [{ kind: 'opencode', gatewayFor: () => inner }],
+    });
+    const gateway = await router.create({ workspace: { cwd: '/work/project', name: 'project' } });
+    const child = (engineSessionId: string): AgentChildSessionRef => ({
+      sessionId: engineSessionId,
+      agent: 'explore',
+    });
+
+    // Live events: the tool row must link with the id `session/activate` takes.
+    const seen: AgentEvent[] = [];
+    gateway.subscribe((event) => seen.push(event));
+    inner.emit({
+      type: 'agent/tool-start',
+      at: 1,
+      toolCallId: 't1',
+      name: 'task',
+      title: 'task',
+      childSession: child('child-engine-1'),
+    });
+    inner.emit({
+      type: 'agent/tool-end',
+      at: 2,
+      toolCallId: 't1',
+      status: 'ok',
+      childSession: child('child-engine-1'),
+    });
+    // Other events pass untouched; the translated links must not leak into them.
+    inner.emit({ type: 'agent/run-end', at: 3, reason: 'settled' });
+
+    // Persisted history: a resumed parent's tool rows link the same way.
+    inner.entries = [
+      {
+        role: 'tool',
+        toolCallId: 't2',
+        name: 'task',
+        title: 'task',
+        status: 'ok',
+        childSession: child('child-engine-2'),
+      },
+    ];
+
+    const expected = (engineSessionId: string): string => recordOf('opencode', engineSessionId).id;
+    const links = seen.flatMap((event) =>
+      event.type === 'agent/tool-start' || event.type === 'agent/tool-end'
+        ? [event.childSession]
+        : [],
+    );
+    expect(links).toHaveLength(2);
+    expect(links[0]).toEqual({ sessionId: expected('child-engine-1'), agent: 'explore' });
+    expect(links[1]).toEqual({ sessionId: expected('child-engine-1'), agent: 'explore' });
+    // And the id really is one the router can open: the row exists once a scan
+    // has seen it (covered by the forced-refresh test below).
+    expect(expected('child-engine-1')).not.toBe('child-engine-1');
+    const page = await gateway.history();
+    const entry = page.entries[0];
+    expect(entry?.role).toBe('tool');
+    expect(entry?.role === 'tool' ? entry.childSession?.sessionId : undefined).toBe(
+      expected('child-engine-2'),
+    );
+  });
+
+  it('passes a caching adapter’s transcript-cache drop through to the wrapped gateway', async () => {
+    const inner = new FakeGateway(state({ sessionId: 'parent-engine' }));
+    let dropped = 0;
+    inner.refreshHistory = () => {
+      dropped += 1;
+      return Promise.resolve();
+    };
+    const { router } = build({ engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+    const gateway = await router.create({ workspace: { cwd: '/work/project', name: 'project' } });
+    await gateway.refreshHistory?.();
+    expect(dropped).toBe(1);
+    // And a gateway whose adapter cannot refresh simply reports no capability.
+    const plain = await build({ engines: [{ kind: 'pi' }] }).router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+    });
+    expect(plain.refreshHistory).toBeUndefined();
+  });
+
+  it('finds a session that appeared after the last scan with one forced refresh', async () => {
+    // A child spawned mid-run is in the engine's listing before any scan has
+    // read it; opening it must not be answered from a stale index window.
+    const reported: AgentSessionInfo[] = [
+      {
+        sessionId: 'parent-engine',
+        cwd: '/work/project',
+        updatedAt: 1_000,
+        messageCount: 1,
+        token: '1',
+      },
+    ];
+    let scans = 0;
+    const { router, engines } = build({
+      freshMs: 60_000, // The debounced read shares the first scan's result.
+      engines: [
+        {
+          kind: 'opencode',
+          gatewayFor: (input) => new FakeGateway(state({ sessionId: input.sessionId ?? '?' })),
+          scan: () => {
+            scans += 1;
+            if (scans === 1) {
+              return Promise.resolve(reported);
+            }
+            return Promise.resolve([
+              ...reported,
+              {
+                sessionId: 'child-engine',
+                cwd: '/work/project',
+                updatedAt: 2_000,
+                messageCount: 0,
+                token: '2',
+                parentSessionId: 'parent-engine',
+                subagent: true,
+              },
+            ]);
+          },
+        },
+      ],
+    });
+    await router.list(); // Warms the index without the child.
+
+    const opened = await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      sessionId: recordOf('opencode', 'child-engine').id,
+    });
+    expect(scans).toBe(2);
+    expect((await opened.state()).sessionId).toBe(recordOf('opencode', 'child-engine').id);
+    expect(engines.get('opencode')?.created[0]?.sessionId).toBe('child-engine');
+  });
+
   it('reports an id no engine holds instead of opening an arbitrary session', async () => {
     const { router, engines } = build({ engines: [{ kind: 'pi' }] });
     await expect(
-      router.create({ workspace: { cwd: '/work/project', name: 'project' }, sessionId: 'not-indexed' }),
+      router.create({
+        workspace: { cwd: '/work/project', name: 'project' },
+        sessionId: 'not-indexed',
+      }),
     ).rejects.toBeInstanceOf(AgentUnavailableError);
     expect(engines.get('pi')?.created).toEqual([]);
   });
@@ -440,7 +591,9 @@ describe('AgentRouter', () => {
     const record = recordOf('pi', 'pi-session-1');
     store.rows.set(record.id, record);
     const { router } = build({ store, engines: [{ kind: 'opencode' }] });
-    await expect(router.create({ sessionId: record.id })).rejects.toBeInstanceOf(AgentUnavailableError);
+    await expect(router.create({ sessionId: record.id })).rejects.toBeInstanceOf(
+      AgentUnavailableError,
+    );
   });
 
   it('deletes through the owning engine, then forgets only that row', async () => {
@@ -542,7 +695,11 @@ describe('AgentRouter', () => {
 });
 
 describe('AgentRouter catalog', () => {
-  function info(kind: string, sessionId: string, overrides: Partial<AgentSessionInfo> = {}): AgentSessionInfo {
+  function info(
+    kind: string,
+    sessionId: string,
+    overrides: Partial<AgentSessionInfo> = {},
+  ): AgentSessionInfo {
     return {
       sessionId,
       cwd: '/work/project',
@@ -554,7 +711,7 @@ describe('AgentRouter catalog', () => {
     };
   }
 
-  it('lists both engines\' sessions from the index, newest first, grouped by project cap', async () => {
+  it("lists both engines' sessions from the index, newest first, grouped by project cap", async () => {
     const store = new MemoryStore();
     for (const [kind, id, updatedAt] of [
       ['pi', 'a', 1_000],
@@ -609,7 +766,7 @@ describe('AgentRouter catalog', () => {
     expect(scans).toBe(2);
   });
 
-  it('leaves an engine\'s rows alone when its scan fails, and still merges the other engine', async () => {
+  it("leaves an engine's rows alone when its scan fails, and still merges the other engine", async () => {
     const piRecord = toSessionRecord('pi', info('pi', 'existing'));
     const store = new MemoryStore();
     store.rows.set(piRecord.id, piRecord);
@@ -628,7 +785,10 @@ describe('AgentRouter catalog', () => {
     });
 
     const listed = await router.list();
-    expect(listed.map((session) => session.title).sort()).toEqual(['opencode new-one', 'pi existing']);
+    expect(listed.map((session) => session.title).sort()).toEqual([
+      'opencode new-one',
+      'pi existing',
+    ]);
     // Explicitly: the failed engine has no way to report its rows deleted.
     expect(await store.read(piRecord.id)).toMatchObject({ id: piRecord.id });
   });
@@ -675,7 +835,10 @@ describe('AgentRouter catalog', () => {
     for (let index = 0; index < 15; index += 1) {
       const record = toSessionRecord(
         'pi',
-        info('pi', `s${index}`, { title: index === 14 ? 'needle session' : `session ${index}`, updatedAt: 1_000 + index }),
+        info('pi', `s${index}`, {
+          title: index === 14 ? 'needle session' : `session ${index}`,
+          updatedAt: 1_000 + index,
+        }),
       );
       store.rows.set(record.id, record);
     }
