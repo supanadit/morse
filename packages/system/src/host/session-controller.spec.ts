@@ -1,5 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type AgentEventListener, type AgentDiagnostic, type AgentEvent, type AgentForkMessage, type AgentGateway, type AgentGatewayFactory, type AgentHistoryEntry, type AgentInteractionRequest, type AgentMode, type AgentSessionState, type ModelRef, type PromptDisposition, type SessionEngine } from '@morse/agent';
+import {
+  type AgentEventListener,
+  type AgentDiagnostic,
+  type AgentEvent,
+  type AgentForkMessage,
+  type AgentGateway,
+  type AgentGatewayFactory,
+  type AgentHistoryEntry,
+  type AgentInteractionRequest,
+  type AgentMode,
+  type AgentSessionState,
+  type ModelRef,
+  type PromptDisposition,
+  type SessionEngine,
+} from '@morse/agent';
 import { AgentUnavailableError, ChatService, SessionRegistry, silentLogger } from '@morse/system';
 import {
   PROTOCOL_VERSION,
@@ -48,6 +62,10 @@ function fakeGateway(
     hold?: CompactHold;
     /** What `history()` reports for a cold resume, oldest first. */
     historyEntries?: AgentHistoryEntry[];
+    /** A `history()` the test controls, so a refresh can see new entries. */
+    historyFn?: () => AgentHistoryEntry[];
+    /** Counts transcript re-reads; omitted means the adapter has no cache to drop. */
+    refreshHistory?: () => Promise<void>;
     /** What `forkMessages()` offers for the fork point lookup. */
     forkMessages?: AgentForkMessage[];
     /** A committed fork: the prompt it re-opened and the new session id. */
@@ -105,7 +123,10 @@ function fakeGateway(
     },
     state: () => Promise.resolve(snapshot()),
     history: () =>
-      Promise.resolve({ entries: options.historyEntries ?? [], hasOlder: false }),
+      Promise.resolve({
+        entries: options.historyFn ? options.historyFn() : (options.historyEntries ?? []),
+        hasOlder: false,
+      }),
     prompt: () => Promise.resolve<PromptDisposition>('started'),
     forkMessages: () => Promise.resolve(options.forkMessages ?? []),
     fork: () => {
@@ -142,6 +163,7 @@ function fakeGateway(
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
     ...(options.refreshModes ? { refreshModes: options.refreshModes } : {}),
+    ...(options.refreshHistory ? { refreshHistory: options.refreshHistory } : {}),
     dispose: () => Promise.resolve(),
   };
 }
@@ -194,51 +216,57 @@ function connect(
   });
 }
 
-function harness(options: {
-  compactError?: Error;
-  hold?: CompactHold;
-  forkMessages?: AgentForkMessage[];
-  fork?: { text: string; sessionId: string };
-  /** The factory refuses instead of returning a gateway: "pi is not installed". */
-  spawnError?: Error;
-  /** The draft probe refuses too: the same missing pi, seen before any prompt. */
-  probeError?: Error;
-  /** A successful session-less probe whose catalog depends on the requested model/engine. */
-  probeState?: (model?: ModelRef, engine?: string) => AgentSessionState | undefined;
-  /** Engines the registry reports, so `engine/set` can validate a kind. */
-  engines?: readonly SessionEngine[];
-  /** The kind of engine the gateway reports; pi unless a test says otherwise. */
-  kind?: string;
-  /**
-   * Parks the open until a test says so, to look at the switch gap: a tab in
-   * front whose session state has not arrived yet.
-   */
-  openGate?: () => Promise<void>;
-  /** The mode a live gateway reports. */
-  mode?: string;
-  /** The modes a live gateway offers. */
-  availableModes?: AgentMode[];
-  /** Records a live mode switch. */
-  onSetMode?: (mode: string) => void;
-  /**
-   * Parks a draft probe until a test says so, to look at the panel mid-probe.
-   * `call` is 1-based, so a test can let the load-time probe through and park
-   * the model pick's one.
-   */
-  probeGate?: (call: number) => Promise<void>;
-  agentHint?: string;
-  refreshCommands?: () => Promise<void>;
-  /** Counts model-catalog re-reads; omitted means the adapter can't. */
-  refreshModels?: () => Promise<void>;
-  /** Persisted sessions the catalog reports, so a test can seed a real title. */
-  catalogSessions?: SessionSummary[];
-  /** Session ids the factory refuses, as the engine router does for a stale id. */
-  unknownSessionIds?: string[];
-  /** Warnings the agent carries on its state (pi's refused prompt templates). */
-  diagnostics?: AgentDiagnostic[];
-  /** Records each compaction call's instructions and target session key. */
-  onCompact?: (instructions: string | undefined, sessionKey: string | undefined) => void;
-} = {}): Harness {
+function harness(
+  options: {
+    compactError?: Error;
+    hold?: CompactHold;
+    forkMessages?: AgentForkMessage[];
+    fork?: { text: string; sessionId: string };
+    /** The factory refuses instead of returning a gateway: "pi is not installed". */
+    spawnError?: Error;
+    /** The draft probe refuses too: the same missing pi, seen before any prompt. */
+    probeError?: Error;
+    /** A successful session-less probe whose catalog depends on the requested model/engine. */
+    probeState?: (model?: ModelRef, engine?: string) => AgentSessionState | undefined;
+    /** Engines the registry reports, so `engine/set` can validate a kind. */
+    engines?: readonly SessionEngine[];
+    /** The kind of engine the gateway reports; pi unless a test says otherwise. */
+    kind?: string;
+    /**
+     * Parks the open until a test says so, to look at the switch gap: a tab in
+     * front whose session state has not arrived yet.
+     */
+    openGate?: () => Promise<void>;
+    /** The mode a live gateway reports. */
+    mode?: string;
+    /** The modes a live gateway offers. */
+    availableModes?: AgentMode[];
+    /** Records a live mode switch. */
+    onSetMode?: (mode: string) => void;
+    /**
+     * Parks a draft probe until a test says so, to look at the panel mid-probe.
+     * `call` is 1-based, so a test can let the load-time probe through and park
+     * the model pick's one.
+     */
+    probeGate?: (call: number) => Promise<void>;
+    agentHint?: string;
+    refreshCommands?: () => Promise<void>;
+    /** Counts model-catalog re-reads; omitted means the adapter can't. */
+    refreshModels?: () => Promise<void>;
+    /** Persisted sessions the catalog reports, so a test can seed a real title. */
+    catalogSessions?: SessionSummary[];
+    /** Session ids the factory refuses, as the engine router does for a stale id. */
+    unknownSessionIds?: string[];
+    /** Warnings the agent carries on its state (pi's refused prompt templates). */
+    diagnostics?: AgentDiagnostic[];
+    /** Records each compaction call's instructions and target session key. */
+    onCompact?: (instructions: string | undefined, sessionKey: string | undefined) => void;
+    /** Counts transcript re-reads; omitted means the adapter has no cache to drop. */
+    refreshHistory?: () => Promise<void>;
+    /** A `history()` the test controls, so a refresh can see new entries. */
+    historyFn?: () => AgentHistoryEntry[];
+  } = {},
+): Harness {
   const messages: HostToClientMessage[] = [];
   const gateway = fakeGateway({
     compactError: options.compactError,
@@ -247,6 +275,8 @@ function harness(options: {
     ...(options.onCompact ? { onCompact: options.onCompact } : {}),
     ...(options.hold ? { hold: options.hold } : {}),
     ...(options.historyEntries ? { historyEntries: options.historyEntries } : {}),
+    ...(options.historyFn ? { historyFn: options.historyFn } : {}),
+    ...(options.refreshHistory ? { refreshHistory: options.refreshHistory } : {}),
     ...(options.forkMessages ? { forkMessages: options.forkMessages } : {}),
     ...(options.fork ? { fork: options.fork } : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
@@ -258,8 +288,12 @@ function harness(options: {
   });
   const spawns = { count: 0 };
   const probes = { count: 0 };
-  const created: { workspace: typeof WORKSPACE; sessionId?: string; engine?: string; mode?: string }[] =
-    [];
+  const created: {
+    workspace: typeof WORKSPACE;
+    sessionId?: string;
+    engine?: string;
+    mode?: string;
+  }[] = [];
   const factory: AgentGatewayFactory = {
     create: (input) => {
       spawns.count += 1;
@@ -273,9 +307,7 @@ function harness(options: {
       const resolved = options.spawnError
         ? Promise.reject(options.spawnError)
         : Promise.resolve(gateway);
-      return options.openGate === undefined
-        ? resolved
-        : options.openGate().then(() => resolved);
+      return options.openGate === undefined ? resolved : options.openGate().then(() => resolved);
     },
     ...(options.probeState
       ? {
@@ -331,12 +363,13 @@ function harness(options: {
     spawns: () => spawns.count,
     created: () => created,
     probes: () => probes.count,
-    replaces: () => messages
-      .filter(
-        (message): message is Extract<HostToClientMessage, { type: 'transcript/replace' }> =>
-          message.type === 'transcript/replace',
-      )
-      .map((message) => message.payload.items),
+    replaces: () =>
+      messages
+        .filter(
+          (message): message is Extract<HostToClientMessage, { type: 'transcript/replace' }> =>
+            message.type === 'transcript/replace',
+        )
+        .map((message) => message.payload.items),
     lastState: () => lastStateOf(messages),
     reload() {
       const reloaded: HostToClientMessage[] = [];
@@ -446,7 +479,13 @@ describe('HostSessionController.start (reload reattach)', () => {
     // not the first prompt, which can be a one-word follow-up like "commit".
     const h = harness({
       catalogSessions: [
-        { id: 'sess-1', title: 'Tambahkan fitur copy', cwd: WORKSPACE.cwd, updatedAt: 1, messageCount: 4 },
+        {
+          id: 'sess-1',
+          title: 'Tambahkan fitur copy',
+          cwd: WORKSPACE.cwd,
+          updatedAt: 1,
+          messageCount: 4,
+        },
       ],
     });
     await withOpenSession(h);
@@ -514,8 +553,9 @@ describe('HostSessionController compaction', () => {
     // The failure is a transcript row, as before.
     expect(h.messages.some((message) => message.type === 'error')).toBe(false);
     const appends = h.messages
-      .filter((message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
-        message.type === 'transcript/append',
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
+          message.type === 'transcript/append',
       )
       .map((message) => message.payload);
     expect(String(appends.at(-1)?.text)).toContain('Already compacted');
@@ -562,8 +602,10 @@ describe('HostSessionController compaction', () => {
       payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
     });
     const states = messages
-      .filter((message): message is Extract<HostToClientMessage, { type: 'session/state' }> =>
-        message.type === 'session/state')
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'session/state' }> =>
+          message.type === 'session/state',
+      )
       .map((message) => message.payload);
     expect(states.length).toBeGreaterThan(0);
     expect(states.some((state) => state.sessionId === 'sess-a')).toBe(false);
@@ -617,8 +659,9 @@ describe('HostSessionController compaction', () => {
     });
     expect(calls).toEqual([]);
     const appends = h.messages
-      .filter((message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
-        message.type === 'transcript/append',
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
+          message.type === 'transcript/append',
       )
       .map((message) => message.payload);
     expect(String(appends.at(-1)?.text)).toContain('no longer open');
@@ -822,7 +865,12 @@ describe('HostSessionController seeding', () => {
       historyEntries: [
         { role: 'user', text: 'build me a tree', at: 1_000 },
         { role: 'assistant', text: 'sure', thinking: '', at: 2_000 },
-        { role: 'compaction', summary: '## Summary\n\nBuilt a tree.', tokensBefore: 150_000, at: 3_000 },
+        {
+          role: 'compaction',
+          summary: '## Summary\n\nBuilt a tree.',
+          tokensBefore: 150_000,
+          at: 3_000,
+        },
         { role: 'user', text: 'now paint it', at: 5_000 },
       ],
     });
@@ -847,12 +895,71 @@ describe('HostSessionController seeding', () => {
   });
 });
 
+/**
+ * A watched session is written by someone else — a subagent's parent process
+ * keeps running while this panel only displays — and the seed guard ("already
+ * has items") would leave it stale forever. `session/refresh` re-reads from the
+ * source, tells a caching adapter to drop its snapshot first, and replaces the
+ * newest page instead of prepending a second copy of the conversation.
+ */
+describe('HostSessionController session/refresh', () => {
+  it('replaces the transcript with what the source holds now', async () => {
+    let entries: AgentHistoryEntry[] = [{ role: 'user', text: 'explore this', at: 1_000 }];
+    let refreshed = 0;
+    const h = harness({
+      historyFn: () => entries,
+      refreshHistory: () => {
+        refreshed += 1;
+        return Promise.resolve();
+      },
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    await vi.waitFor(() => expect(h.transcripts.items('sess-1')).toHaveLength(1));
+    h.messages.length = 0;
+
+    // The parent's process wrote more while the panel was watching.
+    entries = [
+      { role: 'user', text: 'explore this', at: 1_000 },
+      { role: 'assistant', text: 'found three entry points', thinking: '', at: 2_000 },
+    ];
+    await h.controller.handleClientMessage({ type: 'session/refresh', payload: {} });
+
+    expect(refreshed).toBe(1);
+    const items = h.transcripts.items('sess-1');
+    expect(items.map((item) => item.kind)).toEqual(['user', 'assistant']);
+    // The stale page is replaced, not prepended: no duplicate of the prompt.
+    expect(items.filter((item) => item.kind === 'user')).toHaveLength(1);
+    const replace = h.messages.find((message) => message.type === 'transcript/replace');
+    expect(replace).toBeDefined();
+  });
+
+  it('is a quiet no-op with no session in front', async () => {
+    let refreshed = 0;
+    const h = harness({
+      refreshHistory: () => {
+        refreshed += 1;
+        return Promise.resolve();
+      },
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({ type: 'session/refresh', payload: {} });
+    expect(refreshed).toBe(0);
+  });
+});
+
 describe('HostSessionController failures', () => {
   it('classifies a missing agent so the frontend can offer the install command', async () => {
     const error = new AgentUnavailableError('The pi coding agent was not found.', {
       remedy: { install: 'npm install -g @earendil-works/pi-coding-agent' },
     });
-    const h = harness({ spawnError: error, agentHint: 'Set "morse.pi.path" or install the pi CLI.' });
+    const h = harness({
+      spawnError: error,
+      agentHint: 'Set "morse.pi.path" or install the pi CLI.',
+    });
     await h.controller.start();
 
     // The draft's first prompt is what makes the host spawn pi — and fail.
@@ -902,9 +1009,7 @@ describe('HostSessionController failures', () => {
     // With no conversation to attach the failure to, it is said as a notice; the
     // wire `error` channel stays reserved for the handshake.
     expect(
-      h.messages.some(
-        (message) => message.type === 'notice' && message.payload.level === 'error',
-      ),
+      h.messages.some((message) => message.type === 'notice' && message.payload.level === 'error'),
     ).toBe(true);
     expect(h.messages.some((message) => message.type === 'error')).toBe(false);
   });
@@ -935,7 +1040,10 @@ describe('HostSessionController failures', () => {
   });
 
   it('keeps a transient draft-probe failure out of the panel', async () => {
-    const h = harness({ probeError: new Error('probe timed out'), agentHint: 'Install the pi CLI.' });
+    const h = harness({
+      probeError: new Error('probe timed out'),
+      agentHint: 'Install the pi CLI.',
+    });
     await h.controller.start();
     await vi.waitFor(() => expect(h.probes()).toBe(1));
 
@@ -991,14 +1099,12 @@ describe('HostSessionController failures', () => {
       payload: { provider: 'mock', id: 'plain' },
     });
 
-    await vi.waitFor(() =>
-      expect(h.lastState()?.availableThinkingLevels).toEqual(['off']),
-    );
+    await vi.waitFor(() => expect(h.lastState()?.availableThinkingLevels).toEqual(['off']));
     expect(h.probes()).toBe(2);
     expect(h.lastState()?.model?.id).toBe('plain');
   });
 
-  it('says it is reading the picked model\'s levels while the draft re-probe runs', async () => {
+  it("says it is reading the picked model's levels while the draft re-probe runs", async () => {
     const base: AgentSessionState = {
       workspace: WORKSPACE,
       thinkingLevel: 'low',
@@ -1146,13 +1252,13 @@ describe('HostSessionController failures', () => {
     // socket must not look like a dead connection.
     expect(h.messages.some((message) => message.type === 'error')).toBe(false);
     const appends = h.messages
-      .filter((message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
-        message.type === 'transcript/append',
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'transcript/append' }> =>
+          message.type === 'transcript/append',
       )
       .map((message) => message.payload);
     const lastErrorRow = appends.at(-1) as
-      | { kind: string; level: NoticeLevel; text: string }
-      | undefined;
+      { kind: string; level: NoticeLevel; text: string } | undefined;
     expect(lastErrorRow).toMatchObject({ kind: 'notice', level: 'error' });
     expect(lastErrorRow?.text).toContain('Already compacted');
   });
@@ -1360,7 +1466,7 @@ describe('HostSessionController project list', () => {
     expect(paths).toContain('/work/other');
   });
 
-  it('answers a scoped session/list with that project\'s next page and a hasMore flag', async () => {
+  it("answers a scoped session/list with that project's next page and a hasMore flag", async () => {
     const messages: HostToClientMessage[] = [];
     let pageCalls: { cwd: string; offset?: number; limit?: number }[] = [];
     const registry = new SessionRegistry({
@@ -1435,8 +1541,20 @@ describe('HostSessionController project list', () => {
         search: (query: string) =>
           Promise.resolve(
             [
-              { id: 'a', title: 'Deploy the parser', cwd: '/work/allowed', updatedAt: 1, messageCount: 1 },
-              { id: 'b', title: 'Deploy the server', cwd: '/work/outside', updatedAt: 2, messageCount: 1 },
+              {
+                id: 'a',
+                title: 'Deploy the parser',
+                cwd: '/work/allowed',
+                updatedAt: 1,
+                messageCount: 1,
+              },
+              {
+                id: 'b',
+                title: 'Deploy the server',
+                cwd: '/work/outside',
+                updatedAt: 2,
+                messageCount: 1,
+              },
             ].filter((session) => session.title.toLowerCase().includes(query.toLowerCase())),
           ),
       },
@@ -1499,7 +1617,7 @@ describe('HostSessionController project list', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('tells host commands which workspace the client is viewing, not the registry\'s active session', async () => {
+  it("tells host commands which workspace the client is viewing, not the registry's active session", async () => {
     const seen: { command: string; cwd: string }[] = [];
     const messages: HostToClientMessage[] = [];
     const registry = new SessionRegistry({
@@ -2286,9 +2404,7 @@ describe('HostSessionController session-scoped dialogs', () => {
     // The background dialog did not steal the panel's single slot...
     expect(messages.some((message) => message.type === 'interaction/request')).toBe(false);
     // ...but the navigator can mark the session that is waiting on it.
-    const activity = messages
-      .filter((message) => message.type === 'session/activity')
-      .at(-1);
+    const activity = messages.filter((message) => message.type === 'session/activity').at(-1);
     const waiting = activity?.payload.sessions.find((s) => s.sessionKey === 'sess-b');
     expect(waiting?.needsInput).toBe(true);
 
@@ -2381,11 +2497,9 @@ describe('HostSessionController session-scoped dialogs', () => {
 
     const shown = messages.filter((message) => message.type === 'interaction/request').at(-1);
     expect(shown?.payload.kind).toBe('form');
-    expect(shown?.payload.kind === 'form' ? shown.payload.fields.map((field) => field.key) : []).toEqual([
-      'name',
-      'retries',
-      'details',
-    ]);
+    expect(
+      shown?.payload.kind === 'form' ? shown.payload.fields.map((field) => field.key) : [],
+    ).toEqual(['name', 'retries', 'details']);
     expect(dialogs.select).not.toHaveBeenCalled();
     expect(dialogs.input).not.toHaveBeenCalled();
 
@@ -2403,7 +2517,12 @@ describe('HostSessionController session-scoped dialogs', () => {
     created[0].emit({
       type: 'agent/interaction',
       at: Date.now(),
-      request: { requestId: 'sel-1', kind: 'select', title: 'Pick', options: [{ value: 'a', label: 'a' }] },
+      request: {
+        requestId: 'sel-1',
+        kind: 'select',
+        title: 'Pick',
+        options: [{ value: 'a', label: 'a' }],
+      },
     });
     await Promise.resolve();
     expect(dialogs.select).toHaveBeenCalledTimes(1);
@@ -2428,9 +2547,7 @@ describe('HostSessionController session-scoped dialogs', () => {
       payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
     });
 
-    const dismissed = messages
-      .filter((message) => message.type === 'interaction/dismiss')
-      .at(-1);
+    const dismissed = messages.filter((message) => message.type === 'interaction/dismiss').at(-1);
     expect(dismissed?.payload.requestId).toBe('req-2');
   });
 });
@@ -2567,9 +2684,7 @@ describe('HostSessionController engine and mode picks', () => {
       availableModes: modes,
       onSetMode: (mode) => switched.push(mode),
       probeState: (_model, engine) =>
-        engine === 'opencode'
-          ? { ...base(), mode: 'plan', availableModes: modes }
-          : base(),
+        engine === 'opencode' ? { ...base(), mode: 'plan', availableModes: modes } : base(),
     });
     await h.controller.start();
     expect(h.lastState()).toMatchObject({ draft: true, availableModes: [] });

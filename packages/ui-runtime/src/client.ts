@@ -67,6 +67,12 @@ export interface MorseActions {
   compactSession(instructions?: string, sessionKey?: string, schedule?: boolean): void;
   /** Fetches the previous page of a resumed session's history. */
   loadOlderHistory(): void;
+  /**
+   * Re-reads the conversation in front from the agent's own storage. A watched
+   * subagent is written by its parent's process, so its transcript ages in
+   * place — this asks the host for the latest.
+   */
+  refreshSession(): void;
   requestSessions(): void;
   /**
    * Fetches more of one project's sessions, for the sidebar's "Load more". The
@@ -304,6 +310,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     abort: () => send({ type: 'chat/abort', payload: {} }),
     newSession: (cwd) => send({ type: 'session/new', payload: { cwd } }),
     loadSession: (sessionId, cwd) => send({ type: 'session/load', payload: { sessionId, cwd } }),
+    refreshSession: () => send({ type: 'session/refresh', payload: {} }),
     activateSession: (sessionId, cwd) =>
       send({ type: 'session/activate', payload: { sessionId, cwd } }),
     closeSession: (sessionId) => send({ type: 'session/close', payload: { sessionId } }),

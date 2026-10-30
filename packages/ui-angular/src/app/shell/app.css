@@ -713,3 +713,19 @@
   text-transform: uppercase;
   color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
 }
+
+.subagent-bar .refresh {
+  margin-left: auto;
+  border: 0;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--morse-fg);
+  background: none;
+  cursor: pointer;
+  border-radius: var(--morse-radius-sm);
+}
+
+.subagent-bar .refresh:hover {
+  background: var(--morse-hover);
+}

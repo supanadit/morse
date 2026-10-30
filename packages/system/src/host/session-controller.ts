@@ -466,6 +466,9 @@ export class HostSessionController {
       case 'session/load':
         await this.activateSession(message.payload.sessionId, message.payload.cwd);
         return;
+      case 'session/refresh':
+        await this.refreshSession();
+        return;
       case 'session/close':
         await this.closeSession(message.payload.sessionId);
         return;
@@ -1105,6 +1108,46 @@ export class HostSessionController {
       key,
       historyItems(key, result.value.entries, this.historyPageSeq++),
     );
+    this.emitState();
+  }
+
+  /**
+   * Re-reads the conversation in front from the agent's own storage. A watched
+   * session is written by someone else — a subagent's parent process keeps
+   * running while this panel only displays — so its transcript ages in place,
+   * and `seedHistory`'s guard ("already has items") would happily leave it
+   * stale forever. This replaces the newest page from the source; anything the
+   * live stream already delivered converges with what the engine stored.
+   */
+  private async refreshSession(): Promise<void> {
+    const key = this.activeKey;
+    if (key === undefined) {
+      return;
+    }
+    const gateway = this.addressedGateway();
+    if (!gateway) {
+      return;
+    }
+    // An adapter that kept its first read (pi caches `get_entries`) is told to
+    // let it go before the re-read, or the refresh would serve the snapshot
+    // from when this gateway attached.
+    await gateway.refreshHistory?.();
+    const result = await this.guard(() => gateway.history({ limit: HISTORY_PAGE_SIZE }));
+    if (!result.ok || this.activeKey !== key) {
+      return;
+    }
+    this.options.transcripts.reset(key);
+    this.historyBefore = result.value.before;
+    this.hasOlderHistory = result.value.hasOlder;
+    this.options.transcripts.setHistoryCursor(key, {
+      before: result.value.before,
+      hasOlder: result.value.hasOlder,
+    });
+    this.options.transcripts.seed(
+      key,
+      historyItems(key, result.value.entries, this.historyPageSeq++),
+    );
+    this.emitTranscript(key);
     this.emitState();
   }
 

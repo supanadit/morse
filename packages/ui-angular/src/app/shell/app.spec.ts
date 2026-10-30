@@ -722,4 +722,18 @@ describe('App · watching a subagent', () => {
     const morse = TestBed.inject(MorseService) as unknown as { state(): { sessionId?: string } };
     expect(morse.state().sessionId).toBe('parent');
   });
+
+  it('re-reads the conversation when the refresh affordance is used', () => {
+    const fixture = TestBed.createComponent(App);
+    watchSubagent(fixture);
+
+    let refreshed = 0;
+    const morse = TestBed.inject(MorseService);
+    Object.defineProperty(morse, 'refreshSession', { value: () => (refreshed += 1) });
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.subagent-bar .refresh')
+      ?.click();
+
+    expect(refreshed).toBe(1);
+  });
 });

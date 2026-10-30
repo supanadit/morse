@@ -1,8 +1,38 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { THINKING_LEVELS, MAX_PIN_EXCERPT, type AgentDiagnostic, type AgentForkMessage, type AgentHistoryEntry, type AgentHistoryPage, type AgentInteractionRequest, type AgentInteractionResponse, type AgentSessionState, type AgentStatus, type AgentWidget, type AgentCommand, type AgentCommandSource, type ChatPin, MODEL_INPUTS, type ModelInput, type ModelRef, type NoticeLevel, type PromptDisposition, type PromptImage, type PromptMode, type ThinkingLevel, type WorkspaceRef, Session } from '@morse/agent';
+import {
+  THINKING_LEVELS,
+  MAX_PIN_EXCERPT,
+  type AgentDiagnostic,
+  type AgentForkMessage,
+  type AgentHistoryEntry,
+  type AgentHistoryPage,
+  type AgentInteractionRequest,
+  type AgentInteractionResponse,
+  type AgentSessionState,
+  type AgentStatus,
+  type AgentWidget,
+  type AgentCommand,
+  type AgentCommandSource,
+  type ChatPin,
+  MODEL_INPUTS,
+  type ModelInput,
+  type ModelRef,
+  type NoticeLevel,
+  type PromptDisposition,
+  type PromptImage,
+  type PromptMode,
+  type ThinkingLevel,
+  type WorkspaceRef,
+  Session,
+} from '@morse/agent';
 import { type MorseLogger } from '@morse/system';
-import { mapSessionEvent, activePathEntries, toEntryHistory, toSessionStats } from './event-mapping.js';
+import {
+  mapSessionEvent,
+  activePathEntries,
+  toEntryHistory,
+  toSessionStats,
+} from './event-mapping.js';
 import {
   emptySpeed,
   loadSpeed,
@@ -115,9 +145,7 @@ export class PiRpcAgent extends Session {
             type: 'agent/fatal',
             at: this.now(),
             message: `The pi agent stopped (code=${info.code === null ? 'null' : info.code}).`,
-            ...(info.stderr !== undefined && info.stderr.length > 0
-              ? { detail: info.stderr }
-              : {}),
+            ...(info.stderr !== undefined && info.stderr.length > 0 ? { detail: info.stderr } : {}),
           });
         }
       },
@@ -221,6 +249,15 @@ export class PiRpcAgent extends Session {
 
   async abort(): Promise<void> {
     await this.client.request({ type: 'abort' });
+  }
+
+  /**
+   * The cached first read is exactly what a refresh must not serve: a watched
+   * subagent is written by another process, so the next `history()` has to go
+   * back to pi for what landed since this gateway attached.
+   */
+  async refreshHistory(): Promise<void> {
+    this.historyCache = undefined;
   }
 
   /** Past user messages pi can fork from (its `get_fork_messages`). */
@@ -537,12 +574,7 @@ export class PiRpcAgent extends Session {
       this.patch({ statuses: upsertStatus(this.box.statuses ?? [], request) }, this.now());
       return;
     }
-    if (
-      method !== 'select' &&
-      method !== 'confirm' &&
-      method !== 'input' &&
-      method !== 'editor'
-    ) {
+    if (method !== 'select' && method !== 'confirm' && method !== 'input' && method !== 'editor') {
       // Other fire-and-forget terminal concerns (setTitle/set_editor_text/...):
       // nothing to answer, and Morse has no terminal chrome to update.
       this.options.logger.debug(`pi requested unsupported UI method "${method}"; ignoring.`);
@@ -595,7 +627,8 @@ export class PiRpcAgent extends Session {
 function toInteractionRequest(
   kind: 'select' | 'confirm' | 'input' | 'editor',
   request: RpcExtensionUiRequest,
-): AgentInteractionRequest {  const title = request.title ?? kind;
+): AgentInteractionRequest {
+  const title = request.title ?? kind;
   switch (kind) {
     case 'select':
       return {
@@ -627,7 +660,10 @@ function toInteractionRequest(
  * the SGR escapes verbatim; strip them here so an extension-agnostic frontend
  * renders text rather than literal `\u001b[38;2;...m`.
  */
-export function upsertWidget(current: AgentWidget[], request: RpcExtensionUiRequest): AgentWidget[] {
+export function upsertWidget(
+  current: AgentWidget[],
+  request: RpcExtensionUiRequest,
+): AgentWidget[] {
   const key = request.widgetKey;
   if (key === undefined || key.length === 0) {
     return current;
@@ -655,7 +691,10 @@ export function upsertWidget(current: AgentWidget[], request: RpcExtensionUiRequ
  * Status text is theme-colored by the extension and forwarded verbatim by pi
  * (see `upsertWidget`), so it is stripped at the same boundary.
  */
-export function upsertStatus(current: AgentStatus[], request: RpcExtensionUiRequest): AgentStatus[] {
+export function upsertStatus(
+  current: AgentStatus[],
+  request: RpcExtensionUiRequest,
+): AgentStatus[] {
   const key = request.statusKey;
   if (key === undefined || key.length === 0) {
     return current;
@@ -695,9 +734,7 @@ function toModelRef(model: RpcModel): ModelRef {
  * mapping is locked by a test without spawning pi.
  */
 export function toModelInputs(values: readonly string[]): ModelInput[] {
-  return values
-    .map((value) => MODEL_INPUTS.find((known) => known === value))
-    .filter(isDefined);
+  return values.map((value) => MODEL_INPUTS.find((known) => known === value)).filter(isDefined);
 }
 
 function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
@@ -992,7 +1029,9 @@ function isDefined<T>(value: T | undefined): value is T {
 }
 
 /** pi's prompt command takes images as content blocks. */
-function toPiImages(images: PromptImage[]): Array<{ type: 'image'; data: string; mimeType: string }> {
+function toPiImages(
+  images: PromptImage[],
+): Array<{ type: 'image'; data: string; mimeType: string }> {
   return images.map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType }));
 }
 

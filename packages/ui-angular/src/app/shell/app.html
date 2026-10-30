@@ -275,6 +275,11 @@
               ← {{ activeParent()?.title ?? 'back to parent' }}
             </button>
             <span class="watching">watching subagent</span>
+            <!-- The child is written by its parent's process, so what is on
+                 screen ages; this pulls the latest from the agent's storage. -->
+            <button type="button" class="refresh" (click)="morse.refreshSession()">
+              ↻ refresh
+            </button>
           </div>
         }
         <morse-chat-transcript (openChild)="openSubagent($event)" />

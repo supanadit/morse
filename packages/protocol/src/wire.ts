@@ -47,6 +47,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'session/new',
   'session/load',
   'session/activate',
+  'session/refresh',
   'session/close',
   'session/delete',
   'session/compact',
@@ -137,10 +138,7 @@ export function decode(raw: unknown): DecodedFrame {
  * value to a type guard. A frame that decodes to something the guard rejects
  * (or that never decoded) is `undefined`, which is how a bad frame is ignored.
  */
-function parseFrame<T>(
-  raw: unknown,
-  guard: (value: unknown) => value is T,
-): T | undefined {
+function parseFrame<T>(raw: unknown, guard: (value: unknown) => value is T): T | undefined {
   const frame = decode(raw);
   return frame.ok && guard(frame.value) ? frame.value : undefined;
 }

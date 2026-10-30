@@ -54,6 +54,14 @@ export interface AgentGateway {
    */
   forkMessages(): Promise<AgentForkMessage[]>;
   /**
+   * Optional: forget a cached first read of the conversation, so the next
+   * `history()` re-reads the source. A watched session is written by someone
+   * else (a subagent's parent process), and a reader asking for the latest must
+   * not be served the snapshot taken when this gateway attached. Adapters that
+   * never cache simply omit it.
+   */
+  refreshHistory?(): Promise<void>;
+  /**
    * Re-parents the conversation before `entryId`, discarding that message and
    * everything after it, and returns the message text that was dropped. The
    * agent keeps running, but its session id changes: a fork is a new session.
@@ -122,4 +130,3 @@ export interface AgentHistoryPage {
   /** Opaque cursor to pass as `before` for the next older page. */
   before?: string;
 }
-

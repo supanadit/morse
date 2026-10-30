@@ -82,6 +82,16 @@ export interface SessionActivateMessage extends ClientMessageBase {
   payload: { sessionId: string; cwd?: string };
 }
 
+/**
+ * Re-reads the conversation in front from the agent's own storage. A watched
+ * subagent is written by its parent's process, not by whoever displays it, so
+ * its transcript ages in place — this is how the reader asks for the latest.
+ */
+export interface SessionRefreshMessage extends ClientMessageBase {
+  type: 'session/refresh';
+  payload: Record<string, never>;
+}
+
 export interface SessionCloseMessage extends ClientMessageBase {
   type: 'session/close';
   payload: { sessionId: string };
@@ -238,6 +248,7 @@ export type ClientToHostMessage =
   | SessionNewMessage
   | SessionLoadMessage
   | SessionActivateMessage
+  | SessionRefreshMessage
   | SessionCloseMessage
   | SessionDeleteMessage
   | SessionCompactMessage
@@ -258,4 +269,3 @@ export type ClientToHostMessage =
   | TerminalInputMessage
   | TerminalResizeMessage
   | TerminalCloseMessage;
-

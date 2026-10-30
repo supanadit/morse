@@ -298,6 +298,15 @@ export class MorseService {
     this.actions.loadSession(sessionId);
   }
 
+  /**
+   * Re-reads the conversation in front from the agent's own storage. A watched
+   * subagent is written by its parent's process, so its transcript ages in
+   * place — the subagent bar's refresh asks the host for the latest.
+   */
+  refreshSession(): void {
+    this.actions.refreshSession();
+  }
+
   requestSessions(): void {
     this.actions.requestSessions();
   }
