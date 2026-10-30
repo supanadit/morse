@@ -169,7 +169,7 @@ h2.flow {
 .form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .form-field {
   display: flex;
@@ -184,6 +184,180 @@ h2.flow {
 .required {
   color: var(--morse-warn);
 }
+/*
+ * The stepper: how far into the form the reader is. Dots double as navigation
+ * and as a status line — answered, current, and the ones whose answer is broken.
+ */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+.steps-count {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.steps-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.step-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+.step-dot:hover:not(:disabled) {
+  border-color: var(--morse-accent);
+  background: transparent;
+}
+.step-dot.answered {
+  border-color: var(--morse-fg-muted);
+  background: var(--morse-fg-muted);
+}
+.step-dot.answered:hover:not(:disabled) {
+  background: var(--morse-fg-muted);
+}
+.step-dot.current {
+  border-color: var(--morse-accent);
+  background: var(--morse-accent);
+}
+.step-dot.current:hover:not(:disabled) {
+  background: var(--morse-accent);
+}
+/* After `.current`: a step you are standing on can still be unanswered. */
+.step-dot.broken {
+  border-color: var(--morse-warn);
+  background: var(--morse-warn);
+}
+.step-dot.broken:hover:not(:disabled) {
+  background: var(--morse-warn);
+}
+.step-dot:focus-visible {
+  outline: 1px solid var(--morse-accent);
+  outline-offset: 2px;
+}
+/*
+ * A choice row is the compact select-card row: a gutter marker, then the label
+ * and its description in one flowing line. `select` rows carry a number and a
+ * visually hidden radio (native arrow keys, no circle drawn); `multiselect` rows
+ * carry a small checkbox. The picked row wears the same accent border as a
+ * focused option in the select card.
+ */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.choice {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.choice:hover,
+.choice.picked {
+  background: var(--morse-hover);
+}
+.choice.picked {
+  border-color: var(--morse-focus);
+}
+.choice:focus-within {
+  outline: 1px solid var(--morse-focus);
+  outline-offset: -1px;
+}
+/* The radio is the semantics and the keyboard; the number is the visible row. */
+.choice-radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.choice-check {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 3px 0 0;
+  accent-color: var(--morse-accent);
+  cursor: pointer;
+}
+/* The multi-select custom row keeps the checkbox column aligned. */
+.choice-plus {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 3px 0 0;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 13px;
+  text-align: center;
+}
+.choice-ordinal {
+  flex: none;
+  width: 18px;
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: right;
+}
+.choice-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.choice-text.muted {
+  color: var(--morse-fg-muted);
+}
+.choice-label {
+  overflow-wrap: anywhere;
+}
+.choice-description {
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+}
+/* The "Type something…" row: the row itself becomes a one-line input. */
+.choice.custom {
+  cursor: text;
+}
+.choice.custom:focus-within {
+  border-color: var(--morse-focus);
+}
+.custom-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  outline: none;
+}
 .form-check {
   display: flex;
   align-items: center;
@@ -192,16 +366,16 @@ h2.flow {
   line-height: 1.5;
   cursor: pointer;
 }
-.form-checks {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 .form-check input {
   margin: 0;
 }
 .form .actions {
   margin-top: 2px;
+}
+/* Cancel stays left, the walk controls right. */
+.actions .spacer {
+  flex: 1;
+  min-width: 8px;
 }
 textarea.field {
   min-height: 96px;
@@ -214,6 +388,18 @@ textarea.field {
   color: var(--morse-warn);
   font-size: 11.5px;
   line-height: 1.5;
+}
+/* A note about another step is a jump target, not just text. */
+.note-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.note-link:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
 }
 .actions {
   display: flex;

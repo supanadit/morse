@@ -7,6 +7,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import type { FormField, FormValue, InteractionRequest, SelectOption } from '@morse/protocol';
@@ -63,6 +64,10 @@ export function parseOption(option: SelectOption, position: number): ParsedOptio
  * which RPC turns into a no-op, so nothing here is tailored to one plugin: any
  * extension asking a question gets the same card.
  *
+ * A `form` is the one kind a native-dialog host cannot answer itself, so it is
+ * always rendered here — as a stepper, one question at a time, with `select`
+ * and `multiselect` as radio/checkbox rows instead of dropdowns.
+ *
  * It is an inline card, not a modal: the agent's question belongs with the
  * conversation above it, so it sits between the transcript and the composer and
  * is held to the same reading width (780px) as both. Nothing here covers the
@@ -105,8 +110,43 @@ export class InteractionPanel {
     const values = this.formValues();
     return this.formFields().filter((field) => this.fieldVisible(field, values));
   });
+  /**
+   * A form is walked one question at a time: the steps are the visible fields in
+   * ask order, and this is the one being shown. It is an index, not a key, so the
+   * card follows the list when a `when` condition adds or removes a field.
+   */
+  protected readonly step = signal(0);
+  protected readonly stepCount = computed(() => this.visibleFormFields().length);
+  protected readonly currentField = computed<FormField | undefined>(
+    () => this.visibleFormFields()[this.step()],
+  );
+  /** One field needs no stepper chrome — it is just the form's only question. */
+  protected readonly stepperVisible = computed(() => this.stepCount() > 1);
+  protected readonly isFirstStep = computed(() => this.step() <= 0);
+  protected readonly isLastStep = computed(() => this.step() >= this.stepCount() - 1);
   /** The first constraint an answer breaks, so Submit can stay disabled. */
   protected readonly formError = computed<string | undefined>(() => this.validationError());
+  /** The note under the control: this step's own problem while the reader is on it. */
+  protected readonly currentError = computed(() => {
+    const field = this.currentField();
+    return field === undefined ? undefined : this.fieldError(field, this.formValues());
+  });
+  /**
+   * What the reader is told: their own field's problem while they are on it, and
+   * — on the last step, where Submit lives — the first problem anywhere, so a
+   * disabled Submit is never a mystery.
+   */
+  protected readonly shownError = computed(() => {
+    const own = this.currentError();
+    if (own !== undefined) {
+      return own;
+    }
+    return this.isLastStep() ? this.formError() : undefined;
+  });
+  /** Whether `shownError` is about another step; the note then jumps to it. */
+  protected readonly shownErrorIsForeign = computed(
+    () => this.currentError() === undefined && this.shownError() !== undefined,
+  );
   /** The option rows as rendered, so the gutter number is never printed twice. */
   protected readonly options = computed(() =>
     this.optionsOf(this.request()).map((option, index) => parseOption(option, index)),
@@ -137,6 +177,9 @@ export class InteractionPanel {
       const request = this.request();
       this.value.set(this.prefillOf(request));
       this.formValues.set(this.defaultsOf(request));
+      this.step.set(0);
+      this.customField.set(null);
+      this.customDraft.set({});
     });
 
     /*
@@ -146,10 +189,41 @@ export class InteractionPanel {
      */
     effect(() => {
       const request = this.request();
-      if (!request || this.morse.capabilities()?.nativeDialogs === true || this.isTypingElsewhere()) {
+      if (
+        !request ||
+        this.morse.capabilities()?.nativeDialogs === true ||
+        this.isTypingElsewhere()
+      ) {
         return;
       }
       setTimeout(() => this.focusPrimary(request), 0);
+    });
+
+    /*
+     * A `when` condition answers itself: changing an earlier field can hide a
+     * later one (or show one before the reader's position), so the step list
+     * changes length while the card is open. Re-clamp the index whenever it does —
+     * a vanished field must not leave the card pointing past its last step.
+     */
+    effect(() => {
+      const count = this.visibleFormFields().length;
+      const current = untracked(this.step);
+      const clamped = count === 0 ? 0 : Math.min(current, count - 1);
+      if (clamped !== current) {
+        this.step.set(clamped);
+      }
+    });
+
+    /*
+     * Moving between steps moves the keyboard with it: the control the new step is
+     * built around takes focus, under the same bargain the arrival effect makes.
+     */
+    effect(() => {
+      const field = this.currentField();
+      if (field === undefined || this.isTypingElsewhere()) {
+        return;
+      }
+      setTimeout(() => this.focusFormStep(), 0);
     });
   }
 
@@ -179,7 +253,7 @@ export class InteractionPanel {
     return this.formValues()[key];
   }
 
-  /** A field's value as the text an input/select shows. */
+  /** A field's value as the text an input shows. */
   protected textValue(field: FormField): string {
     const value = this.fieldValue(field.key);
     if (typeof value === 'string' || typeof value === 'number') {
@@ -192,7 +266,11 @@ export class InteractionPanel {
   protected setInput(field: FormField, event: Event): void {
     const raw = (event.target as HTMLInputElement).value;
     const value: FormValue | undefined =
-      raw.length === 0 ? undefined : field.type === 'number' || field.type === 'integer' ? Number(raw) : raw;
+      raw.length === 0
+        ? undefined
+        : field.type === 'number' || field.type === 'integer'
+          ? Number(raw)
+          : raw;
     this.setField(field.key, value);
   }
 
@@ -200,9 +278,134 @@ export class InteractionPanel {
     this.setField(key, (event.target as HTMLInputElement).checked);
   }
 
-  protected setSelect(key: string, event: Event): void {
-    const raw = (event.target as HTMLSelectElement).value;
-    this.setField(key, raw.length === 0 ? undefined : raw);
+  /** A radio row was picked: the field holds that one value. */
+  protected setChoice(field: FormField, value: string): void {
+    this.setField(field.key, value);
+  }
+
+  /** Whether the field is answered by picking rows rather than typing. */
+  protected isChoice(field: FormField): boolean {
+    return field.type === 'select' || field.type === 'multiselect';
+  }
+
+  /** The field whose "Type something…" input is open, if any. */
+  protected readonly customField = signal<string | null>(null);
+  /** The uncommitted text of that input, kept per field while the card is open. */
+  protected readonly customDraft = signal<Record<string, string>>({});
+
+  /** Opens the hand-typed row, seeded with whatever custom answer is already set. */
+  protected openCustom(field: FormField): void {
+    const existing = this.customValue(field);
+    this.customDraft.update((drafts) => ({ ...drafts, [field.key]: existing ?? '' }));
+    this.customField.set(field.key);
+    setTimeout(() => {
+      this.host.nativeElement.querySelector<HTMLInputElement>('.custom-input')?.focus();
+    }, 0);
+  }
+
+  protected closeCustom(): void {
+    this.customField.set(null);
+  }
+
+  protected setCustomDraft(key: string, event: Event): void {
+    const text = (event.target as HTMLInputElement).value;
+    this.customDraft.update((drafts) => ({ ...drafts, [key]: text }));
+  }
+
+  /** Enter on the hand-typed row: the text becomes (or joins) the answer. */
+  protected commitCustom(field: FormField): void {
+    const text = (this.customDraft()[field.key] ?? '').trim();
+    if (text.length === 0) {
+      this.closeCustom();
+      return;
+    }
+    if (field.type === 'multiselect') {
+      const current = this.fieldValue(field.key);
+      const selected = Array.isArray(current) ? current : [];
+      this.setField(field.key, [...new Set([...selected, text])]);
+    } else {
+      this.setField(field.key, text);
+    }
+    this.closeCustom();
+  }
+
+  /** The gutter ordinal of the hand-typed row: it follows the offered options. */
+  protected customOrdinal(field: FormField): string {
+    return `${(field.options?.length ?? 0) + 1}.`;
+  }
+
+  /** A select answer typed by hand: the value when it is not an offered option. */
+  protected customValue(field: FormField): string | undefined {
+    const value = this.fieldValue(field.key);
+    if (typeof value !== 'string' || value.length === 0) {
+      return undefined;
+    }
+    return (field.options ?? []).some((option) => option.value === value) ? undefined : value;
+  }
+
+  /** Multiselect answers typed by hand: entries that are not offered options. */
+  protected customValues(field: FormField): string[] {
+    const value = this.fieldValue(field.key);
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((entry) => !(field.options ?? []).some((option) => option.value === entry));
+  }
+
+  /** A hand-typed multiselect entry is a toggle like any other row. */
+  protected removeCustom(field: FormField, entry: string): void {
+    const current = this.fieldValue(field.key);
+    const selected = Array.isArray(current) ? current : [];
+    const next = selected.filter((value) => value !== entry);
+    this.setField(field.key, next.length === 0 ? undefined : next);
+  }
+
+  /** A step is answered when its field holds any value; validity is separate. */
+  protected stepAnswered(index: number): boolean {
+    const field = this.visibleFormFields()[index];
+    return field !== undefined && !isEmptyAnswer(this.formValues()[field.key], field.type);
+  }
+
+  /** A step is broken when its own answer breaks a constraint right now. */
+  protected stepBroken(index: number): boolean {
+    const field = this.visibleFormFields()[index];
+    return field !== undefined && this.fieldError(field, this.formValues()) !== undefined;
+  }
+
+  /** Free navigation: the reader may move on before answering the step. */
+  protected next(): void {
+    this.step.update((index) => Math.min(index + 1, this.stepCount() - 1));
+  }
+
+  protected back(): void {
+    this.step.update((index) => Math.max(index - 1, 0));
+  }
+
+  /** Jump by a dot; answers already given are kept — this is a form, not a quiz. */
+  protected goToStep(index: number): void {
+    if (index >= 0 && index < this.stepCount()) {
+      this.step.set(index);
+    }
+  }
+
+  /** Enter on a step: forward, and through the last one, submit. */
+  protected advance(): void {
+    if (this.isLastStep()) {
+      this.submitForm();
+    } else {
+      this.next();
+    }
+  }
+
+  /** A blocked Submit names its field; the note walks the reader to that step. */
+  protected jumpToBroken(): void {
+    const values = this.formValues();
+    const index = this.visibleFormFields().findIndex(
+      (field) => this.fieldError(field, values) !== undefined,
+    );
+    if (index >= 0) {
+      this.step.set(index);
+    }
   }
 
   protected isSelected(key: string, option: string): boolean {
@@ -214,7 +417,9 @@ export class InteractionPanel {
     const checked = (event.target as HTMLInputElement).checked;
     const current = this.fieldValue(key);
     const selected = Array.isArray(current) ? [...current] : [];
-    const next = checked ? [...new Set([...selected, option])] : selected.filter((entry) => entry !== option);
+    const next = checked
+      ? [...new Set([...selected, option])]
+      : selected.filter((entry) => entry !== option);
     this.setField(key, next.length === 0 ? undefined : next);
   }
 
@@ -267,40 +472,44 @@ export class InteractionPanel {
   private validationError(): string | undefined {
     const values = this.formValues();
     for (const field of this.visibleFormFields()) {
-      const value = values[field.key];
-      if (field.required === true && isEmptyAnswer(value, field.type)) {
-        return `${field.label} is required.`;
+      const error = this.fieldError(field, values);
+      if (error !== undefined) {
+        return error;
       }
-      if (value === undefined) {
-        continue;
+    }
+    return undefined;
+  }
+
+  /**
+   * One field's constraint check, shared by Submit (across all fields) and the
+   * stepper (the current step, and the dots that mark the broken ones).
+   */
+  private fieldError(field: FormField, values: Record<string, FormValue>): string | undefined {
+    const value = values[field.key];
+    if (field.required === true && isEmptyAnswer(value, field.type)) {
+      return `${field.label} is required.`;
+    }
+    if (value === undefined) {
+      return undefined;
+    }
+    if (field.type === 'number' || field.type === 'integer') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return `${field.label} must be a number.`;
       }
-      if (field.type === 'number' || field.type === 'integer') {
-        if (typeof value !== 'number' || !Number.isFinite(value)) {
-          return `${field.label} must be a number.`;
-        }
-        if (field.type === 'integer' && !Number.isInteger(value)) {
-          return `${field.label} must be a whole number.`;
-        }
-        if (field.min !== undefined && value < field.min) {
-          return `${field.label} must be at least ${field.min}.`;
-        }
-        if (field.max !== undefined && value > field.max) {
-          return `${field.label} must be at most ${field.max}.`;
-        }
+      if (field.type === 'integer' && !Number.isInteger(value)) {
+        return `${field.label} must be a whole number.`;
       }
-      if (field.type === 'text' && field.pattern !== undefined && typeof value === 'string') {
-        const pattern = safePattern(field.pattern);
-        if (pattern !== undefined && !pattern.test(value)) {
-          return `${field.label} is not in the expected format.`;
-        }
+      if (field.min !== undefined && value < field.min) {
+        return `${field.label} must be at least ${field.min}.`;
       }
-      if (
-        field.type === 'select' &&
-        field.options !== undefined &&
-        typeof value === 'string' &&
-        !field.options.some((option) => option.value === value)
-      ) {
-        return `${field.label} must be one of the offered choices.`;
+      if (field.max !== undefined && value > field.max) {
+        return `${field.label} must be at most ${field.max}.`;
+      }
+    }
+    if (field.type === 'text' && field.pattern !== undefined && typeof value === 'string') {
+      const pattern = safePattern(field.pattern);
+      if (pattern !== undefined && !pattern.test(value)) {
+        return `${field.label} is not in the expected format.`;
       }
     }
     return undefined;
@@ -370,6 +579,13 @@ export class InteractionPanel {
     }
     switch (event.key) {
       case 'Escape':
+        // The hand-typed row owns Escape: it collapses the input, not the dialog.
+        if (
+          event.target instanceof HTMLElement &&
+          event.target.classList.contains('custom-input')
+        ) {
+          return;
+        }
         event.preventDefault();
         this.cancel();
         return;
@@ -408,16 +624,26 @@ export class InteractionPanel {
     if (!card) {
       return;
     }
+    if (request.kind === 'form') {
+      this.focusFormStep();
+      return;
+    }
     const target =
       request.kind === 'select'
         ? card.querySelector<HTMLElement>('.option')
         : request.kind === 'input' || request.kind === 'editor'
           ? card.querySelector<HTMLElement>('.field')
-          : request.kind === 'form'
-            ? card.querySelector<HTMLElement>('.form input, .form select, .form textarea')
-            : // A confirmation: the safe choice, like `ConfirmDialog`.
-              card.querySelector<HTMLElement>('.actions button.secondary');
+          : // A confirmation: the safe choice, like `ConfirmDialog`.
+            card.querySelector<HTMLElement>('.actions button.secondary');
     target?.focus();
+  }
+
+  /** The current step's first control: the input, or the first radio/checkbox row. */
+  private focusFormStep(): void {
+    this.host.nativeElement
+      .querySelector<HTMLElement>('.card')
+      ?.querySelector<HTMLElement>('.form input, .form select, .form textarea')
+      ?.focus();
   }
 
   private isTypingElsewhere(): boolean {
