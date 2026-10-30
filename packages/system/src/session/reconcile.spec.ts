@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSessionInfo } from '@morse/agent';
-import type { MorseSessionRecord } from './record.js';
+import { toSessionRecord, type MorseSessionRecord } from './record.js';
 import type { SessionStore } from './ports.js';
 import { reconcileSessions } from './reconcile.js';
 
@@ -99,6 +99,36 @@ describe('reconcileSessions', () => {
     expect(second.upserts).toHaveLength(1);
     expect(store.lastWriteTokens.get(second.upserts[0]?.id)).toBe('t2');
     expect(store.persistedTokens.get(second.upserts[0]?.id)).toBe('t2');
+  });
+
+  it('migrates a stored record from an older shape even when its token is unchanged', async () => {
+    const store = new MemoryStore();
+    const report = info({ sessionId: 'engine-1', parentSessionId: 'engine-0', subagent: true });
+    // What a Morse before the shape wrote: the same session, the same token,
+    // but a record without the fields the new shape derives.
+    const stale = toSessionRecord('test', report);
+    await store.write({ ...stale, version: 1 });
+    expect(store.records.get(stale.id)?.version).toBe(1);
+
+    const first = await reconcileSessions({
+      kind: 'test',
+      scan: () => Promise.resolve([report]),
+      store,
+    });
+    expect(first.upserts).toHaveLength(1);
+    const migrated = store.records.get(stale.id);
+    expect(migrated?.version).toBe(2);
+    expect(migrated?.parentId).toBeDefined();
+    expect(migrated?.subagent).toBe(true);
+
+    // The migration settles: once stored at the current shape, the token skip
+    // applies again and the same report writes nothing.
+    const second = await reconcileSessions({
+      kind: 'test',
+      scan: () => Promise.resolve([report]),
+      store,
+    });
+    expect(second.upserts).toEqual([]);
   });
 
   it('falls back to caller-held tokens when the store cannot report its own', async () => {

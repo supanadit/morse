@@ -43,10 +43,15 @@ export interface AgentEngineRef {
  * This is the record persisted under `<data dir>/sessions/`, the one-file-per-
  * session form, so it is deliberately flat and small enough to read a thousand
  * of. The transcript is *not* here: it stays with the engine (see `engineRef.file`).
+ *
+ * Shape v2: the parent link and the subagent mark joined the shape, and the
+ * reconcile's version check rewrites every older record once so hosts that
+ * indexed sessions before the feature do not keep listing subagents flat
+ * forever — the engine token alone cannot know a field was newly derived.
  */
 export interface MorseSessionRecord {
   /** Shape version of this record, so a later Morse can migrate instead of guess. */
-  version: 1;
+  version: 2;
   /**
    * Morse's own id, derived by `deriveSessionId` and not by the engine. It is the
    * registry key, the transcript key and the frontend's tab id, so it must be the
@@ -114,7 +119,7 @@ export function toSessionRecord(kind: string, info: AgentSessionInfo): MorseSess
     ...(info.file === undefined ? {} : { file: info.file }),
   };
   return {
-    version: 1,
+    version: 2,
     id: deriveSessionId(engineRef),
     title: info.title ?? UNTITLED_SESSION,
     cwd: info.cwd,

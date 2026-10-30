@@ -36,6 +36,10 @@ export interface ReconcilePlan {
  *
  * - A reported session whose token matches the index is left alone: that is the
  *   common case, and it is what makes reconcile cheap.
+ * - A stored record whose shape version is older than the current one is
+ *   rewritten regardless of the token — that is how a Morse upgrade backfills
+ *   fields the previous shape never carried (subagent links, say). A session
+ *   that never changes again would otherwise keep its stale shape forever.
  * - A reported session with a new token replaces the stored record.
  * - A record from the engine this source covers, absent from the report, is
  *   removed: the reader deleted the session with the harness, and Morse must not
@@ -58,12 +62,15 @@ export function planReconcile(
   running?: ReadonlySet<string>,
 ): ReconcilePlan {
   const present = new Set<string>();
+  const stored = new Map(records.map((record) => [record.id, record] as const));
   const upserts: MorseSessionRecord[] = [];
   const upsertTokens = new Map<string, string>();
   for (const info of reported) {
     const record = toSessionRecord(kind, info);
     present.add(record.id);
-    if (tokens.get(record.id) !== info.token) {
+    const unchanged =
+      tokens.get(record.id) === info.token && stored.get(record.id)?.version === record.version;
+    if (!unchanged) {
       upserts.push(record);
       upsertTokens.set(record.id, info.token);
     }

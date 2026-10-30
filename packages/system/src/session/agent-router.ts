@@ -707,7 +707,7 @@ export class RoutedGateway implements AgentGateway {
 
     // First engine id of a new session: seed the row Morse will show.
     this.row = {
-      version: 1,
+      version: 2,
       id: derivedId,
       title: state.sessionTitle ?? UNTITLED_SESSION,
       cwd: this.options.cwd,

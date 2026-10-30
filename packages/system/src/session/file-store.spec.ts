@@ -25,7 +25,7 @@ describe('FileSessionStore', () => {
 
   function record(id: string, title = `Session ${id}`): MorseSessionRecord {
     return {
-      version: 1,
+      version: 2,
       id,
       title,
       cwd: '/work/project',
