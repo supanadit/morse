@@ -24,6 +24,7 @@ import { AttachmentStore, type PendingImage, type PendingPin } from '../../state
 import { ComposerDrafts } from '../../state/composer-drafts';
 import { MorseService } from '../../host/morse.service';
 import { QueuedPrompts, type QueuedPrompt } from '../../state/queued-prompts';
+import { RestoreState } from '../../state/restore-state';
 import { ShellState } from '../../state/shell-state';
 import { ShortcutService } from '../../services/shortcut.service';
 import { Uploader } from '../../services/uploads';
@@ -91,6 +92,7 @@ import { UsageIndicator } from '../usage/usage-indicator';
 })
 export class ChatComposer {
   private readonly morse = inject(MorseService);
+  private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
   private readonly shortcuts = inject(ShortcutService);
   private readonly destroyRef = inject(DestroyRef);
@@ -160,9 +162,7 @@ export class ChatComposer {
       ...(engine.default === true ? { badge: 'default' } : {}),
     })),
   );
-  protected readonly showEnginePicker = computed(
-    () => this.draft() && this.engines().length > 1,
-  );
+  protected readonly showEnginePicker = computed(() => this.draft() && this.engines().length > 1);
   /** The modes the selected engine offers; absent for pi, so the pill is absent. */
   protected readonly availableModes = this.morse.availableModes;
   protected readonly currentMode = computed(
@@ -223,9 +223,7 @@ export class ChatComposer {
    * session's queue; this is only the one the composer is editing, so a tab
    * never shows another session's messages.
    */
-  protected readonly queuedMessages = computed(() =>
-    this.queue.forOwner(this.tabs.composerKey()),
-  );
+  protected readonly queuedMessages = computed(() => this.queue.forOwner(this.tabs.composerKey()));
 
   /**
    * Clicking a pinned chip re-opens its file in the browser preview, where the
@@ -466,10 +464,7 @@ export class ChatComposer {
     const startHeight = this.dragHeight() ?? (measured > 0 ? measured : 60);
     startResize(event, {
       value: (pointer) =>
-        Math.min(
-          Math.max(startHeight + (startY - pointer.clientY), 60),
-          window.innerHeight - 200,
-        ),
+        Math.min(Math.max(startHeight + (startY - pointer.clientY), 60), window.innerHeight - 200),
       preview: (height) => this.dragHeight.set(Math.round(height)),
       commit: (height) => this.dragHeight.set(Math.round(height)),
     });
@@ -516,7 +511,9 @@ export class ChatComposer {
       }
       const added = this.attachments.takeMentions();
       const block = added.map((path) => (path.startsWith('@') ? path : `@${path}`)).join('\n');
-      this.drafts.updateText((value) => (value.trim().length === 0 ? block : `${value.trimEnd()}\n${block}`));
+      this.drafts.updateText((value) =>
+        value.trim().length === 0 ? block : `${value.trimEnd()}\n${block}`,
+      );
       const input = this.promptInput()?.nativeElement;
       input?.focus();
     });
@@ -734,6 +731,13 @@ export class ChatComposer {
   }
 
   protected sendWith(mode: PromptMode): void {
+    // The restore's safety net: while the previous session is still travelling
+    // back, a prompt must not open a throwaway conversation in front of it. The
+    // composer is unmounted behind the restoring screen, so this guards the race
+    // at the edges of the state flip rather than a click the user can make.
+    if (this.restore.isRestoring()) {
+      return;
+    }
     let value = this.drafts.text().trim();
     this.unroutedPiBuiltin.set(undefined);
     // `/compact <instructions>` is the same destructive action as the bare built-in,
@@ -815,12 +819,7 @@ export class ChatComposer {
   /** Runs a queued follow-up now: steering it when a run is in flight. */
   protected sendQueued(item: QueuedPrompt): void {
     this.queue.remove(item.id);
-    this.morse.prompt(
-      item.text,
-      this.running() ? 'steer' : 'new',
-      item.images,
-      item.pins,
-    );
+    this.morse.prompt(item.text, this.running() ? 'steer' : 'new', item.images, item.pins);
   }
 
   protected removeQueued(item: QueuedPrompt): void {
@@ -1370,14 +1369,10 @@ export class ChatComposer {
       id !== undefined &&
       this.models().find((model) => model.provider === provider && model.id === id);
     if (!match) {
-      this.setNotice(
-        { name: 'model' },
-        arg,
-        [
-          'The model was not set:',
-          'expect `/model provider/id` from the available-model list, or run bare `/model` for the picker.',
-        ],
-      );
+      this.setNotice({ name: 'model' }, arg, [
+        'The model was not set:',
+        'expect `/model provider/id` from the available-model list, or run bare `/model` for the picker.',
+      ]);
       return;
     }
     this.morse.setModel(match.provider, match.id);
@@ -1445,9 +1440,7 @@ export class ChatComposer {
 
   /** Reads the editor snapshot; `undefined` when the host cannot report it. */
   private async requestSelectionSnapshot() {
-    return this.morse.requestHostCommand('getEditorContext') as Promise<
-      EditorSnapshot | undefined
-    >;
+    return this.morse.requestHostCommand('getEditorContext') as Promise<EditorSnapshot | undefined>;
   }
 
   /**
@@ -1455,7 +1448,9 @@ export class ChatComposer {
    * `L18:45-79` for part of a line, `L18-20` for whole lines, no label for a
    * whole file.
    */
-  protected pinRange(pin: Pick<PendingPin, 'startLine' | 'endLine' | 'startColumn' | 'endColumn'>): string {
+  protected pinRange(
+    pin: Pick<PendingPin, 'startLine' | 'endLine' | 'startColumn' | 'endColumn'>,
+  ): string {
     return pinRangeLabel(pin);
   }
 
@@ -1505,7 +1500,9 @@ export class ChatComposer {
     if (this.mentionMode()) {
       // Replace the `@query` the user typed instead of appending a second mention.
       // A directory keeps its trailing `/` and gets no space, so it stays a prefix.
-      this.drafts.updateText((value) => value.replace(/@[\w./-]*$/, `@${path}${directory ? '' : ' '}`));
+      this.drafts.updateText((value) =>
+        value.replace(/@[\w./-]*$/, `@${path}${directory ? '' : ' '}`),
+      );
     } else if (!directory) {
       this.attachments.addMentions([path]);
       this.attachments.say('info', `Pinned ${path} to this message.`);

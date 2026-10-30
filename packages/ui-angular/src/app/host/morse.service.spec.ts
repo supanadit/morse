@@ -32,7 +32,9 @@ class ScriptedTransport implements HostTransport {
   }
 }
 
-function state(overrides: Partial<SessionViewState> & { workspace: SessionViewState['workspace'] }) {
+function state(
+  overrides: Partial<SessionViewState> & { workspace: SessionViewState['workspace'] },
+) {
   return {
     streaming: false,
     busy: false,

@@ -2,6 +2,7 @@ import { DestroyRef, effect, inject, Injectable, signal } from '@angular/core';
 import { ComposerDrafts, type DraftsSnapshot } from '../state/composer-drafts';
 import { MorseService } from '../host/morse.service';
 import { PanelState, type PanelSnapshot } from '../state/panel-state';
+import { RestoreState } from '../state/restore-state';
 import { TerminalStore, type TerminalsSnapshot } from '../state/terminal-store';
 import { WorkspaceTabs, type TabsSnapshot } from '../state/workspace-tabs';
 
@@ -56,6 +57,7 @@ export class WorkbenchPersistence {
   private readonly terminals = inject(TerminalStore);
   private readonly panel = inject(PanelState);
   private readonly drafts = inject(ComposerDrafts);
+  private readonly restore = inject(RestoreState);
   private readonly destroyRef = inject(DestroyRef);
 
   /** False until the first load has been attempted (successful or not). */
@@ -63,6 +65,12 @@ export class WorkbenchPersistence {
   /** True while a load is in flight, so the write watches stay quiet. */
   private readonly loading = signal(false);
   private started = false;
+  /**
+   * The restored session whose transcript is still travelling from the host.
+   * Set once the layout's front tab has asked for its conversation; cleared the
+   * moment the host reports that session back (or the watchdog fires).
+   */
+  private readonly pendingTranscript = signal<string | undefined>(undefined);
   /** The last state written per slot, so an unchanged one is not re-sent. */
   private readonly lastWritten = new Map<Slot, string>();
   private readonly timers = new Map<Slot, ReturnType<typeof setTimeout>>();
@@ -76,7 +84,22 @@ export class WorkbenchPersistence {
       const capable = this.morse.capabilities()?.workbench === true;
       if (connected && capable && !this.started) {
         this.started = true;
+        // The panel is about to go dark behind the loading screen: a prompt
+        // typed into a half-restored panel would open a throwaway session in
+        // front of the one being restored. The watchdog caps how long a stalled
+        // read can hold it.
+        this.restore.begin();
         void this.load();
+      }
+    });
+
+    // The restored conversation is back the moment the host reports it as the
+    // active session; until then the shell keeps showing the loading screen.
+    effect(() => {
+      const pending = this.pendingTranscript();
+      if (pending !== undefined && this.morse.state().sessionId === pending) {
+        this.pendingTranscript.set(undefined);
+        this.restore.end();
       }
     });
 
@@ -114,7 +137,12 @@ export class WorkbenchPersistence {
         window.removeEventListener('pagehide', flush);
       });
     }
-    this.destroyRef.onDestroy(() => this.clearTimers());
+    this.destroyRef.onDestroy(() => {
+      this.clearTimers();
+      // A destroyed shell (a closed webview) must not leave the flag — or the
+      // watchdog timer — behind for the next surface to trip over.
+      this.restore.end();
+    });
   }
 
   private async load(): Promise<void> {
@@ -139,6 +167,12 @@ export class WorkbenchPersistence {
     } finally {
       this.loading.set(false);
       this.ready.set(true);
+      // Nothing saved (or a layout with no conversation in front): the panel has
+      // nothing to wait for. A pending transcript keeps the screen up until the
+      // conversation arrives or the watchdog gives up waiting.
+      if (this.pendingTranscript() === undefined) {
+        this.restore.end();
+      }
     }
   }
 
@@ -156,9 +190,7 @@ export class WorkbenchPersistence {
     const host = this.morse.state();
     if (
       host.sessionId !== undefined &&
-      !this.tabs
-        .tabs()
-        .some((tab) => tab.kind === 'session' && tab.id === host.sessionId)
+      !this.tabs.tabs().some((tab) => tab.kind === 'session' && tab.id === host.sessionId)
     ) {
       this.tabs.ensureSession({
         id: host.sessionId,
@@ -167,13 +199,19 @@ export class WorkbenchPersistence {
       });
     }
     // A session the layout left in front is not necessarily the one the host
-    // reattached (or the host may have no session at all), so ask for it.
+    // reattached (or the host may have no session at all), so ask for it. The
+    // transcript is still travelling: keep the loading screen up until the host
+    // reports the session back — a session-less panel would read as a fresh
+    // one, and a prompt typed into it would race the restore.
     const active = this.tabs.activeTab();
     if (active?.kind === 'session' && active.draft !== true) {
       if (active.id !== this.morse.state().sessionId) {
+        this.pendingTranscript.set(active.id);
         this.morse.activateSession(active.id, active.cwd);
+        return;
       }
     }
+    this.restore.end();
     // A restored *file* tab has no session of its own to activate, so the hold on
     // the front tab is released after a short grace instead of waiting forever
     // for a `showSession` that a host with no open session will never send.

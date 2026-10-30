@@ -1,4 +1,16 @@
-<div class="shell" [class.collapsed]="navigationCollapsed()" [style.--morse-explorer-height]="explorerHeight()" [style.--morse-changes-height]="changesHeight()" [style.--morse-detail-height]="detailHeight()" [class.embedded]="embedded()" [class.with-git]="gitOpen()" [class.with-search]="searchOpen()" [class.git-expanded]="gitExpanded()" [style.--morse-git-width]="gitWidth()" [style.--morse-nav-width]="navWidth()">
+<div
+  class="shell"
+  [class.collapsed]="navigationCollapsed()"
+  [style.--morse-explorer-height]="explorerHeight()"
+  [style.--morse-changes-height]="changesHeight()"
+  [style.--morse-detail-height]="detailHeight()"
+  [class.embedded]="embedded()"
+  [class.with-git]="gitOpen()"
+  [class.with-search]="searchOpen()"
+  [class.git-expanded]="gitExpanded()"
+  [style.--morse-git-width]="gitWidth()"
+  [style.--morse-nav-width]="navWidth()"
+>
   <!--
        The window's chrome: a row above the columns and a row below them. Both are plain
        regions of the layout (`state/layout-state.ts`), like the columns are. Neither is
@@ -118,7 +130,9 @@
       <div class="notify-prompt" role="status">
         <span class="notify-glyph" aria-hidden="true">
           <svg viewBox="0 0 16 16">
-            <path d="M8 2.2a3.4 3.4 0 0 0-3.4 3.4c0 3.2-1.4 4-1.4 4h9.6s-1.4-.8-1.4-4A3.4 3.4 0 0 0 8 2.2Z" />
+            <path
+              d="M8 2.2a3.4 3.4 0 0 0-3.4 3.4c0 3.2-1.4 4-1.4 4h9.6s-1.4-.8-1.4-4A3.4 3.4 0 0 0 8 2.2Z"
+            />
             <path d="M6.6 12.2a1.5 1.5 0 0 0 2.8 0" />
             <path d="m3.2 13.2 9.6-10.4" />
           </svg>
@@ -132,7 +146,9 @@
           }
         </span>
         @if (prompt === 'blocked') {
-          <button type="button" class="notify-off" (click)="turnOffNotifications()">Turn off</button>
+          <button type="button" class="notify-off" (click)="turnOffNotifications()">
+            Turn off
+          </button>
         } @else {
           <button
             type="button"
@@ -188,7 +204,8 @@
       <ng-container [ngComponentOutlet]="promptEditorComponent()" />
     } @else if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
-    } @else {      @if (lastError(); as error) {
+    } @else {
+      @if (lastError(); as error) {
         <section class="alert offline" role="status">
           <strong>Offline — the host wouldn't take this frontend</strong>
           <p>{{ error.message }}<br />{{ error.detail }}</p>
@@ -232,6 +249,17 @@
 
       @if (agentScreen()) {
         <morse-agent-screen />
+      } @else if (restoringSession()) {
+        <!-- A saved session is still travelling back from the host. Covering the
+             panel — and keeping the composer unmounted — is the point: an
+             empty-looking panel reads as a brand-new session, and a prompt typed
+             into it would open a throwaway conversation in front of the one
+             being restored. -->
+        <div class="restoring" role="status">
+          <span class="restoring-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <p class="restoring-title">Restoring your session…</p>
+          <p class="restoring-note">The conversation is on its way back.</p>
+        </div>
       } @else if (noSessionSelected()) {
         <!-- No tab is in front: nothing to read and nothing to send. The panel
              says so and offers the one action that changes it. -->

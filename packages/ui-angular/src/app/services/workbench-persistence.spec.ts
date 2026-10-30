@@ -7,6 +7,7 @@ import { MorseService } from '../host/morse.service';
 import { PanelState } from '../state/panel-state';
 import { TerminalStore } from '../state/terminal-store';
 import { WorkspaceTabs } from '../state/workspace-tabs';
+import { RestoreState } from '../state/restore-state';
 import { DRAFTS_VERSION, WorkbenchPersistence, WORKBENCH_VERSION } from './workbench-persistence';
 
 interface ViewState {
@@ -29,7 +30,13 @@ function storedLayout(overrides: Record<string, unknown> = {}) {
       },
       terminals: {
         panes: [
-          { id: 'term-2', owner: 's1', group: 'term-2', title: 'Server', fallbackTitle: 'Terminal 2' },
+          {
+            id: 'term-2',
+            owner: 's1',
+            group: 'term-2',
+            title: 'Server',
+            fallbackTitle: 'Terminal 2',
+          },
         ],
         activeByOwner: { s1: 'term-2' },
         activePaneByGroup: { 'term-2': 'term-2' },
@@ -72,7 +79,13 @@ function setup(
         return Promise.resolve({ ok: true });
       }
       // A file preview the restore may ask for.
-      return Promise.resolve({ path: 'a.ts', content: 'const x = 1;\n', size: 13, truncated: false, binary: false });
+      return Promise.resolve({
+        path: 'a.ts',
+        content: 'const x = 1;\n',
+        size: 13,
+        truncated: false,
+        binary: false,
+      });
     }),
   };
   TestBed.configureTestingModule({ providers: [{ provide: MorseService, useValue: fake }] });
@@ -141,6 +154,30 @@ describe('WorkbenchPersistence', () => {
     await flush();
 
     expect(fake.activateSession).toHaveBeenCalledWith('s1', '/repo');
+  });
+
+  it('lets go immediately when the front tab is not a conversation', async () => {
+    const { connection } = setup(storedLayout());
+    const restore = TestBed.inject(RestoreState);
+
+    connection.set('ready');
+    TestBed.tick();
+    await flush();
+    await flush();
+
+    // The saved front tab is a file preview — already what the reader left.
+    expect(restore.isRestoring()).toBe(false);
+  });
+
+  it('never starts where the host does not promise a workbench', async () => {
+    const { connection } = setup(storedLayout(), { workbench: false });
+    const restore = TestBed.inject(RestoreState);
+
+    connection.set('ready');
+    TestBed.tick();
+    await flush();
+
+    expect(restore.isRestoring()).toBe(false);
   });
 
   it('does nothing where the host does not promise a workbench', async () => {
@@ -295,5 +332,48 @@ describe('WorkbenchPersistence', () => {
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     expect(savedDrafts).toEqual([]);
+  });
+});
+
+describe('WorkbenchPersistence · restoring screen', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('covers the panel while the layout is read, and lets go when nothing is saved', async () => {
+    const { connection } = setup(null);
+    const restore = TestBed.inject(RestoreState);
+
+    connection.set('ready');
+    TestBed.tick();
+    // The read is in flight; the panel must not look like a fresh session.
+    expect(restore.isRestoring()).toBe(true);
+    await flush();
+    await flush();
+
+    // Nothing was saved, so there is nothing to wait for: the welcome shows.
+    expect(restore.isRestoring()).toBe(false);
+  });
+
+  it('stays up until the restored conversation actually arrives', async () => {
+    const layout = storedLayout();
+    (layout.data.tabs as { activeId?: string }).activeId = 's1';
+    const { fake, connection, state } = setup(layout);
+    const restore = TestBed.inject(RestoreState);
+
+    connection.set('ready');
+    TestBed.tick();
+    await flush();
+    await flush();
+
+    // The activation was asked for, but the host has not reported the session
+    // back: the transcript is still travelling, so the screen stays up.
+    expect(fake.activateSession).toHaveBeenCalledWith('s1', '/repo');
+    expect(restore.isRestoring()).toBe(true);
+
+    // The host answers with the restored session: the panel hands over.
+    state.set({ sessionId: 's1', workspace: { cwd: '/repo', name: 'repo' } });
+    TestBed.tick();
+    expect(restore.isRestoring()).toBe(false);
   });
 });
