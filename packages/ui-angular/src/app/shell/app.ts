@@ -307,6 +307,16 @@ export class App {
       this.morse.activateSession(parent.id);
     }
   }
+
+  /**
+   * Pulls the watched session's transcript while it is on screen. A subagent is
+   * written by its parent's process, so the view ages in place; the host skips
+   * identical pages, so the poll is quiet until something actually landed.
+   * Paused while this panel's own gateway is streaming — a live child needs no
+   * pull, and resetting its transcript mid-run would fight the stream.
+   */
+  private subagentTimer: ReturnType<typeof setInterval> | undefined;
+  private static readonly SUBAGENT_POLL_MS = 10_000;
   /**
    * Pi's extension chrome is worth mounting only while an extension has set a
    * widget or status for the session in front; an empty host stays out of the
@@ -453,6 +463,30 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // Pull the watched subagent's transcript while it is on screen: the child
+    // is written by its parent's process, so the view ages in place. The host
+    // skips identical pages, so the poll is quiet until something landed, and
+    // it pauses while this panel's own gateway streams — a live child needs no
+    // pull, and resetting its transcript mid-run would fight the stream.
+    effect(() => {
+      const watching = this.activeIsSubagent() && !this.morse.running();
+      if (watching && this.subagentTimer === undefined) {
+        this.subagentTimer = setInterval(() => {
+          if (this.activeIsSubagent() && !this.morse.running()) {
+            this.morse.refreshSession();
+          }
+        }, App.SUBAGENT_POLL_MS);
+      } else if (!watching && this.subagentTimer !== undefined) {
+        clearInterval(this.subagentTimer);
+        this.subagentTimer = undefined;
+      }
+    });
+    this.destroyRef.onDestroy(() => {
+      if (this.subagentTimer !== undefined) {
+        clearInterval(this.subagentTimer);
+        this.subagentTimer = undefined;
+      }
+    });
     // The queue drain is shell state too: a queued follow-up must run when its
     // own session settles, even if the reader is looking at another tab.
     inject(QueueDrain);

@@ -1136,6 +1136,30 @@ export class HostSessionController {
     if (!result.ok || this.activeKey !== key) {
       return;
     }
+    const items = historyItems(key, result.value.entries, this.historyPageSeq++);
+    // An auto-refresh runs while the reader watches, so a page identical to
+    // what is already on screen must stay a no-op — resetting and re-seeding
+    // the same content would only jump the scroll and replay the rows. Ids are
+    // not compared: they carry the page sequence, which differs on every read
+    // even when the content is the same.
+    const withoutId = (rows: readonly TranscriptItem[]): unknown[] =>
+      rows.map((item) => {
+        const { id: _id, ...rest } = item;
+        return rest;
+      });
+    const unchanged =
+      JSON.stringify(withoutId(items)) ===
+        JSON.stringify(withoutId(this.options.transcripts.items(key))) &&
+      this.options.transcripts.historyCursor(key).hasOlder === result.value.hasOlder;
+    if (unchanged) {
+      this.historyBefore = result.value.before;
+      this.hasOlderHistory = result.value.hasOlder;
+      this.options.transcripts.setHistoryCursor(key, {
+        before: result.value.before,
+        hasOlder: result.value.hasOlder,
+      });
+      return;
+    }
     this.options.transcripts.reset(key);
     this.historyBefore = result.value.before;
     this.hasOlderHistory = result.value.hasOlder;
@@ -1143,10 +1167,7 @@ export class HostSessionController {
       before: result.value.before,
       hasOlder: result.value.hasOlder,
     });
-    this.options.transcripts.seed(
-      key,
-      historyItems(key, result.value.entries, this.historyPageSeq++),
-    );
+    this.options.transcripts.seed(key, items);
     this.emitTranscript(key);
     this.emitState();
   }
