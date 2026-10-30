@@ -1,5 +1,5 @@
-import type { AgentGatewayFactory, AgentHistoryPage } from "./ports.js";
-import type { WorkspaceRef } from "./domain/index.js";
+import type { AgentGatewayFactory, AgentHistoryPage } from './ports.js';
+import type { WorkspaceRef } from './domain/index.js';
 
 /**
  * What a harness knows about one of its own sessions, in its own terms.
@@ -80,7 +80,7 @@ export abstract class SessionEngine {
 
   /** Whether this engine has a `scan()` at all, so a caller has something to merge. */
   get hasScan(): boolean {
-    return typeof this.scan === "function";
+    return typeof this.scan === 'function';
   }
 
   /**

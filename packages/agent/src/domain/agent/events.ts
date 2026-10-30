@@ -5,9 +5,9 @@
  * Shapes only — no I/O, no ports, no framework imports (R2/R8).
  */
 
-import type { NoticeLevel } from "../model.js";
-import type { AgentInteractionRequest } from "./interaction.js";
-import type { AgentSessionState, ToolResultDetails } from "./state.js";
+import type { NoticeLevel } from '../model.js';
+import type { AgentInteractionRequest } from './interaction.js';
+import type { AgentSessionState, ToolResultDetails } from './state.js';
 
 /**
  * The shape every agent event shares: the type discriminant, and when it happened.
@@ -30,38 +30,38 @@ export interface AgentEventBase {
 
 /** The agent finished starting and reported its first state. */
 export interface AgentReadyEvent extends AgentEventBase {
-  type: "agent/ready";
+  type: 'agent/ready';
   state: AgentSessionState;
 }
 
 /** The agent's observable state changed (model, streaming, usage, …). */
 export interface AgentStateEvent extends AgentEventBase {
-  type: "agent/state";
+  type: 'agent/state';
   state: AgentSessionState;
 }
 
 /** A turn started: the agent is now working on the prompt it was given. */
 export interface AgentRunStartEvent extends AgentEventBase {
-  type: "agent/run-start";
+  type: 'agent/run-start';
 }
 
 /** A streamed fragment of text or thinking, appended to the current message. */
 export interface AgentDeltaEvent extends AgentEventBase {
-  type: "agent/delta";
-  channel: "text" | "thinking";
+  type: 'agent/delta';
+  channel: 'text' | 'thinking';
   delta: string;
 }
 
 /** One finished assistant message, as a whole rather than as deltas. */
 export interface AgentMessageEvent extends AgentEventBase {
-  type: "agent/message";
+  type: 'agent/message';
   text: string;
   thinking: string;
 }
 
 /** The agent began calling a tool. */
 export interface AgentToolStartEvent extends AgentEventBase {
-  type: "agent/tool-start";
+  type: 'agent/tool-start';
   toolCallId: string;
   name: string;
   title: string;
@@ -79,10 +79,10 @@ export interface AgentToolStartEvent extends AgentEventBase {
 
 /** A tool call reported intermediate output or a new status. */
 export interface AgentToolUpdateEvent extends AgentEventBase {
-  type: "agent/tool-update";
+  type: 'agent/tool-update';
   toolCallId: string;
   output?: string;
-  status?: "running" | "ok" | "error";
+  status?: 'running' | 'ok' | 'error';
   /**
    * The spawned session, when the engine learned of it after the start — the
    * child id often arrives with the first progress report rather than the call.
@@ -92,9 +92,9 @@ export interface AgentToolUpdateEvent extends AgentEventBase {
 
 /** A tool call finished. */
 export interface AgentToolEndEvent extends AgentEventBase {
-  type: "agent/tool-end";
+  type: 'agent/tool-end';
   toolCallId: string;
-  status: "ok" | "error";
+  status: 'ok' | 'error';
   output?: string;
   /**
    * The tool's structured result (pi `AgentToolResult.details`), carried through
@@ -119,20 +119,20 @@ export interface AgentChildSessionRef {
 
 /** The turn ended, with the reason it ended. */
 export interface AgentRunEndEvent extends AgentEventBase {
-  type: "agent/run-end";
-  reason: "settled" | "aborted" | "error";
+  type: 'agent/run-end';
+  reason: 'settled' | 'aborted' | 'error';
   error?: string;
 }
 
 /** The agent is asking the user for input. */
 export interface AgentInteractionEvent extends AgentEventBase {
-  type: "agent/interaction";
+  type: 'agent/interaction';
   request: AgentInteractionRequest;
 }
 
 /** Something the reader should see, not as transcript content. */
 export interface AgentNoticeEvent extends AgentEventBase {
-  type: "agent/notice";
+  type: 'agent/notice';
   level: NoticeLevel;
   text: string;
 }
@@ -144,14 +144,14 @@ export interface AgentNoticeEvent extends AgentEventBase {
  * transcript; a cold resume gets the same markers out of session history instead.
  */
 export interface AgentCompactionEvent extends AgentEventBase {
-  type: "agent/compaction";
+  type: 'agent/compaction';
   summary: string;
   tokensBefore?: number;
 }
 
 /** The agent process stopped or unrecoverably failed. */
 export interface AgentFatalEvent extends AgentEventBase {
-  type: "agent/fatal";
+  type: 'agent/fatal';
   message: string;
   detail?: string;
 }

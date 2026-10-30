@@ -1,8 +1,8 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-import { pathToFileURL } from "node:url";
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import {
   Session,
   MAX_PIN_EXCERPT,
@@ -22,23 +22,12 @@ import {
   type ThinkingLevel,
   type TokenUsage,
   type WorkspaceRef,
-} from "@morse/agent";
-import {
-  AgentUnavailableError,
-  UnsupportedByHostError,
-  type MorseLogger,
-} from "@morse/system";
-import type { OpenCodeApi } from "./internal/client.js";
-import {
-  defaultModeId,
-  readAgentModes,
-  readDefaultModel,
-} from "./internal/catalog.js";
-import { OpenCodeEventMapper, toTokenUsage } from "./internal/event-mapping.js";
-import type {
-  OpenCodeEvent,
-  OpenCodeEventStream,
-} from "./internal/event-stream.js";
+} from '@morse/agent';
+import { AgentUnavailableError, UnsupportedByHostError, type MorseLogger } from '@morse/system';
+import type { OpenCodeApi } from './internal/client.js';
+import { defaultModeId, readAgentModes, readDefaultModel } from './internal/catalog.js';
+import { OpenCodeEventMapper, toTokenUsage } from './internal/event-mapping.js';
+import type { OpenCodeEvent, OpenCodeEventStream } from './internal/event-stream.js';
 import {
   modelKey,
   thinkingLevelOf,
@@ -47,18 +36,14 @@ import {
   toModelRefs,
   variantForLevel,
   type ApiModel,
-} from "./internal/model-mapping.js";
-import {
-  toForkMessages,
-  toHistoryEntries,
-  type ApiMessage,
-} from "./internal/message-mapping.js";
+} from './internal/model-mapping.js';
+import { toForkMessages, toHistoryEntries, type ApiMessage } from './internal/message-mapping.js';
 import {
   toFormRequest,
   toPermissionRequest,
   type ApiForm,
   type ApiPermissionRequest,
-} from "./internal/form-mapping.js";
+} from './internal/form-mapping.js';
 
 /**
  * One OpenCode conversation, as a harness session.
@@ -150,7 +135,7 @@ export interface OpenCodeAgentOptions {
 }
 
 export class OpenCodeAgent extends Session {
-  readonly kind = "opencode";
+  readonly kind = 'opencode';
 
   private readonly api: OpenCodeApi;
   private readonly stream: OpenCodeEventStream;
@@ -166,7 +151,7 @@ export class OpenCodeAgent extends Session {
   /** Interaction requests already shown to the reader, by request id. */
   private readonly announced = new Set<string>();
   /** What kind of thing each pending request is, so a reply goes to its endpoint. */
-  private readonly pending = new Map<string, "form" | "permission">();
+  private readonly pending = new Map<string, 'form' | 'permission'>();
   /** A pending-interaction poll in flight. */
   private syncing: Promise<void> | undefined;
 
@@ -194,11 +179,7 @@ export class OpenCodeAgent extends Session {
     super.mergeState(patch);
     const last = this.box.lastUsage;
     const contextWindow = this.box.model?.contextWindow;
-    if (
-      last === undefined ||
-      contextWindow === undefined ||
-      contextWindow <= 0
-    ) {
+    if (last === undefined || contextWindow === undefined || contextWindow <= 0) {
       return;
     }
     const tokens =
@@ -223,7 +204,7 @@ export class OpenCodeAgent extends Session {
   static async open(options: OpenCodeAgentOptions): Promise<OpenCodeAgent> {
     const session =
       options.sessionId === undefined
-        ? await options.api.post<ApiSessionInfo>("/session", {
+        ? await options.api.post<ApiSessionInfo>('/session', {
             location: { directory: options.workspace.cwd },
             // An explicit choice; omitted means OpenCode applies its own
             // configuration's default agent.
@@ -232,12 +213,8 @@ export class OpenCodeAgent extends Session {
         : await options.api.get<ApiSessionInfo>(
             `/session/${encodeURIComponent(options.sessionId)}`,
           );
-    if (
-      session === undefined ||
-      typeof session.id !== "string" ||
-      session.id.length === 0
-    ) {
-      throw new AgentUnavailableError("OpenCode did not return a session id.");
+    if (session === undefined || typeof session.id !== 'string' || session.id.length === 0) {
+      throw new AgentUnavailableError('OpenCode did not return a session id.');
     }
 
     // The catalog is a nicety: a server that cannot answer it still serves the
@@ -245,12 +222,9 @@ export class OpenCodeAgent extends Session {
     const directory = session.location?.directory ?? options.workspace.cwd;
     const [models, commands, modes] = await Promise.all([
       options.api
-        .get<ApiModel[]>("/model", { "location[directory]": directory })
+        .get<ApiModel[]>('/model', { 'location[directory]': directory })
         .catch((error: unknown): ApiModel[] => {
-          options.logger.warn(
-            "Could not read the OpenCode model catalog",
-            error,
-          );
+          options.logger.warn('Could not read the OpenCode model catalog', error);
           return [];
         }),
       readAvailableCommands(options.api, directory, options.logger),
@@ -266,9 +240,7 @@ export class OpenCodeAgent extends Session {
     const catalogModels =
       defaultModel === undefined ||
       models.some(
-        (model) =>
-          model.providerID === defaultModel.providerID &&
-          model.id === defaultModel.id,
+        (model) => model.providerID === defaultModel.providerID && model.id === defaultModel.id,
       )
         ? models
         : [...models, defaultModel];
@@ -276,14 +248,7 @@ export class OpenCodeAgent extends Session {
     const agent = new OpenCodeAgent(
       options,
       session,
-      initialStateOf(
-        session,
-        options.workspace,
-        catalogModels,
-        commands,
-        modes,
-        defaultModel,
-      ),
+      initialStateOf(session, options.workspace, catalogModels, commands, modes, defaultModel),
     );
     for (const model of catalogModels) {
       agent.models.set(modelKey(model), model);
@@ -308,13 +273,9 @@ export class OpenCodeAgent extends Session {
    * them, so a resumed conversation never opens on an empty page because the
    * newest rows were `idle` markers.
    */
-  async history(
-    options: { limit?: number; before?: string } = {},
-  ): Promise<AgentHistoryPage> {
+  async history(options: { limit?: number; before?: string } = {}): Promise<AgentHistoryPage> {
     const limit =
-      options.limit !== undefined && options.limit > 0
-        ? options.limit
-        : DEFAULT_HISTORY_LIMIT;
+      options.limit !== undefined && options.limit > 0 ? options.limit : DEFAULT_HISTORY_LIMIT;
     const messages: ApiMessage[] = [];
     let cursor = options.before;
     for (let page = 0; page < MAX_HISTORY_PAGES; page += 1) {
@@ -355,7 +316,7 @@ export class OpenCodeAgent extends Session {
     for (let page = 0; page < MAX_HISTORY_PAGES; page += 1) {
       const result = await this.api.page<ApiMessage>(
         `/session/${encodeURIComponent(this.engineId)}/message`,
-        { limit: "100", ...(cursor === undefined ? {} : { cursor }) },
+        { limit: '100', ...(cursor === undefined ? {} : { cursor }) },
       );
       messages.push(...result.data);
       cursor = result.cursor?.next ?? undefined;
@@ -389,17 +350,15 @@ export class OpenCodeAgent extends Session {
       {
         text: appendPinMentions(text, pins),
         ...(files.length === 0 ? {} : { files }),
-        ...(mode === "followUp" ? { delivery: "queue" } : {}),
+        ...(mode === 'followUp' ? { delivery: 'queue' } : {}),
       },
     );
-    return accepted?.delivery === "queue" ? "queued" : "started";
+    return accepted?.delivery === 'queue' ? 'queued' : 'started';
   }
 
   /** Interrupts the running turn. A no-op turn answers `{interrupted:false}`. */
   async abort(): Promise<void> {
-    await this.api.post(
-      `/session/${encodeURIComponent(this.engineId)}/interrupt`,
-    );
+    await this.api.post(`/session/${encodeURIComponent(this.engineId)}/interrupt`);
   }
 
   // ---------------------------------------------------------------- models
@@ -408,9 +367,7 @@ export class OpenCodeAgent extends Session {
   async setModel(model: ModelRef): Promise<void> {
     const apiModel = this.modelFor(model.provider, model.id);
     const variant =
-      apiModel === undefined
-        ? undefined
-        : variantForLevel(apiModel, this.box.thinkingLevel);
+      apiModel === undefined ? undefined : variantForLevel(apiModel, this.box.thinkingLevel);
     await this.api.post(`/session/${encodeURIComponent(this.engineId)}/model`, {
       model: {
         id: model.id,
@@ -471,11 +428,7 @@ export class OpenCodeAgent extends Session {
    * the reader's back.
    */
   async refreshModes(): Promise<void> {
-    const modes = await readAgentModes(
-      this.api,
-      this.box.workspace.cwd,
-      this.log,
-    );
+    const modes = await readAgentModes(this.api, this.box.workspace.cwd, this.log);
     // OpenCode always ships primary agents, so an empty answer is a read that
     // failed or raced a starting project, not a configuration without modes.
     // Dropping the list would take the mode picker away from a session that can
@@ -507,14 +460,8 @@ export class OpenCodeAgent extends Session {
       `/session/${encodeURIComponent(this.engineId)}/fork`,
       { before: entryId },
     );
-    if (
-      forked === undefined ||
-      typeof forked.id !== "string" ||
-      forked.id.length === 0
-    ) {
-      throw new AgentUnavailableError(
-        "OpenCode did not return the forked session.",
-      );
+    if (forked === undefined || typeof forked.id !== 'string' || forked.id.length === 0) {
+      throw new AgentUnavailableError('OpenCode did not return the forked session.');
     }
     this.engineId = forked.id;
     this.mergeState({ sessionId: forked.id });
@@ -535,22 +482,22 @@ export class OpenCodeAgent extends Session {
     const instructions = customInstructions?.trim();
     if (instructions !== undefined && instructions.length > 0) {
       this.emit({
-        type: "agent/notice",
+        type: 'agent/notice',
         at: Date.now(),
-        level: "warn",
-        text: "OpenCode does not accept custom compaction instructions; compacted without them.",
+        level: 'warn',
+        text: 'OpenCode does not accept custom compaction instructions; compacted without them.',
       });
     }
     const result = await this.api.post<ApiMessage>(
       `/session/${encodeURIComponent(this.engineId)}/compact`,
     );
-    if (result?.status === "failed") {
-      const error = asRecord(result.error)?.["message"];
+    if (result?.status === 'failed') {
+      const error = asRecord(result.error)?.['message'];
       this.emit({
-        type: "agent/notice",
+        type: 'agent/notice',
         at: Date.now(),
-        level: "error",
-        text: `Compaction failed${typeof error === "string" ? `: ${error}` : "."}`,
+        level: 'error',
+        text: `Compaction failed${typeof error === 'string' ? `: ${error}` : '.'}`,
       });
     }
   }
@@ -563,9 +510,7 @@ export class OpenCodeAgent extends Session {
    * server expects); a permission carries the chosen decision. Cancelling is a
    * delete/reject, never an empty answer.
    */
-  async respondToInteraction(
-    response: AgentInteractionResponse,
-  ): Promise<void> {
+  async respondToInteraction(response: AgentInteractionResponse): Promise<void> {
     const kind = this.pending.get(response.requestId);
     if (kind === undefined) {
       // Already settled (another client, a timeout): nothing to answer.
@@ -574,10 +519,10 @@ export class OpenCodeAgent extends Session {
     const session = encodeURIComponent(this.engineId);
     const request = encodeURIComponent(response.requestId);
     try {
-      if (kind === "form") {
+      if (kind === 'form') {
         if (response.cancelled === true) {
           await this.api.delete(`/session/${session}/form/${request}`, {
-            message: "Cancelled in Morse.",
+            message: 'Cancelled in Morse.',
           });
         } else {
           await this.api.post(`/session/${session}/form/${request}/reply`, {
@@ -586,13 +531,11 @@ export class OpenCodeAgent extends Session {
         }
       } else if (response.cancelled === true) {
         await this.api.post(`/session/${session}/permission/${request}/reply`, {
-          decision: "reject",
+          decision: 'reject',
         });
       } else {
         const decision =
-          response.value === "once" || response.value === "always"
-            ? response.value
-            : "reject";
+          response.value === 'once' || response.value === 'always' ? response.value : 'reject';
         await this.api.post(`/session/${session}/permission/${request}/reply`, {
           decision,
         });
@@ -620,9 +563,7 @@ export class OpenCodeAgent extends Session {
   // ---------------------------------------------------------------- internals
 
   private attach(): void {
-    this.unsubscribe = this.stream.subscribe(this.engineId, (event) =>
-      this.handle(event),
-    );
+    this.unsubscribe = this.stream.subscribe(this.engineId, (event) => this.handle(event));
   }
 
   /**
@@ -641,11 +582,7 @@ export class OpenCodeAgent extends Session {
         if (this.disposed) {
           return;
         }
-        const commands = await readAvailableCommands(
-          this.api,
-          directory,
-          this.log,
-        );
+        const commands = await readAvailableCommands(this.api, directory, this.log);
         if (this.disposed) {
           return;
         }
@@ -676,16 +613,14 @@ export class OpenCodeAgent extends Session {
     }
     const session = encodeURIComponent(this.engineId);
     const run = Promise.all([
-      this.api
-        .get<ApiForm[]>(`/session/${session}/form`)
-        .catch((error: unknown): ApiForm[] => {
-          this.log.debug("Could not list OpenCode forms", { error });
-          return [];
-        }),
+      this.api.get<ApiForm[]>(`/session/${session}/form`).catch((error: unknown): ApiForm[] => {
+        this.log.debug('Could not list OpenCode forms', { error });
+        return [];
+      }),
       this.api
         .get<ApiPermissionRequest[]>(`/session/${session}/permission`)
         .catch((error: unknown): ApiPermissionRequest[] => {
-          this.log.debug("Could not list OpenCode permission requests", {
+          this.log.debug('Could not list OpenCode permission requests', {
             error,
           });
           return [];
@@ -696,10 +631,10 @@ export class OpenCodeAgent extends Session {
           return;
         }
         for (const form of forms) {
-          this.announce(toFormRequest(form), "form");
+          this.announce(toFormRequest(form), 'form');
         }
         for (const permission of permissions) {
-          this.announce(toPermissionRequest(permission), "permission");
+          this.announce(toPermissionRequest(permission), 'permission');
         }
       })
       .finally(() => {
@@ -714,14 +649,14 @@ export class OpenCodeAgent extends Session {
   /** Emits one interaction request, unless it was already shown. */
   private announce(
     request: AgentFormRequest | AgentSelectRequest,
-    kind: "form" | "permission",
+    kind: 'form' | 'permission',
   ): void {
     if (this.announced.has(request.requestId)) {
       return;
     }
     this.announced.add(request.requestId);
     this.pending.set(request.requestId, kind);
-    this.emit({ type: "agent/interaction", at: Date.now(), request });
+    this.emit({ type: 'agent/interaction', at: Date.now(), request });
   }
 
   /** Releases a request another client settled. */
@@ -742,58 +677,57 @@ export class OpenCodeAgent extends Session {
     if (mapped.state !== undefined) {
       this.mergeState(mapped.state);
     }
-    if (event.type === "stream.fatal") {
+    if (event.type === 'stream.fatal') {
       // A dead stream is not a running turn any more; the fatal event explains
       // why the transcript stops.
       this.mergeState({ streaming: false });
     }
     for (const mappedEvent of mapped.events) {
-      if (mappedEvent.type === "agent/interaction") {
-        const kind =
-          mappedEvent.request.kind === "form" ? "form" : "permission";
+      if (mappedEvent.type === 'agent/interaction') {
+        const kind = mappedEvent.request.kind === 'form' ? 'form' : 'permission';
         this.announced.add(mappedEvent.request.requestId);
         this.pending.set(mappedEvent.request.requestId, kind);
       }
       this.emit(mappedEvent);
     }
-    if (mapped.state !== undefined || event.type === "stream.fatal") {
+    if (mapped.state !== undefined || event.type === 'stream.fatal') {
       this.emitState(event.created);
     }
-    const title = asRecord(event.data)["title"];
-    if (typeof title === "string" && title.length > 0) {
+    const title = asRecord(event.data)['title'];
+    if (typeof title === 'string' && title.length > 0) {
       this.mergeState({ sessionTitle: title });
       this.emitState(event.created);
     }
     if (
-      event.type === "form.replied" ||
-      event.type === "form.cancelled" ||
-      event.type === "permission.replied"
+      event.type === 'form.replied' ||
+      event.type === 'form.cancelled' ||
+      event.type === 'permission.replied'
     ) {
       // Another client may have answered a request this agent is holding.
       const data = asRecord(event.data);
       this.forget(
-        asString(asRecord(data["form"])?.["id"]) ??
-          asString(data["formID"]) ??
-          asString(data["requestID"]) ??
-          asString(data["id"]),
+        asString(asRecord(data['form'])?.['id']) ??
+          asString(data['formID']) ??
+          asString(data['requestID']) ??
+          asString(data['id']),
       );
     }
     if (
-      event.type === "stream.connected" ||
-      mapped.events.some((mappedEvent) => mappedEvent.type === "agent/run-end")
+      event.type === 'stream.connected' ||
+      mapped.events.some((mappedEvent) => mappedEvent.type === 'agent/run-end')
     ) {
       // The server names sessions and records their usage; a reconnect or a
       // finished run is when the view most needs to re-read those.
       void this.refreshState();
     }
     if (
-      event.type === "stream.connected" ||
-      event.type === "session.execution.started" ||
-      event.type === "session.execution.succeeded" ||
-      event.type === "session.execution.failed" ||
-      event.type === "session.execution.interrupted" ||
-      event.type === "session.execution.cancelled" ||
-      event.type === "session.execution.aborted"
+      event.type === 'stream.connected' ||
+      event.type === 'session.execution.started' ||
+      event.type === 'session.execution.succeeded' ||
+      event.type === 'session.execution.failed' ||
+      event.type === 'session.execution.interrupted' ||
+      event.type === 'session.execution.cancelled' ||
+      event.type === 'session.execution.aborted'
     ) {
       // A form asked during a step may have been emitted before a reconnect, or
       // just before the step settled: the pending lists are the backstop.
@@ -811,7 +745,7 @@ export class OpenCodeAgent extends Session {
     }
     const run = this.loadServerState()
       .catch((error: unknown) => {
-        this.log.warn("Could not refresh the OpenCode session state", {
+        this.log.warn('Could not refresh the OpenCode session state', {
           error,
         });
       })
@@ -830,14 +764,12 @@ export class OpenCodeAgent extends Session {
     // (connect or run end) until one lands, and leave a known list alone.
     const modesMissing = (this.box.availableModes ?? []).length === 0;
     const [session, lastUsage, modes] = await Promise.all([
-      this.api.get<ApiSessionInfo>(
-        `/session/${encodeURIComponent(this.engineId)}`,
-      ),
+      this.api.get<ApiSessionInfo>(`/session/${encodeURIComponent(this.engineId)}`),
       // Resuming has no step event to report the last answer, so the ring would
       // stay empty until the reader prompts again. This is the one read that
       // makes an opened conversation look like a live one.
       this.latestAssistantUsage().catch((error: unknown) => {
-        this.log.warn("Could not read the OpenCode context usage", { error });
+        this.log.warn('Could not read the OpenCode context usage', { error });
         return undefined;
       }),
       modesMissing
@@ -849,7 +781,7 @@ export class OpenCodeAgent extends Session {
     }
     // A server that answered 204 has no record to fold in; keep what we have
     // rather than reporting a session that lost its title and model.
-    if (session === undefined || typeof session.id !== "string") {
+    if (session === undefined || typeof session.id !== 'string') {
       return;
     }
     const apiModel =
@@ -857,10 +789,10 @@ export class OpenCodeAgent extends Session {
         ? this.selectedModel()
         : this.modelFor(session.model.providerID, session.model.id);
     const patch: Partial<AgentSessionState> = {};
-    if (typeof session.title === "string" && session.title.length > 0) {
+    if (typeof session.title === 'string' && session.title.length > 0) {
       patch.sessionTitle = session.title;
     }
-    if (typeof session.agent === "string" && session.agent.length > 0) {
+    if (typeof session.agent === 'string' && session.agent.length > 0) {
       // Another OpenCode client may have switched the agent (its Tab key); the
       // server's record is the truth, and Morse follows it.
       patch.mode = session.agent;
@@ -887,7 +819,7 @@ export class OpenCodeAgent extends Session {
         }
       }
     }
-    if (typeof session.cost === "number" && Number.isFinite(session.cost)) {
+    if (typeof session.cost === 'number' && Number.isFinite(session.cost)) {
       patch.costUsd = session.cost;
     }
     if (Object.keys(patch).length > 0) {
@@ -908,8 +840,7 @@ export class OpenCodeAgent extends Session {
         },
       );
       const assistant = result.data.find(
-        (message) =>
-          message.type === "assistant" && message.tokens !== undefined,
+        (message) => message.type === 'assistant' && message.tokens !== undefined,
       );
       const usage = toTokenUsage(assistant?.tokens);
       if (usage !== undefined) {
@@ -925,9 +856,7 @@ export class OpenCodeAgent extends Session {
 
   private selectedModel(): ApiModel | undefined {
     const model = this.box.model;
-    return model === undefined
-      ? undefined
-      : this.modelFor(model.provider, model.id);
+    return model === undefined ? undefined : this.modelFor(model.provider, model.id);
   }
 
   private modelFor(provider: string, id: string): ApiModel | undefined {
@@ -941,7 +870,7 @@ export class OpenCodeAgent extends Session {
         `/session/${encodeURIComponent(this.engineId)}/message/${encodeURIComponent(entryId)}`,
       )
       .catch(() => undefined);
-    return message?.text ?? "";
+    return message?.text ?? '';
   }
 
   /**
@@ -951,34 +880,26 @@ export class OpenCodeAgent extends Session {
    * follow-up reads its attachment when *it* runs, which can be after the prompt
    * call returned. Disposing the session removes them.
    */
-  private async materializeImages(
-    images: PromptImage[] | undefined,
-  ): Promise<{ uri: string }[]> {
+  private async materializeImages(images: PromptImage[] | undefined): Promise<{ uri: string }[]> {
     if (images === undefined || images.length === 0) {
       return [];
     }
-    const directory = join(tmpdir(), "morse-opencode", `${process.pid}`);
+    const directory = join(tmpdir(), 'morse-opencode', `${process.pid}`);
     const files: { uri: string }[] = [];
     for (const image of images) {
       try {
         await mkdir(directory, { recursive: true });
-        const path = join(
-          directory,
-          `${randomUUID()}${extensionOf(image.mimeType)}`,
-        );
-        await writeFile(path, Buffer.from(image.data, "base64"));
+        const path = join(directory, `${randomUUID()}${extensionOf(image.mimeType)}`);
+        await writeFile(path, Buffer.from(image.data, 'base64'));
         this.imageFiles.push(path);
         files.push({ uri: pathToFileURL(path).href });
       } catch (error: unknown) {
-        this.log.warn(
-          "Could not materialize an image attachment for OpenCode",
-          error,
-        );
+        this.log.warn('Could not materialize an image attachment for OpenCode', error);
         this.emit({
-          type: "agent/notice",
+          type: 'agent/notice',
           at: Date.now(),
-          level: "warn",
-          text: "An image attachment could not be sent to OpenCode; it was omitted.",
+          level: 'warn',
+          text: 'An image attachment could not be sent to OpenCode; it was omitted.',
         });
       }
     }
@@ -999,11 +920,9 @@ function initialStateOf(
       ? defaultModel
       : models.find(
           (model) =>
-            model.providerID === session.model?.providerID &&
-            model.id === session.model?.id,
+            model.providerID === session.model?.providerID && model.id === session.model?.id,
         );
-  const model =
-    apiModel === undefined ? modelRefOf(session.model) : toModelRef(apiModel);
+  const model = apiModel === undefined ? modelRefOf(session.model) : toModelRef(apiModel);
   const usage = toTokenUsage(session.tokens);
   const directory = session.location?.directory;
   // A session created without an agent has none on its record until the first
@@ -1015,14 +934,9 @@ function initialStateOf(
     sessionId: session.id,
     ...(session.title === undefined ? {} : { sessionTitle: session.title }),
     workspace: {
-      cwd:
-        directory === undefined || directory.length === 0
-          ? workspace.cwd
-          : directory,
+      cwd: directory === undefined || directory.length === 0 ? workspace.cwd : directory,
       name:
-        directory === undefined || directory.length === 0
-          ? workspace.name
-          : baseName(directory),
+        directory === undefined || directory.length === 0 ? workspace.name : baseName(directory),
     },
     ...(model === undefined ? {} : { model }),
     thinkingLevel: thinkingLevelOf(apiModel, session.model?.variant),
@@ -1033,13 +947,13 @@ function initialStateOf(
     ...(modes.length === 0 ? {} : { availableModes: [...modes] }),
     streaming: false,
     ...(usage === undefined ? {} : { usage }),
-    ...(typeof session.cost === "number" && Number.isFinite(session.cost)
+    ...(typeof session.cost === 'number' && Number.isFinite(session.cost)
       ? { costUsd: session.cost }
       : {}),
   };
 }
 
-function modelRefOf(model: ApiSessionInfo["model"]): ModelRef | undefined {
+function modelRefOf(model: ApiSessionInfo['model']): ModelRef | undefined {
   if (model?.id === undefined || model.providerID === undefined) {
     return undefined;
   }
@@ -1057,29 +971,27 @@ export async function readAvailableCommands(
   // answer for its own working directory instead.
   const [commands, skills] = await Promise.all([
     api
-      .get<ApiCommand[]>("/command", { "location[directory]": directory })
+      .get<ApiCommand[]>('/command', { 'location[directory]': directory })
       .catch((error: unknown): ApiCommand[] => {
-        logger.warn("Could not read the OpenCode command catalog", error);
+        logger.warn('Could not read the OpenCode command catalog', error);
         return [];
       }),
     api
-      .get<ApiSkill[]>("/skill", { "location[directory]": directory })
+      .get<ApiSkill[]>('/skill', { 'location[directory]': directory })
       .catch((error: unknown): ApiSkill[] => {
-        logger.warn("Could not read the OpenCode skill catalog", error);
+        logger.warn('Could not read the OpenCode skill catalog', error);
         return [];
       }),
   ]);
   const entries: AgentCommand[] = [];
   for (const command of commands) {
-    if (typeof command.name !== "string" || command.name.length === 0) {
+    if (typeof command.name !== 'string' || command.name.length === 0) {
       continue;
     }
     entries.push({
       name: command.name,
-      ...(command.description === undefined
-        ? {}
-        : { description: command.description }),
-      source: "prompt",
+      ...(command.description === undefined ? {} : { description: command.description }),
+      source: 'prompt',
     });
   }
   for (const skill of skills) {
@@ -1089,10 +1001,8 @@ export async function readAvailableCommands(
     }
     entries.push({
       name,
-      ...(skill.description === undefined
-        ? {}
-        : { description: skill.description }),
-      source: "skill",
+      ...(skill.description === undefined ? {} : { description: skill.description }),
+      source: 'skill',
     });
   }
   return entries;
@@ -1103,14 +1013,11 @@ export async function readAvailableCommands(
  * pi adapter renders them. OpenCode's wire takes prose, so this is the honest
  * representation of "the agent should read this range".
  */
-export function appendPinMentions(
-  text: string,
-  pins: ChatPin[] | undefined,
-): string {
+export function appendPinMentions(text: string, pins: ChatPin[] | undefined): string {
   if (pins === undefined || pins.length === 0) {
     return text;
   }
-  const mentions = pins.map((pin) => pinBlock(pin).join("\n")).join("\n");
+  const mentions = pins.map((pin) => pinBlock(pin).join('\n')).join('\n');
   const prose = text.trim();
   return prose.length > 0 ? `${prose}\n\n${mentions}` : mentions;
 }
@@ -1134,39 +1041,34 @@ function mentionOf(pin: ChatPin): string {
 
 /** The selected words, one line only, re-capped so a hand-built pin stays bounded. */
 function excerptLines(pin: ChatPin): string[] {
-  if (
-    pin.startLine === undefined ||
-    (pin.endLine !== undefined && pin.endLine !== pin.startLine)
-  ) {
+  if (pin.startLine === undefined || (pin.endLine !== undefined && pin.endLine !== pin.startLine)) {
     return [];
   }
-  const excerpt = pin.text?.replace(/\r?\n/g, " ").slice(0, MAX_PIN_EXCERPT);
-  return excerpt === undefined || excerpt.length === 0
-    ? []
-    : [`  | ${excerpt}`];
+  const excerpt = pin.text?.replace(/\r?\n/g, ' ').slice(0, MAX_PIN_EXCERPT);
+  return excerpt === undefined || excerpt.length === 0 ? [] : [`  | ${excerpt}`];
 }
 
 function noteLines(note: string | undefined): string[] {
   const trimmed = note?.trim();
   return trimmed === undefined || trimmed.length === 0
     ? []
-    : trimmed.split("\n").map((line) => `  > ${line}`);
+    : trimmed.split('\n').map((line) => `  > ${line}`);
 }
 
 /** The file extension an uploaded image gets, from its media type. */
 function extensionOf(mimeType: string): string {
   switch (mimeType.toLowerCase()) {
-    case "image/png":
-      return ".png";
-    case "image/jpeg":
-    case "image/jpg":
-      return ".jpg";
-    case "image/webp":
-      return ".webp";
-    case "image/gif":
-      return ".gif";
+    case 'image/png':
+      return '.png';
+    case 'image/jpeg':
+    case 'image/jpg':
+      return '.jpg';
+    case 'image/webp':
+      return '.webp';
+    case 'image/gif':
+      return '.gif';
     default:
-      return ".img";
+      return '.img';
   }
 }
 
@@ -1180,11 +1082,11 @@ function baseName(path: string): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
 }
 
 function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

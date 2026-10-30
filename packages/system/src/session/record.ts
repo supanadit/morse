@@ -1,6 +1,6 @@
-import type { AgentSessionInfo } from "@morse/agent";
-import type { SessionSummary } from "../domain/index.js";
-import { deriveSessionId } from "./identity.js";
+import type { AgentSessionInfo } from '@morse/agent';
+import type { SessionSummary } from '../domain/index.js';
+import { deriveSessionId } from './identity.js';
 
 /**
  * Domain shapes for a Morse session record.
@@ -73,7 +73,7 @@ export interface MorseSessionRecord {
 }
 
 /** The placeholder a session shows before its first prompt names it. */
-export const UNTITLED_SESSION = "Untitled session";
+export const UNTITLED_SESSION = 'Untitled session';
 
 /**
  * The `SessionSummary` the sidebar and the wire use, projected from a record.
@@ -107,10 +107,7 @@ export function toSessionSummary(record: MorseSessionRecord): SessionSummary {
  * placeholder, and one missing a creation time falls back to its last update, so a
  * reconcile can never produce a row with an empty label or a zero timestamp.
  */
-export function toSessionRecord(
-  kind: string,
-  info: AgentSessionInfo,
-): MorseSessionRecord {
+export function toSessionRecord(kind: string, info: AgentSessionInfo): MorseSessionRecord {
   const engineRef: AgentEngineRef = {
     engine: kind,
     sessionId: info.sessionId,

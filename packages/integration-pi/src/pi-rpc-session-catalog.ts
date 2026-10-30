@@ -1,16 +1,9 @@
-import { open, readdir, readFile, stat, unlink } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
-import type {
-  SessionCatalog,
-  SessionPage,
-  SessionSummary,
-} from "@morse/system";
-import {
-  DEFAULT_SESSION_SEARCH_LIMIT,
-  DEFAULT_SESSIONS_PER_PROJECT,
-} from "@morse/system";
-import { asRecord, asString } from "./internal/rpc-types.js";
-import { resolveSessionDir } from "./internal/resolve-pi.js";
+import { open, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
+import type { SessionCatalog, SessionPage, SessionSummary } from '@morse/system';
+import { DEFAULT_SESSION_SEARCH_LIMIT, DEFAULT_SESSIONS_PER_PROJECT } from '@morse/system';
+import { asRecord, asString } from './internal/rpc-types.js';
+import { resolveSessionDir } from './internal/resolve-pi.js';
 
 export interface PiRpcSessionCatalogOptions {
   sessionDir?: string;
@@ -82,9 +75,7 @@ function typeAt(raw: string, start: number, end: number): string | undefined {
     return undefined;
   }
   const close = raw.indexOf('"', start + TYPE_PREFIX.length);
-  return close === -1 || close > end
-    ? undefined
-    : raw.slice(start + TYPE_PREFIX.length, close);
+  return close === -1 || close > end ? undefined : raw.slice(start + TYPE_PREFIX.length, close);
 }
 
 /**
@@ -176,15 +167,10 @@ export class PiRpcSessionCatalog implements SessionCatalog {
    * its "Load more" row, so a project with hundreds of sessions is read a page
    * at a time instead of all at once on first paint.
    */
-  async listPage(options: {
-    cwd: string;
-    offset?: number;
-    limit?: number;
-  }): Promise<SessionPage> {
+  async listPage(options: { cwd: string; offset?: number; limit?: number }): Promise<SessionPage> {
     const files = await this.collectSessionFiles();
     const bucket = await this.bucketForCwd(options.cwd, files);
-    const bucketFiles =
-      bucket === undefined ? [] : (groupByBucket(files).get(bucket) ?? []);
+    const bucketFiles = bucket === undefined ? [] : (groupByBucket(files).get(bucket) ?? []);
     const offset = Math.max(0, options.offset ?? 0);
     const limit = Math.max(0, options.limit ?? this.maxSessionsPerProject);
     const page = bucketFiles.slice(offset, offset + limit);
@@ -228,10 +214,7 @@ export class PiRpcSessionCatalog implements SessionCatalog {
    * separate title index would double the reads for no freshness gain: the cache
    * already invalidates on size + mtime.
    */
-  async search(
-    query: string,
-    limit = DEFAULT_SESSION_SEARCH_LIMIT,
-  ): Promise<SessionSummary[]> {
+  async search(query: string, limit = DEFAULT_SESSION_SEARCH_LIMIT): Promise<SessionSummary[]> {
     const needle = query.trim().toLowerCase();
     if (needle.length === 0) {
       return [];
@@ -261,16 +244,9 @@ export class PiRpcSessionCatalog implements SessionCatalog {
   }
 
   /** Reads one file into its summary, updating the cache and the bucket→cwd map. */
-  private async readOne(
-    file: SessionFile,
-    bucket: string,
-  ): Promise<SessionSummary | undefined> {
+  private async readOne(file: SessionFile, bucket: string): Promise<SessionSummary | undefined> {
     const cached = this.cache.get(file.path);
-    if (
-      cached !== undefined &&
-      cached.size === file.size &&
-      cached.updatedAt === file.updatedAt
-    ) {
+    if (cached !== undefined && cached.size === file.size && cached.updatedAt === file.updatedAt) {
       this.rememberBucket(bucket, cached.summary.cwd);
       return cached.summary;
     }
@@ -299,10 +275,7 @@ export class PiRpcSessionCatalog implements SessionCatalog {
    * map when possible; otherwise one session header per unknown bucket is read to
    * learn its cwd, which is cheap at a few dozen buckets.
    */
-  private async bucketForCwd(
-    cwd: string,
-    files: SessionFile[],
-  ): Promise<string | undefined> {
+  private async bucketForCwd(cwd: string, files: SessionFile[]): Promise<string | undefined> {
     for (const [bucket, known] of this.bucketCwd) {
       if (known === cwd) {
         return bucket;
@@ -360,7 +333,7 @@ export class PiRpcSessionCatalog implements SessionCatalog {
   async remove(id: string): Promise<void> {
     const path = resolve(id);
     const directory = resolve(this.directory);
-    if (!path.startsWith(`${directory}${sep}`) || !path.endsWith(".jsonl")) {
+    if (!path.startsWith(`${directory}${sep}`) || !path.endsWith('.jsonl')) {
       throw new Error(`Refusing to delete a session outside ${directory}`);
     }
     try {
@@ -384,7 +357,7 @@ export class PiRpcSessionCatalog implements SessionCatalog {
       }
       const bucketPath = join(this.directory, bucket.name);
       for (const entry of await safeReadDir(bucketPath)) {
-        if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
           continue;
         }
         const path = join(bucketPath, entry.name);
@@ -415,9 +388,7 @@ interface SessionFile {
  * order the full sort gave them. A `Map` preserves insertion order, so the
  * buckets come out in the order their newest session was touched too.
  */
-function groupByBucket(
-  files: readonly SessionFile[],
-): Map<string, SessionFile[]> {
+function groupByBucket(files: readonly SessionFile[]): Map<string, SessionFile[]> {
   const byBucket = new Map<string, SessionFile[]>();
   for (const file of files) {
     const bucket = byBucket.get(file.bucket);
@@ -444,10 +415,7 @@ async function readSessionSummary(
   updatedAt: number,
   previous?: CachedSummary,
 ): Promise<SessionScan | undefined> {
-  let resumable =
-    previous !== undefined &&
-    previous.scanned > 0 &&
-    updatedAt >= previous.updatedAt;
+  let resumable = previous !== undefined && previous.scanned > 0 && updatedAt >= previous.updatedAt;
   if (resumable && previous !== undefined) {
     const info = await stat(path).catch(() => undefined);
     // Only an append can be read from the tail. A shorter file (or one of the same
@@ -457,30 +425,25 @@ async function readSessionSummary(
   const from = resumable && previous !== undefined ? previous.scanned : 0;
   const raw = resumable
     ? await readFrom(path, from).catch(() => undefined)
-    : await readFile(path, "utf8").catch(() => undefined);
+    : await readFile(path, 'utf8').catch(() => undefined);
   if (raw === undefined) {
     return undefined;
   }
 
-  let cwd = resumable && previous !== undefined ? previous.summary.cwd : "";
-  let parentId =
-    resumable && previous !== undefined ? previous.summary.parentId : undefined;
-  let subagent =
-    resumable && previous !== undefined ? previous.summary.subagent : undefined;
+  let cwd = resumable && previous !== undefined ? previous.summary.cwd : '';
+  let parentId = resumable && previous !== undefined ? previous.summary.parentId : undefined;
+  let subagent = resumable && previous !== undefined ? previous.summary.subagent : undefined;
   let name = resumable && previous !== undefined ? previous.name : undefined;
-  let firstUserText =
-    resumable && previous !== undefined ? previous.firstUserText : undefined;
-  let messageCount =
-    resumable && previous !== undefined ? previous.summary.messageCount : 0;
+  let firstUserText = resumable && previous !== undefined ? previous.firstUserText : undefined;
+  let messageCount = resumable && previous !== undefined ? previous.summary.messageCount : 0;
   let scanned = from;
   /** Characters consumed up to the last complete line, in this read. */
   let consumed = 0;
 
-  const parseAt = (start: number, end: number) =>
-    parseLine(raw.slice(start, end));
+  const parseAt = (start: number, end: number) => parseLine(raw.slice(start, end));
 
   for (let start = 0; start < raw.length;) {
-    const newline = raw.indexOf("\n", start);
+    const newline = raw.indexOf('\n', start);
     const end = newline === -1 ? raw.length : newline;
     // Walk the buffer by offset: slicing every line (or `split`ting the whole file
     // into 2000 strings) allocated tens of megabytes per scan, for lines that
@@ -493,37 +456,32 @@ async function readSessionSummary(
     let type: string | undefined;
     if (raw.charCodeAt(start) === 123 /* '{' */) {
       type = complete
-        ? (typeAt(raw, start, end) ?? asString(parseAt(start, end)?.["type"]))
-        : asString(parseAt(start, end)?.["type"]);
-      if (type === "message") {
+        ? (typeAt(raw, start, end) ?? asString(parseAt(start, end)?.['type']))
+        : asString(parseAt(start, end)?.['type']);
+      if (type === 'message') {
         messageCount += 1;
         if (firstUserText === undefined) {
-          const message = asRecord(parseAt(start, end)?.["message"]);
-          if (message?.["role"] === "user") {
-            firstUserText = textOf(message["content"]);
+          const message = asRecord(parseAt(start, end)?.['message']);
+          if (message?.['role'] === 'user') {
+            firstUserText = textOf(message['content']);
           }
         }
-      } else if (type === "session") {
+      } else if (type === 'session') {
         if (cwd.length === 0) {
           const header = parseAt(start, end);
-          cwd = asString(header?.["cwd"]) ?? "";
+          cwd = asString(header?.['cwd']) ?? '';
           // `parentSession` sits in the header, written once, so it is only ever
           // read from the whole-file scan (a resumed scan never sees that line).
-          parentId = asString(header?.["parentSession"]) ?? undefined;
+          parentId = asString(header?.['parentSession']) ?? undefined;
           // A subagent mark distinguishes a delegation child (pi-subagents and
           // friends write one) from a fork: both carry `parentSession`, but only
           // a subagent is watched read-only rather than resumed with a composer.
           // Probed by key, not by extension name — any delegation extension that
           // marks its children lights up without a Morse change.
-          subagent =
-            header?.["subagent"] === true ||
-            asString(header?.["subagent"]) !== undefined;
+          subagent = header?.['subagent'] === true || asString(header?.['subagent']) !== undefined;
         }
-      } else if (
-        (type === "session_info" || type === "session_name") &&
-        !name
-      ) {
-        name = asString(parseAt(start, end)?.["name"]);
+      } else if ((type === 'session_info' || type === 'session_name') && !name) {
+        name = asString(parseAt(start, end)?.['name']);
       }
     }
     if (!complete) {
@@ -548,7 +506,7 @@ async function readSessionSummary(
   return {
     summary: {
       id: path,
-      title: name ?? titleFromText(firstUserText) ?? "Untitled session",
+      title: name ?? titleFromText(firstUserText) ?? 'Untitled session',
       cwd,
       updatedAt,
       messageCount,
@@ -563,28 +521,23 @@ async function readSessionSummary(
 
 /** The tail of a file, from a byte offset that sits on a character boundary. */
 async function readFrom(path: string, from: number): Promise<string> {
-  const handle = await open(path, "r");
+  const handle = await open(path, 'r');
   try {
     const info = await handle.stat();
     if (info.size <= from) {
-      return "";
+      return '';
     }
     const length = info.size - from;
     const buffer = Buffer.alloc(length);
     let filled = 0;
     while (filled < length) {
-      const { bytesRead } = await handle.read(
-        buffer,
-        filled,
-        length - filled,
-        from + filled,
-      );
+      const { bytesRead } = await handle.read(buffer, filled, length - filled, from + filled);
       if (bytesRead === 0) {
         break;
       }
       filled += bytesRead;
     }
-    return buffer.subarray(0, filled).toString("utf8");
+    return buffer.subarray(0, filled).toString('utf8');
   } finally {
     await handle.close();
   }
@@ -614,10 +567,10 @@ function textOf(content: unknown): string | undefined {
   }
   for (const block of blocks) {
     const record = asRecord(block);
-    if (record?.["type"] !== "text") {
+    if (record?.['type'] !== 'text') {
       continue;
     }
-    const text = asString(record["text"]);
+    const text = asString(record['text']);
     if (text !== undefined && text.trim().length > 0) {
       return text;
     }
@@ -629,7 +582,7 @@ function titleFromText(text: string | undefined): string | undefined {
   if (!text) {
     return undefined;
   }
-  const single = text.replace(/\s+/g, " ").trim();
+  const single = text.replace(/\s+/g, ' ').trim();
   if (single.length === 0) {
     return undefined;
   }
@@ -639,16 +592,16 @@ function titleFromText(text: string | undefined): string | undefined {
 /** A missing file, from `fs.unlink` (ENOENT) or VS Code's workspace filesystem. */
 function isNotFound(error: unknown): boolean {
   const code = (error as { code?: unknown } | undefined)?.code;
-  if (code === "ENOENT") {
+  if (code === 'ENOENT') {
     return true;
   }
   // `vscode.workspace.fs.delete` reports a missing file as FileNotFound; the
   // adapter stays editor-free, so it recognises the shape, not the class.
   const name = (error as { name?: unknown } | undefined)?.name;
-  return name === "FileNotFound" || name === "EntryNotFound";
+  return name === 'FileNotFound' || name === 'EntryNotFound';
 }
 
-async function safeReadDir(path: string): Promise<import("node:fs").Dirent[]> {
+async function safeReadDir(path: string): Promise<import('node:fs').Dirent[]> {
   try {
     return await readdir(path, { withFileTypes: true });
   } catch {

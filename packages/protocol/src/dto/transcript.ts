@@ -1,9 +1,5 @@
 /** Transcript items: the rows a frontend renders, and what a prompt carries. */
-import type {
-  NoticeLevel,
-  ToolStatus,
-  ToolResultDetails,
-} from "./primitives.js";
+import type { NoticeLevel, ToolStatus, ToolResultDetails } from './primitives.js';
 
 /**
  * A session a tool call spawned: the engine's own session id (the same id the
@@ -74,7 +70,7 @@ export interface ComposerSeed {
 }
 
 export interface UserTranscriptItem extends BaseTranscriptItem {
-  kind: "user";
+  kind: 'user';
   text: string;
   /** Image attachments pinned to this message, rendered as thumbnails. */
   images?: PromptImage[];
@@ -83,7 +79,7 @@ export interface UserTranscriptItem extends BaseTranscriptItem {
 }
 
 export interface AssistantTranscriptItem extends BaseTranscriptItem {
-  kind: "assistant";
+  kind: 'assistant';
   text: string;
   thinking: string;
   streaming: boolean;
@@ -91,7 +87,7 @@ export interface AssistantTranscriptItem extends BaseTranscriptItem {
 }
 
 export interface ToolTranscriptItem extends BaseTranscriptItem {
-  kind: "tool";
+  kind: 'tool';
   name: string;
   title: string;
   status: ToolStatus;
@@ -116,7 +112,7 @@ export interface ToolTranscriptItem extends BaseTranscriptItem {
 }
 
 export interface NoticeTranscriptItem extends BaseTranscriptItem {
-  kind: "notice";
+  kind: 'notice';
   level: NoticeLevel;
   text: string;
 }
@@ -128,7 +124,7 @@ export interface NoticeTranscriptItem extends BaseTranscriptItem {
  * session does not silently shrink to the post-compaction tail.
  */
 export interface CompactionTranscriptItem extends BaseTranscriptItem {
-  kind: "compaction";
+  kind: 'compaction';
   summary?: string;
   /** Approximate tokens that the summary folded away, when the agent reports it. */
   tokensBefore?: number;

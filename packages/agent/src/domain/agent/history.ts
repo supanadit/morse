@@ -4,9 +4,9 @@
  * Shapes only — no I/O, no ports, no framework imports (R2/R8).
  */
 
-import type { ChatPin, PromptImage } from "../usage.js";
-import type { AgentChildSessionRef } from "./events.js";
-import type { ToolResultDetails } from "./state.js";
+import type { ChatPin, PromptImage } from '../usage.js';
+import type { AgentChildSessionRef } from './events.js';
+import type { ToolResultDetails } from './state.js';
 
 /**
  * The shape every history entry shares: which kind of entry it is, and when it
@@ -17,7 +17,7 @@ import type { ToolResultDetails } from "./state.js";
  * exactly as it did when the variants were inline object literals.
  */
 export interface AgentHistoryEntryBase {
-  role: "user" | "assistant" | "tool" | "compaction";
+  role: 'user' | 'assistant' | 'tool' | 'compaction';
   at?: number;
 }
 
@@ -27,7 +27,7 @@ export interface AgentHistoryEntryBase {
  * the images and pins they attached.
  */
 export interface AgentMessageEntry extends AgentHistoryEntryBase {
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   text: string;
   thinking?: string;
   model?: string;
@@ -42,14 +42,14 @@ export interface AgentMessageEntry extends AgentHistoryEntryBase {
  * resumed transcript would look like the agent did nothing between two messages.
  */
 export interface AgentToolEntry extends AgentHistoryEntryBase {
-  role: "tool";
+  role: 'tool';
   /** Provider-side id, used to attach the matching tool result. */
   toolCallId: string;
   name: string;
   title: string;
   input?: string;
   output?: string;
-  status: "ok" | "error";
+  status: 'ok' | 'error';
   /** The tool's structured result, when it returned one (see `agent/tool-end`). */
   details?: ToolResultDetails;
   /**
@@ -66,11 +66,10 @@ export interface AgentToolEntry extends AgentHistoryEntryBase {
  * transcript marks the point instead of hiding the folded messages.
  */
 export interface AgentCompactionEntry extends AgentHistoryEntryBase {
-  role: "compaction";
+  role: 'compaction';
   summary: string;
   tokensBefore?: number;
 }
 
 /** One entry of an agent's past conversation, normalised away from any transport. */
-export type AgentHistoryEntry =
-  AgentMessageEntry | AgentToolEntry | AgentCompactionEntry;
+export type AgentHistoryEntry = AgentMessageEntry | AgentToolEntry | AgentCompactionEntry;

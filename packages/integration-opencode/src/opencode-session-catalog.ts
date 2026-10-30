@@ -5,9 +5,9 @@ import {
   type SessionCatalog,
   type SessionPage,
   type SessionSummary,
-} from "@morse/system";
-import type { OpenCodeApi } from "./internal/client.js";
-import type { ApiSessionInfo } from "./opencode-agent.js";
+} from '@morse/system';
+import type { OpenCodeApi } from './internal/client.js';
+import type { ApiSessionInfo } from './opencode-agent.js';
 
 /**
  * OpenCode's stored sessions as a Morse catalog.
@@ -77,11 +77,7 @@ export class OpenCodeSessionCatalog implements SessionCatalog {
   }
 
   /** More of one project's sessions, newest first, starting at `offset`. */
-  async listPage(options: {
-    cwd: string;
-    offset?: number;
-    limit?: number;
-  }): Promise<SessionPage> {
+  async listPage(options: { cwd: string; offset?: number; limit?: number }): Promise<SessionPage> {
     const sessions = sortNewestFirst(await this.allSessions()).filter(
       (session) => session.location?.directory === options.cwd,
     );
@@ -103,8 +99,7 @@ export class OpenCodeSessionCatalog implements SessionCatalog {
       .filter((session) => {
         const summary = toSummary(session);
         return (
-          summary.title.toLowerCase().includes(needle) ||
-          summary.cwd.toLowerCase().includes(needle)
+          summary.title.toLowerCase().includes(needle) || summary.cwd.toLowerCase().includes(needle)
         );
       })
       .slice(0, limit)
@@ -134,15 +129,12 @@ export class OpenCodeSessionCatalog implements SessionCatalog {
     const sessions: CatalogSessionInfo[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < MAX_SESSION_PAGES; page += 1) {
-      const result = await this.options.api.page<CatalogSessionInfo>(
-        "/session",
-        {
-          limit: String(SESSION_PAGE_SIZE),
-          ...(cursor === undefined ? {} : { cursor }),
-        },
-      );
+      const result = await this.options.api.page<CatalogSessionInfo>('/session', {
+        limit: String(SESSION_PAGE_SIZE),
+        ...(cursor === undefined ? {} : { cursor }),
+      });
       for (const session of result.data) {
-        if (typeof session.id !== "string" || session.id.length === 0) {
+        if (typeof session.id !== 'string' || session.id.length === 0) {
           continue;
         }
         if (isArchived(session)) {
@@ -167,15 +159,12 @@ function toSummary(session: CatalogSessionInfo): SessionSummary {
   // branched and keeps prompting in. OpenCode separates them on the record —
   // `parentID` for delegation children, `fork.sessionID` for forks — and a
   // parent can have any number of either, running in parallel.
-  const isSubagent =
-    session.parentID !== undefined && session.parentID.length > 0;
+  const isSubagent = session.parentID !== undefined && session.parentID.length > 0;
   return {
     id: session.id,
     title:
-      session.title !== undefined && session.title.length > 0
-        ? session.title
-        : UNTITLED_SESSION,
-    cwd: session.location?.directory ?? "",
+      session.title !== undefined && session.title.length > 0 ? session.title : UNTITLED_SESSION,
+    cwd: session.location?.directory ?? '',
     updatedAt,
     // OpenCode's session record carries no message count; the transcript counts
     // what it replays. Zero says "not reported" rather than inventing a number.
@@ -188,9 +177,7 @@ function toSummary(session: CatalogSessionInfo): SessionSummary {
   };
 }
 
-function sortNewestFirst(
-  sessions: readonly CatalogSessionInfo[],
-): CatalogSessionInfo[] {
+function sortNewestFirst(sessions: readonly CatalogSessionInfo[]): CatalogSessionInfo[] {
   return [...sessions].sort(
     (left, right) =>
       (right.time?.updated ?? right.time?.created ?? 0) -
@@ -200,7 +187,6 @@ function sortNewestFirst(
 
 function isArchived(session: CatalogSessionInfo): boolean {
   return (
-    session.archived === true ||
-    (session.time?.archived !== undefined && session.time.archived > 0)
+    session.archived === true || (session.time?.archived !== undefined && session.time.archived > 0)
   );
 }
