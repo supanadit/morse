@@ -52,6 +52,7 @@ import { CommandPalette } from '../features/command-palette/command-palette';
 import { ShortcutService } from '../services/shortcut.service';
 import { ShortcutKeys } from '../ui/shortcut-keys';
 import { OverlayEscape } from '../ui/overlay-escape';
+import { SelectionFocusDirective } from '../ui/selection-focus.directive';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { AgentScreen } from '../features/agent-screen/agent-screen';
 
@@ -93,6 +94,7 @@ function previewBoot(): boolean {
     GitPanel,
     SearchPanel,
     EnterDirective,
+    SelectionFocusDirective,
     BootSplash,
     ConnectionScreen,
   ],

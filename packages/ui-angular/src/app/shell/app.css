@@ -24,6 +24,15 @@
   background: var(--morse-bg);
 }
 
+/*
+ * The selection-focus guard (`ui/selection-focus.directive.ts`) makes the shell
+ * a programmatic focus target so a webview keeps the transcript selection when
+ * copying. It is not a control, so it must not paint a focus ring.
+ */
+.shell:focus {
+  outline: none;
+}
+
 /* The columns share the middle row; the chrome takes its own, across all of them. */
 .nav,
 .chat,
