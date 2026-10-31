@@ -47,6 +47,10 @@
 .fold-shut:hover {
   color: var(--morse-fg);
 }
+/* Only the first of the pair is pushed to the edge; the second hugs it. */
+.fold-shut + .fold-shut {
+  margin-left: 2px;
+}
 .box {
   position: relative;
   container-type: inline-size;
@@ -487,15 +491,120 @@ button.chip-body:focus-visible {
 .box:focus-within {
   border-color: var(--morse-focus);
 }
+/* The top edge is the resize grip: drag it to give the prompt more room. */
+.resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.resize:hover {
+  background: color-mix(in srgb, var(--morse-focus) 30%, transparent);
+  border-radius: inherit;
+}
+/* Maximized: the prompt becomes a page of its own over the conversation. */
+:host(.maximized) .box {
+  position: fixed;
+  inset: 24px;
+  max-width: none;
+  z-index: var(--morse-z-dialog);
+  display: flex;
+  flex-direction: column;
+}
+:host(.maximized) morse-markdown-view,
+:host(.maximized) morse-markdown-paint {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+:host(.maximized) textarea {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+:host(.maximized) .resize {
+  display: none;
+}
+/* The shortcut legend only exists in full screen, where the keys change. */
+.legend {
+  display: flex;
+  gap: 14px;
+  padding: 2px 6px 6px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.legend kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-hover);
+  font: inherit;
+  font-size: 10.5px;
+}
 textarea {
   width: 100%;
   border: 0;
   background: transparent;
+  /*
+   * The markdown paint layer below shows the draft, styled (fenced blocks,
+   * inline code, emphasis…); the textarea is the surface for the caret,
+   * selection and input, so its own glyphs stay hidden. It sits ABOVE the
+   * mirror (position + z-index): the caret and the selection band must paint
+   * over the styled text, not under it.
+   */
+  position: relative;
+  z-index: 1;
+  /*
+   * Native text is always hidden behind the paint layer.
+   * caret-color must be set explicitly: it inherits from `color` and would
+   * otherwise also be transparent. The native blinking cursor stays visible
+   * by default and is only hidden in .view-mode (custom caret active).
+   */
+  color: transparent;
+  caret-color: var(--morse-fg);
   resize: none;
   min-height: 44px;
-  max-height: 220px;
-  padding: 4px 6px;
-  line-height: 1.5;
+  /* Block, so no baseline gap: one box with the mirror, not 4px taller. */
+  display: block;
+  /*
+   * One set of metrics with the paint layer (see --mdp-* in markdown-paint),
+   * and the same wrapping inputs: same wrap width (gutter reserved on both),
+   * same break rules — any difference here drifts every wrapped line.
+   */
+  padding: var(--mdp-padding, 4px 6px);
+  line-height: var(--mdp-line-height, 1.5);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  scrollbar-gutter: stable;
+}
+textarea::selection {
+  background: transparent;
+}
+/* When viewMode is on the custom caret layer takes over — hide the native caret. */
+morse-markdown-view.view-mode textarea,
+morse-markdown-paint.view-mode textarea {
+  caret-color: transparent;
+}
+morse-markdown-view.composing textarea,
+morse-markdown-paint.composing textarea {
+  color: var(--morse-fg);
+  caret-color: var(--morse-fg);
+}
+/*
+ * The placeholder belongs to the empty draft, where the mirror paints nothing:
+ * it must not inherit the transparent text color.
+ */
+textarea::placeholder {
+  color: var(--morse-fg-muted);
+  opacity: 1;
+}
+/* Selection keeps painting its own band over the styled mirror below. */
+textarea::selection {
+  background: var(--morse-focus);
+  color: var(--morse-fg);
 }
 textarea:focus-visible {
   outline: none;
@@ -532,9 +641,10 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 /*
- * Row 1 is status only: live throughput on the left, run progress and the
- * context indicator on the right. Row 2 stays pure controls (dropdowns +
- * send/steer), so the buttons never move around while the numbers tick.
+ * Row 1 is status only: live throughput and the session facts on the left,
+ * run progress and the context indicator on the right. Row 2 stays pure
+ * controls (dropdowns + send/steer), so the buttons never move around while
+ * the numbers tick.
  */
 .status-row {
   display: flex;
@@ -559,7 +669,9 @@ textarea:focus-visible {
 }
 /*
  * The model trigger replaces a native <select>, whose flat list hid which
- * provider a model belongs to. It opens the grouped, searchable picker.
+ * provider a model belongs to. It opens the grouped, searchable picker. The
+ * provider itself rides the session facts on the status strip: an inline
+ * pill ate the width the model name needs and truncated the label it shows.
  */
 .model-button {
   display: inline-flex;
@@ -583,20 +695,34 @@ textarea:focus-visible {
   opacity: 0.5;
   cursor: default;
 }
-.model-button .provider {
-  flex: none;
-  max-width: 90px;
+/*
+ * Session facts: muted plain text on the status strip, right after the live
+ * rate — the engine this session runs and where its model comes from. Facts
+ * are plain text; the controls below stay a single aligned row.
+ */
+.facts {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.fact {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 1px 5px;
-  border-radius: var(--morse-radius-sm);
-  background: var(--morse-hover);
-  color: var(--morse-fg-muted);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+}
+.fact + .fact::before {
+  content: '·';
+  margin: 0 6px;
+  opacity: 0.6;
+}
+/* The live rate and the facts are two groups on one line: same separator. */
+.throughput + .facts .fact:first-child::before {
+  content: '·';
+  margin: 0 6px;
+  opacity: 0.6;
 }
 .model-button .label {
   min-width: 0;
@@ -643,6 +769,18 @@ textarea:focus-visible {
   .controls-actions {
     flex: 1 1 100%;
     justify-content: flex-end;
+  }
+}
+/* Engine and mode join the model/thinking row on a draft. They may be the two
+   most important choices there, so they wrap before they truncate to nothing. */
+.engine-host,
+.mode-host {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+@container (max-width: 560px) {
+  .controls-metrics {
+    flex-wrap: wrap;
   }
 }
 @container (max-width: 360px) {

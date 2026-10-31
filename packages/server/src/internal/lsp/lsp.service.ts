@@ -24,7 +24,7 @@
  */
 import { readFile, stat } from 'node:fs/promises';
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
-import { type MorseLogger } from '@morse/core';
+import { type MorseLogger } from '@morse/system';
 import type {
   LspDefinition,
   LspDiagnostic,

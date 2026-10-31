@@ -90,20 +90,283 @@
             <button type="button" (click)="submit()">Submit</button>
           </div>
         }
+        @case ('form') {
+          @if (overflowTitle(); as text) {
+            <p class="message">{{ text }}</p>
+          }
+          @if (step() === 0 && messageOf(req); as message) {
+            <p class="message">{{ message }}</p>
+          }
+          <div class="form">
+            @if (stepperVisible()) {
+              <div class="steps">
+                <span class="steps-count">Question {{ step() + 1 }} of {{ stepCount() }}</span>
+                <div class="steps-dots">
+                  @for (field of visibleFormFields(); track field.key; let index = $index) {
+                    <button
+                      type="button"
+                      class="step-dot"
+                      [class.current]="index === step()"
+                      [class.answered]="stepAnswered(index)"
+                      [class.broken]="stepBroken(index)"
+                      [attr.aria-label]="'Question ' + (index + 1) + ': ' + field.label"
+                      [attr.aria-current]="index === step() ? 'step' : null"
+                      (click)="goToStep(index)"
+                    ></button>
+                  }
+                </div>
+              </div>
+            }
+            @if (currentField(); as field) {
+              <div class="form-field">
+                <label
+                  class="form-label"
+                  [attr.id]="'form-' + field.key + '-label'"
+                  [attr.for]="isChoice(field) ? null : 'form-' + field.key"
+                >
+                  {{ field.label }}
+                  @if (field.required) {
+                    <span class="required" aria-hidden="true"> *</span>
+                  }
+                </label>
+                @switch (field.type) {
+                  @case ('boolean') {
+                    <label class="form-check">
+                      <input
+                        type="checkbox"
+                        [id]="'form-' + field.key"
+                        [checked]="fieldValue(field.key) === true"
+                        (change)="setChecked(field.key, $event)"
+                        (keydown.enter)="$event.preventDefault(); advance()"
+                      />
+                      <span>{{ field.placeholder ?? field.label }}</span>
+                    </label>
+                  }
+                  @case ('select') {
+                    <div
+                      class="choices"
+                      role="radiogroup"
+                      [attr.id]="'form-' + field.key"
+                      [attr.aria-labelledby]="'form-' + field.key + '-label'"
+                    >
+                      @for (option of field.options ?? []; track option.value; let index = $index) {
+                        <label
+                          class="choice"
+                          [class.picked]="fieldValue(field.key) === option.value"
+                        >
+                          <input
+                            class="choice-radio"
+                            type="radio"
+                            [name]="'form-' + field.key"
+                            [id]="'form-' + field.key + '-' + option.value"
+                            [checked]="fieldValue(field.key) === option.value"
+                            (change)="setChoice(field, option.value)"
+                            (keydown.enter)="$event.preventDefault(); advance()"
+                          />
+                          <span class="choice-ordinal" aria-hidden="true">{{ index + 1 }}.</span>
+                          <span class="choice-text">
+                            <span class="choice-label">{{ option.label }}</span>
+                            @if (option.description) {
+                              <span class="choice-description"> — {{ option.description }}</span>
+                            }
+                          </span>
+                        </label>
+                      }
+                      @if (customField() === field.key) {
+                        <label class="choice custom">
+                          <span class="choice-ordinal" aria-hidden="true">{{
+                            customOrdinal(field)
+                          }}</span>
+                          <input
+                            class="custom-input"
+                            type="text"
+                            [attr.aria-label]="field.label"
+                            placeholder="Type something…"
+                            [value]="customDraft()[field.key] ?? ''"
+                            (input)="setCustomDraft(field.key, $event)"
+                            (keydown.enter)="$event.preventDefault(); commitCustom(field)"
+                            (keydown.escape)="$event.preventDefault(); closeCustom()"
+                          />
+                        </label>
+                      } @else if (customValue(field)) {
+                        <button type="button" class="choice picked" (click)="openCustom(field)">
+                          <span class="choice-ordinal" aria-hidden="true">{{
+                            customOrdinal(field)
+                          }}</span>
+                          <span class="choice-text">
+                            <span class="choice-label">{{ customValue(field) }}</span>
+                            <span class="choice-description"> — typed</span>
+                          </span>
+                        </button>
+                      } @else {
+                        <button
+                          type="button"
+                          class="choice choice-other"
+                          (click)="openCustom(field)"
+                        >
+                          <span class="choice-ordinal" aria-hidden="true">{{
+                            customOrdinal(field)
+                          }}</span>
+                          <span class="choice-text muted">Type something…</span>
+                        </button>
+                      }
+                    </div>
+                  }
+                  @case ('multiselect') {
+                    <div
+                      class="choices"
+                      role="group"
+                      [attr.id]="'form-' + field.key"
+                      [attr.aria-labelledby]="'form-' + field.key + '-label'"
+                    >
+                      @for (option of field.options ?? []; track option.value) {
+                        <label class="choice" [class.picked]="isSelected(field.key, option.value)">
+                          <input
+                            class="choice-check"
+                            type="checkbox"
+                            [id]="'form-' + field.key + '-' + option.value"
+                            [checked]="isSelected(field.key, option.value)"
+                            (change)="toggleMulti(field.key, option.value, $event)"
+                            (keydown.enter)="$event.preventDefault(); advance()"
+                          />
+                          <span class="choice-text">
+                            <span class="choice-label">{{ option.label }}</span>
+                            @if (option.description) {
+                              <span class="choice-description"> — {{ option.description }}</span>
+                            }
+                          </span>
+                        </label>
+                      }
+                      @for (typed of customValues(field); track typed) {
+                        <label class="choice picked">
+                          <input
+                            class="choice-check"
+                            type="checkbox"
+                            checked
+                            (change)="removeCustom(field, typed)"
+                            (keydown.enter)="$event.preventDefault(); advance()"
+                          />
+                          <span class="choice-text">
+                            <span class="choice-label">{{ typed }}</span>
+                            <span class="choice-description"> — typed</span>
+                          </span>
+                        </label>
+                      }
+                      @if (customField() === field.key) {
+                        <label class="choice custom">
+                          <span class="choice-plus" aria-hidden="true">+</span>
+                          <input
+                            class="custom-input"
+                            type="text"
+                            [attr.aria-label]="field.label"
+                            placeholder="Type something…"
+                            [value]="customDraft()[field.key] ?? ''"
+                            (input)="setCustomDraft(field.key, $event)"
+                            (keydown.enter)="$event.preventDefault(); commitCustom(field)"
+                            (keydown.escape)="$event.preventDefault(); closeCustom()"
+                          />
+                        </label>
+                      } @else {
+                        <button
+                          type="button"
+                          class="choice choice-other"
+                          (click)="openCustom(field)"
+                        >
+                          <span class="choice-plus" aria-hidden="true">+</span>
+                          <span class="choice-text muted">Type something…</span>
+                        </button>
+                      }
+                    </div>
+                  }
+                  @case ('number') {
+                    <input
+                      class="field"
+                      type="number"
+                      [id]="'form-' + field.key"
+                      [placeholder]="field.placeholder ?? ''"
+                      [value]="textValue(field)"
+                      [attr.min]="field.min"
+                      [attr.max]="field.max"
+                      (input)="setInput(field, $event)"
+                      (keydown.enter)="$event.preventDefault(); advance()"
+                    />
+                  }
+                  @case ('integer') {
+                    <input
+                      class="field"
+                      type="number"
+                      step="1"
+                      [id]="'form-' + field.key"
+                      [placeholder]="field.placeholder ?? ''"
+                      [value]="textValue(field)"
+                      [attr.min]="field.min"
+                      [attr.max]="field.max"
+                      (input)="setInput(field, $event)"
+                      (keydown.enter)="$event.preventDefault(); advance()"
+                    />
+                  }
+                  @default {
+                    <input
+                      class="field"
+                      type="text"
+                      [id]="'form-' + field.key"
+                      [placeholder]="field.placeholder ?? ''"
+                      [value]="textValue(field)"
+                      (input)="setInput(field, $event)"
+                      (keydown.enter)="$event.preventDefault(); advance()"
+                    />
+                  }
+                }
+              </div>
+            }
+            @if (shownError(); as error) {
+              @if (shownErrorIsForeign()) {
+                <button type="button" class="note note-link" (click)="jumpToBroken()">
+                  {{ error }}
+                </button>
+              } @else {
+                <p class="note">{{ error }}</p>
+              }
+            }
+            <div class="actions">
+              <button type="button" class="secondary" (click)="cancel()">Cancel</button>
+              @if (stepperVisible()) {
+                <span class="spacer"></span>
+                @if (!isFirstStep()) {
+                  <button type="button" class="secondary" (click)="back()">Back</button>
+                }
+                @if (!isLastStep()) {
+                  <button type="button" (click)="next()">Next</button>
+                }
+              }
+              @if (isLastStep()) {
+                <button type="button" [disabled]="formError() !== undefined" (click)="submitForm()">
+                  Submit
+                </button>
+              }
+            </div>
+          </div>
+        }
       }
     </div>
 
     <div class="hint">
       @switch (req.kind) {
         @case ('select') {
-          <kbd>↑</kbd><kbd>↓</kbd><span>move</span>
-          <kbd>Enter</kbd><span>pick</span>
+          <kbd>↑</kbd><kbd>↓</kbd><span>move</span> <kbd>Enter</kbd><span>pick</span>
         }
         @case ('input') {
           <kbd>Enter</kbd><span>submit</span>
         }
         @case ('editor') {
           <kbd>Ctrl</kbd><kbd>Enter</kbd><span>submit</span>
+        }
+        @case ('form') {
+          @if (stepperVisible() && !isLastStep()) {
+            <kbd>Enter</kbd><span>next</span>
+          } @else if (stepperVisible() && formError() === undefined) {
+            <kbd>Enter</kbd><span>submit</span>
+          }
         }
       }
       <span class="spacer"></span>

@@ -38,11 +38,11 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the layout and layering rules, and
 `packages/ui-angular/angular.json` is strict JSON (no comments), so any tool can parse it. The decisions it
 encodes, and why:
 
-- **Initial bundle budget** (`maximumWarning` 750 kB, `maximumError` 1.1 MB). The initial bundle is ~1.1 MB raw
-  (~245 kB over the wire): markdown, highlight.js, DOMPurify, anime.js and Angular are all in it, while the
+- **Initial bundle budget** (`maximumWarning` 850 kB, `maximumError` 1.25 MB). The initial bundle is ~1.2 MB raw
+  (~263 kB over the wire): markdown, highlight.js, DOMPurify, anime.js and Angular are all in it, while the
   code-split editors (prompt templates, session pages) stay out. The ceiling tracks the app's growth (1 MB was
-  set when it was ~600 kB, 1.05 MB before the preview's language-server surface) and is meant to warn about
-  growth, not to freeze the size.
+  set when it was ~600 kB, 1.05 MB before the preview's language-server surface, 1.2 MB before the stepper
+  question form) and is meant to warn about growth, not to freeze the size.
 - **`anyComponentStyle` budget** (`maximumWarning` 12 kB, `maximumError` 16 kB): the transcript's own stylesheet
   is the largest at ~10.6 kB.
 - **`allowedCommonJsDependencies`** lists the three `@xterm/*` packages because xterm.js ships CommonJS only.
@@ -66,7 +66,7 @@ code, so changing them without measuring is how this gets slow again.
 
 What keeps them cheap:
 
-- `packages/adapter-pi-rpc/src/pi-rpc-session-catalog.ts` caches a summary per file, keyed by size + mtime, shares
+- `packages/integration-pi/src/pi-rpc-session-catalog.ts` caches a summary per file, keyed by size + mtime, shares
   one build between concurrent callers, reads a line's `type` with a string search instead of `JSON.parse` on
   every one of tens of thousands of lines, and resumes a file that only grew from the byte offset the last scan
   stopped at. Re-reading files per list, or parsing every line again, brings the 600 ms back.

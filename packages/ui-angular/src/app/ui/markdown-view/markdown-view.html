@@ -1,0 +1,21 @@
+<div class="paint" #box [class.composing]="composing()" aria-hidden="true" [innerHTML]="html()"></div>
+<div class="view-overlay" aria-hidden="true">
+  @for (band of selectionBands(); track $index) {
+    <div
+      class="selection-band"
+      [style.left.px]="band.left"
+      [style.top.px]="band.top"
+      [style.width.px]="band.width"
+      [style.height.px]="band.height"
+    ></div>
+  }
+  @if (caretVisible() && !composing()) {
+    <div
+      class="caret-bar"
+      [style.left.px]="caretRect().left"
+      [style.top.px]="caretRect().top"
+      [style.height.px]="caretRect().height"
+    ></div>
+  }
+</div>
+<ng-content />

@@ -12,7 +12,11 @@ Settings live under `morse.*`:
 | `morse.pi.noSession` | Run without persisting a session (`pi --no-session`) |
 | `morse.pi.extraArgs` | Extra arguments for the pi process |
 | `morse.pi.requestTimeoutMs` | Per-request RPC timeout |
-| `morse.sessions.hotLimit` | How many `pi` processes stay warm (LRU, default 4) |
+| `morse.engine` | Engine new sessions start in: `pi` (default) or `opencode`. An engine that cannot be reached falls back to pi |
+| `morse.opencode.path` | Path to the `opencode` executable. Empty = `opencode` from `PATH` |
+| `morse.opencode.url` | Attach to a running OpenCode server instead of spawning one |
+| `morse.opencode.password` | The password that server printed on startup (prefer `MORSE_OPENCODE_PASSWORD` in the environment) |
+| `morse.sessions.hotLimit` | How many sessions stay warm (LRU, default 4) |
 | `morse.sessions.perProject` | Sessions of one project listed before a "Load more" row (default 10) |
 
 ## Browser host environment
@@ -23,10 +27,14 @@ The NestJS host and the `morse` CLI are configured through the environment:
 |---|---|---|
 | `MORSE_HOST` | `127.0.0.1` | Bind address |
 | `MORSE_PORT` | `4399` | Port (the CLI picks the next free one if this is taken and unset) |
-| `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, the saved shell layout (`workbench.json`), the per-tab composer drafts (`drafts.json`) and the terminal scrollback (`terminals/`) |
+| `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, Morse's session index (`sessions/`), the saved shell layout (`workbench.json`), the per-tab composer drafts (`drafts.json`) and the terminal scrollback (`terminals/`) |
 | `MORSE_WORKSPACE` | current directory | Directory the agent works in |
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
-| `MORSE_HOT_SESSIONS` | `4` | How many `pi` processes stay alive at once |
+| `MORSE_ENGINE` | `pi` | Engine new sessions start in: `pi` or `opencode` (an unreachable engine falls back to pi) |
+| `MORSE_OPENCODE_URL` | unset | Attach to a running OpenCode server instead of spawning one |
+| `MORSE_OPENCODE_PASSWORD` | unset | The password that server printed; required with a URL |
+| `MORSE_OPENCODE_BIN` | unset | Path to the `opencode` binary (otherwise `opencode` from `PATH`) |
+| `MORSE_HOT_SESSIONS` | `4` | How many sessions stay alive at once |
 | `MORSE_SESSIONS_PER_PROJECT` | `10` | Sessions of one project listed before a "Load more" row |
 | `MORSE_PI_PATH` / `MORSE_PI_ENTRY` | unset | Path to the `pi` binary, or a pi RPC entry run with node |
 | `MORSE_SESSION_DIR` / `MORSE_NO_SESSION` | unset | pi session persistence |
@@ -41,6 +49,47 @@ The NestJS host and the `morse` CLI are configured through the environment:
 
 `MORSE_PROJECTS` is the security boundary: when set, the agent may only work inside those roots. When unset,
 any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for one you expose.
+
+### OpenCode
+
+OpenCode is optional: Morse registers its engine only when the binary is on `PATH` or a server is configured.
+
+- **Attach** — set `MORSE_OPENCODE_URL` (`morse.opencode.url`) and `MORSE_OPENCODE_PASSWORD`
+  (`morse.opencode.password`) to a running `opencode serve`. Morse authenticates with Basic auth, verifies the
+  server answers, and **never stops** that process. The password is the one the server prints on startup; a URL
+  without a password is reported as a configuration error.
+- **Own a private server** — with no URL, Morse runs `opencode serve --hostname 127.0.0.1 --port 0`, reads the
+  address and password the process announces, and stops it when the host shuts down. Point
+  `MORSE_OPENCODE_BIN` / `morse.opencode.path` at a binary outside `PATH` if needed.
+- **Which engine a new session uses** is `MORSE_ENGINE` / `morse.engine`. When more than one engine is installed,
+  the empty composer also offers an engine picker; choosing one re-reads that engine's catalogs and the first
+  prompt creates the session there. The choice is remembered for later new sessions in the same host, while the
+  configured default still decides where a fresh host starts. Existing sessions always reopen through the engine
+  recorded for them, whatever the default or draft choice is.
+- **Modes** are OpenCode's primary agents. `plan`, `build` and any primary agent you define are offered; hidden
+  and subagent-only agents are not. The current mode can be changed while a conversation runs (OpenCode's Tab
+  behaviour), and the mode picker re-reads the catalog when it opens.
+- **Default mode** — OpenCode resolves it from your configuration. Set `default_agent` in `opencode.json` (or a
+  project `.opencode/opencode.json`):
+
+  ```json
+  { "default_agent": "plan" }
+  ```
+
+  Morse reads the configuration documents from lowest to highest priority, so the last `default_agent` wins,
+  exactly as OpenCode does. When none is set, it uses the first primary agent OpenCode reports, which is where
+  the server places its resolved default. Morse never hardcodes `build` or `plan`. A session created without an
+  explicit mode omits the agent field, so OpenCode applies the same default at prompt time.
+- **Adding or changing modes** — define a primary agent in `opencode.json` under `agents`, or add a Markdown file
+  under `.opencode/agent/` (or `~/.config/opencode/agent/`). OpenCode reloads its configuration; opening the
+  mode picker (or starting a new session) re-reads `/api/agent` and `/api/config`, so the new, renamed, disabled
+  or removed agent appears without restarting Morse.
+- OpenCode exposes no MCP editor, no prompt templates and no version notice to Morse, so those affordances are
+  absent while it is the selected engine. A compaction asked for with custom instructions runs without them and
+  says so.
+
+Morse's session index lives under `<MORSE_HOME>/sessions/` (the VS Code extension uses its global storage).
+It is what the sidebar lists; each engine's own storage still holds the conversations.
 
 `MORSE_HOT_SESSIONS` is the memory dial, and `pi` is what it multiplies: a hot session is a `pi` process plus
 whatever else your own pi configuration loads beside it (measured: 275–450 MB per session on the machine we

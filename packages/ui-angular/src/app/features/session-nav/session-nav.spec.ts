@@ -393,18 +393,18 @@ describe('SessionNav', () => {
 
   it('lifts a running session into In progress, and only that one', async () => {
     const { host: global } = await render('global');
-    // `s1` streams, so it moves to the top section under a spinning mark…
+    // `s1` streams, so it is pinned to the top section under a spinning mark…
     expect(global.querySelector('.group-label')?.textContent).toContain('In progress');
     const live = [...global.querySelectorAll('.session.live')];
     expect(live).toHaveLength(1);
     expect(live[0]?.querySelector('.mark.running')).not.toBeNull();
     expect(live[0]?.querySelector('.title')?.textContent).toContain('Morse work');
-    // …and does not repeat inside its project, while the idle-but-live `s2` stays.
+    // …and it also stays in its project list, while the idle-but-live `s2` stays.
     // The tree's session rows are the leaves; the group rows are the projects.
     const listed = [...global.querySelectorAll('.row:not(.group) .label')].map(
       (node) => node.textContent,
     );
-    expect(listed).toEqual(['Other work']);
+    expect(listed).toEqual(['Morse work', 'Other work']);
 
     const { host: workspace } = await render('workspace');
     expect(workspace.querySelectorAll('.session.live')).toHaveLength(1);

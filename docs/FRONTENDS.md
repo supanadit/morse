@@ -59,6 +59,10 @@ needs.
    `session/activity` lists every *hot* session, so a frontend can mark several as active at once —
    the transcript still belongs to the selected session only. `session/list` also folds those live
    sessions in, so a session shows up as soon as it opens, even before pi has persisted it.
+   `session/state.engine` names the engine that *owns* a running session — the one it was created in,
+   never the draft's current pick — and the composer's session-facts line labels the session from it.
+   A host that predates the field omits it, and only then does a frontend fall back to the engine
+   marked `default` in `capabilities.engines`; an unknown kind is left unlabelled rather than guessed.
 3. **Drive the agent through actions** — `prompt(text, mode)`, `editMessage(itemId, text)` (forks the
    conversation before a past user message) and `forkMessage(itemId)` (branches there without sending;
    the host answers with `composer/seed`), `abort()`, `newSession(cwd?)`,
@@ -195,8 +199,9 @@ strip above the conversation, where sessions and files open side by side.
   project `ProjectPolicy` already approved. A restored tab also carries the project it was read from
   (`cwd`), because the host may still be on another session when that tab is loaded; the server policy-checks
   it exactly like a terminal's directory. Files over 512 KB are cut short, and a binary file is reported
-  as such instead of being decoded. Dragging across the line numbers picks a range and pins it to the next
-  prompt as `path:start-end` — the browser host's stand-in for VS Code's "add selection to chat". In the `@`
+  as such instead of being decoded. Dragging across the line numbers picks a whole-line range and pins it to
+  the next prompt as `path:start-end` — the browser host's line-only stand-in for VS Code's "add selection to
+  chat" (the VS Code host also captures columns, so its chips read `L18:45-79`). In the `@`
   picker, **Enter (or a row click) is a plain mention**; the file is opened only for the explicit quote intent
   — **Shift+Enter**, or the row's `⧉` — so a reference never steals the view from the conversation. A file
   opened **while a session is in front** — from the Explorer, the git panel, or a quote — becomes that
@@ -344,7 +349,7 @@ the directory the session is viewing.
 
 - The indicator and the panel are gated on `capabilities.mcp`, which a host sets only when it found
 the `pi` CLI. The VS Code webview and the browser host both run `pi mcp list --json` through the same
-`@morse/adapter-pi-rpc` `PiMcp` adapter; a host without the CLI leaves the capability off and the
+`@morse/integration-pi` `PiMcp` adapter; a host without the CLI leaves the capability off and the
 button is not rendered, rather than promising a manager it cannot run.
 - **State comes from pi, not from Morse.** `mcpStatus` runs `pi mcp list --json` in the viewing
 session's directory and returns each server's `name`, `scope`, `source`, `enabled`, `exposure`,
@@ -400,7 +405,7 @@ that holds a terminal is not discarded as untouched (`TerminalStore.hasOwner`). 
 directory the shell reported over **OSC 7** (`cwdChange` → `TerminalStore.setCwd`), so a shell restored
 after `morse stop`/`start` reopens where the reader `cd`'d instead of at the session root; the pane's own
 directory wins over its owner's in `terminalsWithOwnerCwd`.
-- The backend is a port (`TerminalBackend`, `packages/host-runtime/src/terminal.ts`), so the controller
+- The backend is a port (`TerminalBackend`, `packages/host/src/terminal.ts`), so the controller
 owns the wire conversation and the host owns the process. The NestJS host implements it in
 `ServerTerminalBackend` with **`node-pty`** — a real pseudo-terminal in the viewing session's directory,
 gated by `ProjectPolicy` like opening a session — so prompts, colours, line editing, resize and
@@ -451,8 +456,8 @@ npm run sync-webview -- --frontend=ui-react     # VS Code host (no `--` = the fl
 MORSE_UI_DIR=packages/ui-react/dist npm run start:server   # NestJS host
 ```
 
-Nothing in `core`, `host-runtime`, `adapter-pi-rpc`, `extension` or `server` changes. If a new screen needs
-data the protocol does not carry yet, add a wire message in `@morse/protocol`, map it in `host-runtime`, and
+Nothing in `agent`, `system`, `host`, `integration-pi`, `extension` or `server` changes. If a new screen needs
+data the protocol does not carry yet, add a wire message in `@morse/protocol`, map it in `host`, and
 bump `PROTOCOL_VERSION` — that is the only place where "frontend work" can leak into hosts.
 
 ## Developing a frontend without any host

@@ -161,7 +161,12 @@ describe('ChatTranscript message editing', () => {
             items,
             hasOlderHistory: signal(false),
             loadingOlderHistory: signal(false),
-            capabilities: signal({ hostKind: 'server', scope: 'global', editMessage: true, forkMessage: true }),
+            capabilities: signal({
+              hostKind: 'server',
+              scope: 'global',
+              editMessage: true,
+              forkMessage: true,
+            }),
             editMessage,
             forkMessage,
             requestHostCommand: () => Promise.resolve(undefined),
@@ -295,5 +300,170 @@ describe('ChatTranscript live thinking', () => {
     expect(
       (fixture.nativeElement as HTMLElement).querySelector('morse-tool-group .glyph.thinking.live'),
     ).toBeNull();
+  });
+});
+
+/**
+ * A stored prompt's chips must name the exact range the reader pinned, whether
+ * that range is a column span, whole lines, or the whole file.
+ */
+describe('ChatTranscript attachment chips', () => {
+  const items = signal<TranscriptItem[]>([]);
+
+  beforeEach(async () => {
+    items.set([
+      {
+        kind: 'user',
+        id: 'u1',
+        at: 1,
+        text: 'look at this',
+        pins: [
+          {
+            path: 'src/app.ts',
+            startLine: 18,
+            startColumn: 45,
+            endLine: 18,
+            endColumn: 79,
+            characters: 35,
+            text: 'the highlighted words of one line',
+          },
+          { path: 'src/lines.ts', startLine: 18, endLine: 20 },
+          { path: 'src/whole.ts' },
+        ],
+      },
+    ]);
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state: signal(viewState()),
+            items,
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: signal(false),
+            capabilities: signal(null),
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  it('labels a column pin with its exact columns', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const lines = [...host.querySelectorAll('.mention-pin .lines')].map(
+      (node) => node.textContent?.trim() ?? '',
+    );
+    expect(lines).toEqual(['L18:45-79', 'L18-20']);
+    const title = host.querySelector('.mention-pin')?.getAttribute('title') ?? '';
+    expect(title).toContain('src/app.ts');
+    expect(title).toContain('line 18, columns 45-79');
+    expect(title).toContain('35 selected');
+    expect(title).toContain('the highlighted words of one line');
+  });
+
+  it('shows no range for a whole-file pin', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const chips = [...(fixture.nativeElement as HTMLElement).querySelectorAll('.mention-pin')];
+    expect(chips).toHaveLength(3);
+    expect(chips[2]?.querySelector('.lines')).toBeNull();
+    expect(chips[2]?.querySelector('.name')?.textContent).toBe('whole.ts');
+  });
+});
+
+/**
+ * A tool row that spawned a session (a subagent run) offers the child from the
+ * row itself. The link is probed by presence — any engine or extension that
+ * spawns a session and points to it lights up without Morse knowing the tool's
+ * name — and clicking hands the reference up for the shell to open.
+ */
+describe('ChatTranscript child session link', () => {
+  const items = signal<TranscriptItem[]>([]);
+
+  beforeEach(async () => {
+    items.set([
+      {
+        kind: 'user',
+        id: 'u1',
+        at: 1,
+        text: 'explore the repo',
+      },
+      {
+        kind: 'assistant',
+        id: 'a2',
+        at: 2,
+        text: '',
+        thinking: '',
+        streaming: false,
+      },
+      {
+        kind: 'tool',
+        id: 't1',
+        at: 3,
+        name: 'task',
+        title: 'explore',
+        status: 'running',
+        child: { sessionId: 'ses_kid', agent: 'explore' },
+      },
+      {
+        kind: 'tool',
+        id: 't2',
+        at: 4,
+        name: 'read',
+        title: 'a.ts',
+        status: 'ok',
+      },
+    ]);
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state: signal(viewState()),
+            items,
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: signal(false),
+            capabilities: signal(null),
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  it('renders a link on the row that carries a child, and only there', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // The compact tree folds to the newest step until the reader opens it.
+    host.querySelector<HTMLButtonElement>('morse-tool-group .summary')?.click();
+    fixture.detectChanges();
+
+    const links = host.querySelectorAll('.child-link');
+    expect(links).toHaveLength(1);
+    expect(links[0]?.textContent).toContain('explore');
+  });
+
+  it('hands the child reference up when the link is clicked', () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    // The compact tree folds to the newest step until the reader opens it.
+    host.querySelector<HTMLButtonElement>('morse-tool-group .summary')?.click();
+    fixture.detectChanges();
+
+    const seen: unknown[] = [];
+    fixture.componentInstance.openChild.subscribe((child) => seen.push(child));
+
+    host.querySelector<HTMLButtonElement>('.child-link')?.click();
+    expect(seen).toEqual([{ sessionId: 'ses_kid', agent: 'explore' }]);
   });
 });

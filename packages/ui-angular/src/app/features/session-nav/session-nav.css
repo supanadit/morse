@@ -125,8 +125,15 @@ input {
   overflow-y: auto;
   padding: 4px 8px 12px;
 }
-.group + .group {
-  margin-top: 10px;
+/*
+ * The "In progress" section is a live view above the project tree, not a sibling
+ * of it, so a divider and breathing room keep the two clearly apart. Mid gray —
+ * brighter than panel-border, dimmer than muted foreground.
+ */
+.list > .group {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.55);
 }
 .group-head {
   display: flex;

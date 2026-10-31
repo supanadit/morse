@@ -2,7 +2,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import type { WorkspaceRef } from '@morse/core';
+import type { WorkspaceRef } from '@morse/agent';
 import { FRONTEND_MANIFEST_FILE, frontendIdentity, parseFrontendManifest } from '@morse/protocol';
 import type { FrontendIdentity } from '@morse/protocol';
 import { DEFAULT_UPLOAD_DIR } from '../internal/uploads/upload-store.js';
@@ -16,6 +16,17 @@ export interface MorseServerConfig {
   piPath?: string;
   nodeEntryPath?: string;
   sessionDir?: string;
+  /**
+   * The engine a new session goes to (`MORSE_ENGINE`), when the host has more
+   * than one. `'pi'` by default; an engine that is not installed falls back to pi.
+   */
+  engine?: string;
+  /** Attach to a running OpenCode server instead of starting one. */
+  opencodeUrl?: string;
+  /** The password that OpenCode server asks for (it prints one on startup). */
+  opencodePassword?: string;
+  /** The OpenCode binary to spawn when no URL is configured (`MORSE_OPENCODE_BIN`). */
+  opencodeBin?: string;
   noSession: boolean;
   requestTimeoutMs: number;
   /** Sessions of one project the sidebar lists before "Load more". */
@@ -105,6 +116,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     piPath: env.MORSE_PI_PATH,
     nodeEntryPath: env.MORSE_PI_ENTRY,
     sessionDir: env.MORSE_SESSION_DIR,
+    engine: env.MORSE_ENGINE?.trim() || undefined,
+    opencodeUrl: env.MORSE_OPENCODE_URL?.trim() || undefined,
+    opencodePassword: env.MORSE_OPENCODE_PASSWORD?.trim() || undefined,
+    opencodeBin: env.MORSE_OPENCODE_BIN?.trim() || undefined,
     noSession: env.MORSE_NO_SESSION === '1',
     requestTimeoutMs: parsePositiveInt(env.MORSE_REQUEST_TIMEOUT_MS, 30_000),
     sessionsPerProject: parsePositiveInt(env.MORSE_SESSIONS_PER_PROJECT, 10),

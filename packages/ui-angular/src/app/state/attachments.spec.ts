@@ -267,13 +267,139 @@ describe('AttachmentStore.pin coalescing', () => {
     // The merged chip spans both, so no range's length is lost.
     expect(store.pins()[0]).toMatchObject({ id, startLine: 1, endLine: 6 });
   });
+
+  it('unions two touching word ranges on one line', () => {
+    const store = freshStore();
+    store.pin({
+      path: 'src/main.ts',
+      startLine: 18,
+      endLine: 18,
+      startColumn: 45,
+      endColumn: 79,
+      characters: 35,
+      text: 'the highlighted words of one line',
+    });
+    store.pin({
+      path: 'src/main.ts',
+      startLine: 18,
+      endLine: 18,
+      startColumn: 80,
+      endColumn: 92,
+      characters: 13,
+      text: ' and the rest',
+    });
+
+    expect(store.pins()).toHaveLength(1);
+    // The column span is the authority; two excerpts cannot be stitched
+    // together across the gap they may not share.
+    expect(store.pins()[0]).toMatchObject({
+      startLine: 18,
+      startColumn: 45,
+      endColumn: 92,
+      characters: 48,
+    });
+    expect(store.pins()[0].text).toBeUndefined();
+  });
+
+  it('drops the columns when a word range meets its whole line', () => {
+    const store = freshStore();
+    store.pin({
+      path: 'src/main.ts',
+      startLine: 18,
+      endLine: 18,
+      startColumn: 45,
+      endColumn: 79,
+      characters: 35,
+      text: 'words',
+    });
+    store.pin({ path: 'src/main.ts', startLine: 18, endLine: 18 });
+
+    expect(store.pins()).toHaveLength(1);
+    expect(store.pins()[0]).toMatchObject({ startLine: 18 });
+    expect(store.pins()[0].startColumn).toBeUndefined();
+    expect(store.pins()[0].endColumn).toBeUndefined();
+    expect(store.pins()[0].text).toBeUndefined();
+  });
+
+  it('drops the columns when a merge crosses lines', () => {
+    const store = freshStore();
+    store.pin({
+      path: 'src/main.ts',
+      startLine: 18,
+      endLine: 18,
+      startColumn: 45,
+      endColumn: 79,
+      characters: 35,
+      text: 'words',
+    });
+    store.pin({
+      path: 'src/main.ts',
+      startLine: 19,
+      endLine: 19,
+      startColumn: 2,
+      endColumn: 12,
+      characters: 11,
+      text: 'next line',
+    });
+
+    expect(store.pins()).toHaveLength(1);
+    expect(store.pins()[0]).toMatchObject({ startLine: 18, endLine: 19 });
+    expect(store.pins()[0].startColumn).toBeUndefined();
+    expect(store.pins()[0].endColumn).toBeUndefined();
+  });
+
+  it('keeps the exact columns for a replace-in-place edit', () => {
+    const store = freshStore();
+    store.pin({
+      path: 'src/main.ts',
+      startLine: 18,
+      endLine: 18,
+      startColumn: 45,
+      endColumn: 79,
+      characters: 35,
+      text: 'old words',
+    });
+    const id = store.pins()[0].id;
+
+    store.pin(
+      {
+        path: 'src/main.ts',
+        startLine: 18,
+        endLine: 18,
+        startColumn: 50,
+        endColumn: 60,
+        characters: 11,
+        text: 'new words',
+      },
+      id,
+    );
+
+    expect(store.pins()).toHaveLength(1);
+    expect(store.pins()[0]).toEqual({
+      id,
+      path: 'src/main.ts',
+      startLine: 18,
+      startColumn: 50,
+      endColumn: 60,
+      characters: 11,
+      text: 'new words',
+    });
+  });
 });
 
 describe('AttachmentStore snapshot', () => {
   it('round-trips each draft and moves the id counter past the restored ones', () => {
     const store = freshStore();
     store.use('s1');
-    store.pin({ path: 'a.ts', startLine: 1, endLine: 2 });
+    store.pin({
+      path: 'a.ts',
+      startLine: 1,
+      endLine: 1,
+      startColumn: 5,
+      endColumn: 12,
+      characters: 8,
+      text: 'selected',
+    });
     store.addMentions(['b.ts']);
 
     const snapshot = store.snapshot();
@@ -282,6 +408,15 @@ describe('AttachmentStore snapshot', () => {
     restored.use('s1');
 
     expect(restored.pins()).toHaveLength(1);
+    // The span survives the save/load untouched, excerpt included.
+    expect(restored.pins()[0]).toMatchObject({
+      path: 'a.ts',
+      startLine: 1,
+      startColumn: 5,
+      endColumn: 12,
+      characters: 8,
+      text: 'selected',
+    });
     expect(restored.mentions()).toEqual(['b.ts']);
     // `pin-1` came back, so the next pin is `pin-2`, not a colliding id.
     expect(restored.pin({ path: 'c.ts' })).toBe('pin-2');
@@ -365,6 +500,36 @@ describe('AttachmentStore annotations', () => {
     ]);
     expect(store.pins()).toEqual([
       { id: 'pin-1', path: 'src/index.ts', startLine: 30, endLine: 31, note: 'fix the fallback loop' },
+    ]);
+  });
+
+  it('restores a fork\u2019s column range and excerpt', () => {
+    const store = freshStore();
+    store.use('s1');
+    store.seed([], [
+      {
+        path: 'src/index.ts',
+        startLine: 18,
+        endLine: 18,
+        startColumn: 45,
+        endColumn: 79,
+        characters: 35,
+        text: 'the highlighted words of one line',
+        note: 'the parser',
+      },
+    ]);
+
+    expect(store.pins()).toEqual([
+      {
+        id: 'pin-1',
+        path: 'src/index.ts',
+        startLine: 18,
+        startColumn: 45,
+        endColumn: 79,
+        characters: 35,
+        text: 'the highlighted words of one line',
+        note: 'the parser',
+      },
     ]);
   });
 

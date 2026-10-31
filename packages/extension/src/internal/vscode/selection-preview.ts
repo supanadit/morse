@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { selectionSpan } from '@morse/system';
 
 /** What the host reports about the editor's current state. */
 export interface LiveSelectionPreview {
@@ -9,6 +10,14 @@ export interface LiveSelectionPreview {
    */
   startLine?: number;
   endLine?: number;
+  /** 1-based first selected column, absent for a line-only preview. */
+  startColumn?: number;
+  /** 1-based last selected column. */
+  endColumn?: number;
+  /** Selected UTF-16 character count, line breaks included. */
+  characters?: number;
+  /** The selected words for a one-line selection, capped by the host. */
+  text?: string;
 }
 
 /**
@@ -93,40 +102,34 @@ export class SelectionPreviewTracker {
  * The current state envelope, 1-based like everywhere else in Morse. A focused
  * file with no selection reports its path alone (the whole-file chip); no editor
  * at all clears the preview with an empty path.
+ *
+ * One non-empty selection keeps its exact columns, count and excerpt; several
+ * carets collapse to the line envelope they cover, exactly like the span helper
+ * in `@morse/system` decides.
  */
 export function toLivePreview(editor: vscode.TextEditor | undefined): LiveSelectionPreview {
   if (!editor) {
     return { path: '' };
   }
-  const envelope = selectionEnvelope(editor.selections);
   const path = vscode.workspace.asRelativePath(editor.document.uri, false);
-  if (!envelope) {
-    // Focused, nothing selected: the whole file is the preview.
-    return { path };
-  }
-  return { path, startLine: envelope.startLine, endLine: envelope.endLine };
+  const span = toSpan(editor);
+  // Focused, nothing selected: the whole file is the preview.
+  return span === undefined ? { path } : { path, ...span };
 }
 
-/**
- * One line span out of any number of disjoint selections: the envelope from
- * the earliest start to the latest end. Multi-cursor selections then read as a
- * single `start-end` on the chip, which matches how a user reports what they
- * highlighted ("this file, lines 150 to 200") rather than listing every range.
- */
-export function selectionEnvelope(
-  selections: readonly { isEmpty: boolean; start: { line: number }; end: { line: number } }[],
-): { startLine: number; endLine: number } | undefined {
-  let startLine: number | undefined;
-  let endLine = 0;
-  for (const selection of selections) {
-    if (selection.isEmpty) {
-      continue;
-    }
-    startLine = startLine === undefined ? selection.start.line : Math.min(startLine, selection.start.line);
-    endLine = Math.max(endLine, selection.end.line);
-  }
-  if (startLine === undefined) {
-    return undefined;
-  }
-  return { startLine: startLine + 1, endLine: endLine + 1 };
+/** The shared span for the editor's current selections, if any. */
+function toSpan(editor: vscode.TextEditor) {
+  return selectionSpan(
+    editor.selections,
+    (selection) =>
+      editor.document.getText(
+        new vscode.Range(
+          selection.start.line,
+          selection.start.character,
+          selection.end.line,
+          selection.end.character,
+        ),
+      ),
+    (line) => editor.document.lineAt(line).text.length,
+  );
 }

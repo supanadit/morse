@@ -7,7 +7,7 @@ import type {
   HostToClientMessage,
   SessionView,
 } from '@morse/protocol';
-import { createMorseClient } from './client.js';
+import { createMorseClient, type EditorSelectionPayload } from './client.js';
 import type { HostTransport, TransportStatus } from './transport/host-transport.js';
 import { MemoryHostTransport } from './transport/memory-transport.js';
 
@@ -148,15 +148,39 @@ describe('createMorseClient', () => {
     const transport = stubTransport();
     const client = createMorseClient({ transport });
 
-    const pins: { path: string; startLine?: number; endLine?: number }[] = [];
+    const pins: EditorSelectionPayload[] = [];
     const stop = client.onContextSelection((pin) => pins.push(pin));
     transport.emit({ type: 'context/selection', payload: { path: 'chat/tool.ts', startLine: 37, endLine: 52 } });
+    // The exact span must survive the wire untouched, excerpt included.
+    transport.emit({
+      type: 'context/selection',
+      payload: {
+        path: 'src/app.ts',
+        startLine: 18,
+        startColumn: 45,
+        endLine: 18,
+        endColumn: 79,
+        characters: 35,
+        text: 'the highlighted words of one line',
+      },
+    });
 
-    expect(pins).toEqual([{ path: 'chat/tool.ts', startLine: 37, endLine: 52 }]);
+    expect(pins).toEqual([
+      { path: 'chat/tool.ts', startLine: 37, endLine: 52 },
+      {
+        path: 'src/app.ts',
+        startLine: 18,
+        startColumn: 45,
+        endLine: 18,
+        endColumn: 79,
+        characters: 35,
+        text: 'the highlighted words of one line',
+      },
+    ]);
 
     stop();
     transport.emit({ type: 'context/selection', payload: { path: 'other.ts' } });
-    expect(pins).toHaveLength(1);
+    expect(pins).toHaveLength(2);
 
     client.dispose();
   });
@@ -165,15 +189,34 @@ describe('createMorseClient', () => {
     const transport = stubTransport();
     const client = createMorseClient({ transport });
 
-    const previews: { path: string; startLine?: number; endLine?: number }[] = [];
+    const previews: EditorSelectionPayload[] = [];
     const stop = client.onContextSelectionLive((preview) => previews.push(preview));
     // A drag arrives as a stream of previews; only the current numbers matter.
     transport.emit({ type: 'context/selectionLive', payload: { path: 'chat/tool.ts', startLine: 37, endLine: 44 } });
-    transport.emit({ type: 'context/selectionLive', payload: { path: 'chat/tool.ts', startLine: 37, endLine: 52 } });
+    transport.emit({
+      type: 'context/selectionLive',
+      payload: {
+        path: 'chat/tool.ts',
+        startLine: 37,
+        startColumn: 5,
+        endLine: 37,
+        endColumn: 12,
+        characters: 8,
+        text: 'current',
+      },
+    });
 
     expect(previews).toEqual([
       { path: 'chat/tool.ts', startLine: 37, endLine: 44 },
-      { path: 'chat/tool.ts', startLine: 37, endLine: 52 },
+      {
+        path: 'chat/tool.ts',
+        startLine: 37,
+        startColumn: 5,
+        endLine: 37,
+        endColumn: 12,
+        characters: 8,
+        text: 'current',
+      },
     ]);
 
     stop();
@@ -185,6 +228,22 @@ describe('createMorseClient', () => {
 });
 
 /** A minimal transport the tests can push host messages into and inspect with. */
+describe('engine and mode actions', () => {
+  it('sends the engine, mode and refresh messages', () => {
+    const transport = stubTransport();
+    const client = createMorseClient({ transport });
+
+    client.actions.setEngine('opencode');
+    client.actions.setMode('plan');
+    client.actions.refreshModes();
+
+    expect(transport.sent).toContainEqual({ type: 'engine/set', payload: { kind: 'opencode' } });
+    expect(transport.sent).toContainEqual({ type: 'mode/set', payload: { mode: 'plan' } });
+    expect(transport.sent).toContainEqual({ type: 'modes/refresh', payload: {} });
+    client.dispose();
+  });
+});
+
 function stubTransport(): HostTransport & { emit(message: HostToClientMessage): void; sent: unknown[] } {
   let listener: ((message: HostToClientMessage) => void) | undefined;
   return {

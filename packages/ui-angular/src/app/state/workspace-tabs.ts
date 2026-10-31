@@ -94,22 +94,46 @@ export interface PromptTab {
  * is read again on restore, so the file stays small and the view is never a
  * stale copy of the disk.
  */
+/** The shape every restorable tab shares: which kind, its id, and its label. */
+export interface PersistedTabBase {
+  kind: 'session' | 'mcp' | 'prompt' | 'file';
+  id: string;
+  title: string;
+}
+
+/** A conversation tab; `draft` before the host has opened a session for it. */
+export interface PersistedSessionTab extends PersistedTabBase {
+  kind: 'session';
+  cwd?: string;
+  draft?: boolean;
+}
+
+export interface PersistedMcpTab extends PersistedTabBase {
+  kind: 'mcp';
+}
+
+export interface PersistedPromptTab extends PersistedTabBase {
+  kind: 'prompt';
+}
+
+/** A file or diff preview, optionally tied to a session or a commit. */
+export interface PersistedFileTab extends PersistedTabBase {
+  kind: 'file';
+  path: string;
+  mention?: boolean;
+  sessionId?: string;
+  language?: string;
+  commitHash?: string;
+  commitSubject?: string;
+  projectCwd?: string;
+}
+
+/** A tab the strip restores after a reload. */
 export type PersistedTab =
-  | { kind: 'session'; id: string; title: string; cwd?: string; draft?: boolean }
-  | { kind: 'mcp'; id: string; title: string }
-  | { kind: 'prompt'; id: string; title: string }
-  | {
-      kind: 'file';
-      id: string;
-      path: string;
-      title: string;
-      mention?: boolean;
-      sessionId?: string;
-      language?: string;
-      commitHash?: string;
-      commitSubject?: string;
-      projectCwd?: string;
-    };
+  | PersistedSessionTab
+  | PersistedMcpTab
+  | PersistedPromptTab
+  | PersistedFileTab;
 
 /** What the strip remembers across a reload: its tabs, and which one was in front. */
 export interface TabsSnapshot {
@@ -821,6 +845,10 @@ export class WorkspaceTabs {
    * deleted elsewhere (another window, the CLI, a `morse stop`) leaves the host's
    * list but not this strip, and a host with no tab strip — VS Code — gives the
    * reader no way to close the orphan, so it would sit there, counted, forever.
+   *
+   * This is also how a persisted layout survives the id scheme changing: a tab
+   * stored under an engine's own id names nothing the host knows any more, so it
+   * is dropped here instead of being reopened as a different conversation.
    *
    * `known` is every session the host still has (see `MorseService.sessions`). The
    * session in front and every draft are kept whatever the list says: the list can

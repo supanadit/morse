@@ -5,16 +5,13 @@
   </p>
 
   <h1 id="agent-title">
-    {{
-      missing()
-        ? 'The pi coding agent is not installed'
-        : 'The pi coding agent could not start'
-    }}
+    The {{ engineLabel() }} agent {{ missing() ? 'is not installed' : 'could not start' }}
   </h1>
 
   <p class="body">
-    Morse is only the interface — every answer comes from the pi CLI on this machine, with your own
-    models, tools and sessions. @if (missing()) { Install it once and this panel is ready. }
+    Morse is only the interface — every answer comes from the {{ engineLabel() }} agent on this
+    machine, with your own models, tools and sessions. @if (missing()) { Install it once and this
+    panel is ready. }
   </p>
 
   @if (install(); as command) {
@@ -38,20 +35,27 @@
     }
   </div>
 
-  @if (hasEditor()) {
-    <!--
-      The extension resolves pi when it activates, so a setting changed now only
-      takes effect after the window reloads. Saying so beats a Retry button that
-      silently fails again.
-    -->
-    <p class="foot">
-      Changed “morse.pi.path”? Reload the window — Morse picks the pi path when it starts. To use a
-      pi that is already installed, point the setting at it instead of installing a second copy.
-    </p>
+  @if (isPi()) {
+    @if (hasEditor()) {
+      <!--
+        The extension resolves pi when it activates, so a setting changed now only
+        takes effect after the window reloads. Saying so beats a Retry button that
+        silently fails again.
+      -->
+      <p class="foot">
+        Changed “morse.pi.path”? Reload the window — Morse picks the pi path when it starts. To use a
+        pi that is already installed, point the setting at it instead of installing a second copy.
+      </p>
+    } @else {
+      <p class="foot">
+        The host reads <code>MORSE_PI_PATH</code> at startup, so restart it after changing that (or
+        install pi) — <code>morse restart</code> for the daemon.
+      </p>
+    }
   } @else {
     <p class="foot">
-      The host reads <code>MORSE_PI_PATH</code> at startup, so restart it after changing that (or
-      install pi) — <code>morse restart</code> for the daemon.
+      The host resolves the {{ engineLabel() }} binary at startup, so restart it after changing how
+      it is installed — <code>morse restart</code> for the daemon.
     </p>
   }
 

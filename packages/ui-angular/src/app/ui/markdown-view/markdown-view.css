@@ -1,0 +1,62 @@
+:host {
+  position: relative;
+  display: block;
+  /*
+   * One set of metrics for both layers. The textarea is projected inside
+   * :host, so it reads the same custom properties — the two surfaces cannot
+   * drift apart.
+   */
+  --mdp-padding: 4px 6px;
+  --mdp-line-height: 1.5;
+}
+.paint {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: var(--mdp-padding);
+  /* font FIRST: the shorthand resets line-height, so it must come before. */
+  font: inherit;
+  line-height: var(--mdp-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  scrollbar-gutter: stable;
+  color: var(--morse-fg);
+  pointer-events: none;
+  user-select: none;
+}
+.view-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+/* IME mid-composition: the textarea shows its own text until it settles. */
+.paint.composing {
+  visibility: hidden;
+}
+.caret-bar {
+  position: absolute;
+  width: 2px;
+  background: var(--morse-fg, #ffffff);
+  pointer-events: none;
+  z-index: 2;
+  animation: mdp-blink 1s step-start infinite;
+}
+@keyframes mdp-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.selection-band {
+  position: absolute;
+  background: color-mix(in srgb, var(--morse-accent, #007acc) 30%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+/*
+ * The `.md-*` decoration rules live in the global stylesheet: they style
+ * `[innerHTML]` content, which Angular's emulated encapsulation never scopes
+ * to this component — component-scoped selectors cannot match it. Colours and
+ * backgrounds only there: a decoration that reflows text breaks the
+ * line-for-line contract with the textarea underneath.
+ */

@@ -86,15 +86,14 @@ export class SessionNav {
    * children are its sessions; a session is a `leaf` carrying the summary itself,
    * so a click opens it without looking an id back up.
    *
-   * The tree only lists what is not already pinned at the top as in progress, so
-   * nothing is shown twice — the same rule the old flat list used.
+   * The tree keeps every session, including live ones — the "In progress"
+   * section is a second view of them, not a move out of the list.
    */
   protected readonly treeNodes = computed<TreeNode<SessionSummary>[]>(() => {
-    const inProgress = new Set(this.inProgress().map((session) => session.id));
     // A workspace host has one project, so a group row for it is a header with
     // nothing to contrast against — the sessions are simply the tree's roots.
     if (this.scope() === 'workspace') {
-      return this.visibleGroups().flatMap((group) => this.sessionNodes(group, inProgress));
+      return this.visibleGroups().flatMap((group) => this.sessionNodes(group));
     }
     return this.visibleGroups().map((group) => ({
       id: projectNodeId(group.path),
@@ -110,7 +109,7 @@ export class SessionNav {
         label: `New session in ${group.name}`,
         run: () => this.startSession(group.path),
       },
-      children: this.sessionNodes(group, inProgress),
+      children: this.sessionNodes(group),
     }));
   });
 
@@ -177,15 +176,14 @@ export class SessionNav {
   }
 
   /** A project's sessions as tree nodes, with each fork nested under the session it was forked from. */
-  private sessionNodes(
-    group: SessionGroup,
-    inProgress: ReadonlySet<string>,
-  ): TreeNode<SessionSummary>[] {
-    const sessions = group.sessions.filter((session) => !inProgress.has(session.id));
+  private sessionNodes(group: SessionGroup): TreeNode<SessionSummary>[] {
+    // A live run also stays in its project list; the "In progress" section above
+    // is a pinned view of it, not a removal.
+    const sessions = group.sessions;
     const byId = new Map(sessions.map((session) => [session.id, session] as const));
-    // A child is nested only when its parent is in this same list: a parent pinned
-    // as in progress, or one from another project, leaves the child a root rather
-    // than hiding it under a row that is not there.
+    // A child is nested only when its parent is in this same list: a parent from
+    // another page or project leaves the child a root rather than hiding it
+    // under a row that is not there.
     const childrenOf = new Map<string, SessionSummary[]>();
     const roots: SessionSummary[] = [];
     for (const session of sessions) {
@@ -407,10 +405,10 @@ export class SessionNav {
   });
 
   /**
-   * Sessions the agent is working in right now, newest first. They move to the
-   * top of the sidebar and out of their project, so a long list cannot bury a
-   * live run. A project filter narrows this section too — narrowing the sidebar
-   * must not leave another project's run pinned at the top.
+   * Sessions the agent is working in right now, newest first. They are pinned to
+   * the top of the sidebar so a long list cannot bury a live run, and each also
+   * stays in its project list below. A project filter narrows this section too —
+   * narrowing the sidebar must not leave another project's run pinned at the top.
    */
   protected readonly inProgress = computed<SessionSummary[]>(() => {
     const filter = this.projectFilter();
@@ -449,9 +447,6 @@ export class SessionNav {
   protected readonly visibleGroups = computed<SessionGroup[]>(() => {
     const query = this.query().trim().toLowerCase();
     const filter = this.projectFilter();
-    // A session already shown at the top does not repeat inside its project —
-    // a live run you can see twice is a list you have to read twice.
-    const inProgress = new Set(this.inProgress().map((session) => session.id));
     // The session box asks about session titles only. Project names used to match
     // here too, which showed the project with an empty list under it — `buku` was
     // there, so it looked empty. Finding a project is the chip's job.
@@ -464,8 +459,7 @@ export class SessionNav {
           query.length === 0
             ? group.sessions
             : group.sessions.filter((session) => session.title.toLowerCase().includes(query));
-        const sessions = matched.filter((session) => !inProgress.has(session.id));
-        return { ...group, sessions };
+        return { ...group, sessions: matched };
       })
       // A project with no matching session is not a result of a session search…
       .filter((group) => filter.length > 0 || query.length === 0 || group.sessions.length > 0);

@@ -592,3 +592,181 @@
     background: rgb(0 0 0 / 35%);
   }
 }
+
+/*
+ * The restoring screen: what the panel shows while a saved session is still
+ * travelling back from the host. It replaces the welcome on purpose — an
+ * empty-looking panel reads as a brand-new session, and a prompt typed into it
+ * would race the restore — so it keeps the welcome's centred, quiet shape and
+ * borrows the boot splash's morse rhythm for the mark.
+ */
+.restoring {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  padding: 24px;
+}
+
+.restoring-title {
+  margin: 14px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--morse-fg);
+}
+
+.restoring-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
+}
+
+/* Three dots spelling `...`: the morse rhythm, pulsing in turn. */
+.restoring-mark {
+  display: flex;
+  gap: 10px;
+}
+
+.restoring-mark i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--morse-accent);
+  animation: restoring-dot 1.3s ease-in-out infinite;
+}
+
+.restoring-mark i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.restoring-mark i:nth-child(3) {
+  animation-delay: 0.36s;
+  /* The last dot is the dash: a little longer, like the mark itself. */
+  width: 22px;
+  border-radius: 5px;
+}
+
+@keyframes restoring-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .restoring-mark i {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/*
+ * The watched-subagent bar. A spawned session is read-only — its parent steers
+ * it — so the panel shows the transcript under a slim strip that names the
+ * state and offers the way back, where the composer dock would otherwise sit.
+ *
+ * In flow, not floating: an overlay would cover the transcript's first row
+ * ("Load older messages"), which is exactly where a long child opens.
+ *
+ * Two rows: the way back on one, what the child runs with beneath — one line
+ * cannot hold a long parent title and five read-outs without elbowing both.
+ */
+.subagent-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 14px 5px;
+  background: color-mix(in srgb, var(--morse-accent) 6%, var(--morse-bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--morse-accent) 22%, transparent);
+}
+
+.subagent-bar .nav-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.subagent-bar .back {
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--morse-fg) 80%, transparent);
+  background: none;
+  cursor: pointer;
+  /* A long parent title must not push the status out of the panel. */
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-bar .back:hover {
+  text-decoration: underline;
+}
+
+.subagent-bar .watching {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--morse-fg) 40%, transparent);
+}
+
+/* What the child runs with. Plain text, dot-separated — pills would make a
+   read-only read-out look like clickable controls, and the parent steers. */
+.subagent-bar .child-status {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.subagent-bar .meta {
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
+  white-space: nowrap;
+}
+
+.subagent-bar .meta + .meta::before {
+  content: '·';
+  margin: 0 7px;
+  color: color-mix(in srgb, var(--morse-fg) 25%, transparent);
+}
+
+.subagent-bar .meta.agent {
+  color: color-mix(in srgb, var(--morse-accent) 85%, var(--morse-fg));
+}
+
+.subagent-bar .meta.model {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subagent-bar .refresh {
+  margin-left: auto;
+  border: 0;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
+  background: none;
+  cursor: pointer;
+  border-radius: var(--morse-radius-sm);
+}
+
+.subagent-bar .refresh:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}

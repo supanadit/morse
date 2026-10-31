@@ -12,7 +12,13 @@ import {
   type SessionView,
   type ThinkingLevel,
 } from '@morse/protocol';
-import { asSessionSummaries, createMorseClient, type MorseActions, type MorseClient } from '@morse/ui-runtime';
+import {
+  asSessionSummaries,
+  createMorseClient,
+  type EditorSelectionPayload,
+  type MorseActions,
+  type MorseClient,
+} from '@morse/ui-runtime';
 import { MORSE_TRANSPORT } from './transport.token';
 
 /**
@@ -69,6 +75,28 @@ export class MorseService {
    */
   readonly hostEpoch = computed(() => this.view().hostEpoch);
   readonly sessions = computed(() => this.view().sessions);
+  /**
+   * The catalog row of the session in front, when the list has it. A freshly
+   * spawned subagent can be missing until the next `session/list` — the shell
+   * re-asks when it opens one, so the flag below settles a beat later.
+   */
+  readonly activeSessionSummary = computed(() => {
+    const id = this.state().sessionId;
+    return id === undefined ? undefined : this.sessions().find((session) => session.id === id);
+  });
+  /**
+   * The session in front was spawned as a subagent: it is watched read-only —
+   * no composer, no draft. A fork child never sets this, so a branched
+   * conversation stays a normal session.
+   */
+  readonly activeIsSubagent = computed(() => this.activeSessionSummary()?.subagent === true);
+  /** The session the one in front was spawned from (subagent) or forked from. */
+  readonly parentOfActive = computed(() => {
+    const parentId = this.activeSessionSummary()?.parentId;
+    return parentId === undefined
+      ? undefined
+      : this.sessions().find((session) => session.id === parentId);
+  });
   /** Whether `session/list` has arrived at least once; see `SessionView.sessionsLoaded`. */
   readonly sessionsLoaded = computed(() => this.view().sessionsLoaded);
   /** Per-project flag that the host holds sessions past the first page. */
@@ -101,27 +129,32 @@ export class MorseService {
    * repository on every token, which on a crowded project is what timed out and
    * reported that the host could not read its history.
    */
-  readonly workspace = computed(
-    () => this.view().state.workspace,
-    { equal: (a, b) => a.cwd === b.cwd && a.name === b.name },
-  );
+  readonly workspace = computed(() => this.view().state.workspace, {
+    equal: (a, b) => a.cwd === b.cwd && a.name === b.name,
+  });
+  /** Installed engines, for the draft's engine picker; empty on older hosts. */
+  readonly engines = computed(() => this.view().capabilities?.engines ?? []);
+  /** True only for the intentional no-session draft. */
+  readonly draft = computed(() => this.view().state.draft === true);
+  /** The engine the draft chose; absent means the host's configured default. */
+  readonly engine = computed(() => this.view().state.engine);
   readonly model = computed(() => this.view().state.model);
   readonly thinkingLevel = computed(() => this.view().state.thinkingLevel);
   readonly availableModels = computed(() => this.view().state.availableModels);
   readonly availableThinkingLevels = computed(() => this.view().state.availableThinkingLevels);
+  readonly mode = computed(() => this.view().state.mode);
+  readonly availableModes = computed(() => this.view().state.availableModes ?? []);
+  /** True while a newly chosen engine's draft catalogs are being read. */
+  readonly loadingEngine = computed(() => this.view().state.loadingEngine === true);
   /** True while the host re-reads the picked model's thinking levels. */
-  readonly loadingThinkingLevels = computed(
-    () => this.view().state.loadingThinkingLevels === true,
-  );
+  readonly loadingThinkingLevels = computed(() => this.view().state.loadingThinkingLevels === true);
   /** Commands pi exposes (`get_commands`); the frontend merges its own built-ins. */
   readonly availableCommands = computed(() => this.view().state.availableCommands);
   readonly usage = computed(() => this.view().state.usage);
   /** True when older transcript entries can still be loaded. */
   readonly hasOlderHistory = computed(() => this.view().state.hasOlderHistory === true);
   /** True while the host is fetching the previous history page. */
-  readonly loadingOlderHistory = computed(
-    () => this.view().state.loadingOlderHistory === true,
-  );
+  readonly loadingOlderHistory = computed(() => this.view().state.loadingOlderHistory === true);
 
   constructor() {
     this.client = createMorseClient({ transport: this.transport, frontend: FRONTEND_IDENTITY });
@@ -201,9 +234,7 @@ export class MorseService {
    * Selections the host pinned (the title-bar attach command). The composer
    * turns them into attachment chips in the composer strip.
    */
-  onContextSelection(
-    listener: (pin: { path: string; startLine?: number; endLine?: number }) => void,
-  ): () => void {
+  onContextSelection(listener: (pin: EditorSelectionPayload) => void): () => void {
     return this.client.onContextSelection(listener);
   }
 
@@ -211,9 +242,7 @@ export class MorseService {
    * Live selection previews, streamed while the user draws a selection. The
    * composer shows one unlocked chip that updates in real time until clicked.
    */
-  onContextSelectionLive(
-    listener: (preview: { path: string; startLine?: number; endLine?: number }) => void,
-  ): () => void {
+  onContextSelectionLive(listener: (preview: EditorSelectionPayload) => void): () => void {
     return this.client.onContextSelectionLive(listener);
   }
 
@@ -269,6 +298,15 @@ export class MorseService {
     this.actions.loadSession(sessionId);
   }
 
+  /**
+   * Re-reads the conversation in front from the agent's own storage. A watched
+   * subagent is written by its parent's process, so its transcript ages in
+   * place — the subagent bar's refresh asks the host for the latest.
+   */
+  refreshSession(): void {
+    this.actions.refreshSession();
+  }
+
   requestSessions(): void {
     this.actions.requestSessions();
   }
@@ -299,6 +337,21 @@ export class MorseService {
   /** Re-reads the model catalog, so a model added to `models.json` shows up. */
   refreshModels(): void {
     this.actions.refreshModels();
+  }
+
+  /** Re-reads the mode catalog, so an agent added to the engine's config shows up. */
+  refreshModes(): void {
+    this.actions.refreshModes();
+  }
+
+  /** Picks the engine a new session starts in (only meaningful on a draft). */
+  setEngine(kind: string): void {
+    this.actions.setEngine(kind);
+  }
+
+  /** Picks the named way of working for the draft or the running session. */
+  setMode(mode: string): void {
+    this.actions.setMode(mode);
   }
 
   setModel(provider: string, id: string): void {
@@ -335,10 +388,7 @@ export class MorseService {
    * streamed back. Only offered where `capabilities.terminal` is set — the
    * browser host; VS Code keeps its own integrated terminal.
    */
-  openTerminal(
-    terminalId: string,
-    options?: { cwd?: string; cols?: number; rows?: number },
-  ): void {
+  openTerminal(terminalId: string, options?: { cwd?: string; cols?: number; rows?: number }): void {
     this.actions.openTerminal(terminalId, options);
   }
 
@@ -355,9 +405,7 @@ export class MorseService {
   }
 
   /** Streams a terminal's output; the caller keeps it in its own buffer. */
-  onTerminalOutput(
-    listener: (event: { terminalId: string; data: string }) => void,
-  ): () => void {
+  onTerminalOutput(listener: (event: { terminalId: string; data: string }) => void): () => void {
     return this.client.onTerminalOutput(listener);
   }
 

@@ -16,6 +16,7 @@ export * from './lsp/guards.js';
 export * from './ui/placement.js';
 export * from './ui/tree-list.js';
 export * from './render/highlight.js';
+export * from './render/decorate.js';
 export * from './render/markdown.js';
 export * from './prompt/render.js';
 export * from './terminal/links.js';

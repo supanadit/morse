@@ -1,12 +1,25 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, ElementRef, inject, input, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  ElementRef,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
+import type { ChildSessionRef } from '@morse/protocol';
 import { BootSplash } from '../features/boot-splash/boot-splash';
 import { ConnectionScreen } from '../features/connection-screen/connection-screen';
 import { ChatComposer } from '../features/composer/composer';
 import { EmptySession } from '../features/empty/empty';
 import { McpPanel } from '../features/mcp-panel/mcp-panel';
 import { McpEditor } from '../features/mcp-editor/mcp-editor';
-import type { PromptEditor } from '../features/prompt-editor/prompt-editor';import { ChatTranscript } from '../features/transcript/transcript';
+import type { PromptEditor } from '../features/prompt-editor/prompt-editor';
+import { ChatTranscript } from '../features/transcript/transcript';
 import { FilePreview } from '../features/file-preview/file-preview';
 import { InteractionPanel } from '../features/interaction/interaction';
 import { BottomPanel } from '../features/bottom-panel/bottom-panel';
@@ -25,6 +38,7 @@ import { MorseService } from '../host/morse.service';
 import { RunNotifier } from '../services/run-notifier';
 import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
+import { RestoreState } from '../state/restore-state';
 import { ShellState } from '../state/shell-state';
 import { WorkspaceTabs } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
@@ -96,6 +110,7 @@ export class App {
    */
   readonly embedded = input(false);
   private readonly morse = inject(MorseService);
+  private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
   private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
@@ -200,9 +215,7 @@ export class App {
       this.shell.rightPane() === 'search',
   );
   /** Expanded: the git view spans the conversation area instead of the sidebar. */
-  protected readonly gitExpanded = computed(
-    () => this.gitOpen() && this.shell.gitPanelExpanded(),
-  );
+  protected readonly gitExpanded = computed(() => this.gitOpen() && this.shell.gitPanelExpanded());
   /**
    * The dragged width of the git panel, handed to the shell as its CSS variable.
    * `null` (never dragged) leaves the default from `styles.css` in charge.
@@ -254,6 +267,63 @@ export class App {
    */
   protected readonly noSessionSelected = this.tabs.noSessionInFront;
   /**
+   * A saved session is still travelling back: the workbench restore has started
+   * and the front tab is either not decided yet or a real (non-draft) session
+   * whose transcript has not arrived. The panel shows a loading screen instead
+   * of the welcome — an empty-looking panel reads as a fresh session, and a
+   * prompt typed into it would race the restore. A restored draft, file, MCP or
+   * prompt tab is already what the reader left, so it shows immediately.
+   */
+  protected readonly restoringSession = computed(() => {
+    if (!this.restore.isRestoring()) {
+      return false;
+    }
+    const tab = this.tabs.activeTab();
+    return tab === undefined || (tab.kind === 'session' && tab.draft !== true);
+  });
+  /**
+   * The session in front is a subagent: watched read-only. The dock stays
+   * unmounted (nothing to prompt a subagent with — its parent steers it), and a
+   * slim bar offers the way back to the conversation that spawned it.
+   */
+  protected readonly activeIsSubagent = this.morse.activeIsSubagent;
+  protected readonly activeParent = this.morse.parentOfActive;
+
+  /**
+   * Opens a spawned session from its tool row: swaps the panel to the child's
+   * transcript. The catalog is refreshed first (fire and forget) because a child
+   * created mid-run is often not in the list yet, and the read-only flag and the
+   * back link both read from that list.
+   */
+  protected openSubagent(child: ChildSessionRef): void {
+    // Remembered for the watching bar: OpenCode's `task` names the agent that
+    // runs the child (explore, general, …), and the bar labels the view with it.
+    this.childAgent.set(child.agent);
+    this.morse.requestSessions();
+    this.morse.activateSession(child.sessionId);
+  }
+
+  /** The agent the watched child runs as, when its spawning tool named one. */
+  private readonly childAgent = signal<string | undefined>(undefined);
+
+  /** Back from a watched subagent to the conversation that spawned it. */
+  protected backToParent(): void {
+    const parent = this.activeParent();
+    if (parent !== undefined) {
+      this.morse.activateSession(parent.id);
+    }
+  }
+
+  /**
+   * Pulls the watched session's transcript while it is on screen. A subagent is
+   * written by its parent's process, so the view ages in place; the host skips
+   * identical pages, so the poll is quiet until something actually landed.
+   * Paused while this panel's own gateway is streaming — a live child needs no
+   * pull, and resetting its transcript mid-run would fight the stream.
+   */
+  private subagentTimer: ReturnType<typeof setInterval> | undefined;
+  private static readonly SUBAGENT_POLL_MS = 10_000;
+  /**
    * Pi's extension chrome is worth mounting only while an extension has set a
    * widget or status for the session in front; an empty host stays out of the
    * layout entirely.
@@ -275,7 +345,9 @@ export class App {
    */
   protected readonly notificationPrompt = computed<'nudge' | 'blocked' | null>(() => {
     if (this.morse.capabilities()?.notify === true) {
-      return !this.notifications.enabled() && !this.notifications.bannerDismissed() ? 'nudge' : null;
+      return !this.notifications.enabled() && !this.notifications.bannerDismissed()
+        ? 'nudge'
+        : null;
     }
     const permission = this.notifier.permission();
     if (permission === 'unsupported') {
@@ -316,9 +388,7 @@ export class App {
     const base =
       'pi replaces the conversation it is holding with a summary, so the next turn starts from less context. The transcript in this window is untouched.';
     const instructions = this.shell.compactInstructions();
-    return instructions
-      ? `${base} Your instructions: “${instructions}”.`
-      : base;
+    return instructions ? `${base} Your instructions: “${instructions}”.` : base;
   });
   /**
    * "Schedule Compact" is only a real choice while the conversation is working:
@@ -336,7 +406,8 @@ export class App {
     const working = activity ? activity.streaming : this.morse.state().streaming;
     return working ? 'Schedule Compact' : '';
   });
-  protected readonly connection = this.morse.connection;  protected readonly agentReady = this.morse.agentReady;
+  protected readonly connection = this.morse.connection;
+  protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
   protected readonly agentError = this.morse.agentError;
   /**
@@ -398,6 +469,30 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // Pull the watched subagent's transcript while it is on screen: the child
+    // is written by its parent's process, so the view ages in place. The host
+    // skips identical pages, so the poll is quiet until something landed, and
+    // it pauses while this panel's own gateway streams — a live child needs no
+    // pull, and resetting its transcript mid-run would fight the stream.
+    effect(() => {
+      const watching = this.activeIsSubagent() && !this.morse.running();
+      if (watching && this.subagentTimer === undefined) {
+        this.subagentTimer = setInterval(() => {
+          if (this.activeIsSubagent() && !this.morse.running()) {
+            this.morse.refreshSession();
+          }
+        }, App.SUBAGENT_POLL_MS);
+      } else if (!watching && this.subagentTimer !== undefined) {
+        clearInterval(this.subagentTimer);
+        this.subagentTimer = undefined;
+      }
+    });
+    this.destroyRef.onDestroy(() => {
+      if (this.subagentTimer !== undefined) {
+        clearInterval(this.subagentTimer);
+        this.subagentTimer = undefined;
+      }
+    });
     // The queue drain is shell state too: a queued follow-up must run when its
     // own session settles, even if the reader is looking at another tab.
     inject(QueueDrain);
@@ -413,7 +508,11 @@ export class App {
     // project filter, the composer owns the model chooser, the thinking picker
     // its own panel — so a missing owner shows up as an unavailable row.
     const unbind = [
-      this.shortcuts.bind('context.compact', () => this.shell.requestCompact(undefined, this.tabs.composerKey()), () => this.morse.state().agentReady),
+      this.shortcuts.bind(
+        'context.compact',
+        () => this.shell.requestCompact(undefined, this.tabs.composerKey()),
+        () => this.morse.state().agentReady,
+      ),
       this.shortcuts.bind('help.shortcuts', () => this.shell.toggleShortcuts()),
       // The palette's open flag is shell state (so `modalOpen` is honest and the
       // overlay renders from one place), so its key is bound here like the help's.
@@ -544,7 +643,11 @@ export class App {
         const icon = host.querySelector('.dropzone-icon');
         const ring = host.querySelector('.dropzone-ring');
         this.dropzoneStops = [
-          this.animation.loop(ring, { scale: [1, 1.035], opacity: [0.9, 0.25] }, { duration: 1100 }),
+          this.animation.loop(
+            ring,
+            { scale: [1, 1.035], opacity: [0.9, 0.25] },
+            { duration: 1100 },
+          ),
           this.animation.loop(card, { scale: [1, 1.03] }, { duration: 700 }),
           this.animation.loop(icon, { translateY: [1.5, -3] }, { duration: 520 }),
         ];

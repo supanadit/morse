@@ -14,6 +14,8 @@ import type { CommandOption, ModelOption, PromptMode, ThinkingLevel } from '@mor
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import {
   parseCommandArgs,
+  pinNoteHint,
+  pinRangeLabel,
   promptTemplateForm,
   readPromptTemplate,
   substituteArgs,
@@ -22,14 +24,30 @@ import { AttachmentStore, type PendingImage, type PendingPin } from '../../state
 import { ComposerDrafts } from '../../state/composer-drafts';
 import { MorseService } from '../../host/morse.service';
 import { QueuedPrompts, type QueuedPrompt } from '../../state/queued-prompts';
+import { RestoreState } from '../../state/restore-state';
 import { ShellState } from '../../state/shell-state';
 import { ShortcutService } from '../../services/shortcut.service';
 import { Uploader } from '../../services/uploads';
 import { WorkspaceFiles } from '../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
-import { pinNoteHint } from '@morse/ui-runtime';
+
+/** What `getEditorContext` answers: the editor in front, as the composer pins it. */
+interface EditorSnapshot {
+  path?: string;
+  languageId?: string;
+  selection?: {
+    startLine: number;
+    endLine: number;
+    startColumn?: number;
+    endColumn?: number;
+    characters?: number;
+    text?: string;
+  };
+  openEditors: string[];
+}
 import { PopoverFit } from '../../ui/popover-fit.directive';
+import { startResize } from '../../ui/resize-drag';
 import { EnterDirective } from '../../ui/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
 import { CommandPicker, rankPalette, type PaletteItem } from '../command-picker/command-picker';
@@ -39,7 +57,9 @@ import {
 } from '../prompt-template-dialog/prompt-template-dialog';
 import { ModelPicker } from '../model-picker/model-picker';
 import { ModelInputs } from '../model-picker/model-inputs';
+import { OptionPicker, type PickerOption } from '../option-picker/option-picker';
 import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive';
+import { MarkdownView } from '../../ui/markdown-view/markdown-view';
 import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import type { PopoverAnchor } from '@morse/ui-runtime';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
@@ -55,21 +75,24 @@ import { UsageIndicator } from '../usage/usage-indicator';
     CommandPicker,
     ModelPicker,
     ModelInputs,
+    OptionPicker,
     ThinkingPicker,
     PromptTemplateDialog,
     PinAnnotation,
     NoteHoverDirective,
+    MarkdownView,
     PopoverFit,
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.folded]': 'folded()' },
+  host: { '[class.folded]': 'folded()', '[class.maximized]': 'maximized()' },
   styleUrl: './composer.css',
 })
 export class ChatComposer {
   private readonly morse = inject(MorseService);
+  private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
   private readonly shortcuts = inject(ShortcutService);
   private readonly destroyRef = inject(DestroyRef);
@@ -83,6 +106,8 @@ export class ChatComposer {
   private readonly promptInput = viewChild<ElementRef<HTMLTextAreaElement>>('promptInput');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly thinkingPicker = viewChild(ThinkingPicker);
+  private readonly enginePicker = viewChild<OptionPicker>('enginePicker');
+  private readonly modePicker = viewChild<OptionPicker>('modePicker');
 
   protected readonly text = this.drafts.text;
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
@@ -110,7 +135,9 @@ export class ChatComposer {
    * Enter is a no-op until the pick settles. Typing stays enabled: only the send
    * is held.
    */
-  protected readonly settingsSettled = computed(() => !this.loadingThinkingLevels());
+  protected readonly settingsSettled = computed(
+    () => !this.loadingThinkingLevels() && !this.morse.loadingEngine(),
+  );
   protected readonly canAttachSelection = computed(
     () => this.morse.capabilities()?.editorContext === true,
   );
@@ -119,6 +146,42 @@ export class ChatComposer {
   protected readonly levels = this.morse.availableThinkingLevels;
   /** True while the host re-reads the picked model's levels (see the picker). */
   protected readonly loadingThinkingLevels = this.morse.loadingThinkingLevels;
+  /** Installed engines and the draft's choice; the engine can only change on a draft. */
+  protected readonly engines = this.morse.engines;
+  protected readonly draft = this.morse.draft;
+  protected readonly currentEngine = computed(
+    () =>
+      this.morse.state().engine ??
+      this.engines().find((engine) => engine.default === true)?.kind ??
+      '',
+  );
+  protected readonly engineOptions = computed<PickerOption[]>(() =>
+    this.engines().map((engine) => ({
+      id: engine.kind,
+      label: engine.label,
+      ...(engine.default === true ? { badge: 'default' } : {}),
+    })),
+  );
+  protected readonly showEnginePicker = computed(() => this.draft() && this.engines().length > 1);
+  /** The modes the selected engine offers; absent for pi, so the pill is absent. */
+  protected readonly availableModes = this.morse.availableModes;
+  protected readonly currentMode = computed(
+    () =>
+      this.morse.state().mode ??
+      this.availableModes().find((mode) => mode.default === true)?.id ??
+      this.availableModes()[0]?.id ??
+      '',
+  );
+  protected readonly modeOptions = computed<PickerOption[]>(() =>
+    this.availableModes().map((mode) => ({
+      id: mode.id,
+      label: mode.name,
+      ...(mode.description === undefined ? {} : { description: mode.description }),
+      ...(mode.default === true ? { badge: 'default' } : {}),
+    })),
+  );
+  protected readonly showModePicker = computed(() => this.availableModes().length > 0);
+  protected readonly loadingEngine = this.morse.loadingEngine;
   protected readonly modelKey = computed(() => {
     const model = this.morse.state().model;
     return model ? `${model.provider}/${model.id}` : '';
@@ -130,11 +193,11 @@ export class ChatComposer {
   });
   /**
    * The composer's status strip, above the dropdowns. It only takes a row when
-   * it has something to say: live throughput / run progress while working, or
-   * the context indicator once usage is known.
+   * it has something to say: live throughput / run progress while working, the
+   * context indicator once usage is known, or the session facts.
    */
   protected readonly showStatusRow = computed(
-    () => this.running() || this.showUsage(),
+    () => this.running() || this.showUsage() || this.sessionFacts().length > 0,
   );
   /**
    * Estimated output tokens generated so far in the current run: assistant prose
@@ -160,9 +223,7 @@ export class ChatComposer {
    * session's queue; this is only the one the composer is editing, so a tab
    * never shows another session's messages.
    */
-  protected readonly queuedMessages = computed(() =>
-    this.queue.forOwner(this.tabs.composerKey()),
-  );
+  protected readonly queuedMessages = computed(() => this.queue.forOwner(this.tabs.composerKey()));
 
   /**
    * Clicking a pinned chip re-opens its file in the browser preview, where the
@@ -192,6 +253,9 @@ export class ChatComposer {
 
   /** The markdown the editor opens with (the pin's own note, if it has one). */
   protected readonly annotationNote = computed(() => this.annotationPin()?.note ?? '');
+
+  /** Feature flag: composer.markdown.viewMode (default off). */
+  readonly markdownViewMode = signal(false);
 
   /** The ✎ was pressed: open the editor anchored to it. */
   protected openAnnotation(pin: PendingPin, event: Event): void {
@@ -308,14 +372,41 @@ export class ChatComposer {
   protected readonly currentModel = this.morse.model;
   /**
    * The provider of the active model. Two providers can expose a model with the
-   * same display name, so the footer shows where it came from — otherwise the
-   * user has no way to tell which provider a pick landed on.
+   * same display name, so the session facts bar names where the model came
+   * from — never inside the trigger, whose width belongs to the model name —
+   * otherwise the user has no way to tell which provider a pick landed on.
    */
   protected readonly currentProvider = computed(() => this.morse.model()?.provider ?? '');
   /** Full `provider · name` label for the trigger's tooltip. */
   protected readonly modelLabel = computed(() => {
     const model = this.morse.model();
     return model ? `${model.provider} · ${model.name}` : 'no model';
+  });
+  /**
+   * The composer's bottom bar: one muted line of session facts — the engine
+   * this session runs (fixed once the draft is sent), where its model comes
+   * from, and which session it is (pi and opencode alike). Plain text on
+   * purpose: anything session-scoped can join the line.
+   */
+  protected readonly sessionFacts = computed(() => {
+    const facts: { text: string; title: string }[] = [];
+    const kind = this.currentEngine();
+    const engine = this.engines().find((entry) => entry.kind === kind);
+    if (engine) {
+      facts.push({ text: engine.label, title: `Session engine: ${engine.label}` });
+    }
+    const provider = this.currentProvider();
+    if (provider) {
+      facts.push({ text: provider, title: `Model provider: ${provider}` });
+    }
+    // The engine's own id when the host reports one — Morse's derived id is
+    // internal bookkeeping; routerless hosts name the session by the engine's.
+    const state = this.morse.state();
+    const id = state.engineSessionId ?? state.sessionId;
+    if (id) {
+      facts.push({ text: id, title: `Session id: ${id}` });
+    }
+    return facts;
   });
   protected readonly canAddFiles = computed(
     () => this.canPickFiles() || this.canUpload() || this.canAttachSelection(),
@@ -342,6 +433,41 @@ export class ChatComposer {
 
   protected toggleFolded(): void {
     this.folded.update((folded) => !folded);
+  }
+  /**
+   * The prompt expanded to fill the window: long prompts deserve a page, not a
+   * two-line slot. Same box, same draft — only its room changes.
+   */
+  protected readonly maximized = signal(false);
+
+  protected toggleMaximized(): void {
+    this.maximized.update((maximized) => !maximized);
+    if (this.maximized()) this.folded.set(false);
+    this.promptInput()?.nativeElement.focus();
+  }
+
+  /** The send shortcut the placeholder advertises, per mode. */
+  protected readonly sendHint = computed(() =>
+    this.maximized()
+      ? 'Enter for a new line, Shift+Enter to send'
+      : 'Enter to send, Shift+Enter for a new line',
+  );
+  /**
+   * Height the user dragged the prompt to, in px. Null keeps the stylesheet's
+   * small default; a drag pins the box and the text scrolls inside it.
+   */
+  protected readonly dragHeight = signal<number | null>(null);
+
+  protected onResizeStart(event: PointerEvent): void {
+    const startY = event.clientY;
+    const measured = this.promptInput()?.nativeElement.getBoundingClientRect().height ?? 0;
+    const startHeight = this.dragHeight() ?? (measured > 0 ? measured : 60);
+    startResize(event, {
+      value: (pointer) =>
+        Math.min(Math.max(startHeight + (startY - pointer.clientY), 60), window.innerHeight - 200),
+      preview: (height) => this.dragHeight.set(Math.round(height)),
+      commit: (height) => this.dragHeight.set(Math.round(height)),
+    });
   }
   /**
    * When each session's current run began, keyed by session id. One composer
@@ -385,7 +511,9 @@ export class ChatComposer {
       }
       const added = this.attachments.takeMentions();
       const block = added.map((path) => (path.startsWith('@') ? path : `@${path}`)).join('\n');
-      this.drafts.updateText((value) => (value.trim().length === 0 ? block : `${value.trimEnd()}\n${block}`));
+      this.drafts.updateText((value) =>
+        value.trim().length === 0 ? block : `${value.trimEnd()}\n${block}`,
+      );
       const input = this.promptInput()?.nativeElement;
       input?.focus();
     });
@@ -570,7 +698,19 @@ export class ChatComposer {
           return;
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    // Escape shrinks a maximized prompt back to the dock. Pickers above
+    // consumed their own Escape first, so this only fires with none open.
+    if (event.key === 'Escape' && this.maximized()) {
+      event.preventDefault();
+      this.maximized.set(false);
+      return;
+    }
+    // Maximized, the prompt behaves like a page: Enter writes a line and
+    // sending takes Shift+Enter (or the Send button). Docked, Enter sends.
+    const enterSends = this.maximized()
+      ? event.shiftKey || event.ctrlKey || event.metaKey
+      : !event.shiftKey;
+    if (event.key === 'Enter' && enterSends && !event.isComposing) {
       event.preventDefault();
       // A model pick's thinking levels are still being read: the send would be
       // held by the host anyway, and looking like it left with the previous
@@ -591,6 +731,13 @@ export class ChatComposer {
   }
 
   protected sendWith(mode: PromptMode): void {
+    // The restore's safety net: while the previous session is still travelling
+    // back, a prompt must not open a throwaway conversation in front of it. The
+    // composer is unmounted behind the restoring screen, so this guards the race
+    // at the edges of the state flip rather than a click the user can make.
+    if (this.restore.isRestoring()) {
+      return;
+    }
     let value = this.drafts.text().trim();
     this.unroutedPiBuiltin.set(undefined);
     // `/compact <instructions>` is the same destructive action as the bare built-in,
@@ -672,12 +819,7 @@ export class ChatComposer {
   /** Runs a queued follow-up now: steering it when a run is in flight. */
   protected sendQueued(item: QueuedPrompt): void {
     this.queue.remove(item.id);
-    this.morse.prompt(
-      item.text,
-      this.running() ? 'steer' : 'new',
-      item.images,
-      item.pins,
-    );
+    this.morse.prompt(item.text, this.running() ? 'steer' : 'new', item.images, item.pins);
   }
 
   protected removeQueued(item: QueuedPrompt): void {
@@ -762,10 +904,9 @@ export class ChatComposer {
 
   /**
    * Pins the active editor selection as an attachment chip. The host only
-   * reports; the chip rides with the next message as a `@path:start-end`
-   * mention, exactly like a picked file would.
-   */
-  /**
+   * reports; the chip rides with the next message as a `@path:start-end` or
+   * `@path:start:col-end:col` mention, exactly like a picked file would.
+   *
    * The ⧉ shortcut and the live chip do the same thing — lock the current
    * selection — so when the host already streams the live preview there is no
    * round trip: locking what is on screen is instant. Only hosts without live
@@ -786,6 +927,10 @@ export class ChatComposer {
         path: snapshot.path ?? '',
         startLine: selection.startLine,
         endLine: selection.endLine,
+        startColumn: selection.startColumn,
+        endColumn: selection.endColumn,
+        characters: selection.characters,
+        text: selection.text,
       });
       this.attachments.say('info', 'Selection pinned to this message.');
     });
@@ -1078,6 +1223,8 @@ export class ChatComposer {
     // Two dropdowns must never overlap: the chooser opening over the thinking
     // panel dismisses it, whether it was opened by click or by its shortcut.
     this.thinkingPicker()?.close();
+    this.enginePicker()?.close();
+    this.modePicker()?.close();
     // pi caches its configured models while the session is warm, so opening the
     // picker asks for a fresh catalog: a model added to `models.json` shows up
     // here without restarting the host or the session.
@@ -1222,14 +1369,10 @@ export class ChatComposer {
       id !== undefined &&
       this.models().find((model) => model.provider === provider && model.id === id);
     if (!match) {
-      this.setNotice(
-        { name: 'model' },
-        arg,
-        [
-          'The model was not set:',
-          'expect `/model provider/id` from the available-model list, or run bare `/model` for the picker.',
-        ],
-      );
+      this.setNotice({ name: 'model' }, arg, [
+        'The model was not set:',
+        'expect `/model provider/id` from the available-model list, or run bare `/model` for the picker.',
+      ]);
       return;
     }
     this.morse.setModel(match.provider, match.id);
@@ -1297,28 +1440,42 @@ export class ChatComposer {
 
   /** Reads the editor snapshot; `undefined` when the host cannot report it. */
   private async requestSelectionSnapshot() {
-    return this.morse.requestHostCommand('getEditorContext') as Promise<
-      | {
-          path?: string;
-          languageId?: string;
-          selection?: { startLine: number; endLine: number; text: string };
-          openEditors: string[];
-        }
-      | undefined
-    >;
+    return this.morse.requestHostCommand('getEditorContext') as Promise<EditorSnapshot | undefined>;
   }
 
   /**
-   * A pin's range label: `L13-17` for a range, `L13` for a single line. A
-   * single-line pin has no `endLine`, which must not read as "L13-".
+   * A pin's range label, shared with the transcript and the preview:
+   * `L18:45-79` for part of a line, `L18-20` for whole lines, no label for a
+   * whole file.
    */
-  protected pinRange(pin: Pick<PendingPin, 'startLine' | 'endLine'>): string {
-    if (pin.startLine === undefined) {
-      return '';
+  protected pinRange(
+    pin: Pick<PendingPin, 'startLine' | 'endLine' | 'startColumn' | 'endColumn'>,
+  ): string {
+    return pinRangeLabel(pin);
+  }
+
+  /** A chip's tooltip: its path and range, then the count and excerpt when known. */
+  protected pinTitle(pin: PendingPin, prefix: string): string {
+    const details: string[] = [];
+    if (pin.startLine !== undefined) {
+      const endLine = pin.endLine ?? pin.startLine;
+      details.push(
+        pin.startColumn !== undefined && pin.endColumn !== undefined
+          ? endLine === pin.startLine
+            ? `line ${pin.startLine}, columns ${pin.startColumn}-${pin.endColumn}`
+            : `lines ${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`
+          : endLine === pin.startLine
+            ? `line ${pin.startLine}`
+            : `lines ${pin.startLine}-${endLine}`,
+      );
     }
-    return pin.endLine !== undefined && pin.endLine !== pin.startLine
-      ? `L${pin.startLine}-${pin.endLine}`
-      : `L${pin.startLine}`;
+    if (pin.characters !== undefined) {
+      details.push(`${pin.characters} selected`);
+    }
+    if (pin.text !== undefined) {
+      details.push(pin.text);
+    }
+    return details.length === 0 ? prefix : `${prefix} · ${details.join(' · ')}`;
   }
 
   /** Closing the picker returns the keyboard to the prompt. */
@@ -1343,7 +1500,9 @@ export class ChatComposer {
     if (this.mentionMode()) {
       // Replace the `@query` the user typed instead of appending a second mention.
       // A directory keeps its trailing `/` and gets no space, so it stays a prefix.
-      this.drafts.updateText((value) => value.replace(/@[\w./-]*$/, `@${path}${directory ? '' : ' '}`));
+      this.drafts.updateText((value) =>
+        value.replace(/@[\w./-]*$/, `@${path}${directory ? '' : ' '}`),
+      );
     } else if (!directory) {
       this.attachments.addMentions([path]);
       this.attachments.say('info', `Pinned ${path} to this message.`);
@@ -1373,8 +1532,40 @@ export class ChatComposer {
     this.onPickFile(path, true);
   }
 
+  protected onThinkingOpen(): void {
+    this.modelPickerOpen.set(false);
+    this.enginePicker()?.close();
+    this.modePicker()?.close();
+  }
+
   protected onThinkingPick(level: ThinkingLevel): void {
     this.morse.setThinkingLevel(level);
+  }
+
+  /** The engine panel is the only other popover that may be open with this one. */
+  protected onEngineOpen(): void {
+    this.thinkingPicker()?.close();
+    this.modelPickerOpen.set(false);
+    this.modePicker()?.close();
+  }
+
+  protected onEnginePick(kind: string): void {
+    this.morse.setEngine(kind);
+  }
+
+  /**
+   * The mode list lives in the engine's configuration, so opening the panel
+   * asks for a fresh read; a mode added while Morse runs appears then.
+   */
+  protected onModeOpen(): void {
+    this.thinkingPicker()?.close();
+    this.modelPickerOpen.set(false);
+    this.enginePicker()?.close();
+    this.morse.refreshModes();
+  }
+
+  protected onModePick(mode: string): void {
+    this.morse.setMode(mode);
   }
 
   /**

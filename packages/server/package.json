@@ -15,9 +15,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@morse/adapter-pi-rpc": "*",
-    "@morse/core": "*",
-    "@morse/host-runtime": "*",
+    "@morse/agent": "*",
+    "@morse/system": "*",
+    "@morse/integration-pi": "*",
+    "@morse/integration-opencode": "*",
     "@morse/protocol": "*",
     "@nestjs/common": "^12.1.2",
     "@nestjs/core": "^12.1.2",

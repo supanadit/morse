@@ -49,8 +49,16 @@ export class McpState {
   private readonly fetchedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<McpStatus | undefined>>();
 
-  /** Only a host that can run the `pi` CLI advertises this. */
+  /** Only a host that can manage some engine's MCP servers advertises this. */
   readonly enabled = computed(() => this.morse.capabilities()?.mcp === true);
+
+  /**
+   * The engine the MCP modal is about: the draft's choice, or the session's
+   * owner. Engines keep separate configs (`mcp.json` vs `opencode.json`), so it
+   * rides every command and the cache is keyed by it — a pi session and an
+   * OpenCode session in the same directory see different server lists.
+   */
+  readonly engine = computed(() => this.morse.engine());
 
   /**
    * The directory the indicator and panel are about. `''` means **global only**:
@@ -74,7 +82,11 @@ export class McpState {
       if (!this.enabled()) {
         return;
       }
+      // Both reads are tracked: switching the engine re-runs this, so the modal
+      // follows the dropdown immediately instead of showing the previous
+      // engine's servers.
       const target = this.cwd();
+      const engine = this.engine();
       const timer = setTimeout(() => void this.refresh(target), 1_200);
       onCleanup(() => clearTimeout(timer));
     });
@@ -87,7 +99,7 @@ export class McpState {
         return;
       }
       const dir = this.cwd();
-      if (Date.now() - (this.fetchedAt.get(dir) ?? 0) < FOCUS_MIN_INTERVAL_MS) {
+      if (Date.now() - (this.fetchedAt.get(this.keyOf(dir)) ?? 0) < FOCUS_MIN_INTERVAL_MS) {
         return;
       }
       void this.refresh(dir, true);
@@ -113,16 +125,16 @@ export class McpState {
   }
 
   status(cwd: string): McpStatus | undefined {
-    return this.byCwd()[cwd];
+    return this.byCwd()[this.keyOf(cwd)];
   }
 
   isLoading(cwd: string): boolean {
-    return this.loadingByCwd()[cwd] === true;
+    return this.loadingByCwd()[this.keyOf(cwd)] === true;
   }
 
   /** The dot's colour: healthy, something to look at, broken, or nothing configured. */
   overall(cwd: string): McpOverall {
-    const status = this.byCwd()[cwd];
+    const status = this.status(cwd);
     if (!status) {
       return this.isLoading(cwd) ? 'loading' : 'unknown';
     }
@@ -168,7 +180,7 @@ export class McpState {
   }
 
   private connectableCount(cwd: string): number {
-    return (this.byCwd()[cwd]?.servers ?? []).filter(
+    return (this.status(cwd)?.servers ?? []).filter(
       (server) => server.enabled && server.state === 'connected',
     ).length;
   }
@@ -178,10 +190,15 @@ export class McpState {
    * every directory's, for the user-level file) and re-read what is in front.
    */
   private onExternalChange(cwd: string): void {
+    const prefix = `${this.engine() ?? ''}|`;
     if (cwd.length === 0) {
-      this.fetchedAt.clear();
+      for (const key of [...this.fetchedAt.keys()]) {
+        if (key.startsWith(prefix)) {
+          this.fetchedAt.delete(key);
+        }
+      }
     } else {
-      this.fetchedAt.delete(cwd);
+      this.fetchedAt.delete(this.keyOf(cwd));
     }
     const current = this.cwd();
     if (cwd.length === 0 || cwd === current) {
@@ -210,17 +227,21 @@ export class McpState {
   }
 
   private async fetch(cwd: string): Promise<McpStatus | undefined> {
+    const key = this.keyOf(cwd);
     this.setLoading(cwd, true);
     try {
       const data = await this.morse.requestHostCommand(
         'mcpStatus',
-        cwd.length > 0 ? { cwd } : { scope: 'global' },
+        {
+          ...(cwd.length > 0 ? { cwd } : { scope: 'global' }),
+          ...(this.engine() === undefined ? {} : { engine: this.engine() }),
+        },
         STATUS_TIMEOUT_MS,
       );
       const status = asMcpStatus(data);
       if (status) {
-        this.byCwd.update((map) => ({ ...map, [cwd]: status }));
-        this.fetchedAt.set(cwd, Date.now());
+        this.byCwd.update((map) => ({ ...map, [key]: status }));
+        this.fetchedAt.set(key, Date.now());
       }
       return status;
     } finally {
@@ -269,7 +290,14 @@ export class McpState {
    * servers pi was ignoring should appear.
    */
   async trustProject(cwd: string): Promise<ProjectTrustResult> {
-    const data = await this.morse.requestHostCommand('trustProject', { cwd }, MUTATION_TIMEOUT_MS);
+    const data = await this.morse.requestHostCommand(
+      'trustProject',
+      {
+        cwd,
+        ...(this.engine() === undefined ? {} : { engine: this.engine() }),
+      },
+      MUTATION_TIMEOUT_MS,
+    );
     const result = asTrustResult(data);
     if (result.ok) {
       await this.refresh(cwd, true);
@@ -282,7 +310,15 @@ export class McpState {
     args: Record<string, unknown>,
     cwd: string,
   ): Promise<McpMutation> {
-    const data = await this.morse.requestHostCommand(command, args, MUTATION_TIMEOUT_MS);
+    // The mutation lands in the config of the engine the modal is showing.
+    const data = await this.morse.requestHostCommand(
+      command,
+      {
+        ...args,
+        ...(this.engine() === undefined ? {} : { engine: this.engine() }),
+      },
+      MUTATION_TIMEOUT_MS,
+    );
     const result = asMcpMutation(data);
     if (result.ok) {
       await this.refresh(cwd, true);
@@ -290,8 +326,13 @@ export class McpState {
     return result;
   }
 
+  /** Cache key: the engine's config decides the servers as much as the directory. */
+  private keyOf(cwd: string): string {
+    return `${this.engine() ?? ''}|${cwd}`;
+  }
+
   private setLoading(cwd: string, loading: boolean): void {
-    this.loadingByCwd.update((map) => ({ ...map, [cwd]: loading }));
+    this.loadingByCwd.update((map) => ({ ...map, [this.keyOf(cwd)]: loading }));
   }
 }
 

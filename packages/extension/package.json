@@ -1,7 +1,7 @@
 {
   "name": "morse",
   "displayName": "Morse",
-  "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
+  "description": "Comfortable Pi Interface \u2014 chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
   "version": "0.26.1",
   "publisher": "supanadit",
   "author": "Supan Adit Pratama",
@@ -26,11 +26,14 @@
   "keywords": [
     "pi",
     "pi-coding-agent",
+    "opencode",
     "agent",
     "chat",
     "ai",
     "mcp",
     "reasoning",
+    "gui",
+    "comfortable-ui",
     "copilot-alternative"
   ],
   "activationEvents": [
@@ -158,6 +161,27 @@
           "minimum": 1000,
           "markdownDescription": "How long to wait for a single pi RPC response."
         },
+        "morse.engine": {
+          "type": "string",
+          "enum": ["pi", "opencode"],
+          "default": "pi",
+          "markdownDescription": "The engine a new session starts in. `opencode` needs the OpenCode CLI or a configured server; without either the window stays on `pi`."
+        },
+        "morse.opencode.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `opencode` executable. Empty means: use `opencode` from `PATH` (or `MORSE_OPENCODE_BIN`). Ignored when `morse.opencode.url` is set."
+        },
+        "morse.opencode.url": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Attach to a running OpenCode server (`opencode serve`) instead of starting one. Its password goes in `morse.opencode.password`."
+        },
+        "morse.opencode.password": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The password the OpenCode server printed on startup (its Basic-auth secret). Prefer `MORSE_OPENCODE_PASSWORD` in the environment when you do not want it in settings."
+        },
         "morse.sessions.hotLimit": {
           "type": "number",
           "default": 4,
@@ -191,9 +215,8 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@morse/adapter-pi-rpc": "*",
-    "@morse/core": "*",
-    "@morse/host-runtime": "*",
+    "@morse/integration-opencode": "*",
+    "@morse/integration-pi": "*",
     "@morse/protocol": "*",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
@@ -205,6 +228,15 @@
     "eslint": "^10.5.0",
     "npm-run-all": "^4.1.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.61.1"
+    "typescript-eslint": "^8.61.1",
+    "@morse/agent": "*",
+    "@morse/system": "*"
+  },
+  "dependencies": {
+    "@morse/agent": "*",
+    "@morse/system": "*",
+    "@morse/integration-opencode": "*",
+    "@morse/integration-pi": "*",
+    "@morse/protocol": "*"
   }
 }

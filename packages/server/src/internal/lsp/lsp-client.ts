@@ -13,7 +13,7 @@
  * a preview — shows nothing instead of an error banner.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { MorseLogger } from '@morse/core';
+import type { MorseLogger } from '@morse/system';
 import type { LspDiagnostic } from '@morse/protocol';
 import { createLspFrameReader, encodeLspMessage, type LspMessage } from './lsp-protocol.js';
 import { diagnosticsFrom, toFileUri } from './lsp-mapping.js';

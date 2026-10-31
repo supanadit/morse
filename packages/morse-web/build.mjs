@@ -15,7 +15,7 @@
 // costs nothing at runtime.
 //
 // Prerequisites (run from the repo root before publishing):
-//   npm run build:libs   # @morse/protocol, core, host-runtime, adapter-pi-rpc
+//   npm run build:libs   # protocol, agent, system, integration-pi
 //   npm run build:ui     # @morse/ui-angular -> packages/ui-angular/dist
 //
 // Usage:
@@ -68,15 +68,15 @@ async function requireBuild(path, hint) {
 async function bundleServer() {
   await Promise.all([
     requireBuild(
-      join(packagesRoot, 'core', 'dist', 'index.js'),
+      join(packagesRoot, 'agent', 'dist', 'index.js'),
       'Build the libraries first: npm run build:libs',
     ),
     requireBuild(
-      join(packagesRoot, 'adapter-pi-rpc', 'dist', 'index.js'),
+      join(packagesRoot, 'system', 'dist', 'index.js'),
       'Build the libraries first: npm run build:libs',
     ),
     requireBuild(
-      join(packagesRoot, 'host-runtime', 'dist', 'index.js'),
+      join(packagesRoot, 'integration-pi', 'dist', 'index.js'),
       'Build the libraries first: npm run build:libs',
     ),
   ]);

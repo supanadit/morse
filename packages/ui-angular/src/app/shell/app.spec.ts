@@ -1,9 +1,18 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ClientToHostMessage } from '@morse/protocol';
+import type {
+  ChildSessionRef,
+  ClientToHostMessage,
+  SessionSummary,
+  SessionViewState,
+  TranscriptItem,
+} from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { App } from './app';
+import { MorseService } from '../host/morse.service';
 import { AttachmentStore } from '../state/attachments';
+import { RestoreState } from '../state/restore-state';
 import { ShellState } from '../state/shell-state';
 import { MORSE_TRANSPORT } from '../host/transport.token';
 
@@ -46,7 +55,9 @@ describe('App', () => {
 
     TestBed.inject(AttachmentStore).say('info', '2 files attached');
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.toast')?.textContent).toContain('2 files attached');
+    expect(fixture.nativeElement.querySelector('.toast')?.textContent).toContain(
+      '2 files attached',
+    );
 
     vi.advanceTimersByTime(4_000);
     fixture.detectChanges();
@@ -90,8 +101,13 @@ describe('App', () => {
     fixture.detectChanges();
 
     const trigger = fixture.nativeElement.querySelector('.model-button') as HTMLElement;
-    expect(trigger.querySelector('.provider')?.textContent?.trim()).toBe('mock-cloud');
     expect(trigger.querySelector('.label')?.textContent?.trim()).toBe('Mock Model (pro)');
+    // The provider rides the session facts bar under the controls, never inside
+    // the trigger: an inline pill would truncate the model name it shows.
+    expect(trigger.querySelector('.provider')).toBeNull();
+    expect((fixture.nativeElement.querySelector('.facts') as HTMLElement).textContent).toContain(
+      'mock-cloud',
+    );
 
     // Reopening highlights the active model, not the first row of the list.
     (trigger as HTMLButtonElement).click();
@@ -191,7 +207,13 @@ const stops = (sent: ClientToHostMessage[]): ClientToHostMessage[] =>
 /** Presses a shortcut on the document, which is where the shell listens. */
 function press(key: string, { ctrl = false, alt = false } = {}): void {
   document.dispatchEvent(
-    new KeyboardEvent('keydown', { key, ctrlKey: ctrl, altKey: alt, bubbles: true, cancelable: true }),
+    new KeyboardEvent('keydown', {
+      key,
+      ctrlKey: ctrl,
+      altKey: alt,
+      bubbles: true,
+      cancelable: true,
+    }),
   );
 }
 
@@ -259,7 +281,13 @@ describe('App · keyboard shortcuts', () => {
     // Both are modified combinations, so they work with the caret in the prompt.
     const prompt = host.querySelector('textarea') as HTMLTextAreaElement;
     prompt.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'm', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }),
+      new KeyboardEvent('keydown', {
+        key: 'm',
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
     );
     fixture.detectChanges();
     expect(host.querySelector('morse-model-picker')).not.toBeNull();
@@ -311,14 +339,18 @@ describe('App · compaction asks first', () => {
   it('compacts once, and only when the dialog is confirmed', async () => {
     const { host, fixture, sent } = await renderApp();
 
-    (host.querySelector(
-      'morse-toolbar button[aria-label="Compact the conversation"]',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-toolbar button[aria-label="Compact the conversation"]',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
-    (host.querySelector(
-      'morse-confirm-dialog .actions button:not(.secondary)',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-confirm-dialog .actions button:not(.secondary)',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(compactions(sent)).toHaveLength(1);
@@ -342,9 +374,11 @@ describe('App · compaction asks first', () => {
       'keep the decisions about the schema',
     );
 
-    (host.querySelector(
-      'morse-confirm-dialog .actions button:not(.secondary)',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-confirm-dialog .actions button:not(.secondary)',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     const compacted = compactions(sent);
@@ -357,9 +391,11 @@ describe('App · compaction asks first', () => {
   it('keeps the question a plain yes/no while the conversation is quiet', async () => {
     const { host, fixture } = await renderApp();
 
-    (host.querySelector(
-      'morse-toolbar button[aria-label="Compact the conversation"]',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-toolbar button[aria-label="Compact the conversation"]',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     // Nothing is running, so there is nothing to wait for: one honest way to say
@@ -382,9 +418,11 @@ describe('App · compaction asks first', () => {
     prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     fixture.detectChanges();
 
-    (host.querySelector(
-      'morse-toolbar button[aria-label="Compact the conversation"]',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-toolbar button[aria-label="Compact the conversation"]',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     const schedule = [...host.querySelectorAll('morse-confirm-dialog .actions button')].find(
@@ -404,9 +442,11 @@ describe('App · compaction asks first', () => {
   it('cancels quietly: Escape sends nothing and closes the question', async () => {
     const { host, fixture, sent } = await renderApp();
 
-    (host.querySelector(
-      'morse-toolbar button[aria-label="Compact the conversation"]',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-toolbar button[aria-label="Compact the conversation"]',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     fixture.detectChanges();
@@ -454,9 +494,11 @@ describe('App · compaction asks first', () => {
 
     TestBed.inject(ShellState).requestStop();
     fixture.detectChanges();
-    (host.querySelector(
-      'morse-confirm-dialog .actions button:not(.secondary)',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-confirm-dialog .actions button:not(.secondary)',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(stops(sent)).toHaveLength(1);
@@ -497,9 +539,11 @@ describe('App · compaction asks first', () => {
     // abort here would be a no-op at best, and could cut a run started since.
     TestBed.inject(ShellState).requestStop();
     fixture.detectChanges();
-    (host.querySelector(
-      'morse-confirm-dialog .actions button:not(.secondary)',
-    ) as HTMLButtonElement).click();
+    (
+      host.querySelector(
+        'morse-confirm-dialog .actions button:not(.secondary)',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(stops(sent)).toHaveLength(0);
@@ -525,5 +569,223 @@ describe('App · compaction asks first', () => {
     // The question went; the palette that asked it did not.
     expect(host.querySelector('morse-confirm-dialog')).toBeNull();
     expect(host.querySelector('morse-command-palette')).not.toBeNull();
+  });
+});
+
+/**
+ * The restore's safety net. A saved session travels back over several round
+ * trips (layout read, activation, transcript replay), and a panel that looks
+ * empty in the meantime reads as a brand-new session — a prompt typed into it
+ * would race the restore. While the flag is up the panel shows a loading screen
+ * and the composer is not mounted at all.
+ */
+describe('App · restoring screen', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function mount() {
+    const fixture = TestBed.createComponent(App);
+    const restore = TestBed.inject(RestoreState);
+    const transport = TestBed.inject(MORSE_TRANSPORT) as MemoryHostTransport;
+    return { fixture, restore, transport, element: fixture.nativeElement };
+  }
+
+  it('covers the panel and keeps the composer unmounted while restoring', () => {
+    const { fixture, restore, element } = mount();
+    restore.begin();
+    fixture.detectChanges();
+
+    expect(element.querySelector('.restoring')).toBeTruthy();
+    expect(element.querySelector('morse-chat-composer')).toBeNull();
+  });
+
+  it('hands the panel back once the restore ends', () => {
+    const { fixture, restore, element } = mount();
+    restore.begin();
+    fixture.detectChanges();
+    restore.end();
+    fixture.detectChanges();
+
+    expect(element.querySelector('.restoring')).toBeNull();
+    const textarea = element.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea).toBeTruthy();
+  });
+
+  it('swallows a prompt typed into the race window', () => {
+    const { fixture, restore, transport } = mount();
+    // The composer mounts once the restore is over; the flag flips again before
+    // the view catches up (the exact shape of the race), and a send must go
+    // nowhere.
+    restore.end();
+    fixture.detectChanges();
+    const composer = fixture.debugElement.query((node) => node.name === 'morse-chat-composer');
+    expect(composer).toBeTruthy();
+
+    restore.begin();
+    const sendSpy = vi.spyOn(transport, 'send');
+    (composer!.componentInstance as { sendWith: (mode: string) => void }).sendWith('new');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A spawned session (a subagent run) is watched, not prompted: the panel swaps
+ * to its transcript with a bar that names the state and offers the way back,
+ * and the composer dock never mounts. A fork child never carries the flag and
+ * stays a normal session with its composer.
+ */
+describe('App · watching a subagent', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  /**
+   * The subagent feature reads four things off `MorseService`: the catalog, the
+   * two flags derived from it, and which session is in front. Everything else
+   * keeps running on the real service and its mock host. `defineProperty` wins
+   * over a fake because the service is otherwise a web of computeds over one
+   * private view — stubbing the whole class drags every consumer along.
+   */
+  function watchSubagent(
+    fixture: ComponentFixture<App>,
+    readouts: {
+      engine?: string;
+      model?: { name: string; provider: string; id: string };
+      mode?: string;
+      thinkingLevel?: string;
+    } = {},
+  ): void {
+    const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
+    const state = signal<SessionViewState>({
+      workspace: { cwd: '/work/morse', name: 'morse' },
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: false,
+      busy: false,
+      agentReady: true,
+      agentStarting: false,
+      sessionId: 'kid',
+    } as SessionViewState);
+    Object.defineProperty(morse, 'state', { value: state });
+    Object.defineProperty(morse, 'sessions', {
+      value: signal<SessionSummary[]>([
+        {
+          id: 'parent',
+          title: 'The parent conversation',
+          cwd: '/work/morse',
+          updatedAt: 1,
+          messageCount: 2,
+        },
+        {
+          id: 'kid',
+          title: 'explore',
+          cwd: '/work/morse',
+          updatedAt: 2,
+          messageCount: 1,
+          parentId: 'parent',
+          subagent: true,
+        },
+      ]),
+    });
+    Object.defineProperty(morse, 'activeIsSubagent', { value: signal(true) });
+    Object.defineProperty(morse, 'parentOfActive', {
+      value: signal({
+        id: 'parent',
+        title: 'The parent conversation',
+        cwd: '/work/morse',
+        updatedAt: 1,
+        messageCount: 2,
+      }),
+    });
+    Object.defineProperty(morse, 'activateSession', {
+      value: (id: string) =>
+        state.update((value: SessionViewState) => ({ ...value, sessionId: id })),
+    });
+    // The bar reads the child's own state; overrides must land before the
+    // first render, when the bindings are first evaluated.
+    if (readouts.engine !== undefined) {
+      Object.defineProperty(morse, 'engine', { value: () => readouts.engine });
+    }
+    if (readouts.model !== undefined) {
+      Object.defineProperty(morse, 'model', { value: () => readouts.model });
+    }
+    if (readouts.mode !== undefined) {
+      Object.defineProperty(morse, 'mode', { value: () => readouts.mode });
+    }
+    if (readouts.thinkingLevel !== undefined) {
+      Object.defineProperty(morse, 'thinkingLevel', { value: () => readouts.thinkingLevel });
+    }
+    fixture.detectChanges();
+  }
+
+  it('shows what the child runs with in the subagent bar', () => {
+    const fixture = TestBed.createComponent(App);
+    // A subagent can be configured with a model of its own (OpenCode names one
+    // per agent in its settings), so the bar reads the child's state, not the
+    // parent's pickers.
+    watchSubagent(fixture, {
+      engine: 'opencode',
+      model: { provider: 'deepseek', id: 'v4.1', name: 'DeepSeek V4.1' },
+      mode: 'plan',
+      thinkingLevel: 'low',
+    });
+    // The row that opened the child named the agent running it.
+    (
+      fixture.componentInstance as unknown as { openSubagent: (child: ChildSessionRef) => void }
+    ).openSubagent({
+      sessionId: 'kid',
+      agent: 'explore',
+    });
+    fixture.detectChanges();
+
+    const bar = (fixture.nativeElement as HTMLElement).querySelector('.subagent-bar');
+    const chips = [...(bar?.querySelectorAll('.meta') ?? [])].map((chip) => chip.textContent);
+    expect(chips).toContain('opencode');
+    expect(chips.some((text) => text?.includes('DeepSeek V4.1'))).toBe(true);
+    expect(chips).toContain('explore');
+    expect(chips).toContain('plan');
+    expect(chips).toContain('low');
+  });
+
+  it('hides the composer and offers the way back while watching a subagent', () => {
+    const fixture = TestBed.createComponent(App);
+    watchSubagent(fixture);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.subagent-bar')).toBeTruthy();
+    expect(element.querySelector('.subagent-bar .back')?.textContent).toContain(
+      'The parent conversation',
+    );
+    expect(element.querySelector('morse-chat-composer')).toBeNull();
+  });
+
+  it('returns to the parent when the back affordance is used', () => {
+    const fixture = TestBed.createComponent(App);
+    watchSubagent(fixture);
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.subagent-bar .back')
+      ?.click();
+    fixture.detectChanges();
+
+    const morse = TestBed.inject(MorseService) as unknown as { state(): { sessionId?: string } };
+    expect(morse.state().sessionId).toBe('parent');
+  });
+
+  it('re-reads the conversation when the refresh affordance is used', () => {
+    const fixture = TestBed.createComponent(App);
+    watchSubagent(fixture);
+
+    let refreshed = 0;
+    const morse = TestBed.inject(MorseService);
+    Object.defineProperty(morse, 'refreshSession', { value: () => (refreshed += 1) });
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.subagent-bar .refresh')
+      ?.click();
+
+    expect(refreshed).toBe(1);
   });
 });

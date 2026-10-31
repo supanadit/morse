@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { TERMINAL_BUFFER_CHARS, trimTail } from '@morse/host-runtime';
+import { TERMINAL_BUFFER_CHARS, trimTail } from '@morse/system';
 
 /** The directory under `<MORSE_HOME>` holding one scrollback file per terminal. */
 const LOG_DIR = 'terminals';

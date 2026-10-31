@@ -6,10 +6,11 @@ import {
   ElementRef,
   inject,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
-import type { ToolTranscriptItem } from '@morse/protocol';
+import type { ChildSessionRef, ToolTranscriptItem } from '@morse/protocol';
 import { AnimationService } from '../../ui/animation.service';
 import { DisplayPrefs } from '../../state/display-prefs';
 import { asTaskList, type TaskRow } from '@morse/ui-runtime';
@@ -68,6 +69,12 @@ export class ToolGroup {
    * new section or finishes — never step by step.
    */
   readonly working = input<boolean>(false);
+  /**
+   * A tool row that spawned a session (a subagent run) hands the reference up:
+   * the shell swaps the panel to the child's transcript. The group stays dumb —
+   * it only knows that a row carries a `child`, never what opening one means.
+   */
+  readonly openChild = output<ChildSessionRef>();
 
   private readonly animation = inject(AnimationService);
   private readonly display = inject(DisplayPrefs);
@@ -83,7 +90,9 @@ export class ToolGroup {
   private readonly tick = signal(0);
 
   protected readonly tools = computed(() =>
-    this.steps().filter((step): step is Extract<ProcessStep, { kind: 'tool' }> => step.kind === 'tool'),
+    this.steps().filter(
+      (step): step is Extract<ProcessStep, { kind: 'tool' }> => step.kind === 'tool',
+    ),
   );
   protected readonly thoughts = computed(
     () => this.steps().filter((step) => step.kind === 'thinking').length,
@@ -132,11 +141,7 @@ export class ToolGroup {
   private readonly liveThoughtKeys = computed(() => {
     const live = new Set<string>();
     for (const step of this.steps()) {
-      if (
-        step.kind === 'thinking' &&
-        step.item.streaming &&
-        step.item.text.trim().length === 0
-      ) {
+      if (step.kind === 'thinking' && step.item.streaming && step.item.text.trim().length === 0) {
         live.add(step.key);
       }
     }

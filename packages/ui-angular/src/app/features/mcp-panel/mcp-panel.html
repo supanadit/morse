@@ -50,6 +50,8 @@
       <div class="errors">{{ message }}</div>
     }
 
+    <p class="hint">Edits apply to new sessions; a running session keeps its servers until reopened.</p>
+
     @if (untrusted()) {
       <div class="note">
         <div>
@@ -93,7 +95,7 @@
             @if (server.override) {
               <span class="chip override">{{ server.enabled ? 'enabled here' : 'disabled here' }}</span>
             }
-            @if (server.exposure !== 'codemode') {
+            @if (server.exposure && server.exposure !== 'codemode') {
               <span class="chip">{{ server.exposure }}</span>
             }
           </div>

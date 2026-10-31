@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { UnsupportedByHostError, type MorseLogger } from '@morse/core';
+import { UnsupportedByHostError, type MorseLogger } from '@morse/system';
 
 /**
  * Directories a file picker never wants, and which make a tree walk slow enough

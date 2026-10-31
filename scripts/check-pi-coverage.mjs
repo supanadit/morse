@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = dirname(scriptDir);
-const adapterDist = join(packageRoot, 'packages', 'adapter-pi-rpc', 'dist');
+const adapterDist = join(packageRoot, 'packages', 'integration-pi', 'dist');
 
 /** The explicit `--pi <path>`, if the caller has already resolved one. */
 function explicitPiPath(argv) {

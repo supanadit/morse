@@ -1,5 +1,5 @@
 import { isAbsolute, resolve, sep } from 'node:path';
-import type { ProjectPolicy } from '@morse/host-runtime';
+import type { ProjectPolicy } from '@morse/system';
 
 /**
  * Which directories the server lets the agent work in.

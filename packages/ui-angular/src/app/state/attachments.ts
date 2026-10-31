@@ -17,6 +17,14 @@ export interface PendingPin {
   path: string;
   startLine?: number;
   endLine?: number;
+  /** 1-based column of the first selected character, when the pin has one. */
+  startColumn?: number;
+  /** 1-based column of the last selected character. */
+  endColumn?: number;
+  /** Selected UTF-16 character count, line breaks included. */
+  characters?: number;
+  /** The selected words for a one-line selection, capped by the host. */
+  text?: string;
   /** The range's annotation, the user's words about what these lines are for. */
   note?: string;
 }
@@ -257,7 +265,16 @@ export class AttachmentStore {
       );
     }
     for (const pin of pins) {
-      this.pin({ path: pin.path, startLine: pin.startLine, endLine: pin.endLine, note: pin.note });
+      this.pin({
+        path: pin.path,
+        startLine: pin.startLine,
+        endLine: pin.endLine,
+        startColumn: pin.startColumn,
+        endColumn: pin.endColumn,
+        characters: pin.characters,
+        text: pin.text,
+        note: pin.note,
+      });
     }
   }
 
@@ -267,13 +284,43 @@ export class AttachmentStore {
    * boundary is being pushed into does not vanish mid-drag. The coalescing
    * happens on release (`pin(range, id)`), which keeps the whole union.
    */
-  setPinRange(id: string, range: { startLine: number; endLine?: number }): void {
+  setPinRange(
+    id: string,
+    range: {
+      startLine: number;
+      endLine?: number;
+      startColumn?: number;
+      endColumn?: number;
+      characters?: number;
+      text?: string;
+    },
+  ): void {
     this.patch({
-      pins: this.current().pins.map((item) =>
-        item.id === id
-          ? { ...item, startLine: range.startLine, endLine: range.endLine }
-          : item,
-      ),
+      pins: this.current().pins.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+        // Rebuilt field by field: a line drag must not leave a stale column
+        // range behind, so columns only survive when this call names them.
+        const next: PendingPin = { id: item.id, path: item.path, startLine: range.startLine };
+        if (range.endLine !== undefined) {
+          next.endLine = range.endLine;
+        }
+        if (range.startColumn !== undefined && range.endColumn !== undefined) {
+          next.startColumn = range.startColumn;
+          next.endColumn = range.endColumn;
+          if (range.characters !== undefined) {
+            next.characters = range.characters;
+          }
+          if (range.text !== undefined) {
+            next.text = range.text;
+          }
+        }
+        if (item.note !== undefined) {
+          next.note = item.note;
+        }
+        return next;
+      }),
     });
   }
 
@@ -296,6 +343,18 @@ export class AttachmentStore {
         }
         if (item.endLine !== undefined) {
           next.endLine = item.endLine;
+        }
+        if (item.startColumn !== undefined) {
+          next.startColumn = item.startColumn;
+        }
+        if (item.endColumn !== undefined) {
+          next.endColumn = item.endColumn;
+        }
+        if (item.characters !== undefined) {
+          next.characters = item.characters;
+        }
+        if (item.text !== undefined) {
+          next.text = item.text;
         }
         if (clean !== undefined && clean.length > 0) {
           next.note = clean;
@@ -337,6 +396,16 @@ export class AttachmentStore {
     const list = this.current().pins;
     let start = pin.startLine;
     let end = pin.endLine ?? pin.startLine;
+    // Only a pair of columns describes a range; one alone is a half-typed range
+    // and the line label is the honest fallback.
+    const incomingColumns =
+      pin.startColumn !== undefined && pin.endColumn !== undefined
+        ? { start: pin.startColumn, end: pin.endColumn }
+        : undefined;
+    let startColumn = incomingColumns?.start;
+    let endColumn = incomingColumns?.end;
+    let characters = incomingColumns === undefined ? undefined : pin.characters;
+    let text = incomingColumns === undefined ? undefined : pin.text;
     // The edited chip is dropped before the merge pass, so it does not absorb
     // its own old (possibly larger) bounds and pin them back.
     const absorbed = new Set<string>(replaceId === undefined ? [] : [replaceId]);
@@ -355,8 +424,31 @@ export class AttachmentStore {
         const itemStart = item.startLine;
         const itemEnd = item.endLine ?? itemStart;
         if (itemStart <= end + 1 && itemEnd + 1 >= start) {
+          // Columns are a rectangle only while both pins are partial ranges on
+          // the same line; anything else degrades to the whole-line union.
+          const canUnionColumns =
+            start === end &&
+            itemStart === itemEnd &&
+            itemStart === start &&
+            startColumn !== undefined &&
+            endColumn !== undefined &&
+            item.startColumn !== undefined &&
+            item.endColumn !== undefined;
           start = Math.min(start, itemStart);
           end = Math.max(end, itemEnd);
+          if (canUnionColumns) {
+            startColumn = Math.min(startColumn!, item.startColumn!);
+            endColumn = Math.max(endColumn!, item.endColumn!);
+            characters = endColumn - startColumn + 1;
+            // Two excerpts cannot be concatenated without the gap between them,
+            // so the column range stays the authority and the words go.
+            text = undefined;
+          } else {
+            startColumn = undefined;
+            endColumn = undefined;
+            characters = undefined;
+            text = undefined;
+          }
           absorbed.add(item.id);
           targetId ??= item.id;
           grew = true;
@@ -371,6 +463,16 @@ export class AttachmentStore {
       startLine: start,
       endLine: end > start ? end : undefined,
     };
+    if (startColumn !== undefined && endColumn !== undefined) {
+      merged.startColumn = startColumn;
+      merged.endColumn = endColumn;
+      if (characters !== undefined) {
+        merged.characters = characters;
+      }
+      if (text !== undefined) {
+        merged.text = text;
+      }
+    }
     // The union keeps everyone's words: the surviving annotation first, then the
     // absorbed ones in range order, duplicates collapsed, blank ones dropped.
     const note = mergedNote(pin.note, list.filter((item) => absorbed.has(item.id)));
@@ -433,7 +535,11 @@ export class AttachmentStore {
       current &&
       current.path === next.path &&
       current.startLine === next.startLine &&
-      current.endLine === next.endLine
+      current.endLine === next.endLine &&
+      current.startColumn === next.startColumn &&
+      current.endColumn === next.endColumn &&
+      current.characters === next.characters &&
+      current.text === next.text
     ) {
       return;
     }
@@ -443,6 +549,18 @@ export class AttachmentStore {
     }
     if (next.endLine !== undefined) {
       preview.endLine = next.endLine;
+    }
+    if (next.startColumn !== undefined) {
+      preview.startColumn = next.startColumn;
+    }
+    if (next.endColumn !== undefined) {
+      preview.endColumn = next.endColumn;
+    }
+    if (next.characters !== undefined) {
+      preview.characters = next.characters;
+    }
+    if (next.text !== undefined) {
+      preview.text = next.text;
     }
     this.live.set(preview);
   }
@@ -467,6 +585,18 @@ export class AttachmentStore {
     if (current.endLine !== undefined) {
       pin.endLine = current.endLine;
     }
+    if (current.startColumn !== undefined) {
+      pin.startColumn = current.startColumn;
+    }
+    if (current.endColumn !== undefined) {
+      pin.endColumn = current.endColumn;
+    }
+    if (current.characters !== undefined) {
+      pin.characters = current.characters;
+    }
+    if (current.text !== undefined) {
+      pin.text = current.text;
+    }
     this.pin(pin);
   }
 
@@ -483,15 +613,27 @@ export class AttachmentStore {
 
   /** The pins to send as the message's attachments, then cleared. */
   takePins(): ChatPin[] {
-    const pins = this.current().pins.map(({ path, startLine, endLine, note }) => {
-      const wire: ChatPin = { path };
-      if (startLine !== undefined) {
-        wire.startLine = startLine;
+    const pins = this.current().pins.map((pin) => {
+      const wire: ChatPin = { path: pin.path };
+      if (pin.startLine !== undefined) {
+        wire.startLine = pin.startLine;
       }
-      if (endLine !== undefined) {
-        wire.endLine = endLine;
+      if (pin.endLine !== undefined) {
+        wire.endLine = pin.endLine;
       }
-      const annotation = note?.trim();
+      if (pin.startColumn !== undefined) {
+        wire.startColumn = pin.startColumn;
+      }
+      if (pin.endColumn !== undefined) {
+        wire.endColumn = pin.endColumn;
+      }
+      if (pin.characters !== undefined) {
+        wire.characters = pin.characters;
+      }
+      if (pin.text !== undefined) {
+        wire.text = pin.text;
+      }
+      const annotation = pin.note?.trim();
       if (annotation !== undefined && annotation.length > 0) {
         wire.note = annotation;
       }
@@ -616,6 +758,10 @@ function asPendingPin(value: unknown): PendingPin[] {
   }
   const startLine = candidate['startLine'];
   const endLine = candidate['endLine'];
+  const startColumn = candidate['startColumn'];
+  const endColumn = candidate['endColumn'];
+  const characters = candidate['characters'];
+  const text = candidate['text'];
   const note = candidate['note'];
   return [
     {
@@ -623,6 +769,10 @@ function asPendingPin(value: unknown): PendingPin[] {
       path,
       ...(typeof startLine === 'number' ? { startLine } : {}),
       ...(typeof endLine === 'number' ? { endLine } : {}),
+      ...(typeof startColumn === 'number' ? { startColumn } : {}),
+      ...(typeof endColumn === 'number' ? { endColumn } : {}),
+      ...(typeof characters === 'number' ? { characters } : {}),
+      ...(typeof text === 'string' && text.length > 0 ? { text } : {}),
       ...(typeof note === 'string' && note.length > 0 ? { note } : {}),
     },
   ];

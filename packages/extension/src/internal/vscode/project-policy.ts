@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import type { ProjectPolicy } from '@morse/host-runtime';
+import type { ProjectPolicy } from '@morse/system';
 
 /**
  * A local VS Code window already trusts whatever the user can open, so the

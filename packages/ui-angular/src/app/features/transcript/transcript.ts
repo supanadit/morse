@@ -1,9 +1,27 @@
-import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
-import type { AssistantTranscriptItem, PromptImage, UserTranscriptItem } from '@morse/protocol';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  ElementRef,
+  HostListener,
+  inject,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import type {
+  AssistantTranscriptItem,
+  ChatPin,
+  ChildSessionRef,
+  PromptImage,
+  UserTranscriptItem,
+} from '@morse/protocol';
 import {
   activeProcessKey,
   groupTranscriptItems,
   pinNoteHint,
+  pinRangeLabel,
   userMessageMarkdown,
   type TranscriptRow,
 } from '@morse/ui-runtime';
@@ -44,6 +62,11 @@ function previewPrompt(text: string): string {
 })
 export class ChatTranscript {
   private readonly morse = inject(MorseService);
+  /**
+   * A tool row linked to a session it spawned (a subagent run): handed to the
+   * shell, which swaps the panel to the child's transcript.
+   */
+  readonly openChild = output<ChildSessionRef>();
   private readonly animation = inject(AnimationService);
   private readonly handoff = inject(BootHandoff);
   private readonly scrollHost = viewChild.required<ElementRef<HTMLElement>>('scroll');
@@ -110,7 +133,7 @@ export class ChatTranscript {
   /** True while the host is fetching the previous history page. */
   protected readonly loadingOlderHistory = computed(() => this.morse.loadingOlderHistory());
   /** Guards against recomputing the scroll spy on every scroll event. */
-  private activePending = false;  /** Distance from the bottom, kept so a history prepend does not move the view. */
+  private activePending = false; /** Distance from the bottom, kept so a history prepend does not move the view. */
   private bottomDistance = 0;
   /** False when the transcript had no scrollbar, so there is nothing to anchor. */
   private anchorScroll = false;
@@ -350,14 +373,38 @@ export class ChatTranscript {
     return item.pins;
   }
 
-  /** `L13-17` for a range, `L13` for a single line (a pin may carry no end). */
-  protected pinRange(pin: { startLine?: number; endLine?: number }): string {
-    if (pin.startLine === undefined) {
-      return '';
+  /** The shared range label: `L18`, `L18-20`, `L18:45-79` or `L18:45-20:12`. */
+  protected pinRange(pin: {
+    startLine?: number;
+    endLine?: number;
+    startColumn?: number;
+    endColumn?: number;
+  }): string {
+    return pinRangeLabel(pin);
+  }
+
+  /** A chip's tooltip: path, range and selected count, plus the excerpt when known. */
+  protected pinTitle(pin: ChatPin): string {
+    const details: string[] = [pin.path];
+    if (pin.startLine !== undefined) {
+      const endLine = pin.endLine ?? pin.startLine;
+      details.push(
+        pin.startColumn !== undefined && pin.endColumn !== undefined
+          ? endLine === pin.startLine
+            ? `line ${pin.startLine}, columns ${pin.startColumn}-${pin.endColumn}`
+            : `lines ${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`
+          : endLine === pin.startLine
+            ? `line ${pin.startLine}`
+            : `lines ${pin.startLine}-${endLine}`,
+      );
     }
-    return pin.endLine !== undefined && pin.endLine !== pin.startLine
-      ? `L${pin.startLine}-${pin.endLine}`
-      : `L${pin.startLine}`;
+    if (pin.characters !== undefined) {
+      details.push(`${pin.characters} selected`);
+    }
+    if (pin.text !== undefined) {
+      details.push(pin.text);
+    }
+    return details.join(' · ');
   }
 
   /** A pin chip's annotation: first line only as a hint, full text on hover. */
@@ -488,7 +535,10 @@ export class ChatTranscript {
       return item.text;
     }
     const mentions = pins
-      .map((pin) => `${pin.path}${pin.startLine !== undefined ? `:${pin.startLine}-${pin.endLine ?? pin.startLine}` : ''}`)
+      .map(
+        (pin) =>
+          `${pin.path}${pin.startLine !== undefined ? `:${pin.startLine}-${pin.endLine ?? pin.startLine}` : ''}`,
+      )
       .map((token) => `@${token}`)
       .join('\n');
     return item.text.trim().length > 0 ? `${item.text}\n\n${mentions}` : mentions;

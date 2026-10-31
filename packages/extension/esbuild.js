@@ -25,8 +25,8 @@ const esbuildProblemMatcherPlugin = {
 
 async function main() {
 	const ctx = await esbuild.context({
-		// The composition root: it wires @morse/core (domain + use cases),
-		// @morse/adapter-pi-rpc (driven adapter) and the VS Code delivery.
+		// The composition root: it wires @morse/system (domain + use cases),
+		// @morse/integration-pi (driven adapter) and the VS Code delivery.
 		entryPoints: ['src/app/main.ts'],
 		bundle: true,
 		format: 'cjs',

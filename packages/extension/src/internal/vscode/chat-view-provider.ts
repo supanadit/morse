@@ -3,10 +3,19 @@ import {
   ChatService,
   SessionRegistry,
   UnsupportedByHostError,
+  selectionSpan,
+  type AgentMcpExtras,
+  type AgentPromptExtras,
   type EditorContextProvider,
   type MorseLogger,
-} from '@morse/core';
-import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput, type McpInspector, type PiMcp, type PiPrompts } from '@morse/adapter-pi-rpc';
+} from '@morse/system';
+import {
+  McpWatcher,
+  parseMcpServerInput,
+  parseMcpServerSpec,
+  parsePromptTemplateInput,
+  type McpInspector,
+} from '@morse/integration-pi';
 import {
   HostSessionController,
   readDrafts,
@@ -16,10 +25,11 @@ import {
   type HostSessionServices,
   type ProjectPolicy,
   type SessionTranscriptStore,
-} from '@morse/host-runtime';
+} from '@morse/system';
 import {
   parseClientMessage,
   type ClientToHostMessage,
+  type EngineOption,
   type HostCapabilities,
   type HostToClientMessage,
   type NoticeLevel,
@@ -73,6 +83,8 @@ export interface ChatViewProviderDeps {
   registry: SessionRegistry;
   transcripts: SessionTranscriptStore;
   chat: ChatService;
+  /** The engines this window can start, for the draft's engine picker. */
+  engines: EngineOption[];
   editor: EditorContextProvider;
   policy: ProjectPolicy;
   /** Directories this window is scoped to. */
@@ -80,12 +92,12 @@ export interface ChatViewProviderDeps {
   logger: MorseLogger & { show(): void };
   webviewRoot: vscode.Uri;
   frontend?: { name: string; version: string };
-  /** pi's MCP configuration. The panel's MCP manager is hidden when the CLI is missing. */
-  mcp: PiMcp;
+  /** The selected engine's MCP administration; absent hides the MCP manager. */
+  mcp?: AgentMcpExtras;
   /** Probes an MCP server before it is added; Morse's own client. */
   inspector: McpInspector;
-  /** pi's prompt templates, read and written as the `.md` files pi loads. */
-  prompts: PiPrompts;
+  /** The selected engine's prompt templates; absent hides the prompt editor. */
+  prompts?: AgentPromptExtras;
   mcpAvailable: boolean;
   /** The installed pi version, for the "a newer pi is out" notice. */
   piVersion?: string;
@@ -98,12 +110,20 @@ export interface ChatViewProviderDeps {
 }
 
 /** What this host can do — the frontend reads this instead of guessing. */
-function buildCapabilities(mcp: boolean, piVersion: string | undefined): HostCapabilities {
+function buildCapabilities(
+  engines: EngineOption[],
+  mcp: boolean,
+  piVersion: string | undefined,
+  promptEditor: boolean,
+): HostCapabilities {
   return {
     hostKind: 'vscode',
     // VS Code is scoped to the folders this window has open:
     // no project switcher, only sessions inside them.
     scope: 'workspace',
+    // Every engine this window can start. The draft's engine picker needs the
+    // list; a window that could not initialize OpenCode reports pi alone.
+    engines,
     // The host can answer `getEditorContext` so the frontend can pin a selection
     // chip; the context itself is an attachment, never prompt text.
     editorContext: true,
@@ -131,9 +151,9 @@ function buildCapabilities(mcp: boolean, piVersion: string | undefined): HostCap
     notify: true,
     // pi's MCP servers can be listed and edited through the `pi` CLI.
     mcp,
-    // Editing prompt templates is file I/O into pi's prompt directories, which
-    // this host can reach whether or not the `pi` CLI is on PATH.
-    promptEditor: true,
+    // Editing prompt templates needs an engine that loads them from files; this
+    // host can reach those directories whether or not the CLI is on PATH.
+    promptEditor,
     // A whole conversation can be shown as its own editor tab, pinned to that
     // session, and revealed again instead of opened twice.
     sessionTabs: true,
@@ -209,9 +229,13 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
    * One watcher per window, created on first use. Every panel that subscribes
    * shares it, and it polls nothing once the last one is disposed.
    */
-  private mcpWatch(): McpWatcher {
+  private mcpWatch(): McpWatcher | undefined {
+    const mcp = this.deps.mcp;
+    if (mcp === undefined) {
+      return undefined;
+    }
     this.mcpWatcher ??= new McpWatcher({
-      signature: (cwd) => this.deps.mcp.configSignature(cwd),
+      signature: (cwd) => mcp.configSignature(cwd),
       // The global file always; a project file only while one of its sessions is
       // warm — exactly when the indicator can show it.
       cwds: () =>
@@ -221,6 +245,12 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
           .filter((cwd) => cwd.length > 0),
     });
     return this.mcpWatcher;
+  }
+
+  /** The watcher option, omitted entirely for an engine without MCP configs. */
+  private mcpWatchOption(): { mcpWatch?: McpWatcher } {
+    const watch = this.mcpWatch();
+    return watch === undefined ? {} : { mcpWatch: watch };
   }
 
   async resolveWebviewView(view: vscode.WebviewView): Promise<void> {
@@ -250,12 +280,17 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
-      mcpWatch: this.mcpWatch(),
+      ...this.mcpWatchOption(),
     };
 
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      capabilities: buildCapabilities(
+          this.deps.engines,
+          this.deps.mcpAvailable,
+          this.deps.piVersion,
+          this.deps.prompts !== undefined,
+        ),
       emit: (message) => this.post(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -453,11 +488,16 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
-      mcpWatch: this.mcpWatch(),
+      ...this.mcpWatchOption(),
     };
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      capabilities: buildCapabilities(
+          this.deps.engines,
+          this.deps.mcpAvailable,
+          this.deps.piVersion,
+          this.deps.prompts !== undefined,
+        ),
       emit: (message) => void panel.webview.postMessage(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -596,11 +636,16 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
-      mcpWatch: this.mcpWatch(),
+      ...this.mcpWatchOption(),
     };
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      capabilities: buildCapabilities(
+          this.deps.engines,
+          this.deps.mcpAvailable,
+          this.deps.piVersion,
+          this.deps.prompts !== undefined,
+        ),
       emit: (message) => void panel.webview.postMessage(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -662,7 +707,12 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     };
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(this.deps.mcpAvailable, this.deps.piVersion),
+      capabilities: buildCapabilities(
+          this.deps.engines,
+          this.deps.mcpAvailable,
+          this.deps.piVersion,
+          this.deps.prompts !== undefined,
+        ),
       emit: (message) => void panel.webview.postMessage(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -717,7 +767,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
   async attachSelection(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.selection.isEmpty) {
+    if (!editor || editor.selections.every((selection) => selection.isEmpty)) {
       void vscode.window.showInformationMessage('Morse: select some text in the editor first.');
       return;
     }
@@ -752,6 +802,22 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** The directory MCP commands run in: the folder the panel is viewing, then the first root. */
+  /** The MCP port, or a refusal for an engine without one. */
+  private requireMcp(): AgentMcpExtras {
+    if (this.deps.mcp === undefined) {
+      throw new UnsupportedByHostError('The selected agent engine has no MCP administration.');
+    }
+    return this.deps.mcp;
+  }
+
+  /** The prompt-template port, or a refusal for an engine without one. */
+  private requirePrompts(): AgentPromptExtras {
+    if (this.deps.prompts === undefined) {
+      throw new UnsupportedByHostError('The selected agent engine has no prompt templates.');
+    }
+    return this.deps.prompts;
+  }
+
   private mcpCwd(context?: { cwd: string }): string {
     return context?.cwd || this.deps.roots[0] || process.cwd();
   }
@@ -840,16 +906,18 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       case 'mcpStatus': {
         // The session directory is the window's workspace folder; the CLI is the
         // source of truth for connection state.
+        const mcp = this.requireMcp();
         try {
-          return await this.deps.mcp.status(this.mcpCwd(context));
+          return await mcp.status(this.mcpCwd(context));
         } catch (error: unknown) {
           return { servers: [], errors: [describeError(error)] };
         }
       }
       case 'mcpAdd':
-        return this.deps.mcp.add(parseMcpServerInput(args), this.mcpCwd(context));
+        return this.requireMcp().add(parseMcpServerInput(args), this.mcpCwd(context));
       case 'mcpInspect': {
         // Nothing is written: the reader checks a server before committing it.
+        this.requireMcp();
         const spec = parseMcpServerSpec(args);
         const cwd = spec.cwd || this.mcpCwd(context);
         spec.cwd = cwd;
@@ -879,22 +947,22 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         return { ok: true };
       }
       case 'mcpRemove':
-        return this.deps.mcp.remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
+        return this.requireMcp().remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
       case 'mcpSetEnabled':
-        return this.deps.mcp.setEnabled(
+        return this.requireMcp().setEnabled(
           stringArg(args, 'name'),
           args?.enabled === true,
           this.mcpCwd(context),
           mcpScope(args),
         );
       case 'trustProject':
-        return this.deps.mcp.trustProject(this.mcpCwd(context));
+        return this.requireMcp().trustProject(this.mcpCwd(context));
       case 'promptTemplates':
-        return this.deps.prompts.list(this.promptCwd(context, args));
+        return this.requirePrompts().list(this.promptCwd(context, args));
       case 'promptTemplateSave':
-        return this.deps.prompts.save(parsePromptTemplateInput(args), this.promptCwd(context, args));
+        return this.requirePrompts().save(parsePromptTemplateInput(args), this.promptCwd(context, args));
       case 'promptTemplateDelete':
-        return this.deps.prompts.delete(
+        return this.requirePrompts().delete(
           stringArg(args, 'name'),
           args?.scope === 'project' ? 'project' : 'global',
           this.promptCwd(context, args),
@@ -932,20 +1000,33 @@ function mcpScope(args: Record<string, unknown> | undefined): 'global' | 'projec
   return args?.scope === 'global' || args?.scope === 'project' ? args.scope : undefined;
 }
 
-/** The selection lines of an editor, if any, as a `context/selection` payload. */
+/** The selection span of an editor, if any, as a `context/selection` payload. */
 function toSelectionPayload(
   path: string,
   editor: vscode.TextEditor,
-): { path: string; startLine?: number; endLine?: number } {
-  const selection = editor.selection;
-  if (selection.isEmpty) {
-    return { path };
-  }
-  return {
-    path,
-    startLine: selection.start.line + 1,
-    endLine: selection.end.line + 1,
-  };
+): {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  startColumn?: number;
+  endColumn?: number;
+  characters?: number;
+  text?: string;
+} {
+  const span = selectionSpan(
+    editor.selections,
+    (selection) =>
+      editor.document.getText(
+        new vscode.Range(
+          selection.start.line,
+          selection.start.character,
+          selection.end.line,
+          selection.end.character,
+        ),
+      ),
+    (line) => editor.document.lineAt(line).text.length,
+  );
+  return span === undefined ? { path } : { path, ...span };
 }
 
 /** Mention paths are workspace-relative; the editor usually wants an absolute one. */

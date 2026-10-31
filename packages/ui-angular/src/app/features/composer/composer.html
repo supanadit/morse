@@ -70,6 +70,8 @@
     </div>
   }
   <div class="box">
+  <!-- Drag the top edge to size the prompt by hand. -->
+  <div class="resize" title="Drag to resize the prompt" (pointerdown)="onResizeStart($event)"></div>
   <div class="toolbar">
     <button
       type="button"
@@ -113,6 +115,24 @@
     >
       <span aria-hidden="true">▾</span>
     </button>
+    <!-- Fills the window with the prompt: long prompts deserve a page, not a slot. -->
+    <button
+      type="button"
+      class="fold-shut"
+      [attr.aria-pressed]="maximized()"
+      [title]="maximized() ? 'Restore the prompt' : 'Maximize the prompt'"
+      (click)="toggleMaximized()"
+    >
+      @if (maximized()) {
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
+        </svg>
+      } @else {
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+        </svg>
+      }
+    </button>
   </div>
 
   @if (pickerOpen()) {
@@ -151,7 +171,7 @@
           <button
             type="button"
             class="chip-body"
-            [title]="lockLiveLabel()"
+            [title]="pinTitle(live, lockLiveLabel())"
             [attr.aria-label]="live.startLine === undefined
               ? 'Lock the whole file ' + live.path + ' to this message'
               : 'Lock the ' + live.path + ' selection as a pin'"
@@ -207,7 +227,7 @@
           <button
             type="button"
             class="chip-body"
-            [title]="'Open ' + pin.path + ' in the preview'"
+            [title]="pinTitle(pin, 'Open ' + pin.path + ' in the preview')"
             (click)="openPinPreview(pin)"
           >
             <span class="pin-icon" aria-hidden="true">⧉</span>
@@ -268,27 +288,37 @@
     </div>
   }
 
-  <textarea
-    #promptInput
-    rows="2"
-    aria-label="Prompt"
-    [value]="text()"
-    [disabled]="!canSend()"
-    [placeholder]="
-      !connected()
-        ? 'Waiting for a Morse host…'
-        : agentStarting()
-          ? 'Starting the Pi agent…'
-          : agentError()
-            ? 'The pi agent is unavailable.'
-            : agentReady()
-              ? 'Ask Morse… (Enter to send, Shift+Enter for a new line)'
-              : 'Type to start a session… (Enter to send, Shift+Enter for a new line)'
-    "
-    (input)="onInput($event)"
-    (keydown)="onKeydown($event)"
-    (paste)="onPaste($event)"
-  ></textarea>
+  @if (maximized()) {
+    <div class="legend" aria-label="Keyboard shortcuts">
+      <span><kbd>Enter</kbd> new line</span>
+      <span><kbd>Shift</kbd>+<kbd>Enter</kbd> send</span>
+      <span><kbd>Esc</kbd> restore</span>
+    </div>
+  }
+  <morse-markdown-view [value]="text()" [viewMode]="markdownViewMode()">
+    <textarea
+      #promptInput
+      rows="2"
+      aria-label="Prompt"
+      [value]="text()"
+      [style.height.px]="maximized() ? null : dragHeight()"
+      [disabled]="!canSend()"
+      [placeholder]="
+        !connected()
+          ? 'Waiting for a Morse host…'
+          : agentStarting()
+            ? 'Starting the agent…'
+            : agentError()
+              ? 'The agent is unavailable.'
+              : agentReady()
+                ? 'Ask Morse… (' + sendHint() + ')'
+                : 'Type to start a session… (' + sendHint() + ')'
+      "
+      (input)="onInput($event)"
+      (keydown)="onKeydown($event)"
+      (paste)="onPaste($event)"
+    ></textarea>
+  </morse-markdown-view>
 
   @if (showStatusRow()) {
     <div class="status-row">
@@ -300,6 +330,17 @@
           >
             ↓{{ streamedTokens() }} · {{ tokensPerSecond() ?? 0 }} t/s
           </span>
+        }
+        <!-- Session facts: anything session-scoped — the engine this session
+             runs (fixed once the draft is sent), where its model comes from,
+             and which session it is (pi and opencode alike). Plain text, so
+             more facts can join the line later. -->
+        @if (sessionFacts().length) {
+          <div class="facts" aria-label="Session facts">
+            @for (fact of sessionFacts(); track fact.text) {
+              <span class="fact" [title]="fact.title">{{ fact.text }}</span>
+            }
+          </div>
         }
       </div>
 
@@ -331,6 +372,29 @@
 
   <div class="controls">
     <div class="controls-metrics">
+      @if (showEnginePicker()) {
+        <morse-option-picker
+          #enginePicker
+          class="engine-host"
+          label="Agent engine"
+          [options]="engineOptions()"
+          [current]="currentEngine()"
+          [loading]="loadingEngine()"
+          (opened)="onEngineOpen()"
+          (pick)="onEnginePick($event)"
+        />
+      }
+      @if (showModePicker()) {
+        <morse-option-picker
+          #modePicker
+          class="mode-host"
+          label="Mode"
+          [options]="modeOptions()"
+          [current]="currentMode()"
+          (opened)="onModeOpen()"
+          (pick)="onModePick($event)"
+        />
+      }
       <button
         type="button"
         class="model-button"
@@ -340,9 +404,6 @@
         (pointerdown)="onModelTriggerPointerdown($event)"
         (click)="toggleModelPicker()"
       >
-        @if (currentProvider(); as provider) {
-          <span class="provider" [title]="provider">{{ provider }}</span>
-        }
         <span class="label">{{ currentModel()?.name || 'no model' }}</span>
         <morse-model-inputs class="inputs" [input]="currentModel()?.input" />
         <span class="caret" aria-hidden="true">▾</span>
@@ -364,6 +425,7 @@
         [levels]="levels()"
         [current]="thinkingLevel()"
         [loading]="loadingThinkingLevels()"
+        (opened)="onThinkingOpen()"
         (pick)="onThinkingPick($event)"
       />
     </div>

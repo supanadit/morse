@@ -12,16 +12,62 @@ import type {
  * Interleaving these in a single timeline is what makes a long turn readable —
  * you see the reasoning and the actions in the order they happened.
  */
-export type ProcessStep =
-  | { kind: 'tool'; key: string; item: ToolTranscriptItem }
-  | { kind: 'thinking'; key: string; item: AssistantTranscriptItem };
+/** The shape every process step shares: a stable key and its transcript item. */
+export interface ProcessStepBase {
+  key: string;
+}
+
+/** A tool call the agent made. */
+export interface ToolStep extends ProcessStepBase {
+  kind: 'tool';
+  item: ToolTranscriptItem;
+}
+
+/** A note the agent thought out loud. */
+export interface ThinkingStep extends ProcessStepBase {
+  kind: 'thinking';
+  item: AssistantTranscriptItem;
+}
+
+export type ProcessStep = ToolStep | ThinkingStep;
+
+/** The shape every transcript row shares: a stable key, and the item it renders. */
+export interface TranscriptRowBase {
+  key: string;
+}
+
+export interface UserRow extends TranscriptRowBase {
+  kind: 'user';
+  item: UserTranscriptItem;
+}
+
+export interface AssistantRow extends TranscriptRowBase {
+  kind: 'assistant';
+  item: AssistantTranscriptItem;
+}
+
+/** A collapsed run of tool calls and thinking notes from one turn. */
+export interface ProcessRow extends TranscriptRowBase {
+  kind: 'process';
+  steps: ProcessStep[];
+}
+
+export interface NoticeRow extends TranscriptRowBase {
+  kind: 'notice';
+  item: NoticeTranscriptItem;
+}
+
+export interface CompactionRow extends TranscriptRowBase {
+  kind: 'compaction';
+  item: CompactionTranscriptItem;
+}
 
 export type TranscriptRow =
-  | { kind: 'user'; key: string; item: UserTranscriptItem }
-  | { kind: 'assistant'; key: string; item: AssistantTranscriptItem }
-  | { kind: 'process'; key: string; steps: ProcessStep[] }
-  | { kind: 'notice'; key: string; item: NoticeTranscriptItem }
-  | { kind: 'compaction'; key: string; item: CompactionTranscriptItem };
+  | UserRow
+  | AssistantRow
+  | ProcessRow
+  | NoticeRow
+  | CompactionRow;
 
 /**
  * Turns the flat transcript into rows:
@@ -107,11 +153,34 @@ export function activeProcessKey(rows: readonly TranscriptRow[]): string | null 
 }
 
 /** One slice of a user message: plain text, or an `@mention` rendered as a chip. */
-export type MentionSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'mention'; token: string; path: string; startLine?: number; endLine?: number };
+/** Plain text between mentions. */
+export interface TextSegment {
+  kind: 'text';
+  text: string;
+}
 
-const MENTION_TOKEN = /(^|\s)@([^\s:]+(?::\d+(?:-\d+)?)?)(?=$|\s)/g;
+/** An `@path` (optionally `@path:10-20` or `@path:10:4-12:8`) rendered as a chip. */
+export interface MentionSegmentChip {
+  kind: 'mention';
+  token: string;
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  /** 1-based column of the first selected character, when the mention names columns. */
+  startColumn?: number;
+  /** 1-based column of the last selected character. */
+  endColumn?: number;
+}
+
+export type MentionSegment = TextSegment | MentionSegmentChip;
+
+/**
+ * The mention grammar: a path, then either a line range (`:18-20`), a single
+ * line (`:18`), or a column range that names both endpoints
+ * (`:18:45-18:79`, `:18:45-20:12`). The column form must name the end line too,
+ * because `:18:45-79` would be indistinguishable from a line range.
+ */
+const MENTION_TOKEN = /(^|\s)@([^\s:]+(?::\d+(?::\d+)?(?:-\d+(?::\d+)?)?)?)(?=$|\s)/g;
 
 /**
  * Splits a user message into text and `@mention` segments without losing a
@@ -145,10 +214,10 @@ export function splitMentionTokens(text: string): MentionSegment[] {
   return segments;
 }
 
-/** Parses `path`, `path:37`, or `path:37-52` (without the leading `@`). */
+/** Parses `path`, `path:37`, `path:37-52`, or `path:37:4-52:8` (without the leading `@`). */
 export function parseMentionToken(
   token: string,
-): { path: string; startLine?: number; endLine?: number } | undefined {
+): { path: string; startLine?: number; endLine?: number; startColumn?: number; endColumn?: number } | undefined {
   if (token.length === 0) {
     return undefined;
   }
@@ -158,13 +227,53 @@ export function parseMentionToken(
   }
   const path = token.slice(0, colon);
   const range = token.slice(colon + 1);
+  if (path.length === 0) {
+    return undefined;
+  }
+  const columns = /^(\d+):(\d+)-(\d+):(\d+)$/.exec(range);
+  if (columns) {
+    return {
+      path,
+      startLine: Number(columns[1]),
+      startColumn: Number(columns[2]),
+      endLine: Number(columns[3]),
+      endColumn: Number(columns[4]),
+    };
+  }
   const match = /^(\d+)(?:-(\d+))?$/.exec(range);
-  if (path.length === 0 || !match) {
+  if (!match) {
     return undefined;
   }
   const startLine = Number(match[1]);
   const endLine = match[2] === undefined ? startLine : Number(match[2]);
   return { path, startLine, endLine };
+}
+
+/** What a range label needs; a whole-file pin (no lines) has no label. */
+export interface PinRangeLike {
+  startLine?: number;
+  endLine?: number;
+  startColumn?: number;
+  endColumn?: number;
+}
+
+/**
+ * The one range label every chip uses: `L18` for a single line, `L18-20` for
+ * whole lines, `L18:45-79` for part of one line, and `L18:45-20:12` for a
+ * partial range across lines. A whole-file pin has no label. A column pair is
+ * only used when both ends are present; otherwise the line form is honest.
+ */
+export function pinRangeLabel(pin: PinRangeLike): string {
+  if (pin.startLine === undefined) {
+    return '';
+  }
+  const endLine = pin.endLine ?? pin.startLine;
+  if (pin.startColumn !== undefined && pin.endColumn !== undefined) {
+    return endLine === pin.startLine
+      ? `L${pin.startLine}:${pin.startColumn}-${pin.endColumn}`
+      : `L${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`;
+  }
+  return endLine === pin.startLine ? `L${pin.startLine}` : `L${pin.startLine}-${endLine}`;
 }
 
 /**
@@ -227,14 +336,19 @@ function chipifyText(text: string): string {
     }
     const name = basename(parsed.path);
     const label =
-      parsed.startLine === undefined
-        ? `@${name}`
-        : `@${name}:${parsed.startLine}-${parsed.endLine}`;
+      parsed.startColumn !== undefined && parsed.endColumn !== undefined
+        ? `@${name}:${pinRangeLabel(parsed).slice(1)}`
+        : parsed.startLine === undefined
+          ? `@${name}`
+          : `@${name}:${parsed.startLine}-${parsed.endLine}`;
     const path = escapeHtml(parsed.path);
     const range =
       parsed.startLine === undefined
         ? ''
-        : ` data-mention-start="${parsed.startLine}" data-mention-end="${parsed.endLine}"`;
+        : ` data-mention-start="${parsed.startLine}" data-mention-end="${parsed.endLine}"` +
+          (parsed.startColumn === undefined
+            ? ''
+            : ` data-mention-start-column="${parsed.startColumn}" data-mention-end-column="${parsed.endColumn}"`);
     return (
       `${separator}<span class="mention" data-mention-path="${path}" title="${path}"${range}>` +
       `<span class="mention-label">${escapeHtml(label)}</span></span>`

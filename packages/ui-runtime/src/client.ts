@@ -67,6 +67,12 @@ export interface MorseActions {
   compactSession(instructions?: string, sessionKey?: string, schedule?: boolean): void;
   /** Fetches the previous page of a resumed session's history. */
   loadOlderHistory(): void;
+  /**
+   * Re-reads the conversation in front from the agent's own storage. A watched
+   * subagent is written by its parent's process, so its transcript ages in
+   * place — this asks the host for the latest.
+   */
+  refreshSession(): void;
   requestSessions(): void;
   /**
    * Fetches more of one project's sessions, for the sidebar's "Load more". The
@@ -79,7 +85,13 @@ export interface MorseActions {
   refreshCommands(): void;
   /** Re-reads the model catalog so a model added while the host runs is visible. */
   refreshModels(): void;
+  /** Re-reads the modes a harness offers, so one added to its config is visible. */
+  refreshModes(): void;
   openProject(path: string): void;
+  /** Picks the engine a new session starts in; only meaningful on a draft. */
+  setEngine(kind: string): void;
+  /** Picks a mode for the draft or the running session. */
+  setMode(mode: string): void;
   setModel(provider: string, id: string): void;
   setThinkingLevel(level: ThinkingLevel): void;
   respond(response: InteractionResponse): void;
@@ -91,6 +103,25 @@ export interface MorseActions {
   resizeTerminal(terminalId: string, cols: number, rows: number): void;
   /** Closes a terminal and kills its shell. */
   closeTerminal(terminalId: string): void;
+}
+
+/**
+ * A selection the host reports: a focused whole file (path alone), a line
+ * range, or a partial range with columns. The optional span fields are absent
+ * from a host that does not capture columns, so both sides stay compatible.
+ */
+export interface EditorSelectionPayload {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+  /** 1-based first selected column. */
+  startColumn?: number;
+  /** 1-based last selected column. */
+  endColumn?: number;
+  /** Selected UTF-16 character count, line breaks included. */
+  characters?: number;
+  /** The selected words for a one-line range, capped by the host. */
+  text?: string;
 }
 
 /**
@@ -106,14 +137,14 @@ export interface MorseClient {
    * frontend turns them into attachment chips; the prompt text never gains a
    * context preamble behind the user's back.
    */
-  onContextSelection(listener: (pin: { path: string; startLine?: number; endLine?: number }) => void): () => void;
+  onContextSelection(listener: (pin: EditorSelectionPayload) => void): () => void;
   /**
    * Live, unlocked previews of the editor's current state, streamed as the
    * user moves. The frontend shows one chip until it is clicked to lock (into a
-   * pin) — a selection reads as `Lstart-end`, and the focused file with nothing
-   * selected reads as a whole-file chip with no line number.
+   * pin) — a selection reads as `Lstart-end` (or `L18:45-79`), and the focused
+   * file with nothing selected reads as a whole-file chip with no line number.
    */
-  onContextSelectionLive(listener: (preview: { path: string; startLine?: number; endLine?: number }) => void): () => void;
+  onContextSelectionLive(listener: (preview: EditorSelectionPayload) => void): () => void;
   /**
    * A prompt handed back by the host after a fork (`composer/seed`). The
    * composer drops it into the editor so the user continues the new branch;
@@ -172,13 +203,9 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
   let hostRequestCounter = 0;
 
   /** Listeners for host-pinned editor selections (`context/selection`). */
-  const selectionListeners = new Set<
-    (pin: { path: string; startLine?: number; endLine?: number }) => void
-  >();
+  const selectionListeners = new Set<(pin: EditorSelectionPayload) => void>();
   /** Listeners for live selection previews (`context/selectionLive`). */
-  const liveSelectionListeners = new Set<
-    (pin: { path: string; startLine?: number; endLine?: number }) => void
-  >();
+  const liveSelectionListeners = new Set<(pin: EditorSelectionPayload) => void>();
   /** Listeners for a forked prompt handed back to the composer (`composer/seed`). */
   const composerSeedListeners = new Set<(seed: ComposerSeed) => void>();
   /** Listeners for terminal output (`terminal/output`). */
@@ -283,6 +310,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     abort: () => send({ type: 'chat/abort', payload: {} }),
     newSession: (cwd) => send({ type: 'session/new', payload: { cwd } }),
     loadSession: (sessionId, cwd) => send({ type: 'session/load', payload: { sessionId, cwd } }),
+    refreshSession: () => send({ type: 'session/refresh', payload: {} }),
     activateSession: (sessionId, cwd) =>
       send({ type: 'session/activate', payload: { sessionId, cwd } }),
     closeSession: (sessionId) => send({ type: 'session/close', payload: { sessionId } }),
@@ -298,7 +326,10 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     requestProjects: () => send({ type: 'project/list', payload: {} }),
     refreshCommands: () => send({ type: 'commands/refresh', payload: {} }),
     refreshModels: () => send({ type: 'models/refresh', payload: {} }),
+    refreshModes: () => send({ type: 'modes/refresh', payload: {} }),
     openProject: (path) => send({ type: 'project/open', payload: { path } }),
+    setEngine: (kind) => send({ type: 'engine/set', payload: { kind } }),
+    setMode: (mode) => send({ type: 'mode/set', payload: { mode } }),
     setModel: (provider, id) => send({ type: 'model/set', payload: { provider, id } }),
     setThinkingLevel: (level) => send({ type: 'thinking/set', payload: { level } }),
     respond: (response) => send({ type: 'interaction/respond', payload: response }),

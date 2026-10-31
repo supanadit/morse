@@ -1,0 +1,67 @@
+<button
+  type="button"
+  class="trigger"
+  [attr.aria-expanded]="open()"
+  [attr.aria-busy]="loading() ? 'true' : null"
+  aria-haspopup="listbox"
+  [title]="loading() ? 'Reading the ' + label() + ' list' : label() + ': ' + currentLabel()"
+  (click)="toggle()"
+>
+  <span class="label">{{ currentLabel() || '—' }}</span>
+  @if (loading()) {
+    <span class="spinner" aria-hidden="true"></span>
+  } @else {
+    <span class="caret" aria-hidden="true">▾</span>
+  }
+</button>
+
+@if (open()) {
+  <div
+    #panel
+    class="panel"
+    role="listbox"
+    [attr.aria-label]="label()"
+    [attr.aria-busy]="loading() ? 'true' : null"
+    tabindex="-1"
+    [morseEnter]="0"
+    [morseEnterY]="6"
+    (keydown)="onKeydown($event)"
+  >
+    @if (loading()) {
+      <div class="status" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Reading the {{ label().toLowerCase() }} list…</span>
+      </div>
+    }
+    @if (options().length === 0 && !loading()) {
+      <div class="empty">No {{ label().toLowerCase() }} available.</div>
+    }
+    @for (option of options(); track option.id; let index = $index) {
+      <button
+        type="button"
+        class="row"
+        role="option"
+        [class.active]="!loading() && index === active()"
+        [class.selected]="option.id === current()"
+        [disabled]="loading()"
+        [attr.aria-selected]="option.id === current()"
+        [title]="option.description ?? option.label"
+        (mouseenter)="active.set(index)"
+        (click)="choose(option.id)"
+      >
+        <span class="row-head">
+          <span class="name">{{ option.label }}</span>
+          @if (option.badge) {
+            <span class="badge">{{ option.badge }}</span>
+          }
+          @if (option.id === current()) {
+            <span class="check" aria-hidden="true">✓</span>
+          }
+        </span>
+        @if (option.description) {
+          <span class="description">{{ option.description }}</span>
+        }
+      </button>
+    }
+  </div>
+}

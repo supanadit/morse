@@ -1,0 +1,274 @@
+import type { AgentCommand, AgentInteractionRequest, AgentMode, AgentSessionState, ModelRef, ThinkingLevel, TokenUsage, WorkspaceRef } from '@morse/agent';
+import type {
+  AgentFailure,
+  CommandOption,
+  InteractionRequest,
+  ModeOption,
+  ModelOption,
+  NoticeLevel,
+  SessionViewState,
+} from '@morse/protocol';
+
+export interface SessionStateMeta {
+  agentReady: boolean;
+  agentStarting: boolean;
+  agentError?: string;
+  /** What `agentError` means and what to do about it (see `AgentFailure`). */
+  agentFailure?: AgentFailure;
+  busy: boolean;
+  /** True when older transcript entries can still be loaded from the session. */
+  hasOlderHistory?: boolean;
+  /** True while the host is fetching the previous history page. */
+  loadingOlderHistory?: boolean;
+  /** True while the host re-reads the picked model's thinking levels. */
+  loadingThinkingLevels?: boolean;
+  /** True while a newly chosen engine's draft catalogs are being re-read. */
+  loadingEngine?: boolean;
+}
+
+export function emptySessionViewState(
+  workspace: WorkspaceRef,
+  meta: SessionStateMeta,
+): SessionViewState {
+  return {
+    workspace: { cwd: workspace.cwd, name: workspace.name },
+    draft: true,
+    thinkingLevel: 'off',
+    availableModels: [],
+    availableThinkingLevels: [],
+    availableCommands: [],
+    availableModes: [],
+    streaming: false,
+    busy: meta.busy,
+    agentReady: meta.agentReady,
+    agentStarting: meta.agentStarting,
+    agentError: meta.agentError,
+    agentFailure: meta.agentFailure,
+    hasOlderHistory: meta.hasOlderHistory,
+    loadingOlderHistory: meta.loadingOlderHistory,
+    loadingThinkingLevels: meta.loadingThinkingLevels,
+    loadingEngine: meta.loadingEngine,
+  };
+}
+
+/**
+ * The empty panel as a *draft*: no session exists yet, but the state still
+ * carries what the backend offers without one — model catalog, thinking
+ * levels, commands (from a never-recording probe, see `SessionRegistry
+ * .draftDefaults`) — plus whatever the user has already picked. Those pending
+ * picks are applied to the session the first prompt opens.
+ */
+export interface DraftPicks {
+  /** The session-less catalog of the selected engine, when it landed. */
+  catalog?: AgentSessionState;
+  /** The engine the draft chose; absent means the host's default. */
+  engine?: string;
+  /** The mode the reader picked; absent falls back to the harness default. */
+  mode?: string;
+  model?: ModelRef;
+  thinking?: ThinkingLevel;
+}
+
+export function draftSessionViewState(
+  workspace: WorkspaceRef,
+  meta: SessionStateMeta,
+  picks: DraftPicks,
+): SessionViewState {
+  const empty = emptySessionViewState(workspace, meta);
+  const catalog = picks.catalog;
+  const mode = picks.mode ?? catalog?.mode;
+  const modes = catalog?.availableModes ?? [];
+  // The engine and its current mode are useful even while the catalog is still
+  // loading (or failed): the picker can name the choice and explain the wait,
+  // while the model and thinking lists stay empty.
+  const base: SessionViewState = {
+    ...empty,
+    ...(picks.engine === undefined ? {} : { engine: picks.engine }),
+    ...(mode === undefined ? {} : { mode }),
+    availableModes: modes.map(toModeOption),
+  };
+  if (!catalog) {
+    return base;
+  }
+  // While the picked model's levels are being re-read, the catalog still holds
+  // the *previous* model's — pi scopes them per current model. Showing its
+  // `max`, its option list, as if they applied to the model just picked is the
+  // bug this guards: the picker read `Max` for a model with no reasoning and
+  // offered levels it may not have. Until the answer lands the level is `off`
+  // (pi's own neutral for "no reasoning chosen yet") and the list is empty, so
+  // the picker shows only its reading status. The model pick itself stands.
+  if (meta.loadingThinkingLevels) {
+    return {
+      ...base,
+      model: toModelOption(picks.model ?? catalog.model),
+      thinkingLevel: 'off',
+      availableModels: catalog.availableModels.map(toModelOption).filter(isModelOption),
+      availableThinkingLevels: [],
+      availableCommands: catalog.availableCommands.map(toCommandOption),
+    };
+  }
+  return {
+    ...base,
+    model: toModelOption(picks.model ?? catalog.model),
+    thinkingLevel: picks.thinking ?? catalog.thinkingLevel ?? 'off',
+    availableModels: catalog.availableModels.map(toModelOption).filter(isModelOption),
+    availableThinkingLevels: catalog.availableThinkingLevels.map(toThinkingLevel),
+    availableCommands: catalog.availableCommands.map(toCommandOption),
+  };
+}
+
+export function toSessionViewState(
+  state: AgentSessionState,
+  meta: SessionStateMeta,
+  /** The engine that owns this session, when the caller can name it. */
+  engine?: string,
+): SessionViewState {
+  return {
+    sessionId: state.sessionId,
+    ...(engine === undefined ? {} : { engine }),
+    ...(state.engineSessionId === undefined ? {} : { engineSessionId: state.engineSessionId }),
+    sessionTitle: state.sessionTitle,
+    workspace: { cwd: state.workspace.cwd, name: state.workspace.name },
+    model: toModelOption(state.model),
+    thinkingLevel: state.thinkingLevel,
+    availableModels: state.availableModels.map(toModelOption).filter(isModelOption),
+    availableThinkingLevels: state.availableThinkingLevels.map(toThinkingLevel),
+    availableCommands: state.availableCommands.map(toCommandOption),
+    ...(state.mode === undefined ? {} : { mode: state.mode }),
+    ...(state.availableModes === undefined
+      ? {}
+      : { availableModes: state.availableModes.map(toModeOption) }),
+    streaming: state.streaming,
+    busy: meta.busy,
+    usage: toUsage(state.usage),
+    lastUsage: toUsage(state.lastUsage),
+    costUsd: state.costUsd,
+    contextUsage: state.contextUsage ? { ...state.contextUsage } : undefined,
+    counts: state.counts ? { ...state.counts } : undefined,
+    speed: state.speed ? { ...state.speed } : undefined,
+    agentReady: meta.agentReady,
+    agentStarting: meta.agentStarting,
+    agentError: meta.agentError,
+    agentFailure: meta.agentFailure,
+    hasOlderHistory: meta.hasOlderHistory,
+    loadingOlderHistory: meta.loadingOlderHistory,
+    loadingThinkingLevels: meta.loadingThinkingLevels,
+    ...(state.diagnostics
+      ? { diagnostics: state.diagnostics.map(({ level, text }) => ({ level, text })) }
+      : {}),
+    ...(state.widgets
+      ? {
+          widgets: state.widgets.map(({ key, lines, placement }) => ({
+            key,
+            lines: [...lines],
+            placement,
+          })),
+        }
+      : {}),
+    ...(state.statuses ? { statuses: state.statuses.map(({ key, text }) => ({ key, text })) } : {}),
+  };
+}
+
+function toModelOption(model: ModelRef | undefined): ModelOption | undefined {
+  if (!model) {
+    return undefined;
+  }
+  return {
+    provider: model.provider,
+    id: model.id,
+    name: model.name,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    ...(model.input && model.input.length > 0 ? { input: [...model.input] } : {}),
+  };
+}
+
+function isModelOption(value: ModelOption | undefined): value is ModelOption {
+  return value !== undefined;
+}
+
+function toCommandOption(command: AgentCommand): CommandOption {
+  return {
+    name: command.name,
+    description: command.description,
+    source: command.source,
+    template: command.template,
+  };
+}
+
+function toModeOption(mode: AgentMode): ModeOption {
+  return {
+    id: mode.id,
+    name: mode.name,
+    ...(mode.description === undefined ? {} : { description: mode.description }),
+    ...(mode.default === true ? { default: true } : {}),
+  };
+}
+
+function toThinkingLevel(level: ThinkingLevel): ThinkingLevel {
+  return level;
+}
+
+function toUsage(usage: TokenUsage | undefined): TokenUsage | undefined {
+  return usage ? { ...usage } : undefined;
+}
+/** The agent's interaction requests already match the wire shape 1:1. */
+export function toInteractionRequest(request: AgentInteractionRequest): InteractionRequest {
+  switch (request.kind) {
+    case 'select':
+      return {
+        requestId: request.requestId,
+        kind: 'select',
+        title: request.title,
+        message: request.message,
+        options: request.options.map((option) => ({ ...option })),
+      };
+    case 'confirm':
+      return {
+        requestId: request.requestId,
+        kind: 'confirm',
+        title: request.title,
+        message: request.message,
+        danger: request.danger,
+      };
+    case 'input':
+      return {
+        requestId: request.requestId,
+        kind: 'input',
+        title: request.title,
+        placeholder: request.placeholder,
+        value: request.value,
+      };
+    case 'editor':
+      return {
+        requestId: request.requestId,
+        kind: 'editor',
+        title: request.title,
+        value: request.value,
+        language: request.language,
+      };
+    case 'form':
+      return {
+        requestId: request.requestId,
+        kind: 'form',
+        title: request.title,
+        message: request.message,
+        fields: request.fields.map((field) => ({
+          ...field,
+          ...(field.options === undefined ? {} : { options: field.options.map((option) => ({ ...option })) }),
+          ...(field.when === undefined ? {} : { when: { ...field.when } }),
+          ...(field.defaultValue === undefined
+            ? {}
+            : { defaultValue: Array.isArray(field.defaultValue) ? [...field.defaultValue] : field.defaultValue }),
+        })),
+      };
+  }
+}
+
+export function noticeMessage(
+  level: NoticeLevel,
+  text: string,
+  at: number,
+): { type: 'notice'; payload: { level: NoticeLevel; text: string; at: number } } {
+  return { type: 'notice', payload: { level, text, at } };
+}

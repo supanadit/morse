@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { NativeDialogs } from '@morse/host-runtime';
+import type { NativeDialogs } from '@morse/system';
 
 /**
  * `NativeDialogs` implemented with VS Code UI. Because this host answers agent

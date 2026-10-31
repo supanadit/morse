@@ -31,7 +31,7 @@ const DRAFT_KEY = 'mcp-editor';
  * browser host) or in its own VS Code editor panel — never in the manager modal,
  * which is for toggling servers that already exist.
  *
- * The probe is Morse's own MCP client (see `adapter-pi-rpc/internal/mcp-client`):
+ * The probe is Morse's own MCP client (see `integration-pi/internal/mcp-client`):
  * it connects, runs the lifecycle and lists what the server offers, so a server
  * that will not work is discovered here rather than after it is written into
  * `mcp.json`.
@@ -69,6 +69,8 @@ export class McpEditor {
   protected readonly added = signal(false);
 
   protected readonly isHttp = computed(() => this.type() === 'http');
+  /** OpenCode has no exposure concept: the pi-only dropdown would be a no-op. */
+  protected readonly piShaped = computed(() => this.mcp.engine() !== 'opencode');
 
   constructor() {
     // A reload (browser refresh, VS Code window reload, panel re-open) must not

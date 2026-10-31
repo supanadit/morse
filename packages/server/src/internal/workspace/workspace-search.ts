@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { open, readdir, stat } from 'node:fs/promises';
 import { sep } from 'node:path';
 import type { WorkspaceSearchFile, WorkspaceSearchLine, WorkspaceSearchResult } from '@morse/protocol';
-import { UnsupportedByHostError } from '@morse/core';
+import { UnsupportedByHostError } from '@morse/system';
 import { SKIPPED_DIRECTORIES } from './workspace-index.js';
 
 /**
@@ -151,7 +151,12 @@ interface RgMatchEvent {
   };
 }
 
-type RgEvent = RgMatchEvent | { type: string };
+/** A ripgrep event Morse does not parse; only its `type` is read. */
+interface RgOtherEvent {
+  type: string;
+}
+
+type RgEvent = RgMatchEvent | RgOtherEvent;
 
 /**
  * The ripgrep run: `--json` for machine-readable matches (byte-accurate

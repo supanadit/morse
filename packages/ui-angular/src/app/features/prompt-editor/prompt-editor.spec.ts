@@ -9,6 +9,7 @@ import { PromptEditor } from './prompt-editor';
 interface RenderOptions {
   saved?: unknown;
   templates?: unknown;
+  engine?: string;
 }
 
 /**
@@ -19,6 +20,7 @@ interface RenderOptions {
 function render(options: RenderOptions = {}): {
   element: HTMLElement;
   fixture: ComponentFixture<PromptEditor>;
+  engine?: string;
 } {
   const transport = new MemoryHostTransport();
   const fake = {
@@ -33,6 +35,7 @@ function render(options: RenderOptions = {}): {
     }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
     state: signal({ sessionId: 's1' }),
+    engine: signal(options.engine ?? 'pi'),
     hostCommand: vi.fn(),
     refreshCommands: vi.fn(),
     requestHostCommand: vi.fn(() =>
@@ -200,6 +203,7 @@ describe('PromptEditor', () => {
             capabilities: caps,
             workspace: signal({ cwd: '', name: '' }),
             state: signal({}),
+            engine: signal('pi'),
             hostCommand: vi.fn(),
             refreshCommands: vi.fn(),
             requestHostCommand: request,
@@ -218,5 +222,52 @@ describe('PromptEditor', () => {
 
     expect(request).toHaveBeenCalledWith('promptTemplates', expect.anything(), expect.anything());
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('/review');
+  });
+});
+
+describe('PromptEditor (OpenCode)', () => {
+  it('renders OpenCode rows honestly: source labels, config bodies, no pi-only fields', async () => {
+    const { element, fixture } = render({
+      engine: 'opencode',
+      templates: {
+        templates: [
+          {
+            name: 'dual',
+            scope: 'global',
+            source: 'config',
+            description: 'From the config',
+            entry: { template: 'Run $ARGUMENTS with coverage', description: 'From the config' },
+          },
+          {
+            name: 'filed',
+            scope: 'project',
+            source: 'file',
+            path: '/repo/.opencode/commands/filed.md',
+            description: 'From a file',
+            body: 'Fix $1 now',
+            raw: '---\ndescription: From a file\n---\nFix $1 now',
+          },
+        ],
+        globalDir: '/home/u/.config/opencode/commands',
+        projectDir: '/repo/.opencode/commands',
+        trusted: true,
+      },
+    });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const text = element.textContent ?? '';
+    expect(text).toContain('config');
+    expect(text).not.toContain('undefined');
+    // The argument-hint field is pi-only.
+    expect(element.querySelector('#prompt-hint')).toBeNull();
+
+    // Selecting the config row opens its template body, and the hint stays empty.
+    const rows = [...element.querySelectorAll('li button')] as HTMLElement[];
+    rows.find((r) => r.textContent?.includes('dual'))!.click();
+    fixture.detectChanges();
+    const value = (selector: string) =>
+      (element.querySelector(selector) as HTMLTextAreaElement | null)?.value;
+    expect(value('#prompt-body')).toBe('Run $ARGUMENTS with coverage');
+    expect(value('#prompt-hint')).toBeUndefined();
   });
 });

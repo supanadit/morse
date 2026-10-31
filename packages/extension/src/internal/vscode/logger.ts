@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { MorseLogger } from '@morse/core';
+import type { MorseLogger } from '@morse/system';
 
 /** Morse's logging port implemented on the VS Code output channel. */
 export class OutputChannelLogger implements MorseLogger, vscode.Disposable {
