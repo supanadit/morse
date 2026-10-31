@@ -41,9 +41,21 @@ export interface PromptTemplateInput {
   originalName?: string;
   /** The scope it came from, so a move can delete the old file. */
   originalScope?: PromptScope;
+  /** Engine-specific surfaces (OpenCode's file/config rows); pi ignores these. */
+  originalSource?: 'file' | 'config';
+  source?: 'file' | 'config';
   name: string;
   scope: PromptScope;
   raw: string;
+  /** The structured entry of a config-sourced command; pi never reads it. */
+  entry?: {
+    template: string;
+    description?: string;
+    agent?: string;
+    model?: string;
+    subtask?: boolean;
+    [key: string]: unknown;
+  };
 }
 
 /** What a mutation answers. */
