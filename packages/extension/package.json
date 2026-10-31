@@ -1,8 +1,8 @@
 {
   "name": "morse",
   "displayName": "Morse",
-  "description": "Comfortable Pi Interface \u2014 chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
-  "version": "0.26.1",
+  "description": "Comfortable Pi Interface — chat with the Pi coding agent inside VS Code, using your own models, tools and sessions.",
+  "version": "0.27.0",
   "publisher": "supanadit",
   "author": "Supan Adit Pratama",
   "repository": {
@@ -163,7 +163,10 @@
         },
         "morse.engine": {
           "type": "string",
-          "enum": ["pi", "opencode"],
+          "enum": [
+            "pi",
+            "opencode"
+          ],
           "default": "pi",
           "markdownDescription": "The engine a new session starts in. `opencode` needs the OpenCode CLI or a configured server; without either the window stays on `pi`."
         },

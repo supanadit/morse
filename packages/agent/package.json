@@ -1,9 +1,9 @@
 {
   "name": "@morse/agent",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "private": true,
   "type": "module",
-  "description": "The harness contract: what any coding-agent engine (pi, OpenCode, ...) must expose. Pure TypeScript with NO dependencies \u2014 this package must never import @morse/system or any application symbol.",
+  "description": "The harness contract: what any coding-agent engine (pi, OpenCode, ...) must expose. Pure TypeScript with NO dependencies — this package must never import @morse/system or any application symbol.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

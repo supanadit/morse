@@ -1,8 +1,8 @@
 {
   "name": "morse-monorepo",
-  "version": "0.26.1",
+  "version": "0.27.0",
   "private": true,
-  "description": "Agent-agnostic GUI for coding agents (Pi, OpenCode) \u2014 chat in VS Code or your browser.",
+  "description": "Agent-agnostic GUI for coding agents (Pi, OpenCode) — chat in VS Code or your browser.",
   "license": "MIT",
   "author": "Supan Adit Pratama",
   "workspaces": [
