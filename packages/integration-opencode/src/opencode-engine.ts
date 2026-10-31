@@ -12,6 +12,7 @@ import {
 import { UnsupportedByHostError, type AgentExtras, type AgentIntegration, type MorseLogger } from '@morse/system';
 import type { McpConfigScope, McpServerInput } from '@morse/protocol';
 import { OpenCodeMcp } from './opencode-mcp.js';
+import { OpenCodePrompts } from './opencode-prompts.js';
 import {
   connectOpenCode,
   type OpenCodeConnection,
@@ -50,6 +51,7 @@ export interface OpenCodeEngineDeps {
   maxSessionsPerProject?: number;
   /** Overrides the MCP administration; tests inject one with a temp config dir. */
   mcp?: OpenCodeMcp;
+  prompts?: OpenCodePrompts;
 }
 
 export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
@@ -64,6 +66,7 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
   constructor(private readonly deps: OpenCodeEngineDeps) {
     super();
     const mcp = deps.mcp ?? new OpenCodeMcp();
+    const prompts = deps.prompts ?? new OpenCodePrompts();
     // Small wrappers rather than the class itself: the ports speak in
     // `Record<string, unknown>` and `string` scopes, because `@morse/system`
     // must not know OpenCode's payload types. The casts live at this edge.
@@ -77,6 +80,12 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
         setEnabled: (name, enabled, cwd, scope) =>
           Promise.resolve(mcp.setEnabled(name, enabled, cwd, scope as McpConfigScope | undefined)),
         trustProject: (cwd) => Promise.resolve(mcp.trustProject(cwd)),
+      },
+      prompts: {
+        list: (cwd) => Promise.resolve(prompts.list(cwd)),
+        save: (input, cwd) => Promise.resolve(prompts.save(input as never, cwd)),
+        delete: (name, scope, cwd, source) =>
+          Promise.resolve(prompts.delete(name, scope as never, cwd, source as never)),
       },
     };
     this.factory = new OpenCodeAgentFactory({

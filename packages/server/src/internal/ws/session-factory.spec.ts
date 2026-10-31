@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { UnsupportedByHostError, type AgentExtras } from '@morse/system';
-import { isLoopback, resolveMcpExtras } from './session-factory.service.js';
+import { isLoopback, resolveMcpExtras, resolvePromptExtras } from './session-factory.service.js';
 
 /**
  * The per-engine MCP resolution: the rule that keeps pi's and OpenCode's
@@ -73,5 +73,48 @@ describe('isLoopback', () => {
   it('refuses an address it cannot see, rather than guessing', () => {
     expect(isLoopback(undefined)).toBe(false);
     expect(isLoopback('')).toBe(false);
+  });
+});
+
+/** The same rule set for the prompt-template port: named engine, default, refusal. */
+describe('resolvePromptExtras', () => {
+  const promptsOf = (label: string) => ({
+    list: async () => label,
+    save: async () => label,
+    delete: async () => label,
+  });
+  const routerFor = (engines: Record<string, AgentExtras | undefined>, fallback = 'pi') => ({
+    extrasFor: (kind: string) => engines[kind]?.prompts === undefined ? undefined : engines[kind],
+    defaultExtras: () => engines[fallback],
+  });
+  const pi = { prompts: promptsOf('pi') } as unknown as AgentExtras;
+  const openCode = { prompts: promptsOf('opencode') } as unknown as AgentExtras;
+  const router = routerFor({ pi, opencode: openCode });
+
+  it('resolves the engine a command names', async () => {
+    await expect(resolvePromptExtras(router, 'pi').list('')).resolves.toBe('pi');
+    await expect(resolvePromptExtras(router, 'opencode').list('')).resolves.toBe('opencode');
+  });
+
+  it('falls back to the default engine when none is named', async () => {
+    await expect(resolvePromptExtras(router, undefined).list('')).resolves.toBe('pi');
+    await expect(resolvePromptExtras(router, '').list('')).resolves.toBe('pi');
+  });
+
+  it('refuses an engine without prompt templates, never cross-reads', () => {
+    const fileOnly = routerFor({ pi, opencode: { mcp: pi.mcp } as unknown as AgentExtras });
+    expect(() => resolvePromptExtras(fileOnly, 'opencode')).toThrow(UnsupportedByHostError);
+    expect(() => resolvePromptExtras(fileOnly, 'opencode')).toThrow(/opencode engine has no prompt templates/);
+    expect(() => resolvePromptExtras(fileOnly, 'codex')).toThrow(/codex engine has no prompt templates/);
+  });
+
+  it('delete passes the source through', async () => {
+    let seen: unknown;
+    const router2 = {
+      extrasFor: () => ({ prompts: { ...promptsOf('x'), delete: async (...args: unknown[]) => { seen = args; } } }),
+      defaultExtras: () => undefined,
+    };
+    await resolvePromptExtras(router2, 'opencode').delete('n', 'global', '/w', 'config');
+    expect(seen).toEqual(['n', 'global', '/w', 'config']);
   });
 });

@@ -12,10 +12,10 @@ import type { SessionCatalog } from './ports.js';
  *
  * `extras` carries the engine-only administration a host may offer — MCP servers,
  * prompt templates, the installed version, the CLI. They are optional because
- * they are genuinely absent for some harnesses: OpenCode supplies its MCP
- * administration (its `opencode.json`) but no prompt-template files, so its
- * `prompts` stays undefined, and a host hides those affordances instead of
- * faking them.
+ * they are genuinely absent for some harnesses: a host hides the affordances of
+ * an extras key an engine does not supply instead of faking it. OpenCode
+ * supplies both its MCP administration and its prompt-command administration
+ * (markdown `commands/` plus `opencode.json`'s `command` key).
  */
 
 /**
@@ -39,7 +39,8 @@ export interface AgentMcpExtras {
 export interface AgentPromptExtras {
   list(cwd: string): Promise<unknown>;
   save(input: unknown, cwd: string): Promise<unknown>;
-  delete(name: string, scope: string, cwd: string): Promise<unknown>;
+  /** `source` names the storage surface (pi: always file); engines with more than one need it. */
+  delete(name: string, scope: string, cwd: string, source?: string): Promise<unknown>;
 }
 
 export interface AgentExtras {

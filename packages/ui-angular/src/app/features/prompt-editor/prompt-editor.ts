@@ -66,7 +66,7 @@ const DRAFT_KEY = 'prompt-editor';
   styleUrl: './prompt-editor.css',
 })
 export class PromptEditor {
-  private readonly store = inject(PromptTemplatesState);
+  protected readonly store = inject(PromptTemplatesState);
   private readonly morse = inject(MorseService);
   private readonly viewState = inject(ViewState);
   private readonly card = viewChild<ElementRef<HTMLElement>>('card');
@@ -85,6 +85,9 @@ export class PromptEditor {
   protected readonly scope = signal<PromptScope>('global');
   protected readonly originalName = signal<string | undefined>(undefined);
   protected readonly originalScope = signal<PromptScope | undefined>(undefined);
+  /** Which surface the editor writes: pi has only files; OpenCode also has config entries. */
+  protected readonly selectedSource = signal<'file' | 'config'>('file');
+  protected readonly originalSource = signal<'file' | 'config' | undefined>(undefined);
 
   /** The sidebar filter: narrows the list to a name or description match. */
   protected readonly filter = signal('');
@@ -153,14 +156,20 @@ export class PromptEditor {
   /** The prompt pi would expand to, using the same substitution the composer uses. */
   protected readonly preview = computed(() => substituteArgs(this.settledBody(), this.testArgs()));
 
-  /** The file the editor would write, frontmatter and body. */
+  /** The file the editor would write, frontmatter and body (pi and OpenCode files). */
   protected readonly rendered = computed(() =>
     renderPromptTemplate({
       description: this.description(),
-      argumentHint: this.hint(),
+      argumentHint: this.store.openCode() ? undefined : this.hint(),
       body: this.body(),
     }),
   );
+
+  /** The config entry the editor would write for an OpenCode `command` key row. */
+  protected readonly renderedEntry = computed(() => ({
+    template: this.body(),
+    ...(this.description().trim().length > 0 ? { description: this.description().trim() } : {}),
+  }));
 
   protected readonly validName = computed(() =>
     /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(this.name().trim()),
@@ -172,20 +181,30 @@ export class PromptEditor {
   protected readonly bodyPlaceholder =
     'Review the staged changes. Focus on ${1:-correctness, security, and error handling}.';
 
-  /** The substitution reference the editor prints, so the braces stay out of the template. */
-  protected readonly cheatSheet: readonly { syntax: string; meaning: string }[] = [
-    { syntax: '$1, $2 …', meaning: 'one positional argument' },
-    { syntax: '${1:-fallback}', meaning: 'the argument, or a default when it is empty' },
-    { syntax: '$@  /  $ARGUMENTS', meaning: 'every argument joined with spaces' },
-    { syntax: '${@:-fallback}', meaning: 'every argument, or a default when there are none' },
-    { syntax: '${@:2}', meaning: 'arguments from position 2 on' },
-    { syntax: '${@:2:3}', meaning: 'three arguments starting at position 2' },
-  ];
+  /** OpenCode expands only `$ARGUMENTS` and `$1`–`$9`; pi's defaults are pi-only. */
+  protected readonly cheatSheet = computed<readonly { syntax: string; meaning: string }[]>(() =>
+    this.store.openCode()
+      ? [
+          { syntax: '$ARGUMENTS', meaning: 'every argument joined with spaces' },
+          { syntax: '$1, $2 …', meaning: 'one positional argument' },
+        ]
+      : [
+          { syntax: '$1, $2 …', meaning: 'one positional argument' },
+          { syntax: '${1:-fallback}', meaning: 'the argument, or a default when it is empty' },
+          { syntax: '$@  /  $ARGUMENTS', meaning: 'every argument joined with spaces' },
+          { syntax: '${@:-fallback}', meaning: 'every argument, or a default when there are none' },
+          { syntax: '${@:2}', meaning: 'arguments from position 2 on' },
+          { syntax: '${@:2:3}', meaning: 'three arguments starting at position 2' },
+        ],
+  );
 
   /** A worked example of shell-like quoting, kept out of the template for the same reason. */
   protected readonly quoteExample = '/review "API compatibility"';
 
   protected readonly dirty = computed(() => {
+    if (this.selectedSource() === 'config') {
+      return JSON.stringify(this.renderedEntry()) !== this.savedRaw();
+    }
     const saved = this.savedRaw();
     return saved === undefined ? this.hasDraft() : this.rendered() !== saved;
   });
@@ -272,20 +291,26 @@ export class PromptEditor {
   }
 
   protected select(template: PromptTemplateInfo): void {
+    const source = template.source ?? 'file';
     this.name.set(template.name);
     this.description.set(template.description ?? '');
     this.hint.set(template.argumentHint ?? '');
-    this.body.set(template.body);
+    const body = source === 'config' ? (template.entry?.template ?? '') : (template.body ?? '');
+    this.body.set(body);
     // A pick is not typing: show its fields and preview at once, not after the
     // debounce that exists for the reader's own keystrokes.
     this.settledHint.set(template.argumentHint ?? '');
-    this.settledBody.set(template.body);
+    this.settledBody.set(body);
     this.scope.set(template.scope);
     this.originalName.set(template.name);
     this.originalScope.set(template.scope);
+    this.selectedSource.set(source);
+    this.originalSource.set(source);
     this.fieldValues.set({});
     this.rawArgs.set('');
-    this.savedRaw.set(this.rendered());
+    this.savedRaw.set(
+      source === 'config' ? JSON.stringify(this.renderedEntry()) : this.rendered(),
+    );
     this.status.set(template.error !== undefined ? { kind: 'error', text: template.error } : undefined);
     this.confirmingDelete.set(false);
   }
@@ -300,6 +325,8 @@ export class PromptEditor {
     this.scope.set(scope);
     this.originalName.set(undefined);
     this.originalScope.set(undefined);
+    this.selectedSource.set('file');
+    this.originalSource.set(undefined);
     this.fieldValues.set({});
     this.rawArgs.set('');
     this.savedRaw.set(undefined);
@@ -372,18 +399,25 @@ export class PromptEditor {
       return;
     }
     this.saving.set(true);
+    const configSave = this.selectedSource() === 'config';
     const result = await this.store.save({
       name,
       scope: this.scope(),
-      raw: this.rendered(),
+      ...(configSave
+        ? { source: 'config' as const, entry: this.renderedEntry() }
+        : { raw: this.rendered() }),
       ...(this.originalName() !== undefined ? { originalName: this.originalName() } : {}),
       ...(this.originalScope() !== undefined ? { originalScope: this.originalScope() } : {}),
+      ...(this.originalSource() !== undefined ? { originalSource: this.originalSource() } : {}),
     });
     this.saving.set(false);
     if (result.ok) {
       this.originalName.set(name);
       this.originalScope.set(this.scope());
-      this.savedRaw.set(this.rendered());
+      this.originalSource.set(this.selectedSource());
+      this.savedRaw.set(
+        configSave ? JSON.stringify(this.renderedEntry()) : this.rendered(),
+      );
       this.status.set({ kind: 'ok', text: `Saved /${name}${result.path ? ` → ${result.path}` : ''}` });
       // A rename leaves the old row behind in the list until the refresh lands;
       // reloading keeps the sidebar honest.
@@ -412,7 +446,7 @@ export class PromptEditor {
       return;
     }
     this.deleting.set(true);
-    const result = await this.store.remove(name, scope);
+    const result = await this.store.remove(name, scope, this.originalSource() ?? 'file');
     this.deleting.set(false);
     this.confirmingDelete.set(false);
     if (result.ok) {

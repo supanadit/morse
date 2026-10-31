@@ -1,1 +1,7 @@
 :host { display: block; height: 100vh; }
+
+.scope-note {
+  margin: 8px 24px;
+  color: var(--morse-text-muted, #8a8f98);
+  font-size: 12px;
+}

@@ -1,4 +1,4 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import type {
   PromptScope,
   PromptTemplateInput,
@@ -24,11 +24,28 @@ export class PromptTemplatesState {
   private readonly loading = signal(false);
   private readonly inFlight = new Map<string, Promise<PromptTemplatesResult | undefined>>();
   private readonly fetchedAt = new Map<string, number>();
+  /** Which engine the cached result came from, so a switch refetches. */
+  private resultEngine: string | undefined;
+
+  constructor() {
+    // The engine selector moved: the templates the editor shows belong to the
+    // newly selected engine, never the previous one's.
+    effect(() => {
+      const engine = this.engine();
+      if (engine !== this.resultEngine && this.result() !== undefined) {
+        void this.refresh(true);
+      }
+    });
+  }
 
   /**
-   * Only a host that can read and write pi's prompt directories advertises this.
+   * Only a host that can read and write an engine's templates advertises this.
    */
   readonly enabled = computed(() => this.morse.capabilities()?.promptEditor === true);
+  /** The engine kind the templates belong to, so commands are scoped per engine. */
+  readonly engine = computed(() => this.morse.engine());
+  /** OpenCode's commands carry `source: 'file' | 'config'` and no `argumentHint`. */
+  readonly openCode = computed(() => this.engine() === 'opencode');
   readonly templates = computed(() => this.result()?.templates ?? []);
   readonly info = computed(() => this.result());
   readonly isLoading = this.loading.asReadonly();
@@ -72,10 +89,15 @@ export class PromptTemplatesState {
   private async fetch(cwd: string): Promise<PromptTemplatesResult | undefined> {
     this.loading.set(true);
     try {
-      const data = await this.morse.requestHostCommand('promptTemplates', { cwd }, TIMEOUT_MS);
+      const data = await this.morse.requestHostCommand(
+        'promptTemplates',
+        { cwd, engine: this.engine() },
+        TIMEOUT_MS,
+      );
       const result = asPromptTemplates(data);
       if (result) {
         this.result.set(result);
+        this.resultEngine = this.engine();
         this.fetchedAt.set(cwd, Date.now());
       }
       return result;
@@ -87,7 +109,7 @@ export class PromptTemplatesState {
   async save(input: PromptTemplateInput): Promise<PromptTemplateMutation> {
     const data = await this.morse.requestHostCommand(
       'promptTemplateSave',
-      { ...input, cwd: this.projectCwd() },
+      { ...input, cwd: this.projectCwd(), engine: this.engine() },
       TIMEOUT_MS,
     );
     const result = asMutation(data);
@@ -100,10 +122,10 @@ export class PromptTemplatesState {
     return result;
   }
 
-  async remove(name: string, scope: PromptScope): Promise<PromptTemplateMutation> {
+  async remove(name: string, scope: PromptScope, source?: 'file' | 'config'): Promise<PromptTemplateMutation> {
     const data = await this.morse.requestHostCommand(
       'promptTemplateDelete',
-      { name, scope, cwd: this.projectCwd() },
+      { name, scope, ...(source !== undefined ? { source } : {}), cwd: this.projectCwd(), engine: this.engine() },
       TIMEOUT_MS,
     );
     const result = asMutation(data);
@@ -136,9 +158,14 @@ function isTemplateInfo(value: unknown): value is PromptTemplatesResult['templat
     return false;
   }
   const row = value as Record<string, unknown>;
+  // pi rows carry `raw`; OpenCode `config` rows carry `entry.template` instead.
+  const hasBody =
+    typeof row['raw'] === 'string' ||
+    (typeof row['entry'] === 'object' && row['entry'] !== null &&
+      typeof (row['entry'] as Record<string, unknown>)['template'] === 'string');
   return (
     typeof row['name'] === 'string' &&
-    typeof row['raw'] === 'string' &&
+    hasBody &&
     (row['scope'] === 'global' || row['scope'] === 'project')
   );
 }

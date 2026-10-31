@@ -3,35 +3,47 @@
 export type PromptScope = 'global' | 'project';
 
 /**
- * One prompt template on disk, as the editor reads it. `raw` is the whole file
- * (frontmatter and body) so the editor can show and rewrite exactly what pi will
- * load; `error` names why pi would refuse it (invalid YAML frontmatter).
+ * One prompt template, as the editor reads it. pi keeps templates as files, so
+ * `raw` is the whole file; OpenCode also defines commands in `opencode.json`'s
+ * `command` key, so its rows carry `source: 'config'` and a structured `entry`
+ * instead. `argumentHint` is pi-only (OpenCode has no such field).
  */
 export interface PromptTemplateInfo {
   /** Command name without the leading slash (the file name without `.md`). */
   name: string;
   scope: PromptScope;
-  /** Absolute path of the `.md` file. */
-  path: string;
+  /** Where the command lives: a markdown file or the config's `command` key. */
+  source?: 'file' | 'config';
+  /** Absolute path of the `.md` file (pi; OpenCode file commands too). */
+  path?: string;
   description?: string;
-  /** The `argument-hint` frontmatter, untouched. */
+  /** The `argument-hint` frontmatter, untouched. pi only. */
   argumentHint?: string;
   /** Body with the frontmatter stripped, for the editor's body field. */
-  body: string;
-  /** The file exactly as it is on disk. */
-  raw: string;
-  /** Set when pi would not load the file: the YAML parser's message. */
+  body?: string;
+  /** The file exactly as it is on disk. pi only. */
+  raw?: string;
+  /** The structured entry. OpenCode `config` commands only. */
+  entry?: {
+    template: string;
+    description?: string;
+    agent?: string;
+    model?: string;
+    subtask?: boolean;
+    [key: string]: unknown;
+  };
+  /** Set when the engine would not load the command; it is still listed so it can be fixed. */
   error?: string;
 }
 
 /** What `promptTemplates` answers: every template, plus where a new one would go. */
 export interface PromptTemplatesResult {
   templates: PromptTemplateInfo[];
-  /** The user prompt directory (`<agentDir>/prompts`). */
+  /** The engine's global template directory. */
   globalDir: string;
-  /** This project's prompt directory (`<cwd>/.pi/prompts`). */
-  projectDir: string;
-  /** Whether pi would load the project templates (pi's `.pi` trust gate). */
+  /** This project's template directory, when the workspace has one. */
+  projectDir?: string;
+  /** Whether the engine would load the project templates (pi's `.pi` trust gate). */
   trusted: boolean;
 }
 
@@ -45,9 +57,23 @@ export interface PromptTemplateInput {
   originalName?: string;
   /** The scope it was read from, so a move can delete the old file. */
   originalScope?: PromptScope;
+  /** The source it was read from, so an edit writes the same surface back. */
+  originalSource?: 'file' | 'config';
+  /** Which surface a new command lands on; default `file` (pi only has files). */
+  source?: 'file' | 'config';
   name: string;
   scope: PromptScope;
-  raw: string;
+  /** The whole markdown file. `file` commands (pi, OpenCode). */
+  raw?: string;
+  /** The structured entry. OpenCode `config` commands; `raw` is ignored. */
+  entry?: {
+    template: string;
+    description?: string;
+    agent?: string;
+    model?: string;
+    subtask?: boolean;
+    [key: string]: unknown;
+  };
 }
 
 /** What a prompt-template mutation answers. `message` carries the reason when it refused. */
@@ -56,4 +82,5 @@ export interface PromptTemplateMutation {
   message?: string;
   path?: string;
   scope?: PromptScope;
+  source?: 'file' | 'config';
 }

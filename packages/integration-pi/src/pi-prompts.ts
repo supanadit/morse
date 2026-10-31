@@ -222,6 +222,17 @@ export function parsePromptTemplateInput(raw: unknown): PromptTemplateInput {
   if (args.originalScope === 'global' || args.originalScope === 'project') {
     input.originalScope = args.originalScope;
   }
+  // Engine-specific surfaces: pi ignores these, OpenCode's config commands need
+  // them. `raw` stays for files; a config row carries its structured entry.
+  if (args.source === 'file' || args.source === 'config') {
+    input.source = args.source;
+  }
+  if (args.originalSource === 'file' || args.originalSource === 'config') {
+    input.originalSource = args.originalSource;
+  }
+  if (isRecord(args.entry) && typeof args.entry.template === 'string') {
+    input.entry = args.entry as PromptTemplateInput['entry'];
+  }
   return input;
 }
 

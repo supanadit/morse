@@ -27,11 +27,11 @@
         />
       </div>
       <ul class="list">
-        @for (template of visibleTemplates(); track template.scope + ':' + template.name) {
+        @for (template of visibleTemplates(); track (template.source ?? 'file') + ':' + template.scope + ':' + template.name) {
           <li>
             <button
               type="button"
-              [class.active]="originalName() === template.name && originalScope() === template.scope"
+              [class.active]="originalName() === template.name && originalScope() === template.scope && originalSource() === (template.source ?? 'file')"
               (click)="select(template)"
             >
               <span class="row-name">/{{ template.name }}</span>
@@ -39,6 +39,9 @@
                 <span class="badge" [class.broken]="template.error !== undefined">
                   {{ template.scope }}
                 </span>
+                @if (template.source === 'config') {
+                  <span class="badge">config</span>
+                }
                 @if (template.argumentHint) {
                   <span class="row-hint">{{ template.argumentHint }}</span>
                 } @else if (template.description) {
@@ -123,21 +126,23 @@
             />
           </label>
 
-          <label class="field">
-            <span class="field-label">Argument hint</span>
-            <input
-              id="prompt-hint"
-              type="text"
-              spellcheck="false"
-              placeholder="[focus] &lt;path&gt;"
-              [value]="hint()"
-              (input)="setHint($any($event.target).value)"
-            />
-            <span class="default-hint">
-              Angle brackets &lt;name&gt; mark required, square brackets [name] optional. The body’s
-              <code>$1</code> placeholders decide which fields appear below.
-            </span>
-          </label>
+          @if (!store.openCode()) {
+            <label class="field">
+              <span class="field-label">Argument hint</span>
+              <input
+                id="prompt-hint"
+                type="text"
+                spellcheck="false"
+                placeholder="[focus] &lt;path&gt;"
+                [value]="hint()"
+                (input)="setHint($any($event.target).value)"
+              />
+              <span class="default-hint">
+                Angle brackets &lt;name&gt; mark required, square brackets [name] optional. The body’s
+                <code>$1</code> placeholders decide which fields appear below.
+              </span>
+            </label>
+          }
 
           <label class="field">
             <span class="field-label">Body</span>
@@ -216,7 +221,7 @@
               <summary>Advanced substitutions</summary>
               <table>
                 <tbody>
-                  @for (row of cheatSheet; track row.syntax) {
+                  @for (row of cheatSheet(); track row.syntax) {
                     <tr>
                       <td><code>{{ row.syntax }}</code></td>
                       <td>{{ row.meaning }}</td>

@@ -170,8 +170,11 @@ export class MorseSessionFactory {
       mcp: this.router
         .engineOptions()
         .some((option) => this.router.extrasFor(option.kind)?.mcp !== undefined),
-      // Editing prompt templates needs an engine that loads them from files.
-      promptEditor: this.extras?.prompts !== undefined,
+      // Editing prompt templates needs an engine that keeps them. Commands name
+      // their engine, so any engine with a prompts port enables the affordance.
+      promptEditor: this.router
+        .engineOptions()
+        .some((option) => this.router.extrasFor(option.kind)?.prompts !== undefined),
       // One-click self-update: only when the operator opted in
       // (`MORSE_SELF_UPDATE=1`). The frontend turns the footer's update notice into
       // a button when this is set; the command itself re-checks the install and
@@ -475,16 +478,17 @@ export class MorseSessionFactory {
       case 'promptTemplates': {
         // The user's prompts, plus this project's once it is trusted. No session
         // is required: with no directory, the user templates still list.
-        return this.requirePrompts().list(this.optionalCwd(context, args));
+        return this.promptsFor(args).list(this.optionalCwd(context, args));
       }
       case 'promptTemplateSave': {
-        return this.requirePrompts().save(parsePromptTemplateInput(args), this.optionalCwd(context, args));
+        return this.promptsFor(args).save(parsePromptTemplateInput(args), this.optionalCwd(context, args));
       }
       case 'promptTemplateDelete': {
-        return this.requirePrompts().delete(
+        return this.promptsFor(args).delete(
           stringArg(args, 'name'),
           promptScope(args),
           this.optionalCwd(context, args),
+          typeof args?.['source'] === 'string' ? args['source'] : undefined,
         );
       }
       case 'updateHost': {
@@ -554,13 +558,9 @@ export class MorseSessionFactory {
     return resolveMcpExtras(this.router, args?.['engine']);
   }
 
-  /** The prompt-template port, or a refusal for an engine without one. */
-  private requirePrompts(): NonNullable<AgentExtras['prompts']> {
-    const prompts = this.extras?.prompts;
-    if (prompts === undefined) {
-      throw new UnsupportedByHostError('The selected agent engine has no prompt templates.');
-    }
-    return prompts;
+  /** The prompt port of the engine the command names, or the default engine's. */
+  private promptsFor(args?: Record<string, unknown>): NonNullable<AgentExtras['prompts']> {
+    return resolvePromptExtras(this.router, args?.['engine']);
   }
 
   private requireWritableCwd(context?: HostCommandContext): string {
@@ -640,17 +640,42 @@ export function resolveMcpExtras(
   router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
   engine: unknown,
 ): NonNullable<AgentExtras['mcp']> {
+  return resolveEngineExtras(router, engine, 'mcp', 'MCP administration');
+}
+
+/**
+ * The prompt-template port of the engine a command names, resolved by the same
+ * rule set as the MCP side.
+ */
+export function resolvePromptExtras(
+  router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
+  engine: unknown,
+): NonNullable<AgentExtras['prompts']> {
+  return resolveEngineExtras(router, engine, 'prompts', 'prompt templates');
+}
+
+/**
+ * The extras port named by `key`, of the engine the command names, or the
+ * default engine's when it names none. A named engine without that port is a
+ * refusal naming the engine — the one rule that keeps the engines from mixing.
+ */
+function resolveEngineExtras<K extends 'mcp' | 'prompts'>(
+  router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
+  engine: unknown,
+  key: K,
+  label: string,
+): NonNullable<AgentExtras[K]> {
   const kind = typeof engine === 'string' && engine.length > 0 ? engine : undefined;
   const extras = kind === undefined ? router.defaultExtras() : router.extrasFor(kind);
-  const mcp = extras?.mcp;
-  if (mcp === undefined) {
+  const port = extras?.[key];
+  if (port === undefined) {
     throw new UnsupportedByHostError(
       kind === undefined
-        ? 'The selected agent engine has no MCP administration.'
-        : `The ${kind} engine has no MCP administration.`,
+        ? `The selected agent engine has no ${label}.`
+        : `The ${kind} engine has no ${label}.`,
     );
   }
-  return mcp;
+  return port;
 }
 
 /** The `paths` argument of a `gitStage`/`gitUnstage` command, with bad entries dropped. */
