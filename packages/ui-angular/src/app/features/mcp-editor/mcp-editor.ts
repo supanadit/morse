@@ -69,6 +69,8 @@ export class McpEditor {
   protected readonly added = signal(false);
 
   protected readonly isHttp = computed(() => this.type() === 'http');
+  /** OpenCode has no exposure concept: the pi-only dropdown would be a no-op. */
+  protected readonly piShaped = computed(() => this.mcp.engine() !== 'opencode');
 
   constructor() {
     // A reload (browser refresh, VS Code window reload, panel re-open) must not

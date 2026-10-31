@@ -25,6 +25,7 @@ function render(saved?: unknown, noSession = false): HTMLElement {
       mcp: true,
     }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
+    engine: signal<string | undefined>(undefined),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
     onMcpChanged: () => () => undefined,
   };

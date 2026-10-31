@@ -19,6 +19,8 @@ function setup(workspaceCwd = '/repo') {
   const fake = {
     capabilities: signal({ mcp: false }),
     workspace: signal({ cwd: workspaceCwd, name: 'repo' }),
+    // The draft's/session's engine choice; absent means the host's default.
+    engine: signal<string | undefined>(undefined),
     requestHostCommand,
     onMcpChanged: (listener: (event: { cwd: string }) => void) => {
       push = listener;
@@ -34,7 +36,7 @@ function setup(workspaceCwd = '/repo') {
     ],
   });
   TestBed.inject(McpState);
-  return { requestHostCommand, push: () => push };
+  return { requestHostCommand, push: () => push, engine: fake.engine };
 }
 
 afterEach(() => TestBed.resetTestingModule());
@@ -52,6 +54,28 @@ describe('McpState', () => {
         expect.any(Number),
       );
     });
+  });
+
+  it('names the chosen engine on every command and refetches when it changes', async () => {
+    const { requestHostCommand, engine } = setup('/repo');
+
+    engine.set('pi');
+    await TestBed.inject(McpState).refresh('/repo', true);
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpStatus',
+      { cwd: '/repo', engine: 'pi' },
+      expect.any(Number),
+    );
+
+    // Switching the draft's engine is a different config: a fresh read with the
+    // new kind, never the previous engine's cached answer.
+    engine.set('opencode');
+    await TestBed.inject(McpState).refresh('/repo', true);
+    expect(requestHostCommand).toHaveBeenLastCalledWith(
+      'mcpStatus',
+      { cwd: '/repo', engine: 'opencode' },
+      expect.any(Number),
+    );
   });
 
   it('does not re-read a directory no surface is showing', async () => {

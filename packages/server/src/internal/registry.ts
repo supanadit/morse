@@ -56,6 +56,7 @@ export async function createAgentRouter(
     router.register(openCode.engine, {
       label: 'OpenCode',
       catalog: openCode.catalog,
+      extras: openCode.extras,
       default: defaultIsOpenCode,
     });
     logger.info(

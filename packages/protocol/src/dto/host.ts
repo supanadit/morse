@@ -111,10 +111,11 @@ export interface HostCapabilities {
    */
   gitPanel?: boolean;
   /**
-   * Host can manage pi's MCP servers (`mcpStatus`/`mcpAdd`/`mcpRemove`/
-   * `mcpSetEnabled`): list their connection state, add one, remove one, or turn
-   * one off. On when the host found the `pi` CLI; a host without it leaves this
-   * off and the frontend hides the affordance instead of promising it.
+   * Host can manage MCP servers (`mcpStatus`/`mcpAdd`/`mcpRemove`/
+   * `mcpSetEnabled`): list their configured state, add one, remove one, or turn
+   * one off. Each command names its engine, so the servers of pi and OpenCode
+   * never mix; a host whose engines all lack MCP administration leaves this off
+   * and the frontend hides the affordance instead of promising it.
    */
   mcp?: boolean;
   /**

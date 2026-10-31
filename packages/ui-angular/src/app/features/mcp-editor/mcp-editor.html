@@ -1,9 +1,9 @@
 <div class="page">
   <h2>Add an MCP server</h2>
   <p class="lead">
-    Build the entry, then <strong>Test connection</strong> to check it before it is written to an
-    <code>mcp.json</code>. The probe connects the same way pi will, so a bad command, a dead URL or a
-    server that wants OAuth shows up here.
+    Build the entry, then <strong>Test connection</strong> to check it before it is written to the
+    engine's config. The probe connects the same way the engine will, so a bad command, a dead URL
+    or a server that wants OAuth shows up here.
   </p>
 
   <div class="scope-bar">
@@ -82,19 +82,21 @@
     </div>
   }
 
-  <div class="field">
-    <label for="mcp-editor-exposure">Exposure</label>
-    <select
-      id="mcp-editor-exposure"
-      [value]="exposure()"
-      (change)="setExposure($any($event.target).value)"
-    >
-      <option value="codemode">codemode</option>
-      <option value="deferred">deferred</option>
-      <option value="direct">direct</option>
-      <option value="hidden">hidden</option>
-    </select>
-  </div>
+  @if (piShaped()) {
+    <div class="field">
+      <label for="mcp-editor-exposure">Exposure</label>
+      <select
+        id="mcp-editor-exposure"
+        [value]="exposure()"
+        (change)="setExposure($any($event.target).value)"
+      >
+        <option value="codemode">codemode</option>
+        <option value="deferred">deferred</option>
+        <option value="direct">direct</option>
+        <option value="hidden">hidden</option>
+      </select>
+    </div>
+  }
 
   <div class="actions">
     <button type="button" [disabled]="testing() || adding()" (click)="test()">

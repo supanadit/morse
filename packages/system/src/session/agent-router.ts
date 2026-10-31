@@ -143,6 +143,16 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   }
 
   /**
+   * One engine's administration by kind, for host commands that name their
+   * engine (`mcpStatus` & co. carry `engine`). Undefined for an unknown kind or
+   * an engine without administration — the host then refuses, it never falls
+   * back to another engine's config.
+   */
+  extrasFor(kind: string): AgentExtras | undefined {
+    return this.engines.get(kind)?.extras;
+  }
+
+  /**
    * The engine new sessions go to, for hosts that still need it as a concrete
    * engine (pi's MCP administration, say, until the capability ports land).
    * Undefined while no engine is registered as the default.

@@ -29,7 +29,8 @@ export interface McpServerStatus {
    */
   override?: string;
   enabled: boolean;
-  exposure: McpExposure;
+  /** How tools reach the model, when the engine has such a concept (pi). */
+  exposure?: McpExposure;
   /** A one-line summary of how it connects: `stdio: command args` or `http: url`. */
   transport: string;
   state: McpServerState;
@@ -60,6 +61,13 @@ export interface McpStatus {
 /** What the `mcpAdd` host command takes. */
 export interface McpServerInput {
   name: string;
+  /**
+   * Which engine's MCP config the command addresses (`'pi'`, `'opencode'`).
+   * Absent means the host's default engine, so older clients keep working.
+   * Every mcp* command (`mcpStatus`, `mcpAdd`, `mcpInspect`, `mcpRemove`,
+   * `mcpSetEnabled`, `trustProject`) takes the same field.
+   */
+  engine?: string;
   /** `project` writes `<cwd>/.pi/mcp.json`; default `global` (`~/.pi/agent/mcp.json`). */
   scope?: 'global' | 'project';
   type?: 'stdio' | 'http';

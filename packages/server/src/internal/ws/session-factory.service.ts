@@ -163,9 +163,13 @@ export class MorseSessionFactory {
       // The same notice covers the engine itself: the version this host runs, so
       // the frontend can compare it against the published one.
       piVersion: this.extras?.version?.(),
-      // Managing MCP servers needs both a config to edit and the CLI that reads
-      // it; a harness that supplies neither (OpenCode) hides the affordance.
-      mcp: this.extras?.mcp !== undefined && this.extras.cli !== undefined,
+      // Managing MCP servers needs an engine with a config to edit. Commands
+      // name their engine, so any engine with administration enables the
+      // affordance; one without it refuses with a message instead of showing
+      // another engine's servers.
+      mcp: this.router
+        .engineOptions()
+        .some((option) => this.router.extrasFor(option.kind)?.mcp !== undefined),
       // Editing prompt templates needs an engine that loads them from files.
       promptEditor: this.extras?.prompts !== undefined,
       // One-click self-update: only when the operator opted in
@@ -419,7 +423,7 @@ export class MorseSessionFactory {
         // `scope: 'global'` is the empty-session view: no project, so no session
         // is required and only the user's `mcp.json` is read.
         const cwd = args?.scope === 'global' ? undefined : this.requireWritableCwd(context);
-        const mcp = this.requireMcp();
+        const mcp = this.mcpFor(args);
         try {
           return await mcp.status(cwd);
         } catch (error: unknown) {
@@ -429,7 +433,7 @@ export class MorseSessionFactory {
       case 'mcpAdd': {
         const input = parseMcpServerInput(args);
         const cwd = input.scope === 'project' ? this.requireWritableCwd(context) : undefined;
-        return this.requireMcp().add(input, cwd);
+        return this.mcpFor(args).add(input, cwd);
       }
       case 'mcpInspect': {
         // Probing spawns the server, so its directory is policy-checked like a
@@ -441,7 +445,7 @@ export class MorseSessionFactory {
         if (spec.cwd === undefined && cwd.length > 0) {
           spec.cwd = cwd;
         }
-        this.requireMcp();
+        this.mcpFor(args);
         return this.pi.inspector.inspect(spec, {
           cwd: spec.cwd ?? this.registry.defaultWorkspace.cwd,
         });
@@ -449,12 +453,12 @@ export class MorseSessionFactory {
       case 'mcpRemove': {
         const scope = mcpScope(args);
         const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
-        return this.requireMcp().remove(stringArg(args, 'name'), cwd, scope);
+        return this.mcpFor(args).remove(stringArg(args, 'name'), cwd, scope);
       }
       case 'mcpSetEnabled': {
         const scope = mcpScope(args);
         const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
-        return this.requireMcp().setEnabled(
+        return this.mcpFor(args).setEnabled(
           stringArg(args, 'name'),
           args?.enabled === true,
           cwd,
@@ -466,7 +470,7 @@ export class MorseSessionFactory {
         // process (mcp.json, settings, skills, prompts), the same decision pi's
         // own prompt writes. Nothing else about the project is touched.
         const cwd = this.requireWritableCwd(context);
-        return this.requireMcp().trustProject(cwd);
+        return this.mcpFor(args).trustProject(cwd);
       }
       case 'promptTemplates': {
         // The user's prompts, plus this project's once it is trusted. No session
@@ -541,13 +545,13 @@ export class MorseSessionFactory {
    * The controller hands in what the client is viewing; the registry's active
    * session is only a fallback for a host command issued without one.
    */
-  /** The MCP port, or a refusal when the selected engine has no MCP config. */
-  private requireMcp(): NonNullable<AgentExtras['mcp']> {
-    const mcp = this.extras?.mcp;
-    if (mcp === undefined) {
-      throw new UnsupportedByHostError('The selected agent engine has no MCP administration.');
-    }
-    return mcp;
+  /**
+   * The MCP port of the engine the command names (`args.engine`), or the
+   * default engine's when the client is older and names none. An engine that
+   * has no MCP administration is a refusal — never another engine's config.
+   */
+  private mcpFor(args?: Record<string, unknown>): NonNullable<AgentExtras['mcp']> {
+    return resolveMcpExtras(this.router, args?.['engine']);
   }
 
   /** The prompt-template port, or a refusal for an engine without one. */
@@ -624,6 +628,29 @@ export class MorseSessionFactory {
     const workspace = key === undefined ? undefined : this.registry.stateOf(key)?.workspace;
     return workspace?.cwd ?? this.registry.defaultWorkspace.cwd;
   }
+}
+
+/**
+ * The MCP port of the engine a command names, or the default engine's when it
+ * names none. A named engine without MCP administration is a refusal naming the
+ * engine — the one rule that keeps pi's and OpenCode's servers from mixing.
+ * Exported for tests; constructing the factory needs the whole host.
+ */
+export function resolveMcpExtras(
+  router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
+  engine: unknown,
+): NonNullable<AgentExtras['mcp']> {
+  const kind = typeof engine === 'string' && engine.length > 0 ? engine : undefined;
+  const extras = kind === undefined ? router.defaultExtras() : router.extrasFor(kind);
+  const mcp = extras?.mcp;
+  if (mcp === undefined) {
+    throw new UnsupportedByHostError(
+      kind === undefined
+        ? 'The selected agent engine has no MCP administration.'
+        : `The ${kind} engine has no MCP administration.`,
+    );
+  }
+  return mcp;
 }
 
 /** The `paths` argument of a `gitStage`/`gitUnstage` command, with bad entries dropped. */

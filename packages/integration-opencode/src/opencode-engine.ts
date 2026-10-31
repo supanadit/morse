@@ -9,7 +9,9 @@ import {
   type ModelRef,
   type WorkspaceRef,
 } from '@morse/agent';
-import { UnsupportedByHostError, type AgentIntegration, type MorseLogger } from '@morse/system';
+import { UnsupportedByHostError, type AgentExtras, type AgentIntegration, type MorseLogger } from '@morse/system';
+import type { McpConfigScope, McpServerInput } from '@morse/protocol';
+import { OpenCodeMcp } from './opencode-mcp.js';
 import {
   connectOpenCode,
   type OpenCodeConnection,
@@ -46,6 +48,8 @@ export interface OpenCodeEngineDeps {
   stream: OpenCodeEventStream;
   logger: MorseLogger;
   maxSessionsPerProject?: number;
+  /** Overrides the MCP administration; tests inject one with a temp config dir. */
+  mcp?: OpenCodeMcp;
 }
 
 export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
@@ -54,9 +58,27 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
   readonly engine: SessionEngine = this;
   readonly factory: OpenCodeAgentFactory;
   readonly catalog: OpenCodeSessionCatalog;
+  /** OpenCode's own administration: its MCP servers, from `opencode.json`. */
+  readonly extras: AgentExtras;
 
   constructor(private readonly deps: OpenCodeEngineDeps) {
     super();
+    const mcp = deps.mcp ?? new OpenCodeMcp();
+    // Small wrappers rather than the class itself: the ports speak in
+    // `Record<string, unknown>` and `string` scopes, because `@morse/system`
+    // must not know OpenCode's payload types. The casts live at this edge.
+    this.extras = {
+      mcp: {
+        configSignature: (cwd) => mcp.configSignature(cwd),
+        status: (cwd) => Promise.resolve(mcp.status(cwd)),
+        add: (input, cwd) => Promise.resolve(mcp.add(input as McpServerInput, cwd)),
+        remove: (name, cwd, scope) =>
+          Promise.resolve(mcp.remove(name, cwd, scope as McpConfigScope | undefined)),
+        setEnabled: (name, enabled, cwd, scope) =>
+          Promise.resolve(mcp.setEnabled(name, enabled, cwd, scope as McpConfigScope | undefined)),
+        trustProject: (cwd) => Promise.resolve(mcp.trustProject(cwd)),
+      },
+    };
     this.factory = new OpenCodeAgentFactory({
       api: deps.api,
       stream: deps.stream,

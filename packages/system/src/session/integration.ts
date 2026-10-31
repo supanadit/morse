@@ -12,9 +12,10 @@ import type { SessionCatalog } from './ports.js';
  *
  * `extras` carries the engine-only administration a host may offer — MCP servers,
  * prompt templates, the installed version, the CLI. They are optional because
- * they are genuinely absent for some harnesses: OpenCode has no `mcp.json` editor
- * and no prompt-template files, so it supplies none, and a host hides those
- * affordances instead of faking them.
+ * they are genuinely absent for some harnesses: OpenCode supplies its MCP
+ * administration (its `opencode.json`) but no prompt-template files, so its
+ * `prompts` stays undefined, and a host hides those affordances instead of
+ * faking them.
  */
 
 /**
