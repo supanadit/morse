@@ -78,7 +78,7 @@ async function main() {
     }
   }
   const { resolvePi, readPiVersion } = await import(resolvePiUrl);
-  const { piPackageRoot } = await import(installUrl);
+  const { piPackageRoot, piEntry } = await import(installUrl);
   const { buildCommandList } = await import(agentUrl);
 
   const configured = explicitPiPath(process.argv.slice(2));
@@ -86,10 +86,13 @@ async function main() {
   console.log(`pi spawn   : ${spawn.command} ${spawn.args.slice(0, 2).join(' ')} (${spawn.source})`);
 
   check('resolvePi finds pi on PATH', spawn.command, (v) => v);
-  const entry = spawn.source === 'node-entry' ? spawn.args[0] : spawn.command;
-  check('pi entry exists on disk', existsSync(entry), (v) => `${entry} (${String(v)})`);
+  // The same rule the adapter reads use — a Windows npm shim bypassed to
+  // `node.exe <script.js>` must yield the script, not the node binary (whose
+  // directory holds no pi package and whose bytes are not shim text).
+  const entry = piEntry(spawn);
+  check('pi entry exists on disk', entry !== undefined && existsSync(entry), (v) => `${String(entry)} (${String(v)})`);
 
-  const root = piPackageRoot(entry);
+  const root = piPackageRoot(entry ?? '');
   check('piPackageRoot resolves the package root', root, (v) => v);
 
   const version = readPiVersion(spawn);
