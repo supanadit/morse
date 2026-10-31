@@ -242,6 +242,58 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
+  it('seeds the usage panel counts and speed from the stored messages', async () => {
+    const { agent, stream } = await harness({
+      handler: (method, path) => {
+        if (method === 'GET' && path.endsWith('/message')) {
+          return {
+            data: [
+              {
+                id: 'msg_a',
+                type: 'assistant',
+                time: { created: 1_000, completed: 3_000 },
+                tokens: { input: 120, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
+                content: [
+                  { type: 'text', text: 'done' },
+                  { type: 'tool', id: 'tool_1', name: 'read', state: { status: 'completed' } },
+                ],
+              },
+              { id: 'msg_u', type: 'user', time: { created: 500 }, text: 'count them' },
+              { id: 'msg_i', type: 'idle', time: { created: 400 } },
+            ],
+          };
+        }
+        return defaultHandler()(method, path, undefined, undefined);
+      },
+    });
+
+    // The message walk runs on the state refresh a connect triggers.
+    stream.emit('ses_1', {
+      type: 'stream.connected',
+      data: { sessionID: 'ses_1' },
+      created: Date.now(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const state = await agent.state();
+    // The idle row stays out of the counts.
+    expect(state.counts).toEqual({
+      userMessages: 1,
+      assistantMessages: 1,
+      toolCalls: 1,
+      toolResults: 1,
+      totalMessages: 2,
+    });
+    // 100 output tokens across the message's 2s span.
+    expect(state.speed).toEqual({
+      avgTokensPerSecond: 50,
+      peakTokensPerSecond: 50,
+      slowestTokensPerSecond: 50,
+    });
+    expect(state.lastUsage).toMatchObject({ inputTokens: 120, outputTokens: 100 });
+    await agent.dispose();
+  });
+
   it('resumes by id instead of creating a second session', async () => {
     const { agent, api } = await harness({ sessionId: 'ses_9' });
     expect(api.calls.some((call) => call.method === 'POST' && call.path === '/session')).toBe(false);

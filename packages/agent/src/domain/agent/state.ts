@@ -110,7 +110,7 @@ export interface AgentSessionState {
   costUsd?: number;
   contextUsage?: ContextUsage;
   counts?: SessionCounts;
-  /** Whole-session generation speed, measured by the host (pi reports none). */
+  /** Whole-session generation speed: host-timed for pi, from OpenCode's stored message times. */
   speed?: SessionSpeed;
 }
 

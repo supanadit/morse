@@ -19,6 +19,8 @@ import {
   type PromptDisposition,
   type PromptImage,
   type PromptMode,
+  type SessionCounts,
+  type SessionSpeed,
   type ThinkingLevel,
   type TokenUsage,
   type WorkspaceRef,
@@ -37,7 +39,13 @@ import {
   variantForLevel,
   type ApiModel,
 } from './internal/model-mapping.js';
-import { toForkMessages, toHistoryEntries, type ApiMessage } from './internal/message-mapping.js';
+import {
+  toForkMessages,
+  toHistoryEntries,
+  sessionCountsOf,
+  sessionSpeedOf,
+  type ApiMessage,
+} from './internal/message-mapping.js';
 import {
   toFormRequest,
   toPermissionRequest,
@@ -105,13 +113,18 @@ const MAX_HISTORY_PAGES = 20;
 /** `history`'s page size in messages when the caller does not name one. */
 const DEFAULT_HISTORY_LIMIT = 40;
 /**
- * How far back a state refresh walks for the newest assistant message. The
- * context ring needs one answer, and the newest page normally starts with it;
- * the walk only cushions a run of bookkeeping rows (idle markers, tool rows)
- * landing on top of it.
+ * How far back a state refresh walks the stored message list. One walk feeds
+ * the whole usage panel: the newest answer (the context ring), the message and
+ * tool-call counts, and the speed totals the engine's own message clock gives
+ * for free.
+ *
+ * `shortcut:` a session older than this walk undercounts its totals; upgrade
+ * to a deeper walk (or a server-side aggregation) if long sessions ever show
+ * numbers that stop growing.
  */
-const LATEST_USAGE_PAGES = 3;
-const LATEST_USAGE_LIMIT = 20;
+const USAGE_WALK_PAGES = 20;
+/** Page size of the usage walk, in messages. */
+const USAGE_PAGE_LIMIT = 100;
 
 /**
  * How often, and for how long, the command catalog is re-read after a session
@@ -763,13 +776,14 @@ export class OpenCodeAgent extends Session {
     // agents; the mode picker then never appears. Re-read them on a refresh
     // (connect or run end) until one lands, and leave a known list alone.
     const modesMissing = (this.box.availableModes ?? []).length === 0;
-    const [session, lastUsage, modes] = await Promise.all([
+    const [session, metrics, modes] = await Promise.all([
       this.api.get<ApiSessionInfo>(`/session/${encodeURIComponent(this.engineId)}`),
       // Resuming has no step event to report the last answer, so the ring would
       // stay empty until the reader prompts again. This is the one read that
-      // makes an opened conversation look like a live one.
-      this.latestAssistantUsage().catch((error: unknown) => {
-        this.log.warn('Could not read the OpenCode context usage', { error });
+      // makes an opened conversation look like a live one — and counts and
+      // speed ride along, so one walk feeds the whole usage panel.
+      this.usageMetrics().catch((error: unknown) => {
+        this.log.warn('Could not read the OpenCode session metrics', { error });
         return undefined;
       }),
       modesMissing
@@ -807,8 +821,14 @@ export class OpenCodeAgent extends Session {
     if (usage !== undefined) {
       patch.usage = usage;
     }
-    if (lastUsage !== undefined) {
-      patch.lastUsage = lastUsage;
+    if (metrics !== undefined) {
+      if (metrics.lastUsage !== undefined) {
+        patch.lastUsage = metrics.lastUsage;
+      }
+      patch.counts = metrics.counts;
+      if (metrics.speed !== undefined) {
+        patch.speed = metrics.speed;
+      }
     }
     if (modes !== undefined && modes.length > 0) {
       patch.availableModes = modes;
@@ -828,30 +848,40 @@ export class OpenCodeAgent extends Session {
     }
   }
 
-  /** The newest finished answer's tokens, for the context window and the last-message panel. */
-  private async latestAssistantUsage(): Promise<TokenUsage | undefined> {
+  /**
+   * One walk of the stored message list, newest-first: the newest finished
+   * answer's tokens for the context window and the last-message panel, plus
+   * the session's message/step counts and speed totals for the usage panel.
+   */
+  private async usageMetrics(): Promise<{
+    lastUsage?: TokenUsage;
+    counts: SessionCounts;
+    speed?: SessionSpeed;
+  }> {
+    const messages: ApiMessage[] = [];
     let cursor: string | undefined;
-    for (let page = 0; page < LATEST_USAGE_PAGES; page += 1) {
+    for (let page = 0; page < USAGE_WALK_PAGES; page += 1) {
       const result = await this.api.page<ApiMessage>(
         `/session/${encodeURIComponent(this.engineId)}/message`,
         {
-          limit: String(LATEST_USAGE_LIMIT),
+          limit: String(USAGE_PAGE_LIMIT),
           ...(cursor === undefined ? {} : { cursor }),
         },
       );
-      const assistant = result.data.find(
-        (message) => message.type === 'assistant' && message.tokens !== undefined,
-      );
-      const usage = toTokenUsage(assistant?.tokens);
-      if (usage !== undefined) {
-        return usage;
-      }
+      messages.push(...result.data);
       cursor = result.cursor?.next ?? undefined;
       if (cursor === undefined) {
-        return undefined;
+        break;
       }
     }
-    return undefined;
+    const newest = messages.find(
+      (message) => message.type === 'assistant' && message.tokens !== undefined,
+    );
+    return {
+      lastUsage: toTokenUsage(newest?.tokens),
+      counts: sessionCountsOf(messages),
+      speed: sessionSpeedOf(messages),
+    };
   }
 
   private selectedModel(): ApiModel | undefined {

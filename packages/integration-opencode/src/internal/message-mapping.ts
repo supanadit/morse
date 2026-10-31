@@ -1,4 +1,10 @@
-import type { AgentForkMessage, AgentHistoryEntry, ToolResultDetails } from '@morse/agent';
+import type {
+  AgentForkMessage,
+  AgentHistoryEntry,
+  SessionCounts,
+  SessionSpeed,
+  ToolResultDetails,
+} from '@morse/agent';
 import { describeToolCall } from './event-mapping.js';
 import { childSessionOf, childSessionFromText } from './child-session.js';
 
@@ -153,6 +159,81 @@ export function toForkMessages(messages: readonly ApiMessage[]): AgentForkMessag
     .filter((message) => message.type === 'user')
     .reverse()
     .map((message) => ({ entryId: message.id, text: message.text ?? '' }));
+}
+
+/** Smallest answer worth timing: below this a message measures latency, not speed. */
+const MIN_SPEED_OUTPUT_TOKENS = 25;
+
+/**
+ * Message/step totals for the usage panel, counted from the stored message
+ * list. Only conversation rows count: the bookkeeping the server keeps in the
+ * same stream (`idle`, `shell`, a failed compaction) must not inflate them.
+ */
+export function sessionCountsOf(messages: readonly ApiMessage[]): SessionCounts {
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let toolCalls = 0;
+  for (const message of messages) {
+    if (message.type === 'user') {
+      userMessages += 1;
+    } else if (message.type === 'assistant') {
+      assistantMessages += 1;
+      for (const part of asArray(message.content) ?? []) {
+        if (part.type === 'tool' && part.id !== undefined) {
+          toolCalls += 1;
+        }
+      }
+    }
+  }
+  return {
+    userMessages,
+    assistantMessages,
+    // OpenCode attaches a tool's result to the call's own part, so the two
+    // totals move together — unlike pi, which stores them as separate messages.
+    toolCalls,
+    toolResults: toolCalls,
+    totalMessages: userMessages + assistantMessages,
+  };
+}
+
+/**
+ * Whole-session generation speed from the engine's own per-message clock
+ * (`time.created` → `time.completed`): the same three numbers pi's host-side
+ * stopwatch produces, without the stopwatch. A message without both stamps, or
+ * too short to separate speed from latency, is not counted.
+ */
+export function sessionSpeedOf(messages: readonly ApiMessage[]): SessionSpeed | undefined {
+  let tokens = 0;
+  let seconds = 0;
+  const rates: number[] = [];
+  for (const message of messages) {
+    if (message.type !== 'assistant') {
+      continue;
+    }
+    const output = asNumber(asRecord(message.tokens)?.['output']) ?? 0;
+    const created = message.time?.created;
+    const completed = message.time?.completed;
+    if (
+      output < MIN_SPEED_OUTPUT_TOKENS ||
+      created === undefined ||
+      completed === undefined ||
+      completed <= created
+    ) {
+      continue;
+    }
+    const seconds_ = (completed - created) / 1000;
+    tokens += output;
+    seconds += seconds_;
+    rates.push(output / seconds_);
+  }
+  if (rates.length === 0) {
+    return undefined;
+  }
+  return {
+    avgTokensPerSecond: tokens / seconds,
+    peakTokensPerSecond: Math.max(...rates),
+    slowestTokensPerSecond: Math.min(...rates),
+  };
 }
 
 function toolStatus(status: string | undefined): 'ok' | 'error' {

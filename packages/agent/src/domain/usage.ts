@@ -80,9 +80,11 @@ export interface SessionCounts {
 }
 
 /**
- * Whole-session generation speed. pi keeps no clock, so the host times each
- * assistant message (`message_start` → `message_end`) and keeps these totals
- * per session — a resumed session continues them from disk.
+ * Whole-session generation speed. pi keeps no clock, so its host times each
+ * assistant message (`message_start` → `message_end`) and persists the totals
+ * per session — a resumed session continues them from disk. OpenCode's engine
+ * keeps the clock, so its adapter derives the totals from the stored message
+ * times instead.
  */
 export interface SessionSpeed {
   /** Output tokens over seconds spent generating, across every counted message. */

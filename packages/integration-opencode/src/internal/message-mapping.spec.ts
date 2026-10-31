@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   messageEntries,
+  sessionCountsOf,
+  sessionSpeedOf,
   toForkMessages,
   toHistoryEntries,
   type ApiMessage,
@@ -107,6 +109,22 @@ const MODEL_SWITCHED: ApiMessage = {
   model: { id: 'flint-40b-free', providerID: 'opencode' },
 };
 
+/** Two answers with the engine's own clock stamped: 100 tokens over 2s, then 50 over 0.5s. */
+const TIMED_SLOW: ApiMessage = {
+  id: 'msg_timed_1',
+  type: 'assistant',
+  time: { created: 1_000, completed: 3_000 },
+  tokens: { input: 100, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
+  content: [{ type: 'text', text: 'one' }],
+};
+const TIMED_FAST: ApiMessage = {
+  id: 'msg_timed_2',
+  type: 'assistant',
+  time: { created: 4_000, completed: 4_500 },
+  tokens: { input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
+  content: [{ type: 'text', text: 'two' }],
+};
+
 describe('message mapping', () => {
   it('turns a user message into a forkable prompt entry', () => {
     expect(messageEntries(USER)).toEqual([{ role: 'user', text: USER.text, at: 1_000 }]);
@@ -191,5 +209,37 @@ describe('message mapping', () => {
       { entryId: 'msg_b', text: '' },
       { entryId: 'msg_c', text: 'third' },
     ]);
+  });
+
+  it('counts the usage panel totals from conversation rows only', () => {
+    const counts = sessionCountsOf([
+      IDLE,
+      COMPACTION_COMPLETED,
+      ASSISTANT_WITH_TOOL,
+      ASSISTANT_TEXT,
+      MODEL_SWITCHED,
+      USER,
+    ]);
+    // The bookkeeping rows (idle, model-switched) and the compaction stay out:
+    // only user and assistant messages are the conversation.
+    expect(counts).toEqual({
+      userMessages: 1,
+      assistantMessages: 2,
+      toolCalls: 1,
+      toolResults: 1,
+      totalMessages: 3,
+    });
+  });
+
+  it('times speed from the stored message clock and skips untimeable messages', () => {
+    // ASSISTANT_WITH_TOOL carries no tokens; ASSISTANT_TEXT carries no clock;
+    // both are skipped rather than counted as infinitely fast or slow.
+    const speed = sessionSpeedOf([TIMED_FAST, TIMED_SLOW, ASSISTANT_WITH_TOOL, ASSISTANT_TEXT]);
+    expect(speed).toEqual({
+      avgTokensPerSecond: 60, // 150 tokens across 2.5s of generation
+      peakTokensPerSecond: 100,
+      slowestTokensPerSecond: 50,
+    });
+    expect(sessionSpeedOf([ASSISTANT_TEXT])).toBeUndefined();
   });
 });
