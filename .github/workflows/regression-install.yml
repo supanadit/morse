@@ -48,8 +48,8 @@ jobs:
       - name: Pack the tarball
         run: |
           npm pack -w @supanadit/morse-web
-          find . -name 'supanadit-morse-web-*.tgz' -not -path './node_modules/*' -exec mv {} . \;
-          ls -l supanadit-morse-web-*.tgz
+          find . -name 'supanadit-morse-web-*.tgz' -not -path './node_modules/*' -exec mv -f {} ./morse-web.tgz \;
+          ls -l morse-web.tgz
 
       # The bundler already inlines every `@morse/*` package into
       # dist/server.mjs; a workspace name that reaches `dependencies` (or
@@ -57,7 +57,7 @@ jobs:
       # consumers. Fail the job here rather than after publishing.
       - name: Assert the packed manifest has no private @morse/* dependencies
         run: |
-          tar -xzf morse-supanadit-morse-web-*.tgz package/package.json
+          tar -xzf morse-web.tgz package/package.json
           if node -e '
             const deps = require("./package/package.json").dependencies ?? {};
             const peers = require("./package/package.json").peerDependencies ?? {};
@@ -70,7 +70,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/morse-install"
           cd "$RUNNER_TEMP/morse-install"
           npm init -y >/dev/null
-          npm install "$GITHUB_WORKSPACE"/morse-supanadit-morse-web-*.tgz
+          npm install "$GITHUB_WORKSPACE"/morse-web.tgz
 
       - name: Boot the CLI from the clean install
         run: |
