@@ -42,8 +42,14 @@ jobs:
       - name: Build the artifact
         run: npm run build:web
 
+      # npm pack --workspace drops the tarball in the workspace directory on
+      # some npm versions and in the cwd on others; find it and park it at the
+      # repo root so the steps below can rely on one path.
       - name: Pack the tarball
-        run: npm pack -w @supanadit/morse-web --pack-destination .
+        run: |
+          npm pack -w @supanadit/morse-web
+          find . -name 'supanadit-morse-web-*.tgz' -not -path './node_modules/*' -exec mv {} . \;
+          ls -l supanadit-morse-web-*.tgz
 
       # The bundler already inlines every `@morse/*` package into
       # dist/server.mjs; a workspace name that reaches `dependencies` (or
