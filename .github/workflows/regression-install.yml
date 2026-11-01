@@ -43,7 +43,7 @@ jobs:
         run: npm run build:web
 
       - name: Pack the tarball
-        run: npm pack -w @supanadit/morse-web
+        run: npm pack -w @supanadit/morse-web --pack-destination .
 
       # The bundler already inlines every `@morse/*` package into
       # dist/server.mjs; a workspace name that reaches `dependencies` (or
