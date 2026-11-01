@@ -105,6 +105,14 @@
         drop files here · / for commands
       }
     </span>
+    @if (streaming()) {
+      <span
+        class="hint throughput"
+        title="Live output rate: text and thinking, estimated from the character stream"
+      >
+        ↓{{ streamedTokens() }} · {{ tokensPerSecond() ?? 0 }} t/s
+      </span>
+    }
     <!-- Folds the composer to its pill, giving the conversation the room back. -->
     <button
       type="button"
@@ -323,14 +331,6 @@
   @if (showStatusRow()) {
     <div class="status-row">
       <div class="status-live">
-        @if (running()) {
-          <span
-            class="hint throughput"
-            title="Live output rate: text and thinking, estimated from the character stream"
-          >
-            ↓{{ streamedTokens() }} · {{ tokensPerSecond() ?? 0 }} t/s
-          </span>
-        }
         <!-- Session facts: anything session-scoped — the engine this session
              runs (fixed once the draft is sent), where its model comes from,
              and which session it is (pi and opencode alike). Plain text, so

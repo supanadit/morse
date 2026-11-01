@@ -641,8 +641,8 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 /*
- * Row 1 is status only: live throughput and the session facts on the left,
- * run progress and the context indicator on the right. Row 2 stays pure
+ * Row 1 is status only: the session facts on the left, run progress and the
+ * context indicator on the right. Row 2 stays pure
  * controls (dropdowns + send/steer), so the buttons never move around while
  * the numbers tick.
  */
@@ -718,12 +718,6 @@ textarea:focus-visible {
   margin: 0 6px;
   opacity: 0.6;
 }
-/* The live rate and the facts are two groups on one line: same separator. */
-.throughput + .facts .fact:first-child::before {
-  content: '·';
-  margin: 0 6px;
-  opacity: 0.6;
-}
 .model-button .label {
   min-width: 0;
   overflow: hidden;
@@ -750,6 +744,16 @@ textarea:focus-visible {
   color: var(--morse-accent);
   font-family: var(--morse-font-mono);
   font-variant-numeric: tabular-nums;
+}
+/* The rate sits in the toolbar's right group now; keep the accent there —
+   the toolbar hint rule would otherwise mute it. Its auto margin takes the
+   free space, so the fold handle after it needs its auto margin back to 0. */
+.toolbar .throughput {
+  margin-left: auto;
+  color: var(--morse-accent);
+}
+.toolbar .throughput + .fold-shut {
+  margin-left: 2px;
 }
 /*
  * Responsive but deterministic: each breakpoint is pinned to the box
