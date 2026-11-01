@@ -74,7 +74,7 @@ describe('App', () => {
    * row 2 stays pure controls so the dropdowns and send button never move
    * while the numbers tick.
    */
-  it('keeps usage on the status row above the model/thinking controls', () => {
+  it('keeps usage on the status row above the model/thinking controls', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
@@ -84,8 +84,16 @@ describe('App', () => {
     expect(controls.querySelector('morse-usage-indicator')).toBeNull();
     expect(controls.querySelector('.model-button')).toBeTruthy();
     expect(controls.querySelector('morse-thinking-picker')).toBeTruthy();
-    // The live rate sits on the left of row 1; the ring stays on the right.
-    expect(status.querySelector('.status-live .throughput')).toBeTruthy();
+    // The live rate rides the toolbar's right edge, and only mid-stream: send
+    // a prompt so the mock host starts streaming. The ring stays on row 1.
+    const prompt = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    prompt.value = 'stream something';
+    prompt.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.toolbar .throughput')).toBeTruthy();
     expect(status.querySelector('.status-end morse-usage-indicator')).toBeTruthy();
   });
 
