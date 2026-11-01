@@ -162,6 +162,11 @@ export class ChatComposer {
       ...(engine.default === true ? { badge: 'default' } : {}),
     })),
   );
+  /**
+   * The engine pill: a draft choice, and only when there is one to make. The
+   * host reports just the engines it can run, so a single entry means no pill —
+   * the facts line names the engine those sessions start in.
+   */
   protected readonly showEnginePicker = computed(() => this.draft() && this.engines().length > 1);
   /** The modes the selected engine offers; absent for pi, so the pill is absent. */
   protected readonly availableModes = this.morse.availableModes;

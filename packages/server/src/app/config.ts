@@ -18,7 +18,8 @@ export interface MorseServerConfig {
   sessionDir?: string;
   /**
    * The engine a new session goes to (`MORSE_ENGINE`), when the host has more
-   * than one. `'pi'` by default; an engine that is not installed falls back to pi.
+   * than one. `'pi'` by default; an engine that is not installed falls back to
+   * whichever engine this machine can actually run.
    */
   engine?: string;
   /** Attach to a running OpenCode server instead of starting one. */

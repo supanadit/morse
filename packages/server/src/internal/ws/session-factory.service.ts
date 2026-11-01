@@ -8,14 +8,26 @@ import {
   type MorseLogger,
 } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
-import { McpWatcher, parseMcpServerInput, parseMcpServerSpec, parsePromptTemplateInput } from '@morse/integration-pi';
+import {
+  McpWatcher,
+  parseMcpServerInput,
+  parseMcpServerSpec,
+  parsePromptTemplateInput,
+  PI_INSTALL_COMMAND,
+} from '@morse/integration-pi';
+import { OPENCODE_INSTALL_COMMAND } from '@morse/integration-opencode';
 import {
   HostSessionController,
   type HostCommandContext,
   type HostSessionServices,
   type SessionTranscriptStore,
 } from '@morse/system';
-import type { HostCapabilities, HostToClientMessage, LspPosition, UpdateHostResult } from '@morse/protocol';
+import type {
+  HostCapabilities,
+  HostToClientMessage,
+  LspPosition,
+  UpdateHostResult,
+} from '@morse/protocol';
 import type { MorseServerConfig } from '../../app/config.js';
 import {
   MORSE_CONFIG,
@@ -109,6 +121,23 @@ export class MorseSessionFactory {
       // Every installed engine, so the draft can choose one. Labels are the
       // host's presentation, not a frontend hardcoding `pi`/`opencode`.
       engines: this.router.engineOptions(),
+      // The same catalog as install steps, for the screen a machine with no
+      // engine at all sees. Morse is only the interface, so it offers every
+      // agent it can drive instead of blaming one of them.
+      engineSetup: [
+        {
+          kind: 'pi',
+          label: 'pi',
+          install: PI_INSTALL_COMMAND,
+          hint: 'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',
+        },
+        {
+          kind: 'opencode',
+          label: 'OpenCode',
+          install: OPENCODE_INSTALL_COMMAND,
+          hint: 'Install the OpenCode CLI so it is on PATH, or start the server with MORSE_OPENCODE_URL pointing at a running `opencode serve`.',
+        },
+      ],
       // A browser has no local editor to read, so there is nothing to pin.
       editorContext: false,
       // No QuickPick/InputBox here, so the frontend renders interactions.
@@ -183,7 +212,10 @@ export class MorseSessionFactory {
     };
   }
 
-  createFor(emit: (message: HostToClientMessage) => void, remoteAddress?: string): HostSessionController {
+  createFor(
+    emit: (message: HostToClientMessage) => void,
+    remoteAddress?: string,
+  ): HostSessionController {
     const services: HostSessionServices = {
       registry: this.registry,
       chat: new ChatService({ agent: this.registry, logger: this.logger }),
@@ -297,8 +329,7 @@ export class MorseSessionFactory {
         const cwd = this.commandCwd(context, args);
         return searchWorkspace(cwd, {
           query: typeof args?.query === 'string' ? args.query : '',
-          caseSensitive:
-            typeof args?.caseSensitive === 'boolean' ? args.caseSensitive : undefined,
+          caseSensitive: typeof args?.caseSensitive === 'boolean' ? args.caseSensitive : undefined,
           include: args?.include,
           exclude: args?.exclude,
         });
@@ -337,7 +368,8 @@ export class MorseSessionFactory {
         const cwd = this.requireWritableCwd(context);
         return readGitRepos(cwd);
       }
-      case 'gitLog': {        // The git panel's history and graph. Like `readFile`, the repository is
+      case 'gitLog': {
+        // The git panel's history and graph. Like `readFile`, the repository is
         // the viewing session's directory, never a path the client names. `skip`
         // pages towards the root commit as the panel scrolls.
         const cwd = this.requireWritableCwd(context);
@@ -481,7 +513,10 @@ export class MorseSessionFactory {
         return this.promptsFor(args).list(this.optionalCwd(context, args));
       }
       case 'promptTemplateSave': {
-        return this.promptsFor(args).save(parsePromptTemplateInput(args), this.optionalCwd(context, args));
+        return this.promptsFor(args).save(
+          parsePromptTemplateInput(args),
+          this.optionalCwd(context, args),
+        );
       }
       case 'promptTemplateDelete': {
         return this.promptsFor(args).delete(
@@ -519,7 +554,8 @@ export class MorseSessionFactory {
       return {
         ok: false,
         from,
-        message: 'This host was not started with MORSE_SELF_UPDATE=1. Run npm install -g @supanadit/morse-web@latest and restart it.',
+        message:
+          'This host was not started with MORSE_SELF_UPDATE=1. Run npm install -g @supanadit/morse-web@latest and restart it.',
       };
     }
     if (!isLoopback(remoteAddress)) {
@@ -534,7 +570,8 @@ export class MorseSessionFactory {
       return {
         ok: false,
         from,
-        message: 'This Morse is not a writable npm-global install, so it cannot replace itself. Run npm install -g @supanadit/morse-web@latest yourself.',
+        message:
+          'This Morse is not a writable npm-global install, so it cannot replace itself. Run npm install -g @supanadit/morse-web@latest yourself.',
       };
     }
     return performSelfUpdate({
@@ -624,7 +661,8 @@ export class MorseSessionFactory {
   }
 
   /** The cwd of the session this connection is showing. */
-  private activeCwd(): string | undefined {    const key = this.registry.activeKeyOf();
+  private activeCwd(): string | undefined {
+    const key = this.registry.activeKeyOf();
     const workspace = key === undefined ? undefined : this.registry.stateOf(key)?.workspace;
     return workspace?.cwd ?? this.registry.defaultWorkspace.cwd;
   }

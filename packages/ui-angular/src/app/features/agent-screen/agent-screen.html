@@ -1,62 +1,116 @@
 <section class="card" role="alert" aria-labelledby="agent-title">
-  <p class="eyebrow">
-    <span class="pip" aria-hidden="true"></span>
-    {{ missing() ? 'Setup' : 'Agent unavailable' }}
-  </p>
+  @if (noEngine()) {
+    <p class="eyebrow">
+      <span class="pip" aria-hidden="true"></span>
+      Setup
+    </p>
 
-  <h1 id="agent-title">
-    The {{ engineLabel() }} agent {{ missing() ? 'is not installed' : 'could not start' }}
-  </h1>
+    <h1 id="agent-title">Morse needs a coding agent</h1>
 
-  <p class="body">
-    Morse is only the interface — every answer comes from the {{ engineLabel() }} agent on this
-    machine, with your own models, tools and sessions. @if (missing()) { Install it once and this
-    panel is ready. }
-  </p>
+    <p class="body">
+      Morse is only the interface — every answer comes from a coding agent on this machine, with
+      your own models, tools and sessions. Install either one: they drive the same sessions, sidebar
+      and transcript.
+    </p>
 
-  @if (install(); as command) {
-    <div class="command">
-      <code>{{ command }}</code>
-      <button type="button" class="secondary" (click)="copyInstall()">
-        {{ copied() ? 'Copied' : 'Copy' }}
-      </button>
-    </div>
-  }
-
-  @if (hint(); as line) {
-    <p class="hint">{{ line }}</p>
-  }
-
-  <div class="actions">
-    <button type="button" (click)="retry()">Retry</button>
-    @if (hasEditor()) {
-      <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
-      <button type="button" class="secondary" (click)="showLog()">Show log</button>
+    @for (option of setup(); track option.kind) {
+      <div class="option">
+        <h2>{{ option.label }}</h2>
+        @if (option.install; as command) {
+          <div class="command">
+            <code>{{ command }}</code>
+            <button type="button" class="secondary" (click)="copyInstall(command, option.kind)">
+              {{ copied(option.kind) ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+        }
+        @if (option.hint; as line) {
+          <p class="hint">{{ line }}</p>
+        }
+      </div>
     }
-  </div>
 
-  @if (isPi()) {
+    <div class="actions">
+      <button type="button" (click)="retry()">Retry</button>
+      @if (hasEditor()) {
+        <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
+        <button type="button" class="secondary" (click)="showLog()">Show log</button>
+      }
+    </div>
+
     @if (hasEditor()) {
-      <!--
-        The extension resolves pi when it activates, so a setting changed now only
-        takes effect after the window reloads. Saying so beats a Retry button that
-        silently fails again.
-      -->
       <p class="foot">
-        Changed “morse.pi.path”? Reload the window — Morse picks the pi path when it starts. To use a
-        pi that is already installed, point the setting at it instead of installing a second copy.
+        Installed one? Reload the window — Morse resolves engines when it activates.
       </p>
     } @else {
       <p class="foot">
-        The host reads <code>MORSE_PI_PATH</code> at startup, so restart it after changing that (or
-        install pi) — <code>morse restart</code> for the daemon.
+        The host resolves engines at startup, so restart it after installing one —
+        <code>morse restart</code> for the daemon.
       </p>
     }
   } @else {
-    <p class="foot">
-      The host resolves the {{ engineLabel() }} binary at startup, so restart it after changing how
-      it is installed — <code>morse restart</code> for the daemon.
+    <p class="eyebrow">
+      <span class="pip" aria-hidden="true"></span>
+      {{ missing() ? 'Setup' : 'Agent unavailable' }}
     </p>
+
+    <h1 id="agent-title">
+      The {{ engineLabel() }} agent {{ missing() ? 'is not installed' : 'could not start' }}
+    </h1>
+
+    <p class="body">
+      Morse is only the interface — every answer comes from the {{ engineLabel() }} agent on this
+      machine, with your own models, tools and sessions.
+      @if (missing()) {
+        Install it once and this panel is ready.
+      }
+    </p>
+
+    @if (install(); as command) {
+      <div class="command">
+        <code>{{ command }}</code>
+        <button type="button" class="secondary" (click)="copyInstall(command, engineKind())">
+          {{ copied(engineKind()) ? 'Copied' : 'Copy' }}
+        </button>
+      </div>
+    }
+
+    @if (hint(); as line) {
+      <p class="hint">{{ line }}</p>
+    }
+
+    <div class="actions">
+      <button type="button" (click)="retry()">Retry</button>
+      @if (hasEditor()) {
+        <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
+        <button type="button" class="secondary" (click)="showLog()">Show log</button>
+      }
+    </div>
+
+    @if (isPi()) {
+      @if (hasEditor()) {
+        <!--
+          The extension resolves pi when it activates, so a setting changed now only
+          takes effect after the window reloads. Saying so beats a Retry button that
+          silently fails again.
+        -->
+        <p class="foot">
+          Changed “morse.pi.path”? Reload the window — Morse picks the pi path when it starts. To
+          use a pi that is already installed, point the setting at it instead of installing a second
+          copy.
+        </p>
+      } @else {
+        <p class="foot">
+          The host reads <code>MORSE_PI_PATH</code> at startup, so restart it after changing that
+          (or install pi) — <code>morse restart</code> for the daemon.
+        </p>
+      }
+    } @else {
+      <p class="foot">
+        The host resolves the {{ engineLabel() }} binary at startup, so restart it after changing
+        how it is installed — <code>morse restart</code> for the daemon.
+      </p>
+    }
   }
 
   @if (message(); as text) {

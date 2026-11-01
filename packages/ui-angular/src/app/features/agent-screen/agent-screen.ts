@@ -13,6 +13,12 @@ import { MorseService } from '../../host/morse.service';
  * and the host's own next step. The engine's label comes from the host, so an
  * OpenCode failure does not blame pi.
  *
+ * A host with **no engine at all** is a second, deliberately different case:
+ * there is no engine to blame, and Morse itself is engine-agnostic, so the
+ * screen offers every engine the host can drive (`capabilities.engineSetup`)
+ * instead of naming one. Both hosts send it, so a browser and a VS Code sidebar
+ * show the same choice.
+ *
  * It takes over only an **empty** panel; with a transcript to read the failure
  * stays a bar above it (see `app.ts`), because old answers are still worth
  * reading with the agent down.
@@ -44,6 +50,18 @@ export class AgentScreen {
     return { kind: picked?.kind ?? 'pi', label: picked?.label ?? 'pi' };
   });
   protected readonly engineLabel = computed(() => this.engine().label);
+  protected readonly engineKind = computed(() => this.engine().kind);
+  /**
+   * Nothing is installed. A host that reports an empty engine list is saying
+   * exactly that; one that omits the list predates engine selection and is
+   * still a pi host, so it keeps the single-engine screen below.
+   */
+  protected readonly noEngine = computed(() => {
+    const capabilities = this.morse.capabilities();
+    return capabilities?.engines !== undefined && capabilities.engines.length === 0;
+  });
+  /** Every engine this host can install, in the host's own words. */
+  protected readonly setup = this.morse.engineSetup;
   /**
    * The footnotes below name pi's own setting and environment variable. They
    * are worse than useless on an OpenCode host, which resolves its own binary.
@@ -58,16 +76,24 @@ export class AgentScreen {
    * equivalent is a terminal command, which the footnote spells out instead.
    */
   protected readonly hasEditor = computed(() => this.morse.capabilities()?.hostKind === 'vscode');
-  protected readonly copied = signal(false);
+  /** Which row was copied last, so a second row does not show another's "Copied". */
+  private readonly copiedKind = signal<string | undefined>(undefined);
 
-  protected copyInstall(): void {
-    const command = this.install();
+  protected copied(kind: string): boolean {
+    return this.copiedKind() === kind;
+  }
+
+  protected copyInstall(command: string, kind: string): void {
     if (command.length === 0) {
       return;
     }
     void navigator.clipboard?.writeText(command);
-    this.copied.set(true);
-    setTimeout(() => this.copied.set(false), 1_600);
+    this.copiedKind.set(kind);
+    setTimeout(() => {
+      if (this.copiedKind() === kind) {
+        this.copiedKind.set(undefined);
+      }
+    }, 1_600);
   }
 
   /** Same retry as the banner: a new session is what makes the host spawn the agent again. */

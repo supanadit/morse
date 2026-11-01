@@ -15,15 +15,42 @@ export interface EngineOption {
   default?: boolean;
 }
 
+/**
+ * One engine the host can install, for the setup screen. The command and the
+ * next step stay host-side: the frontend must not hardcode a package name or a
+ * setting key, because a host resolves engines in its own way (a VS Code setting
+ * here, an environment variable there).
+ */
+export interface EngineSetupOption {
+  /** The stable engine kind (`pi`, `opencode`). */
+  kind: string;
+  /** The display label. */
+  label: string;
+  /** Shell command that installs it, when the integration knows one. */
+  install?: string;
+  /** Host-specific next step: the setting or environment variable to look at. */
+  hint?: string;
+}
+
 export interface HostCapabilities {
   hostKind: HostKind;
   scope: HostScope;
   /**
-   * Every engine this host can start, with labels and the configured default.
-   * Optional: a host that predates engine selection, or one that cannot enumerate
-   * its engines, leaves it out and the frontend shows no engine picker.
+   * Every engine this host can start here, with labels and the configured
+   * default. An engine the host cannot resolve is left out, so a machine with a
+   * single engine reports a single entry and the frontend offers no engine
+   * picker at all. Optional: a host that predates engine selection, or one that
+   * cannot enumerate its engines, leaves it out and the frontend shows no
+   * engine picker.
    */
   engines?: EngineOption[];
+  /**
+   * How to install each engine this host knows, in the host's own words. Always
+   * reported, even when everything resolved; the frontend uses it only when
+   * `engines` is an empty list — the full-screen setup card a fresh install
+   * needs, naming every engine the reader could install rather than blaming one.
+   */
+  engineSetup?: EngineSetupOption[];
   /** Host can read the active editor selection / open files. */
   editorContext: boolean;
   /**

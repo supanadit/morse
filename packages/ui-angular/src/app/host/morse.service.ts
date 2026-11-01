@@ -134,6 +134,12 @@ export class MorseService {
   });
   /** Installed engines, for the draft's engine picker; empty on older hosts. */
   readonly engines = computed(() => this.view().capabilities?.engines ?? []);
+  /**
+   * How to install each engine this host knows, in the host's own words. Used
+   * only by the setup screen a host that resolved no engine shows; a host that
+   * predates engine selection leaves it out.
+   */
+  readonly engineSetup = computed(() => this.view().capabilities?.engineSetup ?? []);
   /** True only for the intentional no-session draft. */
   readonly draft = computed(() => this.view().state.draft === true);
   /** The engine the draft chose; absent means the host's configured default. */

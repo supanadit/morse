@@ -50,6 +50,18 @@ h1 {
   font-size: 12.5px;
   line-height: 1.6;
 }
+/* One installable engine on the no-engine screen: its name, command, next step. */
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.option h2 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
 .command {
   display: flex;
   align-items: center;

@@ -20,6 +20,7 @@ export { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
 export { findOpenCodeBinary } from './internal/resolve-opencode.js';
 export {
   connectOpenCode,
+  OPENCODE_INSTALL_COMMAND,
   type OpenCodeConnection,
   type OpenCodeConnectionOptions,
 } from './internal/connection.js';

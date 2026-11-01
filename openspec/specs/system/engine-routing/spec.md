@@ -1,6 +1,7 @@
 # system/engine-routing Specification
 
 ## Purpose
+
 Defines how Morse addresses sessions with its own derived ids no matter which harness created
 them: resolving a persisted session to the engine that owns it, keeping a session's id stable
 through a fork, serving the sidebar from Morse's index, and reconciling every installed engine.
@@ -43,7 +44,7 @@ id of the new engine session so the caller can re-key it.
 
 ### Requirement: The host reports the engines it can start
 
-The host SHALL report every agent engine it can start, each with a stable kind, a display label and whether it is the default for new sessions. An engine that could not be initialized SHALL be left out rather than offered and then fail.
+The host SHALL report every agent engine it can start, each with a stable kind, a display label and whether it is the default for new sessions. An engine that could not be initialized SHALL be left out rather than offered and then fail. A host that resolves no engine at all SHALL report an empty list rather than register one it cannot run.
 
 #### Scenario: Every usable engine is reported
 
@@ -67,7 +68,36 @@ The host SHALL report every agent engine it can start, each with a stable kind, 
 
 - **WHEN** only one engine is reported
 - **THEN** new sessions start in it
-- **AND** the frontend has nothing to choose between
+- **AND** the frontend offers no engine picker
+
+#### Scenario: A host with no engine reports none, not a stand-in
+
+- **WHEN** neither pi nor OpenCode resolves on this machine
+- **THEN** the reported engine list is empty and no engine is marked as the default
+- **AND** the host does not register an engine it cannot run just to have one
+- **AND** `engineSetup` lists every engine the host can drive, each with its install command and the setting or environment variable this host reads
+
+#### Scenario: The setup screen offers every install when no engine is reported
+
+- **WHEN** the frontend receives capabilities whose engine list is present and empty
+- **THEN** an empty panel shows a full-screen setup card listing every `engineSetup` entry, each with its label, install command (copyable) and host-specific hint
+- **AND** the frontend hardcodes no package name or setting key — both come from the host
+- **AND** a host that omits the engine list entirely keeps the existing single-engine failure screen
+
+### Requirement: The host names how to install each engine it knows
+
+The host SHALL send `engineSetup` alongside the engine list: one entry per engine it can drive, carrying the engine's kind and label, an install command, and this host's own next step (the setting or environment variable that points at it). The commands live with the engine integrations and the hints with the host, so the frontend stays engine-agnostic.
+
+#### Scenario: A fresh install gets both installs, in the host's own words
+
+- **WHEN** the frontend asks a host what it can do
+- **THEN** the capabilities carry an `engineSetup` entry for pi and for OpenCode
+- **AND** each entry's install command names a package that integration actually speaks, and its hint names the setting this host reads
+
+#### Scenario: An older host without engineSetup degrades to the failure screen
+
+- **WHEN** the frontend talks to a host that reports no engines and no `engineSetup`
+- **THEN** the setup card still renders, with only what the host's failure message provides
 
 ### Requirement: A new session starts in the engine chosen for an empty session
 
@@ -92,6 +122,12 @@ The empty session SHALL be able to name the engine a new session starts in, and 
 - **WHEN** the empty session names an engine the host does not report
 - **THEN** the choice is refused with a reason
 - **AND** the draft keeps the engine it had
+
+#### Scenario: A host with no engine refuses new sessions with a reason
+
+- **WHEN** the reader prompts on a host that reported no engine
+- **THEN** the new session is refused with a reason, and the setup screen stays up
+- **AND** the refusal names the missing engine rather than failing silently
 
 #### Scenario: Resuming keeps the owning engine
 

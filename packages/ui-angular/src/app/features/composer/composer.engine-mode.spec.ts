@@ -137,6 +137,21 @@ describe('ChatComposer engine and mode pills', () => {
     expect(picker(host, 'engine')).toBeNull();
   });
 
+  it('starts an OpenCode-only host in OpenCode without asking', async () => {
+    // The host no longer advertises an engine it cannot run, so a machine with
+    // only OpenCode reports one engine: no pill, and the facts line already
+    // names the engine every draft will start in.
+    const transport = new PickersTransport(
+      { ...TWO_ENGINES, engines: [{ kind: 'opencode', label: 'OpenCode', default: true }] },
+      state(),
+    );
+    const { host } = await mount(transport);
+
+    expect(picker(host, 'engine')).toBeNull();
+    expect(host.querySelector('.facts')?.textContent).toContain('OpenCode');
+    expect(transport.sent.some((message) => message.type === 'engine/set')).toBe(false);
+  });
+
   it('hides the engine pill once a session exists, but keeps the mode pill', async () => {
     const transport = new PickersTransport(
       TWO_ENGINES,

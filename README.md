@@ -82,10 +82,11 @@ Morse started as a _vibe-coded prototype_, **but not anymore**. I fell in love w
 ## Requirements
 
 - Node.js 20+ (developed on 24) and npm 10+.
-- The `pi` CLI installed and authenticated (`pi --version`), or a path to it via `morse.pi.path` /
-  `MORSE_PI_PATH`.
-- *Optional:* OpenCode for the second engine — its binary on `PATH`, or a running `opencode serve` plus its
-  password (`MORSE_OPENCODE_URL` / `morse.opencode.url`). A machine with neither simply stays pi-only.
+- At least one coding agent: the `pi` CLI installed and authenticated (`pi --version`), or a path to it via
+  `morse.pi.path` / `MORSE_PI_PATH`; or the OpenCode CLI (v2) on `PATH` (`npm install -g @opencode/cli`), or
+  a running `opencode serve` plus its password (`MORSE_OPENCODE_URL` / `morse.opencode.url`).
+- *Optional:* the second engine — Morse registers whichever it finds and offers the engine picker only when
+  both are installed. A machine with neither shows a full-screen setup card offering both installs.
 - VS Code 1.138+ for the extension host.
 - Morse reuses each engine's own configuration: pi's models, credentials, tools and sessions under `~/.pi`;
   OpenCode's providers, agents and sessions in its server.

@@ -55,6 +55,14 @@ export interface OpenCodeConnection {
 export const OPENCODE_API_PREFIX = '/api';
 
 /**
+ * The one command the setup screen offers. This adapter speaks the server's v2
+ * HTTP API, which the `@opencode/cli` package ships; the older `opencode-ai`
+ * package answers an API this adapter does not use, so naming it would send the
+ * reader to a version Morse cannot drive.
+ */
+export const OPENCODE_INSTALL_COMMAND = 'npm install -g @opencode/cli';
+
+/**
  * Resolves the server for an engine: attach + verify, or spawn + verify.
  *
  * Verification is deliberately a real authenticated request, not just a TCP
@@ -139,7 +147,11 @@ interface Announcement {
  * its own stderr instead of waiting out the timeout, and the timeout itself fails
  * with the output so far — enough to see a prompt or an error the parser missed.
  */
-function readAnnouncement(child: ChildProcess, bin: string, timeoutMs: number): Promise<Announcement> {
+function readAnnouncement(
+  child: ChildProcess,
+  bin: string,
+  timeoutMs: number,
+): Promise<Announcement> {
   return new Promise<Announcement>((resolve, reject) => {
     let output = '';
     let url: string | undefined;
@@ -272,7 +284,7 @@ function spawnFailure(bin: string, error: Error): AgentUnavailableError {
       : `Morse could not start "${bin} serve": ${error.message}`,
     {
       cause: error,
-      ...(missing ? { remedy: { install: 'npm install -g opencode-ai' } } : {}),
+      ...(missing ? { remedy: { install: OPENCODE_INSTALL_COMMAND } } : {}),
     },
   );
 }
@@ -314,4 +326,3 @@ function normalizeUrl(url: string): string {
 function tail(output: string): string {
   return output.trim().split('\n').slice(-6).join('\n');
 }
-

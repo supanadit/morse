@@ -63,13 +63,16 @@ Morse **v0.24.0**. This page is the honest inventory of what ships. Everything e
 ### Engines
 
 - **pi and OpenCode** drive the same sessions, sidebar and transcript. pi is the default new-session engine; set
-  `MORSE_ENGINE=opencode` (browser) or `morse.engine` (VS Code) to start there. When both are installed, the
-  empty composer offers an engine picker: choosing one re-reads that engine's model/mode catalogs, and the first
-  prompt creates the session there. The choice is sticky for later new sessions in the same host; the configured
-  default is still what starts a host.
+  `MORSE_ENGINE=opencode` (browser) or `morse.engine` (VS Code) to start there. A host registers only the engines
+  it can run, so one engine means no picker: the composer shows that engine's name in the session facts and every
+  new session starts there. When both are installed, the empty composer offers an engine picker: choosing one
+  re-reads that engine's model/mode catalogs, and the first prompt creates the session there. The choice is sticky
+  for later new sessions in the same host; the configured default is still what starts a host.
 - OpenCode registers itself when its binary is on `PATH` or `MORSE_OPENCODE_URL` / `morse.opencode.url` is set —
-  attaching to a running `opencode serve`, or spawning a private one (which stops with the host). A machine with
-  neither stays pi-only.
+  attaching to a running `opencode serve`, or spawning a private one (which stops with the host). pi registers
+  when its binary resolves (or `MORSE_PI_PATH` / `morse.pi.path` names it), so an OpenCode-only machine offers
+  OpenCode alone. When neither resolves, the host registers nothing and reports an empty engine list —
+  the panel then shows the full-screen setup card, which offers both installs (`engineSetup`).
 - Each engine's sessions are listed, opened, forked and deleted through the same commands. Engine-only extras
   (MCP administration, prompt templates, version notice) come from the selected engine: OpenCode has none, so
   those affordances are absent rather than empty.

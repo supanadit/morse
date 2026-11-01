@@ -4,13 +4,18 @@ import {
   AgentRouter,
   FileSessionStore,
   SessionRegistry,
+  planEngineRegistration,
   type MorseLogger,
 } from '@morse/system';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
 import { openOpenCodeEngine } from '@morse/integration-opencode';
 import type { MorseServerConfig } from '../app/config.js';
-import { MORSE_AGENT_ROUTER, MORSE_SESSION_REGISTRY, MORSE_TRANSCRIPT_STORE } from '../app/tokens.js';
+import {
+  MORSE_AGENT_ROUTER,
+  MORSE_SESSION_REGISTRY,
+  MORSE_TRANSCRIPT_STORE,
+} from '../app/tokens.js';
 import { clearWorkspaceIndex } from './workspace/workspace-index.js';
 
 /**
@@ -19,9 +24,10 @@ import { clearWorkspaceIndex } from './workspace/workspace-index.js';
  *
  * The router owns Morse's ids and serves the sidebar catalog from the
  * file-backed index, so the rest of the host (and every engine) is unaware of
- * which harness created a session. pi is always registered; OpenCode registers
- * itself only when a URL is configured or its binary is on PATH, so a pi-only
- * machine never starts one.
+ * which harness created a session. Only engines this machine can actually run
+ * are registered: pi when its binary resolves, OpenCode when a URL is
+ * configured or its binary is on PATH. A single-engine machine therefore reports
+ * one engine, and the frontend offers no choice at all.
  */
 export async function createAgentRouter(
   adapter: PiRpcAdapter,
@@ -43,27 +49,74 @@ export async function createAgentRouter(
     maxSessionsPerProject: config.sessionsPerProject,
   });
 
-  // `MORSE_ENGINE` picks the new-session default, but an engine that could not
-  // start never becomes the default: the host keeps working on pi.
-  const defaultIsOpenCode = config.engine === 'opencode' && openCode !== undefined;
-  router.register(adapter.engine, {
-    label: 'pi',
-    catalog: adapter.catalog,
-    extras: adapter.extras,
-    default: !defaultIsOpenCode,
-  });
-  if (openCode !== undefined) {
-    router.register(openCode.engine, {
-      label: 'OpenCode',
-      catalog: openCode.catalog,
-      extras: openCode.extras,
-      default: defaultIsOpenCode,
+  // `MORSE_ENGINE` picks the new-session default, but only among engines that
+  // are actually here: naming an engine that did not resolve would leave a
+  // draft with no default on an OpenCode-only machine.
+  const piAvailable = piResolves(adapter);
+  const candidates = [
+    {
+      kind: adapter.engine.kind,
+      label: 'pi',
+      engine: adapter.engine,
+      catalog: adapter.catalog,
+      extras: adapter.extras,
+      available: piAvailable,
+      preferred: config.engine !== 'opencode',
+    },
+    ...(openCode === undefined
+      ? []
+      : [
+          {
+            kind: openCode.engine.kind,
+            label: 'OpenCode',
+            engine: openCode.engine,
+            catalog: openCode.catalog,
+            extras: openCode.extras,
+            available: true,
+            preferred: config.engine === 'opencode',
+          },
+        ]),
+  ];
+
+  for (const planned of planEngineRegistration(candidates)) {
+    const candidate = candidates.find((entry) => entry.kind === planned.kind);
+    if (candidate === undefined) {
+      continue;
+    }
+    router.register(candidate.engine, {
+      label: candidate.label,
+      catalog: candidate.catalog,
+      extras: candidate.extras,
+      default: planned.default,
     });
+  }
+
+  if (!piAvailable) {
+    logger.warn(
+      openCode === undefined
+        ? 'Neither pi nor OpenCode could be resolved; the setup screen offers both installs'
+        : 'pi is not installed here; only OpenCode is offered',
+    );
+  }
+  if (openCode !== undefined && router.engineFor(openCode.engine.kind) !== undefined) {
     logger.info(
       `OpenCode engine registered (${openCode.owned ? 'Morse owns its server' : `attached to ${openCode.baseUrl}`})`,
     );
   }
   return router;
+}
+
+/**
+ * Whether pi resolves on this machine, without starting anything: `describe()`
+ * only locates the binary (and throws the actionable "not found" error).
+ */
+function piResolves(adapter: PiRpcAdapter): boolean {
+  try {
+    adapter.describe();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function createSessionRegistry(

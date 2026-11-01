@@ -1,10 +1,23 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { createPiRpcAdapter, findOnPathBinary, type PiRpcAdapterConfig } from '@morse/integration-pi';
-import { findOpenCodeBinary, openOpenCodeEngine } from '@morse/integration-opencode';
+import {
+  createPiRpcAdapter,
+  findOnPathBinary,
+  PI_INSTALL_COMMAND,
+  type PiRpcAdapterConfig,
+} from '@morse/integration-pi';
+import {
+  findOpenCodeBinary,
+  OPENCODE_INSTALL_COMMAND,
+  openOpenCodeEngine,
+} from '@morse/integration-opencode';
 import { AgentRouter, ChatService, FileSessionStore, SessionRegistry } from '@morse/system';
-import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/system';
+import {
+  bindTranscriptsToRegistry,
+  planEngineRegistration,
+  SessionTranscriptStore,
+} from '@morse/system';
 import {
   FRONTEND_MANIFEST_FILE,
   PROTOCOL_VERSION,
@@ -64,7 +77,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 }
 
-async function startHost(context: vscode.ExtensionContext, logger: OutputChannelLogger): Promise<void> {
+async function startHost(
+  context: vscode.ExtensionContext,
+  logger: OutputChannelLogger,
+): Promise<void> {
   const webviewRoot = vscode.Uri.joinPath(context.extensionUri, 'media', 'webview');
   const manifest = await readFrontendManifest(webviewRoot);
 
@@ -110,21 +126,53 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     ...(env ? { env } : {}),
     maxSessionsPerProject: piConfig.maxSessionsPerProject,
   });
-  const defaultIsOpenCode = readDefaultEngine() === 'opencode' && openCode !== undefined;
+  // Only engines this window can actually start are registered, so a machine
+  // with a single engine reports a single engine: the composer then offers no
+  // choice and every new session starts in it.
+  const piAvailable = piResolves(adapter);
+  const preferredEngine = readDefaultEngine();
+  const candidates = [
+    {
+      kind: adapter.engine.kind,
+      label: 'pi',
+      engine: adapter.engine,
+      catalog: adapter.catalog,
+      available: piAvailable,
+      preferred: preferredEngine !== 'opencode',
+    },
+    ...(openCode === undefined
+      ? []
+      : [
+          {
+            kind: openCode.engine.kind,
+            label: 'OpenCode',
+            engine: openCode.engine,
+            catalog: openCode.catalog,
+            available: true,
+            preferred: preferredEngine === 'opencode',
+          },
+        ]),
+  ];
 
   const store = new FileSessionStore(join(context.globalStorageUri.fsPath, 'sessions'));
   const router = new AgentRouter({ store, defaultWorkspace: workspace, logger });
-  router.register(adapter.engine, {
-    label: 'pi',
-    catalog: adapter.catalog,
-    default: !defaultIsOpenCode,
-  });
-  if (openCode !== undefined) {
-    router.register(openCode.engine, {
-      label: 'OpenCode',
-      catalog: openCode.catalog,
-      default: defaultIsOpenCode,
+  for (const planned of planEngineRegistration(candidates)) {
+    const candidate = candidates.find((entry) => entry.kind === planned.kind);
+    if (candidate === undefined) {
+      continue;
+    }
+    router.register(candidate.engine, {
+      label: candidate.label,
+      catalog: candidate.catalog,
+      default: planned.default,
     });
+  }
+  if (!piAvailable) {
+    logger.warn(
+      openCode === undefined
+        ? 'Neither pi nor OpenCode could be resolved; the setup screen offers both installs'
+        : 'pi is not installed here; only OpenCode is offered',
+    );
   }
 
   const extras = router.defaultExtras();
@@ -150,6 +198,23 @@ async function startHost(context: vscode.ExtensionContext, logger: OutputChannel
     transcripts,
     chat,
     engines: router.engineOptions(),
+    // The setup screen a machine with no engine at all sees: Morse is only the
+    // interface, so it offers every agent this window can drive. Each host names
+    // its own setting, and the integrations own the install commands.
+    engineSetup: [
+      {
+        kind: 'pi',
+        label: 'pi',
+        install: PI_INSTALL_COMMAND,
+        hint: 'Set "morse.pi.path" to the pi CLI, or install it so that it is on PATH, then reload the window.',
+      },
+      {
+        kind: 'opencode',
+        label: 'OpenCode',
+        install: OPENCODE_INSTALL_COMMAND,
+        hint: 'Set "morse.opencode.path" to the OpenCode CLI or "morse.opencode.url" to a running server, then reload the window.',
+      },
+    ],
     editor,
     policy: new VsCodeProjectPolicy(),
     roots: readWorkspaceRoots(),
@@ -227,6 +292,19 @@ function describePi(adapter: { describe(): { source: string; command: string } }
     return `${spawn.source} (${spawn.command})`;
   } catch (error: unknown) {
     return `not found (${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'})`;
+  }
+}
+
+/**
+ * Whether pi resolves in this window, without starting it: `describe()` only
+ * locates the binary, and throws the actionable "not found" error otherwise.
+ */
+function piResolves(adapter: { describe(): unknown }): boolean {
+  try {
+    adapter.describe();
+    return true;
+  } catch {
+    return false;
   }
 }
 

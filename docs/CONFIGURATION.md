@@ -61,11 +61,16 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
 - **Own a private server** — with no URL, Morse runs `opencode serve --hostname 127.0.0.1 --port 0`, reads the
   address and password the process announces, and stops it when the host shuts down. Point
   `MORSE_OPENCODE_BIN` / `morse.opencode.path` at a binary outside `PATH` if needed.
-- **Which engine a new session uses** is `MORSE_ENGINE` / `morse.engine`. When more than one engine is installed,
-  the empty composer also offers an engine picker; choosing one re-reads that engine's catalogs and the first
-  prompt creates the session there. The choice is remembered for later new sessions in the same host, while the
-  configured default still decides where a fresh host starts. Existing sessions always reopen through the engine
-  recorded for them, whatever the default or draft choice is.
+- **Which engine a new session uses** is `MORSE_ENGINE` / `morse.engine`. Morse only registers the engines it can
+  actually run — pi when its binary resolves, OpenCode when a server is configured or its binary is on `PATH` — so
+  a machine with a single engine reports that one alone, offers no picker at all, and starts every new session
+  in it. When more than one engine is installed, the empty composer also offers an engine picker; choosing one
+  re-reads that engine's catalogs and the first prompt creates the session there. The choice is remembered for
+  later new sessions in the same host, while the configured default still decides where a fresh host starts.
+  Existing sessions always reopen through the engine recorded for them, whatever the default or draft choice
+  is. A machine where neither engine resolves registers none: the panel shows a full-screen setup card
+  offering both installs (`engineSetup` on the wire), each with its install command and this host's own
+  setting — pi's `MORSE_PI_PATH` / `morse.pi.path`, OpenCode's `MORSE_OPENCODE_URL` / `morse.opencode.url`.
 - **Modes** are OpenCode's primary agents. `plan`, `build` and any primary agent you define are offered; hidden
   and subagent-only agents are not. The current mode can be changed while a conversation runs (OpenCode's Tab
   behaviour), and the mode picker re-reads the catalog when it opens.

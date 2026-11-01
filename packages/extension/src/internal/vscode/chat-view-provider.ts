@@ -30,6 +30,7 @@ import {
   parseClientMessage,
   type ClientToHostMessage,
   type EngineOption,
+  type EngineSetupOption,
   type HostCapabilities,
   type HostToClientMessage,
   type NoticeLevel,
@@ -85,6 +86,13 @@ export interface ChatViewProviderDeps {
   chat: ChatService;
   /** The engines this window can start, for the draft's engine picker. */
   engines: EngineOption[];
+  /**
+   * How to install each engine this window knows, in this host's own words. Sent
+   * always; the frontend uses it only when `engines` is empty, for the setup
+   * screen a fresh install sees — Morse is engine-agnostic, so that screen
+   * offers every agent it can drive instead of blaming one.
+   */
+  engineSetup: EngineSetupOption[];
   editor: EditorContextProvider;
   policy: ProjectPolicy;
   /** Directories this window is scoped to. */
@@ -110,12 +118,8 @@ export interface ChatViewProviderDeps {
 }
 
 /** What this host can do — the frontend reads this instead of guessing. */
-function buildCapabilities(
-  engines: EngineOption[],
-  mcp: boolean,
-  piVersion: string | undefined,
-  promptEditor: boolean,
-): HostCapabilities {
+function buildCapabilities(deps: ChatViewProviderDeps): HostCapabilities {
+  const { engines, engineSetup, mcpAvailable: mcp, piVersion, prompts } = deps;
   return {
     hostKind: 'vscode',
     // VS Code is scoped to the folders this window has open:
@@ -124,6 +128,10 @@ function buildCapabilities(
     // Every engine this window can start. The draft's engine picker needs the
     // list; a window that could not initialize OpenCode reports pi alone.
     engines,
+    // The same engines as install steps. `engines` being empty is what makes the
+    // frontend draw the full-screen setup card, so it needs a way to name every
+    // agent the reader could install rather than one hardcoded package.
+    engineSetup,
     // The host can answer `getEditorContext` so the frontend can pin a selection
     // chip; the context itself is an attachment, never prompt text.
     editorContext: true,
@@ -153,7 +161,7 @@ function buildCapabilities(
     mcp,
     // Editing prompt templates needs an engine that loads them from files; this
     // host can reach those directories whether or not the CLI is on PATH.
-    promptEditor,
+    promptEditor: prompts !== undefined,
     // A whole conversation can be shown as its own editor tab, pinned to that
     // session, and revealed again instead of opened twice.
     sessionTabs: true,
@@ -285,12 +293,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(
-          this.deps.engines,
-          this.deps.mcpAvailable,
-          this.deps.piVersion,
-          this.deps.prompts !== undefined,
-        ),
+      capabilities: buildCapabilities(this.deps),
       emit: (message) => this.post(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -449,7 +452,10 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       (session) =>
         roots.length === 0 ||
         roots.some(
-          (root) => session.cwd === root || session.cwd.startsWith(`${root}/`) || session.cwd.startsWith(`${root}\\`),
+          (root) =>
+            session.cwd === root ||
+            session.cwd.startsWith(`${root}/`) ||
+            session.cwd.startsWith(`${root}\\`),
         ),
     );
     if (scoped.length === 0) {
@@ -492,12 +498,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     };
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(
-          this.deps.engines,
-          this.deps.mcpAvailable,
-          this.deps.piVersion,
-          this.deps.prompts !== undefined,
-        ),
+      capabilities: buildCapabilities(this.deps),
       emit: (message) => void panel.webview.postMessage(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -640,12 +641,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     };
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(
-          this.deps.engines,
-          this.deps.mcpAvailable,
-          this.deps.piVersion,
-          this.deps.prompts !== undefined,
-        ),
+      capabilities: buildCapabilities(this.deps),
       emit: (message) => void panel.webview.postMessage(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -681,7 +677,10 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         panel.webview.html = html;
       })
       .catch((error: unknown) => {
-        this.deps.logger.error('Could not load the Morse frontend bundle for the MCP editor', error);
+        this.deps.logger.error(
+          'Could not load the Morse frontend bundle for the MCP editor',
+          error,
+        );
         panel.webview.html = renderFailureHtml(
           'Morse could not load its frontend bundle.',
           describeError(error),
@@ -707,12 +706,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     };
     const controller = new HostSessionController({
       services,
-      capabilities: buildCapabilities(
-          this.deps.engines,
-          this.deps.mcpAvailable,
-          this.deps.piVersion,
-          this.deps.prompts !== undefined,
-        ),
+      capabilities: buildCapabilities(this.deps),
       emit: (message) => void panel.webview.postMessage(message),
       logger: this.deps.logger,
       dialogs: new VsCodeDialogs(),
@@ -748,7 +742,10 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         panel.webview.html = html;
       })
       .catch((error: unknown) => {
-        this.deps.logger.error('Could not load the Morse frontend bundle for the prompt editor', error);
+        this.deps.logger.error(
+          'Could not load the Morse frontend bundle for the prompt editor',
+          error,
+        );
         panel.webview.html = renderFailureHtml(
           'Morse could not load its frontend bundle.',
           describeError(error),
@@ -780,7 +777,10 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     // the words the user typed. The host only reports what it can see.
     this.post({
       type: 'context/selection',
-      payload: toSelectionPayload(vscode.workspace.asRelativePath(editor.document.uri, false), editor),
+      payload: toSelectionPayload(
+        vscode.workspace.asRelativePath(editor.document.uri, false),
+        editor,
+      ),
     });
   }
 
@@ -827,7 +827,10 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
    * is empty: the editor sends `''` for "no project in front", which means the
    * user prompts only rather than falling back to the first workspace folder.
    */
-  private promptCwd(context: { cwd: string } | undefined, args: Record<string, unknown> | undefined): string {
+  private promptCwd(
+    context: { cwd: string } | undefined,
+    args: Record<string, unknown> | undefined,
+  ): string {
     if (args !== undefined && typeof args['cwd'] === 'string') {
       return args['cwd'];
     }
@@ -947,7 +950,11 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         return { ok: true };
       }
       case 'mcpRemove':
-        return this.requireMcp().remove(stringArg(args, 'name'), this.mcpCwd(context), mcpScope(args));
+        return this.requireMcp().remove(
+          stringArg(args, 'name'),
+          this.mcpCwd(context),
+          mcpScope(args),
+        );
       case 'mcpSetEnabled':
         return this.requireMcp().setEnabled(
           stringArg(args, 'name'),
@@ -960,7 +967,10 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       case 'promptTemplates':
         return this.requirePrompts().list(this.promptCwd(context, args));
       case 'promptTemplateSave':
-        return this.requirePrompts().save(parsePromptTemplateInput(args), this.promptCwd(context, args));
+        return this.requirePrompts().save(
+          parsePromptTemplateInput(args),
+          this.promptCwd(context, args),
+        );
       case 'promptTemplateDelete':
         return this.requirePrompts().delete(
           stringArg(args, 'name'),

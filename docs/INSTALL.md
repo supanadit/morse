@@ -7,17 +7,22 @@ Morse ships as **two independent artifacts** for the same product. Install which
 | VS Code | `morse-<version>.vsix` (`supanadit.morse`) | VS Code Marketplace, or build it from `packages/extension` | the Morse panel in the activity bar |
 | Browser / CLI | `@supanadit/morse-web` on npm | `npm install -g @supanadit/morse-web` | `morse start` |
 
-Both hosts load the **same Angular bundle** (`@morse/ui-angular`) and drive the **same `pi` subprocess**
-through `@morse/integration-pi`; only the delivery differs. Their requirements are therefore identical:
+Both hosts load the **same Angular bundle** (`@morse/ui-angular`) and drive whichever **coding-agent engine**
+is installed; only the delivery differs. Their requirements are therefore identical:
 
 - Node.js 20+ (developed on 24) and npm 10+.
-- The `pi` CLI on `PATH` and already authenticated (`pi --version`), or a path to it via `morse.pi.path`
-  (VS Code) / `MORSE_PI_PATH` (CLI). Morse reuses your existing pi config: models, credentials, tools and
-  sessions under `~/.pi`.
+- At least one engine: the `pi` CLI on `PATH` and already authenticated (`pi --version`), or a path to it
+  via `morse.pi.path` (VS Code) / `MORSE_PI_PATH` (CLI) — Morse reuses your existing pi config: models,
+  credentials, tools and sessions under `~/.pi`. Or the OpenCode CLI (v2) on `PATH`
+  (`npm install -g @opencode/cli`), or a running `opencode serve` at `morse.opencode.url` /
+  `MORSE_OPENCODE_URL`. One engine is enough; Morse is engine-agnostic — one session list, transcript and
+  set of shortcuts whichever drives.
 
-Without pi, Morse does not pretend: the panel shows a **setup screen** naming the missing agent, with the
-install command to copy, the setting or environment variable this host reads (`agentFailure` on the wire),
-and a Retry button. Nothing else needs to be configured first — Morse is only the interface, and it says so.
+With no engine at all, Morse does not pretend and does not pick a favourite: the panel shows a **full-screen
+setup card** listing every engine it can drive, each with the install command to copy and the setting or
+environment variable this host reads (`engineSetup` on the wire), plus a Retry button. Nothing else needs to
+be configured first — Morse is only the interface, and it says so. Install either engine and restart the host
+(or reload the VS Code window); the panel is then ready with that engine.
 
 ---
 
@@ -279,6 +284,7 @@ or the package.
 | `morse: command not found` after install | the global npm bin dir (`<prefix>/bin`) is not on `PATH`; check `npm config get prefix` |
 | `morse start` prints "failed to start" | `morse logs`; most often `pi` is not on the daemon's `PATH` (set `MORSE_PI_PATH`) |
 | Panel says “The pi coding agent is not installed” | the setup screen: `npm install -g @earendil-works/pi-coding-agent`, or point the host at an existing pi (`morse.pi.path`, needs a window reload / `MORSE_PI_PATH`, needs `morse restart`) |
+| Panel says “Morse needs a coding agent” (no engine listed) | nothing is installed: pick either — `npm install -g @earendil-works/pi-coding-agent` or `npm install -g @opencode/cli` (OpenCode v2) — then restart the host / reload the window |
 | Browser shows “Morse is waiting for a host” after `morse stop` | the page is the frontend the browser is still holding, not the host; start it again (`morse start`) — that screen names both the CLI and the repo command. Nothing was lost: sessions live with the host and in pi’s session files |
 | Browser UI stuck on `connecting` / blank page | open `http://127.0.0.1:<port>/api/health`; if it fails the server is not up — `morse logs` |
 | Port busy after an unclean exit | `morse status`; state is `~/.morse/server.json`, then `morse restart` |

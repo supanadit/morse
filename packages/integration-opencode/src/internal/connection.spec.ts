@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AgentUnavailableError } from '@morse/system';
-import { connectOpenCode, type OpenCodeConnection } from './connection.js';
+import {
+  connectOpenCode,
+  OPENCODE_INSTALL_COMMAND,
+  type OpenCodeConnection,
+} from './connection.js';
 
 /**
  * The connection is where an OpenCode setup mistake becomes an actionable error:
@@ -103,7 +107,9 @@ describe('connectOpenCode', () => {
       // Disposing an attached connection must leave the user's server running.
       await connection.close();
       const after = await fetch(`${fake.url}/api/session`, {
-        headers: { authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString('base64')}` },
+        headers: {
+          authorization: `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString('base64')}`,
+        },
       });
       expect(after.status).toBe(200);
     } finally {
@@ -203,6 +209,6 @@ describe('connectOpenCode', () => {
     );
     expect(error).toBeInstanceOf(AgentUnavailableError);
     expect((error as Error).message).toContain('not-installed');
-    expect((error as AgentUnavailableError).remedy?.install).toBe('npm install -g opencode-ai');
+    expect((error as AgentUnavailableError).remedy?.install).toBe(OPENCODE_INSTALL_COMMAND);
   });
 });
