@@ -89,6 +89,13 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
   under `.opencode/agent/` (or `~/.config/opencode/agent/`). OpenCode reloads its configuration; opening the
   mode picker (or starting a new session) re-reads `/api/agent` and `/api/config`, so the new, renamed, disabled
   or removed agent appears without restarting Morse.
+- **Commands** — OpenCode's own commands (markdown files under `~/.config/opencode/commands` and the project's
+  `.opencode/commands`, plus `command` entries in `opencode.json`) appear in the composer palette. Morse reads
+  the same files and config the server loads, so a template that declares arguments — `$1`, `$ARGUMENTS`, or an
+  `argument-hint` — opens the argument form, exactly as pi's templates do. Templates without declared arguments
+  run as a bare `/name`, and OpenCode expands them itself (including its shell-injection and `@file` features,
+  which Morse does not substitute). Commands Morse cannot find a file for — plugin-provided ones, nested
+  `a/b` names — run the same way.
 - OpenCode exposes no MCP editor, no prompt templates and no version notice to Morse, so those affordances are
   absent while it is the selected engine. A compaction asked for with custom instructions runs without them and
   says so.

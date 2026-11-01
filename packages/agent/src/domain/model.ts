@@ -63,9 +63,12 @@ export interface AgentCommand {
    */
   argumentHint?: string;
   /**
-   * Raw Markdown of a prompt template, for `source: 'prompt'` only. pi does not
-   * send the body over RPC, so the adapter reads the file `get_commands` named
-   * and the modal expands it here. Absent when the file could not be read.
+   * Raw Markdown of a prompt template, for `source: 'prompt'` only. The engines
+   * do not send the body over their APIs (pi's RPC names the file; OpenCode's
+   * command endpoint answers names only), so the adapter reads what the engine
+   * loads — the file, or the config entry — and the modal expands it here.
+   * Absent when no body could be read; a bare `/name` is then the whole prompt
+   * and the engine expands it itself.
    */
   template?: string;
 }

@@ -28,6 +28,7 @@ import {
 import { AgentUnavailableError, UnsupportedByHostError, type MorseLogger } from '@morse/system';
 import type { OpenCodeApi } from './internal/client.js';
 import { defaultModeId, readAgentModes, readDefaultModel } from './internal/catalog.js';
+import { listCommands, parseCommandFile } from './internal/opencode-prompts-config.js';
 import { OpenCodeEventMapper, toTokenUsage } from './internal/event-mapping.js';
 import type { OpenCodeEvent, OpenCodeEventStream } from './internal/event-stream.js';
 import {
@@ -1014,14 +1015,17 @@ export async function readAvailableCommands(
       }),
   ]);
   const entries: AgentCommand[] = [];
+  const templates = localTemplates(directory, logger);
   for (const command of commands) {
     if (typeof command.name !== 'string' || command.name.length === 0) {
       continue;
     }
+    const template = templates.get(command.name);
     entries.push({
       name: command.name,
       ...(command.description === undefined ? {} : { description: command.description }),
       source: 'prompt',
+      ...(template === undefined ? {} : { template }),
     });
   }
   for (const skill of skills) {
@@ -1036,6 +1040,57 @@ export async function readAvailableCommands(
     });
   }
   return entries;
+}
+
+/**
+ * The prompt-template bodies the server's `/command` rows do not carry.
+ *
+ * OpenCode's command API answers with names and descriptions only — no template
+ * body, no `argument-hint` — so a bare `/name` gives the composer nothing to
+ * open its argument form with. Morse reads the same markdown files and
+ * `opencode.json` entries the server loads (project shadowing global, exactly
+ * as OpenCode resolves them) and returns the raw template per command name —
+ * but only when the body declares pi-style argument placeholders (or the file
+ * carries an `argument-hint`), because those are the shapes Morse expands.
+ * Anything else — no arguments at all, or OpenCode-only features like `` !`sh` ``
+ * injection — stays absent, so the bare `/name` keeps the server's own
+ * expansion. Same for commands Morse cannot find a file for: nested `a/b`
+ * names, plugin-provided ones.
+ */
+function localTemplates(directory: string, logger: MorseLogger): Map<string, string> {
+  try {
+    const templates = new Map<string, string>();
+    // Project files come first in `listCommands`, so first-write-wins keeps a
+    // project definition over a same-named global one.
+    for (const command of listCommands(directory).commands) {
+      if (command.error !== undefined || templates.has(command.name)) {
+        continue;
+      }
+      if (command.raw !== undefined) {
+        const { frontmatter, body } = parseCommandFile(command.raw);
+        if (frontmatter['argument-hint'] !== undefined || declaresArguments(body)) {
+          templates.set(command.name, command.raw);
+        }
+        continue;
+      }
+      if (command.entry?.template !== undefined && declaresArguments(command.entry.template)) {
+        templates.set(command.name, command.entry.template);
+      }
+    }
+    return templates;
+  } catch (error: unknown) {
+    // A broken opencode.json must not take the command list down: the rows stay
+    // name-only and OpenCode expands them server-side, as before.
+    logger.warn('Could not read OpenCode command files for template expansion', error);
+    return new Map();
+  }
+}
+
+/** pi-style positional or catch-all placeholders — the shapes Morse expands. */
+const DECLARED_ARGUMENTS = /\$(?:\{\d+:|ARGUMENTS|@|\d)/;
+
+function declaresArguments(body: string): boolean {
+  return DECLARED_ARGUMENTS.test(body);
 }
 
 /**

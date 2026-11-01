@@ -1,23 +1,46 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, AgentSessionState } from '@morse/agent';
 import { AgentUnavailableError, UnsupportedByHostError, silentLogger } from '@morse/system';
 import type { OpenCodeApi, OpenCodePage } from './internal/client.js';
-import type { OpenCodeEvent, OpenCodeEventListener, OpenCodeEventStream } from './internal/event-stream.js';
+import type {
+  OpenCodeEvent,
+  OpenCodeEventListener,
+  OpenCodeEventStream,
+} from './internal/event-stream.js';
 import type { ApiModel } from './internal/model-mapping.js';
 import type { ApiMessage } from './internal/message-mapping.js';
-import { OpenCodeAgent, appendPinMentions } from './opencode-agent.js';
+import { OpenCodeAgent, appendPinMentions, readAvailableCommands } from './opencode-agent.js';
 
 /**
  * The session adapter against a fake server: what it sends on the wire, what it
  * seeds its state from, how it pages history past bookkeeping, and that dispose
  * detaches instead of killing a conversation the server owns. The real wire is
  * covered by the opt-in live spec; this one pins the contract cheaply.
+ *
+ * Command-template enrichment reads the machine's OpenCode config dir, so every
+ * spec here points `XDG_CONFIG_HOME` at a fresh empty base first: no test may
+ * depend on what this machine has installed.
  */
 
 const WORKSPACE = { cwd: '/work/project', name: 'project' };
+
+const configDirs: string[] = [];
+
+beforeEach(() => {
+  const dir = mkdtempSync(join(tmpdir(), 'oc-spec-xdg-'));
+  configDirs.push(dir);
+  vi.stubEnv('XDG_CONFIG_HOME', dir);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  for (const path of configDirs.splice(0)) {
+    rmSync(path, { recursive: true, force: true });
+  }
+});
 
 const MODELS: ApiModel[] = [
   {
@@ -58,7 +81,12 @@ type Handler = (
 ) => unknown;
 
 class FakeApi {
-  readonly calls: { method: string; path: string; query?: Record<string, string | undefined>; body?: unknown }[] = [];
+  readonly calls: {
+    method: string;
+    path: string;
+    query?: Record<string, string | undefined>;
+    body?: unknown;
+  }[] = [];
 
   constructor(private readonly handler: Handler) {}
 
@@ -67,7 +95,11 @@ class FakeApi {
     return Promise.resolve(this.handler('GET', path, query, undefined) as T);
   }
 
-  post<T>(path: string, body?: unknown, query?: Record<string, string | undefined>): Promise<T | undefined> {
+  post<T>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string | undefined>,
+  ): Promise<T | undefined> {
     this.calls.push({ method: 'POST', path, ...(query === undefined ? {} : { query }), body });
     return Promise.resolve(this.handler('POST', path, query, body) as T | undefined);
   }
@@ -98,7 +130,9 @@ class FakeStream {
   }
 
   emit(sessionID: string, event: OpenCodeEvent): void {
-    for (const subscription of this.subscriptions.filter((entry) => entry.sessionID === sessionID)) {
+    for (const subscription of this.subscriptions.filter(
+      (entry) => entry.sessionID === sessionID,
+    )) {
       subscription.listener(event);
     }
   }
@@ -212,7 +246,11 @@ describe('OpenCodeAgent', () => {
   it('creates its engine session eagerly and seeds state from the server record', async () => {
     const { agent, api } = await harness();
 
-    expect(api.calls[0]).toMatchObject({ method: 'POST', path: '/session', body: { location: { directory: WORKSPACE.cwd } } });
+    expect(api.calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/session',
+      body: { location: { directory: WORKSPACE.cwd } },
+    });
     const state = await agent.state();
     expect(state).toMatchObject({
       sessionId: 'ses_1',
@@ -232,7 +270,11 @@ describe('OpenCodeAgent', () => {
       'review',
       'OpenCode',
     ]);
-    expect(state.availableCommands.map((command) => command.source)).toEqual(['prompt', 'prompt', 'skill']);
+    expect(state.availableCommands.map((command) => command.source)).toEqual([
+      'prompt',
+      'prompt',
+      'skill',
+    ]);
     // The server resolves the project from `location[directory]`; a bare
     // `directory` param is ignored and would answer for the server's own cwd.
     for (const path of ['/command', '/skill', '/model']) {
@@ -296,7 +338,9 @@ describe('OpenCodeAgent', () => {
 
   it('resumes by id instead of creating a second session', async () => {
     const { agent, api } = await harness({ sessionId: 'ses_9' });
-    expect(api.calls.some((call) => call.method === 'POST' && call.path === '/session')).toBe(false);
+    expect(api.calls.some((call) => call.method === 'POST' && call.path === '/session')).toBe(
+      false,
+    );
     expect(api.calls[0]).toMatchObject({ method: 'GET', path: '/session/ses_9' });
     expect((await agent.state()).sessionId).toBe('ses_9');
     await agent.dispose();
@@ -325,7 +369,9 @@ describe('OpenCodeAgent', () => {
     const { agent, api } = await harness();
     await agent.setMode('plan');
 
-    expect(api.calls.find((call) => call.method === 'POST' && call.path === '/session/ses_1/agent')).toMatchObject({
+    expect(
+      api.calls.find((call) => call.method === 'POST' && call.path === '/session/ses_1/agent'),
+    ).toMatchObject({
       body: { agent: 'plan' },
     });
     expect((await agent.state()).mode).toBe('plan');
@@ -365,16 +411,12 @@ describe('OpenCodeAgent', () => {
       return defaultHandler()(method, path, query, body);
     };
     const { agent } = await harness({ handler });
-    expect(
-      (await agent.state()).availableModes?.find((mode) => mode.default)?.id,
-    ).toBe('build');
+    expect((await agent.state()).availableModes?.find((mode) => mode.default)?.id).toBe('build');
 
     defaultAgent = 'plan';
     await agent.refreshModes();
 
-    expect(
-      (await agent.state()).availableModes?.find((mode) => mode.default)?.id,
-    ).toBe('plan');
+    expect((await agent.state()).availableModes?.find((mode) => mode.default)?.id).toBe('plan');
     expect((await agent.state()).mode).toBe('build');
     await agent.dispose();
   });
@@ -398,10 +440,7 @@ describe('OpenCodeAgent', () => {
     await agent.refreshModes();
 
     // An empty answer is a failed read, not "this configuration has no modes".
-    expect((await agent.state()).availableModes?.map((mode) => mode.id)).toEqual([
-      'build',
-      'plan',
-    ]);
+    expect((await agent.state()).availableModes?.map((mode) => mode.id)).toEqual(['build', 'plan']);
     await agent.dispose();
   });
 
@@ -549,7 +588,12 @@ describe('OpenCodeAgent', () => {
   });
 
   it('pages history past a bookkeeping-only page and returns each page oldest-first', async () => {
-    const user: ApiMessage = { id: 'msg_u', type: 'user', time: { created: 1 }, text: 'count them' };
+    const user: ApiMessage = {
+      id: 'msg_u',
+      type: 'user',
+      time: { created: 1 },
+      text: 'count them',
+    };
     const assistant: ApiMessage = {
       id: 'msg_a',
       type: 'assistant',
@@ -611,7 +655,9 @@ describe('OpenCodeAgent', () => {
 
     const forked = await agent.fork('msg_1');
     expect(forked).toEqual({ text: 'the dropped prompt', cancelled: false });
-    expect(api.calls.find((call) => call.path.endsWith('/fork'))?.body).toEqual({ before: 'msg_1' });
+    expect(api.calls.find((call) => call.path.endsWith('/fork'))?.body).toEqual({
+      before: 'msg_1',
+    });
     expect((await agent.state()).sessionId).toBe('ses_2');
     expect(stream.subscriptions.map((entry) => entry.sessionID)).toEqual(['ses_2']);
     await agent.dispose();
@@ -783,14 +829,26 @@ describe('OpenCodeAgent', () => {
           metadata: { message: 'Answer what applies' },
           fields: [
             { key: 'name', title: 'Name', type: 'string', required: true },
-            { key: 'retries', title: 'Retries', type: 'integer', minimum: 1, maximum: 9, default: 3 },
+            {
+              key: 'retries',
+              title: 'Retries',
+              type: 'integer',
+              minimum: 1,
+              maximum: 9,
+              default: 3,
+            },
             {
               key: 'mode',
               title: 'Mode',
               type: 'string',
               options: [{ value: 'fast', label: 'Fast' }],
             },
-            { key: 'notes', title: 'Notes', type: 'string', when: [{ key: 'mode', op: 'eq', value: 'fast' }] },
+            {
+              key: 'notes',
+              title: 'Notes',
+              type: 'string',
+              when: [{ key: 'mode', op: 'eq', value: 'fast' }],
+            },
           ],
         },
       },
@@ -798,7 +856,9 @@ describe('OpenCodeAgent', () => {
     });
 
     const interaction = events.find((event) => event.type === 'agent/interaction');
-    expect(interaction?.type === 'agent/interaction' ? interaction.request.kind : undefined).toBe('form');
+    expect(interaction?.type === 'agent/interaction' ? interaction.request.kind : undefined).toBe(
+      'form',
+    );
     const request = interaction?.type === 'agent/interaction' ? interaction.request : undefined;
     expect(request?.kind === 'form' ? request.fields.map((field) => field.type) : []).toEqual([
       'text',
@@ -806,7 +866,9 @@ describe('OpenCodeAgent', () => {
       'select',
       'text',
     ]);
-    expect(request?.kind === 'form' ? request.fields[2]?.options?.[0]?.value : undefined).toBe('fast');
+    expect(request?.kind === 'form' ? request.fields[2]?.options?.[0]?.value : undefined).toBe(
+      'fast',
+    );
     expect(request?.kind === 'form' ? request.fields[3]?.when : undefined).toEqual({
       field: 'mode',
       equals: 'fast',
@@ -828,7 +890,14 @@ describe('OpenCodeAgent', () => {
     const { agent, stream, api } = await harness();
     stream.emit('ses_1', {
       type: 'form.created',
-      data: { form: { id: 'frm_2', sessionID: 'ses_1', title: 'Name?', fields: [{ key: 'a', title: 'A', type: 'string' }] } },
+      data: {
+        form: {
+          id: 'frm_2',
+          sessionID: 'ses_1',
+          title: 'Name?',
+          fields: [{ key: 'a', title: 'A', type: 'string' }],
+        },
+      },
       created: 31,
     });
 
@@ -884,16 +953,31 @@ describe('OpenCodeAgent', () => {
         if (method === 'GET' && path.endsWith('/form')) {
           formLists += 1;
           return formLists === 1
-            ? [{ id: 'frm_late', sessionID: 'ses_1', title: 'Late form', fields: [{ key: 'a', title: 'A', type: 'string' }] }]
+            ? [
+                {
+                  id: 'frm_late',
+                  sessionID: 'ses_1',
+                  title: 'Late form',
+                  fields: [{ key: 'a', title: 'A', type: 'string' }],
+                },
+              ]
             : [];
         }
         return defaultHandler()(method, path, query, body);
       },
     });
 
-    stream.emit('ses_1', { type: 'session.execution.started', data: { sessionID: 'ses_1' }, created: 50 });
+    stream.emit('ses_1', {
+      type: 'session.execution.started',
+      data: { sessionID: 'ses_1' },
+      created: 50,
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    stream.emit('ses_1', { type: 'session.execution.succeeded', data: { sessionID: 'ses_1' }, created: 51 });
+    stream.emit('ses_1', {
+      type: 'session.execution.succeeded',
+      data: { sessionID: 'ses_1' },
+      created: 51,
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const forms = events.filter(
@@ -910,5 +994,140 @@ describe('OpenCodeAgent', () => {
         handler: () => undefined,
       }),
     ).rejects.toBeInstanceOf(AgentUnavailableError);
+  });
+});
+
+/**
+ * The command catalog's template enrichment: the server's `/command` rows carry
+ * names and descriptions only, so Morse reads the same markdown files and
+ * `opencode.json` entries OpenCode loads and attaches the body — but only for
+ * templates that declare pi-style arguments, because those are what Morse
+ * expands; everything else keeps the bare `/name` and the server's own
+ * expansion. Every spec here reads an empty config dir, so none depends on
+ * what this machine has installed.
+ */
+describe('readAvailableCommands template enrichment', () => {
+  function commandApi(commands: { name: string; description?: string }[]): OpenCodeApi {
+    return {
+      get: (path: string) => {
+        if (path === '/command') {
+          return Promise.resolve(commands);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as OpenCodeApi;
+  }
+
+  function writeGlobalCommand(name: string, raw: string): void {
+    const dir = join(configDirs[configDirs.length - 1]!, 'opencode', 'commands');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${name}.md`), raw, 'utf8');
+  }
+
+  function writeConfigCommand(name: string, template: string): void {
+    const dir = join(configDirs[configDirs.length - 1]!, 'opencode');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'opencode.json'),
+      JSON.stringify({ command: { [name]: { template } } }),
+      'utf8',
+    );
+  }
+
+  it('attaches the file body when the template declares arguments', async () => {
+    writeGlobalCommand(
+      'review',
+      [
+        '---',
+        'description: review changes',
+        'argument-hint: <scope>',
+        '---',
+        'Review $1 carefully.',
+      ].join('\n'),
+    );
+
+    const commands = await readAvailableCommands(
+      commandApi([{ name: 'review', description: 'review changes' }]),
+      WORKSPACE.cwd,
+      silentLogger,
+    );
+
+    expect(commands).toEqual([
+      {
+        name: 'review',
+        description: 'review changes',
+        source: 'prompt',
+        template:
+          '---\ndescription: review changes\nargument-hint: <scope>\n---\nReview $1 carefully.',
+      },
+    ]);
+  });
+
+  it('leaves a template without placeholders bare, so OpenCode keeps expanding it', async () => {
+    // Also covers OpenCode-only template features (`!`sh`` injection, `@file`):
+    // Morse does not expand what it cannot substitute, so it does not take over.
+    writeGlobalCommand('greet', 'Say hello.');
+
+    const commands = await readAvailableCommands(
+      commandApi([{ name: 'greet' }]),
+      WORKSPACE.cwd,
+      silentLogger,
+    );
+
+    expect(commands).toEqual([{ name: 'greet', source: 'prompt' }]);
+  });
+
+  it('takes a config entry’s template when it declares arguments', async () => {
+    writeConfigCommand('component', 'Create a component named $ARGUMENTS.');
+
+    const commands = await readAvailableCommands(
+      commandApi([{ name: 'component' }]),
+      WORKSPACE.cwd,
+      silentLogger,
+    );
+
+    expect(commands).toEqual([
+      { name: 'component', source: 'prompt', template: 'Create a component named $ARGUMENTS.' },
+    ]);
+  });
+
+  it('lets the project definition shadow a same-named global one', async () => {
+    writeGlobalCommand('fix', 'Global body for $1.');
+    // A temp project, because the spec must be able to write its `.opencode`.
+    const project = mkdtempSync(join(tmpdir(), 'oc-spec-project-'));
+    configDirs.push(project);
+    const projectDir = join(project, '.opencode', 'commands');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, 'fix.md'),
+      '---\nargument-hint: <bug>\n---\nProject body for $1.',
+      'utf8',
+    );
+
+    const commands = await readAvailableCommands(
+      commandApi([{ name: 'fix' }]),
+      project,
+      silentLogger,
+    );
+
+    expect(commands).toEqual([
+      {
+        name: 'fix',
+        source: 'prompt',
+        template: '---\nargument-hint: <bug>\n---\nProject body for $1.',
+      },
+    ]);
+  });
+
+  it('stays name-only for a command Morse cannot find on disk', async () => {
+    const commands = await readAvailableCommands(
+      commandApi([{ name: 'plugin-provided', description: 'from a plugin' }]),
+      WORKSPACE.cwd,
+      silentLogger,
+    );
+
+    expect(commands).toEqual([
+      { name: 'plugin-provided', description: 'from a plugin', source: 'prompt' },
+    ]);
   });
 });
