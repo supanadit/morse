@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.27.1 — 1 November 2026
+
+`npm i -g @supanadit/morse-web` works again, copying in VS Code 1.143 keeps what you selected, and the usage
+panel speaks OpenCode as fluently as it speaks pi.
+
+### New
+
+- **The usage panel fills in for OpenCode sessions.** The Messages / User / Assistant / Tool calls columns and
+  the speed figures were only ever fed by the pi adapter, so an OpenCode session showed a column of em dashes.
+  One walk of the stored message list now feeds the whole panel — and because OpenCode timestamps each of its
+  messages itself, the average, peak and slowest generation speeds come straight from its own clock, with no
+  host-side stopwatch needed.
+
+### Fixed
+
+- **Installing or updating `@supanadit/morse-web` no longer fails with a 404.** The published package listed
+  two internal library names as install-time dependencies, and those are never published to the npm registry —
+  so `npm i -g @supanadit/morse-web` stopped partway with `The requested resource '@morse/agent@*' could not
+  be found`, and `morse update` failed the same way. The libraries were always packed inside the package
+  itself; the install instructions that pointed at the registry are gone. A new regression workflow packs the
+  artifact and installs it into a clean directory on every change, so an install that a user cannot complete
+  fails CI before it can ship. (reported as [#3](https://github.com/supanadit/morse/issues/3))
+- **Ctrl+C and Copy in VS Code 1.143 keep the transcript selection.** VS Code 1.143 restores focus to the
+  webview's last focused element right before a clipboard command; when that element is the composer, taking
+  focus back collapses the selection, so both shortcuts copied nothing. The focus restore is now given no
+  composer to land on while a copy runs. Upstream fixed it in VS Code 1.144; this keeps 1.143 usable.
+
 ## 0.26.0 — 13 October 2026
 
 The usage panel says what the cache saved and how fast the model answered, and Morse finds pi however it was

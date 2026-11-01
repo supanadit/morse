@@ -1,0 +1,72 @@
+name: Regression (clean install of the npm artifact)
+
+# supanadit/morse#3: the published `@supanadit/morse-web` listed private
+# `@morse/*` workspace packages in `dependencies`, so every user install 404'd
+# even though the bundler inlines them. CI's dry-run pack never caught it
+# because it never resolved the dependencies. This job does the real thing:
+# pack the tarball, install it into an empty directory like a user would, and
+# boot the CLI.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: regression-install-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install the packed tarball in a clean directory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # node-pty has no Linux prebuild, so `npm ci` needs the toolchain.
+      - name: Ensure a C++ toolchain for node-pty
+        run: |
+          if ! command -v g++ >/dev/null || ! command -v make >/dev/null || ! command -v python3 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential python3
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the artifact
+        run: npm run build:web
+
+      - name: Pack the tarball
+        run: npm pack -w @supanadit/morse-web
+
+      # The bundler already inlines every `@morse/*` package into
+      # dist/server.mjs; a workspace name that reaches `dependencies` (or
+      # `peerDependencies`) is only reachable from this repo and 404s for
+      # consumers. Fail the job here rather than after publishing.
+      - name: Assert the packed manifest has no private @morse/* dependencies
+        run: |
+          tar -xzf morse-supanadit-morse-web-*.tgz package/package.json
+          if node -e '
+            const deps = require("./package/package.json").dependencies ?? {};
+            const peers = require("./package/package.json").peerDependencies ?? {};
+            const bad = Object.keys({...deps, ...peers}).filter((n) => n.startsWith("@morse/"));
+            if (bad.length) { console.error("private workspace packages in installable deps:", bad.join(", ")); process.exit(1); }
+          '; then echo "manifest clean"; fi
+
+      - name: Install the tarball in a clean directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/morse-install"
+          cd "$RUNNER_TEMP/morse-install"
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE"/morse-supanadit-morse-web-*.tgz
+
+      - name: Boot the CLI from the clean install
+        run: |
+          cd "$RUNNER_TEMP/morse-install"
+          npx morse --help

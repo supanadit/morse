@@ -152,10 +152,34 @@ async function copyUi() {
   console.log('[morse-web] ui/');
 }
 
+/**
+ * Regression guard for supanadit/morse#3: the published package must never
+ * declare a `@morse/*` runtime dependency. Those packages are `private` and
+ * never published, so npm installs would 404 — even though the bundler above
+ * already inlines them into `dist/server.mjs`. They live in `devDependencies`
+ * (workspace-only) and nothing under `@morse/` may appear in `dependencies`.
+ */
+async function assertManifestDeps() {
+  const manifest = JSON.parse(await readFile(join(here, 'package.json'), 'utf8'));
+  const bundled = Object.keys(manifest.dependencies ?? {}).filter((name) =>
+    name.startsWith('@morse/'),
+  );
+  if (bundled.length > 0) {
+    console.error(
+      `[morse-web] package.json "dependencies" lists private workspace packages: ${bundled.join(', ')}\n` +
+        '            They are bundled into dist/server.mjs and cannot be resolved from the\n' +
+        '            registry (issue #3). Move them to "devDependencies" and keep the\n' +
+        '            runtimeExternals list in sync instead.',
+    );
+    process.exit(1);
+  }
+}
+
 const jobs = [];
 if (wants('cli')) jobs.push(bundleCli());
 if (wants('server')) jobs.push(bundleServer());
 if (wants('ui')) jobs.push(copyUi());
 await Promise.all(jobs);
+await assertManifestDeps();
 
 console.log('[morse-web] ready: dist/{server.mjs,cli.mjs,ui/}');
