@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.27.2 — 1 November 2026
+
+Release-hygiene patch: no user-facing changes beyond the frontend now announcing **0.27.2** in the handshake.
+Every workspace manifest, `FRONTEND_IDENTITY`, and this page now agree with the release tag.
+
 ## 0.27.1 — 1 November 2026
 
 `npm i -g @supanadit/morse-web` works again, copying in VS Code 1.143 keeps what you selected, and the usage
