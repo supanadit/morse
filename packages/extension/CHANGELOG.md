@@ -2,8 +2,15 @@
 
 ## 0.27.2 — 1 November 2026
 
-Release-hygiene patch: no user-facing changes beyond the frontend now announcing **0.27.2** in the handshake.
-Every workspace manifest, `FRONTEND_IDENTITY`, and this page now agree with the release tag.
+## 🔧 Improvements
+
+- Panels announce the correct build version in the handshake
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.27.1...v0.27.2`](https://github.com/supanadit/morse/compare/v0.27.1...v0.27.2)
 
 ## 0.27.1 — 1 November 2026
 
