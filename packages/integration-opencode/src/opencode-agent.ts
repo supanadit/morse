@@ -262,7 +262,7 @@ export class OpenCodeAgent extends Session {
     const agent = new OpenCodeAgent(
       options,
       session,
-      initialStateOf(session, options.workspace, catalogModels, commands, modes, defaultModel),
+      initialStateOf(session, options.workspace, catalogModels, commands, modes),
     );
     for (const model of catalogModels) {
       agent.models.set(modelKey(model), model);
@@ -689,7 +689,35 @@ export class OpenCodeAgent extends Session {
     }
     const mapped = this.mapper.map(event);
     if (mapped.state !== undefined) {
-      this.mergeState(mapped.state);
+      const patch = { ...mapped.state };
+      const step = patch.model;
+      if (step !== undefined) {
+        // The step names the model actually serving this turn; the catalog
+        // supplies its display name and the thinking levels it really offers.
+        const apiModel = this.modelFor(step.provider, step.id);
+        patch.model = apiModel === undefined ? step : toModelRef(apiModel);
+        if (apiModel !== undefined) {
+          patch.availableThinkingLevels = thinkingLevelsOf(apiModel);
+          patch.thinkingLevel = thinkingLevelOf(apiModel, undefined);
+        }
+      }
+      const previous = this.box.model;
+      this.mergeState(patch);
+      if (
+        step !== undefined &&
+        previous !== undefined &&
+        (previous.provider !== step.provider || previous.id !== step.id)
+      ) {
+        // A different model than the one on screen took over (OpenCode falls
+        // back silently when a configured model cannot be resolved); say so
+        // instead of swapping the label unnoticed.
+        this.emit({
+          type: 'agent/notice',
+          at: event.created,
+          level: 'info',
+          text: `The agent is serving this conversation with ${step.provider}/${step.id}.`,
+        });
+      }
     }
     if (event.type === 'stream.fatal') {
       // A dead stream is not a running turn any more; the fatal event explains
@@ -944,11 +972,10 @@ function initialStateOf(
   models: readonly ApiModel[],
   commands: readonly AgentCommand[],
   modes: readonly AgentMode[],
-  defaultModel: ApiModel | undefined,
 ): AgentSessionState {
   const apiModel =
     session.model === undefined
-      ? defaultModel
+      ? undefined
       : models.find(
           (model) =>
             model.providerID === session.model?.providerID && model.id === session.model?.id,

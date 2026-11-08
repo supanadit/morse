@@ -278,6 +278,13 @@ variants of the selected model.
 
 - **WHEN** a model declares no reasoning variants
 - **THEN** no thinking level is offered for it
+
+#### Scenario: The composer only names a model the server actually serves
+
+- **WHEN** a session or draft has no explicit model pick
+- **THEN** the composer claims no model, whatever `/model/default` answers
+- **AND** the first started step patches the state with the model (and agent) the server resolved
+- **AND** a step served by a different model than the one on screen is announced as a notice
 - **AND** a level carried over from another model does not pretend to apply
 
 #### Scenario: A model set to no explicit variant is still renderable

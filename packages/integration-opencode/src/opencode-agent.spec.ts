@@ -284,6 +284,58 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
+  it('claims no model before a run, then reports the one the step started serving', async () => {
+    // A session record without a model (a fresh Morse-opened session): the old
+    // behavior answered `/model/default`, which lies — a model the server cannot
+    // resolve falls back silently, so the label named a model never used.
+    const { agent, stream, events } = await harness({
+      handler: (method, path, query) => {
+        if (method === 'POST' && path === '/session') {
+          return sessionInfo({ model: undefined });
+        }
+        if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+          return sessionInfo({ model: undefined });
+        }
+        return defaultHandler()(method, path, query, undefined);
+      },
+    });
+    const before = await agent.state();
+    expect(before.model).toBeUndefined();
+
+    const step = (id: string): OpenCodeEvent => ({
+      type: 'session.step.started',
+      data: {
+        sessionID: 'ses_1',
+        assistantMessageID: 'msg_1',
+        agent: 'build',
+        model: { id, providerID: 'opencode' },
+      },
+      created: 1_000,
+    });
+    stream.emit('ses_1', step('plain-model'));
+    const served = await agent.state();
+    expect(served.model).toMatchObject({
+      provider: 'opencode',
+      id: 'plain-model',
+      name: 'Plain Model',
+    });
+    expect(served.availableThinkingLevels).toEqual([]);
+    // The first truth arrives silently; nothing was claimed before it.
+    expect(events.filter((event) => event.type === 'agent/notice')).toEqual([]);
+
+    // A silent fallback (the server could not resolve the configured model and
+    // moved to another) is said out loud, not swapped into the label unnoticed.
+    stream.emit('ses_1', step('flint-40b-free'));
+    expect((await agent.state()).model).toMatchObject({
+      provider: 'opencode',
+      id: 'flint-40b-free',
+    });
+    const notices = events.filter((event) => event.type === 'agent/notice');
+    expect(notices).toHaveLength(1);
+    expect((notices[0] as { text: string }).text).toContain('opencode/flint-40b-free');
+    await agent.dispose();
+  });
+
   it('seeds the usage panel counts and speed from the stored messages', async () => {
     const { agent, stream } = await harness({
       handler: (method, path) => {

@@ -46,7 +46,9 @@ class FakeApi {
       return Promise.resolve([{ name: 'init', description: 'setup' }] as unknown as T);
     }
     if (path === '/skill') {
-      return Promise.resolve([{ id: 'opencode', name: 'OpenCode', description: 'about it' }] as unknown as T);
+      return Promise.resolve([
+        { id: 'opencode', name: 'OpenCode', description: 'about it' },
+      ] as unknown as T);
     }
     if (path === '/agent') {
       return Promise.resolve([
@@ -70,7 +72,9 @@ class FakeApi {
     }
     const id = path.split('/')[2];
     const session = this.sessions.find((row) => row.id === id);
-    return session === undefined ? Promise.reject(new Error('not found')) : Promise.resolve(session as unknown as T);
+    return session === undefined
+      ? Promise.reject(new Error('not found'))
+      : Promise.resolve(session as unknown as T);
   }
 
   page<T>(path: string): Promise<OpenCodePage<T>> {
@@ -96,10 +100,12 @@ class FakeApi {
   }
 }
 
-function engineWith(options: {
-  sessions?: SessionRow[];
-  owned?: boolean;
-} = {}): {
+function engineWith(
+  options: {
+    sessions?: SessionRow[];
+    owned?: boolean;
+  } = {},
+): {
   engine: OpenCodeEngine;
   api: FakeApi;
   closed: { stream: ReturnType<typeof vi.fn>; connection: ReturnType<typeof vi.fn> };
@@ -145,7 +151,7 @@ function engineWith(options: {
 }
 
 describe('OpenCodeEngine', () => {
-  it('reports the server\'s sessions in the engine\'s own terms', async () => {
+  it("reports the server's sessions in the engine's own terms", async () => {
     const { engine } = engineWith();
     expect(engine.kind).toBe('opencode');
     expect(engine.engine).toBe(engine);
@@ -191,7 +197,9 @@ describe('OpenCodeEngine', () => {
     await planned.dispose();
 
     const resumed = await engine.factory.create({ workspace: WORKSPACE, sessionId: 'ses_1' });
-    expect(api.calls.some((call) => call.method === 'GET' && call.path === '/session/ses_1')).toBe(true);
+    expect(api.calls.some((call) => call.method === 'GET' && call.path === '/session/ses_1')).toBe(
+      true,
+    );
     expect((await resumed.state()).sessionId).toBe('ses_1');
     await resumed.dispose();
   });
@@ -212,8 +220,11 @@ describe('OpenCodeEngine', () => {
     ]);
     expect(state.availableModels).toHaveLength(1);
     expect(state.availableCommands.map((command) => command.name)).toEqual(['init', 'OpenCode']);
-    expect(state.model).toMatchObject({ provider: 'opencode', id: 'flint-40b-free' });
-    expect(state.availableThinkingLevels).toEqual(['low', 'medium', 'high']);
+    // `/model/default` is only a candidate — a model the server cannot resolve
+    // falls back silently, so the draft claims no model until the first step
+    // names the one actually serving (or the reader picks one).
+    expect(state.model).toBeUndefined();
+    expect(state.availableThinkingLevels).toEqual([]);
     expect(state.mode).toBe('plan');
     expect(state.availableModes?.map((mode) => mode.id)).toEqual(['build', 'plan']);
     expect(state.availableModes?.find((mode) => mode.id === 'plan')?.default).toBe(true);
@@ -223,7 +234,7 @@ describe('OpenCodeEngine', () => {
     await expect(probe.prompt('hi', 'new')).rejects.toBeInstanceOf(UnsupportedByHostError);
   });
 
-  it('offers the picked model\'s levels on a probe', async () => {
+  it("offers the picked model's levels on a probe", async () => {
     const { engine } = engineWith({ sessions: [] });
     const model: ModelRef = { provider: 'opencode', id: 'flint-40b-free', name: 'Flint 40B Free' };
     const probe = await engine.factory.probeDefaults({ workspace: WORKSPACE, model });

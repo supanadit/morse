@@ -44,8 +44,10 @@ Morse **v0.27.2**. This page is the honest inventory of what ships. Everything e
   without touching pi's defaults for new sessions.
 - A brand-new, empty panel probes the selected engine without creating a session (pi `--no-session`, OpenCode's
   catalog reads) for the real model, mode and command catalog, so the first picker is populated before any
-  session exists. OpenCode's probe also reports its default model, so switching the draft to OpenCode shows a
-  usable model instead of "no model".
+  session exists. What the panel never does is _guess_: OpenCode resolves the model that serves a turn only
+  when the run starts (a configured model it cannot resolve falls back silently), so a fresh draft claims no
+  model at all — the composer shows `no model` until the reader picks one or the first step names the one
+  actually serving, and a silent takeover is announced as a notice.
 
 ### Modes
 

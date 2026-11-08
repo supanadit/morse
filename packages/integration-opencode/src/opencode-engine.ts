@@ -9,7 +9,12 @@ import {
   type ModelRef,
   type WorkspaceRef,
 } from '@morse/agent';
-import { UnsupportedByHostError, type AgentExtras, type AgentIntegration, type MorseLogger } from '@morse/system';
+import {
+  UnsupportedByHostError,
+  type AgentExtras,
+  type AgentIntegration,
+  type MorseLogger,
+} from '@morse/system';
 import type { McpConfigScope, McpServerInput } from '@morse/protocol';
 import { OpenCodeMcp } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
@@ -272,9 +277,14 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       )
         ? models
         : [...models, defaultModel];
+    // Only an explicitly picked model is reported as current: `/model/default`
+    // is what the server would try first, and a model it cannot resolve falls
+    // back silently — so until the first step names the real one (or the reader
+    // picks), the draft claims no model at all. The default stays in the
+    // catalog, so it remains pickable.
     const selected =
       input.model === undefined
-        ? defaultModel
+        ? undefined
         : catalog.find(
             (model) => model.providerID === input.model?.provider && model.id === input.model?.id,
           );

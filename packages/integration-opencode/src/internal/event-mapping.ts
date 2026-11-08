@@ -1,4 +1,10 @@
-import type { AgentEvent, AgentSessionState, TokenUsage, ToolResultDetails } from '@morse/agent';
+import type {
+  AgentEvent,
+  AgentSessionState,
+  ModelRef,
+  TokenUsage,
+  ToolResultDetails,
+} from '@morse/agent';
 import type { OpenCodeEvent } from './event-stream.js';
 import {
   toFormRequest,
@@ -114,6 +120,26 @@ export class OpenCodeEventMapper {
         const flushed = this.flushMessage(at);
         const lastUsage = toTokenUsage(data['tokens']);
         return lastUsage === undefined ? flushed : { ...flushed, state: { lastUsage } };
+      }
+
+      case 'session.step.started': {
+        // The server resolves what will actually serve this turn here — the one
+        // moment the model is known. Everything before it is a guess: the
+        // draft's `/model/default` answer and a config's agent pin can both miss
+        // (a model the server cannot resolve falls back silently), so the state
+        // follows what really started.
+        const model = stepModel(data['model']);
+        if (model === undefined) {
+          return { events: [] };
+        }
+        const agent = asString(data['agent']);
+        return {
+          events: [],
+          state: {
+            model,
+            ...(agent === undefined ? {} : { mode: agent }),
+          },
+        };
       }
 
       case 'session.tool.input.started':
@@ -519,6 +545,16 @@ interface EngineFailure {
  * a provider that refused the request for credits is exactly the thing a reader
  * needs to see, and `asString()` alone silently dropped it.
  */
+/** The step payload's `model: { id, providerID }`, as a wire model ref. */
+function stepModel(value: unknown): ModelRef | undefined {
+  const record = asRecord(value);
+  const id = record === undefined ? undefined : asString(record['id']);
+  const providerID = record === undefined ? undefined : asString(record['providerID']);
+  return id === undefined || providerID === undefined
+    ? undefined
+    : { provider: providerID, id, name: id };
+}
+
 function asFailure(value: unknown): EngineFailure | undefined {
   if (typeof value === 'string') {
     return value.length > 0 ? { message: value } : undefined;
