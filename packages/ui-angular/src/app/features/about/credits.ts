@@ -89,6 +89,14 @@ export const CREDITS: readonly CreditGroup[] = [
         role: 'Turns the agent’s markdown into HTML.',
       },
       {
+        name: 'Turborepo',
+        packages: ['turbo'],
+        license: 'MIT',
+        url: 'https://turborepo.com',
+        role: 'Runs the workspace dev tasks in dependency order.',
+        by: 'Vercel',
+      },
+      {
         name: 'DOMPurify',
         packages: ['dompurify'],
         license: '(MPL-2.0 OR Apache-2.0)',
