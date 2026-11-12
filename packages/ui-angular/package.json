@@ -6,6 +6,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
+    "dev": "ng serve",
     "build": "ng build && node scripts/write-manifest.mjs",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",

@@ -2,6 +2,7 @@
   "name": "morse-monorepo",
   "version": "0.27.2",
   "private": true,
+  "packageManager": "npm@11.20.0",
   "description": "Agent-agnostic GUI for coding agents (Pi, OpenCode) — chat in VS Code or your browser.",
   "license": "MIT",
   "author": "Supan Adit Pratama",
@@ -22,6 +23,7 @@
     "watch:ui": "npm run watch -w @morse/ui-angular",
     "watch:webview": "node packages/extension/scripts/watch-webview.mjs",
     "watch:extension": "npm run watch:esbuild -w morse",
+    "dev": "turbo run dev",
     "dev:extension": "npm run build:libs && npm run build:ui && npm run sync-webview && npm-run-all -p watch:extension watch:ui watch:webview",
     "dev:server": "npm run dev -w @morse/server",
     "start:server": "npm run start -w @morse/server",
@@ -38,7 +40,8 @@
     "serialize-javascript": "^7.0.6"
   },
   "devDependencies": {
-    "npm-run-all": "^4.1.5"
+    "npm-run-all": "^4.1.5",
+    "turbo": "^2.11.11"
   },
   "allowScripts": {
     "@parcel/watcher": true,

@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
+    "dev": "tsc -p tsconfig.json --watch",
     "check-types": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

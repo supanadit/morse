@@ -22,3 +22,6 @@ coverage/
 
 # Vitest JSON reporter output from ad-hoc local runs
 .vitest/
+
+# Turborepo cache
+.turbo/
