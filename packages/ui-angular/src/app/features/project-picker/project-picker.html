@@ -51,6 +51,8 @@
           (mouseenter)="active.set(index)"
           (click)="chooseProject(project.path)"
         >
+          <svg class="file-icon repo" viewBox="0 0 16 16" aria-hidden="true" focusable="false"
+            ><use href="#morse-repo" /></svg>
           <span class="project-name">{{ project.name }}</span>
           <span class="project-path">{{ project.path }}</span>
           <span class="project-count">{{ project.sessionCount }}</span>
@@ -117,13 +119,15 @@
       } @else {
         @if (parent(); as up) {
           <button type="button" class="row" [title]="up" (click)="go(up)">
-            <span class="folder" aria-hidden="true">↰</span>
+            <svg class="file-icon folder-open" viewBox="0 0 16 16" aria-hidden="true"
+              focusable="false"><use href="#morse-folder-open" /></svg>
             <span class="name">..</span>
           </button>
         }
         @for (dir of directories(); track dir.path) {
           <button type="button" class="row" [title]="dir.path" (click)="go(dir.path)">
-            <span class="folder" aria-hidden="true">▸</span>
+            <svg class="file-icon folder" viewBox="0 0 16 16" aria-hidden="true"
+              focusable="false"><use href="#morse-folder" /></svg>
             <span class="name">{{ dir.name }}</span>
           </button>
         } @empty {

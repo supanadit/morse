@@ -89,6 +89,8 @@ export function fileGlyph(name: string): string {
 export type IconKind =
   | 'folder'
   | 'folder-open'
+  | 'repo'
+  | 'session'
   | 'generic'
   | 'code'
   | 'data'
@@ -98,6 +100,28 @@ export type IconKind =
   | 'sql'
   | 'lock'
   | 'git';
+
+/**
+ * Every kind, as a list. Keyed by the type, so a new kind that is not named here is a
+ * compile error — the sprite spec walks this to prove `app.html` defines each shape.
+ */
+const ICON_SYMBOL: Record<IconKind, true> = {
+  folder: true,
+  'folder-open': true,
+  repo: true,
+  session: true,
+  generic: true,
+  code: true,
+  data: true,
+  markdown: true,
+  image: true,
+  shell: true,
+  sql: true,
+  lock: true,
+  git: true,
+};
+
+export const ICON_KINDS = Object.keys(ICON_SYMBOL) as readonly IconKind[];
 
 const LOCKFILES = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
 const GIT_FILES = ['.gitignore', '.gitattributes'];

@@ -695,6 +695,11 @@ describe('GitPanel', () => {
     const badges = rows.map((node) => node.querySelector('.badge')?.textContent?.trim());
     expect(names).toEqual(['a.ts', 'b.ts']);
     expect(badges).toEqual(['M', 'U']);
+    // Each changed file wears the mark the Explorer gives it, and the group the branch.
+    const marks = rows.map((node) => node.querySelector('use')?.getAttribute('href'));
+    expect(marks).toEqual(['#morse-code', '#morse-code']);
+    const group = groupByTitle(host, 'Unstaged');
+    expect(group?.querySelector('use')?.getAttribute('href')).toBe('#morse-git');
 
     (rows[0] as HTMLButtonElement).click();
     expect(TestBed.inject(WorkspaceTabs).tabs().map((tab) => tab.id)).toEqual(['file:a.ts']);

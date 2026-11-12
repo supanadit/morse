@@ -98,6 +98,9 @@ export class SessionNav {
     return this.visibleGroups().map((group) => ({
       id: projectNodeId(group.path),
       label: group.name,
+      // A project is a folder that is a repository; the shared tree draws it grey,
+      // like the Explorer's folders, so the two lists read as one.
+      icon: 'repo' as const,
       // A group's own data is never acted on — only its sessions are.
       data: undefined as unknown as SessionSummary,
       // The badge is the true total the host reported, not just the page shown,
@@ -202,6 +205,9 @@ export class SessionNav {
         id: session.id,
         label: session.title,
         data: session,
+        // Every row is a conversation, a fork included: the mark is what the row is,
+        // not where it sits in the tree.
+        icon: 'session' as const,
         badge: this.age(session.updatedAt),
         // A session with forks unfolds like a folder, so the forks are reachable.
         kind: children.length > 0 ? 'group' : 'leaf',

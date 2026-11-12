@@ -310,6 +310,14 @@ describe('SessionNav', () => {
     expect(fork.getAttribute('aria-level')).toBe('3');
   });
 
+  it('marks a project as a repository and a session as a conversation', async () => {
+    const { host } = await render('global');
+    const project = host.querySelector('.row.group') as HTMLElement;
+    expect(project.querySelector('use')?.getAttribute('href')).toBe('#morse-repo');
+    const session = host.querySelector('.row:not(.group)') as HTMLElement;
+    expect(session.querySelector('use')?.getAttribute('href')).toBe('#morse-session');
+  });
+
   it('opens a parent session from its name, and folds it from its caret', async () => {
     const { host, transport, fixture } = await render('global', false, {
       sessions: [

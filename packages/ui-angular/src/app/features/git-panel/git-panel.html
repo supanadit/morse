@@ -130,8 +130,8 @@
 
             <!--
               The uncommitted files, drawn in the shared tree: "Staged" and
-              "Unstaged" are the roots, each file a child so its row carries the
-              `└─` connector, its git badge and its own stage/unstage button.
+              "Unstaged" are the roots, each file a child with its own file icon,
+              its git badge and its own stage/unstage button.
             -->
             @if (view.staged.length === 0 && view.unstaged.length === 0) {
               <div class="empty">

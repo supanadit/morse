@@ -174,6 +174,13 @@ function listRequests(transport: FolderHostTransport): number {
 }
 
 describe('ProjectPicker', () => {
+  it('marks a folder row with a folder icon', async () => {
+    const { host } = await render();
+    expect(rowNamed(host, 'projects').querySelector('use')?.getAttribute('href')).toBe(
+      '#morse-folder',
+    );
+  });
+
   it('browses into subfolders and creates a session in the chosen one', async () => {
     const { host, transport, fixture } = await render();
 
@@ -269,6 +276,13 @@ describe('ProjectPicker', () => {
       { path: '/home/me/projects/alpha', name: 'alpha', sessionCount: 3, lastUsedAt: 1 },
       { path: '/home/me/projects/beta', name: 'beta', sessionCount: 1, lastUsedAt: 2 },
     ];
+
+    it('marks a known project as a repository', async () => {
+      const { host } = await render(PROJECTS);
+      expect(
+        projectRowNamed(host, 'alpha').querySelector('use')?.getAttribute('href'),
+      ).toBe('#morse-repo');
+    });
 
     it('opens on the known projects and starts a session in the one picked', async () => {
       const { host, transport } = await render(PROJECTS);

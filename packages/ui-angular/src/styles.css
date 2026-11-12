@@ -198,6 +198,9 @@
   height: 14px;
   color: var(--morse-fg-muted);
 }
+.file-icon.session {
+  color: #b08ccb;
+}
 .file-icon.code {
   color: #4b9fd5;
 }

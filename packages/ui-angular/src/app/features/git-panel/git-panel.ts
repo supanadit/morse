@@ -18,6 +18,7 @@ import { GitPanelState, GitRepoState } from '../../services/git-panel-state';
 import {
   asCommitFiles,
   changeKind,
+  fileIcon,
   isStaged,
   isUnstaged,
   layoutGraph,
@@ -263,6 +264,7 @@ export class GitPanel {
       id,
       label,
       data: changes[0] ?? { path: '', kind: 'M' },
+      icon: 'git' as const,
       badge: changes.length.toString(),
       badgeTone: 'plain',
       kind: 'group',
@@ -290,6 +292,8 @@ export class GitPanel {
       label: slash === -1 ? change.path : change.path.slice(slash + 1),
       detail: slash === -1 ? undefined : change.path.slice(0, slash),
       data: change,
+      // A changed file is a file: it wears the same mark the Explorer gives it.
+      icon: fileIcon(change.path),
       badge: change.kind,
       badgeTone: this.toneOf(change.kind),
       kind: 'leaf',
