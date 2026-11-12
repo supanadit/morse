@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFileTree, fileGlyph } from './tree.js';
+import { buildFileTree, fileGlyph, fileIcon } from './tree.js';
 
 describe('buildFileTree', () => {
   it('nests files under the directories they imply', () => {
@@ -39,5 +39,40 @@ describe('fileGlyph', () => {
     expect(fileGlyph('styles.css')).toBe('◈');
     expect(fileGlyph('run.sh')).toBe('❯');
     expect(fileGlyph('LICENSE')).toBe('·');
+  });
+});
+
+describe('fileIcon', () => {
+  it('maps a language by extension', () => {
+    expect(fileIcon('main.ts')).toBe('code');
+    expect(fileIcon('app.py')).toBe('code');
+  });
+
+  it('matches the extension case-insensitively', () => {
+    expect(fileIcon('README.MD')).toBe('markdown');
+    expect(fileIcon('main.TS')).toBe('code');
+  });
+
+  it('reads a dotfile by its name, not its suffix', () => {
+    expect(fileIcon('.gitignore')).toBe('git');
+    expect(fileIcon('.env')).toBe('data');
+  });
+
+  it('prefers the whole name for a lockfile', () => {
+    expect(fileIcon('package-lock.json')).toBe('lock');
+    expect(fileIcon('pnpm-lock.yaml')).toBe('lock');
+    expect(fileIcon('yarn.lock')).toBe('lock');
+  });
+
+  it('gives an unknown or missing extension the generic page', () => {
+    expect(fileIcon('foo.xyz')).toBe('generic');
+    expect(fileIcon('Makefile')).toBe('generic');
+  });
+
+  it('names the remaining shapes', () => {
+    expect(fileIcon('logo.png')).toBe('image');
+    expect(fileIcon('deploy.sh')).toBe('shell');
+    expect(fileIcon('report.sql')).toBe('sql');
+    expect(fileIcon('styles.css')).toBe('code');
   });
 });

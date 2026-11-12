@@ -84,3 +84,67 @@ export function fileGlyph(name: string): string {
   }
   return '·';
 }
+
+/** The shape a tree row draws. The colour is the stylesheet's, keyed by this name. */
+export type IconKind =
+  | 'folder'
+  | 'folder-open'
+  | 'generic'
+  | 'code'
+  | 'data'
+  | 'markdown'
+  | 'image'
+  | 'shell'
+  | 'sql'
+  | 'lock'
+  | 'git';
+
+const LOCKFILES = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
+const GIT_FILES = ['.gitignore', '.gitattributes'];
+const DATA = ['json', 'yaml', 'yml', 'toml', 'ini'];
+const SHELL = ['sh', 'bash', 'zsh'];
+const SQL = ['sql'];
+const MARKDOWN = ['md', 'markdown', 'rst', 'txt'];
+const IMAGE = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'];
+const CODE = [
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'php', 'rb', 'rs', 'java',
+  'kt', 'c', 'h', 'cpp', 'cs', 'swift', 'dart', 'html', 'htm', 'css', 'scss',
+  'less', 'xml',
+];
+
+/**
+ * The icon a file's row draws, by name. A lockfile and a dotfile are read by their
+ * whole name — `.gitignore`'s suffix is not `gitignore` — and everything else by its
+ * extension, lowercased.
+ */
+export function fileIcon(name: string): IconKind {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf('.');
+  const extension = dot <= 0 ? '' : lower.slice(dot + 1);
+  if (LOCKFILES.includes(lower) || lower.endsWith('.lock')) {
+    return 'lock';
+  }
+  if (GIT_FILES.includes(lower)) {
+    return 'git';
+  }
+  if (lower === '.env' || lower.startsWith('.env.')) {
+    return 'data';
+  }
+  if (DATA.includes(extension)) {
+    return 'data';
+  }
+  if (SHELL.includes(extension)) {
+    return 'shell';
+  }
+  if (SQL.includes(extension)) {
+    return 'sql';
+  }
+  if (MARKDOWN.includes(extension)) {
+    return 'markdown';
+  }
+  if (IMAGE.includes(extension)) {
+    return 'image';
+  }
+  return CODE.includes(extension) ? 'code' : 'generic';
+}
+
