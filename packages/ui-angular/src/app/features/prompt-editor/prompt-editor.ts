@@ -53,9 +53,10 @@ const DRAFT_KEY = 'prompt-editor';
  * (`ui-runtime/prompt-template`), so what the preview shows is exactly what the
  * agent would receive — defaults included.
  *
- * It lives in a tab (the browser host) or in its own VS Code editor panel — like
+ * It takes over the page on the browser host (the tab strip and chat are
+ * replaced, the toolbar stays) or lives in its own VS Code editor panel — like
  * the MCP editor — never in a modal over the chat. `app.ts` mounts it lazily when
- * its tab comes forward; the host commands (`promptTemplates`,
+ * the full-page editor is up; the host commands (`promptTemplates`,
  * `promptTemplateSave`, `promptTemplateDelete`) do the file I/O.
  */
 @Component({
