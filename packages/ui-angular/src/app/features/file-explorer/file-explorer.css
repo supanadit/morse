@@ -95,13 +95,6 @@ morse-pane {
 .row:focus-visible:not(:disabled) {
   background: var(--morse-hover);
 }
-.glyph {
-  flex: none;
-  width: 13px;
-  text-align: center;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-}
 .name {
   flex: 1;
   min-width: 0;

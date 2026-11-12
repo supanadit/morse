@@ -58,7 +58,8 @@
             [title]="match.path"
             (click)="openMatch(match)"
           >
-            <span class="glyph" aria-hidden="true">{{ glyphFor(match.name) }}</span>
+            <svg [class]="'file-icon ' + iconFor(match.name)" viewBox="0 0 16 16"
+                 aria-hidden="true" focusable="false"><use [attr.href]="'#morse-' + iconFor(match.name)" /></svg>
             <span class="name">{{ match.name }}</span>
             @if (match.dir.length > 0) {
               <span class="dir">{{ match.dir }}</span>

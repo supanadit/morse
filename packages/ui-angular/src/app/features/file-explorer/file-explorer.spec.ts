@@ -460,4 +460,41 @@ describe('FileExplorer', () => {
     // Folded, the pane is only its header.
     expect((fixture.nativeElement as HTMLElement).classList.contains('folded')).toBe(true);
 });
+
+  it('marks a folder closed, then open, then closed again', async () => {
+    const { fixture } = setup(['src/main.ts']);
+    await settleTree(fixture);
+    const folder = (): string | null =>
+      fixture.nativeElement.querySelector('.row.group svg.file-icon')?.getAttribute('class') ?? null;
+    expect(folder()).toBe('file-icon folder');
+    (fixture.nativeElement.querySelector('.row.group') as HTMLElement).click();
+    await settleTree(fixture);
+    expect(folder()).toBe('file-icon folder-open');
+    (fixture.nativeElement.querySelector('.row.group') as HTMLElement).click();
+    await settleTree(fixture);
+    expect(folder()).toBe('file-icon folder');
+  });
+
+  it('marks a file with its extension kind', async () => {
+    const { fixture } = setup(['src/main.ts']);
+    await settleTree(fixture);
+    (fixture.nativeElement.querySelector('.row.group') as HTMLElement).click();
+    await settleTree(fixture);
+    const row = [...fixture.nativeElement.querySelectorAll('.row')].find((node: Element) =>
+      node.textContent?.includes('main.ts'),
+    );
+    const icon = row?.querySelector('svg.file-icon');
+    expect(icon?.classList.contains('file-icon')).toBe(true);
+    expect(icon?.classList.contains('code')).toBe(true);
+  });
+
+  it('gives a search hit the same icon as its tree row', async () => {
+    const { fixture } = setup(['src/main.ts']);
+    await settleTree(fixture);
+    typeFilter(fixture, 'main');
+    const hit = fixture.nativeElement.querySelector('.row .name')?.closest('.row');
+    const icon = hit?.querySelector('svg.file-icon');
+    expect(icon?.classList.contains('file-icon')).toBe(true);
+    expect(icon?.classList.contains('code')).toBe(true);
+  });
 });

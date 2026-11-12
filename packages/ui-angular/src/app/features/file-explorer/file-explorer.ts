@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import {
   buildFileTree,
-  fileGlyph,
+  fileIcon,
   statusByPath,
   type ChangeKind,
   type FileNode,
@@ -323,13 +323,17 @@ export class FileExplorer {
   /**
    * The tree the shared component draws: every `FileNode` paired with a node that
    * says what to show. A folder carries a dot when it holds a change, a file its
-   * git badge — the badges the Explorer used to draw in its own template.
+   * git badge — the badges the Explorer used to draw in its own template — and each
+   * row the silhouette its kind earns, so a folder opens and closes its own icon.
    */
   private toNodes(nodes: readonly FileNode[]): TreeNode<FileNode>[] {
+    const open = this.expanded();
     return nodes.map((node) => ({
       id: node.path,
       label: node.name,
       data: node,
+      icon:
+        node.kind === 'dir' ? (open.has(node.path) ? 'folder-open' : 'folder') : fileIcon(node.name),
       badge: this.badgeFor(node),
       badgeTone: this.toneFor(node),
       kind: node.kind === 'dir' ? ('group' as const) : ('leaf' as const),
@@ -373,7 +377,7 @@ export class FileExplorer {
     }
   }
 
-  protected glyphFor = fileGlyph;
+  protected iconFor = fileIcon;
 
   /** The shared tree reports the node it was given; a folder folds, a file opens. */
   protected onTreeRow(node: TreeNode<FileNode>): void {
