@@ -51,8 +51,8 @@
   background: var(--morse-hover);
 }
 
-/* The icon column: 14px for every row, blank on a row with no file behind it. */
-.file-icon,
+/* The icon column's placeholder: a row with no file behind it keeps the width its
+   neighbours' icons take, so both trees line up. */
 .icon-blank {
   flex: none;
   width: 14px;

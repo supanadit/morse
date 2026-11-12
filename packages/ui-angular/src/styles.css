@@ -185,6 +185,9 @@
  * colour reaches the shape from here.
  */
 .file-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
   color: var(--morse-fg-muted);
 }
 .file-icon.code {
