@@ -225,6 +225,9 @@
 .file-icon.git {
   color: #d1603f;
 }
+.file-icon.tag {
+  color: #b0a24a;
+}
 
 html,
 body {

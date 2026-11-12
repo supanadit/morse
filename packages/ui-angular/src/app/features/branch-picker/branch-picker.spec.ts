@@ -55,6 +55,14 @@ describe('BranchPicker', () => {
     expect(remote?.getAttribute('title')).toBe('origin/feat/one');
   });
 
+  it('marks a branch with the branch icon and a tag with the tag icon', () => {
+    const fixture = render(branches);
+    const all = rows(fixture);
+    // Order: create, detach, locals (2), remotes (2), tags (2).
+    expect(all[2].querySelector('use')?.getAttribute('href')).toBe('#morse-git');
+    expect(all[6].querySelector('use')?.getAttribute('href')).toBe('#morse-tag');
+  });
+
   it('emits a tag to check out', () => {
     const fixture = render(branches);
     const pick = vi.fn();

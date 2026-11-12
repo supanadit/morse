@@ -48,7 +48,9 @@
           [title]="name"
           (click)="choose(name)"
         >
-          <span class="dot" [class.on]="name === branches().current"></span>
+          <svg [class]="'file-icon git' + (name === branches().current ? ' on' : '')"
+            viewBox="0 0 16 16" aria-hidden="true" focusable="false"
+            ><use href="#morse-git" /></svg>
           <span class="name">{{ name }}</span>
         </button>
       }
@@ -58,7 +60,8 @@
       <div class="group">Remote</div>
       @for (name of remotes(); track name) {
         <button type="button" class="row" [disabled]="busy()" [title]="name" (click)="choose(short(name))">
-          <span class="dot"></span>
+          <svg class="file-icon git" viewBox="0 0 16 16" aria-hidden="true" focusable="false"
+            ><use href="#morse-git" /></svg>
           <span class="name">{{ short(name) }}</span>
           <span class="remote">{{ name }}</span>
         </button>
@@ -69,7 +72,8 @@
       <div class="group">Tags</div>
       @for (name of tags(); track name) {
         <button type="button" class="row" [disabled]="busy()" [title]="name" (click)="choose(name)">
-          <span class="tag-glyph" aria-hidden="true">⌂</span>
+          <svg class="file-icon tag" viewBox="0 0 16 16" aria-hidden="true" focusable="false"
+            ><use href="#morse-tag" /></svg>
           <span class="name">{{ name }}</span>
         </button>
       }

@@ -273,6 +273,11 @@ describe('GitPanel', () => {
       node.textContent?.trim(),
     );
     expect(names).toEqual(['a.ts', 'b.ts']);
+    // A commit's files wear the same mark the Explorer and the changes tree give them.
+    const marks = [...host.querySelectorAll('.commit-file-tree .row:not(.group) use')].map((node) =>
+      node.getAttribute('href'),
+    );
+    expect(marks).toEqual(['#morse-code', '#morse-code']);
     // The lane that survives the commit is drawn across the expanded list, so
     // the graph line is not cut by the files.
     expect(host.querySelectorAll('.commit-files .commit-rail .rail').length).toBeGreaterThan(0);

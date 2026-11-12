@@ -348,6 +348,7 @@ export class GitPanel {
         label: slash === -1 ? file.path : file.path.slice(slash + 1),
         detail: slash === -1 ? undefined : file.path.slice(0, slash),
         data: file,
+        icon: fileIcon(file.path),
         badge: file.kind,
         badgeTone: this.toneOf(file.kind),
         kind: 'leaf' as const,

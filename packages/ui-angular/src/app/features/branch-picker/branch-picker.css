@@ -91,24 +91,13 @@
   color: var(--morse-fg-muted);
 }
 /* A tag's own glyph, so a tag row is not mistaken for a branch. */
-.tag-glyph {
+/* The row's mark: a branch glyph, accent-coloured for the branch that is checked out. */
+.row .file-icon {
   flex: none;
-  width: 13px;
-  text-align: center;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  line-height: 1;
+  margin-right: 2px;
 }
-.dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.4px solid var(--morse-fg-muted);
-}
-.dot.on {
-  border-color: var(--morse-accent);
-  background: var(--morse-accent);
+.row .file-icon.git.on {
+  color: var(--morse-accent);
 }
 .row .name {
   flex: 1;
