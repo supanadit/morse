@@ -1009,4 +1009,35 @@ describe('WorkspaceTabs', () => {
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
     expect(tabs.activeId()).toBe('s1');
   });
+
+  it('drops a legacy prompt tab from an older layout on restore', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+
+    tabs.restore({
+      tabs: [
+        { kind: 'session', id: 's1', title: 'One', cwd: '/repo' },
+        { kind: 'prompt', id: 'prompt:templates', title: 'Prompt templates' },
+      ],
+      activeId: 'prompt:templates',
+    });
+
+    // The legacy prompt tab is dropped, and the activeId that pointed at it is
+    // dropped with it, so the strip is still usable.
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.activeId()).toBeUndefined();
+  });
+
+  it('closes the full-page prompt editor when a session is brought forward', () => {
+    const { tabs, fake } = setup();
+    const shell = TestBed.inject(ShellState);
+    shell.togglePromptEditor();
+    expect(shell.promptEditorOpen()).toBe(true);
+
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+
+    expect(shell.promptEditorOpen()).toBe(false);
+    expect(tabs.activeId()).toBe('s1');
+    expect(fake.activateSession).toHaveBeenCalledWith('s1', '/repo');
+  });
 });

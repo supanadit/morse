@@ -302,6 +302,7 @@ export class WorkspaceTabs {
   startDraft(cwd?: string): void {
     this.openDraft(cwd);
     this.morse.newSession(cwd);
+    this.closePromptEditorIfOpen();
   }
 
   /** Opens a fresh draft tab for a new session; every call is its own tab. */
@@ -313,6 +314,7 @@ export class WorkspaceTabs {
       { kind: 'session', id, title: 'New session', cwd, draft: true },
     ]);
     this.active.set(id);
+    this.closePromptEditorIfOpen();
     this.pendingDraft = id;
   }
 
@@ -327,6 +329,7 @@ export class WorkspaceTabs {
     this.pendingDraft = undefined;
     this.showSession(session);
     this.morse.activateSession(session.id, session.cwd);
+    this.closePromptEditorIfOpen();
   }
 
   /**
@@ -502,6 +505,7 @@ export class WorkspaceTabs {
     const existing = this.items().find((tab) => tab.id === MCP_TAB_ID);
     if (existing !== undefined) {
       this.active.set(MCP_TAB_ID);
+      this.closePromptEditorIfOpen();
       return;
     }
     this.items.update((tabs) => [
@@ -509,6 +513,7 @@ export class WorkspaceTabs {
       { kind: 'mcp', id: MCP_TAB_ID, title: 'MCP servers' },
     ]);
     this.active.set(MCP_TAB_ID);
+    this.closePromptEditorIfOpen();
   }
 
   /**
@@ -522,6 +527,13 @@ export class WorkspaceTabs {
       this.shell.togglePromptEditor();
     } else {
       void this.morse.requestHostCommand('openPromptEditor', {}).catch(() => undefined);
+    }
+  }
+
+  /** Closes the full-page prompt editor when navigation brings a tab forward. */
+  private closePromptEditorIfOpen(): void {
+    if (this.shell.promptEditorOpen()) {
+      this.shell.closePromptEditor();
     }
   }
 
@@ -553,6 +565,7 @@ export class WorkspaceTabs {
       tabs.map((tab) => (tab.id === id && tab.kind === 'file' ? { ...tab, line } : tab)),
     );
     this.active.set(id);
+    this.closePromptEditorIfOpen();
   }
 
   /**
@@ -640,6 +653,7 @@ export class WorkspaceTabs {
         ),
       );
       this.active.set(id);
+      this.closePromptEditorIfOpen();
       if (reread || this.needsLoad(standalone)) {
         void this.load(id);
       }
@@ -661,6 +675,7 @@ export class WorkspaceTabs {
       },
     ]);
     this.active.set(id);
+    this.closePromptEditorIfOpen();
     void this.load(id);
   }
 
@@ -676,6 +691,7 @@ export class WorkspaceTabs {
       this.patch(id, { sessionId, projectCwd, ...(reread ? clearedPreview() : {}) });
     }
     this.active.set(id);
+    this.closePromptEditorIfOpen();
     if (reread || this.needsLoad(tab)) {
       void this.load(id);
     }
@@ -702,6 +718,7 @@ export class WorkspaceTabs {
       }
     }
     this.active.set(id);
+    this.closePromptEditorIfOpen();
     if (tab.kind === 'session') {
       // The draft is a placeholder, not a pi session: activating it would ask
       // the host to resume a session literally named "draft". The host holds one

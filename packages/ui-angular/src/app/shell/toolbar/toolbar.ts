@@ -214,9 +214,9 @@ export class Toolbar {
   }
 
   /**
-   * Opens the prompt-template editor: a tab on a tabbed host (the browser), the
-   * host's own editor panel where there is none (VS Code). The shared method owns
-   * that choice.
+   * Opens the prompt-template editor: a full-page editor on a tabbed host (the
+   * browser), the host's own editor panel where there is none (VS Code). The
+   * shared method owns that choice.
    */
   protected openPrompts(): void {
     this.tabs.openPromptEditor();

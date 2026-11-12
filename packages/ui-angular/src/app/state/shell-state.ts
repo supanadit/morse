@@ -323,6 +323,11 @@ export class ShellState {
     this.promptEditor.update((open) => !open);
   }
 
+  /** Closes the full-page prompt-template editor (used when navigation takes over). */
+  closePromptEditor(): void {
+    this.promptEditor.set(false);
+  }
+
   closeMcp(): void {
     this.mcp.set(false);
   }
