@@ -121,7 +121,7 @@
 
     <!-- The browser host's tabs: sessions and files side by side. VS
          Code keeps its own editor tabs and never renders this strip. -->
-    @if (tabsEnabled()) {
+    @if (tabsEnabled() && !promptEditorOpen()) {
       <morse-tab-strip />
     }
 
@@ -197,12 +197,12 @@
       </div>
     }
 
-    @if (activeMcp()) {
-      <morse-mcp-editor />
-    } @else if (activePrompt()) {
+    @if (promptEditorOpen()) {
       <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
            its own chunk instead of joining the initial bundle. -->
       <ng-container [ngComponentOutlet]="promptEditorComponent()" />
+    } @else if (activeMcp()) {
+      <morse-mcp-editor />
     } @else if (activeFile(); as file) {
       <morse-file-preview [tab]="file" />
     } @else {

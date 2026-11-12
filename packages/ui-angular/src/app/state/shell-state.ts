@@ -194,6 +194,15 @@ export class ShellState {
   readonly mcpOpen = this.mcp.asReadonly();
 
   /**
+   * The prompt-template editor. Shell state like the MCP manager: the toolbar's
+   * document button toggles it, and while it is up the browser host replaces the
+   * tab strip and chat with the editor (the toolbar stays, so MCP/git/search
+   * remain reachable).
+   */
+  private readonly promptEditor = signal(false);
+  readonly promptEditorOpen = this.promptEditor.asReadonly();
+
+  /**
    * True while a dialog owns the screen. Overlay shortcuts stand down on this:
    * opening a picker behind a modal reads as a bug, not as a feature.
    *
@@ -307,6 +316,11 @@ export class ShellState {
   /** Opens the MCP manager (the header's indicator owns the click). */
   openMcp(): void {
     this.mcp.set(true);
+  }
+
+  /** Toggles the full-page prompt-template editor (the toolbar's document button). */
+  togglePromptEditor(): void {
+    this.promptEditor.update((open) => !open);
   }
 
   closeMcp(): void {

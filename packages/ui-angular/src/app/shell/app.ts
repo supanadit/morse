@@ -259,8 +259,8 @@ export class App {
   });
   /** The MCP editor is in front, so the panel shows it instead of a conversation. */
   protected readonly activeMcp = computed(() => this.tabs.activeTab()?.kind === 'mcp');
-  /** The prompt-template editor is in front. */
-  protected readonly activePrompt = computed(() => this.tabs.activeTab()?.kind === 'prompt');
+  /** The full-page prompt-template editor is up (the browser host's toggle). */
+  protected readonly promptEditorOpen = this.shell.promptEditorOpen;
   /**
    * No session tab is in front, on the host that shows the strip. The panel shows
    * a placeholder instead of a conversation that does not exist, and the composer
@@ -273,8 +273,8 @@ export class App {
    * and the front tab is either not decided yet or a real (non-draft) session
    * whose transcript has not arrived. The panel shows a loading screen instead
    * of the welcome — an empty-looking panel reads as a fresh session, and a
-   * prompt typed into it would race the restore. A restored draft, file, MCP or
-   * prompt tab is already what the reader left, so it shows immediately.
+   * prompt typed into it would race the restore. A restored draft, file or MCP
+   * tab is already what the reader left, so it shows immediately.
    */
   protected readonly restoringSession = computed(() => {
     if (!this.restore.isRestoring()) {
@@ -519,9 +519,9 @@ export class App {
       // The palette's open flag is shell state (so `modalOpen` is honest and the
       // overlay renders from one place), so its key is bound here like the help's.
       this.shortcuts.bind('command.palette', () => this.shell.togglePalette()),
-      // A Morse surface, not a pi command: it opens a tab (browser) or the
-      // host's own editor panel (VS Code). Unavailable where the host cannot
-      // read pi's prompt directories.
+      // A Morse surface, not a pi command: it opens the full-page editor
+      // (browser) or the host's own editor panel (VS Code). Unavailable where
+      // the host cannot read pi's prompt directories.
       this.shortcuts.bind(
         'view.prompts',
         () => this.openPromptEditor(),
@@ -695,11 +695,11 @@ export class App {
       }
       this.tabs.reconcileSessions(this.morse.sessions());
     });
-    // Load the prompt editor only while its tab is in front. A lazy `import()`
-    // keeps its template and cheat sheet in their own chunk, unlike `@defer`,
-    // whose runtime would ride in the initial bundle instead.
+    // Load the prompt editor only while the full-page editor is up. A lazy
+    // `import()` keeps its template and cheat sheet in their own chunk, unlike
+    // `@defer`, whose runtime would ride in the initial bundle instead.
     effect(() => {
-      if (!this.activePrompt()) {
+      if (!this.promptEditorOpen()) {
         this.promptEditorComponent.set(null);
         return;
       }
@@ -721,7 +721,7 @@ export class App {
     try {
       const { PromptEditor: Editor } = await import('../features/prompt-editor/prompt-editor');
       this.promptEditorClass = Editor;
-      if (this.activePrompt()) {
+      if (this.promptEditorOpen()) {
         this.promptEditorComponent.set(Editor);
       }
     } finally {
@@ -752,9 +752,10 @@ export class App {
   }
 
   /**
-   * Opens the prompt-template editor: a tab on a host with a Morse tab strip,
-   * the host's own editor panel where there is none (VS Code). The host branch
-   * lives on `WorkspaceTabs`, so the toolbar button takes the same path.
+   * Opens the prompt-template editor: a full-page editor on a host with a Morse
+   * tab strip, the host's own editor panel where there is none (VS Code). The
+   * host branch lives on `WorkspaceTabs`, so the toolbar button takes the same
+   * path.
    */
   protected openPromptEditor(): void {
     this.tabs.openPromptEditor();

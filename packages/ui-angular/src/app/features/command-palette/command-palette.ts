@@ -186,20 +186,16 @@ export class CommandPalette {
           ? tab.path
           : tab.kind === 'session'
             ? tab.cwd
-            : tab.kind === 'mcp'
-              ? 'MCP servers'
-              : 'Prompt templates',
+            : 'MCP servers',
       badge:
         tab.kind === 'file'
           ? 'file'
           : tab.kind === 'mcp'
             ? 'mcp'
-            : tab.kind === 'prompt'
-              ? 'prompts'
-              : tab.draft === true
-                ? 'draft'
-                : 'session',
-      icon: tab.kind === 'file' ? '≡' : tab.kind === 'mcp' ? '⚙' : tab.kind === 'prompt' ? '✎' : '▸',
+            : tab.draft === true
+              ? 'draft'
+              : 'session',
+      icon: tab.kind === 'file' ? '≡' : tab.kind === 'mcp' ? '⚙' : '▸',
     }));
   });
 

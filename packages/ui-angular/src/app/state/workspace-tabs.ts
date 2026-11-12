@@ -3,6 +3,7 @@ import { languageForPath } from '@morse/ui-runtime';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from '../host/morse.service';
 import { QueuedPrompts } from './queued-prompts';
+import { ShellState } from './shell-state';
 import { TerminalStore } from './terminal-store';
 
 export interface SessionTab {
@@ -65,7 +66,7 @@ export interface FileTab {
   repo?: string;
 }
 
-export type WorkspaceTab = SessionTab | FileTab | McpTab | PromptTab;
+export type WorkspaceTab = SessionTab | FileTab | McpTab;
 
 /**
  * The MCP editor, opened in the strip. There is exactly one (`MCP_TAB_ID`), so
@@ -73,16 +74,6 @@ export type WorkspaceTab = SessionTab | FileTab | McpTab | PromptTab;
  */
 export interface McpTab {
   kind: 'mcp';
-  id: string;
-  title: string;
-}
-
-/**
- * The prompt-template editor, opened in the strip. There is exactly one
- * (`PROMPT_TAB_ID`), like the MCP editor: `/prompts` re-focuses it.
- */
-export interface PromptTab {
-  kind: 'prompt';
   id: string;
   title: string;
 }
@@ -96,7 +87,7 @@ export interface PromptTab {
  */
 /** The shape every restorable tab shares: which kind, its id, and its label. */
 export interface PersistedTabBase {
-  kind: 'session' | 'mcp' | 'prompt' | 'file';
+  kind: 'session' | 'mcp' | 'file';
   id: string;
   title: string;
 }
@@ -112,10 +103,6 @@ export interface PersistedMcpTab extends PersistedTabBase {
   kind: 'mcp';
 }
 
-export interface PersistedPromptTab extends PersistedTabBase {
-  kind: 'prompt';
-}
-
 /** A file or diff preview, optionally tied to a session or a commit. */
 export interface PersistedFileTab extends PersistedTabBase {
   kind: 'file';
@@ -129,11 +116,7 @@ export interface PersistedFileTab extends PersistedTabBase {
 }
 
 /** A tab the strip restores after a reload. */
-export type PersistedTab =
-  | PersistedSessionTab
-  | PersistedMcpTab
-  | PersistedPromptTab
-  | PersistedFileTab;
+export type PersistedTab = PersistedSessionTab | PersistedMcpTab | PersistedFileTab;
 
 /** What the strip remembers across a reload: its tabs, and which one was in front. */
 export interface TabsSnapshot {
@@ -146,8 +129,6 @@ const FILE_PREFIX = 'file:';
 const MENTION_PREFIX = 'mention:';
 /** There is one MCP editor tab, whatever the directory. */
 export const MCP_TAB_ID = 'mcp:servers';
-/** There is one prompt-template editor tab, whatever the directory. */
-export const PROMPT_TAB_ID = 'prompt:templates';
 
 /** The shape the host's `readFile` command resolves with. */
 interface FilePreviewPayload {
@@ -176,6 +157,7 @@ export class WorkspaceTabs {
   private readonly drafts = inject(ComposerDrafts);
   private readonly terminals = inject(TerminalStore);
   private readonly queued = inject(QueuedPrompts);
+  private readonly shell = inject(ShellState);
   private readonly items = signal<WorkspaceTab[]>([]);
   private readonly active = signal<string | undefined>(undefined);
   /** Names the draft tabs, so each "New session" is its own tab and its own draft. */
@@ -406,9 +388,6 @@ export class WorkspaceTabs {
       if (tab.kind === 'mcp') {
         return [{ kind: 'mcp', id: tab.id, title: tab.title }];
       }
-      if (tab.kind === 'prompt') {
-        return [{ kind: 'prompt', id: tab.id, title: tab.title }];
-      }
       if (tab.mention === true && (tab.sessionId === undefined || !sessionIds.has(tab.sessionId))) {
         return [];
       }
@@ -463,9 +442,6 @@ export class WorkspaceTabs {
       }
       if (tab.kind === 'mcp') {
         return [{ kind: 'mcp', id: tab.id, title: tab.title }];
-      }
-      if (tab.kind === 'prompt') {
-        return [{ kind: 'prompt', id: tab.id, title: tab.title }];
       }
       return [
         {
@@ -536,31 +512,14 @@ export class WorkspaceTabs {
   }
 
   /**
-   * Opens the one prompt-template editor tab, or brings it forward when it is
-   * already open — `/prompts` is a focus, never a second editor.
-   */
-  openPrompt(): void {
-    const existing = this.items().find((tab) => tab.id === PROMPT_TAB_ID);
-    if (existing !== undefined) {
-      this.active.set(PROMPT_TAB_ID);
-      return;
-    }
-    this.items.update((tabs) => [
-      ...tabs,
-      { kind: 'prompt', id: PROMPT_TAB_ID, title: 'Prompt templates' },
-    ]);
-    this.active.set(PROMPT_TAB_ID);
-  }
-
-  /**
-   * Opens the prompt-template editor the way this host can show it: a tab on a
-   * host with a Morse tab strip (the browser), the host's own editor panel where
-   * there is none (VS Code). Shared so the keyboard, the palette and the toolbar
-   * button all take the same path.
+   * Opens the prompt-template editor the way this host can show it: a full-page
+   * editor on a host with a Morse tab strip (the browser), the host's own editor
+   * panel where there is none (VS Code). Shared so the keyboard, the palette and
+   * the toolbar button all take the same path.
    */
   openPromptEditor(): void {
     if (this.morse.capabilities()?.filePreview === true) {
-      this.openPrompt();
+      this.shell.togglePromptEditor();
     } else {
       void this.morse.requestHostCommand('openPromptEditor', {}).catch(() => undefined);
     }
@@ -904,10 +863,7 @@ export class WorkspaceTabs {
       );
     }
     return this.items().filter(
-      (tab) =>
-        tab.kind === 'mcp' ||
-        tab.kind === 'prompt' ||
-        (tab.kind === 'file' && tab.mention !== true),
+      (tab) => tab.kind === 'mcp' || (tab.kind === 'file' && tab.mention !== true),
     );
   }
 
@@ -1383,13 +1339,6 @@ function asPersistedTab(value: unknown): PersistedTab | undefined {
       return undefined;
     }
     return { kind: 'mcp', id, title };
-  }
-  if (candidate['kind'] === 'prompt') {
-    const title = candidate['title'];
-    if (typeof title !== 'string') {
-      return undefined;
-    }
-    return { kind: 'prompt', id, title };
   }
   if (candidate['kind'] !== 'file') {
     return undefined;

@@ -61,9 +61,6 @@ export class TabStrip {
     if (tab.kind === 'mcp') {
       return '⚙';
     }
-    if (tab.kind === 'prompt') {
-      return '✎';
-    }
     return tab.kind === 'session' ? '✦' : fileGlyph(tab.title);
   }
 

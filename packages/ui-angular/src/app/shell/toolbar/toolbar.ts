@@ -133,7 +133,7 @@ export class Toolbar {
   protected readonly promptsEnabled = computed(
     () => this.morse.capabilities()?.promptEditor === true,
   );
-  protected readonly promptsOpen = computed(() => this.tabs.activeTab()?.kind === 'prompt');
+  protected readonly promptsOpen = this.shell.promptEditorOpen;
 
   constructor() {
     // The bar owns these buttons, so it owns their keys too: an unavailable row (a host

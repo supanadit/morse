@@ -4,6 +4,7 @@ import { BaseHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { MORSE_TRANSPORT } from '../host/transport.token';
+import { ShellState } from '../state/shell-state';
 
 /**
  * A browser host with the tab strip on. The point: `session/state` carries no
@@ -365,5 +366,27 @@ describe('App session tabs', () => {
     // come back just because an effect saw the session again.
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.tab')).toHaveLength(0);
+  });
+
+  it('replaces the tab strip with the prompt editor while it is open', async () => {
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new TitledSessionTransport() }],
+    });
+    const fixture = render();
+    const shell = TestBed.inject(ShellState);
+    expect(fixture.nativeElement.querySelector('morse-tab-strip')).not.toBeNull();
+
+    shell.togglePromptEditor();
+    await vi.waitFor(() => {
+      expect(fixture.nativeElement.querySelector('morse-prompt-editor')).not.toBeNull();
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('morse-tab-strip')).toBeNull();
+
+    shell.togglePromptEditor();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('morse-prompt-editor')).toBeNull();
+    expect(fixture.nativeElement.querySelector('morse-tab-strip')).not.toBeNull();
   });
 });

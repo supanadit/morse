@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from '../host/morse.service';
 import { QueuedPrompts } from './queued-prompts';
+import { ShellState } from './shell-state';
 import { TerminalStore } from './terminal-store';
 import { WorkspaceTabs } from './workspace-tabs';
 
@@ -26,7 +27,7 @@ function setup(
       workspace: { cwd: '/repo', name: 'repo' },
     }),
     // The capabilities the shell reads to choose an editor surface; the browser
-    // shape is the default, so `openPromptEditor` opens a tab here.
+    // shape is the default, so `openPromptEditor` opens the full-page editor here.
     capabilities: signal<{ filePreview?: boolean; promptEditor?: boolean }>({
       filePreview: true,
       promptEditor: true,
@@ -93,32 +94,25 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('mcp:servers');
   });
 
-  it('opens one prompt editor tab and re-focuses it instead of stacking a second', () => {
-    const { tabs } = setup();
-
-    tabs.openPrompt();
-    tabs.openFile('README.md');
-    tabs.openPrompt();
-
-    expect(tabs.tabs().filter((tab) => tab.kind === 'prompt')).toHaveLength(1);
-    expect(tabs.activeId()).toBe('prompt:templates');
-  });
-
-  it('opens the prompt editor as a tab on a host with a tab strip', () => {
+  it('toggles the full-page prompt editor on a host with a tab strip', () => {
     const { tabs, fake } = setup(() => undefined, { filePreview: true });
+    const shell = TestBed.inject(ShellState);
 
     tabs.openPromptEditor();
 
-    expect(tabs.activeId()).toBe('prompt:templates');
+    expect(shell.promptEditorOpen()).toBe(true);
+    expect(tabs.tabs()).toHaveLength(0);
     expect(fake.requestHostCommand).not.toHaveBeenCalledWith('openPromptEditor', expect.anything());
   });
 
   it('asks the host to open its own editor panel where there is no tab strip', () => {
     const { tabs, fake } = setup(() => undefined, { filePreview: false });
+    const shell = TestBed.inject(ShellState);
 
     tabs.openPromptEditor();
 
-    expect(tabs.tabs().some((tab) => tab.kind === 'prompt')).toBe(false);
+    expect(shell.promptEditorOpen()).toBe(false);
+    expect(tabs.tabs()).toHaveLength(0);
     expect(fake.requestHostCommand).toHaveBeenCalledWith('openPromptEditor', {});
   });
 
