@@ -57,10 +57,10 @@ export function mapSessionEvent(
       return record['success'] === true
         ? { events: [] }
         : {
-            events: [
-              notice('error', stringField(record, 'finalError') ?? 'Retries exhausted.', now),
-            ],
-          };
+          events: [
+            notice('error', stringField(record, 'finalError') ?? 'Retries exhausted.', now),
+          ],
+        };
     case 'extension_error':
       return {
         events: [
@@ -662,14 +662,14 @@ export function splitTrailingMentions(
     const endLine = match?.[2] !== undefined ? match[4] : match?.[7];
     const record = match
       ? {
-          path: match[1] ?? '',
-          ...(startLine !== undefined ? { startLine: Number(startLine) } : {}),
-          ...(endLine !== undefined ? { endLine: Number(endLine) } : {}),
-          ...(match?.[3] !== undefined ? { startColumn: Number(match[3]) } : {}),
-          ...(match?.[5] !== undefined ? { endColumn: Number(match[5]) } : {}),
-          ...(excerpts.length > 0 ? { text: excerpts.join('\n') } : {}),
-          ...(notes.length > 0 ? { note: notes.join('\n') } : {}),
-        }
+        path: match[1] ?? '',
+        ...(startLine !== undefined ? { startLine: Number(startLine) } : {}),
+        ...(endLine !== undefined ? { endLine: Number(endLine) } : {}),
+        ...(match?.[3] !== undefined ? { startColumn: Number(match[3]) } : {}),
+        ...(match?.[5] !== undefined ? { endColumn: Number(match[5]) } : {}),
+        ...(excerpts.length > 0 ? { text: excerpts.join('\n') } : {}),
+        ...(notes.length > 0 ? { note: notes.join('\n') } : {}),
+      }
       : undefined;
     // A pin path is a plain file path; a prose sentence with an `@` in the
     // middle ("what about @me?") does not end with one, so prose stays intact.
