@@ -51,18 +51,12 @@
   background: var(--morse-hover);
 }
 
-/*
- * The connector column. Monospace, so `│`, the gap and `├─`/`└─` keep the same
- * width and a column of labels lines up whatever the ancestors did. Dim, because
- * the tree above the row is context, not content.
- */
-.prefix {
+/* The icon column: 14px for every row, blank on a row with no file behind it. */
+.file-icon,
+.icon-blank {
   flex: none;
-  white-space: pre;
-  font-family: var(--morse-font-mono);
-  font-size: 11px;
-  line-height: 1;
-  color: var(--morse-fg-muted);
+  width: 14px;
+  height: 14px;
 }
 
 /*

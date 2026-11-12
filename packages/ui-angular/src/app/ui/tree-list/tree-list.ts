@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { flattenTree, treePrefix, type TreeListRow, type TreeNode } from '@morse/ui-runtime';
+import { flattenTree, type TreeNode } from '@morse/ui-runtime';
 
 /**
  * One tree, drawn once.
@@ -47,10 +47,6 @@ export class TreeList<T> {
   protected onContext(event: MouseEvent, node: TreeNode<T>): void {
     event.preventDefault();
     this.context.emit({ node, event });
-  }
-
-  protected prefix(row: TreeListRow<T>): string {
-    return treePrefix(row);
   }
 
   protected isOpen(node: TreeNode<T>): boolean {

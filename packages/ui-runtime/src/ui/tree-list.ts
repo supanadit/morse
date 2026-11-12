@@ -15,6 +15,8 @@
  * `SessionSummary` itself and never has to look an id back up.
  */
 
+import type { IconKind } from '../files/tree.js';
+
 /** One node of a tree: what it stands for, what to show, and how it nests. */
 export interface TreeNode<T> {
   /** Stable identity, used for the fold set and for `track` in the template. */
@@ -27,6 +29,11 @@ export interface TreeNode<T> {
   readonly detail?: string;
   /** A short mark at the row's end (the git badge, a count). */
   readonly badge?: string;
+  /**
+   * The row's icon, as one of the shipped silhouettes. Absent on a row that has no
+   * file behind it (a session), which keeps the column so both trees line up.
+   */
+  readonly icon?: IconKind;
   /**
    * What colour the badge is, in the theme's own vocabulary rather than a hex. A
    * git `M` is `warn` and an `A` is `success`; a count is plain. The caller keeps

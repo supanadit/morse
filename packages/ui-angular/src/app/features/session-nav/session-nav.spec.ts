@@ -298,15 +298,15 @@ describe('SessionNav', () => {
       ],
     });
 
-    // The parent is a foldable group (it holds a fork); the fork is a `└─` under it,
+    // The parent is a foldable group (it holds a fork); the fork is nested under it
     // the way a subdirectory is under a folder. Level 1 is the project, 2 the parent.
     const parent = host.querySelector('[aria-level="2"]') as HTMLElement;
     expect(parent.querySelector('.label')?.textContent).toContain('Use codebase map memory');
     expect(parent.getAttribute('aria-expanded')).toBe('true');
     const fork = host.querySelector('[aria-level="3"]') as HTMLElement;
     expect(fork.querySelector('.label')?.textContent).toContain('Use codebase map memory');
-    // One gap for the project root, one for the parent, then the corner.
-    expect(fork.querySelector('.prefix')?.textContent).toBe('  └');
+    // Two levels of indent, 12px each, stand in for the old connector.
+    expect((fork.closest('.line') as HTMLElement).style.paddingLeft).toBe('24px');
     expect(fork.getAttribute('aria-level')).toBe('3');
   });
 
@@ -348,7 +348,7 @@ describe('SessionNav', () => {
     const fork = host.querySelector('[aria-level="2"]') as HTMLElement;
     expect(fork.querySelector('.label')?.textContent).toBe('Orphaned fork');
     expect(fork.classList.contains('group')).toBe(false);
-    expect(fork.querySelector('.prefix')?.textContent).toBe('└');
+    expect((fork.closest('.line') as HTMLElement).style.paddingLeft).toBe('12px');
   });
 
   it('shows one group and no project switcher for a workspace-scoped host', async () => {

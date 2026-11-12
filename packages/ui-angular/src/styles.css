@@ -179,6 +179,39 @@
   box-sizing: border-box;
 }
 
+/*
+ * The file-type marks the tree draws. One colour per kind, mid-toned so the same hex
+ * reads on the dark and the light theme; the sprite strokes in `currentColor`, so the
+ * colour reaches the shape from here.
+ */
+.file-icon {
+  color: var(--morse-fg-muted);
+}
+.file-icon.code {
+  color: #4b9fd5;
+}
+.file-icon.data {
+  color: #b08d3f;
+}
+.file-icon.markdown {
+  color: #7aa2c8;
+}
+.file-icon.image {
+  color: #3fae90;
+}
+.file-icon.shell {
+  color: #6aa84f;
+}
+.file-icon.sql {
+  color: #c8843f;
+}
+.file-icon.lock {
+  color: #9a8fb5;
+}
+.file-icon.git {
+  color: #d1603f;
+}
+
 html,
 body {
   height: 100%;

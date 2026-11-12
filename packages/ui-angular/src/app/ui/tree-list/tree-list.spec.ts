@@ -62,10 +62,6 @@ function labels(host: HTMLElement): string[] {
   return [...host.querySelectorAll('.row .label')].map((el) => el.textContent ?? '');
 }
 
-function prefixes(host: HTMLElement): string[] {
-  return [...host.querySelectorAll('.row .prefix')].map((el) => el.textContent ?? '');
-}
-
 /** The one tree the Explorer and the session list are both drawn in. */
 describe('TreeList', () => {
   it('draws the roots, and a group only shows its children when it is open', () => {
@@ -75,16 +71,6 @@ describe('TreeList', () => {
     fixture.componentInstance.expanded.set(new Set(['morse']));
     fixture.detectChanges();
     expect(labels(host)).toEqual(['morse', 's1', 's2', 'pi']);
-  });
-
-  it('draws the guide lines the pure builder produced, and none on a root', () => {
-    const { host, fixture } = render();
-    fixture.componentInstance.expanded.set(new Set(['morse']));
-    fixture.detectChanges();
-
-    // Roots carry none. Both children sit under the root `morse`, which is a root
-    // and so contributes a gap (not a line) before the tee and the corner.
-    expect(prefixes(host)).toEqual(['├', '└']);
   });
 
   it('gives every line a caret slot, so a leaf label lines up with a group label', () => {
@@ -206,5 +192,39 @@ describe('TreeList', () => {
     for (const name of new Set(classes)) {
       expect(css, `tree-list.css does not style .${name}`).toContain(`.${name}`);
     }
+  });
+});
+
+/** The tree with its own nodes, so one row's icon can be judged on its own. */
+function withNodes(nodes: TreeNode<Item>[]): HTMLElement {
+  const { host, fixture } = render();
+  fixture.componentInstance.nodes.set(nodes);
+  fixture.detectChanges();
+  return host;
+}
+
+describe('morse-tree icon column', () => {
+  it('draws the node icon as a sprite reference', () => {
+    const host = withNodes([{ ...node('src'), icon: 'folder' }]);
+    const icon = host.querySelector('svg.file-icon');
+    expect(icon?.getAttribute('class')).toBe('file-icon folder');
+    expect(icon?.querySelector('use')?.getAttribute('href')).toBe('#morse-folder');
+  });
+
+  it('reserves the column when a node has no icon', () => {
+    const host = withNodes([node('s1')]);
+    expect(host.querySelector('svg.file-icon')).toBeNull();
+    expect(host.querySelector('.icon-blank')).not.toBeNull();
+  });
+
+  it('indents a row by its depth instead of drawing connectors', () => {
+    const { host, fixture } = render();
+    fixture.componentInstance.expanded.set(new Set(['morse']));
+    fixture.detectChanges();
+    const lines = host.querySelectorAll<HTMLElement>('.line');
+    expect(lines[0].style.paddingLeft).toBe('0px');
+    expect(lines[1].style.paddingLeft).toBe('12px');
+    expect(host.querySelector('.prefix')).toBeNull();
+    expect(host.textContent).not.toContain('├');
   });
 });
