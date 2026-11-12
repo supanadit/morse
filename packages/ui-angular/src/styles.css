@@ -184,6 +184,14 @@
  * reads on the dark and the light theme; the sprite strokes in `currentColor`, so the
  * colour reaches the shape from here.
  */
+/*
+ * `display: none` rather than the `hidden` attribute: Chrome does not apply the
+ * attribute's rule to an SVG element, which leaves the sprite's default 300x150 box
+ * in the layout.
+ */
+.icon-sprite {
+  display: none;
+}
 .file-icon {
   flex: none;
   width: 14px;

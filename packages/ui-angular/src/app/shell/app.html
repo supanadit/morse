@@ -13,9 +13,10 @@
   [style.--morse-nav-width]="navWidth()"
 >
   <!-- Every file-type mark the tree draws. One copy in the document, because the
-       VS Code webview cannot fetch an external sprite; `hidden` keeps it out of flow.
-       Each is stroked in `currentColor` so the stylesheet's kind colour reaches it. -->
-  <svg class="icon-sprite" hidden aria-hidden="true">
+       VS Code webview cannot fetch an external sprite; `styles.css` keeps it out of
+       flow. Each is stroked in `currentColor` so the stylesheet's kind colour
+       reaches it. -->
+  <svg class="icon-sprite" aria-hidden="true">
     <symbol id="morse-folder" viewBox="0 0 16 16" fill="none" stroke="currentColor"
       stroke-width="1.2" stroke-linejoin="round">
       <path d="M1.6 4.2h4l1.4 1.6h7.4v6.6a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1z" />
