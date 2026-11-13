@@ -11,13 +11,20 @@ const IDENTITY_FILE = 'engine.json';
 /**
  * Reads the whole registry. A missing file is a fresh install, not an error:
  * every caller starts from an empty v1 registry, and the first save creates it.
+ * A present-but-unreadable or malformed file throws instead, so a broken
+ * registry is never mistaken for an empty one and then overwritten.
  */
 export function loadBotRegistry(root: string): BotRegistryFile {
-  const raw = readOptional(join(root, REGISTRY_FILE));
+  const path = join(root, REGISTRY_FILE);
+  const raw = readOptional(path);
   if (raw === undefined) {
     return { version: 1, bots: [], groups: [], conversations: [] };
   }
-  return JSON.parse(raw) as BotRegistryFile;
+  const parsed = parseJson(path, raw);
+  if (!isRegistryFile(parsed)) {
+    throw new Error(`Cannot read ${path}: expected a version 1 bot registry.`);
+  }
+  return parsed;
 }
 
 /**
@@ -30,13 +37,22 @@ export function saveBotRegistry(root: string, registry: BotRegistryFile): void {
   writeJsonAtomic(join(root, REGISTRY_FILE), registry);
 }
 
-/** The identity stored with a bot's directory, or undefined when it has none. */
+/**
+ * The identity stored with a bot's directory, or undefined when it has none.
+ * A present-but-unreadable or malformed file throws, so "no identity yet" and
+ * "broken identity" stay distinguishable by contract.
+ */
 export function readBotIdentity(botRoot: string): BotRecord | undefined {
-  const raw = readOptional(join(botRoot, IDENTITY_FILE));
+  const path = join(botRoot, IDENTITY_FILE);
+  const raw = readOptional(path);
   if (raw === undefined) {
     return undefined;
   }
-  return JSON.parse(raw) as BotRecord;
+  const parsed = parseJson(path, raw);
+  if (!isBotRecord(parsed)) {
+    throw new Error(`Cannot read ${path}: expected a bot identity with a name and engine kind.`);
+  }
+  return parsed;
 }
 
 /**
@@ -72,12 +88,50 @@ function slug(name: string): string {
   return slugged === '' ? 'group' : slugged;
 }
 
+/**
+ * Reads a file that may legitimately not exist yet. Only `ENOENT` means "nothing
+ * there": a permission, I/O or directory error must surface, because treating it
+ * as absent would let the next save overwrite a registry that is present but
+ * unreadable.
+ */
 function readOptional(path: string): string | undefined {
   try {
     return readFileSync(path, 'utf8');
-  } catch {
-    return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw error;
   }
+}
+
+function parseJson(path: string, raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Cannot read ${path}: ${(error as Error).message}`, { cause: error });
+  }
+}
+
+function isRegistryFile(value: unknown): value is BotRegistryFile {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['version'] === 1 &&
+    Array.isArray(candidate['bots']) &&
+    Array.isArray(candidate['groups']) &&
+    Array.isArray(candidate['conversations'])
+  );
+}
+
+function isBotRecord(value: unknown): value is BotRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['name'] === 'string' && typeof candidate['engineKind'] === 'string';
 }
 
 /**
@@ -94,6 +148,9 @@ function writeJsonAtomic(path: string, value: unknown): void {
     renameSync(temp, path);
   } catch (error) {
     // Some filesystems refuse a rename over an existing file (a Windows mount).
+    // Mirroring workbench-store.ts, the fallback writes the target in place: it
+    // is not atomic and can leave the temp file behind, but failing a save on a
+    // host that cannot rename is worse. Parity with the other store is deliberate.
     try {
       writeFileSync(path, serialized);
     } catch {

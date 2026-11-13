@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -98,7 +98,27 @@ describe('bot store', () => {
     expect(loadBotRegistry(dir)).toEqual({ version: 1, bots: [], groups: [], conversations: [] });
   });
 
-  it('overwrites the previous registry atomically, leaving no temp file behind', () => {
+  it('reports an unreadable-but-present registry instead of treating it as missing', () => {
+    // A directory named registry.json fails the read with EISDIR, not ENOENT.
+    mkdirSync(join(dir, 'registry.json'));
+
+    expect(() => loadBotRegistry(dir)).toThrow(/EISDIR/);
+  });
+
+  it('throws on a malformed registry instead of reading it as empty', () => {
+    writeFileSync(join(dir, 'registry.json'), '{');
+
+    expect(() => loadBotRegistry(dir)).toThrow('registry.json');
+  });
+
+  it('throws on a registry that is not the expected v1 shape', () => {
+    writeFileSync(join(dir, 'registry.json'), JSON.stringify({ version: 2 }));
+
+    expect(() => loadBotRegistry(dir)).toThrow('registry.json');
+    expect(() => loadBotRegistry(dir)).toThrow('version 1');
+  });
+
+  it('replaces the registry and leaves no temp file behind', () => {
     saveBotRegistry(dir, registry());
     saveBotRegistry(dir, { version: 1, bots: [], groups: [], conversations: [] });
 
@@ -108,6 +128,8 @@ describe('bot store', () => {
 
   it('round-trips a bot identity through engine.json', () => {
     const botRoot = join(dir, 'Forge');
+    // Task 5 creates the bot directory; the store only owns the JSON file.
+    mkdirSync(botRoot);
 
     writeBotIdentity(botRoot, bot);
 
@@ -117,6 +139,22 @@ describe('bot store', () => {
 
   it('reads a bot without engine.json as undefined', () => {
     expect(readBotIdentity(join(dir, 'Missing'))).toBeUndefined();
+  });
+
+  it('throws on a malformed engine.json instead of treating it as absent', () => {
+    const botRoot = join(dir, 'Forge');
+    mkdirSync(botRoot);
+    writeFileSync(join(botRoot, 'engine.json'), '{');
+
+    expect(() => readBotIdentity(botRoot)).toThrow('engine.json');
+  });
+
+  it('throws on an engine.json without a name and engine kind', () => {
+    const botRoot = join(dir, 'Forge');
+    mkdirSync(botRoot);
+    writeFileSync(join(botRoot, 'engine.json'), JSON.stringify({ name: 'Forge' }));
+
+    expect(() => readBotIdentity(botRoot)).toThrow('engine.json');
   });
 
   it('names a direct conversation after its bot', () => {
