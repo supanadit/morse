@@ -1,9 +1,12 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
 import {
   createInitialView,
+  type BotCreateInput,
+  type BotGroupCreateInput,
   type ChatPin,
   type ComposerSeed,
   type HostCommand,
+  type HostToClientMessage,
   type InteractionResponse,
   type PromptImage,
   type PromptMode,
@@ -19,6 +22,7 @@ import {
   type MorseActions,
   type MorseClient,
 } from '@morse/ui-runtime';
+import { BotState } from './bot-state';
 import { MORSE_TRANSPORT } from './transport.token';
 
 /**
@@ -161,6 +165,15 @@ export class MorseService {
   readonly hasOlderHistory = computed(() => this.view().state.hasOlderHistory === true);
   /** True while the host is fetching the previous history page. */
   readonly loadingOlderHistory = computed(() => this.view().state.loadingOlderHistory === true);
+  /**
+   * Bot mode's state: the roster, the conversation in front, per-conversation
+   * transcripts and the round the host is routing. Fed by the `bot/*` host
+   * messages below, driven by the bot methods at the end of this class; the
+   * bot components read it as signals.
+   */
+  readonly bot = new BotState();
+  /** How many lines this client echoed locally, so `local-<n>` never repeats. */
+  private localEcho = 0;
 
   constructor() {
     this.client = createMorseClient({ transport: this.transport, frontend: FRONTEND_IDENTITY });
@@ -174,10 +187,38 @@ export class MorseService {
       this.view.set(view);
       this.trackSlowConnection(view.connection);
     });
+    // Bot mode is not part of `SessionView` — the shared reducer has no case for
+    // it, on purpose: bot state belongs to this frontend, so the four messages
+    // are taken off the transport here and folded into `BotState`.
+    const unsubscribeBot = this.transport.onMessage((message) => this.onBotMessage(message));
     this.destroyRef.onDestroy(() => {
       this.clearSlowConnectionTimer();
+      unsubscribeBot();
       this.client.dispose();
     });
+  }
+
+  /**
+   * The `bot/*` half of the host-message switch: roster, transcript, routing and
+   * the model probe's answer. Every other host message is the client's.
+   */
+  private onBotMessage(message: HostToClientMessage): void {
+    switch (message.type) {
+      case 'bot/roster':
+        this.bot.onRoster(message.payload);
+        return;
+      case 'bot/transcript':
+        this.bot.onTranscript(message.payload);
+        return;
+      case 'bot/routing':
+        this.bot.onRouting(message.payload.state);
+        return;
+      case 'bot/models':
+        this.bot.onModels(message.payload);
+        return;
+      default:
+        return;
+    }
   }
 
   /**
@@ -428,5 +469,90 @@ export class MorseService {
    */
   onMcpChanged(listener: (event: { cwd: string }) => void): () => void {
     return this.client.onMcpChanged(listener);
+  }
+
+  /*
+   * Bot mode's frames. The shared client's actions encode the code-mode ones;
+   * bot mode's state lives in this frontend (`BotState`), so its frames are
+   * composed here and handed to the same transport the client's actions use.
+   */
+
+  /** Re-reads the roster: every bot and every conversation this host knows. */
+  listBots(): void {
+    this.transport.send({ type: 'bot/list', payload: {} });
+  }
+
+  /**
+   * Creates one isolated bot from the wizard's answers. The host answers with a
+   * fresh `bot/roster` and no per-request echo, so the wizard watches the roster
+   * diff; the `requestId` still travels for the host's own correlation.
+   */
+  createBot(input: BotCreateInput & { requestId: string }): void {
+    this.transport.send({ type: 'bot/create', payload: input });
+  }
+
+  /**
+   * Lists the models an engine offers with the wizard's credentials, before any
+   * bot exists. The answer arrives as `bot/models` under the same `requestId`.
+   */
+  probeModels(kind: string, envVars: string[], requestId: string): void {
+    this.transport.send({ type: 'bot/probeModels', payload: { kind, envVars, requestId } });
+  }
+
+  /** Deletes a bot and its directory; conversations it belonged to keep the gap. */
+  deleteBot(name: string): void {
+    this.transport.send({ type: 'bot/delete', payload: { name } });
+  }
+
+  /** Creates a group conversation from the New group dialog's answers. */
+  createGroup(input: BotGroupCreateInput): void {
+    this.transport.send({ type: 'bot/groupCreate', payload: input });
+  }
+
+  /**
+   * Switches the bot workspace to one conversation and asks for its transcript.
+   * The host answers with `bot/transcript` (`replace: true`), so the lines held
+   * for that conversation are reconciled rather than trusted.
+   */
+  openBotConversation(id: string): void {
+    this.bot.open(id);
+    this.transport.send({ type: 'bot/open', payload: { conversationId: id } });
+  }
+
+  /**
+   * Sends the reader's line and starts a routing round. The line is echoed into
+   * the transcript first — with a `local-<n>` id of its own — so the words show
+   * before the host has answered; the host's next `bot/transcript` (replace)
+   * swaps in the stored entries. Nothing is sent with no conversation open.
+   */
+  sendBotMessage(text: string): void {
+    const conversationId = this.bot.activeId();
+    if (conversationId === null) {
+      return;
+    }
+    this.localEcho += 1;
+    this.bot.appendLocal({
+      id: `local-${this.localEcho}`,
+      author: { role: 'user' },
+      text,
+      at: Date.now(),
+    });
+    this.transport.send({ type: 'bot/send', payload: { conversationId, text } });
+  }
+
+  /** Stops the round in flight on the open conversation, dropping its queued relays. */
+  stopBotRound(): void {
+    const conversationId = this.bot.activeId();
+    if (conversationId !== null) {
+      this.transport.send({ type: 'bot/stop', payload: { conversationId } });
+    }
+  }
+
+  /** Starts a fresh engine session for every member, keeping the conversation's history. */
+  newBotDiscussion(): void {
+    const conversationId = this.bot.activeId();
+    if (conversationId !== null) {
+      this.transport.send({ type: 'bot/newDiscussion', payload: { conversationId } });
+    }
   }
 }
