@@ -91,7 +91,7 @@ export function writePiCredentials(
 function writePrivateJson(path: string, value: unknown): void {
   const serialized = JSON.stringify(value);
   const temp = `${path}.${process.pid}.tmp`;
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   try {
     writeFileSync(temp, serialized, { mode: PRIVATE_FILE_MODE });
     // `mode` only applies when the temp file is created; a stale temp left by a
