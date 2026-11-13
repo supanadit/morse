@@ -1,0 +1,161 @@
+:host {
+  display: contents;
+}
+
+/* The shared shell's card, measured for a short form. */
+morse-dialog {
+  --morse-card-width: min(520px, 94vw);
+  --morse-card-max-height: min(84vh, 720px);
+  --morse-card-padding: 16px 18px;
+  --morse-card-gap: 10px;
+  --morse-card-overflow: auto;
+}
+
+.group-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.group-dialog h2 {
+  margin: 0;
+  color: var(--morse-fg);
+  font-size: 16px;
+  font-weight: 600;
+}
+.lede {
+  margin: 0;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--morse-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.required {
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.optional {
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.field-note {
+  margin: 0;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+input[type='text'],
+input[type='number'],
+select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+/* Members: the roster's own rows, made into checkboxes. */
+.members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.members legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--morse-radius-md);
+  cursor: pointer;
+}
+.member:hover {
+  background: var(--morse-hover);
+}
+.member input[type='checkbox'] {
+  flex: none;
+  margin: 0;
+}
+.member-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.member-name {
+  color: var(--morse-fg);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.member-description {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.empty {
+  margin: 0;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 11.5px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--morse-border);
+}
+.actions button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 9%, transparent);
+}
+.actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.actions .cancel {
+  background: transparent;
+  border-color: var(--morse-border);
+}
+.actions .create {
+  background: var(--morse-accent);
+  color: var(--morse-bg);
+}
+.actions .create:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-accent) 88%, var(--morse-fg));
+}

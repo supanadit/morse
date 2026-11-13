@@ -1,0 +1,78 @@
+<morse-dialog labelledBy="bot-group-title" (dismiss)="cancel()">
+  <div class="group-dialog">
+    <h2 id="bot-group-title">New group</h2>
+    <p class="lede">
+      A room of bots. Everyone addresses the others by @name; a lead answers when no one is named.
+    </p>
+
+    <label class="field">
+      <span class="field-label">Name <span class="required">required</span></span>
+      <input
+        name="name"
+        type="text"
+        autocomplete="off"
+        placeholder="The workshop"
+        [value]="name()"
+        (input)="setName($event)"
+      />
+    </label>
+
+    <fieldset class="members">
+      <legend class="field-label">Members <span class="required">at least one</span></legend>
+      @if (bots().length > 0) {
+        @for (bot of bots(); track bot.name) {
+          <label class="member">
+            <input
+              type="checkbox"
+              [attr.data-bot]="bot.name"
+              [checked]="members().includes(bot.name)"
+              (change)="toggleMember(bot.name)"
+            />
+            <span class="member-body">
+              <span class="member-name">{{ bot.name }}</span>
+              <span class="member-description">{{ bot.description }}</span>
+            </span>
+          </label>
+        }
+      } @else {
+        <p class="empty">No bots yet — create one first.</p>
+      }
+    </fieldset>
+
+    <label class="field">
+      <span class="field-label">Lead <span class="optional">optional · members only</span></span>
+      <select name="lead" [disabled]="members().length === 0" (change)="setLead($event)">
+        <option value="" [selected]="lead() === ''">No lead — only @mentions answer</option>
+        @for (member of members(); track member) {
+          <option [value]="member" [selected]="lead() === member">{{ member }}</option>
+        }
+      </select>
+      <span class="field-note">
+        The lead answers a message that names nobody. Without one, the bots stay quiet until someone
+        is addressed.
+      </span>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Chain cap</span>
+      <input
+        name="chainCap"
+        type="number"
+        min="1"
+        step="1"
+        [value]="chainCap()"
+        (input)="setChainCap($event)"
+      />
+      <span class="field-note">
+        How many bot-to-bot replies one message may set off before the round stops with a note.
+      </span>
+    </label>
+
+    <div class="actions">
+      <button type="button" class="cancel" (click)="cancel()">Cancel</button>
+      <button type="button" class="create" [disabled]="!ready()" (click)="submit()">
+        Create group
+      </button>
+    </div>
+  </div>
+</morse-dialog>

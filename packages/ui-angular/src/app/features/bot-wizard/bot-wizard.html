@@ -1,0 +1,326 @@
+<morse-dialog labelledBy="bot-wizard-title" (dismiss)="cancel()">
+  <div class="wizard">
+    <header class="head">
+      <h2 id="bot-wizard-title">New bot</h2>
+      <p class="lede">
+        A bot is an agent of its own: its engine, its credentials, its workspace. Nothing is copied
+        from your own configuration.
+      </p>
+      <ol class="steps" aria-label="Steps">
+        @for (one of steps(); track one) {
+          <li
+            class="step"
+            [class.current]="one === step()"
+            [class.done]="steps().indexOf(one) < steps().indexOf(step())"
+            [attr.data-step]="one"
+          >
+            {{ labels[one] }}
+          </li>
+        }
+      </ol>
+    </header>
+
+    <div class="body">
+      @switch (step()) {
+        @case ('identity') {
+          <div class="fields">
+            <label class="field">
+              <span class="field-label">Name <span class="required">required</span></span>
+              <input
+                name="name"
+                type="text"
+                autocomplete="off"
+                [value]="name()"
+                placeholder="Forge"
+                (input)="setText('name', $event)"
+              />
+              <span class="field-note">
+                The bot's name and its @mention; unique on this host, case-insensitively.
+              </span>
+            </label>
+            <label class="field">
+              <span class="field-label">Description</span>
+              <input
+                name="description"
+                type="text"
+                autocomplete="off"
+                [value]="description()"
+                placeholder="Keeps the forge hot"
+                (input)="setText('description', $event)"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label"
+                >Avatar <span class="optional">optional · one letter or emoji</span></span
+              >
+              <input
+                name="avatar"
+                type="text"
+                autocomplete="off"
+                maxlength="4"
+                [value]="avatar()"
+                placeholder="F"
+                (input)="setText('avatar', $event)"
+              />
+            </label>
+          </div>
+        }
+
+        @case ('engine') {
+          <div class="fields">
+            <span class="field-label">Agent engine</span>
+            <p class="field-note">
+              Engines this host can start. The bot runs in its own process, with its own
+              configuration directory.
+            </p>
+            <div class="engines">
+              @for (engine of engines(); track engine.kind) {
+                <button
+                  type="button"
+                  class="engine-option"
+                  [class.on]="engineKind() === engine.kind"
+                  [attr.data-kind]="engine.kind"
+                  (click)="chooseEngine(engine.kind)"
+                >
+                  <span class="engine-name">{{ engine.label }}</span>
+                  @if (engine.default === true) {
+                    <span class="badge">default</span>
+                  }
+                </button>
+              } @empty {
+                <p class="empty">This host reported no engines, so a bot cannot be started.</p>
+              }
+            </div>
+          </div>
+        }
+
+        @case ('credentials') {
+          <div class="fields">
+            <p class="field-note">
+              The bot's own credentials. Stored keys are written into the bot's config; environment
+              variables are inherited by its engine. Nothing is copied from your global setup.
+            </p>
+            <div class="field">
+              <span class="field-label">Stored credentials</span>
+              @for (credential of credentials(); track $index) {
+                <div class="credential-row">
+                  <input
+                    name="provider"
+                    type="text"
+                    autocomplete="off"
+                    aria-label="Provider"
+                    placeholder="anthropic"
+                    [value]="credential.provider"
+                    (input)="setCredential($index, 'provider', $event)"
+                  />
+                  <input
+                    name="apiKey"
+                    type="password"
+                    autocomplete="off"
+                    aria-label="API key"
+                    placeholder="API key"
+                    [value]="credential.apiKey"
+                    (input)="setCredential($index, 'apiKey', $event)"
+                  />
+                  <button
+                    type="button"
+                    class="remove-credential"
+                    aria-label="Remove this credential"
+                    (click)="removeCredential($index)"
+                  >
+                    ×
+                  </button>
+                </div>
+              }
+              <button type="button" class="add-credential" (click)="addCredential()">
+                Add credential
+              </button>
+            </div>
+            <label class="field">
+              <span class="field-label">Environment variables</span>
+              <input
+                name="envVars"
+                type="text"
+                autocomplete="off"
+                [value]="envVars()"
+                placeholder="ANTHROPIC_API_KEY, OPENAI_API_KEY"
+                (input)="setText('envVars', $event)"
+              />
+              <span class="field-note">
+                Names this bot's engine inherits from the host. The model probe runs with these,
+                after this step.
+              </span>
+            </label>
+          </div>
+        }
+
+        @case ('model') {
+          <div class="fields">
+            <label class="field">
+              <span class="field-label">Model</span>
+              <select name="model" [disabled]="!modelsReady()" (change)="pickModel($event)">
+                <option value="">
+                  {{ modelsReady() ? 'Choose a model…' : 'Asking the engine for its models…' }}
+                </option>
+                @for (model of models(); track model.provider + '/' + model.id) {
+                  <option
+                    [value]="model.provider + '/' + model.id"
+                    [selected]="model.provider + '/' + model.id === modelKey()"
+                  >
+                    {{ model.name }} · {{ model.provider }}
+                  </option>
+                }
+              </select>
+              <span class="field-note">
+                @if (modelsReady()) {
+                  The models this engine offers with this bot's credentials.
+                } @else {
+                  Waiting for the host to answer this wizard's model probe.
+                }
+              </span>
+            </label>
+            <label class="field">
+              <span class="field-label">Thinking</span>
+              <select name="thinking" (change)="pickThinking($event)">
+                @for (level of thinkingLevels; track level) {
+                  <option [value]="level" [selected]="thinking() === level">{{ level }}</option>
+                }
+              </select>
+            </label>
+          </div>
+        }
+
+        @case ('persona') {
+          <div class="fields">
+            <label class="field">
+              <span class="field-label">Persona</span>
+              <textarea
+                name="persona"
+                rows="5"
+                [value]="persona()"
+                placeholder="You are Forge, the builder. You keep the forge hot…"
+                (input)="setText('persona', $event)"
+              ></textarea>
+              <span class="field-note">
+                Delivered on this bot's first prompt in a fresh session. It is the bot's character,
+                not a document in its workspace.
+              </span>
+            </label>
+          </div>
+        }
+
+        @case ('agentsMd') {
+          <div class="fields">
+            <label class="field">
+              <span class="field-label"
+                >AGENTS.md <span class="optional">optional · the bot's workspace</span></span
+              >
+              <textarea
+                name="agentsMd"
+                rows="6"
+                [value]="agentsMd()"
+                placeholder="# Forge workspace&#10;&#10;Notes the bot should always have in reach."
+                (input)="setText('agentsMd', $event)"
+              ></textarea>
+              <span class="field-note">
+                Written to the bot's own <code>workspace/AGENTS.md</code>, never merged with the
+                persona.
+              </span>
+            </label>
+          </div>
+        }
+
+        @case ('subagents') {
+          <div class="fields">
+            <p class="field-note">
+              OpenCode bots can name subagents with their own system prompts. They are written into
+              this bot's AGENTS.md with the rest of its workspace notes.
+            </p>
+            @for (subagent of subagents(); track $index) {
+              <div class="subagent-row">
+                <input
+                  name="subagentName"
+                  type="text"
+                  autocomplete="off"
+                  aria-label="Subagent name"
+                  placeholder="reviewer"
+                  [value]="subagent.name"
+                  (input)="setSubagent($index, 'name', $event)"
+                />
+                <textarea
+                  name="subagentPrompt"
+                  rows="2"
+                  aria-label="Subagent system prompt"
+                  placeholder="Read the diff and report risks."
+                  [value]="subagent.prompt"
+                  (input)="setSubagent($index, 'prompt', $event)"
+                ></textarea>
+                <button
+                  type="button"
+                  class="remove-subagent"
+                  aria-label="Remove this subagent"
+                  (click)="removeSubagent($index)"
+                >
+                  ×
+                </button>
+              </div>
+            }
+            <button type="button" class="add-subagent" (click)="addSubagent()">Add subagent</button>
+          </div>
+        }
+
+        @case ('review') {
+          <div class="fields review">
+            <dl>
+              <dt>Name</dt>
+              <dd>{{ name() }}</dd>
+              <dt>Description</dt>
+              <dd>{{ description() || '—' }}</dd>
+              <dt>Engine</dt>
+              <dd>{{ engineKind() }}</dd>
+              <dt>Credentials</dt>
+              <dd>
+                {{ credentials().length }} stored · {{ envVars() || 'no environment variables' }}
+              </dd>
+              <dt>Model</dt>
+              <dd>
+                @if (model(); as chosen) {
+                  {{ chosen.name }} · {{ chosen.provider }} · {{ thinking() }}
+                } @else {
+                  —
+                }
+              </dd>
+              <dt>Persona</dt>
+              <dd>{{ persona() || '—' }}</dd>
+              <dt>AGENTS.md</dt>
+              <dd class="agents-preview">{{ composedAgentsMd() || '—' }}</dd>
+              @if (subagents().length > 0) {
+                <dt>Subagents</dt>
+                <dd>{{ subagents().length }}</dd>
+              }
+            </dl>
+            @if (pending(); as creating) {
+              <p class="pending" role="status">
+                Creating {{ creating }} — waiting for the roster to name it…
+              </p>
+            }
+          </div>
+        }
+      }
+    </div>
+
+    <footer class="actions">
+      @if (step() !== 'identity') {
+        <button type="button" class="back" (click)="back()">Back</button>
+      }
+      <button type="button" class="cancel" (click)="cancel()">Cancel</button>
+      @if (step() !== 'review') {
+        <button type="button" class="next" [disabled]="!canAdvance()" (click)="next()">Next</button>
+      } @else {
+        <button type="button" class="create" [disabled]="!canSubmit()" (click)="submit()">
+          Create bot
+        </button>
+      }
+    </footer>
+  </div>
+</morse-dialog>

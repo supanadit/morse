@@ -1,0 +1,310 @@
+/*
+ * A wizard, not a form: the steps are shown the whole time so the reader knows
+ * how far the credentials step is from the model one, and the body scrolls
+ * between the fixed head and the actions.
+ */
+:host {
+  display: contents;
+}
+
+/*
+ * What this dialog measures differently from the shared shell in `ui/dialog`:
+ * a form wide enough for two fields a row, scrolling as one card.
+ */
+morse-dialog {
+  --morse-card-width: min(600px, 94vw);
+  --morse-card-max-height: min(84vh, 780px);
+  --morse-card-padding: 16px 18px;
+  --morse-card-gap: 10px;
+  --morse-card-overflow: auto;
+}
+
+.wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.head h2 {
+  margin: 0;
+  color: var(--morse-fg);
+  font-size: 16px;
+  font-weight: 600;
+}
+.lede {
+  margin: 0;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The pinned order, always visible: identity … review. */
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  color: color-mix(in srgb, var(--morse-fg) 40%, transparent);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.step.done {
+  color: color-mix(in srgb, var(--morse-fg) 65%, transparent);
+}
+.step.current {
+  color: var(--morse-accent);
+}
+
+/* The body is what scrolls within the head and actions it keeps in reach. */
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 2px;
+}
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--morse-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.required {
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.optional {
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.field-note {
+  margin: 0;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.field-note code {
+  font-size: 10.5px;
+}
+
+input[type='text'],
+input[type='password'],
+textarea,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-input-bg, color-mix(in srgb, var(--morse-fg) 3%, transparent));
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+select:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* The engine step: a choice of what can run here, with the host's labels. */
+.engines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.engine-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.engine-option:hover {
+  background: var(--morse-hover);
+}
+.engine-option.on {
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
+}
+.badge {
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+}
+
+/* Credentials: one provider/key pair per row, plus inherited env names. */
+.credential-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.remove-credential,
+.remove-subagent {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.remove-credential:hover,
+.remove-subagent:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.add-credential,
+.add-subagent {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.add-credential:hover,
+.add-subagent:hover {
+  background: var(--morse-hover);
+}
+
+/* A subagent is a name over its own prompt: a small card, not a table row. */
+.subagent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+}
+.subagent-row input {
+  grid-column: 1;
+}
+.subagent-row textarea {
+  grid-column: 1 / -1;
+}
+.subagent-row .remove-subagent {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* The review: what will be written, in the order the host reads it. */
+.review dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.review dt {
+  color: var(--morse-fg-muted);
+}
+.review dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agents-preview {
+  white-space: pre-wrap;
+  font-family: var(--morse-font-mono, monospace);
+  font-size: 11px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.pending {
+  margin: 12px 0 0;
+  padding: 6px 8px;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
+  color: var(--morse-fg);
+  font-size: 11.5px;
+}
+.empty {
+  margin: 0;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 11.5px;
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--morse-border);
+}
+.actions button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 9%, transparent);
+}
+.actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.actions .back,
+.actions .cancel {
+  background: transparent;
+  border-color: var(--morse-border);
+}
+.actions .next,
+.actions .create {
+  background: var(--morse-accent);
+  color: var(--morse-bg);
+}
+.actions .next:hover:not(:disabled),
+.actions .create:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-accent) 88%, var(--morse-fg));
+}
