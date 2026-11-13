@@ -4,6 +4,7 @@
 
 import type {
   BotCreateInput,
+  BotCredentialInput,
   BotGroupCreateInput,
   ChatPin,
   FrontendIdentity,
@@ -264,11 +265,18 @@ export interface BotDeleteMessage extends ClientMessageBase {
 
 /**
  * Lists the models an engine offers with the wizard's credentials, before any
- * bot exists: the probe runs in a throwaway root and answers with `bot/models`.
+ * bot exists: the probe runs in a throwaway root, writes the collected
+ * credentials there, and answers with `bot/models`. Credentials travel because
+ * an engine cannot list models for a key it cannot see.
  */
 export interface BotProbeModelsMessage extends ClientMessageBase {
   type: 'bot/probeModels';
-  payload: { kind: string; envVars: string[]; requestId: string };
+  payload: {
+    kind: string;
+    envVars: string[];
+    credentials: BotCredentialInput[];
+    requestId: string;
+  };
 }
 
 /** Switches the bot workspace to one conversation and asks for its transcript. */

@@ -36,7 +36,12 @@ const CLIENT_BOT_MESSAGES = [
   { type: 'bot/delete', payload: { name: 'forge' } },
   {
     type: 'bot/probeModels',
-    payload: { kind: 'pi', envVars: ['ANTHROPIC_API_KEY'], requestId: 'req-2' },
+    payload: {
+      kind: 'pi',
+      envVars: ['ANTHROPIC_API_KEY'],
+      credentials: [{ provider: 'anthropic', apiKey: 'sk' }],
+      requestId: 'req-2',
+    },
   },
   { type: 'bot/open', payload: { conversationId: 'dm-forge' } },
   { type: 'bot/send', payload: { conversationId: 'dm-forge', text: 'hi' } },
@@ -89,6 +94,21 @@ describe('bot wire messages', () => {
 
     expect(isClientToHostMessage(message)).toBe(true);
     expect(message.payload.subagents).toEqual(SUBAGENTS);
+  });
+
+  it('carries the wizard credentials on bot/probeModels', () => {
+    const message = {
+      type: 'bot/probeModels',
+      payload: {
+        kind: 'opencode',
+        envVars: [],
+        credentials: [{ provider: 'anthropic', apiKey: 'sk-probe' }],
+        requestId: 'req-2',
+      },
+    };
+
+    expect(isClientToHostMessage(message)).toBe(true);
+    expect(message.payload.credentials).toEqual([{ provider: 'anthropic', apiKey: 'sk-probe' }]);
   });
 
   it('rejects an unknown bot message type in both directions', () => {
