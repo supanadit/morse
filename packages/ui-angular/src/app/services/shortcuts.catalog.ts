@@ -146,9 +146,9 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
   {
     id: 'view.search',
     group: 'Navigate',
-    label: 'Toggle the search panel',
+    label: 'Find in Files',
     detail:
-      "Searches the active project's files for text, with include and exclude globs. The browser host only — VS Code has its own Search view.",
+      "Searches the active project's files for text in a modal with a live preview, with include and exclude globs. The browser host only — VS Code has its own Search view.",
     binding: { key: 'f', mod: true, alt: true },
     overlay: true,
     whileTyping: true,

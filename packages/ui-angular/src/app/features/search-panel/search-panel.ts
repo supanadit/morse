@@ -1,101 +1,111 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
+  effect,
   inject,
   signal,
   viewChild,
 } from '@angular/core';
+import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import type { WorkspaceSearchLine, WorkspaceSearchResult } from '@morse/protocol';
+import { highlightCode, languageForPath } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
-import { LayoutState } from '../../state/layout-state';
+import { ShellState } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
-import { Pane, type PaneAction } from '../../ui/pane/pane';
-import { Splitter } from '../../ui/splitter/splitter';
+import { Dialog } from '../../ui/dialog/dialog';
 
 /** How long typing pauses before the host is asked — the search fires as you type. */
 const DEBOUNCE_MS = 250;
-/** How long the panel waits; a walk over a large tree may need most of this. */
+/** How long the dialog waits; a walk over a large tree may need most of this. */
 const SEARCH_TIMEOUT_MS = 30_000;
-/**
- * The dragged edge keeps at least this much conversation visible — the git
- * panel's rule, shared so both columns of the shell clamp the same way.
- */
-const RESIZE_MIN_CHAT = 180;
-/** Matches a file shows before the reader asks for the rest of them. */
-const MAX_ROWS_PER_FILE = 3;
-/** Files shown before the answer hands over the rest of them. */
-const MAX_FILES_SHOWN = 50;
-
+/** The preview keeps to this many lines; the host may hand back a large file. */
+const MAX_PREVIEW_LINES = 4000;
+/** Rows the flat list shows before the reader asks for the rest. */
+const MAX_ROWS = 500;
 /** One highlighted run of a row's text. */
 interface Segment {
   text: string;
   hit: boolean;
 }
 
-/** One matching line, drawn: its number and its pre-split segments. */
-interface MatchView {
+/** One row of the flat answer: the matched line, its file named at the end. */
+interface MatchRow {
+  path: string;
+  name: string;
   line: number;
   segments: Segment[];
 }
 
-/** One file's group of rows, drawn: the name split from its folder for the grey. */
-interface FileView {
-  path: string;
-  dir: string;
-  name: string;
-  count: number;
-  /** The rows on screen — the file's first few, or all of them when it is expanded. */
-  matches: MatchView[];
-  /** The rows the file holds but does not show. */
-  hidden: number;
-  /** Where the file's first visible row sits in the panel's flat row order. */
-  start: number;
-}
-
-/** One row of the answer, in the order the panel draws them. */
-interface MatchRow {
-  path: string;
-  match: MatchView;
-}
-
-/** The answer as it is drawn: the file groups and the flat row order over them. */
+/** The answer as it is drawn: the flat rows and the files behind them. */
 interface SearchView {
-  files: FileView[];
   rows: MatchRow[];
+  /** The still-unshown rows, when the display cap cut the list short. */
+  hiddenRows: number;
+  /** Per-file matched lines, keyed for the preview's highlights. */
+  matched: Map<string, WorkspaceSearchLine[]>;
 }
 
 /**
- * An answer kept with the query that asked for it. A newer query must not
- * highlight the old answer's rows with its own word, so the two travel together.
+ * An answer kept with the query that asked for it — and the project it was
+ * asked in, because a Module-tab answer's paths are read from that project.
  */
 interface Searched {
   query: string;
+  cwd: string | undefined;
   result: WorkspaceSearchResult;
 }
 
+/** One preview line: its number and its syntax-highlighted, match-marked HTML. */
+interface PreviewLine {
+  line: number;
+  html: SafeHtml;
+}
+
+/** The file under the marked row, read and laid out for the preview pane. */
+interface PreviewFile {
+  path: string;
+  name: string;
+  dir: string;
+  lines: PreviewLine[];
+  cut: boolean;
+  /** The query whose highlights the lines carry, so a new query repaints them. */
+  queryLength: number;
+}
+
+/** The four tabs under the search field, in the editor's standard order. */
+type FindTab = 'project' | 'module' | 'directory' | 'scope';
+
+/** The scope menu's entries. */
+type FindScope = 'project' | 'production' | 'test' | 'open';
+
+/** Globs that stand for tests, for the Production/Test scope pair. */
+const TEST_GLOBS = ['**/*.spec.*', '**/*.test.*', '**/*_test.*'];
+/** The file-mask combo's suggestions: a short list of common masks. */
+const MASK_SUGGESTIONS = ['*.ts', '*.js', '*.json', '*.md'];
+
 /**
- * The browser host's search panel: a right-column sibling of the git panel
- * (they take turns in the same column — one region, one width), grepping the
- * viewing project's files for text and grouping the hits by file. Every hit row
- * opens the preview at its line, like the Explorer's rows do.
+ * Find in Files: a fixed-size modal popup over the app whose titlebar carries
+ * the match count, the file mask and the pin; the search field with its toggles;
+ * the In Project / Module / Directory / Scope tabs; a flat match list with the
+ * file named at each row's end; and a preview pane that reads the selected file
+ * whole — syntax-highlighted, every match painted, the selection's line banded.
  *
- * The host answers with ripgrep where it is installed and a built-in walk
- * otherwise; `engine: 'node'` puts the panel's "install ripgrep" notice up,
- * which is the whole reason the result carries its engine.
+ * The engine answers fixed strings only, so the words and regex toggles are
+ * shown greyed with an explanation rather than as dead switches that lie.
  *
- * The panel is built for a thousand answers, not for one: a long answer is
- * summarised, a file shows its first few rows, and the keyboard walks the rows
- * without the mouse. A dump of a thousand lines is not a result a reader can
- * use.
+ * Enter opens the marked match: with "Open results in new tab" (or the pin,
+ * which is the same switch) the dialog stays up as the find window; without it,
+ * jumping to the source closes it. Ctrl+Enter always keeps the dialog open.
  *
  * VS Code never renders this (`capabilities.searchPanel`): it has its own
  * Search view, the way it has its own Explorer and Source Control.
  */
 @Component({
   selector: 'morse-search-panel',
-  imports: [Pane, Splitter],
+  imports: [Dialog],
   templateUrl: './search-panel.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './search-panel.css',
@@ -103,162 +113,269 @@ interface Searched {
 export class SearchPanel {
   private readonly morse = inject(MorseService);
   private readonly tabs = inject(WorkspaceTabs);
-  private readonly layout = inject(LayoutState);
+  private readonly shell = inject(ShellState);
+  private readonly sanitizer = inject(DomSanitizer);
 
   protected readonly query = signal('');
-  protected readonly include = signal('');
-  protected readonly exclude = signal('');
   protected readonly caseSensitive = signal(false);
+  protected readonly fileMask = signal('');
+  protected readonly maskOn = signal(false);
+  protected readonly exclude = signal('');
+  protected readonly excludeOpen = signal(false);
+  protected readonly tab = signal<FindTab>('project');
+  protected readonly scope = signal<FindScope>('project');
+  protected readonly directory = signal('');
+  /** The Module tab's project (its directory path), pre-set to the one in front. */
+  protected readonly modulePath = signal(this.morse.state().workspace?.cwd ?? '');
+  /** "Open results in new tab" and the titlebar's pin are one switch. */
+  protected readonly stayOpen = signal(false);
+  protected readonly maskMenuOpen = signal(false);
+  protected readonly projectMenuOpen = signal(false);
+  protected readonly scopeMenuOpen = signal(false);
+
   /** A search is in flight; an older answer stays on screen until the new one lands. */
   protected readonly searching = signal(false);
   private readonly answer = signal<Searched | undefined>(undefined);
   protected readonly errorMessage = signal<string | undefined>(undefined);
-  /** Files the reader folded by hand; everything starts expanded. */
-  private readonly folded = signal<ReadonlySet<string>>(new Set());
-  /** Files whose every row is shown, not only the first few. */
-  private readonly expandedFiles = signal<ReadonlySet<string>>(new Set());
-  /** The reader asked for the files past the first page. */
-  private readonly showAllFiles = signal(false);
   /** The row the keyboard is on; `-1` is the answer's "no row yet". */
   private readonly marked = signal(-1);
+  /** The reader asked for the rows past the first page. */
+  private readonly showAllRows = signal(false);
+
+  /** The file under the marked row, read for the preview pane. */
+  private readonly previewFile = signal<PreviewFile | undefined>(undefined);
+  protected readonly preview = this.previewFile.asReadonly();
+  private readonly previewLoading = signal(false);
+  private previewSeq = 0;
 
   private readonly results = viewChild<ElementRef<HTMLElement>>('results');
+  private readonly previewEl = viewChild<ElementRef<HTMLElement>>('previewPane');
 
   private seq = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
+  protected readonly maskSuggestions = MASK_SUGGESTIONS;
+
+  /** The projects the Module tab can narrow to, named for its menu. */
+  protected readonly projects = computed(() => this.morse.projects());
+  protected readonly moduleName = computed(() => {
+    const path = this.modulePath();
+    return this.projects().find((project) => project.path === path)?.name ?? 'Project';
+  });
+
+  protected readonly scopeLabels: readonly { id: FindScope; label: string }[] = [
+    { id: 'project', label: 'Project Files' },
+    { id: 'production', label: 'Project Production Files' },
+    { id: 'test', label: 'Project Test Files' },
+    { id: 'open', label: 'Open Files' },
+  ];
+  protected readonly scopeLabel = computed(
+    () => this.scopeLabels.find((entry) => entry.id === this.scope())?.label ?? 'Project Files',
+  );
+
+  /** The globs the current tab and mask boil down to, sent with every search. */
+  private readonly patterns = computed(() => {
+    const include: string[] = [];
+    const exclude = splitPatterns(this.exclude());
+    if (this.tab() === 'directory') {
+      const dir = this.directory().trim().replace(/^\.?\//, '').replace(/\/+$/, '');
+      if (dir.length > 0) {
+        include.push(`${dir}/**`);
+      }
+    }
+    const mask = this.fileMask().trim();
+    if (this.maskOn() && mask.length > 0) {
+      include.push(mask);
+    }
+    if (this.scope() === 'test') {
+      include.push(...TEST_GLOBS);
+    }
+    if (this.scope() === 'production') {
+      exclude.push(...TEST_GLOBS);
+    }
+    return { include, exclude };
+  });
+
   /**
-   * The answer as it is drawn. The rows are capped twice — a few per file, and
-   * a page of files — because a thousand lines is a wall, not an answer; the
-   * reader opens what they want.
+   * The answer as it is drawn: a flat row per match, the file named at the row's
+   * end. The Open Files scope narrows the answer to the tab strip's file tabs
+   * here, where the host has no notion of them.
    */
   protected readonly view = computed<SearchView>(() => {
     const found = this.answer();
     if (found === undefined) {
-      return { files: [], rows: [] };
+      return { rows: [], hiddenRows: 0, matched: new Map() };
     }
-    const folded = this.folded();
-    const expanded = this.expandedFiles();
-    const every = this.showAllFiles();
     const length = found.query.length;
-    const files: FileView[] = [];
+    const openOnly = this.scope() === 'open';
+    const openPaths = openOnly
+      ? new Set(
+          this.tabs
+            .tabs()
+            .filter((entry) => entry.kind === 'file')
+            .map((entry) => entry.path),
+        )
+      : undefined;
     const rows: MatchRow[] = [];
+    const matched = new Map<string, WorkspaceSearchLine[]>();
+    let hiddenRows = 0;
     for (const file of found.result.files) {
-      if (!every && files.length >= MAX_FILES_SHOWN) {
-        break;
+      if (openPaths !== undefined && !openPaths.has(file.path)) {
+        continue;
       }
       const slash = file.path.lastIndexOf('/');
-      const matches = file.lines.map((line) => ({
-        line: line.line,
-        segments: toSegments(line.text, line.columns, length),
-      }));
-      const isFolded = folded.has(file.path);
-      const shown = isFolded
-        ? []
-        : expanded.has(file.path)
-          ? matches
-          : matches.slice(0, MAX_ROWS_PER_FILE);
-      const start = rows.length;
-      for (const match of shown) {
-        rows.push({ path: file.path, match });
+      matched.set(file.path, file.lines);
+      for (const line of file.lines) {
+        if (!this.showAllRows() && rows.length >= MAX_ROWS) {
+          hiddenRows += 1;
+          continue;
+        }
+        rows.push({
+          path: file.path,
+          name: slash === -1 ? file.path : file.path.slice(slash + 1),
+          line: line.line,
+          segments: toSegments(line.text, line.columns, length),
+        });
       }
-      files.push({
-        path: file.path,
-        dir: slash === -1 ? '' : file.path.slice(0, slash),
-        name: slash === -1 ? file.path : file.path.slice(slash + 1),
-        count: file.count,
-        matches: shown,
-        hidden: matches.length - shown.length,
-        start,
-      });
     }
-    return { files, rows };
+    return { rows, hiddenRows, matched };
   });
 
-  /** The pane's badge: how many matches, `+` when a cap ended the search short. */
-  protected readonly meta = computed<string | undefined>(() => {
-    const found = this.answer();
-    if (found === undefined) {
-      return undefined;
-    }
-    return `${found.result.total}${found.result.truncated ? '+' : ''}`;
-  });
-
-  protected readonly truncated = computed(() => this.answer()?.result.truncated ?? false);
-  /** The walk answered, not ripgrep: the notice that asks for ripgrep is up. */
-  protected readonly fallback = computed(() => this.answer()?.result.engine === 'node');
-  protected readonly isEmptyQuery = computed(() => this.query().trim().length === 0);
-  /** There is an answer to summarise. */
-  protected readonly hasAnswer = computed(() => this.answer() !== undefined);
-  /** The summary line: matches, files, and the engine that answered. */
+  /** The titlebar's count, in the editor's grammar: `828 matches in 75 files`. */
   protected readonly summary = computed(() => {
     const found = this.answer();
     if (found === undefined) {
       return undefined;
     }
-    const files = found.result.files.length;
-    return {
-      matches: `${found.result.total}${found.result.truncated ? '+' : ''} matches`,
-      files: `${files} ${files === 1 ? 'file' : 'files'}`,
-      engine: found.result.engine === 'ripgrep' ? 'ripgrep' : 'built-in walk',
-    };
-  });
-  /** The files past the first page, waiting for the reader to ask for them. */
-  protected readonly hiddenFiles = computed(() => {
-    const found = this.answer();
-    if (found === undefined) {
-      return 0;
-    }
-    return Math.max(0, found.result.files.length - this.view().files.length);
-  });
-  /** Every file shows all of its rows: the expand button is on. */
-  protected readonly allExpanded = computed(() => {
-    const files = this.view().files;
-    if (files.length === 0) {
-      return false;
-    }
-    const expanded = this.expandedFiles();
-    return files.every((file) => expanded.has(file.path));
+    return `${found.result.total}${found.result.truncated ? '+' : ''} matches in ${found.result.files.length} ${found.result.files.length === 1 ? 'file' : 'files'}`;
   });
 
-  protected readonly paneActions = computed<readonly PaneAction[]>(() => [
-    { id: 'refresh', label: 'Search again', run: () => this.run() },
-    {
-      id: 'rows',
-      label: this.allExpanded() ? 'Show fewer rows' : 'Show every row',
-      active: this.allExpanded(),
-      run: () => this.toggleAllRows(),
-    },
-    { id: 'close', label: 'Hide the search panel', run: () => this.layout.setVisible('right', false) },
-  ]);
-
+  /** The walk answered, not ripgrep: the notice that asks for ripgrep is up. */
+  protected readonly fallback = computed(() => this.answer()?.result.engine === 'node');
+  protected readonly truncated = computed(() => this.answer()?.result.truncated ?? false);
+  protected readonly isEmptyQuery = computed(() => this.query().trim().length === 0);
+  protected readonly noMatches = computed(() => this.answer() !== undefined && this.view().rows.length === 0);
   /**
-   * The column's drag limit: the conversation keeps the same room the git
-   * panel's edge leaves it, so switching panels never resizes by surprise.
+   * The empty state hides the preview pane while there is nothing to show in it — the
+   * empty query, a search in flight, or an answer with no rows — and lets the
+   * hint span the whole dialog instead.
    */
-  protected readonly columnMax = (handle: HTMLElement): number => {
-    const shell = handle.closest('.shell') as HTMLElement | null;
-    const nav = shell?.querySelector('.nav') as HTMLElement | null;
-    const shellWidth = shell?.getBoundingClientRect().width ?? window.innerWidth;
-    const navWidth = this.layout.leftCollapsed()
-      ? 0
-      : (nav?.getBoundingClientRect().width ?? 240);
-    return Math.max(320, shellWidth - navWidth - RESIZE_MIN_CHAT);
-  };
+  protected readonly listSolo = computed(
+    () => this.view().rows.length === 0 && this.preview() === undefined && !this.previewLoading(),
+  );
+
+  /** The preview's small count, next to the file name. */
+  protected readonly previewMeta = computed(() => {
+    const file = this.previewFile();
+    if (file === undefined) {
+      return undefined;
+    }
+    const hits = this.view().matched.get(file.path)?.length ?? 0;
+    return `${hits} ${hits === 1 ? 'match' : 'matches'}`;
+  });
+
+  constructor() {
+    // The selection decides the preview: a new file is read, the same file only
+    // has its rows repainted around the moved highlight.
+    effect(() => {
+      const row = this.markedRow();
+      const path = row?.path;
+      if (path === undefined) {
+        this.previewSeq++;
+        this.previewFile.set(undefined);
+        this.previewLoading.set(false);
+        return;
+      }
+      const current = this.previewFile();
+      const queryLength = this.answer()?.query.length ?? 0;
+      if (current?.path === path && current.queryLength === queryLength) {
+        return;
+      }
+      void this.loadPreview(path, this.answer()?.cwd);
+    });
+    // The highlighted row follows the keyboard into the preview's view, by hand —
+    // the browser's own `scrollIntoView` moves the page, not just the pane.
+    effect(() => {
+      const row = this.markedRow();
+      const file = this.previewFile();
+      if (file === undefined || row === undefined) {
+        return;
+      }
+      queueMicrotask(() => this.revealPreviewLine(row.line));
+    });
+    // A menu closes when the tab under it changes: the control it belongs to is
+    // gone from the row.
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.timer));
+  }
+
+  /** The row the keyboard is on, or `undefined` before the first answer. */
+  private markedRow(): MatchRow | undefined {
+    const rows = this.view().rows;
+    const index = this.marked();
+    return index >= 0 ? rows[Math.min(index, rows.length - 1)] : undefined;
+  }
+
+  /** The backdrop or Escape: leave without opening anything. */
+  protected close(): void {
+    this.shell.closeFindFiles();
+  }
 
   protected onQuery(event: Event): void {
     this.query.set((event.target as HTMLInputElement).value);
     this.schedule();
   }
 
-  protected onInclude(event: Event): void {
-    this.include.set((event.target as HTMLInputElement).value);
+  protected onMask(event: Event): void {
+    this.fileMask.set((event.target as HTMLInputElement).value);
     this.schedule();
+  }
+
+  protected toggleMask(): void {
+    this.maskOn.update((on) => !on);
+    this.run();
   }
 
   protected onExclude(event: Event): void {
     this.exclude.set((event.target as HTMLInputElement).value);
     this.schedule();
+  }
+
+  protected onDirectory(event: Event): void {
+    this.directory.set((event.target as HTMLInputElement).value);
+    this.schedule();
+  }
+
+  /** The funnel: the exclude box is folded away until it is wanted. */
+  protected toggleExclude(): void {
+    this.excludeOpen.update((open) => !open);
+  }
+
+  /** The pin and the footer checkbox are one state; either may flip it. */
+  protected toggleStay(): void {
+    this.stayOpen.update((on) => !on);
+  }
+
+  protected setTab(tab: FindTab): void {
+    if (this.tab() === tab) {
+      return;
+    }
+    this.maskMenuOpen.set(false);
+    this.projectMenuOpen.set(false);
+    this.scopeMenuOpen.set(false);
+    this.tab.set(tab);
+    this.run();
+  }
+
+  protected setScope(scope: FindScope): void {
+    this.scope.set(scope);
+    this.scopeMenuOpen.set(false);
+    this.run();
+  }
+
+  protected setModule(path: string): void {
+    this.modulePath.set(path);
+    this.projectMenuOpen.set(false);
+    this.run();
   }
 
   /** The `Aa` toggle: like VS Code's, it re-runs the search that is on screen. */
@@ -267,104 +384,128 @@ export class SearchPanel {
     this.run();
   }
 
-  /** Enter skips the debounce — the reader is asking for *this* query now. */
-  protected runNow(): void {
+  /** Clears the field and the answer, the `×` in the search row. */
+  protected clearQuery(): void {
+    this.query.set('');
     this.run();
   }
 
-  /** Down from the query box lands in the results, where the arrows work. */
+  /**
+   * The query box keeps the keyboard while it is focused — the dialog
+   * lets the arrows walk the matches from the field. Enter opens the marked
+   * match; Ctrl+Enter opens it and keeps the dialog up regardless of the pin.
+   */
   protected onQueryKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'ArrowDown') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.moveMarked(event.key === 'ArrowDown' ? 1 : -1);
       return;
     }
-    event.preventDefault();
-    this.results()?.nativeElement.focus();
-  }
-
-  protected isFolded(path: string): boolean {
-    return this.folded().has(path);
-  }
-
-  protected toggleFile(path: string): void {
-    this.folded.update((set) => {
-      const next = new Set(set);
-      if (!next.delete(path)) {
-        next.add(path);
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) {
+        this.openMarked({ keepOpen: true });
+      } else {
+        this.openMarked();
       }
-      return next;
-    });
-  }
-
-  /** A file's rest: the rows the cap kept back. */
-  protected expandFile(path: string): void {
-    this.expandedFiles.update((set) => new Set(set).add(path));
-  }
-
-  /** Every file shows every row, or none does. */
-  protected toggleAllRows(): void {
-    const files = this.view().files;
-    if (this.allExpanded()) {
-      this.expandedFiles.set(new Set());
-      return;
     }
-    this.expandedFiles.set(new Set(files.map((file) => file.path)));
   }
 
-  /** The rest of the files, past the first page. */
-  protected showAll(): void {
-    this.showAllFiles.set(true);
+  /** The arrows walk the rows, Enter opens one — same grammar, from the list. */
+  protected onResultsKeydown(event: KeyboardEvent): void {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        this.moveMarked(1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.moveMarked(-1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        this.jumpMarked(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        this.jumpMarked(this.view().rows.length - 1);
+        break;
+      case 'Enter':
+        event.preventDefault();
+        this.openMarked({ keepOpen: event.ctrlKey || event.metaKey });
+        break;
+      default:
+        break;
+    }
   }
 
-  /** The row the keyboard is on, and the file it belongs to. */
   protected isMarked(index: number): boolean {
     return this.marked() === index;
   }
 
-  /** The panel's keyboard: the arrows walk the rows, Enter opens one. */
-  protected onResultsKeydown(event: KeyboardEvent): void {
+  /** Whether a preview line is the one the marked row points at. */
+  protected isMarkedCurrentPreviewLine(line: number): boolean {
+    return this.markedRow()?.line === line;
+  }
+
+  private moveMarked(delta: number): void {
     const rows = this.view().rows;
     if (rows.length === 0) {
       return;
     }
     const last = rows.length - 1;
-    let next = this.marked();
-    switch (event.key) {
-      case 'ArrowDown':
-        next = next < 0 ? 0 : Math.min(last, next + 1);
-        break;
-      case 'ArrowUp':
-        next = next <= 0 ? 0 : next - 1;
-        break;
-      case 'Home':
-        next = 0;
-        break;
-      case 'End':
-        next = last;
-        break;
-      case 'Enter': {
-        const row = rows[Math.min(next, last)];
-        if (row !== undefined) {
-          this.tabs.openFile(row.path, row.match.line);
-        }
-        event.preventDefault();
-        return;
-      }
-      default:
-        return;
-    }
-    event.preventDefault();
+    const current = this.marked();
+    const next = current < 0 ? 0 : Math.min(last, Math.max(0, current + delta));
     this.marked.set(next);
     this.revealMarked();
   }
 
-  /** A row was clicked: open it, and let the keyboard carry on from there. */
+  private jumpMarked(index: number): void {
+    if (this.view().rows.length === 0) {
+      return;
+    }
+    this.marked.set(Math.max(0, index));
+    this.revealMarked();
+  }
+
+  /**
+   * Opens the marked match in a tab at its line. With the pin on (or on
+   * Ctrl+Enter) the dialog stays up — the find window keeps its results.
+   */
+  private openMarked({ keepOpen } : { keepOpen?: boolean } = {}): void {
+    const row = this.markedRow() ?? this.view().rows[0];
+    if (row === undefined) {
+      return;
+    }
+    this.tabs.openFile(row.path, row.line);
+    if (keepOpen || this.stayOpen()) {
+      this.revealMarked();
+    } else {
+      this.close();
+    }
+  }
+
+  /** The footer's button: open the marked match, keep the find window up. */
+  protected openInFindWindow(): void {
+    this.openMarked({ keepOpen: true });
+  }
+
+  /** A row was clicked: mark it (the preview follows), and open it. */
   protected openAt(index: number): void {
     const row = this.view().rows[index];
     if (row === undefined) {
       return;
     }
     this.marked.set(index);
-    this.tabs.openFile(row.path, row.match.line);
+    this.tabs.openFile(row.path, row.line);
+    if (!this.stayOpen()) {
+      this.close();
+    }
+  }
+
+  /** The rows past the first page, once the reader asks for them. */
+  protected showRest(): void {
+    this.showAllRows.set(true);
   }
 
   /**
@@ -386,12 +527,50 @@ export class SearchPanel {
     }
   }
 
+  /** Brings the preview's highlighted line into its pane's view. */
+  private revealPreviewLine(line: number): void {
+    const container = this.previewEl()?.nativeElement;
+    if (!container) {
+      return;
+    }
+    const row = container.querySelector('.preview-line.current') as HTMLElement | null;
+    if (!row) {
+      return;
+    }
+    const view = container.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    if (rect.top < view.top || rect.bottom > view.bottom) {
+      container.scrollTop += rect.top - view.top - view.height / 2 + rect.height / 2;
+    }
+  }
+
+  /** Reads the file under the selection for the preview pane. */
+  private async loadPreview(path: string, cwd: string | undefined): Promise<void> {
+    const seq = ++this.previewSeq;
+    const queryLength = this.answer()?.query.length ?? 0;
+    const matched = this.view().matched.get(path) ?? [];
+    const language = languageForPath(path) ?? '';
+    this.previewLoading.set(true);
+    const data = await this.morse
+      .requestHostCommand('readFile', cwd === undefined ? { path } : { path, cwd })
+      .catch(() => undefined);
+    if (seq !== this.previewSeq) {
+      return; // the keyboard moved on; only the newest ask may speak
+    }
+    this.previewLoading.set(false);
+    this.previewFile.set(
+      asPreviewFile(data, path, language, queryLength, matched, (html) =>
+        this.sanitizer.bypassSecurityTrustHtml(html),
+      ),
+    );
+  }
+
   private schedule(): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.run(), DEBOUNCE_MS);
   }
 
-  private run(): void {
+  protected run(): void {
     clearTimeout(this.timer);
     const query = this.query().trim();
     const seq = ++this.seq;
@@ -399,18 +578,22 @@ export class SearchPanel {
       this.searching.set(false);
       this.errorMessage.set(undefined);
       this.answer.set(undefined);
+      this.previewSeq++;
+      this.previewFile.set(undefined);
       return;
     }
     this.searching.set(true);
     this.errorMessage.set(undefined);
+    const moduleCwd = this.tab() === 'module' ? this.modulePath() : undefined;
     void this.morse
       .requestHostCommand(
         'searchWorkspace',
         {
           query,
           caseSensitive: this.caseSensitive(),
-          include: splitPatterns(this.include()),
-          exclude: splitPatterns(this.exclude()),
+          include: this.patterns().include,
+          exclude: this.patterns().exclude,
+          ...(moduleCwd !== undefined && moduleCwd.length > 0 ? { cwd: moduleCwd } : {}),
         },
         SEARCH_TIMEOUT_MS,
       )
@@ -426,13 +609,13 @@ export class SearchPanel {
           this.errorMessage.set("The search failed — the host's log has the detail.");
           return;
         }
-        this.marked.set(-1);
-        this.answer.set({ query, result });
+        this.marked.set(result.files.length > 0 ? 0 : -1);
+        this.answer.set({ query, result, cwd: moduleCwd });
       });
   }
 }
 
-/** The include/exclude boxes: comma- or newline-separated globs, VS Code's habit. */
+/** The exclude box: comma- or newline-separated globs, VS Code's habit. */
 function splitPatterns(value: string): string[] {
   return value
     .split(/[,\n]/)
@@ -484,6 +667,132 @@ function isSearchLine(value: unknown): value is WorkspaceSearchLine {
     Array.isArray(line.columns) &&
     line.columns.every((column) => typeof column === 'number')
   );
+}
+
+/**
+ * The `readFile` answer as the preview's file, or `undefined` if it is not one.
+ * Each line is syntax-highlighted for its language, then the query's match
+ * ranges are wrapped as `<span class="hit">` over the highlighted HTML — by
+ * walking the DOM's text nodes, whose concatenation is the line's plain text,
+ * so a match keeps its colours and its highlight in one pass.
+ */
+function asPreviewFile(
+  value: unknown,
+  path: string,
+  language: string,
+  queryLength: number,
+  matched: readonly WorkspaceSearchLine[],
+  trust: (html: string) => SafeHtml,
+): PreviewFile | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const content = candidate['content'];
+  if (typeof content !== 'string' || candidate['binary'] === true) {
+    return undefined;
+  }
+  const byLine = new Map<number, WorkspaceSearchLine>();
+  for (const line of matched) {
+    byLine.set(line.line, line);
+  }
+  const split = (content as string).split('\n');
+  const cut = split.length > MAX_PREVIEW_LINES;
+  const slash = path.lastIndexOf('/');
+  const lines: PreviewLine[] = split.slice(0, MAX_PREVIEW_LINES).map((text, index) => {
+    const found = byLine.get(index + 1);
+    const html = highlightLine(text, language, found?.columns ?? [], queryLength);
+    return { line: index + 1, html: trust(html) };
+  });
+  return {
+    path,
+    name: slash === -1 ? path : path.slice(slash + 1),
+    dir: slash === -1 ? '' : path.slice(0, slash),
+    lines,
+    cut,
+    queryLength,
+  };
+}
+
+/** One line's HTML: syntax-highlighted, with the match ranges marked over it. */
+function highlightLine(
+  text: string,
+  language: string,
+  columns: readonly number[],
+  length: number,
+): string {
+  const html = highlightCode(text, language).html;
+  if (length <= 0 || columns.length === 0) {
+    return html;
+  }
+  const ranges = [...columns]
+    .sort((a, b) => a - b)
+    .map((column) => ({ start: column - 1, end: column - 1 + length }));
+  return wrapRanges(html, ranges);
+}
+
+/**
+ * Wraps character ranges of the plain text behind an HTML fragment in
+ * `<span class="hit">`. Text nodes concatenate to the fragment's plain text,
+ * so a walk in document order tracks the offset, and ranges that span node
+ * boundaries (a match crossing a syntax token) are wrapped in both.
+ */
+function wrapRanges(html: string, ranges: readonly { start: number; end: number }[]): string {
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(
+      `<body><div id="wrap-ranges-root">${html}</div></body>`,
+      'text/html',
+    );
+  } catch {
+    return html; // no DOM (an odd embedding); the line shows unmarked
+  }
+  const root = doc.getElementById('wrap-ranges-root');
+  if (root === null) {
+    return html;
+  }
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  type Edit = { node: Text; start: number; end: number };
+  const edits: Edit[] = [];
+  let offset = 0;
+  let rangeIndex = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const nodeStart = offset;
+    const nodeEnd = offset + node.data.length;
+    while (rangeIndex < ranges.length) {
+      const range = ranges[rangeIndex]!;
+      if (range.end <= nodeStart) {
+        rangeIndex++; // this match ended before the node began
+        continue;
+      }
+      if (range.start >= nodeEnd) {
+        break; // this match starts after the node ends
+      }
+      edits.push({
+        node,
+        start: Math.max(range.start, nodeStart) - nodeStart,
+        end: Math.min(range.end, nodeEnd) - nodeStart,
+      });
+      if (range.end <= nodeEnd) {
+        rangeIndex++; // the whole match sat in this node
+      } else {
+        break; // the match continues into the next node
+      }
+    }
+    offset = nodeEnd;
+  }
+  // Later edits first: splitting a node does not move an earlier range's
+  // coordinates within it.
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    const mark = doc.createElement('span');
+    mark.className = 'hit';
+    const end = edit.node.splitText(edit.end);
+    const middle = edit.node.splitText(edit.start);
+    middle.parentNode!.insertBefore(mark, end);
+    mark.appendChild(middle);
+  }
+  return root.innerHTML;
 }
 
 /**

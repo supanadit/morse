@@ -62,8 +62,7 @@
   grid-area: main;
 }
 
-.git-panel,
-.search-panel {
+.git-panel {
   grid-area: git;
   min-width: 0;
 }
@@ -116,18 +115,14 @@
 .shell.embedded,
 .shell.embedded.with-rail,
 .shell.embedded.with-git,
-.shell.embedded.with-search,
 .shell.embedded.git-expanded,
 .shell.embedded.with-rail.with-git,
-.shell.embedded.with-rail.with-search,
 .shell.embedded.with-rail.git-expanded,
 .shell.embedded.collapsed,
 .shell.embedded.collapsed.with-rail,
 .shell.embedded.collapsed.with-git,
-.shell.embedded.collapsed.with-search,
 .shell.embedded.collapsed.git-expanded,
 .shell.embedded.collapsed.with-rail.with-git,
-.shell.embedded.collapsed.with-rail.with-search,
 .shell.embedded.collapsed.with-rail.git-expanded {
   grid-template-areas:
     '.'
@@ -139,12 +134,9 @@
 /*
  * The browser host's git panel is a third column. The track only exists while
  * the panel is mounted, so the conversation keeps the full width when it is
- * closed and the fold toggle still folds only the navigation. The search panel
- * is that column's other face: same track, same dragged width (one region),
- * and the two are never mounted at once.
+ * closed and the fold toggle still folds only the navigation.
  */
-.shell.with-git,
-.shell.with-search {
+.shell.with-git {
   grid-template-areas:
     '. . .'
     'nav main git'
@@ -164,8 +156,7 @@
   grid-template-columns: var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr);
 }
 
-.shell.with-rail.with-git,
-.shell.with-rail.with-search {
+.shell.with-rail.with-git {
   grid-template-areas:
     '. . . .'
     'rail nav main git'
@@ -221,8 +212,7 @@ morse-bottom-panel {
 .shell.panel-full > .rail,
 .shell.panel-full > .nav,
 .shell.panel-full > .chat,
-.shell.panel-full > .git-panel,
-.shell.panel-full > .search-panel {
+.shell.panel-full > .git-panel {
   visibility: hidden;
 }
 
@@ -245,8 +235,7 @@ morse-bottom-panel {
     grid-template-columns: 0 minmax(0, 1fr);
   }
 
-  .shell.collapsed.with-git,
-  .shell.collapsed.with-search {
+  .shell.collapsed.with-git {
     grid-template-columns: 0 minmax(0, 1fr) var(--morse-git-width);
   }
 
@@ -258,8 +247,7 @@ morse-bottom-panel {
     grid-template-columns: var(--morse-rail-width) 0 minmax(0, 1fr);
   }
 
-  .shell.collapsed.with-rail.with-git,
-  .shell.collapsed.with-rail.with-search {
+  .shell.collapsed.with-rail.with-git {
     grid-template-columns:
       var(--morse-rail-width) 0 minmax(0, 1fr) var(--morse-git-width);
   }
@@ -667,8 +655,7 @@ morse-bottom-panel {
    * conversation from the right — git or search, whichever face is in front.
    * It has its own close button; the layout below stays one column regardless.
    */
-  .shell.with-git,
-  .shell.with-search {
+  .shell.with-git {
     grid-template-areas:
       '.'
       'main'
@@ -686,7 +673,6 @@ morse-bottom-panel {
   }
 
   .shell.with-rail.with-git,
-  .shell.with-rail.with-search,
   .shell.with-rail.git-expanded {
     grid-template-areas:
       '. .'
@@ -707,8 +693,7 @@ morse-bottom-panel {
    */
   /* Same grid-area trap as the drawer: the overlay spans the shell's height,
      not just row 2 — but stays a right-side partial overlay. */
-  .shell > .git-panel,
-  .shell > .search-panel {
+  .shell > .git-panel {
     position: absolute;
     grid-area: auto;
     z-index: 20;

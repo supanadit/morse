@@ -5,7 +5,6 @@
   [class.embedded]="embedded()"
   [class.with-rail]="filesEnabled() && !embedded()"
   [class.with-git]="gitOpen()"
-  [class.with-search]="searchOpen()"
   [class.git-expanded]="gitExpanded()"
   [class.panel-full]="bottomPanelFull()"
   [style.--morse-git-width]="gitWidth()"
@@ -450,11 +449,10 @@
     <morse-git-panel class="git-panel" [expanded]="gitExpanded()" />
   }
 
-  <!-- The search panel is that column's other face: same region, same width,
-       never both — `rightPane` decides which panel the column holds. VS Code
-       never mounts it (`capabilities.searchPanel`). -->
-  @if (searchOpen()) {
-    <morse-search-panel class="search-panel" />
+  <!-- Find in Files: a modal over the whole app, not a column. The card registers itself with the overlay stack, so it renders
+       from the shell level, outside the grid entirely. -->
+  @if (findFilesOpen()) {
+    <morse-search-panel />
   }
 
   <!-- The browser host's bottom tool window: a band across every column, so the

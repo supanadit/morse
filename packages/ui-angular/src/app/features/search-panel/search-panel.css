@@ -1,249 +1,357 @@
 /*
- * The panel takes the column's whole height — same frame, same seam, same
- * background as the git panel, because they are two views of one column of the
- * shell and must not look like two different apps when the reader switches.
+ * Find in Files, pane for pane: a titlebar with the count, the file
+ * mask and the pin; the search field with its toggles; the tabs row; the body
+ * split into the flat match list and the preview; the footer with the
+ * "Open results in new tab" checkbox and the find-window button.
+ *
+ * The card is a fixed size, a popup: neither the empty state before
+ * the first query nor a short answer collapses it — the panes and their
+ * divider hold their ground, the hints just sit centred inside them. It is
+ * anchored to the top of the screen, not centred.
  */
+morse-dialog.find-dialog {
+  --morse-card-width: min(860px, 100%);
+  --morse-card-height: min(520px, calc(100vh - 96px));
+  --morse-card-max-height: min(520px, calc(100vh - 96px));
+  --morse-layer-align: flex-start;
+  --morse-layer-top: clamp(24px, 9vh, 96px);
+  --morse-hit-bg: rgb(255 168 25 / 32%);
+  --morse-hit-current-bg: rgb(255 168 25 / 55%);
+}
+
 :host {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+  display: block;
   min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  border-left: 1px solid var(--morse-border);
-  background: var(--morse-nav-bg);
 }
 
-/* The left edge is the drag handle, the git panel's rule for the same seam. */
-.edge-resize {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 6px;
-  z-index: 3;
-  cursor: ew-resize;
-}
-.edge-resize:hover,
-.edge-resize:active {
-  background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-}
-.panel > morse-pane {
+.find {
+  /* The card is a flex column, so the find fills whatever height it gets. */
   flex: 1;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
-/* The form is fixed at the top of the body; the results scroll beneath it. */
-.form {
+/* --- the titlebar -------------------------------------------------------- */
+
+.titlebar {
   flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--morse-border);
 }
-.query-row {
+.title-left {
   display: flex;
-  gap: 4px;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.title {
+  font-size: 13px;
+  font-weight: 700;
+}
+.count {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.title-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.mask-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--morse-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mask-check {
+  accent-color: var(--morse-accent);
+}
+.mask-combo {
+  /* One field, not input-plus-button: the container carries the border and the
+     focus glow, exactly the search row's grammar. */
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-bg, var(--morse-nav-bg));
+}
+.mask-combo:focus-within {
+  border-color: var(--morse-accent);
+}
+.mask-input {
+  width: 110px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+}
+.mask-input:focus,
+.mask-input:focus-visible {
+  outline: none;
+}
+.combo-arrow {
+  padding: 0 7px;
+  border: 0;
+  border-left: 1px solid var(--morse-border);
+  background: none;
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.combo-arrow:hover {
+  background: var(--morse-hover);
+}
+
+/* The titlebar's two icon buttons: the funnel and the pin. */
+.iconbtn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+}
+.iconbtn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.iconbtn:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.iconbtn.on {
+  color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
+}
+
+/* --- the search row ------------------------------------------------------ */
+
+.search-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 8px 12px 0;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-bg, var(--morse-nav-bg));
+}
+.search-row:focus-within {
+  border-color: var(--morse-accent);
+}
+.search-glyph {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: var(--morse-fg-muted);
+  stroke-width: 1.4;
 }
 .query {
   flex: 1;
   min-width: 0;
+  /* The global input chrome (box, radius, hover border, focus ring) belongs to
+     standalone fields. This one lives inside the composite search row, whose
+     own `:focus-within` accent border is the focus indication — the
+     grammar: the whole field glows, never a second frame around the text. */
+  padding: 7px 4px;
+  border: 0;
+  background: none;
+  color: var(--morse-fg);
+  font-size: 13px;
 }
-.pattern {
-  width: 100%;
+.query:focus-visible,
+.query:focus {
+  outline: none;
 }
-/*
- * The `Aa` toggle is a real state, so it reads as a switch that is on rather
- * than as a label — the same grammar the toolbar's pressed buttons use.
- */
-.toggle {
+.fieldbtn {
   flex: none;
-  padding: 0 6px;
-  border: 1px solid var(--morse-border);
+  padding: 2px 5px;
+  border: 0;
   border-radius: 4px;
   background: none;
   color: var(--morse-fg-muted);
   font-size: 11px;
   cursor: pointer;
 }
-.toggle:hover {
+.fieldbtn:hover:not(:disabled) {
   background: var(--morse-hover);
-}
-.toggle.on {
-  border-color: var(--morse-accent);
-  background: color-mix(in srgb, var(--morse-accent) 18%, transparent);
   color: var(--morse-fg);
 }
-
-.results {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 4px 8px;
+.fieldbtn.on {
+  color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
 }
-/* The list takes the keyboard, so it takes the focus ring too. */
-.results:focus-visible {
-  outline: 1px solid var(--morse-focus);
-  outline-offset: -1px;
+.fieldbtn:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 
-/* One file's group: header above its matching lines. */
-.file-head {
-  /* The header stays put while its file's rows scroll under it, so the reader
-     always knows which file they are in. */
-  position: sticky;
-  top: 0;
-  z-index: 1;
+/* --- the tabs row -------------------------------------------------------- */
+
+.tabs-row {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 3px 6px;
+  gap: 8px;
+  padding: 6px 12px 4px;
+}
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tab {
+  padding: 3px 10px;
   border: 0;
-  border-radius: 6px;
-  background: var(--morse-nav-bg, var(--morse-bg));
+  border-radius: 12px;
+  background: none;
   color: var(--morse-fg);
-  font: inherit;
-  text-align: left;
+  font-size: 12.5px;
   cursor: pointer;
 }
-.file-head:hover,
-.file-head:focus-visible {
+.tab:hover {
   background: var(--morse-hover);
 }
-.chevron {
-  flex: none;
-  width: 10px;
+.tab.on {
+  background: color-mix(in srgb, var(--morse-fg-muted) 18%, transparent);
+  font-weight: 600;
+}
+.tab-extra {
+  /* The row's spare width belongs to the tab's control — the directory
+     field stretches across it; the dropdown combos stay pinned right. */
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+.combo {
+  position: relative;
+  display: flex;
+}
+.combo-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 3px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: none;
+  color: var(--morse-fg);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.combo-btn:hover {
+  background: var(--morse-hover);
+}
+.combo-caret {
   color: var(--morse-fg-muted);
-  transition: transform 120ms ease;
+  font-size: 9px;
 }
-.chevron.open {
-  transform: rotate(90deg);
-}
-.file-head .name {
-  flex: none;
+.dir-input {
+  /* The search field's twin: same border, same radius, same accent glow on
+     focus — and it takes the whole spare width of the tabs row. */
+  flex: 1;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-bg, var(--morse-nav-bg));
+  font-family: var(--morse-font-mono);
   font-size: 12px;
 }
-.file-head .dir {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--morse-fg-muted);
-  font-size: 10.5px;
+.dir-input:focus,
+.dir-input:focus-visible {
+  outline: none;
+  border-color: var(--morse-accent);
 }
-.file-head .count {
-  flex: none;
-  padding: 0 5px;
+.dir-input::placeholder {
+  color: var(--morse-fg-muted);
+}
+
+/* --- the menus under the combos ------------------------------------------ */
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--morse-border);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--morse-fg-muted) 14%, transparent);
-  color: var(--morse-fg-muted);
-  font-size: 10px;
-  line-height: 15px;
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 12px 32px rgb(0 0 0 / 40%);
 }
-
-/* One matching line: the number gutter, then the text with its highlights. */
-.match {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  padding: 1px 6px 1px 16px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  color: var(--morse-fg);
-  font-family: var(--morse-font-mono);
-  font-size: 11px;
-  line-height: 17px;
-  text-align: left;
-  cursor: pointer;
-}
-.match:hover,
-.match:focus-visible {
-  background: var(--morse-hover);
-}
-.match .lineno {
-  flex: none;
-  min-width: 26px;
-  color: var(--morse-fg-muted);
-  text-align: right;
-  user-select: none;
-}
-.match .text {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* The match itself: an accent wash, readable in both themes. */
-.hit {
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--morse-accent) 70%, transparent);
-  text-underline-offset: 1px;
-}
-
-/* The marked row: the one the keyboard is on. */
-.match.marked {
-  background: var(--morse-active);
-  box-shadow: inset 2px 0 0 var(--morse-accent);
-}
-/* The answer's size, in one line: how much matched, in how many files. */
-.summary {
-  flex: none;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0;
-  padding: 6px 10px 4px;
-  font-size: 11.5px;
-  color: var(--morse-fg-muted);
-}
-.summary .facts {
-  color: var(--morse-fg);
-}
-.summary .engine {
-  margin-left: auto;
-  font-size: 10.5px;
-  opacity: 0.8;
-}
-
-/* The cap kept rows back; the button says how many. */
-.more {
+.menu-item {
   display: block;
   width: 100%;
-  padding: 1px 6px 1px 16px;
+  padding: 4px 10px;
   border: 0;
+  border-radius: 5px;
   background: none;
-  color: var(--morse-link);
-  font-family: var(--morse-font-mono);
-  font-size: 10.5px;
-  line-height: 16px;
+  color: var(--morse-fg);
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
-.more:hover {
-  text-decoration: underline;
+.menu-item:hover {
+  background: var(--morse-hover);
 }
-.more.files {
-  padding-left: 8px;
+.menu-item[aria-selected='true'] {
+  background: color-mix(in srgb, var(--morse-accent) 20%, transparent);
+  font-weight: 600;
 }
+
+/* --- the folded exclude row ---------------------------------------------- */
+
+.exclude-row {
+  flex: none;
+  padding: 4px 12px 0;
+}
+.exclude-input {
+  width: 100%;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.exclude-input:focus,
+.exclude-input:focus-visible {
+  outline: none;
+  border-color: var(--morse-accent);
+}
+
+/* --- hints ---------------------------------------------------------------- */
 
 .hint {
   flex: none;
-  padding: 6px 10px;
+  margin: 0;
+  padding: 6px 12px;
   font-size: 11.5px;
   color: var(--morse-fg-muted);
 }
@@ -252,4 +360,245 @@
 }
 .hint.warn {
   color: var(--morse-warn);
+}
+
+/* --- the body: flat list | preview --------------------------------------- */
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  margin-top: 2px;
+}
+
+.list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--morse-border);
+}
+/* No preview to show: the divider goes with it, the empty state. */
+.body.solo .list {
+  border-right: 0;
+}
+.list .empty,
+.preview-pane .empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 2px 6px;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+  line-height: 19px;
+}
+.results:focus-visible {
+  outline: 1px solid var(--morse-focus);
+  outline-offset: -1px;
+}
+
+/* One match: the line's text, the file named at the row's end. */
+.match {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--morse-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.match:hover,
+.match:focus-visible {
+  background: var(--morse-hover);
+}
+.match .text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.match .where {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+.match .where-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.match .where-line {
+  min-width: 24px;
+  text-align: right;
+}
+
+/* The match itself: an amber wash. */
+.hit {
+  border-radius: 2px;
+  background: var(--morse-hit-bg);
+}
+
+/* The marked row: the one the keyboard is on. */
+.match.marked {
+  background: var(--morse-active);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+
+.more {
+  display: block;
+  width: 100%;
+  padding: 2px 8px;
+  border: 0;
+  background: none;
+  color: var(--morse-link);
+  font-size: 10.5px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.more:hover {
+  text-decoration: underline;
+}
+
+/* --- the preview pane ----------------------------------------------------- */
+
+.preview-pane {
+  flex: 1.15;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.preview-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--morse-border);
+  font-size: 11px;
+}
+.preview-name {
+  flex: none;
+  font-weight: 700;
+  font-family: var(--morse-font-mono);
+  color: var(--morse-fg);
+}
+.preview-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 10.5px;
+}
+.preview-meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+.preview-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 8px;
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+  line-height: 18px;
+}
+.preview-line {
+  display: flex;
+  gap: 10px;
+  padding: 0 10px 0 8px;
+  white-space: pre;
+}
+.preview-line .lineno {
+  flex: none;
+  min-width: 32px;
+  color: var(--morse-fg-muted);
+  opacity: 0.75;
+  text-align: right;
+  user-select: none;
+}
+.preview-line .code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  /* hljs names its colours with inline styles on token spans. */
+  color: var(--morse-fg);
+}
+.preview-line.current {
+  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+/* The selected line's own matches read strongest, amber again. */
+.preview-line.current .hit {
+  background: var(--morse-hit-current-bg);
+}
+
+/* --- the footer ----------------------------------------------------------- */
+
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--morse-border);
+}
+.foot-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--morse-fg);
+  cursor: pointer;
+}
+.foot-check input {
+  accent-color: var(--morse-accent);
+}
+.foot-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.key-hint {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.find-btn {
+  padding: 4px 14px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-accent);
+  color: var(--morse-accent-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.find-btn:hover:not(:disabled) {
+  background: var(--morse-accent-hover);
+}
+.find-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

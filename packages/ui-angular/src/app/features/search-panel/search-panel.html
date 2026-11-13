@@ -1,61 +1,244 @@
-<aside class="panel" aria-label="Search">
-  <div
-    class="edge-resize"
-    [morseSplitter]="'right'"
-    edge="left"
-    [max]="columnMax"
-    label="Resize the search panel"
-    title="Drag to resize"
-  ></div>
-  <morse-pane title="Search" [meta]="meta()" [actions]="paneActions()">
-    <!--
-      The form mirrors VS Code's Search view: the query with its match-case
-      toggle, then the two glob boxes. Everything below is the answer.
-    -->
-    <div class="form">
-      <div class="query-row">
-        <input
-          type="search"
-          class="query"
-          placeholder="Search"
-          aria-label="Search text in the project"
-          [value]="query()"
-          (input)="onQuery($event)"
-          (keydown.enter)="runNow()"
-          (keydown)="onQueryKeydown($event)"
-        />
+<morse-dialog class="find-dialog" label="Find in Files" (dismiss)="close()">
+  <!--
+    Find in Files, pane for pane: the titlebar with the count, the
+    file mask and the pin; the search field with its toggles; the tabs row; the
+    flat match list; the preview of the file under the selection; the footer.
+  -->
+  <div class="find">
+    <header class="titlebar">
+      <div class="title-left">
+        <span class="title">Find in Files</span>
+        @if (summary(); as count) {
+          <span class="count">{{ count }}</span>
+        }
+      </div>
+      <div class="title-right">
+        <label class="mask-label">
+          <input
+            type="checkbox"
+            class="mask-check"
+            [checked]="maskOn()"
+            (change)="toggleMask()"
+          />
+          File mask:
+        </label>
+        <div class="mask-combo">
+          <input
+            type="text"
+            class="mask-input"
+            aria-label="File mask"
+            placeholder="*"
+            spellcheck="false"
+            [value]="fileMask()"
+            (input)="onMask($event)"
+          />
+          <button
+            type="button"
+            class="combo-arrow"
+            aria-label="Recent file masks"
+            (click)="maskMenuOpen.set(!maskMenuOpen())"
+          >
+            ▾
+          </button>
+          @if (maskMenuOpen()) {
+            <div class="menu" role="listbox" aria-label="Recent file masks">
+              @for (mask of maskSuggestions; track mask) {
+                <button type="button" class="menu-item" role="option" (click)="maskMenuOpen.set(false); fileMask.set(mask); maskOn.set(true); run();">
+                  {{ mask }}
+                </button>
+              }
+            </div>
+          }
+        </div>
         <button
           type="button"
-          class="toggle"
-          [class.on]="caseSensitive()"
-          title="Match case"
-          aria-label="Match case"
-          [attr.aria-pressed]="caseSensitive()"
-          (click)="toggleCase()"
+          class="iconbtn"
+          [class.on]="excludeOpen()"
+          title="Files to exclude"
+          aria-label="Files to exclude"
+          [attr.aria-pressed]="excludeOpen()"
+          (click)="toggleExclude()"
         >
-          Aa
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 3.5h12L9.5 8.5v4l-3 1.5v-5.5z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="iconbtn"
+          [class.on]="stayOpen()"
+          title="Keep this dialog open when a result is opened"
+          aria-label="Keep this dialog open"
+          [attr.aria-pressed]="stayOpen()"
+          (click)="toggleStay()"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M9.5 1.5 14.5 6.5 12 7.5 8.5 11l-.5 3.5L3 9.5 6.5 9 10 5.5z" />
+          </svg>
         </button>
       </div>
+    </header>
+
+    <div class="search-row">
+      <svg class="search-glyph" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5" />
+        <path d="M10.4 10.4 14 14" />
+      </svg>
       <input
         type="text"
-        class="pattern"
-        placeholder="Files to include, e.g. *.ts, src/**"
-        aria-label="Files to include"
-        [value]="include()"
-        (input)="onInclude($event)"
+        class="query"
+        placeholder="Search"
+        aria-label="Search text in the project"
+        autofocus
+        spellcheck="false"
+        [value]="query()"
+        (input)="onQuery($event)"
+        (keydown)="onQueryKeydown($event)"
       />
-      <input
-        type="text"
-        class="pattern"
-        placeholder="Files to exclude"
-        aria-label="Files to exclude"
-        [value]="exclude()"
-        (input)="onExclude($event)"
-      />
+      <button
+        type="button"
+        class="fieldbtn"
+        title="Clear the search"
+        aria-label="Clear the search"
+        (click)="clearQuery()"
+      >
+        ×
+      </button>
+      <button
+        type="button"
+        class="fieldbtn"
+        [class.on]="caseSensitive()"
+        title="Match case"
+        aria-label="Match case"
+        [attr.aria-pressed]="caseSensitive()"
+        (click)="toggleCase()"
+      >
+        Aa
+      </button>
+      <button
+        type="button"
+        class="fieldbtn"
+        disabled
+        title="Fixed-string search — whole-word matching is not supported yet"
+        aria-label="Match whole words (unavailable)"
+      >
+        W
+      </button>
+      <button
+        type="button"
+        class="fieldbtn"
+        disabled
+        title="Fixed-string search — regex is not supported yet"
+        aria-label="Use regex (unavailable)"
+      >
+        .*
+      </button>
     </div>
 
+    <div class="tabs-row">
+      <nav class="tabs" role="tablist" aria-label="Search scope">
+        <button type="button" role="tab" class="tab" [class.on]="tab() === 'project'" [attr.aria-selected]="tab() === 'project'" (click)="setTab('project')">
+          In Project
+        </button>
+        <button type="button" role="tab" class="tab" [class.on]="tab() === 'module'" [attr.aria-selected]="tab() === 'module'" (click)="setTab('module')">
+          Module
+        </button>
+        <button type="button" role="tab" class="tab" [class.on]="tab() === 'directory'" [attr.aria-selected]="tab() === 'directory'" (click)="setTab('directory')">
+          Directory
+        </button>
+        <button type="button" role="tab" class="tab" [class.on]="tab() === 'scope'" [attr.aria-selected]="tab() === 'scope'" (click)="setTab('scope')">
+          Scope
+        </button>
+      </nav>
+      <div class="tab-extra">
+        @switch (tab()) {
+          @case ('module') {
+            <div class="combo">
+              <button
+                type="button"
+                class="combo-btn"
+                aria-label="Choose the project to search"
+                (click)="projectMenuOpen.set(!projectMenuOpen())"
+              >
+                {{ moduleName() }}
+                <span class="combo-caret">▾</span>
+              </button>
+              @if (projectMenuOpen()) {
+                <div class="menu" role="listbox" aria-label="Projects">
+                  @for (project of projects(); track project.path) {
+                    <button
+                      type="button"
+                      class="menu-item"
+                      role="option"
+                      [attr.aria-selected]="project.path === modulePath()"
+                      (click)="setModule(project.path)"
+                    >
+                      {{ project.name }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
+          @case ('directory') {
+            <input
+              type="text"
+              class="dir-input"
+              placeholder="Directory (relative to project root)"
+              aria-label="Directory relative to the project root"
+              spellcheck="false"
+              [value]="directory()"
+              (input)="onDirectory($event)"
+            />
+          }
+          @case ('scope') {
+            <div class="combo">
+              <button
+                type="button"
+                class="combo-btn"
+                aria-label="Choose a search scope"
+                (click)="scopeMenuOpen.set(!scopeMenuOpen())"
+              >
+                {{ scopeLabel() }}
+                <span class="combo-caret">▾</span>
+              </button>
+              @if (scopeMenuOpen()) {
+                <div class="menu" role="listbox" aria-label="Scopes">
+                  @for (entry of scopeLabels; track entry.id) {
+                    <button
+                      type="button"
+                      class="menu-item"
+                      role="option"
+                      [attr.aria-selected]="entry.id === scope()"
+                      (click)="setScope(entry.id)"
+                    >
+                      {{ entry.label }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
+          @default {}
+        }
+      </div>
+    </div>
+
+    @if (excludeOpen()) {
+      <div class="exclude-row">
+        <input
+          type="text"
+          class="exclude-input"
+          placeholder="Files to exclude, e.g. dist/**, *.lock"
+          aria-label="Files to exclude"
+          [value]="exclude()"
+          (input)="onExclude($event)"
+        />
+      </div>
+    }
+
     @if (fallback()) {
-      <!-- The walk answered. Its limits are why the panel wants ripgrep. -->
+      <!-- The walk answered. Its limits are why the dialog wants ripgrep. -->
       <p class="hint warn">
         ripgrep is not installed — using the slower built-in search. Install ripgrep for a
         much faster search.
@@ -63,84 +246,108 @@
     }
     @if (errorMessage(); as message) {
       <p class="hint error">{{ message }}</p>
-    } @else {
-      @if (summary(); as facts) {
-        <!-- The answer's size, in one line: how much matched, in how many files. -->
-        <p class="summary">
-          <span class="facts">{{ facts.matches }} in {{ facts.files }}</span>
-          <span class="engine">{{ facts.engine }}</span>
-        </p>
-      }
-      @if (truncated()) {
-        <p class="hint">
-          Showing the first {{ meta() }} matches — a longer query or an include pattern
-          narrows it down.
-        </p>
-      }
-      @if (view().files.length > 0) {
-        <div
-          class="results"
-          #results
-          tabindex="0"
-          aria-label="Search results"
-          (keydown)="onResultsKeydown($event)"
-        >
-          @for (file of view().files; track file.path) {
-            <div class="file">
+    }
+
+    <div class="body" [class.solo]="listSolo()">
+      <div class="list">
+        @if (view().rows.length > 0) {
+          <div
+            class="results"
+            #results
+            tabindex="0"
+            aria-label="Search results"
+            (keydown)="onResultsKeydown($event)"
+          >
+            @for (row of view().rows; track $index) {
               <button
                 type="button"
-                class="file-head"
-                [attr.aria-expanded]="!isFolded(file.path)"
-                (click)="toggleFile(file.path)"
+                class="match"
+                [class.marked]="isMarked($index)"
+                [attr.title]="row.path + ':' + row.line"
+                (click)="openAt($index)"
               >
-                <span class="chevron" [class.open]="!isFolded(file.path)" aria-hidden="true"
-                  >›</span
-                >
-                <span class="name">{{ file.name }}</span>
-                @if (file.dir) {
-                  <span class="dir">{{ file.dir }}/</span>
-                }
-                <span class="count">{{ file.count }}</span>
+                <span class="text">
+                  @for (segment of row.segments; track $index) {
+                    <span [class.hit]="segment.hit">{{ segment.text }}</span>
+                  }
+                </span>
+                <span class="where">
+                  <span class="where-name">{{ row.name }}</span>
+                  <span class="where-line">{{ row.line }}</span>
+                </span>
               </button>
-              @if (!isFolded(file.path)) {
-                @for (match of file.matches; track match.line) {
-                  <button
-                    type="button"
-                    class="match"
-                    [class.marked]="isMarked(file.start + $index)"
-                    [attr.title]="file.path + ':' + match.line"
-                    (click)="openAt(file.start + $index)"
-                  >
-                    <span class="lineno">{{ match.line }}</span>
-                    <span class="text">
-                      @for (segment of match.segments; track $index) {
-                        <span [class.hit]="segment.hit">{{ segment.text }}</span>
-                      }
-                    </span>
-                  </button>
-                }
-                @if (file.hidden > 0) {
-                  <!-- The cap kept rows back; the reader asks for them by name. -->
-                  <button type="button" class="more" (click)="expandFile(file.path)">
-                    {{ file.hidden }} more {{ file.hidden === 1 ? 'line' : 'lines' }}
-                  </button>
-                }
-              }
-            </div>
-          }
-          @if (hiddenFiles() > 0) {
-            <button type="button" class="more files" (click)="showAll()">
-              {{ hiddenFiles() }} more {{ hiddenFiles() === 1 ? 'file' : 'files' }}
-            </button>
-          }
+            }
+            @if (view().hiddenRows > 0) {
+              <button type="button" class="more" (click)="showRest()">
+                {{ view().hiddenRows }} more {{ view().hiddenRows === 1 ? 'match' : 'matches' }}
+              </button>
+            }
+            @if (truncated()) {
+              <p class="hint">The search was cut short — a longer query or a file mask narrows it.</p>
+            }
+          </div>
+        } @else if (searching()) {
+          <div class="empty"><p class="hint">Searching…</p></div>
+        } @else if (isEmptyQuery()) {
+          <div class="empty"><p class="hint">Type search query to find in files</p></div>
+        } @else {
+          <div class="empty"><p class="hint">No matches.</p></div>
+        }
+      </div>
+
+      <!-- The preview: the marked file, read whole, syntax-highlighted, its
+           matches painted — the selection's line banded and centred as the
+           arrows move. The popup hides the pane while there is nothing
+           to preview, and the empty hint spans the whole dialog. -->
+      @if (!listSolo()) {
+        <div class="preview-pane" #previewPane>
+        @if (previewLoading()) {
+          <div class="empty"><p class="hint">Reading…</p></div>
+        } @else if (preview(); as file) {
+          <div class="preview-head">
+            <span class="preview-name">{{ file.name }}</span>
+            @if (file.dir) {
+              <span class="preview-dir">{{ file.dir }}/</span>
+            }
+            @if (previewMeta(); as meta) {
+              <span class="preview-meta">{{ meta }}</span>
+            }
+          </div>
+          <div class="preview-scroll">
+            @for (line of file.lines; track line.line) {
+              <div
+                class="preview-line"
+                [class.current]="isMarkedCurrentPreviewLine(line.line)"
+              >
+                <span class="lineno">{{ line.line }}</span>
+                <span class="code" [innerHTML]="line.html"></span>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty"><p class="hint">The file under the selection shows here.</p></div>
+        }
         </div>
-      } @else if (searching()) {
-        <p class="hint">Searching…</p>
-      } @else if (isEmptyQuery()) {
-        <p class="hint">Type to search every file in the project.</p>
-      } @else {
-        <p class="hint">No matches.</p>
       }
-    }
-  </morse-pane>
-</aside>
+    </div>
+
+    <footer class="foot">
+      <label class="foot-check">
+        <input type="checkbox" [checked]="stayOpen()" (change)="toggleStay()" />
+        Open results in new tab
+      </label>
+      <div class="foot-right">
+        <span class="key-hint">Ctrl+Enter</span>
+        <button
+          type="button"
+          class="find-btn"
+          [disabled]="view().rows.length === 0"
+          title="Open the selected match in an editor tab, keeping this dialog up"
+          (click)="openInFindWindow()"
+        >
+          Open in Find Window
+        </button>
+      </div>
+    </footer>
+  </div>
+</morse-dialog>

@@ -231,20 +231,19 @@ export class App {
       !this.tabs.noSessionInFront() &&
       this.shell.rightPane() === 'git',
   );
+  protected readonly gitExpanded = computed(() => this.gitOpen() && this.shell.gitPanelExpanded());
   /**
-   * The browser host's search panel: the column's other face, grepping the
-   * active project's files. VS Code advertises no `searchPanel` and keeps its
-   * own Search view, so it never renders there either.
+   * The browser host's Find in Files: a modal over the app,
+   * not a layout column. The same gate the search column had — the host can
+   * grep (`capabilities.searchPanel`) and a session is in front to name the
+   * project; VS Code advertises neither and keeps its own Search view.
    */
-  protected readonly searchOpen = computed(
+  protected readonly findFilesOpen = computed(
     () =>
       this.morse.capabilities()?.searchPanel === true &&
-      this.layout.rightVisible() &&
       !this.tabs.noSessionInFront() &&
-      this.shell.rightPane() === 'search',
+      this.shell.findFilesOpen(),
   );
-  /** Expanded: the git view spans the conversation area instead of the sidebar. */
-  protected readonly gitExpanded = computed(() => this.gitOpen() && this.shell.gitPanelExpanded());
   /**
    * The dragged width of the git panel, handed to the shell as its CSS variable.
    * `null` (never dragged) leaves the default from `styles.css` in charge.

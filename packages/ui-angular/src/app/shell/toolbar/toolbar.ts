@@ -129,14 +129,12 @@ export class Toolbar {
   protected readonly gitOpen = computed(
     () => this.layout.rightVisible() && this.shell.rightPane() === 'git',
   );
-  /** The search column's switch follows the same rule as git's: the host can
+  /** The search dialog's switch follows the same rule as git's: the host can
    * grep (`searchPanel`) and a session is in front to name the project. */
   protected readonly searchEnabled = computed(
     () => this.morse.capabilities()?.searchPanel === true && !this.tabs.noSessionInFront(),
   );
-  protected readonly searchOpen = computed(
-    () => this.layout.rightVisible() && this.shell.rightPane() === 'search',
-  );
+  protected readonly searchOpen = this.shell.findFilesOpen;
   /**
    * The MCP indicator exists where the host can run the `pi` CLI. It is usable without a
    * session too — the panel is then global-only (the user's own `mcp.json`), so this is
@@ -211,9 +209,9 @@ export class Toolbar {
     this.switchRightPane('git');
   }
 
-  /** Shows or hides the browser host's search column. */
+  /** Opens or closes the browser host's Find in Files dialog. */
   protected toggleSearch(): void {
-    this.switchRightPane('search');
+    this.shell.toggleFindFiles();
   }
 
   /**

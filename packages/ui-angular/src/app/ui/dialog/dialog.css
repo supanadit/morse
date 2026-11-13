@@ -19,12 +19,14 @@
   z-index: var(--morse-z-dialog);
   display: flex;
   /* Centred in the viewport, the way every modal is expected to sit — stretch
-     pinned each card to the top, however much height it actually needed. */
-  align-items: center;
+     pinned each card to the top, however much height it actually needed. A
+     dialog that wants a top-anchored popup instead overrides
+     `--morse-layer-align` and pays for its own air with `--morse-layer-top`. */
+  align-items: var(--morse-layer-align, center);
   justify-content: center;
   /* Air between a near-window-width card and the viewport edges: a modal that
      touches the screen sides reads as a broken layout, not a dialog. */
-  padding: 0 16px;
+  padding: var(--morse-layer-top, 0) 16px;
   /* The backdrop: a dim that says the app behind is not interactable. dialogs
      that read as floating cards (not full-height sheets) usually want it. */
   background: var(--morse-backdrop, rgb(0 0 0 / 45%));
@@ -37,6 +39,9 @@
   flex-direction: column;
   gap: var(--morse-card-gap, 0);
   width: var(--morse-card-width, min(560px, 100%));
+  /* A fixed height for the dialogs that hold a layout (Find in Files' split
+     view) rather than a stack of content: `auto` keeps the card content-sized. */
+  height: var(--morse-card-height, auto);
   max-height: var(--morse-card-max-height, min(680px, 100vh - 48px));
   padding: var(--morse-card-padding, 0);
   border: 1px solid var(--morse-border);

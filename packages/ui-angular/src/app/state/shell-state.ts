@@ -177,6 +177,14 @@ export class ShellState {
   readonly paletteOpen = this.palette.asReadonly();
 
   /**
+   * Find in Files. Shell state like the palette: the toolbar's search button and
+   * the shortcut both open it, and it renders over the whole app as a modal —
+   * a modal find dialog, not a layout column.
+   */
+  private readonly findFiles = signal(false);
+  readonly findFilesOpen = this.findFiles.asReadonly();
+
+  /**
    * The project filter. The list narrowed to one project is `SessionNav`'s to
    * render, but *which* project and whether the panel is up live here: two
    * places open the panel (the sidebar button and the shortcut), the command
@@ -312,6 +320,19 @@ export class ShellState {
   /** The palette's own key toggles it closed as well as open. */
   togglePalette(): void {
     this.palette.update((open) => !open);
+  }
+
+  openFindFiles(): void {
+    this.findFiles.set(true);
+  }
+
+  closeFindFiles(): void {
+    this.findFiles.set(false);
+  }
+
+  /** The toolbar button's key toggles it closed as well as open. */
+  toggleFindFiles(): void {
+    this.findFiles.update((open) => !open);
   }
 
   /** Narrows the sidebar to one project; `''` is every project. */
