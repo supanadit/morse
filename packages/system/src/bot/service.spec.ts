@@ -285,8 +285,7 @@ class FakeAdapter implements BotEngineAdapter {
   readonly envs: NodeJS.ProcessEnv[] = [];
   /** Present unless the harness says the engine has no subagent writer. */
   writeSubagents:
-    | ((botRoot: string, subagents: { name: string; prompt: string }[]) => void)
-    | undefined;
+    ((botRoot: string, subagents: { name: string; prompt: string }[]) => void) | undefined;
 
   constructor(
     private readonly script: Script = () => ({}),
