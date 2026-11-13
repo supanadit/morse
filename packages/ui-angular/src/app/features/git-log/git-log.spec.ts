@@ -225,6 +225,28 @@ describe('GitLogView', () => {
     expect(host.querySelector('.details')).toBeNull();
   });
 
+  it('falls back to the project repo when the chosen nested one disappears', async () => {
+    const { fixture, fake } = await render();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const picker = host.querySelector('.repo-picker') as HTMLSelectElement;
+    picker.value = 'nested';
+    picker.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(host.querySelector('.commit .subject')?.textContent).toContain('nested work');
+
+    fake.workspace.set({ cwd: '/other', name: 'other' });
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.commit .subject')?.textContent).toContain('other work');
+  });
+
   it('shows a commit’s files in the details pane', async () => {
     const { fixture } = await render();
     const host = fixture.nativeElement as HTMLElement;

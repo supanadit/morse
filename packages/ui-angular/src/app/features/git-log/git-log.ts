@@ -80,7 +80,12 @@ export class GitLogView {
 
   protected readonly repo = computed<GitRepoState | undefined>(() => {
     const path = this.chosenPath();
-    return path === undefined ? this.git.current() : this.git.stateFor(path);
+    if (path === undefined) {
+      return this.git.current();
+    }
+    // A project switch can take the chosen nested repository away; fall back to
+    // the project's own instead of showing an empty log behind a stale picker.
+    return this.git.stateFor(path) ?? this.git.current();
   });
 
   protected readonly error = computed(
