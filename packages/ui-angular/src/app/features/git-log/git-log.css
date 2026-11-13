@@ -1,0 +1,296 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.log {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--morse-nav-bg);
+  container-type: inline-size;
+}
+
+/* The branch tree: one ref per row, never a checkout. */
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 220px;
+  flex: none;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 6px;
+  border-right: 1px solid var(--morse-border);
+}
+
+.repo-picker {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+
+.group-label {
+  padding: 4px 8px 2px;
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.branch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: none;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.branch-row:hover {
+  background: var(--morse-hover);
+}
+
+.branch-row.active {
+  background: var(--morse-active);
+}
+
+.branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muted,
+.current {
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+
+.current {
+  margin-left: auto;
+}
+
+/* The commit table. */
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--morse-border);
+}
+
+.filter-text {
+  width: 180px;
+  padding: 3px 7px;
+  font-size: 11.5px;
+}
+
+.filter-author {
+  max-width: 140px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.count {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+
+.refresh {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: none;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.refresh:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.commits {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.commit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--morse-border) 55%, transparent);
+  cursor: pointer;
+}
+
+.commit:hover {
+  background: var(--morse-hover);
+}
+
+.commit.open {
+  background: var(--morse-active);
+}
+
+.graph {
+  flex: none;
+  overflow: visible;
+}
+
+.graph path {
+  fill: none;
+  stroke-width: 1.4;
+}
+
+.subject {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.ref {
+  flex: none;
+  max-width: 130px;
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref.kind-head {
+  color: var(--morse-accent);
+  border-color: color-mix(in srgb, var(--morse-accent) 45%, transparent);
+}
+
+.ref.kind-tag {
+  color: var(--morse-number);
+}
+
+.meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+
+.author {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hash {
+  font-family: var(--morse-font-mono);
+  font-size: 10.5px;
+}
+
+.more {
+  padding: 8px 12px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+
+.hint {
+  padding: 8px 12px;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+}
+
+.hint.error {
+  color: var(--morse-warn);
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+}
+
+/* The selected commit's files. */
+.details {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  flex: none;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--morse-border);
+}
+
+.details-head {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--morse-border);
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono);
+  font-size: 10.5px;
+}
+
+@container (max-width: 720px) {
+  .tree {
+    width: 160px;
+  }
+
+  .details {
+    width: 220px;
+  }
+
+  .subject {
+    max-width: 60%;
+  }
+
+  .author {
+    display: none;
+  }
+}

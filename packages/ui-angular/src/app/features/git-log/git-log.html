@@ -1,0 +1,195 @@
+<section class="log">
+  <aside class="tree" aria-label="Branches">
+    @if (repos().length > 1) {
+      <select
+        class="repo-picker"
+        aria-label="Repository"
+        [value]="repo()?.info.path ?? ''"
+        (change)="onRepo($event)"
+      >
+        @for (one of repos(); track one.info.path) {
+          <option [value]="one.info.path">{{ repoLabel(one) }}</option>
+        }
+      </select>
+    }
+
+    <button
+      type="button"
+      class="branch-row head"
+      [class.active]="isActiveRef(undefined)"
+      (click)="selectRef(undefined)"
+    >
+      <span class="branch-name">HEAD</span>
+      <span class="muted">{{ branches()?.current ?? 'detached' }}</span>
+    </button>
+
+    @if (branches(); as list) {
+      @if (list.local.length > 0) {
+        <div class="group">
+          <span class="group-label">Local</span>
+          @for (name of list.local; track name) {
+            <button
+              type="button"
+              class="branch-row"
+              [class.active]="isActiveRef(name)"
+              [attr.data-ref]="name"
+              (click)="selectRef(name)"
+            >
+              <span class="branch-name">{{ name }}</span>
+              @if (name === list.current) {
+                <span class="current">current</span>
+              }
+            </button>
+          }
+        </div>
+      }
+      @if (list.remote.length > 0) {
+        <div class="group">
+          <span class="group-label">Remote</span>
+          @for (name of list.remote; track name) {
+            <button
+              type="button"
+              class="branch-row"
+              [class.active]="isActiveRef(name)"
+              [attr.data-ref]="name"
+              (click)="selectRef(name)"
+            >
+              {{ name }}
+            </button>
+          }
+        </div>
+      }
+      @if (list.tags.length > 0) {
+        <div class="group">
+          <span class="group-label">Tags</span>
+          @for (name of list.tags; track name) {
+            <button
+              type="button"
+              class="branch-row"
+              [class.active]="isActiveRef(name)"
+              [attr.data-ref]="name"
+              (click)="selectRef(name)"
+            >
+              {{ name }}
+            </button>
+          }
+        </div>
+      }
+    } @else {
+      <p class="hint">Reading branches…</p>
+    }
+  </aside>
+
+  <div class="main">
+    <div class="toolbar">
+      <input
+        class="filter-text"
+        type="search"
+        placeholder="Text or hash"
+        aria-label="Filter commits"
+        [value]="query()"
+        (input)="onFilterText($event)"
+      />
+      <select
+        class="filter-author"
+        aria-label="Filter by author"
+        [value]="author()"
+        (change)="onFilterAuthor($event)"
+      >
+        <option value="">All authors</option>
+        @for (name of authors(); track name) {
+          <option [value]="name">{{ name }}</option>
+        }
+      </select>
+      <span class="grow"></span>
+      <span class="count">{{ entries().rows.length }} commits</span>
+      <button type="button" class="refresh" title="Refresh history" (click)="refresh()">
+        ⟳
+      </button>
+    </div>
+
+    @if (loading() && repo() === undefined) {
+      <p class="hint">Reading git history…</p>
+    } @else if (error(); as message) {
+      <p class="hint error">{{ message }}</p>
+    } @else if (entries().rows.length === 0) {
+      <div class="empty">No commits under this ref.</div>
+    } @else {
+      <ul class="commits" (scroll)="onScroll($event)">
+        @for (entry of entries().rows; track entry.commit.hash) {
+          <li
+            class="commit"
+            [class.open]="isOpen(entry.commit)"
+            [title]="commitTitle(entry.commit)"
+            (click)="selectCommit(entry.commit)"
+          >
+            <svg
+              class="graph"
+              [attr.width]="entries().graphWidth"
+              [attr.height]="rowHeight"
+              [attr.viewBox]="'0 0 ' + entries().graphWidth + ' ' + rowHeight"
+              aria-hidden="true"
+            >
+              @for (edge of entry.row.edges; track $index) {
+                <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
+              }
+              <circle
+                [attr.cx]="x(entry.row.lane)"
+                [attr.cy]="rowHeight / 2"
+                r="3.4"
+                [style.fill]="rowColor(entry.row)"
+              />
+            </svg>
+
+            <span class="subject">{{ entry.commit.subject }}</span>
+
+            @for (ref of entry.refs; track ref) {
+              <span
+                class="ref"
+                [class.kind-head]="refKind(ref) === 'head'"
+                [class.kind-tag]="refKind(ref) === 'tag'"
+                >{{ refLabel(ref) }}</span
+              >
+            }
+            @if (entry.moreRefs > 0) {
+              <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
+            }
+
+            <span class="grow"></span>
+
+            <span class="meta">
+              <span class="author">{{ entry.commit.author }}</span>
+              <span class="when">{{ when(entry.commit.date) }}</span>
+              <span class="hash">{{ entry.commit.shortHash }}</span>
+            </span>
+          </li>
+        }
+        <li class="more">
+          @if (repo()?.hasMore()) {
+            {{ repo()?.loading() ? 'Loading older commits…' : 'Scroll for older commits' }}
+          } @else {
+            Beginning of history
+          }
+        </li>
+      </ul>
+    }
+  </div>
+
+  @if (selectedHash(); as hash) {
+    <aside class="details" aria-label="Commit files">
+      <div class="details-head">Files in {{ hash.slice(0, 7) }}</div>
+      @if (selectedFiles().loading) {
+        <p class="hint">Reading the commit…</p>
+      } @else if (selectedFiles().error; as message) {
+        <p class="hint error">{{ message }}</p>
+      } @else {
+        <morse-tree
+          [nodes]="detailNodes()"
+          [expanded]="expanded"
+          empty="No changed files under this commit."
+          (activate)="openFile($event)"
+        />
+      }
+    </aside>
+  }
+</section>
