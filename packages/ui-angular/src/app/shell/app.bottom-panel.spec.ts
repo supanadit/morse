@@ -199,7 +199,9 @@ describe('App bottom panel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     expect(host.querySelector('morse-empty-session')).toBeNull();
-    expect(host.querySelector('morse-file-explorer')).not.toBeNull();
+    // The sidebar is the session list; files belong to the conversation's tabs,
+    // so no Explorer is mounted beside it on any host.
+    expect(host.querySelector('morse-file-explorer')).toBeNull();
     expect(host.querySelector('morse-git-panel')).not.toBeNull();
     const terminalPanel = host.querySelector('morse-bottom-panel');
     expect(terminalPanel).not.toBeNull();

@@ -6,6 +6,7 @@ import { McpState } from '../../state/mcp-state';
 import { ShellState, type RightPane } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { ShortcutService } from '../../services/shortcut.service';
+import { SHORTCUTS, bindingLabel, isManagedShortcut } from '../../services/shortcuts.catalog';
 
 /**
  * The window's top bar.
@@ -38,6 +39,22 @@ export class Toolbar {
 
   protected readonly paletteOpen = this.shell.paletteOpen;
   protected readonly navigationOpen = this.shell.navigationOpen;
+
+  /**
+   * The keys that open the command palette on this machine, printed in the box —
+   * the one hint the reference bar carries. Read from the same catalog the
+   * keyboard and the help dialog use, so it cannot drift from what actually works.
+   * The first gesture only: a second binding is a fallback, and printing both
+   * turns a hint into a sentence.
+   */
+  protected readonly paletteKeys = (() => {
+    const spec = SHORTCUTS.find((one) => one.id === 'command.palette');
+    if (spec === undefined || !isManagedShortcut(spec)) {
+      return '';
+    }
+    const binding = Array.isArray(spec.binding) ? spec.binding[0] : spec.binding;
+    return binding === undefined ? '' : bindingLabel(binding);
+  })();
 
   protected readonly state = this.morse.state;
   /** The happy path lives in the dot: no banner needed while it is healthy. */

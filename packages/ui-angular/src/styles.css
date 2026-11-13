@@ -175,6 +175,66 @@
   }
 }
 
+/*
+ * The browser host's own palette.
+ *
+ * VS Code supplies every `--vscode-*` variable, so the panel there follows the
+ * editor's theme and this block never applies. A browser has no theme to follow,
+ * so Morse defines one: a near-black surface, hairline borders, a system sans face
+ * and one quiet accent — the owner's dark reference, not the OS preference.
+ * `index.html` writes the attribute before the first paint, so there is no flash
+ * of the wrong theme. Place it after the media query: same specificity, later wins,
+ * which is also what keeps the web dark on a machine set to light.
+ */
+[data-host='web'] {
+  color-scheme: dark;
+
+  --morse-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --morse-font-size: 13.5px;
+
+  --morse-fg: #ececec;
+  --morse-fg-muted: #9b9b9b;
+  --morse-bg: #1c1c1c;
+  --morse-nav-bg: #1a1a1a;
+  --morse-panel: #202020;
+  --morse-hover: rgb(255 255 255 / 5%);
+  --morse-active: rgb(255 255 255 / 8%);
+  --morse-bubble: #242424;
+  --morse-border: rgb(255 255 255 / 8%);
+  --morse-guide: rgb(255 255 255 / 14%);
+  --morse-accent: #e7e7e7;
+  --morse-accent-fg: #171717;
+  --morse-accent-hover: #ffffff;
+  --morse-button-secondary: rgb(255 255 255 / 6%);
+  --morse-button-secondary-fg: #e7e7e7;
+  --morse-input-bg: #242424;
+  --morse-input-fg: #ececec;
+  --morse-input-border: rgb(255 255 255 / 12%);
+  --morse-badge-bg: #2b2b2b;
+  --morse-badge-fg: #d0d0d0;
+  --morse-focus: #a3a3a3;
+  --morse-link: #a9c4ff;
+  --morse-blockquote: #222222;
+  --morse-code-bg: #191919;
+  --morse-code-head: #232323;
+  --morse-keyword: #b9a6ff;
+  --morse-string: #8fd9a8;
+  --morse-number: #f0b072;
+  --morse-typename: #9ad8e8;
+  --morse-error: #f87171;
+  --morse-warn: #fb923c;
+  --morse-success: #4ade80;
+  --morse-info: #a9c4ff;
+
+  /* Softer corners and a compact chrome: the air is part of the look, not bulk. */
+  --morse-radius-sm: 6px;
+  --morse-radius-md: 9px;
+  --morse-radius-lg: 14px;
+  --morse-toolbar-height: 46px;
+  --morse-nav-width: 288px;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -277,7 +337,13 @@ body {
   background: transparent;
 }
 
-button {
+/*
+ * A default look for a plain button — deliberately at zero specificity, so any
+ * component that draws its own button wins, including its hover. Without this, a
+ * transparent icon or menu row lost its own hover to the rule below and flashed
+ * the full accent colour; on the web that accent is near-white, so it flashed white.
+ */
+:where(button) {
   font: inherit;
   color: var(--morse-accent-fg);
   background: var(--morse-accent);
@@ -302,7 +368,7 @@ button.icon {
   padding: 4px 8px;
 }
 
-button:hover:not(:disabled) {
+:where(button:hover:not(:disabled)) {
   background: var(--morse-accent-hover);
 }
 

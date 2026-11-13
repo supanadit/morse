@@ -63,11 +63,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--morse-fg-muted);
+  font-size: var(--morse-pane-title-size, 10.5px);
+  font-weight: var(--morse-pane-title-weight, 600);
+  letter-spacing: var(--morse-pane-title-spacing, 0.08em);
+  text-transform: var(--morse-pane-title-transform, uppercase);
+  color: var(--morse-pane-title-color, var(--morse-fg-muted));
   white-space: nowrap;
 }
 /* Inside the fold target the name takes the slack and the count trails it, the way

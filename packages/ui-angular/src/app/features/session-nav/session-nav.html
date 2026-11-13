@@ -8,12 +8,49 @@
 ></div>
 
 <!--
-  The whole session area is one `morse-pane`, the way the Explorer is: its fold
-  chevron hides the New session button, the session search and every project list
-  at once. The groups inside are plain sections, not panes of their own — a pane
-  per project is what made the sidebar fold project-by-project instead of as a
-  whole.
+  "New chat" sits above the list, next to the search: the two things a reader reaches
+  for before there is a session to pick, so folding the list below never hides them.
 -->
+<div class="head">
+  <button type="button" class="primary new-chat" (click)="newSession($event)">
+    <span class="plus" aria-hidden="true">+</span>
+    <span>New chat</span>
+  </button>
+</div>
+
+<div class="filters">
+  <span class="search-glyph" aria-hidden="true">
+    <svg viewBox="0 0 16 16">
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="M10.2 10.2 14 14" />
+    </svg>
+  </span>
+  <!--
+    A field of its own under the button: it searches *session titles*. A project
+    name typed here used to match the group and then show “No sessions yet” under
+    it, which read as an empty project, so projects have their own control in the
+    list's title bar.
+  -->
+  <input
+    #search
+    type="search"
+    [value]="query()"
+    placeholder="Search sessions…"
+    aria-label="Search sessions"
+    (input)="onQuery($event)"
+  />
+</div>
+
+@if (filterOpen()) {
+  <morse-project-filter
+    [projects]="projectOptions()"
+    [selected]="projectFilter()"
+    [totalSessions]="totalSessions()"
+    (select)="onProjectSelect($event)"
+    (close)="closeFilter()"
+  />
+}
+
 <morse-pane
   class="sessions"
   [class.folded]="sessionsFolded()"
@@ -22,6 +59,26 @@
   [folded]="sessionsFolded()"
   (foldToggle)="toggleSessions()"
 >
+  @if (filterable()) {
+    <!--
+      The project filter, drawn to the title bar's measure: the list can mean one
+      project or every project, and the row says which without taking a line of
+      its own above the tree.
+    -->
+    <button
+      paneActions
+      type="button"
+      class="scope"
+      [class.filtered]="selectedProject() !== undefined"
+      aria-haspopup="dialog"
+      [attr.aria-expanded]="filterOpen()"
+      [title]="selectedProject()?.path ?? 'Every project pi knows about'"
+      (click)="openFilter()"
+    >
+      <span class="scope-glyph" aria-hidden="true">▤</span>
+      <span class="scope-name">{{ selectedProject()?.name ?? 'All projects' }}</span>
+    </button>
+  }
   <button
     paneActions
     type="button"
@@ -34,55 +91,6 @@
   </button>
 
   @if (!sessionsFolded()) {
-    <div class="head">
-      <button type="button" class="primary" (click)="newSession($event)">
-        New session
-      </button>
-    </div>
-
-    <div class="filters">
-      <!--
-        Two rows, each full width: the sidebar is ~270px, and a project button
-        squeezed next to a search field left neither enough room to be readable.
-
-        The button filters *projects*, the field below it searches *session titles*.
-        Typing `buku` in the field used to match the project and then show “No
-        sessions yet” underneath it, which read as an empty project.
-      -->
-      @if (filterable()) {
-        <button
-          type="button"
-          class="secondary scope"
-          [class.filtered]="selectedProject() !== undefined"
-          aria-haspopup="dialog"
-          [attr.aria-expanded]="filterOpen()"
-          [title]="selectedProject()?.path ?? 'Every project pi knows about'"
-          (click)="openFilter()"
-        >
-          <span class="scope-glyph" aria-hidden="true">▤</span>
-          <span class="scope-name">{{ selectedProject()?.name ?? 'All projects' }}</span>
-        </button>
-      }
-      <input
-        #search
-        type="search"
-        [value]="query()"
-        placeholder="Search sessions…"
-        aria-label="Search sessions"
-        (input)="onQuery($event)"
-      />
-    </div>
-
-    @if (filterOpen()) {
-      <morse-project-filter
-        [projects]="projectOptions()"
-        [selected]="projectFilter()"
-        [totalSessions]="totalSessions()"
-        (select)="onProjectSelect($event)"
-        (close)="closeFilter()"
-      />
-    }
-
     <div class="list">
       <!--
         What the agent is working in right now, across every project, lifted to the
@@ -147,13 +155,11 @@
   }
 </morse-pane>
 
-<!-- The browser host's file tree; VS Code has its own Explorer and skips this.
-     With no tab in front there is no project to browse, so it stays out. -->
-@if (filePreview() && !noSessionInFront()) {
-  <morse-file-explorer />
-}
-
-<!-- Colophon: who made this, and who it stands on — one click from either host. -->
+<!--
+  Colophon: who made this, and who it stands on — one click from either host. The
+  file Explorer that used to sit above it is gone: the sidebar is the session list,
+  and files belong to the conversation's tabs and preview.
+-->
 <div class="foot">
   <!-- A newer release, in the one row both hosts always render. It says the
        version, links to its notes, and the hint (in the tooltip) says how this

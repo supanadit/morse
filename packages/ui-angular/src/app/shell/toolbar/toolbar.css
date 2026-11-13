@@ -23,10 +23,10 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr);
   align-items: center;
-  gap: 2px 6px;
+  gap: 2px;
   container-type: inline-size;
   min-height: var(--morse-toolbar-height);
-  padding: 0 8px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--morse-border);
   background: var(--morse-panel, var(--morse-bg));
 }
@@ -37,8 +37,84 @@
   justify-self: start;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
+}
+/*
+ * The name. Quiet: it is what the window is, not a control. It stays in the wide bar
+ * and stands down first when the bar is tight.
+ */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  min-width: 0;
+}
+.wordmark {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--morse-fg);
+}
+/*
+ * The modes: one segmented control, the current one lifted onto a panel. Tabs are
+ * a choice, so they read as one group; a row of separate buttons would read as
+ * three unrelated actions.
+ */
+.modes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: calc(var(--morse-radius-md) - 2px);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+}
+.mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: calc(var(--morse-radius-md) - 4px);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mode .glyph {
+  width: 13px;
+  height: 13px;
+}
+.mode:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 6%, transparent);
+  color: var(--morse-fg);
+}
+.mode.on,
+.mode.on:hover {
+  background: color-mix(in srgb, var(--morse-fg) 10%, transparent);
+  color: var(--morse-fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+}
+.mode:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* The one thing Bot says for now: it is not a room with nothing in it. */
+.soon {
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
+  color: var(--morse-fg-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 /* Row one, right: the buttons, never shrunk or split. */
 .actions {
@@ -47,7 +123,7 @@
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 /*
  * The command centre: the middle track, which grows to 560px and no further —
@@ -60,17 +136,55 @@
   justify-self: stretch;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 24px;
-  padding: 0 10px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 10px;
   border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-md);
-  background: var(--morse-bg);
+  background: var(--morse-input-bg);
   color: var(--morse-fg-muted);
   font: inherit;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+.command-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The keys that open it, where the reference bar puts them: at the far edge. */
+.command-key {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--morse-border);
+  border-radius: 5px;
+  background: var(--morse-bg);
+  color: var(--morse-fg-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/*
+ * A middling bar drops the words before anything overflows: the mark and two mode
+ * icons stay, which is still everything the row does. The command stays centred.
+ */
+@container (max-width: 1020px) {
+  .wordmark,
+  .mode-label,
+  .soon {
+    display: none;
+  }
+  .mode {
+    padding: 0 7px;
+  }
 }
 
 /*
@@ -92,17 +206,29 @@
     max-width: none;
     margin-bottom: 6px;
   }
+  /*
+   * A narrow bar (a VS Code sidebar) keeps the row and drops the words: the modes
+   * stay two reachable marks, the name is gone, and the status is its dot. The
+   * row never overflows into the buttons, which is what the old bar did.
+   */
+  .status-text {
+    display: none;
+  }
+  .command-key {
+    display: none;
+  }
 }
 
-.command:hover {
-  border-color: var(--morse-accent);
+.command:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--morse-fg) 28%, transparent);
+  background: color-mix(in srgb, var(--morse-fg) 4%, var(--morse-input-bg));
   color: var(--morse-fg);
 }
 
 .icon {
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -315,7 +315,7 @@
 .user-edit .edit-send {
   border-color: var(--morse-accent);
   background: var(--morse-accent);
-  color: #fff;
+  color: var(--morse-accent-fg);
 }
 .user-edit .edit-send:disabled {
   opacity: 0.5;

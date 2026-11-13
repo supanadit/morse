@@ -236,8 +236,14 @@
 .icon.send {
   background: var(--morse-accent);
   border-color: var(--morse-accent);
-  color: #fff;
+  color: var(--morse-accent-fg);
   font-size: 15px;
+}
+/* The one filled icon: its hover keeps the accent fill instead of taking the
+   generic icon wash, which would put dark text on a dark background. */
+.icon.send:hover:not(:disabled) {
+  background: var(--morse-accent-hover);
+  color: var(--morse-accent-fg);
 }
 .icon.stop {
   color: var(--morse-error);

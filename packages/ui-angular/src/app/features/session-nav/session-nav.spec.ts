@@ -371,15 +371,15 @@ describe('SessionNav', () => {
     expect(host.querySelector('.row-action')).toBeNull();
   });
 
-  it('draws the whole session area in one pane, and folds it as a whole', async () => {
+  it('draws the session list in one pane, and folds the list, not the actions', async () => {
     const { host, fixture } = await render('global');
 
-    // New session, the search and every project sit in the one pane's body, so
-    // folding the pane takes all of them away together.
+    // "New chat" and the search are the two things a reader reaches for before
+    // there is a list to pick from, so they live above the pane and survive a fold.
     const pane = host.querySelector('morse-pane.sessions') as HTMLElement;
     expect(pane).not.toBeNull();
-    expect(pane.querySelector('.head button.primary')?.textContent).toContain('New session');
-    expect(pane.querySelector('input[aria-label="Search sessions"]')).not.toBeNull();
+    expect(host.querySelector('.head button.primary')?.textContent).toContain('New chat');
+    expect(host.querySelector('input[aria-label="Search sessions"]')).not.toBeNull();
     expect(pane.querySelectorAll('.row.group').length).toBeGreaterThan(0);
 
     const fold = pane.querySelector('.pane-fold') as HTMLButtonElement;
@@ -388,14 +388,13 @@ describe('SessionNav', () => {
     fixture.detectChanges();
 
     expect(fold.getAttribute('aria-expanded')).toBe('false');
-    expect(pane.querySelector('.head')).toBeNull();
-    expect(pane.querySelector('input[aria-label="Search sessions"]')).toBeNull();
+    expect(host.querySelector('.head button.primary')).not.toBeNull();
+    expect(host.querySelector('input[aria-label="Search sessions"]')).not.toBeNull();
     expect(pane.querySelectorAll('.row')).toHaveLength(0);
 
-    // …and the chevron brings it all back.
+    // …and the chevron brings the list back.
     fold.click();
     fixture.detectChanges();
-    expect(pane.querySelector('.head button.primary')).not.toBeNull();
     expect(pane.querySelectorAll('.row').length).toBeGreaterThan(0);
   });
 

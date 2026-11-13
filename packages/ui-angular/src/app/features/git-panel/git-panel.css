@@ -404,7 +404,7 @@ button.repo-toggle:hover {
   border: 1px solid var(--morse-accent);
   border-radius: var(--morse-radius-sm);
   background: var(--morse-accent);
-  color: #fff;
+  color: var(--morse-accent-fg);
   font: inherit;
   font-size: 12px;
   cursor: pointer;

@@ -33,12 +33,12 @@
 .row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
   min-width: 0;
   padding: 3px 6px 3px 2px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: none;
   color: var(--morse-fg);
   font: inherit;
@@ -157,12 +157,12 @@ button.chevron:focus-visible {
 }
 
 /*
- * The row in front. Same mark the Explorer and the sidebar share: a tinted row
- * with a left rule, so "this is the one" reads the same everywhere.
+ * The row in front. A tinted pill, the way the reference's active row reads: the
+ * selection is a surface, not a border. Both trees share it, so "this is the one"
+ * means the same thing in the session list and the file tree.
  */
 .row.active {
   background: var(--morse-active, var(--morse-hover));
-  box-shadow: inset 2px 0 0 var(--morse-accent);
 }
 
 .row.active .label {

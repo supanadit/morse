@@ -138,7 +138,7 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('morse-about-dialog')).toBeTruthy();
   });
 
-  it('keeps "New session" in the sidebar, not repeated in the chrome', () => {
+  it('keeps "New chat" in the sidebar, not repeated in the chrome', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
@@ -149,6 +149,7 @@ describe('App', () => {
       button.getAttribute('aria-label'),
     );
     expect(labels).not.toContain('New session');
+    expect(labels).not.toContain('New chat');
 
     // The one entry point that both hosts share stays.
     expect(

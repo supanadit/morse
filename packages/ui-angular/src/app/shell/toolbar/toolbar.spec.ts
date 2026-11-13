@@ -43,4 +43,30 @@ describe('Toolbar', () => {
 
     expect(open).toHaveBeenCalledTimes(1);
   });
+
+  it('shows Code as the mode in use, and Bot as a mode that is not here yet', () => {
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+
+    // The mode row is drawn from the first release: one tab that is the product,
+    // one that says it is coming — never a live control that opens nothing.
+    const modes = [...fixture.nativeElement.querySelectorAll('.mode')] as HTMLButtonElement[];
+    const code = modes.find((one) => one.textContent?.includes('Code'));
+    const bot = modes.find((one) => one.textContent?.includes('Bot'));
+
+    expect(code?.classList.contains('on')).toBe(true);
+    expect(code?.getAttribute('aria-current')).toBe('page');
+    expect(bot?.disabled).toBe(true);
+    expect(bot?.textContent).toContain('Soon');
+  });
+
+  it('prints the keys that open the palette inside the search box', () => {
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+
+    // The hint comes from the shortcut catalog, so it cannot promise a key the
+    // keyboard does not answer to.
+    const hint = fixture.nativeElement.querySelector('.command-key') as HTMLElement;
+    expect(hint.textContent?.trim()).toBeTruthy();
+  });
 });

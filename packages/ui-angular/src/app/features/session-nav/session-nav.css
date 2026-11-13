@@ -26,79 +26,156 @@
 .edge-resize:active {
   background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
 }
+
 /*
- * The whole session area is one pane and takes the column's height. Its title bar
- * carries the chat header's height, so the two rows land on the same hairline; the
- * New session button, the search and the project lists live in the body below it and
- * fold with it.
+ * The first thing in the column: one way to start something. It reads as a control
+ * rather than a nav row on purpose — it is the action the sidebar exists for.
+ */
+.head {
+  flex: none;
+  padding: 9px 10px 6px;
+}
+.head button.primary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.head button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 8%, transparent);
+}
+.new-chat .plus {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  color: var(--morse-fg-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/*
+ * The session search. It searches (and only searches) session titles; the project
+ * filter lives in the list's title bar, where the list's meaning is decided.
+ *
+ * Quiet by design: a light field with a hairline, not a boxed input competing with
+ * the action above it.
+ */
+.filters {
+  position: relative;
+  flex: none;
+  padding: 0 10px 6px;
+}
+.filters input {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px 0 28px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel);
+  color: var(--morse-fg);
+  font-size: 11.5px;
+}
+.filters input::placeholder {
+  color: var(--morse-fg-muted);
+}
+.filters input:hover {
+  border-color: var(--morse-input-border);
+}
+.filters input:focus {
+  border-color: var(--morse-focus);
+}
+.search-glyph {
+  position: absolute;
+  left: 20px;
+  top: 14px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  color: var(--morse-fg-muted);
+  pointer-events: none;
+}
+.search-glyph svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+/*
+ * The session list is one pane. Its title bar is a section label, not a column
+ * header: sentence case, quiet, with the count trailing it — the same shape the
+ * reference's sidebar sections have.
  */
 morse-pane.sessions {
   flex: 1;
   min-height: 0;
-  --morse-pane-head-height: var(--morse-head-height);
+  --morse-pane-head-height: 26px;
+  --morse-pane-title-size: 11px;
+  --morse-pane-title-weight: 500;
+  --morse-pane-title-spacing: 0;
+  --morse-pane-title-transform: none;
 }
 /* Folded, the pane is just its title bar: the body's space stands down. */
 morse-pane.sessions.folded {
   flex: none;
 }
-/* The pane body owns the scroll; this is the fixed block above the list. */
-.head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 10px 0;
-}
-.head button.primary {
-  flex: 1;
-  padding: 6px 10px;
-}
-.filters {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 6px;
-}
-.filters input {
-  padding: 6px 9px;
-}
+
 /*
- * The project button. It replaces the old promise that one search box could
- * find both projects and sessions: that box filtered sessions by title and
- * kept a project whose *name* matched, so the group showed up empty.
- *
- * A normal secondary button, full width — same height as the field under it,
- * same look as Refresh — with the label left-aligned like a chooser rather
- * than centred like an action.
+ * The project filter in the pane's title bar. It says what the list currently
+ * means — every project, or one — without taking a row of its own above the tree.
  */
 .scope {
-  display: flex;
+  flex: 0 1 auto;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  justify-content: flex-start;
-  width: 100%;
+  gap: 4px;
+  max-width: 118px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.scope:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
 }
 /* An active filter changes what the list means, so it is worth noticing. */
 .scope.filtered {
-  border-color: var(--morse-accent);
+  color: var(--morse-accent);
 }
 .scope-glyph {
   flex: none;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 .scope-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
 }
-input {
-  width: 100%;
-}
+
 .empty-action {
   display: block;
   width: calc(100% - 16px);
@@ -112,28 +189,28 @@ input {
   text-align: left;
   cursor: pointer;
 }
-.empty-action:hover {
+.empty-action:hover:not(:disabled) {
   background: var(--morse-hover);
 }
+
 /*
- * The list is the one scrolling region: the New session button and the search stay
- * put while the projects scroll under them, and the pane's title bar stays on top.
+ * The list is the one scrolling region: the button and the search stay put while
+ * the projects scroll under them, and the pane's title bar stays on top.
  */
 .list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 8px 12px;
+  padding: 2px 6px 10px;
 }
 /*
  * The "In progress" section is a live view above the project tree, not a sibling
- * of it, so a divider and breathing room keep the two clearly apart. Mid gray —
- * brighter than panel-border, dimmer than muted foreground.
+ * of it, so a divider and breathing room keep the two clearly apart.
  */
 .list > .group {
   padding-bottom: 10px;
   margin-bottom: 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.55);
+  border-bottom: 1px solid var(--morse-border);
 }
 .group-head {
   display: flex;
@@ -141,32 +218,25 @@ input {
   gap: 2px;
 }
 /*
- * The "In progress" header. Uppercase and quiet, with the count trailing: structure
- * inside the one pane without a second set of nested panes. A project's own header is
- * now a row of the shared tree, so this is the only header this component draws.
+ * The "In progress" header: muted and quiet, with the count trailing — structure
+ * inside the one pane without a second set of nested panes.
  */
-.group-head {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-/* The "In progress" header is not foldable, so it is a label rather than a button. */
 .group-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 5px 6px;
+  padding: 3px 6px;
   color: var(--morse-fg-muted);
   font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-weight: 500;
 }
 .group-head .count {
   flex: none;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
+  color: var(--morse-fg-muted);
 }
 ul {
   list-style: none;
@@ -183,7 +253,7 @@ ul {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border: 0;
   border-radius: var(--morse-radius-md);
   background: transparent;
@@ -192,12 +262,11 @@ ul {
   cursor: pointer;
   transition: background 120ms ease;
 }
-.session:hover {
+.session:hover:not(:disabled) {
   background: var(--morse-hover);
 }
 .session.active {
   background: var(--morse-active);
-  box-shadow: inset 2px 0 0 var(--morse-accent);
 }
 /* Two lines: the title, and — for a live session — what it is doing now. */
 .session .body {
@@ -246,6 +315,7 @@ ul {
     transform: rotate(360deg);
   }
 }
+
 /*
  * The session context menu. Named context-menu, not menu: the shell
  * already ships a .menu for the navigation toggle, and a shared name makes
@@ -261,11 +331,11 @@ ul {
   z-index: 41;
   width: 220px;
   max-width: min(280px, 90vw);
-  padding: 4px;
+  padding: 5px;
   border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-sm);
+  border-radius: var(--morse-radius-md);
   background: var(--morse-panel, var(--morse-bg));
-  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 16%);
 }
 .context-menu-question {
   margin: 3px 7px 0;
@@ -283,7 +353,7 @@ ul {
 .context-menu-item {
   display: block;
   width: 100%;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border: 0;
   border-radius: var(--morse-radius-sm);
   background: transparent;
@@ -304,6 +374,7 @@ ul {
   font-size: 12px;
   color: var(--morse-fg-muted);
 }
+
 /*
  * Credits sit at the bottom of the sidebar: the one surface both hosts
  * always render, and quiet enough to read as a colophon rather than a
@@ -311,10 +382,10 @@ ul {
  */
 .foot {
   flex: none;
-  /* With both panes folded there is no growing pane above to push the colophon
-     down, so it claims the leftover space instead of floating under Explorer. */
+  /* With the list folded there is no growing pane above to push the colophon
+     down, so it claims the leftover space instead of floating under the header. */
   margin-top: auto;
-  padding: 4px 6px 6px;
+  padding: 6px 8px 8px;
   border-top: 1px solid var(--morse-border);
 }
 .foot button,
@@ -332,7 +403,7 @@ ul {
   text-align: left;
   cursor: pointer;
 }
-.foot button:hover {
+.foot button:hover:not(:disabled) {
   background: var(--morse-hover);
   color: var(--morse-fg);
 }
@@ -364,7 +435,7 @@ ul {
 .foot .notice.status {
   cursor: default;
   color: var(--morse-fg-muted);
-  font-size: 10px;
+  font-size: 10.5px;
   white-space: normal;
 }
 .foot .stamp {

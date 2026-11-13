@@ -20,7 +20,6 @@ import { toolFileName, toolGerund, toolKind, toolTitle } from '@morse/ui-runtime
 import type { TreeNode } from '@morse/ui-runtime';
 import { UpdateCheck } from '../../services/update';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
-import { FileExplorer } from '../file-explorer/file-explorer';
 import { Pane } from '../../ui/pane/pane';
 import { Splitter } from '../../ui/splitter/splitter';
 import { TreeList } from '../../ui/tree-list/tree-list';
@@ -53,7 +52,7 @@ interface SessionMenu {
  */
 @Component({
   selector: 'morse-session-nav',
-  imports: [ProjectFilter, FileExplorer, Pane, Splitter, TreeList],
+  imports: [ProjectFilter, Pane, Splitter, TreeList],
   templateUrl: './session-nav.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './session-nav.css',
@@ -347,19 +346,7 @@ export class SessionNav {
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
 
-  /**
-   * The browser host's Explorer belongs in the sidebar; VS Code has its own and
-   * advertises `filePreview: false`, so this is the one switch for it.
-   */
-  protected readonly filePreview = computed(
-    () => this.morse.capabilities()?.filePreview === true,
-  );
-  /**
-   * No tab is in front, so there is no project to browse: the Explorer stays out
-   * of the sidebar instead of showing the last project's tree.
-   */
-  protected readonly noSessionInFront = this.tabs.noSessionInFront;
-  /** The browser host opens a folder modal for "New session" (see ProjectPicker). */
+  /** The browser host opens a folder modal for "New chat" (see ProjectPicker). */
   private readonly directoryPicker = computed(
     () => this.morse.capabilities()?.directoryPicker === true,
   );
