@@ -13,3 +13,4 @@ export * from './transcript.js';
 export * from './interaction.js';
 export * from './identity.js';
 export * from './view.js';
+export * from './bot.js';

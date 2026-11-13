@@ -190,6 +190,13 @@ export interface HostCapabilities {
    * sidebar's session menu keeps its two entries.
    */
   sessionTabs?: boolean;
+  /**
+   * Host runs Bot mode: the roster of isolated bots, their conversations and the
+   * routing between them. Only the browser host offers it in MVP, so the
+   * frontend hides the mode switch where it is absent rather than showing a
+   * roster that can never load.
+   */
+  bot?: boolean;
 }
 
 /**

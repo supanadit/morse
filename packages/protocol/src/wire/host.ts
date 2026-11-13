@@ -4,10 +4,15 @@
  */
 
 import type {
+  BotConversationSummary,
+  BotRoutingState,
+  BotSummary,
+  BotTranscriptEntry,
   ComposerSeed,
   FrontendIdentity,
   HostCapabilities,
   InteractionRequest,
+  ModelOption,
   NoticeLevel,
   ProjectSummary,
   SessionActivity,
@@ -333,6 +338,33 @@ export interface TerminalExitMessage extends HostMessageBase {
   payload: { terminalId: string; code?: number; error?: string };
 }
 
+/** The full bot roster: every bot and conversation, pushed whenever either changes. */
+export interface BotRosterMessage extends HostMessageBase {
+  type: 'bot/roster';
+  payload: { bots: BotSummary[]; conversations: BotConversationSummary[] };
+}
+
+/**
+ * A conversation's transcript, as the host now has it. `replace` resets what the
+ * client holds (opening a conversation); `entries` alone appends the new lines.
+ */
+export interface BotTranscriptMessage extends HostMessageBase {
+  type: 'bot/transcript';
+  payload: { conversationId: string; entries: BotTranscriptEntry[]; replace: boolean };
+}
+
+/** Who the host is asking right now; `null` once no round is in flight. */
+export interface BotRoutingMessage extends HostMessageBase {
+  type: 'bot/routing';
+  payload: { state: BotRoutingState | null };
+}
+
+/** Answer to `bot/probeModels`: the models that engine offers with those credentials. */
+export interface BotModelsMessage extends HostMessageBase {
+  type: 'bot/models';
+  payload: { requestId: string; kind: string; models: ModelOption[] };
+}
+
 /** Host -> frontend. */
 export type HostToClientMessage =
   | HostReadyMessage
@@ -355,5 +387,9 @@ export type HostToClientMessage =
   | HostCommandResultMessage
   | ErrorMessage
   | TerminalOutputMessage
-  | TerminalExitMessage;
+  | TerminalExitMessage
+  | BotRosterMessage
+  | BotTranscriptMessage
+  | BotRoutingMessage
+  | BotModelsMessage;
 

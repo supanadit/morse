@@ -36,6 +36,10 @@ export const HOST_MESSAGE_TYPES = [
   'error',
   'terminal/output',
   'terminal/exit',
+  'bot/roster',
+  'bot/transcript',
+  'bot/routing',
+  'bot/models',
 ] as const;
 
 export const CLIENT_MESSAGE_TYPES = [
@@ -68,6 +72,15 @@ export const CLIENT_MESSAGE_TYPES = [
   'terminal/input',
   'terminal/resize',
   'terminal/close',
+  'bot/list',
+  'bot/create',
+  'bot/delete',
+  'bot/probeModels',
+  'bot/open',
+  'bot/send',
+  'bot/stop',
+  'bot/newDiscussion',
+  'bot/groupCreate',
 ] as const;
 
 export function encodeWireMessage(message: WireMessage): string {

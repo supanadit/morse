@@ -3,6 +3,8 @@
  */
 
 import type {
+  BotCreateInput,
+  BotGroupCreateInput,
   ChatPin,
   FrontendIdentity,
   InteractionResponse,
@@ -238,6 +240,67 @@ export interface TerminalCloseMessage extends ClientMessageBase {
   payload: { terminalId: string };
 }
 
+/** Re-reads the roster: every bot and every conversation its host knows. */
+export interface BotListRequestMessage extends ClientMessageBase {
+  type: 'bot/list';
+  payload: Record<string, never>;
+}
+
+/**
+ * Creates one isolated bot from the wizard's answers. The host writes the bot's
+ * directory and credentials, probes the model (a bad key fails the create), and
+ * answers with a fresh `bot/roster`.
+ */
+export interface BotCreateMessage extends ClientMessageBase {
+  type: 'bot/create';
+  payload: BotCreateInput & { requestId: string };
+}
+
+/** Deletes a bot and its directory; the conversations it belonged to keep the gap. */
+export interface BotDeleteMessage extends ClientMessageBase {
+  type: 'bot/delete';
+  payload: { name: string };
+}
+
+/**
+ * Lists the models an engine offers with the wizard's credentials, before any
+ * bot exists: the probe runs in a throwaway root and answers with `bot/models`.
+ */
+export interface BotProbeModelsMessage extends ClientMessageBase {
+  type: 'bot/probeModels';
+  payload: { kind: string; envVars: string[]; requestId: string };
+}
+
+/** Switches the bot workspace to one conversation and asks for its transcript. */
+export interface BotOpenMessage extends ClientMessageBase {
+  type: 'bot/open';
+  payload: { conversationId: string };
+}
+
+/** Sends the reader's line to a conversation and starts a routing round. */
+export interface BotSendMessage extends ClientMessageBase {
+  type: 'bot/send';
+  payload: { conversationId: string; text: string };
+}
+
+/** Stops the round in flight, cancelling its queued relays. */
+export interface BotStopMessage extends ClientMessageBase {
+  type: 'bot/stop';
+  payload: { conversationId: string };
+}
+
+/** Starts a fresh engine session for every member, keeping the conversation's history. */
+export interface BotNewDiscussionMessage extends ClientMessageBase {
+  type: 'bot/newDiscussion';
+  payload: { conversationId: string };
+}
+
+/** Creates a group conversation from the New group dialog. */
+export interface BotGroupCreateMessage extends ClientMessageBase {
+  type: 'bot/groupCreate';
+  payload: BotGroupCreateInput;
+}
+
 /** Frontend -> host. */
 export type ClientToHostMessage =
   | ClientReadyMessage
@@ -268,4 +331,13 @@ export type ClientToHostMessage =
   | TerminalOpenMessage
   | TerminalInputMessage
   | TerminalResizeMessage
-  | TerminalCloseMessage;
+  | TerminalCloseMessage
+  | BotListRequestMessage
+  | BotCreateMessage
+  | BotDeleteMessage
+  | BotProbeModelsMessage
+  | BotOpenMessage
+  | BotSendMessage
+  | BotStopMessage
+  | BotNewDiscussionMessage
+  | BotGroupCreateMessage;
