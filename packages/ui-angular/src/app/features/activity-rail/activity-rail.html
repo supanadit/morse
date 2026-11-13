@@ -1,0 +1,28 @@
+<nav class="views" aria-label="Views">
+  <button
+    type="button"
+    class="entry"
+    [class.active]="leftPane() === 'sessions'"
+    [attr.aria-pressed]="leftPane() === 'sessions'"
+    aria-label="Sessions view"
+    title="Sessions"
+    (click)="select('sessions')"
+  >
+    <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+      <use href="#morse-session" />
+    </svg>
+  </button>
+  <button
+    type="button"
+    class="entry"
+    [class.active]="leftPane() === 'files'"
+    [attr.aria-pressed]="leftPane() === 'files'"
+    aria-label="Explorer view"
+    title="Explorer"
+    (click)="select('files')"
+  >
+    <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+      <use href="#morse-folder" />
+    </svg>
+  </button>
+</nav>
