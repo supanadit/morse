@@ -1,8 +1,17 @@
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PanelState } from './panel-state';
 import { WorkspaceTabs } from './workspace-tabs';
+
+/**
+ * The panel's ceiling comes from the window it is in, so every spec here states the
+ * window it means: jsdom's own 768 would cap the heights these tests drag to.
+ */
+function sizeWindow(px: number): void {
+  vi.stubGlobal('innerHeight', px);
+  globalThis.dispatchEvent(new Event('resize'));
+}
 
 /**
  * The bottom panel is a shell preference — folded first, then opened, moved and
@@ -21,7 +30,12 @@ function setup(owner = 's1'): {
   return { panel: TestBed.inject(PanelState), composerKey };
 }
 
+beforeEach(() => {
+  sizeWindow(1_200);
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   localStorage.clear();
   TestBed.resetTestingModule();
 });
@@ -75,8 +89,24 @@ describe('PanelState', () => {
     panel.setHeight(20);
     expect(panel.height()).toBe(120);
 
+    // 1200px of window, less the chrome and the conversation's floor: 850.
     panel.setHeight(5_000);
-    expect(panel.height()).toBe(900);
+    expect(panel.height()).toBe(850);
+  });
+
+  it('never takes the room the conversation needs, and gives the height back', () => {
+    const { panel } = setup();
+    panel.setHeight(700);
+    expect(panel.height()).toBe(700);
+
+    // A window of 600 leaves the panel 250: the chat keeps its floor instead of
+    // collapsing to nothing (the bug: no transcript scroll, clicks on the log lost).
+    sizeWindow(600);
+    expect(panel.height()).toBe(250);
+
+    // The reader's own height was never overwritten: the taller window has it back.
+    sizeWindow(1_200);
+    expect(panel.height()).toBe(700);
   });
 
   it('returns to the default height when the choice is reset', () => {

@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { WorkspaceTabs } from './workspace-tabs';
 
 /** A tool the bottom panel can show as a chip. Adding one is a line in the registry. */
@@ -41,12 +41,40 @@ export interface PanelSnapshot {
 const PANEL_HEIGHT_KEY = 'morse.panel.height';
 const PANEL_OWNERS_KEY = 'morse.panel.owners';
 const PANEL_MIN_HEIGHT = 120;
+/** The panel never takes more than this, however tall the window is. */
 const PANEL_MAX_HEIGHT = 900;
+/**
+ * How much of the window the conversation keeps, however far the panel is dragged
+ * up: its tab strip, a transcript that can still scroll, and the composer floating
+ * over it.
+ */
+const CHAT_FLOOR_HEIGHT = 280;
+/** The toolbar and status rows around the columns (`--morse-toolbar/status-height`). */
+const CHROME_HEIGHT = 70;
 /** Height when the panel has never been dragged: enough for a prompt and output. */
 export const PANEL_DEFAULT_HEIGHT = 260;
 
-function clampHeight(px: number): number {
-  return Math.round(Math.min(PANEL_MAX_HEIGHT, Math.max(PANEL_MIN_HEIGHT, px)));
+/** The window's own height; `0` where there is no layout to ask (a test, a report). */
+function viewportHeight(): number {
+  return Math.max(
+    globalThis.innerHeight ?? 0,
+    globalThis.document?.documentElement?.clientHeight ?? 0,
+  );
+}
+
+/**
+ * The tallest the panel may get **in this window**. A flat ceiling was the bug: on a
+ * 990px-tall window a 900px panel left the chat row no height at all, so the transcript
+ * could not scroll and its overflowing rows — with the floating composer over them — sat
+ * on top of the panel and swallowed every click meant for it.
+ */
+function maxHeight(viewport = viewportHeight()): number {
+  const room = viewport - CHROME_HEIGHT - CHAT_FLOOR_HEIGHT;
+  return Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, room));
+}
+
+function clampHeight(px: number, viewport = viewportHeight()): number {
+  return Math.round(Math.min(maxHeight(viewport), Math.max(PANEL_MIN_HEIGHT, px)));
 }
 
 function readHeight(): number | undefined {
@@ -161,8 +189,20 @@ export class PanelState {
   private readonly tabs = inject(WorkspaceTabs);
   private readonly owners = signal<Record<string, PanelOwnerSnapshot>>(readOwners());
   private readonly heightSignal = signal<number | undefined>(readHeight());
+  /**
+   * The window's height as a signal, so a window that shrank gives the panel's room
+   * back to the conversation. Reading it is what keeps the choice itself intact: it
+   * comes back at its dragged height when the window does.
+   */
+  private readonly viewport = signal(viewportHeight());
   /** Actions each tool registered for the bar, keyed by the tool id. */
   private readonly registered = signal<Record<string, PanelAction[]>>({});
+
+  constructor() {
+    const onResize = (): void => this.viewport.set(viewportHeight());
+    globalThis.addEventListener?.('resize', onResize);
+    inject(DestroyRef).onDestroy(() => globalThis.removeEventListener?.('resize', onResize));
+  }
 
   /** The conversation the panel belongs to; `''` when there is none yet. */
   private readonly ownerKey = computed(() => this.tabs.composerKey() ?? '');
@@ -172,8 +212,14 @@ export class PanelState {
 
   readonly activeView = computed(() => this.mine()?.view);
   readonly expanded = computed(() => this.mine()?.expanded === true);
-  /** `undefined` keeps the default from `styles.css`/`PANEL_DEFAULT_HEIGHT`. */
-  readonly height = this.heightSignal.asReadonly();
+  /**
+   * The height the panel takes, clamped to the room this window has. `undefined` keeps
+   * the default from `styles.css`/`PANEL_DEFAULT_HEIGHT`.
+   */
+  readonly height = computed(() => {
+    const chosen = this.heightSignal();
+    return chosen === undefined ? undefined : clampHeight(chosen, this.viewport());
+  });
   /** Full screen: the panel takes the whole conversation column. Only ever with a tool open. */
   readonly full = computed(() => this.mine()?.full === true && this.expanded());
   /** The active tool's bar actions — the terminal's `+`, when it is open. */
@@ -234,7 +280,7 @@ export class PanelState {
 
   /** Drag-to-resize from the panel's top edge; clamped to a usable range. */
   setHeight(px: number, persist = true): void {
-    const next = clampHeight(px);
+    const next = clampHeight(px, this.viewport());
     this.heightSignal.set(next);
     if (persist) {
       storeHeight(next);

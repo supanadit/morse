@@ -384,7 +384,9 @@ VS Code already has an integrated terminal and an editor area, so its host leave
 none of this renders. The browser host turns it on, so the frontend has a VS Code-style bottom panel
 below the composer: a chip row that starts folded, opens the tool its chip names, and drags taller from
 its top edge (height, chosen tool and fold remembered in `PanelState` and restored from the saved layout,
-like the other shell preferences).
+like the other shell preferences). Its ceiling is the window it is in — the window's height less the chrome
+and a floor for the conversation — so far enough up, the drag stops with the transcript still able to
+scroll; a window that shrinks re-clamps it, and the dragged height comes back when the window does.
 The panel keeps the chosen view mounted while folded, so a running terminal is not killed by a collapse;
 adding a tool is one line in the panel's `VIEWS` list plus its component. It is also kept mounted — hidden
 with a class — while no session is in front, because unmounting it would destroy every `Terminal` and end

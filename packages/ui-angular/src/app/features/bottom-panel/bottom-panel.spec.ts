@@ -91,6 +91,7 @@ function setup(options: { gitPanel?: boolean } = {}): {
 
 describe('BottomPanel', () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     localStorage.clear();
     TestBed.resetTestingModule();
   });
@@ -237,6 +238,24 @@ describe('BottomPanel', () => {
 
     expect(TestBed.inject(PanelState).height()).toBe(340);
     expect((host.querySelector('.panel') as HTMLElement).style.height).toBe('340px');
+  });
+
+  it('stops the drag where the window runs out of room for the chat', async () => {
+    // 900px of window leaves the panel 550 (less the chrome and the chat's floor).
+    vi.stubGlobal('innerHeight', 900);
+    const { fixture, host } = setup();
+    (host.querySelector('.chip-label') as HTMLElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const handle = host.querySelector('.resize') as HTMLElement;
+    // Pulled far past the top: the panel stops at the window's room, not at 900.
+    press(handle, 'pointerdown', 800);
+    press(handle, 'pointermove', 100);
+    press(handle, 'pointerup', 100);
+    fixture.detectChanges();
+
+    expect(TestBed.inject(PanelState).height()).toBe(550);
   });
 
   it('restores the default height when the handle is double-clicked', async () => {
