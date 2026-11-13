@@ -1,11 +1,11 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
 import type { MorseServerConfig } from '../app/config.js';
-import { createAgentRouter } from './registry.js';
+import { createAgentRouter, createBotService } from './registry.js';
 
 /**
  * The composition root's one rule worth testing: the host registers the engines
@@ -15,7 +15,13 @@ import { createAgentRouter } from './registry.js';
  */
 const openCodeMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@morse/integration-opencode', () => ({ openOpenCodeEngine: openCodeMock }));
+// Only the host-engine opener is replaced. The bot adapters are the real ones:
+// masking them would make this file's module mock a different module than the
+// composition root imports.
+vi.mock('@morse/integration-opencode', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@morse/integration-opencode')>();
+  return { ...actual, openOpenCodeEngine: openCodeMock };
+});
 
 interface FakeEngine {
   kind: string;
@@ -121,5 +127,37 @@ describe('createAgentRouter engine registration', () => {
 
     expect(router.engineOptions()).toEqual([]);
     expect(router.defaultEngineKind).toBeUndefined();
+  });
+});
+
+describe('createBotService containment', () => {
+  it('leaves bot mode out of a host whose registry is corrupt, and boots the rest', async () => {
+    const cfg = config();
+    const botDir = join(cfg.dataDir, 'bot');
+    mkdirSync(botDir, { recursive: true });
+    // A `null` in `bots` is exactly the shape the old guard let through and that
+    // then failed deep inside the first round.
+    writeFileSync(
+      join(botDir, 'registry.json'),
+      JSON.stringify({ version: 1, bots: [null], groups: [], conversations: [] }),
+    );
+    const errors: string[] = [];
+    const logger = { ...silentLogger, error: (message: string) => errors.push(message) };
+
+    expect(createBotService(cfg, logger)).toBeUndefined();
+    expect(errors[0]).toContain('Bot mode is unavailable');
+    expect(errors[0]).toContain('registry.json');
+
+    // The composition root still builds its engines: code sessions do not need
+    // the bot roster, and a corrupt one must not take the whole host down.
+    openCodeMock.mockResolvedValue(openCodeEngine());
+    const router = await createAgentRouter(piAdapter(true), cfg, silentLogger);
+    expect(router.engineOptions().map((option) => option.kind)).toEqual(['pi', 'opencode']);
+  });
+
+  it('builds the service for a registry that is merely absent', () => {
+    const cfg = config();
+
+    expect(createBotService(cfg, silentLogger)).toBeDefined();
   });
 });

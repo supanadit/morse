@@ -141,16 +141,33 @@ export function createSessionRegistry(
  * Bot mode's one service for the whole host: the roster lives in
  * `<dataDir>/bot`, so it survives a restart and belongs to the host rather than
  * to whichever socket asked. The engines it can run are this host's adapters.
+ *
+ * A corrupt registry must not take the host down with it: bot mode is one
+ * capability, and a server that cannot read its roster still runs code sessions.
+ * The failure is logged loudly and the host simply offers no bot capability —
+ * every `bot/*` route then gets the existing "this host does not support it"
+ * path instead of the process dying at boot.
  */
-export function createBotService(config: MorseServerConfig, logger: MorseLogger): BotService {
-  return new BotService({
-    root: join(config.dataDir, 'bot'),
-    adapters: createBotAdapters({ logger }),
-    // A bot's own workspace is under its root, but the host still supplies the
-    // display name and the fallback directory a probe borrows.
-    defaultWorkspace: config.workspace,
-    logger,
-  });
+export function createBotService(
+  config: MorseServerConfig,
+  logger: MorseLogger,
+): BotService | undefined {
+  try {
+    return new BotService({
+      root: join(config.dataDir, 'bot'),
+      adapters: createBotAdapters({ logger }),
+      // A bot's own workspace is under its root, but the host still supplies the
+      // display name and the fallback directory a probe borrows.
+      defaultWorkspace: config.workspace,
+      logger,
+    });
+  } catch (error: unknown) {
+    logger.error(
+      `Bot mode is unavailable: ${join(config.dataDir, 'bot', 'registry.json')} could not be read. Bot requests will be refused until it is fixed.`,
+      error,
+    );
+    return undefined;
+  }
 }
 
 /** Shutdown hook: dispose every warm agent session and the host-wide caches. */

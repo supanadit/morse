@@ -97,9 +97,11 @@ import {
     {
       // One bot roster for the host: bots are directories under `<dataDir>/bot`,
       // so they outlive every connection (and the process). Only this server
-      // registers it, which is what makes `capabilities.bot` conditional.
+      // registers it, which is what makes `capabilities.bot` conditional. A
+      // corrupt registry resolves this provider to `undefined` on purpose, so
+      // the rest of the host still boots without bot mode.
       provide: MORSE_BOT_SERVICE,
-      useFactory: (config: MorseServerConfig, logger: MorseLogger): BotService =>
+      useFactory: (config: MorseServerConfig, logger: MorseLogger): BotService | undefined =>
         createBotService(config, logger),
       inject: [MORSE_CONFIG, MORSE_LOGGER],
     },

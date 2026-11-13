@@ -176,7 +176,12 @@ describe('MorseSessionFactory bot wiring', () => {
 
     await controller.handleClientMessage({
       type: 'bot/probeModels',
-      payload: { kind: 'pi', envVars: ['KEY'], requestId: 'req-9' },
+      payload: {
+        kind: 'pi',
+        envVars: ['KEY'],
+        credentials: [{ provider: 'anthropic', apiKey: 'sk-test' }],
+        requestId: 'req-9',
+      },
     });
     expect(messages.at(-1)).toEqual({
       type: 'bot/models',
