@@ -137,6 +137,29 @@ describe('bot store', () => {
     expect(readFileSync(join(botRoot, 'engine.json'), 'utf8')).toBe(JSON.stringify(bot));
   });
 
+  it('round-trips a bot subagent list through engine.json', () => {
+    const botRoot = join(dir, 'Forge');
+    mkdirSync(botRoot);
+    // The rows are the bot's own answer to "how do I review a diff"; they live
+    // beside its identity so copying the bot directory carries them too.
+    const withSubagents: BotRecord = {
+      ...bot,
+      subagents: [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }],
+    };
+
+    writeBotIdentity(botRoot, withSubagents);
+
+    expect(readBotIdentity(botRoot)?.subagents).toEqual(withSubagents.subagents);
+  });
+
+  it('reads a bot with no subagents as having none', () => {
+    const botRoot = join(dir, 'Forge');
+    mkdirSync(botRoot);
+    writeBotIdentity(botRoot, bot);
+
+    expect(readBotIdentity(botRoot)).not.toHaveProperty('subagents');
+  });
+
   it('reads a bot without engine.json as undefined', () => {
     expect(readBotIdentity(join(dir, 'Missing'))).toBeUndefined();
   });

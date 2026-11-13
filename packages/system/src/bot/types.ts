@@ -22,6 +22,13 @@ export interface BotRecord {
    * read keys from the environment rather than a stored auth file.
    */
   credentialEnv: string[];
+  /**
+   * The bot's named subagents, each with its own system prompt. Kept here as
+   * well as in the engine's own config so copying the bot's directory carries
+   * what the reader defined, and so a later wizard can show it back. Optional:
+   * a bot created before subagents existed simply has none.
+   */
+  subagents?: Array<{ name: string; prompt: string }>;
 }
 
 /**

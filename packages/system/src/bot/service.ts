@@ -59,6 +59,12 @@ export interface BotEngineAdapter {
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): AgentGatewayFactory;
   /** Replaces the bot's whole engine-native credential store. */
   writeCredentials(botRoot: string, entries: { provider: string; apiKey: string }[]): void;
+  /**
+   * Stores the bot's named subagents in the engine's own config. Optional: an
+   * engine without named subagents leaves it off, and `capabilities` says so
+   * too — the service checks both, because a claim is not a method.
+   */
+  writeSubagents?(botRoot: string, subagents: { name: string; prompt: string }[]): void;
 }
 
 /** Everything a host can observe from the bot layer, for its own fan-out. */
@@ -215,9 +221,9 @@ export class BotService {
 
   /**
    * Creates one isolated bot: its directories, portable identity, credentials,
-   * optional workspace instructions, then a live probe of the engine it will run
-   * on. The registry is written last, so a failed probe leaves neither a bot
-   * directory nor a roster entry behind.
+   * engine-native subagents, optional workspace instructions, then a live probe
+   * of the engine it will run on. The registry is written last, so a failed probe
+   * leaves neither a bot directory nor a roster entry behind.
    */
   async createBot(input: BotCreateInput): Promise<void> {
     const adapter = this.options.adapters[input.engineKind];
@@ -246,6 +252,9 @@ export class BotService {
       ...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
       persona: input.persona,
       credentialEnv: [...input.envVars],
+      ...(input.subagents === undefined || input.subagents.length === 0
+        ? {}
+        : { subagents: input.subagents.map((subagent) => ({ ...subagent })) }),
     };
     const botRoot = this.botRoot(record.name);
     let factory: AgentGatewayFactory;
@@ -258,6 +267,25 @@ export class BotService {
       // The adapter replaces the whole credential store: the wizard's list is
       // the complete answer for this bot, never a merge with an older one.
       adapter.writeCredentials(botRoot, input.credentials);
+      // Subagents are engine config, so only an engine that has them is asked to
+      // store them; a pi bot is created without one and keeps only the record's
+      // copy. The wizard validates these names, the wire does not, so this is the
+      // boundary that keeps a name usable as a config key.
+      if (
+        input.subagents !== undefined &&
+        input.subagents.length > 0 &&
+        adapter.writeSubagents !== undefined &&
+        adapter.capabilities.supportsSubagents
+      ) {
+        for (const subagent of input.subagents) {
+          if (!isSafeBotName(subagent.name)) {
+            throw new Error(
+              `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
+            );
+          }
+        }
+        adapter.writeSubagents(botRoot, input.subagents);
+      }
       if (input.agentsMd !== undefined) {
         writeFileSync(join(botRoot, 'workspace', 'AGENTS.md'), input.agentsMd);
       }

@@ -19,7 +19,7 @@ import { silentLogger } from '../logger.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
 import { BotService } from './service.js';
 import { loadBotRegistry, readBotIdentity } from './store.js';
-import type { BotRecord } from './types.js';
+import type { BotEngineCapabilities, BotRecord } from './types.js';
 
 /**
  * BotService is the bot layer's whole behaviour: it owns the registry, opens an
@@ -54,6 +54,10 @@ interface FactoryOptions {
   probeThrows?: boolean;
   /** Make the first `create` call never settle, like a wedged engine spawn. */
   hangFirstCreate?: boolean;
+  /** Makes the fake look like an engine that stores named subagents (OpenCode). */
+  supportsSubagents?: boolean;
+  /** Leaves `writeSubagents` off, so the service must not call a missing method. */
+  omitSubagentWriter?: boolean;
   script: Script;
 }
 
@@ -268,22 +272,37 @@ class FakeFactory implements AgentGatewayFactory {
 
 class FakeAdapter implements BotEngineAdapter {
   readonly kind = 'fake';
-  readonly capabilities = {
-    supportsSubagents: false,
-    supportsThinkingLevels: true,
-    credentials: 'stored' as const,
-  };
+  readonly capabilities: BotEngineCapabilities;
   readonly factories: FakeFactory[] = [];
   readonly credentialWrites: {
     botRoot: string;
     entries: { provider: string; apiKey: string }[];
   }[] = [];
+  readonly subagentWrites: {
+    botRoot: string;
+    subagents: { name: string; prompt: string }[];
+  }[] = [];
   readonly envs: NodeJS.ProcessEnv[] = [];
+  /** Present unless the harness says the engine has no subagent writer. */
+  writeSubagents:
+    | ((botRoot: string, subagents: { name: string; prompt: string }[]) => void)
+    | undefined;
 
   constructor(
     private readonly script: Script = () => ({}),
     private readonly options: FactoryOptions = { script },
-  ) {}
+  ) {
+    this.capabilities = {
+      supportsSubagents: options.supportsSubagents === true,
+      supportsThinkingLevels: true,
+      credentials: 'stored',
+    };
+    if (options.omitSubagentWriter !== true) {
+      this.writeSubagents = (botRoot, subagents) => {
+        this.subagentWrites.push({ botRoot, subagents });
+      };
+    }
+  }
 
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): AgentGatewayFactory {
     this.envs.push(env);
@@ -328,6 +347,8 @@ interface HarnessOptions {
   idleMs?: number;
   turnTimeoutMs?: number;
   chainCap?: number;
+  supportsSubagents?: boolean;
+  omitSubagentWriter?: boolean;
 }
 
 interface Harness {
@@ -359,6 +380,12 @@ function harness(options: HarnessOptions = {}): Harness {
     ...(options.probeDefaults === undefined ? {} : { probeDefaults: options.probeDefaults }),
     ...(options.probeThrows === undefined ? {} : { probeThrows: options.probeThrows }),
     ...(options.hangFirstCreate === undefined ? {} : { hangFirstCreate: options.hangFirstCreate }),
+    ...(options.supportsSubagents === undefined
+      ? {}
+      : { supportsSubagents: options.supportsSubagents }),
+    ...(options.omitSubagentWriter === undefined
+      ? {}
+      : { omitSubagentWriter: options.omitSubagentWriter }),
   };
   const adapter = new FakeAdapter(script, adapterOptions);
   const service = serviceOn(root, adapter, options);
@@ -522,6 +549,65 @@ describe('BotService creation', () => {
       updatedAt: expect.any(Number) as number,
     });
     expect(service.roster().conversations).toContainEqual(group);
+  });
+});
+
+describe('BotService subagents', () => {
+  const SUBAGENTS = [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }];
+
+  it('hands a subagent-capable adapter the wizard rows and keeps them on the record', async () => {
+    const { root, adapter, service } = harness({ supportsSubagents: true });
+
+    await service.createBot(botInput({ subagents: SUBAGENTS, agentsMd: '# Forge workspace\n' }));
+
+    const botRoot = join(root, 'Forge');
+    expect(adapter.subagentWrites).toEqual([{ botRoot, subagents: SUBAGENTS }]);
+    // The rows travel with the bot's identity, so a copied directory keeps them.
+    expect(readBotIdentity(botRoot)?.subagents).toEqual(SUBAGENTS);
+    // They are engine config now, not prose folded into the workspace document.
+    expect(readFileSync(join(botRoot, 'workspace', 'AGENTS.md'), 'utf8')).toBe(
+      '# Forge workspace\n',
+    );
+  });
+
+  it('never asks an engine without subagents to store them', async () => {
+    const { adapter, service } = harness();
+
+    await service.createBot(botInput({ subagents: SUBAGENTS }));
+
+    expect(adapter.capabilities.supportsSubagents).toBe(false);
+    expect(adapter.subagentWrites).toEqual([]);
+  });
+
+  it('never calls a writer the adapter does not have', async () => {
+    // Capabilities are a claim; the method is what can actually be called.
+    const { adapter, service } = harness({ supportsSubagents: true, omitSubagentWriter: true });
+
+    await service.createBot(botInput({ subagents: SUBAGENTS }));
+
+    expect(adapter.writeSubagents).toBeUndefined();
+    expect(adapter.subagentWrites).toEqual([]);
+  });
+
+  it('skips the writer when the wizard sent no rows', async () => {
+    const { adapter, service } = harness({ supportsSubagents: true });
+
+    await service.createBot(botInput());
+    await service.createBot(botInput({ name: 'Sable', subagents: [] }));
+
+    expect(adapter.subagentWrites).toEqual([]);
+  });
+
+  it('rolls the whole bot back when a subagent name is not usable', async () => {
+    const { root, adapter, service } = harness({ supportsSubagents: true });
+
+    await expect(
+      service.createBot(botInput({ subagents: [{ name: '../escape', prompt: 'Anything.' }] })),
+    ).rejects.toThrow('not a usable subagent name');
+
+    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    expect(adapter.subagentWrites).toEqual([]);
+    expect(service.roster().bots).toHaveLength(0);
   });
 });
 
