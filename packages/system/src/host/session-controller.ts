@@ -14,6 +14,7 @@ import type {
   WorkspaceRef,
 } from '@morse/agent';
 import type {
+  BotControllerPort,
   ChatService,
   MorseLogger,
   OpenedSession,
@@ -128,6 +129,12 @@ export interface HostSessionControllerOptions {
   /** Shown to the user when the agent backend cannot be started. */
   agentHint?: string;
   policy?: ProjectPolicy;
+  /**
+   * Bot mode's client requests, when this host runs one. Omitted by a host with
+   * no bot service (the extension), where `bot/*` is ignored like any other type
+   * it does not handle and `capabilities.bot` stays off.
+   */
+  bot?: BotControllerPort;
 }
 
 /** A value the controller accepted after validating it against something. */
@@ -568,7 +575,128 @@ export class HostSessionController {
         this.closeTerminal(message.payload.terminalId);
         return;
       default:
+        // Bot mode is routed by prefix rather than by case: every `bot/*` request
+        // belongs to the same port, and this check sits before the (silent)
+        // unknown-type fallthrough it has always had.
+        if (message.type.startsWith('bot/')) {
+          await this.handleBotMessage(message);
+        }
         return;
+    }
+  }
+
+  /**
+   * Bot mode's client requests, delegated to the host's bot port.
+   *
+   * Everything here is a projection of what `BotService` already does: the roster
+   * is read back after a mutation, an open asks for the full in-memory
+   * transcript, and a probe echoes the wizard's `requestId` so its dialog can
+   * match the answer. `bot/send` is deliberately not awaited — one round can run
+   * for minutes, and the transport must keep reading the reader's Stop while it
+   * does. Its refusal (a round already in flight) is a notice, never a throw at
+   * the socket.
+   */
+  private async handleBotMessage(message: ClientToHostMessage): Promise<void> {
+    const bot = this.options.bot;
+    if (bot === undefined) {
+      return;
+    }
+    // The name is read before narrowing: the fallthrough below has no case left
+    // to narrow against.
+    const type: string = message.type;
+    switch (message.type) {
+      case 'bot/list':
+        this.emitBotRoster(bot);
+        return;
+      case 'bot/create':
+        // `requestId` rides on the payload for the wizard's own bookkeeping; the
+        // service ignores it and the answer is the roster, which is what the
+        // wizard's list is drawn from.
+        await this.runBotAction(() => bot.createBot(message.payload));
+        return;
+      case 'bot/delete':
+        await this.runBotAction(() => bot.deleteBot(message.payload.name));
+        return;
+      case 'bot/groupCreate':
+        await this.runBotAction(() => bot.createGroup(message.payload));
+        return;
+      case 'bot/probeModels': {
+        const { requestId, kind } = message.payload;
+        const result = await this.guardBot(() => bot.probeModels(kind, message.payload.envVars));
+        if (result.ok) {
+          this.options.emit({
+            type: 'bot/models',
+            payload: { requestId, kind, models: result.value },
+          });
+        }
+        return;
+      }
+      case 'bot/open':
+        this.options.emit({
+          type: 'bot/transcript',
+          payload: {
+            conversationId: message.payload.conversationId,
+            // The full transcript, so opening a conversation replaces whatever
+            // lines the client kept from before.
+            entries: bot.open(message.payload.conversationId),
+            replace: true,
+          },
+        });
+        return;
+      case 'bot/send':
+        void bot
+          .send(message.payload.conversationId, message.payload.text)
+          .catch((error: unknown) => this.emitBotFailure(error));
+        return;
+      case 'bot/stop':
+        bot.stop(message.payload.conversationId);
+        this.emitBotRoster(bot);
+        return;
+      case 'bot/newDiscussion':
+        await this.runBotAction(() => bot.newDiscussion(message.payload.conversationId));
+        return;
+      default:
+        // A `bot/*` request this controller does not route (a newer frontend on
+        // an older host): said out loud, the way an unknown host command is.
+        this.options.emit(
+          noticeMessage('warn', `This host does not support "${type}".`, Date.now()),
+        );
+        return;
+    }
+  }
+
+  /** Runs a bot mutation, then republishes the roster it changed. */
+  private async runBotAction(action: () => unknown | Promise<unknown>): Promise<void> {
+    const bot = this.options.bot;
+    const result = await this.guardBot(action);
+    if (result.ok && bot !== undefined) {
+      this.emitBotRoster(bot);
+    }
+  }
+
+  /** Pushes the roster as the one message every bot surface redraws from. */
+  private emitBotRoster(bot: BotControllerPort): void {
+    this.options.emit({ type: 'bot/roster', payload: bot.roster() });
+  }
+
+  /**
+   * A bot request failed. It belongs to the bot panel, not to the chat transcript
+   * in front, so it is a notice and a log line — never the wire `error` channel,
+   * which the frontend reads as a refused connection.
+   */
+  private emitBotFailure(error: unknown): void {
+    const message = describeError(error);
+    this.options.logger.error(`Bot request failed: ${message}`, error);
+    this.options.emit(noticeMessage('error', message, Date.now()));
+  }
+
+  /** `guard`, for a bot port: the same refusal as a value, without touching the chat. */
+  private async guardBot<T>(action: () => T | Promise<T>): Promise<Guarded<T>> {
+    try {
+      return { ok: true, value: await action() };
+    } catch (error: unknown) {
+      this.emitBotFailure(error);
+      return { ok: false };
     }
   }
 

@@ -14,7 +14,13 @@ import {
   type PromptDisposition,
   type SessionEngine,
 } from '@morse/agent';
-import { AgentUnavailableError, ChatService, SessionRegistry, silentLogger } from '@morse/system';
+import {
+  AgentUnavailableError,
+  ChatService,
+  SessionRegistry,
+  silentLogger,
+  type BotControllerPort,
+} from '@morse/system';
 import {
   PROTOCOL_VERSION,
   type HostToClientMessage,
@@ -2837,5 +2843,140 @@ describe('HostSessionController reported engine', () => {
     release?.();
     await switching;
     expect(h.lastState()?.engine).toBe('opencode');
+  });
+});
+
+/**
+ * Bot mode's transport rule. `bot/*` is routed by prefix into the bot port when
+ * the host has one, and a host without one behaves exactly as it always did for
+ * a message it has no handler for: it says nothing. The frontend hides the mode
+ * when `capabilities.bot` is off, so silence there is not a swallowed error.
+ */
+describe('HostSessionController bot messages', () => {
+  const group = {
+    id: 'group-1',
+    kind: 'group' as const,
+    title: 'reviewers',
+    members: ['forge', 'sentinel'],
+    chainCap: 4,
+    updatedAt: 1,
+  };
+
+  function fakePort(overrides: Partial<BotControllerPort> = {}): BotControllerPort {
+    return {
+      roster: () => ({ bots: [], conversations: [] }),
+      createBot: async () => undefined,
+      deleteBot: async () => undefined,
+      createGroup: () => group,
+      probeModels: async () => [],
+      open: () => [],
+      send: () => Promise.resolve(),
+      stop: () => undefined,
+      newDiscussion: () => undefined,
+      ...overrides,
+    };
+  }
+
+  function botController(
+    messages: HostToClientMessage[],
+    bot?: BotControllerPort,
+  ): HostSessionController {
+    return new HostSessionController({
+      services: { registry: {} as SessionRegistry, chat: {} as ChatService },
+      capabilities: CAPABILITIES,
+      emit: (message) => messages.push(message),
+      logger: silentLogger,
+      transcripts: new SessionTranscriptStore(),
+      ...(bot === undefined ? {} : { bot }),
+    });
+  }
+
+  it('ignores bot/* on a host with no bot service, like any unhandled type', async () => {
+    const messages: HostToClientMessage[] = [];
+    const controller = botController(messages);
+
+    await controller.handleClientMessage({ type: 'bot/list', payload: {} });
+    await controller.handleClientMessage({
+      type: 'bot/send',
+      payload: { conversationId: 'dm-x', text: 'hi' },
+    });
+
+    expect(messages).toEqual([]);
+  });
+
+  it('answers the roster, the probe and an open through the port', async () => {
+    const messages: HostToClientMessage[] = [];
+    const roster = { bots: [], conversations: [group] };
+    const sent: [string, string][] = [];
+    const controller = botController(
+      messages,
+      fakePort({
+        roster: () => roster,
+        probeModels: async (kind) => [{ provider: kind, id: 'm', name: 'M' }],
+        open: () => [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+        send: (conversationId, text) => {
+          sent.push([conversationId, text]);
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    await controller.handleClientMessage({ type: 'bot/list', payload: {} });
+    expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: roster });
+
+    await controller.handleClientMessage({
+      type: 'bot/probeModels',
+      payload: { kind: 'pi', envVars: ['KEY'], requestId: 'req-7' },
+    });
+    expect(messages.at(-1)).toEqual({
+      type: 'bot/models',
+      payload: { requestId: 'req-7', kind: 'pi', models: [{ provider: 'pi', id: 'm', name: 'M' }] },
+    });
+
+    await controller.handleClientMessage({
+      type: 'bot/open',
+      payload: { conversationId: 'dm-x' },
+    });
+    expect(messages.at(-1)).toEqual({
+      type: 'bot/transcript',
+      payload: {
+        conversationId: 'dm-x',
+        entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+        replace: true,
+      },
+    });
+
+    await controller.handleClientMessage({
+      type: 'bot/send',
+      payload: { conversationId: 'dm-x', text: 'hi' },
+    });
+    expect(sent).toEqual([['dm-x', 'hi']]);
+  });
+
+  it('reports a refused send as a notice instead of throwing at the socket', async () => {
+    const messages: HostToClientMessage[] = [];
+    const controller = botController(
+      messages,
+      fakePort({
+        send: () => Promise.reject(new Error('A round is already running in this conversation.')),
+      }),
+    );
+
+    await controller.handleClientMessage({
+      type: 'bot/send',
+      payload: { conversationId: 'dm-x', text: 'hi' },
+    });
+    // `send` rejects asynchronously, and the handler never awaits it.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(messages).toContainEqual({
+      type: 'notice',
+      payload: {
+        level: 'error',
+        text: 'A round is already running in this conversation.',
+        at: expect.any(Number),
+      },
+    });
   });
 });

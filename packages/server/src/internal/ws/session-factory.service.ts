@@ -1,10 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AgentRouter,
   ChatService,
   SessionRegistry,
   UnsupportedByHostError,
   type AgentExtras,
+  type BotEvent,
+  type BotService,
   type MorseLogger,
 } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
@@ -32,6 +34,7 @@ import {
   MORSE_CONFIG,
   MORSE_LOGGER,
   MORSE_AGENT_ROUTER,
+  MORSE_BOT_SERVICE,
   MORSE_PI_ADAPTER,
   MORSE_PROJECT_POLICY,
   MORSE_SESSION_REGISTRY,
@@ -75,6 +78,11 @@ import { canSelfUpdate, performSelfUpdate } from '../self-update/self-update.js'
 export class MorseSessionFactory {
   private readonly mcpWatch: McpWatcher | undefined;
   private readonly extras: AgentExtras | undefined;
+  /**
+   * The bot feed each live connection subscribed to. Keyed by the controller it
+   * serves, so the disconnect path can detach exactly that client's forwarding.
+   */
+  private readonly botFeeds = new Map<HostSessionController, () => void>();
 
   constructor(
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
@@ -85,6 +93,9 @@ export class MorseSessionFactory {
     @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
     @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
     @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
+    // Bot mode is optional at the composition root: only a host that provides the
+    // service reports `capabilities.bot` and routes `bot/*`.
+    @Optional() @Inject(MORSE_BOT_SERVICE) private readonly bot?: BotService,
   ) {
     // The default engine's administration, not pi's unconditionally: with
     // OpenCode selected as the new-session engine, this host has no MCP editor,
@@ -199,6 +210,10 @@ export class MorseSessionFactory {
       // a button when this is set; the command itself re-checks the install and
       // the caller's address before it runs anything.
       selfUpdate: this.config.selfUpdate,
+      // Bot mode: only a host that actually holds a `BotService` can draw a
+      // roster, so the flag follows the provider instead of being a constant.
+      // The extension resolves none, which is how its UI hides the mode.
+      ...(this.bot === undefined ? {} : { bot: true }),
     };
   }
 
@@ -212,7 +227,7 @@ export class MorseSessionFactory {
       ...(this.mcpWatch === undefined ? {} : { mcpWatch: this.mcpWatch }),
     };
 
-    return new HostSessionController({
+    const controller = new HostSessionController({
       services,
       capabilities: this.capabilities(),
       emit,
@@ -234,6 +249,54 @@ export class MorseSessionFactory {
       terminal: this.terminal,
       agentHint:
         'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',
+      // Bot mode's commands, when this host has the service. The same socket's
+      // `emit` also carries the service's events (see `subscribeBot`).
+      ...(this.bot === undefined ? {} : { bot: this.bot }),
+    });
+    if (this.bot !== undefined) {
+      this.botFeeds.set(controller, this.subscribeBot(this.bot, emit));
+    }
+    return controller;
+  }
+
+  /**
+   * Detaches one connection's bot feed. The gateway calls this on disconnect,
+   * before the controller is disposed, so a closed socket stops receiving roster
+   * and transcript events at once instead of being written to by a service it no
+   * longer has.
+   */
+  release(controller: HostSessionController): void {
+    this.botFeeds.get(controller)?.();
+    this.botFeeds.delete(controller);
+  }
+
+  /**
+   * Forwards the shared bot service's events to one connection. The service is
+   * host-wide, so every connected client sees the same roster, routing state and
+   * transcript lines — a second window is a viewer, not a second owner.
+   */
+  private subscribeBot(bot: BotService, emit: (message: HostToClientMessage) => void): () => void {
+    return bot.subscribe((event: BotEvent) => {
+      switch (event.type) {
+        case 'roster':
+          // The event names the change, not the new list: read it back so the
+          // client gets one authoritative roster.
+          emit({ type: 'bot/roster', payload: bot.roster() });
+          return;
+        case 'transcript':
+          emit({
+            type: 'bot/transcript',
+            payload: {
+              conversationId: event.conversationId,
+              entries: event.entries,
+              replace: event.replace,
+            },
+          });
+          return;
+        case 'routing':
+          emit({ type: 'bot/routing', payload: { state: event.state } });
+          return;
+      }
     });
   }
 

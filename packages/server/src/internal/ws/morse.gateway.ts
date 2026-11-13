@@ -61,6 +61,11 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleDisconnect(client: WebSocket): void {
     const controller = this.clients.get(client);
     this.clients.delete(client);
+    // The bot feed belongs to this socket alone; detach it before the controller
+    // goes, so a closed connection is never written to by the shared service.
+    if (controller !== undefined) {
+      this.sessions.release(controller);
+    }
     // Only the connection's controller goes away; its sessions stay warm in the
     // shared registry, so a refresh reattaches to the same `pi` processes.
     void controller?.dispose().catch((error: unknown) => {

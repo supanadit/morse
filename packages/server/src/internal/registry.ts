@@ -1,7 +1,8 @@
 import { join } from 'node:path';
-import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnModuleDestroy } from '@nestjs/common';
 import {
   AgentRouter,
+  BotService,
   FileSessionStore,
   SessionRegistry,
   planEngineRegistration,
@@ -13,10 +14,12 @@ import { openOpenCodeEngine } from '@morse/integration-opencode';
 import type { MorseServerConfig } from '../app/config.js';
 import {
   MORSE_AGENT_ROUTER,
+  MORSE_BOT_SERVICE,
   MORSE_SESSION_REGISTRY,
   MORSE_TRANSCRIPT_STORE,
 } from '../app/tokens.js';
 import { clearWorkspaceIndex } from './workspace/workspace-index.js';
+import { createBotAdapters } from './bot/bot-adapters.js';
 
 /**
  * Composition root glue (R7): builds the one agent router this server owns, and
@@ -134,6 +137,22 @@ export function createSessionRegistry(
   });
 }
 
+/**
+ * Bot mode's one service for the whole host: the roster lives in
+ * `<dataDir>/bot`, so it survives a restart and belongs to the host rather than
+ * to whichever socket asked. The engines it can run are this host's adapters.
+ */
+export function createBotService(config: MorseServerConfig, logger: MorseLogger): BotService {
+  return new BotService({
+    root: join(config.dataDir, 'bot'),
+    adapters: createBotAdapters({ logger }),
+    // A bot's own workspace is under its root, but the host still supplies the
+    // display name and the fallback directory a probe borrows.
+    defaultWorkspace: config.workspace,
+    logger,
+  });
+}
+
 /** Shutdown hook: dispose every warm agent session and the host-wide caches. */
 @Injectable()
 export class MorseRegistryLifecycle implements OnModuleDestroy {
@@ -143,6 +162,9 @@ export class MorseRegistryLifecycle implements OnModuleDestroy {
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
     @Inject(MORSE_TRANSCRIPT_STORE) transcripts: SessionTranscriptStore,
     @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
+    // Bot mode is optional at the composition root: a host without the provider
+    // (the extension, a bare test module) simply has nothing to shut down here.
+    @Optional() @Inject(MORSE_BOT_SERVICE) private readonly bot?: BotService,
   ) {
     // A session retired by the hot limit (or closed, or deleted) drops its warm
     // transcript and paging cursor with its process, so the singleton store
@@ -156,6 +178,9 @@ export class MorseRegistryLifecycle implements OnModuleDestroy {
     // on shutdown there is nothing left to serve, so drop every listing rather
     // than hold them until the process exits.
     clearWorkspaceIndex();
+    // Bot engines outlive an individual turn, so they are torn down with the
+    // host: a bot's warm gateway may be a whole engine server process.
+    await this.bot?.dispose();
     await this.registry.dispose();
     // An owned OpenCode server stops with the host; an attached one is untouched.
     for (const engine of this.router.registeredEngines()) {

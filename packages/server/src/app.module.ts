@@ -1,18 +1,24 @@
 import { Module } from '@nestjs/common';
 import { createPiRpcAdapter, type PiRpcAdapter } from '@morse/integration-pi';
-import { AgentRouter, SessionRegistry, type MorseLogger } from '@morse/system';
+import { AgentRouter, SessionRegistry, type BotService, type MorseLogger } from '@morse/system';
 import type { ProjectPolicy } from '@morse/system';
 import { SessionTranscriptStore } from '@morse/system';
 import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
 import { ServerTerminalBackend } from './internal/terminal/terminal.service.js';
-import { createAgentRouter, createSessionRegistry, MorseRegistryLifecycle } from './internal/registry.js';
+import {
+  createAgentRouter,
+  createBotService,
+  createSessionRegistry,
+  MorseRegistryLifecycle,
+} from './internal/registry.js';
 import { MorseGateway } from './internal/ws/morse.gateway.js';
 import { MorseSessionFactory } from './internal/ws/session-factory.service.js';
 import { loadConfig, type MorseServerConfig } from './app/config.js';
 import {
   MORSE_AGENT_ROUTER,
+  MORSE_BOT_SERVICE,
   MORSE_CONFIG,
   MORSE_LOGGER,
   MORSE_PI_ADAPTER,
@@ -87,6 +93,15 @@ import {
       useFactory: (config: MorseServerConfig): ProjectPolicy =>
         new ServerProjectPolicy(config.projects),
       inject: [MORSE_CONFIG],
+    },
+    {
+      // One bot roster for the host: bots are directories under `<dataDir>/bot`,
+      // so they outlive every connection (and the process). Only this server
+      // registers it, which is what makes `capabilities.bot` conditional.
+      provide: MORSE_BOT_SERVICE,
+      useFactory: (config: MorseServerConfig, logger: MorseLogger): BotService =>
+        createBotService(config, logger),
+      inject: [MORSE_CONFIG, MORSE_LOGGER],
     },
     MorseRegistryLifecycle,
     ServerTerminalBackend,
