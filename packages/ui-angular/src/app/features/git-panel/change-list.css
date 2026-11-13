@@ -1,0 +1,149 @@
+:host {
+  display: block;
+  min-height: 0;
+}
+
+.change-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: var(--morse-radius-sm);
+}
+
+.group-head:hover {
+  background: var(--morse-hover);
+}
+
+.group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.caret {
+  display: inline-block;
+  color: var(--morse-fg-muted);
+  transition: transform 120ms ease;
+}
+
+.caret.open {
+  transform: rotate(90deg);
+}
+
+.group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-count {
+  color: var(--morse-fg-muted);
+  font-weight: 400;
+}
+
+.group-all {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: none;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.group-all:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.change-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px 3px 20px;
+  border-radius: var(--morse-radius-sm);
+  color: var(--morse-fg);
+}
+
+.change-row:hover {
+  background: var(--morse-hover);
+}
+
+.row-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.change-row input[type='checkbox'] {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--morse-accent);
+}
+
+.name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex: none;
+  margin-left: auto;
+  min-width: 14px;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  text-align: center;
+}
+
+.empty {
+  padding: 6px 20px;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+}

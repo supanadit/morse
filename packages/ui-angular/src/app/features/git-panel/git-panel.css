@@ -341,19 +341,23 @@ button.repo-toggle:hover {
   line-height: 1.4;
 }
 /* The one scrolling region inside a repository: the Staged / Unstaged lists. */
+.changes-filter-row {
+  flex: none;
+  padding: 6px 8px 4px;
+}
+
+.changes-filter {
+  width: 100%;
+  padding: 3px 8px;
+  font-size: 11.5px;
+}
+
 .changes-scroll {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-}
-/* The changes tree fills the scroll region; the tree component owns the rows.
-   The two groups sit flush — no rule between them (the tree draws its own
-   connectors, so a separator would double the structure). */
-.changes-tree {
-  flex: 1;
-  min-height: 0;
 }
 /*
  * An empty section is not a sentence in the corner: a centred, gently

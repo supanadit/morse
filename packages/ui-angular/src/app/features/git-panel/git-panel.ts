@@ -27,18 +27,8 @@ import { BranchPicker } from '../branch-picker/branch-picker';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { Splitter } from '../../ui/splitter/splitter';
-import { TreeList } from '../../ui/tree-list/tree-list';
+import { ChangeList, type ChangeGroupView, type ChangeView } from './change-list';
 import type { PaneAction } from '../../ui/pane/pane';
-
-/** One uncommitted file, ready for the Changes section. */
-interface ChangeView {
-  path: string;
-  kind: ChangeKind;
-}
-
-/** The two root ids of the changes tree, so a fold can address one group. */
-const STAGED_GROUP = 'staged';
-const UNSTAGED_GROUP = 'unstaged';
 
 /** Dragging the panel's left edge keeps at least this much conversation visible. */
 const GIT_RESIZE_MIN_CHAT = 180;
@@ -47,11 +37,10 @@ const GIT_RESIZE_MIN_CHAT = 180;
 interface RepoView {
   state: GitRepoState;
   path: string;
-  staged: ChangeView[];
-  unstaged: ChangeView[];
   changedCount: number;
-  changeNodes: TreeNode<ChangeView>[];
-  changesExpanded: ReadonlySet<string>;
+  changeGroups: ChangeGroupView[];
+  matchingCount: number;
+  stagedLabel: string | undefined;
   canCommit: boolean;
 }
 
@@ -69,7 +58,7 @@ interface RepoView {
 @Component({
   selector: 'morse-git-panel',
   templateUrl: './git-panel.html',
-  imports: [NgTemplateOutlet, Pane, BranchPicker, Splitter, TreeList],
+  imports: [NgTemplateOutlet, Pane, BranchPicker, Splitter, ChangeList],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './git-panel.css',
 })
@@ -94,6 +83,8 @@ export class GitPanel {
   private readonly messages = signal<Record<string, string>>({});
   /** True while a stage/unstage round trip is in flight. */
   protected readonly staging = signal(false);
+  /** The changes filter, shared by every open repository. */
+  protected readonly changeFilter = signal('');
 
   /**
    * Each repository's section, with its change groups already derived, so the
@@ -110,19 +101,42 @@ export class GitPanel {
   protected readonly changesCollapsed = this.shell.gitChangesCollapsed;
 
   private viewOf(state: GitRepoState): RepoView {
+    const staged = this.changesFor(state, 'staged');
+    const changedCount = state.status()?.isRepo ? (state.status()?.files.length ?? 0) : 0;
+    const groups = this.changeGroupsFor(state);
     return {
       state,
       path: state.info.path,
-      staged: this.changesFor(state, 'staged'),
-      unstaged: this.changesFor(state, 'unstaged'),
-      changedCount: state.status()?.isRepo ? (state.status()?.files.length ?? 0) : 0,
-      changeNodes: this.changeNodesFor(state),
-      changesExpanded: this.changesExpandedFor(state),
+      changedCount,
+      changeGroups: groups,
+      matchingCount: groups.reduce((total, group) => total + group.rows.length, 0),
+      stagedLabel: changedCount === 0 ? undefined : `${staged.length} of ${changedCount} staged`,
       canCommit:
-        this.messageFor(state).trim().length > 0 &&
-        this.changesFor(state, 'staged').length > 0 &&
-        !state.committing(),
+        this.messageFor(state).trim().length > 0 && staged.length > 0 && !state.committing(),
     };
+  }
+
+  /** The two groups, filtered by the reader's path query. */
+  private changeGroupsFor(state: GitRepoState): ChangeGroupView[] {
+    const query = this.changeFilter().trim().toLowerCase();
+    const pick = (rows: readonly ChangeView[]): readonly ChangeView[] =>
+      query.length === 0
+        ? rows
+        : rows.filter((row) => row.path.toLowerCase().includes(query));
+    return [
+      {
+        id: 'staged',
+        label: 'Staged',
+        rows: pick(this.changesFor(state, 'staged')),
+        collapsed: state.stagedCollapsed(),
+      },
+      {
+        id: 'unstaged',
+        label: 'Unstaged',
+        rows: pick(this.changesFor(state, 'unstaged')),
+        collapsed: state.unstagedCollapsed(),
+      },
+    ];
   }
 
   private changesFor(state: GitRepoState, side: 'staged' | 'unstaged'): ChangeView[] {
@@ -144,105 +158,6 @@ export class GitPanel {
     return changes.sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  /**
-   * The changes as the shared tree draws them: "Staged" and "Unstaged" are the
-   * roots, each file a leaf one level down. The group's badge is its count, the
-   * file's is its git letter; the group's `action` is the stage/unstage-all.
-   */
-  private changeNodesFor(state: GitRepoState): TreeNode<ChangeView>[] {
-    const staged = this.changesFor(state, 'staged');
-    const unstaged = this.changesFor(state, 'unstaged');
-    const nodes: TreeNode<ChangeView>[] = [
-      this.changeGroup(state, STAGED_GROUP, 'Staged', staged, 'unstaged'),
-    ];
-    if (unstaged.length > 0) {
-      nodes.push(this.changeGroup(state, UNSTAGED_GROUP, 'Unstaged', unstaged, 'staged'));
-    }
-    return nodes;
-  }
-
-  private changeGroup(
-    state: GitRepoState,
-    id: string,
-    label: string,
-    changes: readonly ChangeView[],
-    moveTo: 'staged' | 'unstaged',
-  ): TreeNode<ChangeView> {
-    return {
-      id,
-      label,
-      data: changes[0] ?? { path: '', kind: 'M' },
-      icon: 'git' as const,
-      badge: changes.length.toString(),
-      badgeTone: 'plain',
-      kind: 'group',
-      action:
-        changes.length === 0
-          ? undefined
-          : {
-              glyph: id === STAGED_GROUP ? '−' : '+',
-              label: id === STAGED_GROUP ? 'Unstage all changes' : 'Stage all changes',
-              run: () =>
-                id === STAGED_GROUP ? this.unstageAll(state) : this.stageAll(state),
-            },
-      children: changes.map((change) => this.changeLeaf(state, change, moveTo)),
-    };
-  }
-
-  private changeLeaf(
-    state: GitRepoState,
-    change: ChangeView,
-    moveTo: 'staged' | 'unstaged',
-  ): TreeNode<ChangeView> {
-    const slash = change.path.lastIndexOf('/');
-    return {
-      id: change.path,
-      label: slash === -1 ? change.path : change.path.slice(slash + 1),
-      detail: slash === -1 ? undefined : change.path.slice(0, slash),
-      data: change,
-      // A changed file is a file: it wears the same mark the Explorer gives it.
-      icon: fileIcon(change.path),
-      badge: change.kind,
-      badgeTone: this.toneOf(change.kind),
-      kind: 'leaf',
-      action: {
-        glyph: moveTo === 'staged' ? '+' : '−',
-        label: (moveTo === 'staged' ? 'Stage ' : 'Unstage ') + change.path,
-        run: () => (moveTo === 'staged' ? this.stage(state, change.path) : this.unstage(state, change.path)),
-      },
-      children: [],
-    };
-  }
-
-  /** The groups that are open, from the repository's own fold flags. */
-  private changesExpandedFor(state: GitRepoState): ReadonlySet<string> {
-    const set = new Set<string>();
-    if (!state.stagedCollapsed()) {
-      set.add(STAGED_GROUP);
-    }
-    if (!state.unstagedCollapsed()) {
-      set.add(UNSTAGED_GROUP);
-    }
-    return set;
-  }
-
-  /** A git letter's tone, shared by the change rows and the commit-file rows. */
-  private toneOf(kind: ChangeKind): TreeNode<ChangeView>['badgeTone'] {
-    switch (kind) {
-      case 'M':
-        return 'warn';
-      case 'A':
-      case 'U':
-        return 'success';
-      case 'D':
-      case 'C':
-        return 'error';
-      case 'R':
-        return 'info';
-      default:
-        return 'plain';
-    }
-  }
 
   private readonly injector = inject(Injector);
 
@@ -385,28 +300,46 @@ export class GitPanel {
   }
 
   /** The shared tree reports the node it was given; a group folds, a file opens. */
-  protected onChangeRow(state: GitRepoState, node: TreeNode<ChangeView>): void {
-    if (node.kind === 'group') {
-      this.toggleChangeGroup(state, node.id);
-      return;
-    }
-    this.tabs.openFile(node.data.path, undefined, state.info.path || undefined);
+  /** Opens a changed path in a preview tab. */
+  protected onOpenChange(state: GitRepoState, change: ChangeView): void {
+    this.tabs.openFile(change.path, undefined, state.info.path || undefined);
   }
 
-  /** A group's caret folds it, mirroring the repository's own fold flag. */
-  protected onToggleChangeGroup(state: GitRepoState, node: TreeNode<ChangeView>): void {
-    this.toggleChangeGroup(state, node.id);
-  }
-
-  private toggleChangeGroup(state: GitRepoState, id: string): void {
-    if (id === STAGED_GROUP) {
+  /** A group header folds its section, from the repository's own flag. */
+  protected onToggleChangeGroup(state: GitRepoState, group: ChangeGroupView): void {
+    if (group.id === 'staged') {
       state.toggleStaged();
     } else {
       state.toggleUnstaged();
     }
   }
 
-    /** Moves one path into the repository's index (`git add`). */
+  /** The header's +/-: stage or unstage every row in the group. */
+  protected onToggleChangeAll(state: GitRepoState, group: ChangeGroupView): void {
+    if (group.id === 'staged') {
+      this.unstageAll(state);
+    } else {
+      this.stageAll(state);
+    }
+  }
+
+  /** A row's checkbox: checked stages, unchecked unstages. */
+  protected onToggleChangeRow(
+    state: GitRepoState,
+    event: { path: string; staged: boolean },
+  ): void {
+    if (event.staged) {
+      this.stage(state, event.path);
+    } else {
+      this.unstage(state, event.path);
+    }
+  }
+
+  protected onChangeFilter(event: Event): void {
+    this.changeFilter.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Moves one path into the repository's index (`git add`). */
   protected stage(state: GitRepoState, path: string): void {
     void this.runStage(state, [path]);
   }

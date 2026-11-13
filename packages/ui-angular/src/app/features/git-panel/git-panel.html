@@ -42,7 +42,7 @@
             <morse-pane
               class="changes"
               title="Changes"
-              [meta]="view.changedCount > 0 ? view.changedCount.toString() : undefined"
+              [meta]="view.stagedLabel"
               [folded]="changesCollapsed()"
               (foldToggle)="toggleChanges()"
             >
@@ -122,12 +122,7 @@
               }
             }
 
-            <!--
-              The uncommitted files, drawn in the shared tree: "Staged" and
-              "Unstaged" are the roots, each file a child with its own file icon,
-              its git badge and its own stage/unstage button.
-            -->
-            @if (view.staged.length === 0 && view.unstaged.length === 0) {
+            @if (view.changedCount === 0) {
               <div class="empty">
                 <span class="mark" aria-hidden="true">
                   <svg class="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
@@ -136,16 +131,29 @@
                 No uncommitted changes
               </div>
             } @else {
-              <div class="changes-scroll">
-                <morse-tree
-                  class="changes-tree"
-                  [nodes]="view.changeNodes"
-                  [expanded]="view.changesExpanded"
-                  empty="No uncommitted changes"
-                  (activate)="onChangeRow(view.state, $event)"
-                  (toggle)="onToggleChangeGroup(view.state, $event)"
+              <div class="changes-filter-row">
+                <input
+                  class="changes-filter"
+                  type="search"
+                  placeholder="Filter files…"
+                  aria-label="Filter files"
+                  [value]="changeFilter()"
+                  (input)="onChangeFilter($event)"
                 />
               </div>
+              @if (view.matchingCount === 0) {
+                <p class="empty">No files match</p>
+              } @else {
+                <div class="changes-scroll">
+                  <morse-change-list
+                    [groups]="view.changeGroups"
+                    (toggleRow)="onToggleChangeRow(view.state, $event)"
+                    (toggleGroup)="onToggleChangeGroup(view.state, $event)"
+                    (toggleAll)="onToggleChangeAll(view.state, $event)"
+                    (openRow)="onOpenChange(view.state, $event)"
+                  />
+                </div>
+              }
             }
             }
             </morse-pane>

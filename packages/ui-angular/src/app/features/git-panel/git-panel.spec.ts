@@ -139,34 +139,18 @@ async function settle(fixture: ReturnType<typeof TestBed.createComponent<GitPane
   fixture.detectChanges();
 }
 
-/** The `morse-tree` group row whose label is `label` (“Staged” / “Unstaged”). */
+/** The change group whose label is `label` ("Staged" / "Unstaged"). */
 function groupByTitle(host: HTMLElement, label: string): HTMLElement | undefined {
-  return [...host.querySelectorAll<HTMLElement>('.changes-tree .row.group')].find(
-    (row) => row.querySelector('.label')?.textContent?.trim() === label,
+  return [...host.querySelectorAll<HTMLElement>('.change-group')].find(
+    (group) => group.querySelector('.group-label')?.textContent?.trim() === label,
   );
 }
 
-/** The file labels inside a change group, in the order they are drawn. */
+/** The file names inside a change group, in the order they are drawn. */
 function groupFileNames(host: HTMLElement, group: string): string[] {
-  // The tree draws one flat row list: a group's files are the leaf rows between
-  // its own group row and the next group row.
-  const lines = [...host.querySelectorAll<HTMLElement>('.changes-tree .line')];
-  const start = lines.findIndex(
-    (line) =>
-      line.querySelector('.row.group .label')?.textContent?.trim() === group,
+  return [...(groupByTitle(host, group)?.querySelectorAll('.change-row .name') ?? [])].map(
+    (node) => node.textContent?.trim() ?? '',
   );
-  if (start === -1) {
-    return [];
-  }
-  const names: string[] = [];
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const row = lines[index].querySelector('.row');
-    if (row?.classList.contains('group')) {
-      break;
-    }
-    names.push(row?.querySelector('.label')?.textContent?.trim() ?? '');
-  }
-  return names;
 }
 
 describe('GitPanel', () => {
@@ -437,14 +421,14 @@ describe('GitPanel', () => {
     expect(detail).not.toBeNull();
     expect(detail.querySelector('.sync')).not.toBeNull();
     expect(detail.querySelector('.commit-box')).not.toBeNull();
-    expect(detail.querySelector('.changes-tree')).not.toBeNull();
+    expect(detail.querySelector('morse-change-list')).not.toBeNull();
     expect(detail.querySelector('.changes-scroll')).not.toBeNull();
 
     // Folding the repository takes the form and the tree with it.
     host.querySelector<HTMLButtonElement>('.repo-toggle')?.click();
     fixture.detectChanges();
     expect(host.querySelector('.commit-box')).toBeNull();
-    expect(host.querySelector('.changes-tree')).toBeNull();
+    expect(host.querySelector('morse-change-list')).toBeNull();
     expect(host.querySelector('.repo-detail-pane')).toBeNull();
   });
 
@@ -517,18 +501,16 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const rows = [...host.querySelectorAll('.changes-tree .row:not(.group)')];
-    const names = rows.map((node) => node.querySelector('.label')?.textContent?.trim());
+    const rows = [...host.querySelectorAll('.change-row')];
+    const names = rows.map((node) => node.querySelector('.name')?.textContent?.trim());
     const badges = rows.map((node) => node.querySelector('.badge')?.textContent?.trim());
     expect(names).toEqual(['a.ts', 'b.ts']);
     expect(badges).toEqual(['M', 'U']);
     // Each changed file wears the mark the Explorer gives it, and the group the branch.
     const marks = rows.map((node) => node.querySelector('use')?.getAttribute('href'));
     expect(marks).toEqual(['#morse-code', '#morse-code']);
-    const group = groupByTitle(host, 'Unstaged');
-    expect(group?.querySelector('use')?.getAttribute('href')).toBe('#morse-git');
 
-    (rows[0] as HTMLButtonElement).click();
+    (rows[0]!.querySelector('.row-open') as HTMLButtonElement).click();
     expect(TestBed.inject(WorkspaceTabs).tabs().map((tab) => tab.id)).toEqual(['file:a.ts']);
   });
 
@@ -546,7 +528,7 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    const groups = [...host.querySelectorAll('.changes-tree .row.group')];
+    const groups = [...host.querySelectorAll('.change-group')];
     expect(groups).toHaveLength(2);
     expect(groupFileNames(host, 'Staged')).toEqual(['both.ts', 'staged.ts']);
     expect(groupFileNames(host, 'Unstaged')).toEqual([
@@ -555,10 +537,33 @@ describe('GitPanel', () => {
       'untracked.ts',
     ]);
     // The group's own badge is its count, and its action stages the whole group.
-    expect(groupByTitle(host, 'Staged')?.querySelector('.badge')?.textContent?.trim()).toBe('2');
+    expect(groupByTitle(host, 'Staged')?.querySelector('.group-count')?.textContent?.trim()).toBe('2');
     expect(
-      groupByTitle(host, 'Unstaged')?.closest('.line')?.querySelector('.row-action'),
+      groupByTitle(host, 'Unstaged')?.querySelector('.group-all'),
     ).not.toBeNull();
+  });
+
+  it('filters the change rows and counts the staged ones', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: {
+        isRepo: true,
+        files: [
+          { path: 'a.ts', status: 'M ' },
+          { path: 'b.ts', status: ' M' },
+        ],
+      },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const filter = host.querySelector('.changes-filter') as HTMLInputElement;
+    filter.value = 'a.ts';
+    filter.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(host.querySelectorAll('.change-row')).toHaveLength(1);
+    expect(host.querySelector('.changes .pane-meta')?.textContent).toContain('1 of 2 staged');
   });
 
   it('keeps the Staged group when nothing is staged', async () => {
@@ -573,7 +578,7 @@ describe('GitPanel', () => {
     // empty Staged group is drawn with a zero count and no file rows.
     const staged = groupByTitle(host, 'Staged');
     expect(staged).toBeDefined();
-    expect(staged?.querySelector('.badge')?.textContent?.trim()).toBe('0');
+    expect(staged?.querySelector('.group-count')?.textContent?.trim()).toBe('0');
     expect(groupFileNames(host, 'Staged')).toHaveLength(0);
   });
 
@@ -591,7 +596,7 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
     const caret = (label: string) =>
-      groupByTitle(host, label)!.closest('.line')!.querySelector<HTMLButtonElement>('.chevron')!;
+      groupByTitle(host, label)!.querySelector<HTMLButtonElement>('.group-toggle')!;
 
     caret('Staged').click();
     fixture.detectChanges();
@@ -621,7 +626,7 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     const unstaged = groupByTitle(host, 'Unstaged')!;
-    unstaged.closest('.line')!.querySelector<HTMLButtonElement>('.row-action')?.click();
+    unstaged.querySelector<HTMLButtonElement>('.group-all')?.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts'] }]);
@@ -644,7 +649,7 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     const staged = groupByTitle(host, 'Staged')!;
-    staged.closest('.line')!.querySelector<HTMLButtonElement>('.row-action')?.click();
+    staged.querySelector<HTMLInputElement>('.change-row input')!.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitUnstage', paths: ['a.ts'] }]);
@@ -681,7 +686,7 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     const unstaged = groupByTitle(host, 'Unstaged')!;
-    unstaged.closest('.line')!.querySelector<HTMLButtonElement>('.row-action')?.click();
+    unstaged.querySelector<HTMLButtonElement>('.group-all')!.click();
     await settle(fixture);
 
     expect(calls).toEqual([{ command: 'gitStage', paths: ['a.ts', 'b.ts'] }]);
@@ -694,12 +699,12 @@ describe('GitPanel', () => {
     });
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('.changes-tree')).not.toBeNull();
+    expect(host.querySelector('morse-change-list')).not.toBeNull();
 
     host.querySelector<HTMLButtonElement>('.repo-toggle')?.click();
     fixture.detectChanges();
 
-    expect(host.querySelector('.changes-tree')).toBeNull();
+    expect(host.querySelector('morse-change-list')).toBeNull();
     expect(host.querySelector('.repo-detail-pane')).toBeNull();
   });
 

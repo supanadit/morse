@@ -1,0 +1,59 @@
+@if (groups().length === 0) {
+  <p class="empty">No uncommitted changes</p>
+} @else {
+  @for (group of groups(); track group.id) {
+    <section class="change-group" [class.collapsed]="group.collapsed">
+      <div class="group-head">
+        <button
+          type="button"
+          class="group-toggle"
+          [attr.aria-expanded]="!group.collapsed"
+          (click)="toggleGroup.emit(group)"
+        >
+          <span class="caret" [class.open]="!group.collapsed">›</span>
+          <span class="group-label">{{ group.label }}</span>
+          <span class="group-count">{{ group.rows.length }}</span>
+        </button>
+        <button
+          type="button"
+          class="group-all"
+          [title]="group.id === 'staged' ? 'Unstage all changes' : 'Stage all changes'"
+          [attr.aria-label]="group.id === 'staged' ? 'Unstage all changes' : 'Stage all changes'"
+          (click)="toggleAll.emit(group)"
+        >
+          {{ group.id === 'staged' ? '−' : '+' }}
+        </button>
+      </div>
+
+      @if (!group.collapsed) {
+        @for (row of group.rows; track row.path) {
+          <div class="change-row" [title]="row.path">
+            <input
+              type="checkbox"
+              [checked]="checked(group)"
+              [attr.aria-label]="
+                (group.id === 'staged' ? 'Unstage ' : 'Stage ') + row.path
+              "
+              (change)="onRow(row, $event)"
+            />
+            <button type="button" class="row-open" (click)="openRow.emit(row)">
+              <svg
+                [class]="'file-icon ' + iconFor(name(row.path))"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <use [attr.href]="'#morse-' + iconFor(name(row.path))" />
+              </svg>
+              <span class="name">{{ name(row.path) }}</span>
+              @if (dir(row.path).length > 0) {
+                <span class="dir">{{ dir(row.path) }}</span>
+              }
+              <span class="badge">{{ row.kind }}</span>
+            </button>
+          </div>
+        }
+      }
+    </section>
+  }
+}
