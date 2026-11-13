@@ -250,7 +250,8 @@ select:disabled {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.agents-preview {
+.agents-preview,
+.subagents-preview {
   white-space: pre-wrap;
   font-family: var(--morse-font-mono, monospace);
   font-size: 11px;

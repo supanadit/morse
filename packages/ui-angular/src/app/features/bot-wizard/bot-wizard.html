@@ -251,6 +251,8 @@
             <p class="field-note">
               OpenCode bots can name subagents with their own system prompts. Each one is written
               into this bot's own OpenCode config as a subagent, beside its model and MCP servers.
+              Names use letters, digits, dashes and underscores, and start with a letter, digit or
+              underscore.
             </p>
             @for (subagent of subagents(); track $index) {
               <div class="subagent-row">
@@ -260,6 +262,8 @@
                   autocomplete="off"
                   aria-label="Subagent name"
                   placeholder="reviewer"
+                  pattern="[\p{L}\p{N}_][\p{L}\p{N}_-]*"
+                  title="Letters, digits, dashes and underscores; start with a letter, digit or underscore."
                   [value]="subagent.name"
                   (input)="setSubagent($index, 'name', $event)"
                 />

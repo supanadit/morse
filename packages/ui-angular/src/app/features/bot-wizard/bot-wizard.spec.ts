@@ -204,6 +204,12 @@ describe('BotWizard', () => {
     button(opencode.host, '.add-subagent').click();
     tick(opencode.fixture);
     expect(opencode.host.querySelectorAll('.subagent-row')).toHaveLength(1);
+    // The host rejects an unusable name and the wizard would wait forever on
+    // "Creating…", so the field carries the host's own alphabet.
+    const subagentName = opencode.host.querySelector(
+      'input[name="subagentName"]',
+    ) as HTMLInputElement;
+    expect(subagentName.pattern).toBe('[\\p{L}\\p{N}_][\\p{L}\\p{N}_-]*');
     button(opencode.host, '.remove-subagent').click();
     tick(opencode.fixture);
     expect(opencode.host.querySelector('.subagent-row')).toBeNull();
