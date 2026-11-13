@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readGitLog } from './git-log';
+import { commitGit, readGitLog } from './git-log';
 
 let root = '';
 
@@ -48,5 +48,29 @@ describe('readGitLog ref', () => {
     await expect(readGitLog(root, 50, 0, undefined, '--all')).rejects.toThrow(
       /usable git ref/,
     );
+  });
+});
+
+describe('commitGit amend', () => {
+  it('rewrites the last commit and keeps the count', async () => {
+    writeFileSync(join(root, 'next.txt'), 'next');
+    git(root, 'add', '.');
+
+    const result = await commitGit(root, 'main two amended', undefined, true);
+
+    expect(result.ok).toBe(true);
+    expect(git(root, 'log', '-1', '--pretty=%s').trim()).toBe('main two amended');
+    expect(git(root, 'rev-list', '--count', 'HEAD').trim()).toBe('2');
+  });
+
+  it('keeps the old message when amend is given no message', async () => {
+    const result = await commitGit(root, '   ', undefined, true);
+
+    expect(result.ok).toBe(true);
+    expect(git(root, 'log', '-1', '--pretty=%s').trim()).toBe('main two');
+  });
+
+  it('still refuses an empty message without amend', async () => {
+    expect(await commitGit(root, '   ')).toMatchObject({ ok: false });
   });
 });

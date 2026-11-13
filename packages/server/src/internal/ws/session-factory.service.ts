@@ -441,7 +441,8 @@ export class MorseSessionFactory {
         // a single argv element, never through a shell.
         const cwd = this.requireWritableCwd(context);
         const message = typeof args?.message === 'string' ? args.message : '';
-        return commitGit(cwd, message, repoArg(args));
+        const amend = args?.amend === true;
+        return commitGit(cwd, message, repoArg(args), amend);
       }
       case 'gitBranches': {
         const cwd = this.requireWritableCwd(context);

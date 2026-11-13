@@ -428,17 +428,32 @@ export async function readGitBranches(cwd: string, repo?: string): Promise<GitBr
 }
 
 /** Commits the staged changes with `message`; git's refusal is reported back. */
-export async function commitGit(cwd: string, message: string, repo?: string): Promise<GitMutation> {
+export async function commitGit(
+  cwd: string,
+  message: string,
+  repo?: string,
+  amend = false,
+): Promise<GitMutation> {
   const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
   const text = message.trim();
-  if (text.length === 0) {
+  if (text.length === 0 && !amend) {
     return { ok: false, message: 'A commit needs a message.' };
   }
   const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
   if (inside?.trim() !== 'true') {
     return { ok: false, message: 'This project is not a git repository.' };
   }
-  const result = await gitExec(['commit', '-m', text], work, 60_000);
+  const args = ['commit'];
+  if (amend) {
+    args.push('--amend');
+  }
+  if (text.length > 0) {
+    args.push('-m', text);
+  } else {
+    // Amend with no message keeps the commit's own message.
+    args.push('--no-edit');
+  }
+  const result = await gitExec(args, work, 60_000);
   if (result.ok) {
     return { ok: true };
   }
