@@ -375,7 +375,8 @@ export class MorseSessionFactory {
         const cwd = this.requireWritableCwd(context);
         const max = typeof args?.max === 'number' ? args.max : undefined;
         const skip = typeof args?.skip === 'number' ? args.skip : undefined;
-        return readGitLog(cwd, max, skip, repoArg(args));
+        const ref = typeof args?.ref === 'string' ? args.ref : undefined;
+        return readGitLog(cwd, max, skip, repoArg(args), ref);
       }
       case 'gitStatus': {
         // The working tree's changes, for the Explorer's per-file badges. Polled

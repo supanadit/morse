@@ -42,6 +42,7 @@ export async function readGitLog(
   requestedMax?: number,
   requestedSkip?: number,
   repo?: string,
+  ref?: string,
 ): Promise<GitLog> {
   const work = (await resolveRepoCwd(cwd, repo)) ?? cwd;
   const inside = await gitText(['rev-parse', '--is-inside-work-tree'], work);
@@ -50,17 +51,23 @@ export async function readGitLog(
   }
   const max = clampMax(requestedMax);
   const skip = clampSkip(requestedSkip);
+  const named = ref?.trim();
+  if (named !== undefined && named.length > 0 && !isBranchName(named)) {
+    throw new Error('That is not a usable git ref.');
+  }
   const [root, branch, raw] = await Promise.all([
     gitText(['rev-parse', '--show-toplevel'], work),
     gitText(['rev-parse', '--abbrev-ref', 'HEAD'], work),
     gitText(
       [
         'log',
-        '--all',
         '--date-order',
         `--skip=${skip}`,
         `--max-count=${max}`,
         `--pretty=format:${PRETTY_FORMAT}`,
+        // Every option precedes the revision; the guard above keeps the ref from
+        // reading as one, and `--end-of-options` pins it as the revision.
+        ...(named ? ['--end-of-options', named] : ['--all']),
       ],
       work,
     ),
