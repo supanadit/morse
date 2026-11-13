@@ -111,6 +111,10 @@ morse-dialog {
 .field-note code {
   font-size: 10.5px;
 }
+/* A probe that answered with nothing: a warning, not a quiet hint. */
+.models-empty {
+  color: var(--morse-warn);
+}
 
 input[type='text'],
 input[type='password'],

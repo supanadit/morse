@@ -158,9 +158,19 @@
           <div class="fields">
             <label class="field">
               <span class="field-label">Model</span>
-              <select name="model" [disabled]="!modelsReady()" (change)="pickModel($event)">
+              <select
+                name="model"
+                [disabled]="!modelsReady() || modelsEmpty()"
+                (change)="pickModel($event)"
+              >
                 <option value="">
-                  {{ modelsReady() ? 'Choose a model…' : 'Asking the engine for its models…' }}
+                  {{
+                    modelsEmpty()
+                      ? 'No models available'
+                      : modelsReady()
+                        ? 'Choose a model…'
+                        : 'Asking the engine for its models…'
+                  }}
                 </option>
                 @for (model of models(); track model.provider + '/' + model.id) {
                   <option
@@ -172,7 +182,13 @@
                 }
               </select>
               <span class="field-note">
-                @if (modelsReady()) {
+                @if (modelsEmpty()) {
+                  <!-- A probe that answers with nothing is a dead end, not a list. -->
+                  <span class="models-empty" role="status">
+                    This engine returned no models with these credentials. Go back and check
+                    them.
+                  </span>
+                } @else if (modelsReady()) {
                   The models this engine offers with this bot's credentials.
                 } @else {
                   Waiting for the host to answer this wizard's model probe.

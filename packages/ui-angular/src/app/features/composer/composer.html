@@ -444,7 +444,12 @@
     }
 
     <div class="controls-actions">
-      @if (streaming()) {
+      <!--
+           Steer, Follow up and Stop belong to the code session's run in flight.
+           A bot conversation's round is stopped from its own routing strip, so
+           the bot variant always shows the Send button instead.
+      -->
+      @if (variant !== 'bot' && streaming()) {
         <button type="button" class="secondary" (click)="sendWith('steer')">Steer</button>
         <button type="button" class="secondary" (click)="sendWith('followUp')">Follow up</button>
         <button type="button" class="icon stop" title="Stop" aria-label="Stop" (click)="abort()">■</button>

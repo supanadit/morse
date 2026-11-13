@@ -134,6 +134,8 @@ export class BotWizard {
     const requestId = this.requestId();
     return requestId !== null && this.morse.bot.models()[requestId] !== undefined;
   });
+  /** The probe answered, but with nothing to pick: a dead end, said as one. */
+  protected readonly modelsEmpty = computed(() => this.modelsReady() && this.models().length === 0);
   protected readonly model = computed<ModelOption | undefined>(() =>
     this.models().find((model) => modelKey(model) === this.modelKey()),
   );

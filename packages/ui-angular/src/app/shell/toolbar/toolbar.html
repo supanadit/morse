@@ -221,8 +221,11 @@
   <!--
        The command centre: the grid's flexible middle track while the bar is wide, and
        its own full-width second row when the bar is tight — the one thing that moves, so
-       the identity and the buttons above stay put.
+       the identity and the buttons above stay put. Its palette holds code-mode commands,
+       and that key is code-mode only, so bot mode — which has no palette to open and must
+       not print a hint for a dead key — stands the button down with the action group.
   -->
+  @if (mode() !== 'bot') {
   <button
     type="button"
     class="command"
@@ -237,5 +240,6 @@
     <span class="command-text">Search or run a command</span>
     <kbd class="command-key" aria-hidden="true">{{ paletteKeys }}</kbd>
   </button>
+  }
 
 </div>

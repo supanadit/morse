@@ -251,6 +251,8 @@ describe('Toolbar', () => {
     expect(fixture.nativeElement.querySelector('.actions .prompts')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.actions .mcp')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.actions')).not.toBeNull();
+    // Code mode's way into the command palette, with its key hint.
+    expect(fixture.nativeElement.querySelector('.command')).not.toBeNull();
 
     fixture.componentRef.setInput('mode', 'bot');
     fixture.detectChanges();
@@ -262,5 +264,8 @@ describe('Toolbar', () => {
     expect(fixture.nativeElement.querySelector('.prompts')).toBeNull();
     expect(fixture.nativeElement.querySelector('.mcp')).toBeNull();
     expect(fixture.nativeElement.querySelector('.modes')).not.toBeNull();
+    // The command centre follows its palette: that key is code-mode only, so the
+    // box must not sit there advertising a line to an overlay bot mode cannot open.
+    expect(fixture.nativeElement.querySelector('.command')).toBeNull();
   });
 });

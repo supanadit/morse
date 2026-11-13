@@ -948,6 +948,11 @@ export class ChatComposer {
 
   /** Pasted screenshots are the fastest way in, so treat them like a drop. */
   protected onPaste(event: ClipboardEvent): void {
+    // A bot conversation has no attachment channel: a pasted image must not be
+    // swallowed into chips the bot variant never shows nor sends.
+    if (this.variant === 'bot') {
+      return;
+    }
     const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
       file.type.startsWith('image/'),
     );

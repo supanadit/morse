@@ -137,12 +137,30 @@ class RecordingMemoryHost extends MemoryHostTransport {
     this.sent.push(message);
     super.send(message);
   }
+
+  /** Replays a `session/state`, the way the host reports a run in flight. */
+  runStreaming(on: boolean): void {
+    this.emitMessage({
+      type: 'session/state',
+      payload: {
+        workspace: { cwd: '/work/morse', name: 'morse' },
+        thinkingLevel: 'off',
+        availableModels: [],
+        availableThinkingLevels: [],
+        availableCommands: [],
+        streaming: on,
+        busy: false,
+        agentReady: true,
+        agentStarting: false,
+      },
+    });
+  }
 }
 
 async function mountComposer(): Promise<{
   fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>;
   host: HTMLElement;
-  sent: ClientToHostMessage[];
+  transport: RecordingMemoryHost;
 }> {
   TestBed.resetTestingModule();
   const transport = new RecordingMemoryHost();
@@ -152,7 +170,7 @@ async function mountComposer(): Promise<{
   }).compileComponents();
   const fixture = TestBed.createComponent(ChatComposer);
   fixture.detectChanges();
-  return { fixture, host: fixture.nativeElement as HTMLElement, sent: transport.sent };
+  return { fixture, host: fixture.nativeElement as HTMLElement, transport };
 }
 
 function botPrompt(host: HTMLElement): HTMLTextAreaElement {
@@ -192,7 +210,7 @@ describe('ChatComposer bot variant', () => {
   });
 
   it('emits botSend on Enter instead of the session prompt path', async () => {
-    const { fixture, host, sent } = await mountComposer();
+    const { fixture, host, transport } = await mountComposer();
     const emitted: string[] = [];
     fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
     fixture.componentRef.setInput('variant', 'bot');
@@ -204,13 +222,13 @@ describe('ChatComposer bot variant', () => {
     fixture.detectChanges();
 
     expect(emitted).toEqual(['@Forge what changed?']);
-    expect(sent.some((message) => message.type === 'chat/prompt')).toBe(false);
+    expect(transport.sent.some((message) => message.type === 'chat/prompt')).toBe(false);
     // The line left the box: a second Enter must not send it again.
     expect(botPrompt(host).value).toBe('');
   });
 
   it('treats an empty or whitespace-only line as a no-op', async () => {
-    const { fixture, host, sent } = await mountComposer();
+    const { fixture, host } = await mountComposer();
     const emitted: string[] = [];
     fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
     fixture.componentRef.setInput('variant', 'bot');
@@ -223,7 +241,6 @@ describe('ChatComposer bot variant', () => {
     fixture.detectChanges();
 
     expect(emitted).toEqual([]);
-    expect(sent.filter((message) => message.type === 'bot/send')).toHaveLength(0);
   });
 
   it('sends the bot line from the Send button too', async () => {
@@ -252,8 +269,29 @@ describe('ChatComposer bot variant', () => {
     expect(botPrompt(host).placeholder).toBe('Message Forge…');
   });
 
+  it('keeps the session run controls out of the bot composer', async () => {
+    const { fixture, host, transport } = await mountComposer();
+    transport.runStreaming(true);
+    fixture.detectChanges();
+
+    // The control: while the code session's run is live, it owns these.
+    expect(host.querySelector('.controls-actions .icon.stop')).not.toBeNull();
+    expect(host.querySelectorAll('.controls-actions .secondary')).toHaveLength(2);
+
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    // A bot round is stopped from its own routing strip, and Steer would send a
+    // bot line; the bot composer offers only Send, whatever the code session does.
+    expect(host.querySelector('.controls-actions .icon.stop')).toBeNull();
+    expect(host.querySelectorAll('.controls-actions .secondary')).toHaveLength(0);
+    const send = host.querySelector('.controls-actions .icon.send') as HTMLButtonElement;
+    expect(send).not.toBeNull();
+    expect(send.disabled).toBe(false);
+  });
+
   it('keeps the default variant sending through the session prompt path', async () => {
-    const { fixture, host, sent } = await mountComposer();
+    const { fixture, host, transport } = await mountComposer();
     const emitted: string[] = [];
     fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
 
@@ -263,6 +301,6 @@ describe('ChatComposer bot variant', () => {
     fixture.detectChanges();
 
     expect(emitted).toEqual([]);
-    expect(sent.some((message) => message.type === 'chat/prompt')).toBe(true);
+    expect(transport.sent.some((message) => message.type === 'chat/prompt')).toBe(true);
   });
 });

@@ -147,6 +147,22 @@ describe('BotWizard', () => {
     expect(model.textContent).toContain('Claude Sonnet 4');
   });
 
+  it('says so when the engine returns no models, instead of an empty picker', async () => {
+    const { fixture, host, morse } = await render();
+    const requestId = walkToModelStep(fixture, host, morse, 'pi');
+    expect(host.querySelector('.models-empty')).toBeNull();
+
+    // A probe can answer with nothing (a key the engine accepts no model for).
+    morse.bot.onModels({ requestId, kind: 'pi', models: [] });
+    tick(fixture);
+
+    const note = host.querySelector('.models-empty') as HTMLElement;
+    expect(note.textContent).toContain('no models');
+    // A dead end: the step stays shut rather than showing an empty list.
+    expect((host.querySelector('select[name="model"]') as HTMLSelectElement).disabled).toBe(true);
+    expect(button(host, '.next').disabled).toBe(true);
+  });
+
   it('shows the subagent editor for opencode only, and skips it for pi', async () => {
     const pi = await render();
     const piRequest = walkToModelStep(pi.fixture, pi.host, pi.morse, 'pi');
