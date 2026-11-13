@@ -97,4 +97,5 @@ Component hovers that need to beat a component base rule still add `:not(:disabl
 
 - Whether the web should grow a light variant of the palette; it would be a second
   `[data-host='web']` block under a preference the settings page does not yet have.
-- Whether the unmounted Explorer becomes a `Files` mode in the bar or is deleted.
+- ~~Whether the unmounted Explorer becomes a `Files` mode in the bar or is deleted.~~ It became the rail's
+  `Files` view: `2026-11-13-left-rail-and-explorer-panel-design.md`.
