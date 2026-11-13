@@ -19,6 +19,9 @@ export * from './session/integration.js';
 export * from './errors.js';
 export * from './logger.js';
 
+export * from './bot/types.js';
+export * from './bot/store.js';
+
 export * from './chat/service.js';
 export * from './chat/ports.js';
 export * from './context/ports.js';
