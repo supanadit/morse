@@ -246,22 +246,24 @@ a lot of chrome over the code. It is replaced wholesale, not ported.
 
 - a soft line tint (`--morse-accent` at ~8%, well under the selection's ratio) plus a 2px accent rule
   in a 4px lane left of the text, so ranges read as one object without fighting the selection; and
-- a **card in a note rail** on the right of the code: the range label, the note (rendered markdown,
-  `morseNoteHover`-style), and the same two buttons a diff row carries — `✎ note` (edit) and
-  `Cancel` (unpin), one shared `morse-pin-actions` component so the file view and the diff read
-  the same.
+- a **card in a note rail** on the right of the code: the range label and the note (rendered markdown,
+  `morseNoteHover`-style), a preview rather than a control; and
+- the same two buttons a diff row carries — `✎ note` (edit) and `Cancel` (unpin) — floating at the
+  **bottom-right corner of the band**, over the code, one shared `morse-pin-actions` component so the
+  file view and the diff cannot drift apart.
 
 ```
  14 │   const tabs = inject(WorkspaceTabs);    ┃ note ─────────────────┐
  15 │   const drafts = inject(ComposerDrafts); ┃ "drafts survive a     │
- 16 │   const queued = inject(QueuedPrompts);  ┃  session switch"  ✎ ⌫ │
+ 16 │   const queued = inject(QueuedPrompts);  ┃  session switch"      │
                                             ┗━━━━━━━━━━━━━━━━━━━━━━━┛
+                                          ✎ note  Cancel
 ```
 
-**Editing a note.** The card is the only editor. ✎ opens the existing `morse-pin-annotation` popover
-*anchored to the card* instead of editing inside CM (widgets that take keystrokes fight CM's own
-handlers; a plain Angular card beside the scroller does not). An empty note renders as the card's
-ghost "Add a note…", so the affordance is always visible.
+**Editing a note.** The band's pair is the only editor. Its ✎ opens the existing
+`morse-pin-annotation` popover *anchored to the button* instead of editing inside CM (widgets that
+take keystrokes fight CM's own handlers; an Angular button over the scroller does not). An empty note
+renders as the card's ghost "Add a note…", so the card still says what is missing.
 
 **The rail.** It is Angular DOM beside the editor, not a CM widget: cards are absolutely positioned
 from `view.coordsAtPos(lineStart)` on scroll, resize and measure, and hidden when their line is folded
@@ -272,18 +274,18 @@ column would drop under 480px), the same cards overlay the right edge instead, w
 component and no second presentation.
 
 **What this removes.** Per-band resize handles (re-select or re-drag to change a range), the confetti
-(and its `AnimationService` call), the per-band ✎ (the card's own), and — where the editor exists —
-the composer's note editing: `composer.ts` loses `openAnnotation` and the annotation
+(and its `AnimationService` call), the per-band ✎ (now the band's shared pair), and — where the
+editor exists — the composer's note editing: `composer.ts` loses `openAnnotation` and the annotation
 target/anchor signals, and `morse-pin-annotation` leaves the composer's imports. Chips keep path,
 label, hover preview, click-to-open and remove; clicking a chip opens the file at the pin's start
 line, where the editor flashes it and its card waits.
 
 **Hosts with no editor.** VS Code sets no `filePreview` capability: no tabs, no editor, no rail, so a
-card-only note would strand every VS Code user. The chip's ✎ therefore survives *exactly there* —
+band-only note would strand every VS Code user. The chip's ✎ therefore survives *exactly there* —
 when `capabilities.filePreview` is off, or when the pin's file cannot be shown (binary, truncated,
 failed to open). It opens the same `morse-pin-annotation` component, anchored to the chip instead of
-the card. One editor component, two anchors, never two designs; the card is the surface whenever
-there is a file to put it beside.
+the band. One editor component, two anchors, never two designs; the band's pair is the surface
+whenever there is a file to put it beside.
 
 **Payload.** Unchanged: `path`, `startLine`, `endLine`, `startColumn`, `endColumn`, `characters`,
 `text`. The browser host now fills the column fields for text selections (it never has before; only

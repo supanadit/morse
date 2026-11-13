@@ -127,6 +127,10 @@
   align-items: stretch;
   min-height: 1.6em;
 }
+/* The pair floats at the pinned block's corner, like the file preview's band. */
+.drow {
+  position: relative;
+}
 .dtext {
   flex: 1;
   min-width: 0;
@@ -196,6 +200,7 @@
   color: var(--morse-fg-muted);
 }
 .srow .side {
+  position: relative;
   flex: 1 1 50%;
   min-width: 0;
   display: flex;
@@ -204,6 +209,19 @@
 }
 .srow .side:first-child {
   border-left: 0;
+}
+/*
+ * The annotation pair rides the corner of the pinned block, exactly where the
+ * file preview's band puts it: on the block's bottom edge, at the right, over
+ * the row below. It is the same `morse-pin-actions` component the band used, so
+ * the two surfaces cannot drift apart again.
+ */
+.drow morse-pin-actions,
+.srow .side morse-pin-actions {
+  position: absolute;
+  right: 8px;
+  bottom: -9px;
+  z-index: 3;
 }
 .hint {
   margin: 0;

@@ -23,10 +23,29 @@ morse-code-editor {
   font-size: var(--morse-font-size);
 }
 
-morse-code-editor .morse-editor-host {
+morse-code-editor .morse-code-area {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+
+morse-code-editor .morse-editor-host {
+  height: 100%;
+}
+
+/* The band pairs ride above the code, on the same scroll as the text. */
+morse-code-editor .morse-band-track {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
+}
+
+morse-code-editor .morse-band-actions {
+  position: absolute;
+  right: 8px;
+  transform: translateY(-50%);
+  pointer-events: auto;
 }
 
 morse-code-editor .cm-editor {
@@ -283,17 +302,6 @@ morse-code-editor .morse-card-range {
   font-variant-numeric: tabular-nums;
 }
 
-morse-code-editor .morse-card-head {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-morse-code-editor .morse-card-head .morse-card-range {
-  flex: 1;
-  margin-bottom: 0;
-}
-
 morse-code-editor .morse-card-note {
   display: block;
   max-height: 40px;
@@ -360,5 +368,10 @@ morse-code-editor .morse-pin-pill:hover {
     right: 0;
     bottom: 0;
     background: color-mix(in srgb, var(--morse-panel) 94%, transparent);
+  }
+
+  /* The rail overlays the code's right edge; keep the pairs clear of it. */
+  morse-code-editor .morse-band-actions {
+    right: 248px;
   }
 }

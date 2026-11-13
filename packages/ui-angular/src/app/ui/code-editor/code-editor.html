@@ -1,19 +1,27 @@
-<!-- The CodeMirror view owns the host div; the rail beside it is Angular's. -->
-<div class="morse-editor-host" #host></div>
+<!-- The CodeMirror view owns the host div; the band pairs and the rail are Angular's. -->
+<div class="morse-code-area">
+  <div class="morse-editor-host" #host></div>
+  @if (bandActions().length) {
+    <div class="morse-band-track" #bandTrack>
+      @for (action of bandActions(); track action.pin.id) {
+        <morse-pin-actions
+          class="morse-band-actions"
+          [style.top.px]="action.top"
+          [note]="action.pin.note"
+          [target]="'range ' + pinRangeLabel(action.pin) + ' of ' + path()"
+          (edit)="openNote(action.pin, $event)"
+          (cancel)="unpinPin(action.pin)"
+        />
+      }
+    </div>
+  }
+</div>
 @if (cards().length) {
   <div class="morse-rail" [class.overflow]="railOverflow()">
     <div class="morse-rail-track" #track [style.height.px]="railOverflow() ? railHeight() : null">
       @for (card of cards(); track card.pin.id) {
         <article class="morse-card" [style.top.px]="card.top">
-          <header class="morse-card-head">
-            <span class="morse-card-range">{{ card.label }}</span>
-            <morse-pin-actions
-              [note]="card.pin.note"
-              [target]="'range ' + card.label + ' of ' + path()"
-              (edit)="openNote(card, $event)"
-              (cancel)="unpin(card)"
-            />
-          </header>
+          <span class="morse-card-range">{{ card.label }}</span>
           @if (card.pin.note) {
             <morse-markdown class="morse-card-note" [text]="card.pin.note" />
           } @else {
