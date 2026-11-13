@@ -55,10 +55,23 @@ morse-code-editor .morse-band-track {
   pointer-events: none;
 }
 
+/*
+ * The pair a band carries. It floats over the code, so it is not always there: it
+ * belongs to the band under the pointer (`.shown`), and it stays reachable from the
+ * keyboard because a pair in the tab order reveals itself on `:focus-within`.
+ */
 morse-code-editor .morse-band-actions {
   position: absolute;
   right: 8px;
   transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+morse-code-editor .morse-band-actions.shown,
+morse-code-editor .morse-band-actions:focus-within {
+  opacity: 1;
   pointer-events: auto;
 }
 
@@ -332,6 +345,10 @@ morse-code-editor .morse-pin-pill:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  morse-code-editor .morse-band-actions {
+    transition: none;
+  }
+
   morse-code-editor .morse-editor-host .cm-cursorLayer.morse-caret-glide > .cm-cursor {
     transition: none;
   }

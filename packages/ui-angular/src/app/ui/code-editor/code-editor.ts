@@ -25,6 +25,7 @@ import {
 import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Range } from '@codemirror/state';
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
 import { foldedRanges } from '@codemirror/language';
+import { pinAtLine } from './bands';
 import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
@@ -118,6 +119,16 @@ export class CodeEditor {
    * already holds.
    */
   protected readonly bandActions = signal<readonly BandAction[]>([]);
+  /** The line the pointer is on, while it is over the code. */
+  private readonly pointerLine = signal<number | undefined>(undefined);
+  /** A pair the reader has just used, so it steps aside instead of sitting there. */
+  protected readonly dismissed = signal(false);
+  /**
+   * The band the pointer is over: the only one whose pair is on screen. Its id, not
+   * the pin, because the store hands over fresh objects for the same ranges — a note
+   * being saved must not re-arm a pair the reader already put away.
+   */
+  protected readonly hoveredPinId = computed(() => pinAtLine(this.pins(), this.pointerLine())?.id);
   /** The range label the band pair and the annotation header both show. */
   protected readonly pinRangeLabel = pinRangeLabel;
 
@@ -165,6 +176,13 @@ export class CodeEditor {
       this.bandActions();
       this.bandTrack();
       untracked(() => this.syncTrack());
+    });
+    // A pair the reader used comes back only for a different band: moving on (or
+    // leaving the code) is what re-arms it, so a click does not leave it floating
+    // over the lines it was used on.
+    effect(() => {
+      this.hoveredPinId();
+      untracked(() => this.dismissed.set(false));
     });
     inject(DestroyRef).onDestroy(() => {
       if (this.flashTimer !== undefined) {
@@ -254,6 +272,26 @@ export class CodeEditor {
     this.syncTrack();
   }
 
+  /** The line under the pointer, which decides whose pair is on screen. */
+  protected trackPointer(event: PointerEvent): void {
+    const view = this.view;
+    if (view === undefined) {
+      return;
+    }
+    const target = event.target;
+    // The pair itself sits over a band: hovering it is not hovering the code.
+    if (target instanceof Element && target.closest('morse-pin-actions') !== null) {
+      return;
+    }
+    const block = view.lineBlockAtHeight(event.clientY - view.documentTop);
+    this.pointerLine.set(view.state.doc.lineAt(block.from).number);
+  }
+
+  /** Leaving the code — for the pair, a popover or another pane — puts the pairs away. */
+  protected clearPointer(): void {
+    this.pointerLine.set(undefined);
+  }
+
   /** Keep the band pairs beside their lines while the editor scrolls. */
   private syncTrack(): void {
     const view = this.view;
@@ -268,6 +306,8 @@ export class CodeEditor {
 
   /** ✎ on a band: open the annotation editor anchored to that button. */
   protected openNote(pin: EditorPin, button: HTMLElement): void {
+    // The pair did its job; the range keeps its tint and the chip goes.
+    this.dismissed.set(true);
     const rect = button.getBoundingClientRect();
     this.noteEditing.set({
       pin,
@@ -331,6 +371,7 @@ export class CodeEditor {
     }
     const request = pinFromText(view.state.doc, pill.from, pill.to);
     if (request !== null) {
+      this.dismissed.set(true);
       this.pinRequested.emit(request);
     }
   }
@@ -400,6 +441,8 @@ export class CodeEditor {
       this.pill.set(undefined);
       const request = pinFromText(view.state.doc, from, to, { lineOnly: true });
       if (request !== null) {
+        // Applied: the highlight is the answer, not a pair left over the lines.
+        this.dismissed.set(true);
         this.pinRequested.emit(request);
       }
     };

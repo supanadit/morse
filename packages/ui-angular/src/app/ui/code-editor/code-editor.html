@@ -1,11 +1,16 @@
 <!-- The CodeMirror view owns the host div; the band pairs are Angular's. -->
-<div class="morse-code-area">
+<div
+  class="morse-code-area"
+  (pointermove)="trackPointer($event)"
+  (pointerleave)="clearPointer()"
+>
   <div class="morse-editor-host" #host></div>
   @if (bandActions().length) {
     <div class="morse-band-track" #bandTrack>
       @for (action of bandActions(); track action.pin.id) {
         <morse-pin-actions
           class="morse-band-actions"
+          [class.shown]="!dismissed() && hoveredPinId() === action.pin.id"
           [style.top.px]="action.top"
           [note]="action.pin.note"
           [target]="'range ' + pinRangeLabel(action.pin) + ' of ' + path()"
