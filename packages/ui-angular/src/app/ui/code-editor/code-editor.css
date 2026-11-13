@@ -5,6 +5,13 @@
  * `ViewEncapsulation.None`: CodeMirror's own DOM carries no Angular attribute,
  * and `conventions.spec.ts` (R-U8) fails the build when a selector escapes.
  *
+ * CodeMirror's DOM takes one step further (`.morse-editor-host`). Its base theme
+ * scopes every rule in a generated class (`.ͼ2 .cm-gutters`), which is two classes
+ * before ours even starts — a plain `morse-code-editor .cm-gutters` is a *lower*
+ * specificity and silently lost. What that cost: CM's pale grey gutter painted over
+ * the app's dark one, its default padding, font and line height instead of ours, and
+ * a light-blue active line number.
+ *
  * Colours come from the Morse tokens only; `--morse-comment`, `--morse-punct`,
  * `--morse-editor-bg` and `--morse-editor-gutter` exist as aliases so a theme
  * change keeps touching one value.
@@ -17,6 +24,14 @@ morse-code-editor {
   min-width: 0;
   min-height: 0;
   height: 100%;
+  /*
+   * The gutter's two columns and the code's own left edge, in one place: the
+   * numbered gutter, the fold chevrons beside it, and the sticky band's copy of the
+   * numbers all have to agree with the lines they label.
+   */
+  --morse-number-width: 46px;
+  --morse-fold-width: 14px;
+  --morse-line-pad: 14px;
   background: var(--morse-editor-bg, var(--morse-code-bg));
   color: var(--morse-fg);
   font-family: var(--morse-font-mono);
@@ -48,34 +63,34 @@ morse-code-editor .morse-band-actions {
   pointer-events: auto;
 }
 
-morse-code-editor .cm-editor {
+morse-code-editor .morse-editor-host .cm-editor {
   height: 100%;
   background: transparent;
   color: inherit;
 }
 
-morse-code-editor .cm-editor.cm-focused {
+morse-code-editor .morse-editor-host .cm-editor.cm-focused {
   outline: none;
 }
 
-morse-code-editor .cm-scroller {
+morse-code-editor .morse-editor-host .cm-scroller {
   font-family: inherit;
   font-size: inherit;
   line-height: 1.55;
   overscroll-behavior: contain;
 }
 
-morse-code-editor .cm-content {
-  padding: 6px 0;
+morse-code-editor .morse-editor-host .cm-content {
+  padding: 10px 0 18px;
   caret-color: var(--morse-fg);
   cursor: text;
 }
 
-morse-code-editor .cm-line {
-  padding: 0 16px 0 6px;
+morse-code-editor .morse-editor-host .cm-line {
+  padding: 0 24px 0 var(--morse-line-pad);
 }
 
-morse-code-editor .cm-gutters {
+morse-code-editor .morse-editor-host .cm-gutters {
   background: var(--morse-editor-gutter, var(--morse-panel));
   color: var(--morse-fg-muted);
   border: none;
@@ -83,33 +98,46 @@ morse-code-editor .cm-gutters {
   user-select: none;
 }
 
-morse-code-editor .cm-lineNumbers .cm-gutterElement {
-  min-width: 32px;
-  padding: 0 8px 0 10px;
+/* Line numbers: tabular, right-aligned, and wide enough for four digits. */
+morse-code-editor .morse-editor-host .cm-lineNumbers .cm-gutterElement {
+  min-width: var(--morse-number-width);
+  padding: 0 10px 0 12px;
   text-align: right;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
+  cursor: default;
 }
 
-morse-code-editor .cm-activeLineGutter {
+/* Dragging a number pins its lines (see `CodeEditor.startGutterDrag`). */
+morse-code-editor .morse-editor-host .cm-lineNumbers .cm-gutterElement:hover {
+  color: var(--morse-fg);
+}
+
+morse-code-editor .morse-editor-host .cm-activeLineGutter {
   background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
   color: var(--morse-fg);
 }
 
-morse-code-editor .cm-foldGutter .cm-gutterElement {
+morse-code-editor .morse-editor-host .cm-foldGutter {
+  min-width: var(--morse-fold-width);
+}
+
+morse-code-editor .morse-editor-host .cm-foldGutter .cm-gutterElement {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: var(--morse-fold-width);
   color: var(--morse-fg-muted);
   cursor: pointer;
   opacity: 0;
   transition: opacity 120ms ease;
 }
 
-morse-code-editor .cm-gutters:hover .cm-foldGutter .cm-gutterElement {
+morse-code-editor .morse-editor-host .cm-gutters:hover .cm-foldGutter .cm-gutterElement {
   opacity: 1;
 }
 
-morse-code-editor .cm-foldPlaceholder {
+morse-code-editor .morse-editor-host .cm-foldPlaceholder {
   background: var(--morse-hover);
   border: none;
   color: var(--morse-fg-muted);
@@ -118,31 +146,31 @@ morse-code-editor .cm-foldPlaceholder {
   margin: 0 2px;
 }
 
-morse-code-editor .cm-selectionBackground {
+morse-code-editor .morse-editor-host .cm-selectionBackground {
   background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
 }
 
-morse-code-editor .cm-focused .cm-selectionBackground {
+morse-code-editor .morse-editor-host .cm-focused .cm-selectionBackground {
   background: color-mix(in srgb, var(--morse-accent) 30%, transparent);
 }
 
-morse-code-editor .cm-cursor,
-morse-code-editor .cm-dropCursor {
+morse-code-editor .morse-editor-host .cm-cursor,
+morse-code-editor .morse-editor-host .cm-dropCursor {
   border-left: 2px solid var(--morse-fg);
   margin-left: -1px;
 }
 
-morse-code-editor .cm-cursorLayer.morse-caret-glide > .cm-cursor {
+morse-code-editor .morse-editor-host .cm-cursorLayer.morse-caret-glide > .cm-cursor {
   transition:
     left 120ms cubic-bezier(0.16, 1, 0.3, 1),
     top 120ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-morse-code-editor .morse-caret-row {
+morse-code-editor .morse-editor-host .morse-caret-row {
   position: relative;
 }
 
-morse-code-editor .morse-caret-row::before {
+morse-code-editor .morse-editor-host .morse-caret-row::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -151,16 +179,16 @@ morse-code-editor .morse-caret-row::before {
   pointer-events: none;
 }
 
-morse-code-editor .morse-guides {
+morse-code-editor .morse-editor-host .morse-guides {
   position: relative;
 }
 
-morse-code-editor .morse-guides::after {
+morse-code-editor .morse-editor-host .morse-guides::after {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 6px;
+  left: var(--morse-line-pad);
   width: calc(var(--morse-guides-depth, 0) * 2ch);
   background-image: repeating-linear-gradient(
     to right,
@@ -171,27 +199,27 @@ morse-code-editor .morse-guides::after {
   pointer-events: none;
 }
 
-morse-code-editor .morse-bracket-1 {
+morse-code-editor .morse-editor-host .morse-bracket-1 {
   color: var(--morse-keyword);
 }
 
-morse-code-editor .morse-bracket-2 {
+morse-code-editor .morse-editor-host .morse-bracket-2 {
   color: var(--morse-string);
 }
 
-morse-code-editor .morse-bracket-3 {
+morse-code-editor .morse-editor-host .morse-bracket-3 {
   color: var(--morse-number);
 }
 
-morse-code-editor .morse-bracket-4 {
+morse-code-editor .morse-editor-host .morse-bracket-4 {
   color: var(--morse-typename);
 }
 
-morse-code-editor .morse-bracket-5 {
+morse-code-editor .morse-editor-host .morse-bracket-5 {
   color: var(--morse-attr);
 }
 
-morse-code-editor .morse-sticky {
+morse-code-editor .morse-editor-host .morse-sticky {
   position: absolute;
   top: 0;
   left: 0;
@@ -207,25 +235,29 @@ morse-code-editor .morse-sticky {
   pointer-events: none;
 }
 
-morse-code-editor .morse-sticky-line {
+morse-code-editor .morse-editor-host .morse-sticky-line {
   display: flex;
   white-space: pre;
 }
 
-morse-code-editor .morse-sticky-number {
+morse-code-editor .morse-editor-host .morse-sticky-number {
   flex: none;
-  width: 50px;
-  padding-right: 8px;
+  width: var(--morse-number-width);
+  margin-right: var(--morse-fold-width);
+  padding-right: 10px;
   text-align: right;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--morse-fg-muted);
 }
 
-morse-code-editor .morse-sticky-text {
+morse-code-editor .morse-editor-host .morse-sticky-text {
   flex: 1;
+  padding-left: var(--morse-line-pad);
   overflow: hidden;
 }
 
-morse-code-editor .cm-panel.cm-search {
+morse-code-editor .morse-editor-host .cm-panel.cm-search {
   background: var(--morse-panel);
   color: var(--morse-fg);
   border-bottom: 1px solid var(--morse-border);
@@ -234,7 +266,7 @@ morse-code-editor .cm-panel.cm-search {
   font-size: 12px;
 }
 
-morse-code-editor .cm-panel.cm-search input {
+morse-code-editor .morse-editor-host .cm-panel.cm-search input {
   background: var(--morse-input-bg);
   color: var(--morse-input-fg);
   border: 1px solid var(--morse-input-border);
@@ -242,7 +274,7 @@ morse-code-editor .cm-panel.cm-search input {
   padding: 2px 6px;
 }
 
-morse-code-editor .cm-panel.cm-search button {
+morse-code-editor .morse-editor-host .cm-panel.cm-search button {
   background: var(--morse-button-secondary);
   color: var(--morse-button-secondary-fg);
   border: 1px solid var(--morse-border);
@@ -251,15 +283,15 @@ morse-code-editor .cm-panel.cm-search button {
   cursor: pointer;
 }
 
-morse-code-editor .cm-searchMatch {
+morse-code-editor .morse-editor-host .cm-searchMatch {
   background: color-mix(in srgb, var(--morse-warn) 32%, transparent);
 }
 
-morse-code-editor .cm-searchMatch-selected {
+morse-code-editor .morse-editor-host .cm-searchMatch-selected {
   background: color-mix(in srgb, var(--morse-warn) 55%, transparent);
 }
 
-morse-code-editor .morse-line-flash {
+morse-code-editor .morse-editor-host .morse-line-flash {
   animation: morse-line-flash 900ms ease-out;
 }
 
@@ -314,7 +346,7 @@ morse-code-editor .morse-card-note.ghost {
   font-style: italic;
 }
 
-morse-code-editor .morse-pin-line {
+morse-code-editor .morse-editor-host .morse-pin-line {
   background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--morse-accent);
 }
@@ -352,11 +384,11 @@ morse-code-editor .morse-pin-pill:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  morse-code-editor .cm-cursorLayer.morse-caret-glide > .cm-cursor {
+  morse-code-editor .morse-editor-host .cm-cursorLayer.morse-caret-glide > .cm-cursor {
     transition: none;
   }
 
-  morse-code-editor .morse-line-flash {
+  morse-code-editor .morse-editor-host .morse-line-flash {
     animation: none;
   }
 }

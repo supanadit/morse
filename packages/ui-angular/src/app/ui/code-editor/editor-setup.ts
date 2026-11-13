@@ -19,6 +19,7 @@ import {
   drawSelection,
   highlightActiveLineGutter,
   keymap,
+  lineNumbers,
   scrollPastEnd,
   type DecorationSet,
   type ViewUpdate,
@@ -290,6 +291,16 @@ const stickyScroll = ViewPlugin.fromClass(
         return;
       }
       this.dom.style.display = '';
+      // The numbers column grows with the file's digit count; the band's copy of it
+      // has to line up with the gutter it covers, so it takes the measured width
+      // (the stylesheet's floor is only the four-digit case).
+      const numbers = this.dom.parentElement?.querySelector('.cm-lineNumbers');
+      if (numbers !== null && numbers !== undefined) {
+        this.dom.style.setProperty(
+          '--morse-number-width',
+          `${Math.round(numbers.getBoundingClientRect().width)}px`,
+        );
+      }
       this.dom.replaceChildren(
         ...lines.map((line) => {
           const row = document.createElement('div');
@@ -324,6 +335,9 @@ export function editorExtensions(options: EditorSetupOptions = {}): Extension {
     caretGlide,
     caretRow,
     highlightActiveLineGutter(),
+    // The numbers are not decoration: dragging them pins whole lines (see
+    // `CodeEditor.startGutterDrag`), which needs this gutter to exist.
+    lineNumbers(),
     foldGutter(),
     keymap.of([...defaultKeymap, ...searchKeymap, ...foldKeymap]),
     search({ top: true }),

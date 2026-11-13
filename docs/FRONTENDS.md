@@ -172,8 +172,9 @@ directly.
 VS Code has an Explorer and a text editor, so its host leaves `filePreview` off and none of this renders.
 The browser host has neither, so `filePreview: true` gives the frontend an Explorer in the sidebar and a tab
 strip above the conversation, where sessions and files open side by side. A file opens in a **read-only
-CodeMirror editor** — syntax highlighting, folding, find, sticky scrolled declarations — loaded as its own
-lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. A pin is a
+CodeMirror editor** — syntax highlighting, line numbers, folding, find, sticky scrolled declarations — loaded as its own
+lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. Dragging
+the line numbers pins whole lines (dragging across the code selects text and offers the pin pill instead). A pin is a
 tinted band with **Notes** and **Cancel** at its bottom-right corner; the note itself shows in a card beside
 the code. On VS Code, where there is no editor tab, the chip keeps its annotation button instead.
 

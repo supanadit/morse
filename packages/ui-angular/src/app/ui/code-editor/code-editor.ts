@@ -396,8 +396,9 @@ export class CodeEditor {
 
   /** The whole-line range under a gutter pointer position. */
   private lineRangeAt(view: EditorView, clientY: number): { from: number; to: number } | null {
-    const box = view.scrollDOM.getBoundingClientRect();
-    const block = view.lineBlockAtHeight(clientY - box.top + view.scrollDOM.scrollTop);
+    // `documentTop` is the first line's top (the content's padding excluded), which
+    // is the origin `lineBlockAtHeight` measures from.
+    const block = view.lineBlockAtHeight(clientY - view.documentTop);
     const line = view.state.doc.lineAt(block.from);
     const to = line.to === line.from ? Math.min(line.to + 1, view.state.doc.length) : line.to;
     return to > line.from ? { from: line.from, to } : null;

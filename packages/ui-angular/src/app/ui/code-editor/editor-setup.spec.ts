@@ -1,4 +1,5 @@
 import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { ensureSyntaxTree, foldable } from '@codemirror/language';
 import { describe, expect, it } from 'vitest';
 import { bracketDecorations, editorExtensions, enclosingDeclarations } from './editor-setup';
@@ -15,6 +16,19 @@ describe('editorExtensions', () => {
   it('builds a state without a view', () => {
     const state = EditorState.create({ doc: 'const a = 1;\n', extensions: editorExtensions() });
     expect(state.doc.lines).toBe(2);
+  });
+  it('numbers the lines in a gutter, which is also the pin drag handle', () => {
+    // Dragging a number pins its lines (`CodeEditor.startGutterDrag` looks for this
+    // gutter), and a file with no numbers in it is not an editor a reader trusts.
+    const view = new EditorView({
+      parent: document.body,
+      state: EditorState.create({ doc: 'one\ntwo\n', extensions: editorExtensions() }),
+    });
+    const gutter = view.dom.querySelector('.cm-lineNumbers');
+    expect(gutter).not.toBeNull();
+    expect(gutter?.textContent).toContain('1');
+    expect(gutter?.textContent).toContain('2');
+    view.destroy();
   });
   it('is read-only', () => {
     const state = EditorState.create({ doc: 'x', extensions: editorExtensions() });
