@@ -51,9 +51,7 @@ export class Toolbar {
    * The mode row belongs to the web host. A VS Code window already owns the modes
    * around the panel, so the panel must not grow a second one.
    */
-  protected readonly webHost = computed(
-    () => this.morse.capabilities()?.hostKind === 'server',
-  );
+  protected readonly webHost = computed(() => this.morse.capabilities()?.hostKind === 'server');
   /**
    * The mode the window is in. Owned by the shell (`App`), which swaps the
    * sidebar and the main column; the row only draws it and reports a click, so
@@ -187,17 +185,17 @@ export class Toolbar {
     const unbindGit = this.shortcuts.bind(
       'view.git',
       () => this.toggleGit(),
-      () => this.gitEnabled(),
+      () => this.mode() === 'code' && this.gitEnabled(),
     );
     const unbindSearch = this.shortcuts.bind(
       'view.search',
       () => this.toggleSearch(),
-      () => this.searchEnabled(),
+      () => this.mode() === 'code' && this.searchEnabled(),
     );
     const unbindMcp = this.shortcuts.bind(
       'view.mcp',
       () => (this.shell.mcpOpen() ? this.shell.closeMcp() : this.shell.openMcp()),
-      () => this.mcpEnabled(),
+      () => this.mode() === 'code' && this.mcpEnabled(),
     );
     this.destroyRef.onDestroy(unbindGit);
     this.destroyRef.onDestroy(unbindSearch);

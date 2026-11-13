@@ -100,8 +100,11 @@
 
   <!--
        The conversation's buttons and the column switches, one group. The grid places
-       them in the bar's right track; they never shrink and never split.
+       them in the bar's right track; they never shrink and never split. Every one of
+       them acts on a code conversation, so bot mode — a window of its own — stands
+       the group down rather than leaving controls for something not on screen.
   -->
+  @if (mode() !== 'bot') {
   <span class="actions">
 
   @if (!noSessionInFront()) {
@@ -214,6 +217,7 @@
     </button>
   }
   </span>
+  }
   <!--
        The command centre: the grid's flexible middle track while the bar is wide, and
        its own full-width second row when the bar is tight — the one thing that moves, so

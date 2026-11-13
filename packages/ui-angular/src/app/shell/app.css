@@ -287,41 +287,6 @@ morse-bottom-panel {
 }
 
 /*
- * Bot mode's column. Task 9 mounts the conversation itself here; until then this
- * names the room the sidebar picked — centred and quiet, and the only thing in
- * the column, so the mode switch never reads as a blank window.
- */
-.bot-chat-placeholder {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 24px;
-  text-align: center;
-}
-.bot-eyebrow {
-  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.bot-chat-placeholder h2 {
-  margin: 0;
-  color: var(--morse-fg);
-  font-size: 16px;
-  font-weight: 600;
-}
-.bot-chat-placeholder p {
-  margin: 0;
-  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
-  font-size: 12.5px;
-}
-
-/*
  * The floating composer (and anything docked with it) rides over the conversation.
  * It stays a flex item — so the bottom panel keeps its place under it — and pulls
  * itself up by exactly its own height, which is what makes it float instead of

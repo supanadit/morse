@@ -44,11 +44,15 @@ import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
 import { RestoreState } from '../state/restore-state';
 import { ShellState, type LeftPane } from '../state/shell-state';
-import { WorkspaceTabs } from '../state/workspace-tabs';import { WorkbenchPersistence } from '../services/workbench-persistence';
+import { WorkspaceTabs } from '../state/workspace-tabs';
+import { WorkbenchPersistence } from '../services/workbench-persistence';
 import { QueueDrain } from '../services/queue-drain';
 import { EnterDirective } from '../ui/enter.directive';
 import { SessionNav } from '../features/session-nav/session-nav';
 import { BotNav } from '../features/bot-nav/bot-nav';
+import { BotChat } from '../features/bot-chat/bot-chat';
+import { BotWizard } from '../features/bot-wizard/bot-wizard';
+import { BotGroupDialog } from '../features/bot-group-dialog/bot-group-dialog';
 import { ProjectPicker } from '../features/project-picker/project-picker';
 import { AboutDialog } from '../features/about/about-dialog';
 import { ShortcutsDialog } from '../features/shortcuts-dialog/shortcuts-dialog';
@@ -78,6 +82,9 @@ function previewBoot(): boolean {
     StatusBar,
     SessionNav,
     BotNav,
+    BotChat,
+    BotWizard,
+    BotGroupDialog,
     ProjectPicker,
     AboutDialog,
     ShortcutsDialog,
@@ -222,7 +229,7 @@ export class App {
    * panel and its shells stay mounted (see `bottomPanelEnabled`).
    */
   protected readonly bottomPanelVisible = computed(
-    () => this.bottomPanelEnabled() && !this.tabs.noSessionInFront(),
+    () => this.bottomPanelEnabled() && !this.tabs.noSessionInFront() && this.mode() === 'code',
   );
   /**
    * Full-screen bottom panel: the panel takes the whole chat column and the
@@ -243,6 +250,7 @@ export class App {
    */
   protected readonly gitOpen = computed(
     () =>
+      this.mode() === 'code' &&
       this.gitEnabled() &&
       this.layout.rightVisible() &&
       !this.tabs.noSessionInFront() &&
@@ -257,6 +265,7 @@ export class App {
    */
   protected readonly findFilesOpen = computed(
     () =>
+      this.mode() === 'code' &&
       this.morse.capabilities()?.searchPanel === true &&
       !this.tabs.noSessionInFront() &&
       this.shell.findFilesOpen(),
@@ -360,17 +369,13 @@ export class App {
     return (state.widgets?.length ?? 0) + (state.statuses?.length ?? 0) > 0;
   });
   /**
-   * The bot conversation in front, named from the roster. Task 9 mounts the chat
-   * itself; until then the shell shows which conversation the mode is on, so
-   * picking one in the sidebar is visibly a switch and not a blank room.
+   * The two bot creation dialogs, opened by the roster's buttons. Both signals
+   * live behind `MorseService` so a dialog is a shell-level overlay rather than
+   * a child of the column that opened it — a sidebar unmounted by a drawer
+   * change must not take its unfinished dialog with it.
    */
-  protected readonly activeBotConversation = computed(() => {
-    const id = this.morse.bot.activeId();
-    if (id === null) {
-      return undefined;
-    }
-    return this.morse.bot.roster()?.conversations.find((conversation) => conversation.id === id);
-  });
+  protected readonly botWizardOpen = this.morse.ui.wizardOpen;
+  protected readonly botGroupOpen = this.morse.ui.groupOpen;
 
   /**
    * The notification banner, or nothing when there is no channel to fix:
@@ -560,19 +565,24 @@ export class App {
       this.shortcuts.bind(
         'context.compact',
         () => this.shell.requestCompact(undefined, this.tabs.composerKey()),
-        () => this.morse.state().agentReady,
+        () => this.mode() === 'code' && this.morse.state().agentReady,
       ),
       this.shortcuts.bind('help.shortcuts', () => this.shell.toggleShortcuts()),
       // The palette's open flag is shell state (so `modalOpen` is honest and the
       // overlay renders from one place), so its key is bound here like the help's.
-      this.shortcuts.bind('command.palette', () => this.shell.togglePalette()),
+      // Its commands are code-mode ones, so bot mode does not answer the key.
+      this.shortcuts.bind(
+        'command.palette',
+        () => this.shell.togglePalette(),
+        () => this.mode() === 'code',
+      ),
       // A Morse surface, not a pi command: it opens the full-page editor
       // (browser) or the host's own editor panel (VS Code). Unavailable where
       // the host cannot read pi's prompt directories.
       this.shortcuts.bind(
         'view.prompts',
         () => this.openPromptEditor(),
-        () => this.morse.capabilities()?.promptEditor === true,
+        () => this.mode() === 'code' && this.morse.capabilities()?.promptEditor === true,
       ),
     ];
     this.destroyRef.onDestroy(() => {

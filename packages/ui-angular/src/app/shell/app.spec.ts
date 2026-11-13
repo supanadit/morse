@@ -212,15 +212,13 @@ describe('App', () => {
     expect(host.querySelector('morse-bot-nav')).toBeNull();
   });
 
-  it('names the open bot conversation in the main column', () => {
+  it('mounts the bot conversation in the main column', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const morse = TestBed.inject(MorseService);
     morse.bot.onRoster({
-      bots: [
-        { name: 'Forge', description: 'Keeps the forge hot', engineKind: 'pi', warm: true },
-      ],
+      bots: [{ name: 'Forge', description: 'Keeps the forge hot', engineKind: 'pi', warm: true }],
       conversations: [
         {
           id: 'dm-Forge',
@@ -237,10 +235,37 @@ describe('App', () => {
     fixture.componentInstance.mode.set('bot');
     fixture.detectChanges();
 
-    // Task 9 owns the conversation itself; until then the placeholder says which
-    // conversation the mode is on, so the switch is not a blank room.
-    const placeholder = host.querySelector('.bot-chat-placeholder') as HTMLElement;
-    expect(placeholder.textContent).toContain('Forge');
+    // The conversation itself replaces Task 8's placeholder: its title, its
+    // lines and its own composer live in the same column the code chat used.
+    expect(host.querySelector('morse-bot-chat')).not.toBeNull();
+    expect(host.querySelector('.bot-chat-placeholder')).toBeNull();
+    expect(host.querySelector('morse-bot-chat')?.textContent).toContain('Forge');
+    expect(host.querySelector('morse-bot-chat morse-chat-composer')).not.toBeNull();
+  });
+
+  it('keeps code-mode panels shut while bot mode owns the window', async () => {
+    const { host, fixture } = await renderApp();
+    const shell = TestBed.inject(ShellState);
+
+    // A panel left open in code mode is exactly the lingering state that would
+    // otherwise show through a mode switch.
+    shell.openMcp();
+    fixture.detectChanges();
+    expect(host.querySelector('morse-mcp-panel')).not.toBeNull();
+
+    fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-mcp-panel')).toBeNull();
+    shell.closeMcp();
+    shell.togglePalette();
+    fixture.detectChanges();
+    expect(host.querySelector('morse-command-palette')).toBeNull();
+
+    fixture.componentInstance.mode.set('code');
+    fixture.detectChanges();
+    // Back in code mode the state it kept is reachable again.
+    expect(host.querySelector('morse-command-palette')).not.toBeNull();
   });
 });
 

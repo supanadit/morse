@@ -151,11 +151,11 @@
     </div>
   }
 
-  @if (paletteOpen()) {
+  @if (paletteOpen() && mode() === 'code') {
     <morse-command-palette />
   }
 
-  @if (projectPickerOpen()) {
+  @if (projectPickerOpen() && mode() === 'code') {
     <morse-project-picker />
   }
 
@@ -167,7 +167,20 @@
     <morse-shortcuts-dialog />
   }
 
-  @if (mcpOpen()) {
+  <!--
+       Bot mode's two creation dialogs. They render from the shell, not from the
+       roster, so a drawer closing behind them cannot take an unfinished wizard
+       with it.
+  -->
+  @if (botWizardOpen()) {
+    <morse-bot-wizard />
+  }
+
+  @if (botGroupOpen()) {
+    <morse-bot-group-dialog />
+  }
+
+  @if (mcpOpen() && mode() === 'code') {
     <morse-mcp-panel />
   }
 
@@ -214,23 +227,9 @@
     (drop)="onDrop($event)"
   >
     @if (mode() === 'bot') {
-      <!-- Bot mode's own column. Task 9 mounts the conversation itself here;
-           until then the open conversation is named, so a click in the sidebar
-           lands in the room it picked instead of a blank column. -->
-      @if (activeBotConversation(); as conversation) {
-        <div class="bot-chat-placeholder">
-          <span class="bot-eyebrow">
-            {{ conversation.kind === 'group' ? 'Group' : 'Direct message' }}
-          </span>
-          <h2>{{ conversation.title }}</h2>
-        </div>
-      } @else {
-        <div class="bot-chat-placeholder empty">
-          <span class="bot-eyebrow">Bot mode</span>
-          <h2>No conversation open</h2>
-          <p>Pick a bot or a group in the sidebar.</p>
-        </div>
-      }
+      <!-- Bot mode's own column: the conversation in front, or the empty state
+           that says which gesture opens one. -->
+      <morse-bot-chat />
     } @else {
       <!-- Code mode: the conversation column the product has always had. -->
       @if (dragging()) {

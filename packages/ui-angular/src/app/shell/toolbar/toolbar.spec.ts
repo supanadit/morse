@@ -237,4 +237,30 @@ describe('Toolbar', () => {
     const hint = fixture.nativeElement.querySelector('.command-key') as HTMLElement;
     expect(hint.textContent?.trim()).toBeTruthy();
   });
+
+  it('stands the code-only action groups down while bot mode owns the window', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [Toolbar],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+
+    // The control: every one of these buttons describes a code conversation.
+    expect(fixture.nativeElement.querySelector('.actions .prompts')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.actions .mcp')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.actions')).not.toBeNull();
+
+    fixture.componentRef.setInput('mode', 'bot');
+    fixture.detectChanges();
+
+    // Bot mode owns the window: compact, prompts, MCP, git and search have no
+    // conversation of theirs to act on, so the whole group steps out — while the
+    // mode row itself stays, as the way back.
+    expect(fixture.nativeElement.querySelector('.actions')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.prompts')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.mcp')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.modes')).not.toBeNull();
+  });
 });
