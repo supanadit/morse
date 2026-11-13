@@ -237,9 +237,10 @@ user-controlled version of the fresh-session instinct, without losing continuity
 - Bot→bot mentions relay automatically; hops count against the per-message chain cap (default 8,
   per-group). A relay dropped by the cap is recorded in the transcript as a capped note, not
   silently lost.
-- The user can stop an in-flight round; stopping aborts the in-flight bot's turn (its partial output is
-  kept), drops queued relays, and records a `system` note — a stalled turn is settled by the stop
-  itself, so the conversation is never left locked.
+- The user can stop an in-flight round; stopping aborts the in-flight bot's turn, drops queued relays,
+  and records a `system` note — a stalled turn is settled by the stop itself, so the conversation is
+  never left locked. (Any partial reply the engine managed to emit before the abort is discarded by
+  design in the MVP: nothing of it reached the transcript.)
 
 ### Isolation mechanics (per engine, implemented in the integration packages)
 
