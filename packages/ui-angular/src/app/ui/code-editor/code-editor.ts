@@ -32,6 +32,7 @@ import { pillAnchoredAt, pinFromText, type PinRequest } from './pin-selection';
 import { railOverflows, railSlots } from './rail';
 import { clearFlash, flashExtension, revealLine } from './scroll';
 import { Markdown } from '../markdown/markdown';
+import { PinActions } from '../pin-annotation/pin-actions';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
 import { pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
 
@@ -86,7 +87,7 @@ const pinTintField = StateField.define<DecorationSet>({
   selector: 'morse-code-editor',
   templateUrl: './code-editor.html',
   styleUrl: './code-editor.css',
-  imports: [Markdown, PinAnnotation],
+  imports: [Markdown, PinAnnotation, PinActions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // CodeMirror builds its own DOM, so emulated encapsulation would never reach
   // it; the stylesheet scopes every selector to the host element instead, and
@@ -270,13 +271,9 @@ export class CodeEditor {
       : `translateY(${-view.scrollDOM.scrollTop}px)`;
   }
 
-  /** ✎ on a card: open the annotation editor anchored to it. */
-  protected openNote(card: RailCard, event: Event): void {
-    const element = event.currentTarget;
-    if (!(element instanceof HTMLElement)) {
-      return;
-    }
-    const rect = element.getBoundingClientRect();
+  /** ✎ on a card: open the annotation editor anchored to that button. */
+  protected openNote(card: RailCard, button: HTMLElement): void {
+    const rect = button.getBoundingClientRect();
     this.noteEditing.set({
       pin: card.pin,
       anchor: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },

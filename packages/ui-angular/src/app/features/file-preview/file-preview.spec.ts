@@ -261,7 +261,7 @@ describe('FilePreview', () => {
 describe('FilePreview annotations', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('sits the ✎ on the unified-diff row the pinned range ends on', () => {
+  it('sits the file preview’s note and Cancel on the diff row the pin ends on', () => {
     const { fixture, pins, attachments } = render(
       {
         content: 'const a = 1;\nconst b = 3;\nconst c = 4;\n',
@@ -273,13 +273,15 @@ describe('FilePreview annotations', () => {
     fixture.detectChanges();
     setDiffMode(fixture, 'Unified diff');
 
-    // Last add row of the block is where the affordance ends up — one row, one ✎.
-    const noted = fixture.nativeElement.querySelectorAll('.drow.add .dnote');
-    expect(noted).toHaveLength(1);
-    expect(noted[0]?.textContent).toContain('the block');
+    // Last add row of the block carries the pair the file preview uses.
+    const actions = fixture.nativeElement.querySelectorAll('.drow.add morse-pin-actions');
+    expect(actions).toHaveLength(1);
+    const note = actions[0]?.querySelector('button.note');
+    expect(note?.textContent).toContain('the block');
+    expect(actions[0]?.querySelector('button.cancel')?.textContent).toContain('Cancel');
 
-    // Opening it must not read as “unpin this block”.
-    noted[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    // Opening the note must not read as “unpin this block”.
+    note?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     fixture.detectChanges();
     expect(attachments.removePin).not.toHaveBeenCalled();
     const host = fixture.nativeElement as HTMLElement;
@@ -288,7 +290,28 @@ describe('FilePreview annotations', () => {
     expect(card.querySelector('.range')?.textContent).toContain('L2-3');
   });
 
-  it('hosts the deletion pin’s ✎ on the old side when there is no new row', () => {
+  it('unpins the range from the diff row’s Cancel, exactly once', () => {
+    const { fixture, pins, attachments } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\n',
+        diff: '@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
+    fixture.detectChanges();
+    setDiffMode(fixture, 'Unified diff');
+
+    const cancel = fixture.nativeElement.querySelector('.drow.add morse-pin-actions button.cancel');
+    cancel?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    // The row's own click would unpin too; the pair stops it, so one press is one removal.
+    expect(attachments.removePin).toHaveBeenCalledTimes(1);
+    expect(attachments.removePin).toHaveBeenCalledWith('p1');
+  });
+
+  it('hosts the deletion pin’s note and Cancel on the old side when there is no new row', () => {
     const { fixture, pins } = render(
       {
         content: 'const a = 1;\nconst c = 3;\n',
@@ -303,12 +326,12 @@ describe('FilePreview annotations', () => {
 
     // Unified diff first: the row is the deletion itself, so it carries it.
     setDiffMode(fixture, 'Unified diff');
-    expect(fixture.nativeElement.querySelectorAll('.drow.del .dnote')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('.drow.del morse-pin-actions')).toHaveLength(1);
 
-    // Side by side: the new side has rows only for lines 1 and 3 — the ✎ falls
+    // Side by side: the new side has rows only for lines 1 and 3 — the pair falls
     // to the old side's last deleted row, never alongside the new side's.
     setDiffMode(fixture, 'Side-by-side diff');
-    expect(fixture.nativeElement.querySelectorAll('.side.add .dnote')).toHaveLength(0);
-    expect(fixture.nativeElement.querySelectorAll('.side.del .dnote')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('.side.add morse-pin-actions')).toHaveLength(0);
+    expect(fixture.nativeElement.querySelectorAll('.side.del morse-pin-actions')).toHaveLength(1);
   });
 });

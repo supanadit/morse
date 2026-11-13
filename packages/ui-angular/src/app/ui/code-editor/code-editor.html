@@ -7,24 +7,12 @@
         <article class="morse-card" [style.top.px]="card.top">
           <header class="morse-card-head">
             <span class="morse-card-range">{{ card.label }}</span>
-            <button
-              type="button"
-              class="morse-card-edit"
-              title="Edit the note"
-              [attr.aria-label]="'Edit the note on ' + card.label"
-              (click)="openNote(card, $event)"
-            >
-              ✎
-            </button>
-            <button
-              type="button"
-              class="morse-card-remove"
-              title="Unpin this range"
-              [attr.aria-label]="'Unpin ' + card.label"
-              (click)="unpin(card)"
-            >
-              ⌫
-            </button>
+            <morse-pin-actions
+              [note]="card.pin.note"
+              [target]="'range ' + card.label + ' of ' + path()"
+              (edit)="openNote(card, $event)"
+              (cancel)="unpin(card)"
+            />
           </header>
           @if (card.pin.note) {
             <morse-markdown class="morse-card-note" [text]="card.pin.note" />

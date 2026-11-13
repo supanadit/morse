@@ -1,0 +1,52 @@
+/*
+ * The pair a pinned range carries: the ✎ opens the annotation editor, Cancel
+ * unpins. These are the file preview band's buttons, lifted out so a diff row
+ * and the editor's note card read exactly the same.
+ */
+:host {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.note,
+.cancel {
+  padding: 1px 7px;
+  border: 1px solid var(--morse-border);
+  border-radius: 6px;
+  background: var(--morse-panel, var(--morse-bg));
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.72;
+}
+
+.note {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note.has-note {
+  color: var(--morse-fg);
+  border-color: color-mix(in srgb, var(--morse-accent) 45%, var(--morse-border));
+}
+
+.note:hover:not(:disabled),
+.note:focus-visible {
+  opacity: 1;
+  color: var(--morse-fg);
+  border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+}
+
+.cancel:hover:not(:disabled),
+.cancel:focus-visible {
+  opacity: 1;
+  color: var(--morse-fg);
+  border-color: color-mix(in srgb, var(--morse-error) 45%, var(--morse-border));
+}

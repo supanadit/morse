@@ -32,7 +32,7 @@ import { AttachmentStore, type PendingPin } from '../../state/attachments';
 import { DisplayPrefs, type DiffView } from '../../state/display-prefs';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs, type FileTab } from '../../state/workspace-tabs';
-import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive';
+import { PinActions } from '../../ui/pin-annotation/pin-actions';
 import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import { CODE_EDITOR_LOADER, type CodeEditorLoader } from '../../ui/code-editor/code-editor-loader';
 import { editorPins } from '../../ui/code-editor/pins';
@@ -82,7 +82,7 @@ function rangeText(range: { start: number; end: number } | undefined): string {
   selector: 'morse-file-preview',
   templateUrl: './file-preview.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PinAnnotation, NoteHoverDirective],
+  imports: [PinAnnotation, PinActions],
   styleUrl: './file-preview.css',
 })
 export class FilePreview {
@@ -421,13 +421,9 @@ export class FilePreview {
       : this.notePinAt(side?.newAnchor);
   }
 
-  /** The ✎ on a diff row: open the annotation editor anchored to it. */
-  protected openAnnotation(pin: AnnotationPinRef, event: Event): void {
-    const element = event.currentTarget;
-    if (!(element instanceof HTMLElement)) {
-      return;
-    }
-    const rect = element.getBoundingClientRect();
+  /** The ✎ on a diff row: open the annotation editor anchored to that button. */
+  protected openAnnotation(pin: AnnotationPinRef, button: HTMLElement): void {
+    const rect = button.getBoundingClientRect();
     this.annotationAnchor.set({
       top: rect.top,
       left: rect.left,
@@ -435,6 +431,11 @@ export class FilePreview {
       height: rect.height,
     });
     this.annotationPin.set(pin);
+  }
+
+  /** The pair's Cancel: unpin the range the row stands for. */
+  protected unpinPin(pin: AnnotationPinRef): void {
+    this.attachments.removePin(pin.id);
   }
 
   /** The editor saved: the markdown (an empty one clears) goes onto the pin. */

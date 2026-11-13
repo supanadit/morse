@@ -247,7 +247,9 @@ a lot of chrome over the code. It is replaced wholesale, not ported.
 - a soft line tint (`--morse-accent` at ~8%, well under the selection's ratio) plus a 2px accent rule
   in a 4px lane left of the text, so ranges read as one object without fighting the selection; and
 - a **card in a note rail** on the right of the code: the range label, the note (rendered markdown,
-  `morseNoteHover`-style), and two affordances — edit (✎) and unpin (⌫).
+  `morseNoteHover`-style), and the same two buttons a diff row carries — `✎ note` (edit) and
+  `Cancel` (unpin), one shared `morse-pin-actions` component so the file view and the diff read
+  the same.
 
 ```
  14 │   const tabs = inject(WorkspaceTabs);    ┃ note ─────────────────┐

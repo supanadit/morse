@@ -1,0 +1,22 @@
+<button
+  type="button"
+  class="note"
+  [class.has-note]="hasNote()"
+  [morseNoteHover]="note() ?? ''"
+  [attr.title]="
+    hasNote() ? null : 'Add an annotation — your words about this range ride the prompt with the lines'
+  "
+  [attr.aria-label]="(hasNote() ? 'Edit the annotation on ' : 'Add an annotation on ') + target()"
+  (click)="onEdit($event)"
+>
+  ✎ {{ hint() || 'note' }}
+</button>
+<button
+  type="button"
+  class="cancel"
+  title="Remove this highlight"
+  [attr.aria-label]="'Remove ' + target()"
+  (click)="onCancel($event)"
+>
+  Cancel
+</button>
