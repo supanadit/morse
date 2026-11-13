@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: var(--morse-pane-head-height, 28px);
+  min-height: var(--morse-pane-head-height, 30px);
   padding: 0 6px 0 6px;
 }
 

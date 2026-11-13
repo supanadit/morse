@@ -111,6 +111,12 @@
   --morse-radius-sm: 4px;
   --morse-radius-md: 8px;
   --morse-radius-lg: 12px;
+  /*
+   * One height for every pane's title bar — pane.css's default, in one place —
+   * set to the tab strip's row height (30px), so a panel opened beside the tab
+   * bar starts level with it instead of two pixels short.
+   */
+  --morse-pane-head-height: 30px;
   --morse-code-bg: var(--vscode-editor-background, #171717);
   --morse-code-head: var(--vscode-editorWidget-background, rgb(255 255 255 / 5%));
   --morse-keyword: var(--vscode-charts-blue, #4aa3ff);
