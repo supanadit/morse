@@ -479,6 +479,28 @@ describe('GitPanel', () => {
     expect(host.querySelector('.repo-detail-pane')).toBeNull();
   });
 
+  it('keeps the open repository detail visible in a long repository list', async () => {
+    const repos = {
+      isRepo: true,
+      repos: Array.from({ length: 37 }, (_, index) => ({
+        path: `repo-${index}`,
+        root: `/mock/workspace/repo-${index}`,
+        name: `repo-${index}`,
+        current: index === 0,
+        branch: 'main',
+      })),
+    };
+    const { fixture } = setup(LOG, { repos });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+    const detail = host.querySelector('.repo-detail-pane') as HTMLElement;
+
+    expect(detail).not.toBeNull();
+    // The list scrolls around the detail; the detail itself never collapses.
+    expect(getComputedStyle(detail).minHeight).toBe('280px');
+    expect(getComputedStyle(detail).flexShrink).toBe('0');
+  });
+
   it('opens one repository in place and leaves the other headers put', async () => {
     const { fixture } = setup(LOG, {
       files: [],

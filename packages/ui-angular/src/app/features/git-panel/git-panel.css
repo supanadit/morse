@@ -177,8 +177,10 @@ button.branch:disabled {
    headers leave. A crowded header list scrolls the body around it rather than
    clipping the form. */
 .repo-detail-pane {
-  flex: 1;
-  min-height: 0;
+  /* Never shrinks below a usable form: a crowded header list scrolls the body
+     instead of collapsing the detail to zero height. */
+  flex: 1 0 auto;
+  min-height: 280px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
