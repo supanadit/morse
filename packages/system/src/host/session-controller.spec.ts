@@ -2908,11 +2908,19 @@ describe('HostSessionController bot messages', () => {
     const messages: HostToClientMessage[] = [];
     const roster = { bots: [], conversations: [group] };
     const sent: [string, string][] = [];
+    const probes: {
+      kind: string;
+      envVars: string[];
+      credentials: { provider: string; apiKey: string }[];
+    }[] = [];
     const controller = botController(
       messages,
       fakePort({
         roster: () => roster,
-        probeModels: async (kind) => [{ provider: kind, id: 'm', name: 'M' }],
+        probeModels: async (kind, envVars, credentials) => {
+          probes.push({ kind, envVars, credentials });
+          return [{ provider: kind, id: 'm', name: 'M' }];
+        },
         open: () => [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
         send: (conversationId, text) => {
           sent.push([conversationId, text]);
@@ -2926,8 +2934,22 @@ describe('HostSessionController bot messages', () => {
 
     await controller.handleClientMessage({
       type: 'bot/probeModels',
-      payload: { kind: 'pi', envVars: ['KEY'], requestId: 'req-7' },
+      payload: {
+        kind: 'pi',
+        envVars: ['KEY'],
+        credentials: [{ provider: 'anthropic', apiKey: 'sk-test' }],
+        requestId: 'req-7',
+      },
     });
+    // The wizard's keys travel with the probe: an engine cannot list the models
+    // a key unlocks without the key.
+    expect(probes).toEqual([
+      {
+        kind: 'pi',
+        envVars: ['KEY'],
+        credentials: [{ provider: 'anthropic', apiKey: 'sk-test' }],
+      },
+    ]);
     expect(messages.at(-1)).toEqual({
       type: 'bot/models',
       payload: { requestId: 'req-7', kind: 'pi', models: [{ provider: 'pi', id: 'm', name: 'M' }] },

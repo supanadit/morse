@@ -622,7 +622,9 @@ export class HostSessionController {
         return;
       case 'bot/probeModels': {
         const { requestId, kind } = message.payload;
-        const result = await this.guardBot(() => bot.probeModels(kind, message.payload.envVars));
+        const result = await this.guardBot(() =>
+          bot.probeModels(kind, message.payload.envVars, message.payload.credentials),
+        );
         if (result.ok) {
           this.options.emit({
             type: 'bot/models',

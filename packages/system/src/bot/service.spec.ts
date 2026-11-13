@@ -1,4 +1,13 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type {
@@ -16,6 +25,7 @@ import type {
 import type { BotCreateInput } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
+import { UnsupportedByHostError } from '../errors.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
 import { BotService } from './service.js';
 import { loadBotRegistry, readBotIdentity } from './store.js';
@@ -58,6 +68,8 @@ interface FactoryOptions {
   supportsSubagents?: boolean;
   /** Leaves `writeSubagents` off, so the service must not call a missing method. */
   omitSubagentWriter?: boolean;
+  /** Makes the fake look like OpenCode refusing a level the current model lacks. */
+  thinkingUnsupported?: boolean;
   script: Script;
 }
 
@@ -150,6 +162,11 @@ class FakeGateway implements AgentGateway {
   }
 
   setThinkingLevel(level: ThinkingLevel): Promise<void> {
+    if (this.factory.thinkingUnsupported) {
+      return Promise.reject(
+        new UnsupportedByHostError(`This model does not offer the "${level}" thinking level.`),
+      );
+    }
     this.levelsApplied.push(level);
     return Promise.resolve();
   }
@@ -222,6 +239,10 @@ class FakeFactory implements AgentGatewayFactory {
   /** Gateways opened only to probe a catalog; separate so tests stay unambiguous. */
   readonly probed: FakeGateway[] = [];
   probeCalls = 0;
+  /** How many times the service tore this factory down. */
+  disposes = 0;
+  /** Whether the wizard's credentials were on disk when the factory was built. */
+  readonly credentialsPresent: boolean;
   probeDefaults?: (options: { workspace: WorkspaceRef }) => Promise<AgentGateway>;
   private next = 0;
 
@@ -231,6 +252,7 @@ class FakeFactory implements AgentGatewayFactory {
     readonly models: ModelRef[],
     private readonly options: FactoryOptions,
   ) {
+    this.credentialsPresent = existsSync(join(botRoot, 'config', 'credentials.json'));
     if (options.probeDefaults !== false) {
       this.probeDefaults = (input) => this.probe(input.workspace);
     }
@@ -240,8 +262,18 @@ class FakeFactory implements AgentGatewayFactory {
     return basename(this.botRoot);
   }
 
+  get thinkingUnsupported(): boolean {
+    return this.options.thinkingUnsupported === true;
+  }
+
   get workspace(): WorkspaceRef {
     return { cwd: join(this.botRoot, 'workspace'), name: this.botName };
+  }
+
+  /** An engine server's teardown; the service must call it wherever it is done. */
+  dispose(): Promise<void> {
+    this.disposes += 1;
+    return Promise.resolve();
   }
 
   create(input: { workspace: WorkspaceRef; sessionId?: string }): Promise<AgentGateway> {
@@ -303,7 +335,7 @@ class FakeAdapter implements BotEngineAdapter {
     }
   }
 
-  createFactory(botRoot: string, env: NodeJS.ProcessEnv): AgentGatewayFactory {
+  createFactory(botRoot: string, env: NodeJS.ProcessEnv): FakeFactory {
     this.envs.push(env);
     const factory = new FakeFactory(botRoot, this.script, this.options.models ?? [], this.options);
     this.factories.push(factory);
@@ -312,6 +344,10 @@ class FakeAdapter implements BotEngineAdapter {
 
   writeCredentials(botRoot: string, entries: { provider: string; apiKey: string }[]): void {
     this.credentialWrites.push({ botRoot, entries });
+    // A real adapter writes its engine's auth file; the fake writes one too, so
+    // "the credentials were on disk before the factory was built" is testable.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(join(botRoot, 'config', 'credentials.json'), JSON.stringify(entries));
   }
 }
 
@@ -348,6 +384,7 @@ interface HarnessOptions {
   chainCap?: number;
   supportsSubagents?: boolean;
   omitSubagentWriter?: boolean;
+  thinkingUnsupported?: boolean;
 }
 
 interface Harness {
@@ -385,6 +422,9 @@ function harness(options: HarnessOptions = {}): Harness {
     ...(options.omitSubagentWriter === undefined
       ? {}
       : { omitSubagentWriter: options.omitSubagentWriter }),
+    ...(options.thinkingUnsupported === undefined
+      ? {}
+      : { thinkingUnsupported: options.thinkingUnsupported }),
   };
   const adapter = new FakeAdapter(script, adapterOptions);
   const service = serviceOn(root, adapter, options);
@@ -444,6 +484,11 @@ describe('BotService creation', () => {
     const botRoot = join(root, 'Forge');
     for (const dir of ['config', 'sessions', 'workspace']) {
       expect(existsSync(join(botRoot, dir))).toBe(true);
+      // The bot tree holds credentials and engine sessions; on POSIX it is
+      // private from the moment each directory exists.
+      if (process.platform !== 'win32') {
+        expect(statSync(join(botRoot, dir)).mode & 0o777).toBe(0o700);
+      }
     }
     const identity: BotRecord = {
       name: 'Forge',
@@ -901,6 +946,27 @@ describe('BotService sessions', () => {
     ]);
   });
 
+  it('a thinking level the model lacks is noted, not fatal', async () => {
+    const { adapter, service } = harness({
+      thinkingUnsupported: true,
+      script: () => ({ text: 'Still answered.' }),
+    });
+    await service.createBot(botInput({ thinkingLevel: 'medium' }));
+
+    await service.send('dm-Forge', 'hi');
+
+    const gateway = gatewayFor(adapter, 'Forge');
+    expect(gateway.levelsApplied).toEqual([]);
+    const entries = service.transcript('dm-Forge');
+    expect(entries.map((entry) => entry.text)).toContain(
+      'Thinking level "medium" is not available on this model — using the engine default.',
+    );
+    expect(entries.at(-1)).toMatchObject({
+      author: { role: 'bot', name: 'Forge' },
+      text: 'Still answered.',
+    });
+  });
+
   it('newDiscussion starts fresh sessions', async () => {
     const { root, adapter, service } = harness();
     await service.createBot(botInput());
@@ -1075,10 +1141,12 @@ describe('BotService interactions', () => {
 });
 
 describe('BotService model probes', () => {
+  const CREDENTIALS = [{ provider: 'anthropic', apiKey: 'sk-probe' }];
+
   it('probeModels uses probeDefaults when the factory offers one', async () => {
     const { root, adapter, service } = harness({ models: [MODEL] });
 
-    const models = await service.probeModels('fake', ['ANTHROPIC_API_KEY']);
+    const models = await service.probeModels('fake', ['ANTHROPIC_API_KEY'], CREDENTIALS);
 
     expect(models).toEqual([MODEL]);
     const factory = adapter.factories[0];
@@ -1086,6 +1154,11 @@ describe('BotService model probes', () => {
     expect(factory?.createCalls).toHaveLength(0);
     expect(factory?.probed[0]?.disposed).toBe(true);
     expect(factory?.botRoot.startsWith(join(root, '.probe-'))).toBe(true);
+    // The wizard's keys were written into the throwaway root before the engine
+    // was asked what it offers, and that root (with its copy of the keys) is gone.
+    expect(factory?.credentialsPresent).toBe(true);
+    expect(adapter.credentialWrites).toEqual([{ botRoot: factory?.botRoot, entries: CREDENTIALS }]);
+    expect(factory?.disposes).toBe(1);
     expect(readdirSync(root).some((name) => name.startsWith('.probe-'))).toBe(false);
   });
 
@@ -1095,13 +1168,49 @@ describe('BotService model probes', () => {
       probeDefaults: false,
     });
 
-    const models = await service.probeModels('fake', []);
+    const models = await service.probeModels('fake', [], CREDENTIALS);
 
     expect(models).toEqual([MODEL]);
     const factory = adapter.factories[0];
     expect(factory?.probeCalls).toBe(0);
     expect(factory?.createCalls).toHaveLength(1);
     expect(factory?.gateways[0]?.disposed).toBe(true);
+    expect(factory?.credentialsPresent).toBe(true);
+    expect(factory?.disposes).toBe(1);
     expect(readdirSync(root).some((name) => name.startsWith('.probe-'))).toBe(false);
+  });
+});
+
+describe('BotService engine teardown', () => {
+  it('createBot failure disposes the factory the probe used', async () => {
+    const { adapter, service } = harness({ probeThrows: true });
+
+    await expect(service.createBot(botInput())).rejects.toThrow('probe failed');
+
+    expect(adapter.factories[0]?.disposes).toBe(1);
+  });
+
+  it('deleteBot disposes the bot factory once', async () => {
+    const { adapter, service } = harness({ models: [MODEL] });
+    await service.createBot(botInput());
+    const factory = adapter.factories[0];
+    expect(factory?.disposes).toBe(0);
+
+    await service.deleteBot('Forge');
+
+    expect(factory?.disposes).toBe(1);
+    await service.deleteBot('Forge').catch(() => undefined);
+    expect(factory?.disposes).toBe(1);
+  });
+
+  it('dispose disposes every cached factory once', async () => {
+    const { adapter, service } = harness({ models: [MODEL] });
+    await twoBots(service);
+    const factories = adapter.factories.filter((factory) => !factory.botRoot.includes('.probe-'));
+    expect(factories).toHaveLength(2);
+
+    await service.dispose();
+
+    expect(factories.map((factory) => factory.disposes)).toEqual([1, 1]);
   });
 });

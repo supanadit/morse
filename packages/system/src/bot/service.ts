@@ -20,6 +20,7 @@ import type {
   BotSummary,
   BotTranscriptEntry,
 } from '@morse/protocol';
+import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { mentionTokens, parseMentions } from './mentions.js';
 import {
@@ -47,6 +48,13 @@ import type {
  * through `store.ts`, which keeps `registry.json` single-writer and atomic.
  */
 
+/**
+ * The factory an engine adapter hands the service. Engine integrations may own a
+ * long-lived server (OpenCode's is one per bot), so a factory that has a
+ * `dispose` must be torn down wherever the service is done with it.
+ */
+export type BotGatewayFactory = AgentGatewayFactory & { dispose?(): Promise<void> };
+
 export interface BotEngineAdapter {
   /** Stable engine kind, the value `BotRecord.engineKind` carries. */
   kind: string;
@@ -56,7 +64,7 @@ export interface BotEngineAdapter {
    * an integration may start a long-lived engine server in here, so a second
    * call would start a second server for the same bot.
    */
-  createFactory(botRoot: string, env: NodeJS.ProcessEnv): AgentGatewayFactory;
+  createFactory(botRoot: string, env: NodeJS.ProcessEnv): BotGatewayFactory;
   /** Replaces the bot's whole engine-native credential store. */
   writeCredentials(botRoot: string, entries: { provider: string; apiKey: string }[]): void;
   /**
@@ -174,7 +182,7 @@ interface Round {
 export class BotService {
   private readonly registry: BotRegistryFile;
   /** Per-bot engine factories, so a bot's own engine server is started once. */
-  private readonly factories = new Map<string, AgentGatewayFactory>();
+  private readonly factories = new Map<string, BotGatewayFactory>();
   /** Live gateways, keyed by conversation and bot. */
   private readonly warm = new Map<string, WarmGateway>();
   /** Transcripts are in memory only: a restart starts a fresh transcript (MVP). */
@@ -257,11 +265,11 @@ export class BotService {
         : { subagents: input.subagents.map((subagent) => ({ ...subagent })) }),
     };
     const botRoot = this.botRoot(record.name);
-    let factory: AgentGatewayFactory;
+    let factory: BotGatewayFactory | undefined;
     try {
-      mkdirSync(join(botRoot, 'config'), { recursive: true });
-      mkdirSync(join(botRoot, 'sessions'), { recursive: true });
-      mkdirSync(join(botRoot, 'workspace'), { recursive: true });
+      mkdirSync(join(botRoot, 'config'), { recursive: true, mode: 0o700 });
+      mkdirSync(join(botRoot, 'sessions'), { recursive: true, mode: 0o700 });
+      mkdirSync(join(botRoot, 'workspace'), { recursive: true, mode: 0o700 });
       factory = adapter.createFactory(botRoot, this.engineEnv(record.credentialEnv));
       writeBotIdentity(botRoot, record);
       // The adapter replaces the whole credential store: the wizard's list is
@@ -296,7 +304,12 @@ export class BotService {
     } catch (error) {
       // A half-built bot must not survive: the retry after fixing the key would
       // otherwise look like a duplicate, and a dead directory would sit in the
-      // data dir forever.
+      // data dir forever. The factory goes first, so an engine server the probe
+      // started is stopped before its tree is removed.
+      await this.disposeFactory(
+        factory,
+        'Failed to dispose a bot factory whose create failed',
+      );
       rmSync(botRoot, { recursive: true, force: true });
       throw error;
     }
@@ -317,7 +330,9 @@ export class BotService {
     const bot = this.botOrThrow(name);
     const gateways = [...this.warm.values()].filter((warm) => warm.botName === bot.name);
     await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
+    const factory = this.factories.get(bot.name);
     this.factories.delete(bot.name);
+    await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
     rmSync(this.botRoot(bot.name), { recursive: true, force: true });
     this.registry.bots = this.registry.bots.filter((candidate) => candidate.name !== bot.name);
     saveBotRegistry(this.options.root, this.registry);
@@ -366,9 +381,15 @@ export class BotService {
   /**
    * The engine's model catalog, read from a throwaway root that is removed again.
    * The wizard probes before any bot exists, so nothing here may depend on one;
-   * the declared environment variables are the ones the wizard chose to expose.
+   * the declared environment variables are the ones the wizard chose to expose,
+   * and the credentials are the ones it collected — written into the same
+   * throwaway tree, because an engine cannot list models for a key it cannot see.
    */
-  async probeModels(kind: string, envVars: string[]): Promise<ModelRef[]> {
+  async probeModels(
+    kind: string,
+    envVars: string[],
+    credentials: { provider: string; apiKey: string }[],
+  ): Promise<ModelRef[]> {
     const adapter = this.options.adapters[kind];
     if (adapter === undefined) {
       throw new Error(`The host has no bot engine "${kind}".`);
@@ -380,13 +401,16 @@ export class BotService {
       // so it borrows the host's display name for the temporary workspace.
       name: this.options.defaultWorkspace.name,
     };
-    mkdirSync(workspace.cwd, { recursive: true });
+    mkdirSync(workspace.cwd, { recursive: true, mode: 0o700 });
+    let factory: BotGatewayFactory | undefined;
     try {
-      return await this.readModels(
-        adapter.createFactory(probeRoot, this.engineEnv(envVars)),
-        workspace,
-      );
+      // Credentials first: the factory is built for a root that already knows
+      // the wizard's keys, and the probe gateway reads them from there.
+      adapter.writeCredentials(probeRoot, credentials);
+      factory = adapter.createFactory(probeRoot, this.engineEnv(envVars));
+      return await this.readModels(factory, workspace);
     } finally {
+      await this.disposeFactory(factory, 'Failed to dispose a bot probe factory');
       rmSync(probeRoot, { recursive: true, force: true });
     }
   }
@@ -512,9 +536,16 @@ export class BotService {
         }
       }),
     );
+    // Gateways first: a factory cannot stop the server a gateway still talks to.
+    const factories = [...this.factories.values()];
+    this.factories.clear();
+    await Promise.all(
+      factories.map((factory) =>
+        this.disposeFactory(factory, 'Failed to dispose a bot factory on shutdown'),
+      ),
+    );
     this.rounds.clear();
     this.transcripts.clear();
-    this.factories.clear();
     this.listeners.clear();
   }
 
@@ -746,11 +777,24 @@ export class BotService {
     try {
       const state = await this.withDeadline(gateway.state(), 'gateway startup');
       sessionId = state.sessionId;
+      // Model and thinking level are best-effort: engines declare per-model
+      // capabilities, and a stored choice the current model does not offer must
+      // not keep the bot from answering. The engine's default stands instead.
       if (bot.model !== undefined) {
-        await this.withDeadline(gateway.setModel(bot.model), 'gateway startup');
+        const model = bot.model;
+        await this.applyStartupSetting(
+          () => this.withDeadline(gateway.setModel(model), 'gateway startup'),
+          conversation.id,
+          `Model "${model.provider}/${model.id}" is not available on this engine — using the engine default.`,
+        );
       }
       if (bot.thinkingLevel !== undefined) {
-        await this.withDeadline(gateway.setThinkingLevel(bot.thinkingLevel), 'gateway startup');
+        const level = bot.thinkingLevel;
+        await this.applyStartupSetting(
+          () => this.withDeadline(gateway.setThinkingLevel(level), 'gateway startup'),
+          conversation.id,
+          `Thinking level "${level}" is not available on this model — using the engine default.`,
+        );
       }
     } catch (error) {
       await gateway.dispose().catch((disposalError: unknown) => {
@@ -840,6 +884,29 @@ export class BotService {
     this.note(warm.conversationId, `Turn timed out after ${this.turnTimeoutMs / 1000}s`);
     settle({ reply: warm.reply, reason: 'error', noted: true });
     void this.dropWarm(warm, true);
+  }
+
+  /**
+   * Applies a stored runtime choice, but never refuses the session over it: an
+   * engine that does not offer this model or level throws
+   * `UnsupportedByHostError`, which is a capability answer, not a failure to
+   * start. It is logged and said in the transcript, and the bot runs on the
+   * engine's default. Any other error still fails the startup.
+   */
+  private async applyStartupSetting(
+    work: () => Promise<void>,
+    conversationId: string,
+    note: string,
+  ): Promise<void> {
+    try {
+      await work();
+    } catch (error: unknown) {
+      if (!(error instanceof UnsupportedByHostError)) {
+        throw error;
+      }
+      this.options.logger.warn(note, error);
+      this.note(conversationId, note);
+    }
   }
 
   /**
@@ -1052,7 +1119,7 @@ export class BotService {
   }
 
   /** One factory per bot, created on demand and reused for every session it opens. */
-  private factoryFor(bot: BotRecord, adapter: BotEngineAdapter): AgentGatewayFactory {
+  private factoryFor(bot: BotRecord, adapter: BotEngineAdapter): BotGatewayFactory {
     const factory = this.factories.get(bot.name);
     if (factory !== undefined) {
       return factory;
@@ -1081,6 +1148,25 @@ export class BotService {
       await gateway.dispose().catch((error: unknown) => {
         this.options.logger.warn('Failed to dispose a bot probe gateway', error);
       });
+    }
+  }
+
+  /**
+   * Disposes a factory when it has a teardown, logging rather than throwing: a
+   * disposed engine server or a failed probe must not turn into a second error
+   * on the way out. A factory without `dispose` is simply left to the engine.
+   */
+  private async disposeFactory(
+    factory: BotGatewayFactory | undefined,
+    failure: string,
+  ): Promise<void> {
+    if (factory === undefined) {
+      return;
+    }
+    try {
+      await factory.dispose?.();
+    } catch (error: unknown) {
+      this.options.logger.warn(failure, error);
     }
   }
 

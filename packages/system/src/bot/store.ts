@@ -121,9 +121,47 @@ function isRegistryFile(value: unknown): value is BotRegistryFile {
   return (
     candidate['version'] === 1 &&
     Array.isArray(candidate['bots']) &&
+    candidate['bots'].every(isRegistryBot) &&
     Array.isArray(candidate['groups']) &&
-    Array.isArray(candidate['conversations'])
+    candidate['groups'].every(isRegistryGroup) &&
+    Array.isArray(candidate['conversations']) &&
+    candidate['conversations'].every(isRegistryConversation)
   );
+}
+
+/**
+ * The minimum an element must carry for the service to use it. Deliberately not
+ * a full schema: `engine.json` is the identity and its reader owns the rest, but
+ * a `null` or a number in an array would fail later inside a round, so the file
+ * is rejected at load with its path instead.
+ */
+function isRegistryBot(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['name'] === 'string' && typeof candidate['engineKind'] === 'string';
+}
+
+function isRegistryGroup(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['id'] === 'string' &&
+    typeof candidate['name'] === 'string' &&
+    Array.isArray(candidate['members']) &&
+    candidate['members'].every((member) => typeof member === 'string')
+  );
+}
+
+function isRegistryConversation(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['id'] === 'string' && typeof candidate['kind'] === 'string';
 }
 
 function isBotRecord(value: unknown): value is BotRecord {

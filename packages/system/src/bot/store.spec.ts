@@ -118,6 +118,41 @@ describe('bot store', () => {
     expect(() => loadBotRegistry(dir)).toThrow('version 1');
   });
 
+  it('rejects an element that is not a record, with the file path', () => {
+    // A `null` in an array passed the old top-level check and then failed deep
+    // inside a round; the file is refused at load, where the path can be named.
+    writeFileSync(
+      join(dir, 'registry.json'),
+      JSON.stringify({ version: 1, bots: [null], groups: [], conversations: [] }),
+    );
+
+    expect(() => loadBotRegistry(dir)).toThrow('registry.json');
+    expect(() => loadBotRegistry(dir)).toThrow('version 1');
+  });
+
+  it('rejects a bot without a name and engine kind, a group without id/name/members, and a bad conversation', () => {
+    const cases = [
+      { version: 1, bots: [{ name: 'Forge' }], groups: [], conversations: [] },
+      {
+        version: 1,
+        bots: [],
+        groups: [{ id: 'grp-1', name: 'Launch', members: 'Forge' }],
+        conversations: [],
+      },
+      {
+        version: 1,
+        bots: [],
+        groups: [],
+        conversations: [{ id: 'dm-Forge', kind: 7 }],
+      },
+    ];
+
+    for (const registry of cases) {
+      writeFileSync(join(dir, 'registry.json'), JSON.stringify(registry));
+      expect(() => loadBotRegistry(dir)).toThrow('registry.json');
+    }
+  });
+
   it('replaces the registry and leaves no temp file behind', () => {
     saveBotRegistry(dir, registry());
     saveBotRegistry(dir, { version: 1, bots: [], groups: [], conversations: [] });
