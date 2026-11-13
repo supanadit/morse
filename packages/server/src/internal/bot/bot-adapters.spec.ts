@@ -35,7 +35,7 @@ describe('createBotAdapters', () => {
     expect(adapters['pi']?.writeSubagents).toBeUndefined();
   });
 
-  it("writes a subagent into the bot's own OpenCode config, never the reader's", () => {
+  it('writes a subagent at the config path the bot engine reads', () => {
     const adapters = createBotAdapters({ logger: silentLogger });
     const botRoot = tempBotRoot();
 
@@ -43,6 +43,8 @@ describe('createBotAdapters', () => {
       { name: 'reviewer', prompt: 'Read the diff and report risks.' },
     ]);
 
+    // Task 4's invariant: the bot's OpenCode config dir is
+    // `<botRoot>/config/opencode`, so this is the file its server reads.
     const path = join(botRoot, 'config', 'opencode', 'opencode.json');
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
       agent: {
