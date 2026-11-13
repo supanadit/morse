@@ -27,6 +27,22 @@ describe('ShellState', () => {
     expect(layout.leftCollapsed()).toBe(true);
   });
 
+  it('remembers which face the left column shows', () => {
+    const shell = TestBed.inject(ShellState);
+    expect(shell.leftPane()).toBe('sessions');
+
+    shell.setLeftPane('files');
+    expect(localStorage.getItem('morse.left.pane')).toBe('files');
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).leftPane()).toBe('files');
+
+    // A stored value that names no view falls back to the list.
+    localStorage.setItem('morse.left.pane', 'garbage');
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).leftPane()).toBe('sessions');
+  });
+
   it('knows when a dialog owns the screen', () => {
     const shell = TestBed.inject(ShellState);
     const stack = TestBed.inject(OverlayStack);

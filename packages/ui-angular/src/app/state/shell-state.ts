@@ -9,6 +9,8 @@ const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
 const GIT_HISTORY_COLLAPSED_KEY = 'morse.git.historyCollapsed';
 /** Which panel holds the shell's right column. */
 const RIGHT_PANE_KEY = 'morse.right.pane';
+/** Which face the shell's left column shows. */
+const LEFT_PANE_KEY = 'morse.left.pane';
 
 /**
  * The panels that share the shell's right column — the git panel and the search
@@ -16,6 +18,12 @@ const RIGHT_PANE_KEY = 'morse.right.pane';
  * width and one stored open flag, so the two take turns rather than stacking.
  */
 export type RightPane = 'git' | 'search';
+
+/**
+ * The views that share the shell's left column: the session list and the file
+ * Explorer. Like the right column, one face at a time — the rail picks it.
+ */
+export type LeftPane = 'sessions' | 'files';
 
 function readRightPane(): RightPane {
   try {
@@ -30,6 +38,22 @@ function storeRightPane(pane: RightPane): void {
     globalThis.localStorage?.setItem(RIGHT_PANE_KEY, pane);
   } catch {
     // As below: storage is a nicety, not a requirement.
+  }
+}
+
+function readLeftPane(): LeftPane {
+  try {
+    return globalThis.localStorage?.getItem(LEFT_PANE_KEY) === 'files' ? 'files' : 'sessions';
+  } catch {
+    return 'sessions';
+  }
+}
+
+function storeLeftPane(pane: LeftPane): void {
+  try {
+    globalThis.localStorage?.setItem(LEFT_PANE_KEY, pane);
+  } catch {
+    // As above.
   }
 }
 
@@ -110,6 +134,19 @@ export class ShellState {
   setRightPane(pane: RightPane): void {
     storeRightPane(pane);
     this.rightPaneSignal.set(pane);
+  }
+
+  /**
+   * Which face the left column shows. The column's open flag and width are the
+   * navigation's stored keys, so this only says whether the rail has the session
+   * list or the Explorer in front.
+   */
+  private readonly leftPaneSignal = signal<LeftPane>(readLeftPane());
+  readonly leftPane = this.leftPaneSignal.asReadonly();
+
+  setLeftPane(pane: LeftPane): void {
+    storeLeftPane(pane);
+    this.leftPaneSignal.set(pane);
   }
 
   /**
