@@ -44,8 +44,6 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_UPDATE_CHECK` | enabled | Whether the panel may read the published Morse and pi versions from the npm registry (`0`/`false`/`off` disables both) |
 | `MORSE_SELF_UPDATE` | disabled | Whether the browser footer's update notice may install the latest release and restart the host (`1`/`true`/`on`/`yes` enables). Off by default; see below |
 | `MORSE_TERMINAL_IDLE_MS` | `1800000` | How long a terminal's shell keeps running with no page attached before the host reclaims it (`0` disables the timeout) |
-| `MORSE_LSP_IDLE_MS` | `600000` | How long a language server keeps running after the last request that used it (`0` disables the timeout) |
-| `MORSE_LSP_TS`, `MORSE_LSP_JSON`, `MORSE_LSP_YAML`, `MORSE_LSP_SH`, `MORSE_LSP_GO`, `MORSE_LSP_PY` | unset | Path to the server for that language, overriding the lookup order below |
 
 `MORSE_PROJECTS` is the security boundary: when set, the agent may only work inside those roots. When unset,
 any absolute path is accepted — fine for a host bound to `127.0.0.1`, not for one you expose.
@@ -158,8 +156,9 @@ frontend state, and the browser host persists it (with the bottom panel and its 
 `<MORSE_HOME>/workbench.json`, so opening the page again lands on the tab the reader left; the drafts of
 those tabs — text, pins, mentions and inline images — are persisted per tab to
 `<MORSE_HOME>/drafts.json`, so a long prompt survives a reload or a `morse stop`. VS Code keeps its own tab
-restoration and restores nothing here. A preview is read-only on purpose: VS Code is the
-host with an editor. A file over 512 KB is shown truncated, and a binary file is named rather than decoded.
+restoration and restores nothing here. The file opens in a read-only editor (syntax
+highlighting, folding, find, no language server), so a file over 512 KB is shown truncated and a binary file
+is named rather than decoded.
 Drag across the preview's line numbers to pin a range (`path:start-end`) to your next message — picking a
 file in the `@` picker opens it so the drag is one step away. Ranges that touch or overlap become one chip
 (and one highlight); dragging from inside an existing highlight edits that range, and its top and bottom

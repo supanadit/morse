@@ -38,12 +38,12 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the layout and layering rules, and
 `packages/ui-angular/angular.json` is strict JSON (no comments), so any tool can parse it. The decisions it
 encodes, and why:
 
-- **Initial bundle budget** (`maximumWarning` 850 kB, `maximumError` 1.3 MB). The initial bundle is ~1.26 MB raw
-  (~274 kB over the wire): markdown, highlight.js, DOMPurify, anime.js, Angular and the shell's own git panel
-  are all in it, while the code-split editors (prompt templates, session pages) stay out. The ceiling tracks the
-  app's growth (1 MB was set when it was ~600 kB, 1.05 MB before the preview's language-server surface, 1.2 MB
-  before the stepper question form, 1.25 MB before the git log panel) and is meant to warn about growth, not to
-  freeze the size.
+- **Initial bundle budget** (`maximumWarning` 850 kB, `maximumError` 1.3 MB). The initial bundle is ~1.23 MB raw
+  (~271 kB over the wire): markdown, highlight.js, DOMPurify, anime.js, Angular and the shell's own git panel
+  are all in it, while the code-split editors (prompt templates, session pages, the file editor and its
+  grammars) stay out. The ceiling tracks the app's growth (1 MB was set when it was ~600 kB, 1.05 MB before the
+  preview's language-server surface, 1.2 MB before the stepper question form, 1.25 MB before the git log panel)
+  and is meant to warn about growth, not to freeze the size.
 - **`anyComponentStyle` budget** (`maximumWarning` 12 kB, `maximumError` 16 kB): the transcript's own stylesheet
   is the largest at ~10.6 kB.
 - **`allowedCommonJsDependencies`** lists the three `@xterm/*` packages because xterm.js ships CommonJS only.

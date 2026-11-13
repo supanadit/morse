@@ -34,7 +34,7 @@ the directory they actually serve (`frontendIdentity()` in `@morse/protocol`).
 | Wire types, guards, view state + reducer | `@morse/protocol` | `SessionView` (transcript, sessions, projects), `HostCapabilities.scope`, `reduceSessionView`, `parseHostMessage`, `encodeWireMessage` |
 | Transports | `@morse/ui-runtime` | `resolveTransport()`, `VsCodeHostTransport`, `WebSocketHostTransport`, `MemoryHostTransport` |
 | Client facade | `@morse/ui-runtime` | `createMorseClient({ transport })` → `getView()`, `subscribe()`, `actions` |
-| Framework-free helpers | `@morse/ui-runtime` | git graph/status/diff, file tree and preview positions, transcript rows/tasks/tools/usage, command ranking, the `host/command` reply guards, the markdown/highlight render pipeline, popover placement, prompt-template rendering, terminal link detection |
+| Framework-free helpers | `@morse/ui-runtime` | git graph/status/diff, the file tree, transcript rows/tasks/tools/usage, command ranking, the `host/command` reply guards, the markdown/highlight render pipeline, popover placement, prompt-template rendering, terminal link detection |
 
 Multi-project is host state, not frontend state: the host streams the transcript of the **active** session and
 replays another one when the client activates it, so a frontend only renders `view.items` plus the
@@ -90,11 +90,7 @@ needs.
    whether the host can read the active project's git history (`gitLog`) for the frontend's own
    git panel (the browser host; VS Code keeps its Source Control view and leaves it off), `terminal`
    whether the host can run an interactive shell (`terminal/open` and its siblings) for the bottom
-   panel's terminal (again the browser host; VS Code keeps its integrated terminal), `lsp`
-   whether the host can run a language server for the preview's code (`lspHover`/`lspDefinition`/
-   `lspReferences`/`lspDiagnostics`) so a file can be hovered and jumped through — a browser cannot spawn
-   one, and VS Code's own LSP already owns its files, so it is the browser host that turns this on (and it
-   reports per file whether a server actually covers that language), `workbench`
+   panel's terminal (again the browser host; VS Code keeps its integrated terminal), `workbench`
    whether the host can store the shell layout (`readWorkbench` / `saveWorkbench`) so the tabs, panel
    and terminals come back on the next visit (the browser host keeps it under `MORSE_HOME`; VS Code has
    its own tab restoration and leaves it off), `sessionTabs`
@@ -175,7 +171,11 @@ directly.
 
 VS Code has an Explorer and a text editor, so its host leaves `filePreview` off and none of this renders.
 The browser host has neither, so `filePreview: true` gives the frontend an Explorer in the sidebar and a tab
-strip above the conversation, where sessions and files open side by side.
+strip above the conversation, where sessions and files open side by side. A file opens in a **read-only
+CodeMirror editor** — syntax highlighting, folding, find, sticky scrolled declarations — loaded as its own
+lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. A pin's
+annotation is written in a card beside the code; on VS Code, where there is no editor tab, the chip keeps its
+annotation button instead.
 
 - The Explorer is drawn in levels. The flat `listFiles` listing the `@mention` picker uses (git-aware,
   the active session's directory, capped at five thousand files in the host's index) paints the first

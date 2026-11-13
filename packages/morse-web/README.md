@@ -109,7 +109,7 @@ MORSE_UI_DIR           Override the served frontend directory
 MORSE_SELF_UPDATE      Allow the browser's update button to install and restart (default: off)
 ```
 
-The full list, including the language-server, terminal and upload knobs, is in
+The full list, including the terminal and upload knobs, is in
 [Configuration](https://github.com/supanadit/morse/blob/master/docs/CONFIGURATION.md).
 
 ## Security

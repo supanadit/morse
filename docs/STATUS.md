@@ -207,8 +207,8 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
   compaction instructions, no MCP/prompt-template editor, and no automatic restart of a crashed owned server.
   Each is reported rather than simulated: a compaction with instructions warns and compacts without them; an
   MCP or prompt command from the OpenCode engine is refused.
-- **Editing files in the browser** — the preview is read-only on purpose. VS Code is the host with an editor;
-  the browser host reads, quotes and diffs, but does not write.
+- **Editing files in the browser** — the file tab is a read-only editor by design. It reads, folds, searches,
+  quotes and diffs, but nothing writes: there is no save path, no dirty state and no language server.
 - **Staging, approving or rejecting changes as a set** — diffs are shown (tool-call diffs in the transcript,
   a file's diff in the preview), but there is no review surface that acts on them as a whole.
 - **Authentication on the browser host** — there is none. `--lan` is for trusted networks only, or put an
