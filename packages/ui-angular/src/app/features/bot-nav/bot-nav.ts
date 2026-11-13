@@ -38,6 +38,8 @@ export class BotNav {
   );
   /** The conversation in front, so its row reads as the open one. */
   protected readonly activeId = this.morse.bot.activeId;
+  /** The round the host is running, so a bot mid-answer is not deletable. */
+  protected readonly routing = this.morse.bot.routing;
   /**
    * A roster arrives as a push, but nothing sends one until someone asks — so
    * the first look at an empty roster asks for it. `untracked` keeps the reply
@@ -61,6 +63,27 @@ export class BotNav {
   /** A group's mark is the same letter idea, from its title. */
   protected groupMark(group: BotConversationSummary): string {
     return group.title.slice(0, 1).toUpperCase();
+  }
+
+  /** True while this bot's own DM is answering, when deleting it would strand a turn. */
+  protected routingFor(bot: BotSummary): boolean {
+    return this.routing()?.conversationId === `dm-${bot.name}`;
+  }
+
+  /**
+   * Deletes a bot and its tree. Destructive and confirm-first: the bot's config,
+   * sessions and workspace are removed, so the reader is told exactly that
+   * before anything happens.
+   */
+  protected deleteBot(bot: BotSummary): void {
+    const confirmed = window.confirm(
+      `Delete bot ${bot.name}? Its config, sessions and workspace are removed.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    this.morse.deleteBot(bot.name);
+    this.shell.closeNavigation();
   }
 
   protected openBot(bot: BotSummary): void {

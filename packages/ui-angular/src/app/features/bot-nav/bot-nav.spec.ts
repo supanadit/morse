@@ -112,6 +112,45 @@ describe('BotNav', () => {
     expect(open).toHaveBeenCalledWith('group-workshop');
   });
 
+  it('deletes a bot after the confirm names exactly what is removed', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    fixture.detectChanges();
+    const remove = vi.spyOn(morse, 'deleteBot');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    (host.querySelector('.delete-bot') as HTMLButtonElement).click();
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Delete bot Forge? Its config, sessions and workspace are removed.',
+    );
+    expect(remove).toHaveBeenCalledWith('Forge');
+  });
+
+  it('does not delete when the confirm is declined', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    fixture.detectChanges();
+    const remove = vi.spyOn(morse, 'deleteBot');
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    (host.querySelector('.delete-bot') as HTMLButtonElement).click();
+
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('hides the delete affordance while that bot is answering', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
+    morse.bot.onRouting({ conversationId: 'dm-Forge', target: 'Forge', queued: [] });
+    fixture.detectChanges();
+
+    const buttons = [...host.querySelectorAll('.delete-bot')];
+    // Forge's row is mid-round; Sable's is not.
+    expect(buttons).toHaveLength(1);
+    expect(host.querySelectorAll('.bot-row')[0]?.querySelector('.delete-bot')).toBeNull();
+  });
+
   it('highlights the conversation in front', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });

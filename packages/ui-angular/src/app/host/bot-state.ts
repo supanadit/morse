@@ -71,8 +71,7 @@ export class BotState {
 
   /**
    * Transcript lines as the host now has them. `replace` resets what is held
-   * (opening a conversation, and the reconcile after a local echo); entries
-   * alone are the lines a round appended since.
+   * (opening a conversation); entries alone are the lines a round appended since.
    */
   onTranscript(transcript: BotTranscriptMessage['payload']): void {
     const { conversationId, entries, replace } = transcript;
@@ -99,19 +98,6 @@ export class BotState {
   open(id: string): void {
     this.activeId.set(id);
     this.routing.set(null);
-  }
-
-  /**
-   * Appends a line to the conversation in front, verbatim — the caller mints it
-   * (the composer's local echo) so its id stays its own. The host's
-   * `replace: true` reconciles the echo with the stored line.
-   */
-  appendLocal(entry: BotTranscriptEntry): void {
-    const id = this.activeId();
-    if (id === null) {
-      return;
-    }
-    this.transcripts.update((held) => ({ ...held, [id]: [...(held[id] ?? []), entry] }));
   }
 
   /** Drops a conversation's lines, keeping the key so it reads as opened-but-empty. */

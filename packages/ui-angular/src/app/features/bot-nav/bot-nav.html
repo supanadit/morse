@@ -24,7 +24,7 @@
     @if (bots().length > 0) {
       <ul>
         @for (bot of bots(); track bot.name) {
-          <li>
+          <li class="bot-row">
             <button
               type="button"
               class="row bot"
@@ -50,6 +50,20 @@
                 aria-hidden="true"
               ></span>
             </button>
+            <!-- Deleting takes the bot's config, sessions and workspace with
+                 it, so it is confirm-first and unavailable while the bot is
+                 answering. -->
+            @if (!routingFor(bot)) {
+              <button
+                type="button"
+                class="delete-bot"
+                [attr.aria-label]="'Delete ' + bot.name"
+                [title]="'Delete ' + bot.name"
+                (click)="deleteBot(bot)"
+              >
+                ×
+              </button>
+            }
           </li>
         }
       </ul>

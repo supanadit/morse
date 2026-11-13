@@ -271,7 +271,7 @@ describe('MorseService bot mode', () => {
     });
   });
 
-  it('sends the reader line and echoes it locally first', () => {
+  it('sends the reader line and leaves the transcript to the host', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
     morse.openBotConversation('dm-forge');
@@ -282,27 +282,12 @@ describe('MorseService bot mode', () => {
       type: 'bot/send',
       payload: { conversationId: 'dm-forge', text: 'hi' },
     });
-    const echoed = morse.bot.transcripts()['dm-forge'] ?? [];
-    expect(echoed).toEqual([
-      { id: 'local-1', author: { role: 'user' }, text: 'hi', at: expect.any(Number) },
-    ]);
+    // No local echo: the host appends the user line when it accepts the send,
+    // and a second copy here is what rendered every message twice.
+    expect(morse.bot.transcripts()['dm-forge']).toBeUndefined();
   });
 
-  it('numbers local echoes monotonically', () => {
-    const transport = new ScriptedTransport();
-    const morse = mount(transport);
-    morse.openBotConversation('dm-forge');
-
-    morse.sendBotMessage('one');
-    morse.sendBotMessage('two');
-
-    expect(morse.bot.transcripts()['dm-forge']?.map((line) => line.id)).toEqual([
-      'local-1',
-      'local-2',
-    ]);
-  });
-
-  it('reconciles the local echo when the host replaces the transcript', () => {
+  it('renders the host transcript after a send, once', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
     morse.openBotConversation('dm-forge');
@@ -311,7 +296,7 @@ describe('MorseService bot mode', () => {
     const stored = { id: 'h1', author: { role: 'user' as const }, text: 'hi', at: 5 };
     transport.toClient({
       type: 'bot/transcript',
-      payload: { conversationId: 'dm-forge', entries: [stored], replace: true },
+      payload: { conversationId: 'dm-forge', entries: [stored], replace: false },
     });
 
     expect(morse.bot.transcripts()['dm-forge']).toEqual([stored]);
@@ -332,11 +317,21 @@ describe('MorseService bot mode', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
 
-    morse.probeModels('pi', ['ANTHROPIC_API_KEY'], 'probe-1');
+    morse.probeModels(
+      'pi',
+      ['ANTHROPIC_API_KEY'],
+      [{ provider: 'anthropic', apiKey: 'sk-probe' }],
+      'probe-1',
+    );
 
     expect(lastFrame(transport)).toEqual({
       type: 'bot/probeModels',
-      payload: { kind: 'pi', envVars: ['ANTHROPIC_API_KEY'], requestId: 'probe-1' },
+      payload: {
+        kind: 'pi',
+        envVars: ['ANTHROPIC_API_KEY'],
+        credentials: [{ provider: 'anthropic', apiKey: 'sk-probe' }],
+        requestId: 'probe-1',
+      },
     });
   });
 

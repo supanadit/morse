@@ -182,9 +182,6 @@ export class MorseService {
     groupOpen: signal(false),
   };
 
-  /** How many lines this client echoed locally, so `local-<n>` never repeats. */
-  private localEcho = 0;
-
   constructor() {
     this.client = createMorseClient({ transport: this.transport, frontend: FRONTEND_IDENTITY });
     this.actions = this.client.actions;
@@ -504,9 +501,20 @@ export class MorseService {
   /**
    * Lists the models an engine offers with the wizard's credentials, before any
    * bot exists. The answer arrives as `bot/models` under the same `requestId`.
+   * The credentials travel with the probe: the host writes them into its
+   * throwaway root before asking the engine, because the engine can only list
+   * the models those keys unlock.
    */
-  probeModels(kind: string, envVars: string[], requestId: string): void {
-    this.transport.send({ type: 'bot/probeModels', payload: { kind, envVars, requestId } });
+  probeModels(
+    kind: string,
+    envVars: string[],
+    credentials: { provider: string; apiKey: string }[],
+    requestId: string,
+  ): void {
+    this.transport.send({
+      type: 'bot/probeModels',
+      payload: { kind, envVars, credentials, requestId },
+    });
   }
 
   /** Deletes a bot and its directory; conversations it belonged to keep the gap. */
@@ -530,23 +538,17 @@ export class MorseService {
   }
 
   /**
-   * Sends the reader's line and starts a routing round. The line is echoed into
-   * the transcript first — with a `local-<n>` id of its own — so the words show
-   * before the host has answered; the host's next `bot/transcript` (replace)
-   * swaps in the stored entries. Nothing is sent with no conversation open.
+   * Sends the reader's line and starts a routing round. The host transcript is
+   * the single source: the host records the line when it accepts the send, so
+   * there is no local echo to reconcile and nothing to retire — and a refused
+   * send leaves no phantom line behind. Nothing is sent with no conversation
+   * open.
    */
   sendBotMessage(text: string): void {
     const conversationId = this.bot.activeId();
     if (conversationId === null) {
       return;
     }
-    this.localEcho += 1;
-    this.bot.appendLocal({
-      id: `local-${this.localEcho}`,
-      author: { role: 'user' },
-      text,
-      at: Date.now(),
-    });
     this.transport.send({ type: 'bot/send', payload: { conversationId, text } });
   }
 

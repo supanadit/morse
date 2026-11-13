@@ -198,6 +198,7 @@
             <label class="field">
               <span class="field-label">Thinking</span>
               <select name="thinking" (change)="pickThinking($event)">
+                <option value="" [selected]="thinking() === ''">Engine default</option>
                 @for (level of thinkingLevels; track level) {
                   <option [value]="level" [selected]="thinking() === level">{{ level }}</option>
                 }
@@ -305,7 +306,7 @@
               <dt>Model</dt>
               <dd>
                 @if (model(); as chosen) {
-                  {{ chosen.name }} · {{ chosen.provider }} · {{ thinking() }}
+                  {{ chosen.name }} · {{ chosen.provider }} · {{ thinking() || 'Engine default' }}
                 } @else {
                   —
                 }
@@ -323,6 +324,9 @@
               <p class="pending" role="status">
                 Creating {{ creating }} — waiting for the roster to name it…
               </p>
+            }
+            @if (createError(); as failure) {
+              <p class="create-error" role="alert">{{ failure }}</p>
             }
           </div>
         }

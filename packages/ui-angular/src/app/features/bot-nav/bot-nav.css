@@ -85,6 +85,16 @@ ul {
 }
 
 /* A row is one conversation: avatar, name over description, presence. */
+.bot-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.bot-row .row {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
 .row {
   display: flex;
   align-items: center;
@@ -160,6 +170,29 @@ ul {
 .presence.warm {
   border-color: transparent;
   background: var(--morse-accent);
+}
+/*
+ * The delete affordance sits beside the row (a button cannot nest in a button)
+ * and stays quiet until hovered: it is destructive, so it never competes with
+ * opening the conversation.
+ */
+.delete-bot {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.delete-bot:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
 }
 
 /* Nothing to list yet: a sentence, not a box that looks like an error. */

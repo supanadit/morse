@@ -1,5 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type { BotCreateInput, ModelOption } from '@morse/protocol';
+import type { BotCreateInput, HostToClientMessage, ModelOption } from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
@@ -12,15 +12,24 @@ const claude: ModelOption = {
   name: 'Claude Sonnet 4',
 };
 
+/** The mock host, able to push a message (a notice) by hand. */
+class ScriptedHost extends MemoryHostTransport {
+  toClient(message: HostToClientMessage): void {
+    this.emitMessage(message);
+  }
+}
+
 async function render(): Promise<{
   fixture: ComponentFixture<BotWizard>;
   host: HTMLElement;
   morse: MorseService;
+  transport: ScriptedHost;
 }> {
   TestBed.resetTestingModule();
+  const transport = new ScriptedHost();
   await TestBed.configureTestingModule({
     imports: [BotWizard],
-    providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() }],
+    providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
   }).compileComponents();
   const fixture = TestBed.createComponent(BotWizard);
   fixture.detectChanges();
@@ -28,6 +37,7 @@ async function render(): Promise<{
     fixture,
     host: fixture.nativeElement as HTMLElement,
     morse: TestBed.inject(MorseService),
+    transport,
   };
 }
 
@@ -56,6 +66,29 @@ function tick(fixture: ComponentFixture<BotWizard>): void {
 }
 
 /**
+ * Answers the probe and walks the remaining pi steps to the review step, so a
+ * test can submit without repeating every click.
+ */
+function walkToReview(
+  fixture: ComponentFixture<BotWizard>,
+  host: HTMLElement,
+  morse: MorseService,
+  requestId: string,
+): void {
+  morse.bot.onModels({ requestId, kind: 'pi', models: [claude] });
+  tick(fixture);
+  choose(host, 'select[name="model"]', 'anthropic/claude-sonnet-4');
+  tick(fixture);
+  button(host, '.next').click();
+  tick(fixture);
+  button(host, '.next').click();
+  tick(fixture);
+  button(host, '.next').click();
+  tick(fixture);
+  expect(currentStep(host)).toBe('review');
+}
+
+/**
  * Walks the wizard up to the model step, answering the probe the way the host
  * does. Returns the request id the wizard probed under.
  */
@@ -64,8 +97,7 @@ function walkToModelStep(
   host: HTMLElement,
   morse: MorseService,
   kind: string,
-): string {
-  fill(host, 'input[name="name"]', 'Forge');
+): string {  fill(host, 'input[name="name"]', 'Forge');
   fill(host, 'input[name="description"]', 'Keeps the forge hot');
   tick(fixture);
   button(host, '.next').click();
@@ -82,7 +114,7 @@ function walkToModelStep(
   tick(fixture);
   expect(currentStep(host)).toBe('model');
   expect(probe).toHaveBeenCalledTimes(1);
-  const requestId = probe.mock.calls[0]?.[2] ?? '';
+  const requestId = probe.mock.calls[0]?.[3] ?? '';
   return requestId;
 }
 
@@ -237,7 +269,11 @@ describe('BotWizard', () => {
     expect(currentStep(host)).toBe('model');
 
     // The new probe's request is the one this visit waits on.
-    const secondRequest = vi.mocked(morse.probeModels).mock.calls.at(-1)?.[2] ?? '';
+    const secondRequest = vi.mocked(morse.probeModels).mock.calls.at(-1)?.[3] ?? '';
+    // The probe carries the credentials collected on the step before it.
+    expect(vi.mocked(morse.probeModels).mock.calls.at(-1)?.[2]).toEqual([
+      { provider: 'anthropic', apiKey: 'sk-ant-123' },
+    ]);
     morse.bot.onModels({ requestId: secondRequest, kind: 'opencode', models: [claude] });
     tick(fixture);
     choose(host, 'select[name="model"]', 'anthropic/claude-sonnet-4');
@@ -321,6 +357,9 @@ describe('BotWizard', () => {
     const submitted = create.mock.calls[0]?.[0];
     expect(submitted).not.toHaveProperty('subagents');
     expect(submitted).not.toHaveProperty('agentsMd');
+    // No default thinking level is stored: `off` is not a level every model has,
+    // and a stored one it lacks would make the bot refuse its first message.
+    expect(submitted).not.toHaveProperty('thinkingLevel');
     expect(morse.ui.wizardOpen()).toBe(true);
 
     // A roster that does not name it is another bot's push, not our answer.
@@ -340,6 +379,62 @@ describe('BotWizard', () => {
     });
     tick(fixture);
     expect(morse.ui.wizardOpen()).toBe(false);
+  });
+
+  it('clears the pending create and shows the notice when the host refuses it', async () => {
+    const { fixture, host, morse, transport } = await render();
+    morse.ui.wizardOpen.set(true);
+    walkToReview(fixture, host, morse, walkToModelStep(fixture, host, morse, 'pi'));
+    button(host, '.create').click();
+    tick(fixture);
+    expect(host.querySelector('.pending')).not.toBeNull();
+
+    // The host answers a failed create with a notice (there is no request echo),
+    // so that is the only signal a dialog can wait on.
+    transport.toClient({
+      type: 'notice',
+      payload: { level: 'error', text: 'The host has no bot engine "nope".', at: Date.now() },
+    });
+    tick(fixture);
+
+    expect(host.querySelector('.pending')).toBeNull();
+    expect(host.querySelector('.create-error')?.textContent).toContain('no bot engine');
+    // Still open, so the reader can fix the answer and try again.
+    expect(morse.ui.wizardOpen()).toBe(true);
+    expect(button(host, '.create').disabled).toBe(false);
+  });
+
+  it('does not mistake a duplicate name already in the roster for a fresh create', async () => {
+    const { fixture, host, morse, transport } = await render();
+    // The name exists before this wizard opened; every roster push from now on
+    // will list it, so "the roster names it" alone would close the dialog.
+    morse.bot.onRoster({
+      bots: [{ name: 'Forge', description: 'Already here', engineKind: 'pi', warm: false }],
+      conversations: [],
+    });
+    tick(fixture);
+    morse.ui.wizardOpen.set(true);
+
+    const requestId = walkToModelStep(fixture, host, morse, 'pi');
+    walkToReview(fixture, host, morse, requestId);
+    button(host, '.create').click();
+    tick(fixture);
+    expect(host.querySelector('.pending')).not.toBeNull();
+
+    // The host refuses the duplicate and republishes the same roster.
+    transport.toClient({
+      type: 'notice',
+      payload: {
+        level: 'error',
+        text: 'A bot named "Forge" already exists: bot names are case-insensitive because they are @mentions.',
+        at: Date.now(),
+      },
+    });
+    tick(fixture);
+
+    expect(morse.ui.wizardOpen()).toBe(true);
+    expect(host.querySelector('.pending')).toBeNull();
+    expect(host.querySelector('.create-error')?.textContent).toContain('already exists');
   });
 
   it('closes without creating anything when cancelled', async () => {

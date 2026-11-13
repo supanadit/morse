@@ -146,23 +146,6 @@ describe('BotState', () => {
     expect(state.transcripts()['dm-forge']).toEqual([line('a', 'hi')]);
   });
 
-  it('appends a local line to the open conversation', () => {
-    const state = new BotState();
-    state.open('dm-forge');
-
-    state.appendLocal(line('local-1', 'hi', 42));
-
-    expect(state.transcripts()['dm-forge']).toEqual([line('local-1', 'hi', 42)]);
-  });
-
-  it('ignores a local line when no conversation is open', () => {
-    const state = new BotState();
-
-    state.appendLocal(line('local-1', 'nowhere'));
-
-    expect(state.transcripts()).toEqual({});
-  });
-
   it('records probed models per request, keeping earlier answers', () => {
     const state = new BotState();
 

@@ -96,11 +96,23 @@ export class BotWizard {
   protected readonly subagents = signal<SubagentRow[]>([]);
   /** The model pick, keyed `provider/id`; empty until the reader chooses. */
   protected readonly modelKey = signal('');
-  protected readonly thinking = signal<ThinkingLevel>('off');
+  /**
+   * The thinking level the reader explicitly picked; empty means "Engine
+   * default" and stores no level at all. No normal OpenCode model declares
+   * `off`, so defaulting one would make every OpenCode bot refuse its first
+   * message.
+   */
+  protected readonly thinking = signal<ThinkingLevel | ''>('');
   /** The probe this wizard is waiting on, and the models it answered with. */
   private readonly requestId = signal<string | null>(null);
   /** The bot being created, while the roster has not named it yet. */
   protected readonly pending = signal<string | null>(null);
+  /** A failed create, said in the dialog instead of leaving it pending forever. */
+  protected readonly createError = signal<string | null>(null);
+  /** The roster names as they were at submit, so a duplicate cannot look new. */
+  private readonly knownBotsAtSubmit = signal<readonly string[]>([]);
+  /** The last notice the host had at submit; a later one is this create's failure. */
+  private readonly noticeAtSubmit = signal<{ level: string; text: string; at: number } | null>(null);
 
   protected readonly engines = this.morse.engines;
   protected readonly thinkingLevels = THINKING_LEVELS;
@@ -149,6 +161,12 @@ export class BotWizard {
       .filter((row) => row.name.trim().length > 0)
       .map((row) => ({ name: row.name.trim(), prompt: row.prompt.trim() })),
   );
+  /** The credential rows the probe and the create both send, trimmed and named. */
+  protected readonly collectedCredentials = computed<CredentialRow[]>(() =>
+    this.credentials()
+      .filter((row) => row.provider.trim().length > 0)
+      .map((row) => ({ provider: row.provider.trim(), apiKey: row.apiKey })),
+  );
   protected readonly subagentNames = computed(() =>
     this.namedSubagents()
       .map((row) => row.name)
@@ -158,20 +176,42 @@ export class BotWizard {
   constructor() {
     // `bot/create` has no per-request echo: the roster is the only confirmation.
     // The wizard becomes what the host names — a pushed roster that lists this
-    // bot means the create landed, so the dialog closes on that push.
+    // bot means the create landed, so the dialog closes on that push. The name
+    // must also have been absent when the create was submitted: a duplicate
+    // refused by the host leaves the pre-existing row in every roster push, and
+    // that is not this wizard's bot.
     effect(() => {
       const roster = this.morse.bot.roster();
       const pending = this.pending();
       if (roster === null || pending === null) {
         return;
       }
-      const created = roster.bots.some((bot) => bot.name.toLowerCase() === pending.toLowerCase());
+      const handle = pending.toLowerCase();
+      const before = this.knownBotsAtSubmit();
+      const created = roster.bots.some(
+        (bot) => bot.name.toLowerCase() === handle && !before.includes(bot.name.toLowerCase()),
+      );
       if (!created) {
         return;
       }
       untracked(() => {
         this.pending.set(null);
         this.morse.ui.wizardOpen.set(false);
+      });
+    });
+    // A create can also fail (a duplicate name, an engine that would not start,
+    // a refused key). The host says so as a notice, not a bot/roster, so without
+    // this the dialog would wait on a name that is never coming. Any notice that
+    // arrives after submit ends the wait and is shown in place.
+    effect(() => {
+      const notice = this.morse.lastNotice();
+      const pending = this.pending();
+      if (pending === null || notice === undefined || notice === this.noticeAtSubmit()) {
+        return;
+      }
+      untracked(() => {
+        this.pending.set(null);
+        this.createError.set(notice.text);
       });
     });
   }
@@ -227,7 +267,8 @@ export class BotWizard {
   }
 
   protected pickThinking(event: Event): void {
-    this.thinking.set((event.target as HTMLSelectElement).value as ThinkingLevel);
+    const value = (event.target as HTMLSelectElement).value;
+    this.thinking.set(value === '' ? '' : (value as ThinkingLevel));
   }
 
   protected addSubagent(): void {
@@ -284,7 +325,12 @@ export class BotWizard {
       const requestId = nextRequestId();
       this.requestId.set(requestId);
       this.modelKey.set('');
-      this.morse.probeModels(this.engineKind(), parseEnvVars(this.envVars()), requestId);
+      this.morse.probeModels(
+        this.engineKind(),
+        parseEnvVars(this.envVars()),
+        this.collectedCredentials(),
+        requestId,
+      );
     }
     this.step.set(following);
   }
@@ -326,22 +372,30 @@ export class BotWizard {
     const agentsMd = this.agentsMd().trim();
     const subagents = this.namedSubagents();
     const model = this.model();
+    const thinking = this.thinking();
     const input: BotCreateInput & { requestId: string } = {
       name,
       description: this.description().trim(),
       ...(this.avatar().trim().length > 0 ? { avatar: this.avatar().trim() } : {}),
       engineKind: this.engineKind(),
-      credentials: this.credentials()
-        .filter((row) => row.provider.trim().length > 0)
-        .map((row) => ({ provider: row.provider.trim(), apiKey: row.apiKey })),
+      credentials: this.collectedCredentials(),
       envVars: parseEnvVars(this.envVars()),
       persona: this.persona(),
       ...(model === undefined ? {} : { model }),
-      thinkingLevel: this.thinking(),
+      // No default level: a bot stores one only when the reader picked one.
+      ...(thinking === '' ? {} : { thinkingLevel: thinking }),
       ...(agentsMd.length > 0 ? { agentsMd } : {}),
       ...(subagents.length > 0 ? { subagents } : {}),
       requestId,
     };
+    // The snapshot makes "the roster names it" mean "it appeared", not "a bot
+    // with this name exists" — a duplicate the host refuses must not close the
+    // dialog as if it succeeded.
+    this.knownBotsAtSubmit.set(
+      (this.morse.bot.roster()?.bots ?? []).map((bot) => bot.name.toLowerCase()),
+    );
+    this.noticeAtSubmit.set(this.morse.lastNotice() ?? null);
+    this.createError.set(null);
     this.morse.createBot(input);
     this.morse.listBots();
     this.pending.set(name);
