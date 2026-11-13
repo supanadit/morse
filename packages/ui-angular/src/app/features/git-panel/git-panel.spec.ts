@@ -340,7 +340,7 @@ describe('GitPanel', () => {
 
     expect(fake.requestHostCommand).toHaveBeenCalledWith(
       'gitCommit',
-      { message: 'feat: a thing' },
+      { message: 'feat: a thing', amend: false },
       60_000,
     );
     expect(input.value).toBe('');
@@ -947,6 +947,78 @@ describe('GitPanelState paging', () => {
       };
     });
   }
+
+  /** A state whose host answers repos, status, ref-scoped log and a commit. */
+  function refState() {
+    const fake = {
+      workspace: signal({ cwd: '/r', name: 'r' }),
+      capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
+      requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) => {
+        if (command === 'gitRepos') {
+          return Promise.resolve({
+            isRepo: true,
+            repos: [{ path: '', root: '/r', name: 'r', current: true, branch: 'main' }],
+          });
+        }
+        if (command === 'gitSync') {
+          return Promise.resolve({ isRepo: true, branch: 'main', ahead: 0, behind: 0 });
+        }
+        if (command === 'gitStatus') {
+          return Promise.resolve({ isRepo: true, files: [] });
+        }
+        if (command === 'gitCommit') {
+          return Promise.resolve({ ok: true });
+        }
+        if (args?.['ref'] === 'feat') {
+          return Promise.resolve({
+            isRepo: true,
+            root: '/r',
+            branch: 'main',
+            commits: [{ ...page(0, 1)[0]!, subject: 'feat c' }],
+          });
+        }
+        return Promise.resolve({ isRepo: true, root: '/r', branch: 'main', commits: page(0, 1) });
+      }),
+    };
+    TestBed.configureTestingModule({ providers: [{ provide: MorseService, useValue: fake }] });
+    return { fake, state: TestBed.inject(GitPanelState) };
+  }
+
+  it('reloads from the first page when a ref is selected', async () => {
+    const { fake, state } = refState();
+    state.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const repo = state.repos()[0]!;
+
+    repo.setLogRef('feat');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fake.requestHostCommand).toHaveBeenLastCalledWith('gitLog', {
+      max: 250,
+      skip: 0,
+      ref: 'feat',
+    });
+    expect(repo.commits().map((c) => c.subject)).toEqual(['feat c']);
+
+    repo.setLogRef(undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.requestHostCommand).toHaveBeenLastCalledWith('gitLog', { max: 250, skip: 0 });
+  });
+
+  it('forwards amend to the host', async () => {
+    const { fake, state } = refState();
+    state.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const repo = state.repos()[0]!;
+
+    await repo.commit('rewrite', true);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith(
+      'gitCommit',
+      { message: 'rewrite', amend: true },
+      60_000,
+    );
+  });
 
   it('appends the next page per repository until the root, then stops', async () => {
     const fake = {

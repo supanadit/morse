@@ -45,6 +45,8 @@ export class GitRepoState {
   private readonly commitPending = signal(false);
   private readonly branchPending = signal(false);
   private readonly feedback = signal<{ ok: boolean; text: string } | undefined>(undefined);
+  /** The ref the log is scoped to; `undefined` means HEAD's `--all` view. */
+  private readonly refSignal = signal<string | undefined>(undefined);
   /** Bumped by every `refresh`, so a late page from an old project is dropped. */
   private generation = 0;
 
@@ -69,6 +71,8 @@ export class GitRepoState {
   readonly upstream = computed(() => this.syncState()?.upstream);
   readonly syncingNow = this.syncing.asReadonly();
   readonly branches = this.branchList.asReadonly();
+  /** The ref whose history the log shows; `undefined` is HEAD's all-branch view. */
+  readonly logRef = this.refSignal.asReadonly();
   /** True while a commit is in flight, so the button stays disabled. */
   readonly committing = this.commitPending.asReadonly();
   /** True while a checkout is in flight. */
@@ -151,9 +155,23 @@ export class GitRepoState {
       });
   }
 
+  /**
+   * Scopes the log to a ref and reloads from the first page. Clearing the ref
+   * restores the all-branches view. Clearing the items first means a page still
+   * in flight for the previous ref cannot be mistaken for this one's first page.
+   */
+  setLogRef(ref: string | undefined): void {
+    if (ref === this.refSignal()) {
+      return;
+    }
+    this.refSignal.set(ref);
+    this.items.set([]);
+    this.meta.set(undefined);
+    this.refresh();
+  }
+
   /** Re-reads the working tree for this repository. */
-  loadStatus(): void {
-    void this.morse.requestHostCommand('gitStatus', this.args()).then((data) => {
+  loadStatus(): void {    void this.morse.requestHostCommand('gitStatus', this.args()).then((data) => {
       const status = asGitStatus(data);
       if (status !== undefined) {
         this.workspaceStore.setStatus(this.info.path, status);
@@ -162,8 +180,7 @@ export class GitRepoState {
   }
 
   /** Appends the next page; a no-op while one is already in flight. */
-  loadMore(): void {
-    if (this.busy() || !this.hasMore() || !this.isRepo()) {
+  loadMore(): void {    if (this.busy() || !this.hasMore() || !this.isRepo()) {
       return;
     }
     const generation = this.generation;
@@ -215,7 +232,7 @@ export class GitRepoState {
   }
 
   /** Commits what is staged in this repository. */
-  async commit(message: string): Promise<boolean> {
+  async commit(message: string, amend = false): Promise<boolean> {
     if (this.commitPending()) {
       return false;
     }
@@ -224,7 +241,7 @@ export class GitRepoState {
     try {
       const data = await this.morse.requestHostCommand(
         'gitCommit',
-        { message, ...this.args() },
+        { message, amend, ...this.args() },
         60_000,
       );
       const result = asGitMutation(data);
@@ -314,9 +331,11 @@ export class GitRepoState {
   }
 
   private async page(skip: number): Promise<GitLog | undefined> {
+    const named = this.refSignal();
     const raw = await this.morse.requestHostCommand('gitLog', {
       max: GIT_PAGE_SIZE,
       skip,
+      ...(named === undefined ? {} : { ref: named }),
       ...(this.args() ?? {}),
     });
     return asGitLog(raw);

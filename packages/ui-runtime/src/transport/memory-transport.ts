@@ -122,6 +122,15 @@ export class MemoryHostTransport extends BaseHostTransport {
   private items: TranscriptItem[] = isBlankSession() ? [] : mockConversation();
   /** Scripted working tree the mock stages/unstages against. */
   private gitFiles = MOCK_GIT_STATUS.files.map((file) => ({ ...file }));
+  /** The scripted history, mutable so an amend shows up in the dev page. */
+  private readonly mockLog = {
+    ...MOCK_GIT_LOG,
+    commits: MOCK_GIT_LOG.commits.map((commit) => ({
+      ...commit,
+      parents: [...commit.parents],
+      refs: [...commit.refs],
+    })),
+  };
   /** The mock's prompt templates, mutable so save/delete round-trip in a dev page. */
   private readonly mockPrompts = MOCK_PROMPTS.map((template) => ({ ...template }));
   /** Scripted branch distance the mock pulls/pushes against. */
@@ -581,9 +590,20 @@ export class MemoryHostTransport extends BaseHostTransport {
           return;
         }
         if (message.payload.command === 'gitLog' && message.payload.requestId) {
+          const ref = message.payload.args?.ref;
           this.emit({
             type: 'host/command/result',
-            payload: { requestId: message.payload.requestId, ok: true, data: MOCK_GIT_LOG },
+            payload: {
+              requestId: message.payload.requestId,
+              ok: true,
+              data: {
+                ...this.mockLog,
+                commits:
+                  typeof ref === 'string' && ref.length > 0
+                    ? commitsReachableFrom(this.mockLog.commits, ref)
+                    : this.mockLog.commits,
+              },
+            },
           });
           return;
         }
@@ -683,7 +703,18 @@ export class MemoryHostTransport extends BaseHostTransport {
           return;
         }
         if (message.payload.command === 'gitCommit' && message.payload.requestId) {
-          // The mock accepts any message; the panel's job is the round trip.
+          // Amend rewrites the newest scripted commit, so the dev page shows the
+          // form's result instead of a no-op.
+          const amend = message.payload.args?.amend === true;
+          const text = typeof message.payload.args?.message === 'string'
+            ? message.payload.args.message
+            : '';
+          if (amend && text.trim().length > 0) {
+            const first = this.mockLog.commits[0];
+            if (first !== undefined) {
+              this.mockLog.commits[0] = { ...first, subject: text.trim() };
+            }
+          }
           this.emit({
             type: 'host/command/result',
             payload: { requestId: message.payload.requestId, ok: true, data: { ok: true } },
@@ -1144,6 +1175,35 @@ function mockCommit(
     date: new Date(Date.now() - ageHours * 3_600_000).toISOString(),
     subject,
   };
+}
+
+/** The scripted commits an ancestry walk from `ref`'s tip keeps, newest first. */
+function commitsReachableFrom(commits: GitCommit[], ref: string): GitCommit[] {
+  const tip = commits.find((commit) =>
+    commit.refs.some(
+      (name) => name === ref || name.endsWith(` -> ${ref}`) || name === `tag: ${ref}`,
+    ),
+  );
+  if (tip === undefined) {
+    return commits;
+  }
+  const kept = new Set<string>([tip.hash]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const commit of commits) {
+      if (!kept.has(commit.hash)) {
+        continue;
+      }
+      for (const parent of commit.parents) {
+        if (!kept.has(parent)) {
+          kept.add(parent);
+          grew = true;
+        }
+      }
+    }
+  }
+  return commits.filter((commit) => kept.has(commit.hash));
 }
 
 /**
