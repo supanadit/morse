@@ -41,6 +41,8 @@ interface FakeTurn {
   interactions?: AgentInteractionRequest[];
   /** Keep the run open until `release()` or `abort()`, so a test can act mid-round. */
   hold?: boolean;
+  /** Resolve `abort()` without ever emitting `run-end`, like a wedged engine. */
+  abortSilently?: boolean;
 }
 
 type Script = (context: { bot: string; prompt: string; call: number }) => FakeTurn;
@@ -50,6 +52,8 @@ interface FactoryOptions {
   /** False makes the factory look like an engine without `probeDefaults`. */
   probeDefaults?: boolean;
   probeThrows?: boolean;
+  /** Make the first `create` call never settle, like a wedged engine spawn. */
+  hangFirstCreate?: boolean;
   script: Script;
 }
 
@@ -68,6 +72,7 @@ class FakeGateway implements AgentGateway {
   private readonly listeners = new Set<(event: AgentEvent) => void>();
   private readonly waiting = new Map<string, () => void>();
   private releaseHold: (() => void) | undefined;
+  private silentAbort = false;
 
   constructor(
     private readonly factory: FakeFactory,
@@ -109,6 +114,9 @@ class FakeGateway implements AgentGateway {
       prompt: text,
       call: this.prompts.length,
     });
+    // A fresh turn is not the aborted one before it.
+    this.aborted = false;
+    this.silentAbort = turn.abortSilently === true;
     this.emit({ type: 'agent/run-start', at: 0 });
     void this.run(turn);
     return Promise.resolve('started');
@@ -126,7 +134,9 @@ class FakeGateway implements AgentGateway {
     this.aborted = true;
     this.releaseHold?.();
     this.releaseHold = undefined;
-    this.emit({ type: 'agent/run-end', at: 0, reason: 'aborted' });
+    if (!this.silentAbort) {
+      this.emit({ type: 'agent/run-end', at: 0, reason: 'aborted' });
+    }
     return Promise.resolve();
   }
 
@@ -232,6 +242,10 @@ class FakeFactory implements AgentGatewayFactory {
 
   create(input: { workspace: WorkspaceRef; sessionId?: string }): Promise<AgentGateway> {
     this.createCalls.push(input);
+    if (this.options.hangFirstCreate === true && this.createCalls.length === 1) {
+      // A spawn that never answers: only the service's deadline can end it.
+      return new Promise<AgentGateway>(() => undefined);
+    }
     this.next += 1;
     const gateway = new FakeGateway(
       this,
@@ -299,12 +313,20 @@ function gatewayFor(adapter: FakeAdapter, bot: string, index = 0): FakeGateway {
   return gateway;
 }
 
+/** Lets pending promise chains advance without moving the clock. */
+async function flush(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 interface HarnessOptions {
   script?: Script;
   models?: ModelRef[];
   probeDefaults?: boolean;
   probeThrows?: boolean;
+  hangFirstCreate?: boolean;
   idleMs?: number;
+  turnTimeoutMs?: number;
   chainCap?: number;
 }
 
@@ -323,6 +345,7 @@ function serviceOn(root: string, adapter: FakeAdapter, options: HarnessOptions =
     defaultWorkspace: { cwd: root, name: 'morse' },
     logger: silentLogger,
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
+    ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
     ...(options.chainCap === undefined ? {} : { defaultChainCap: options.chainCap }),
   });
 }
@@ -335,6 +358,7 @@ function harness(options: HarnessOptions = {}): Harness {
     ...(options.models === undefined ? {} : { models: options.models }),
     ...(options.probeDefaults === undefined ? {} : { probeDefaults: options.probeDefaults }),
     ...(options.probeThrows === undefined ? {} : { probeThrows: options.probeThrows }),
+    ...(options.hangFirstCreate === undefined ? {} : { hangFirstCreate: options.hangFirstCreate }),
   };
   const adapter = new FakeAdapter(script, adapterOptions);
   const service = serviceOn(root, adapter, options);
@@ -458,6 +482,23 @@ describe('BotService creation', () => {
     );
 
     expect(service.roster().bots).toHaveLength(0);
+  });
+
+  it('createBot refuses a name that differs only in case', async () => {
+    const mixed = harness();
+    await mixed.service.createBot(botInput({ name: 'Forge' }));
+
+    await expect(mixed.service.createBot(botInput({ name: 'forge' }))).rejects.toThrow(
+      /case-insensitive/,
+    );
+
+    expect(mixed.service.roster().bots.map((bot) => bot.name)).toEqual(['Forge']);
+    expect(existsSync(join(mixed.root, 'forge'))).toBe(false);
+
+    // The lowercase name on its own is still a fine bot name.
+    const lower = harness();
+    await lower.service.createBot(botInput({ name: 'forge' }));
+    expect(lower.service.roster().bots.map((bot) => bot.name)).toEqual(['forge']);
   });
 
   it('createGroup lists the group with its members, lead and chain cap', async () => {
@@ -601,10 +642,11 @@ describe('BotService rounds', () => {
 
     const entries = service.transcript(group.id);
     expect(entries.filter((entry) => entry.author.role === 'bot')).toHaveLength(3);
-    expect(entries.at(-1)).toMatchObject({
-      author: { role: 'system' },
-      text: 'Chain capped after 2 hops',
-    });
+    const notes = entries
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toBe('Chain capped after 2 hops');
     expect(gatewayFor(adapter, 'Forge').prompts).toHaveLength(2);
     expect(gatewayFor(adapter, 'Sable').prompts).toHaveLength(1);
   });
@@ -657,6 +699,8 @@ describe('BotService rounds', () => {
     });
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
     const first = service.send(group.id, '@Forge go');
     const gateway = gatewayFor(adapter, 'Forge');
     await gateway.prompted;
@@ -671,6 +715,37 @@ describe('BotService rounds', () => {
       { role: 'system' },
     ]);
     expect(service.transcript(group.id).at(-1)).toMatchObject({ text: 'Stopped.' });
+    // The round's own teardown is the only place the routing state is cleared.
+    expect(events.filter((event) => event.type === 'routing' && event.state === null)).toHaveLength(
+      1,
+    );
+  });
+
+  it('stop settles a turn whose engine never reports run-end', async () => {
+    const { adapter, service } = harness({
+      script: ({ call }) => (call === 1 ? { hold: true, abortSilently: true } : { text: 'ok' }),
+    });
+    await service.createBot(botInput());
+    const first = service.send('dm-Forge', 'hi');
+    const gateway = gatewayFor(adapter, 'Forge');
+    await gateway.prompted;
+
+    service.stop('dm-Forge');
+
+    // The abort resolved without a run-end; the round still has to settle,
+    // otherwise every later send is refused forever.
+    await expect(first).resolves.toBeUndefined();
+    expect(gateway.aborted).toBe(true);
+    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+      author: { role: 'system' },
+      text: 'Stopped.',
+    });
+
+    await service.send('dm-Forge', 'again');
+    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+      author: { role: 'bot', name: 'Forge' },
+      text: 'ok',
+    });
   });
 });
 
@@ -744,6 +819,30 @@ describe('BotService sessions', () => {
     expect(after).toBe('Forge-session-2');
   });
 
+  it('newDiscussion during a queued round stops the round', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot }) =>
+        bot === 'Forge' ? { text: '@Sable take over', hold: true } : { text: 'Sable here' },
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const first = service.send(group.id, '@Forge go');
+    const forge = gatewayFor(adapter, 'Forge');
+    await forge.prompted;
+
+    service.newDiscussion(group.id);
+    await first;
+
+    // The queued relay must not be delivered on the sessions just abandoned.
+    expect(factoryFor(adapter, 'Sable').gateways).toHaveLength(0);
+    expect(forge.prompts).toHaveLength(1);
+    expect(forge.disposed).toBe(true);
+    expect(service.transcript(group.id).map((entry) => entry.text)).toEqual([
+      '@Forge go',
+      'New discussion started.',
+    ]);
+  });
+
   it('idle gateway is disposed after idleMs', async () => {
     vi.useFakeTimers();
     const { adapter, service } = harness({ idleMs: 1_000 });
@@ -763,6 +862,64 @@ describe('BotService sessions', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(gateway.disposed).toBe(true);
     expect(service.roster().bots[0]?.warm).toBe(false);
+  });
+});
+
+describe('BotService liveness', () => {
+  it('a turn the engine never ends is timed out and its gateway dropped', async () => {
+    vi.useFakeTimers();
+    let turns = 0;
+    const { adapter, service } = harness({
+      turnTimeoutMs: 1_000,
+      script: () => {
+        turns += 1;
+        return turns === 1 ? { text: 'partial', hold: true } : { text: 'ok' };
+      },
+    });
+    await service.createBot(botInput());
+    const pending = service.send('dm-Forge', 'hi');
+    const gateway = gatewayFor(adapter, 'Forge');
+    await gateway.prompted;
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pending;
+
+    expect(
+      service
+        .transcript('dm-Forge')
+        .filter((entry) => entry.author.role === 'system')
+        .map((entry) => entry.text),
+    ).toEqual(['Turn timed out after 1s']);
+    expect(gateway.disposed).toBe(true);
+    expect(service.roster().bots[0]?.warm).toBe(false);
+
+    await service.send('dm-Forge', 'again');
+    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+      author: { role: 'bot', name: 'Forge' },
+      text: 'ok',
+    });
+  });
+
+  it('gateway creation that never answers is bounded', async () => {
+    vi.useFakeTimers();
+    const { adapter, service } = harness({ turnTimeoutMs: 1_000, hangFirstCreate: true });
+    await service.createBot(botInput());
+
+    const pending = service.send('dm-Forge', 'hi');
+    await flush();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pending;
+
+    expect(
+      service
+        .transcript('dm-Forge')
+        .filter((entry) => entry.author.role === 'system')
+        .map((entry) => entry.text),
+    ).toEqual(['Forge could not start: gateway creation timed out after 1s']);
+    expect(factoryFor(adapter, 'Forge').createCalls).toHaveLength(1);
+
+    await service.send('dm-Forge', 'again');
+    expect(factoryFor(adapter, 'Forge').createCalls).toHaveLength(2);
   });
 });
 

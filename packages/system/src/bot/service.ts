@@ -83,6 +83,8 @@ export interface BotServiceOptions {
   logger: MorseLogger;
   /** How long a gateway stays warm after its last event. Default 5 minutes. */
   idleMs?: number;
+  /** How long one bot turn (or one gateway start) may take. Default 5 minutes. */
+  turnTimeoutMs?: number;
   /** Bot-to-bot relays allowed per human message. Default 8. */
   defaultChainCap?: number;
   /** Clock, for tests. */
@@ -107,16 +109,22 @@ export type BotControllerPort = Pick<
 >;
 
 const DEFAULT_IDLE_MS = 300_000;
+const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 const DEFAULT_CHAIN_CAP = 8;
 
 /** The refusal a second concurrent send gets, in the transcript and the promise. */
 const ROUND_IN_FLIGHT = 'A round is already running in this conversation.';
+
+/** Says the reader left the conversation's engine sessions behind. */
+const NEW_DISCUSSION_NOTE = 'New discussion started.';
 
 /** A run is in flight: the answer it is waiting on and what it has said so far. */
 interface PromptOutcome {
   reply: string;
   reason: 'settled' | 'aborted' | 'error';
   error?: string;
+  /** True when the reason is already recorded as its own transcript note. */
+  noted?: boolean;
 }
 
 /** One live engine session, keyed by (conversation, bot). */
@@ -168,12 +176,14 @@ export class BotService {
   private readonly rounds = new Map<string, Round>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
   private readonly idleMs: number;
+  private readonly turnTimeoutMs: number;
   private readonly chainCap: number;
   private readonly clock: () => number;
 
   constructor(private readonly options: BotServiceOptions) {
     this.registry = loadBotRegistry(options.root);
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
+    this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.chainCap = options.defaultChainCap ?? DEFAULT_CHAIN_CAP;
     this.clock = options.now ?? Date.now;
   }
@@ -219,8 +229,13 @@ export class BotService {
         `"${input.name}" is not a usable bot name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
       );
     }
-    if (this.bot(input.name) !== undefined) {
-      throw new Error(`A bot named "${input.name}" already exists.`);
+    const existing = this.registry.bots.find(
+      (candidate) => candidate.name.toLowerCase() === input.name.toLowerCase(),
+    );
+    if (existing !== undefined) {
+      throw new Error(
+        `A bot named "${existing.name}" already exists: bot names are case-insensitive because they are @mentions.`,
+      );
     }
     const record: BotRecord = {
       name: input.name,
@@ -393,12 +408,22 @@ export class BotService {
     this.note(conversationId, 'Stopped.');
     const warm = round.current;
     if (warm !== undefined) {
-      void warm.gateway.abort().catch((error: unknown) => {
-        this.options.logger.warn('Failed to abort a bot turn', error);
-      });
+      void this.abortTurn(warm);
     }
-    if (round.announced) {
-      this.emit({ type: 'routing', state: null });
+  }
+
+  /**
+   * Tries the engine's own abort, then settles the turn either way. An abort that
+   * fails, or one the engine acknowledges without ever sending `run-end`, must
+   * still release the round — otherwise the conversation refuses every later send.
+   */
+  private async abortTurn(warm: WarmGateway): Promise<void> {
+    try {
+      await warm.gateway.abort();
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to abort a bot turn', error);
+    } finally {
+      warm.settle?.({ reply: warm.reply, reason: 'aborted' });
     }
   }
 
@@ -409,6 +434,16 @@ export class BotService {
    */
   newDiscussion(conversationId: string): void {
     const conversation = this.conversationOrThrow(conversationId);
+    const round = this.rounds.get(conversationId);
+    if (round !== undefined) {
+      // The reader is leaving this discussion: no relay queued for the old
+      // sessions may still be delivered, and the turn in flight is abandoned
+      // with them. The force-drop below settles it; aborting it first would
+      // target a gateway that is already being disposed.
+      round.stopped = true;
+      round.queue.length = 0;
+      this.note(conversationId, NEW_DISCUSSION_NOTE);
+    }
     for (const member of conversation.members) {
       const warm = this.warm.get(warmKey(conversationId, member));
       if (warm !== undefined) {
@@ -552,7 +587,7 @@ export class BotService {
         this.append(conversation.id, botAuthor(bot), reply);
         return reply;
       }
-      if (outcome.reason === 'error') {
+      if (outcome.reason === 'error' && outcome.noted !== true) {
         this.note(
           conversation.id,
           `${bot.name} failed${outcome.error === undefined ? '' : `: ${outcome.error}`}`,
@@ -665,19 +700,28 @@ export class BotService {
     }
     const factory = this.factoryFor(bot, adapter);
     const stored = conversation.sessions[bot.name]?.engineSessionId;
-    const gateway = await factory.create({
+    const creating = factory.create({
       workspace: this.workspaceOf(bot.name),
       ...(stored === undefined ? {} : { sessionId: stored }),
     });
+    let gateway: AgentGateway;
+    try {
+      gateway = await this.withDeadline(creating, 'gateway creation');
+    } catch (error) {
+      // A create that only finishes after the deadline would leak a process
+      // nobody holds a reference to; dispose it when it eventually lands.
+      void creating.then((late) => late.dispose()).catch(() => undefined);
+      throw error;
+    }
     let sessionId: string | undefined;
     try {
-      const state = await gateway.state();
+      const state = await this.withDeadline(gateway.state(), 'gateway startup');
       sessionId = state.sessionId;
       if (bot.model !== undefined) {
-        await gateway.setModel(bot.model);
+        await this.withDeadline(gateway.setModel(bot.model), 'gateway startup');
       }
       if (bot.thinkingLevel !== undefined) {
-        await gateway.setThinkingLevel(bot.thinkingLevel);
+        await this.withDeadline(gateway.setThinkingLevel(bot.thinkingLevel), 'gateway startup');
       }
     } catch (error) {
       await gateway.dispose().catch((disposalError: unknown) => {
@@ -715,8 +759,19 @@ export class BotService {
   /** Prompts one gateway and resolves on its run-end, with the last thing it said. */
   private async promptAndWait(warm: WarmGateway, text: string): Promise<PromptOutcome> {
     warm.reply = '';
+    let deadline: NodeJS.Timeout | undefined;
     const settled = new Promise<PromptOutcome>((resolve) => {
+      // A turn the engine never ends must not hold the round — and with it the
+      // whole conversation — forever. The deadline settles it and forces the
+      // silent gateway out (see `expireTurn`).
+      deadline = setTimeout(() => {
+        this.expireTurn(warm);
+      }, this.turnTimeoutMs);
+      deadline.unref?.();
       warm.settle = (outcome) => {
+        if (deadline !== undefined) {
+          clearTimeout(deadline);
+        }
         warm.settle = undefined;
         resolve(outcome);
       };
@@ -729,6 +784,9 @@ export class BotService {
       // A prompt the engine refused leaves nothing to wait for; clearing the slot
       // keeps the gateway evictable instead of looking busy forever.
       warm.settle = undefined;
+      if (deadline !== undefined) {
+        clearTimeout(deadline);
+      }
       throw error;
     }
     if (disposition === 'handled') {
@@ -737,6 +795,45 @@ export class BotService {
       warm.settle?.({ reply: warm.reply, reason: 'settled' });
     }
     return settled;
+  }
+
+  /**
+   * The turn deadline fired: record it, settle the round as a failed turn, and
+   * dispose the gateway so a silent engine cannot keep a process (or the round)
+   * alive. The settle slot is only cleared by `promptAndWait`'s own wrapper, so a
+   * timer that lost the race to a real run-end does nothing.
+   */
+  private expireTurn(warm: WarmGateway): void {
+    const settle = warm.settle;
+    if (settle === undefined) {
+      return;
+    }
+    this.note(warm.conversationId, `Turn timed out after ${this.turnTimeoutMs / 1000}s`);
+    settle({ reply: warm.reply, reason: 'error', noted: true });
+    void this.dropWarm(warm, true);
+  }
+
+  /**
+   * Waits for engine work no longer than one turn's budget. An adapter that never
+   * answers a `create`/`state` call must not hold a round open either.
+   */
+  private async withDeadline<T>(work: Promise<T>, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        work,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`${label} timed out after ${this.turnTimeoutMs / 1000}s`));
+          }, this.turnTimeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   /** Everything a gateway reports: idle bookkeeping, replies, prompts, completion. */
