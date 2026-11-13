@@ -1,5 +1,4 @@
 export * from './dto.js';
-export * from './lsp.js';
 export * from './wire.js';
 export * from './view.js';
 export * from './version.js';

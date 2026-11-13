@@ -66,7 +66,6 @@ function config(overrides: Partial<MorseServerConfig> = {}): MorseServerConfig {
     uploadDir: '/tmp/uploads',
     dataDir: mkdtempSync(join(tmpdir(), 'morse-registry-')),
     terminalIdleMs: 0,
-    lspIdleMs: 0,
     updateCheck: false,
     selfUpdate: false,
     ...overrides,

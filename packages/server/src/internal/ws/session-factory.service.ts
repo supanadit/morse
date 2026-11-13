@@ -25,7 +25,6 @@ import {
 import type {
   HostCapabilities,
   HostToClientMessage,
-  LspPosition,
   UpdateHostResult,
 } from '@morse/protocol';
 import type { MorseServerConfig } from '../../app/config.js';
@@ -62,7 +61,6 @@ import { searchWorkspace } from '../workspace/workspace-search.js';
 import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/system';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
-import { ServerLanguageServers } from '../lsp/lsp.service.js';
 import { canSelfUpdate, performSelfUpdate } from '../self-update/self-update.js';
 
 /**
@@ -85,7 +83,6 @@ export class MorseSessionFactory {
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
     @Inject(MORSE_CONFIG) private readonly config: MorseServerConfig,
     @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
-    @Inject(ServerLanguageServers) private readonly lsp: ServerLanguageServers,
     @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
     @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
   ) {
@@ -162,13 +159,6 @@ export class MorseSessionFactory {
       // the bottom panel's terminal is this host's. It runs in the viewing
       // session's directory and is gated by `ProjectPolicy`, like a session.
       terminal: true,
-      // Same reasoning for a language server: VS Code's own LSP already answers
-      // for the files it edits, and a browser cannot spawn one. This host runs
-      // them on its machine and answers `lspHover` and friends, so the preview
-      // can be hovered and jumped through. Which *files* it covers is reported
-      // per request (`LspDiagnostics.available`), because a project in a language
-      // with no server installed is still a project.
-      lsp: true,
       // The browser host restores the tabs, panel, terminals and half-written
       // prompts the reader left open, kept under `<MORSE_HOME>`. VS Code has its
       // own tab restoration and leaves this off.
@@ -333,27 +323,6 @@ export class MorseSessionFactory {
           include: args?.include,
           exclude: args?.exclude,
         });
-      }
-      case 'lspHover': {
-        // The preview's hover card. The host owns the language server (a browser
-        // cannot spawn one) and the project scoping, exactly like `readFile`.
-        const { cwd, path } = this.lspFile(context, args);
-        return this.lsp.hover(cwd, path, lspPosition(args));
-      }
-      case 'lspDefinition': {
-        const { cwd, path } = this.lspFile(context, args);
-        return this.lsp.definition(cwd, path, lspPosition(args));
-      }
-      case 'lspReferences': {
-        const { cwd, path } = this.lspFile(context, args);
-        return this.lsp.references(cwd, path, lspPosition(args));
-      }
-      case 'lspDiagnostics': {
-        // No position: a problem list is about the whole file. This is the one
-        // LSP command that waits for a cold server, because the preview asked for
-        // an answer and "still starting" must not read as "no problems".
-        const { cwd, path } = this.lspFile(context, args);
-        return this.lsp.diagnostics(cwd, path);
       }
       case 'uploadFile': {
         const cwd = this.requireWritableCwd(context);
@@ -631,23 +600,6 @@ export class MorseSessionFactory {
   }
 
   /**
-   * The file a language-server command is about: its directory by `commandCwd`'s
-   * rule (a restored preview tab carries the project it was read from) and the
-   * path the client named, which the LSP layer resolves inside it with the same
-   * `resolveWithin` the preview uses.
-   */
-  private lspFile(
-    context?: HostCommandContext,
-    args?: Record<string, unknown>,
-  ): { cwd: string; path: string } {
-    const path = typeof args?.path === 'string' ? args.path : '';
-    if (path.length === 0) {
-      throw new UnsupportedByHostError('An LSP command needs a "path" argument.');
-    }
-    return { cwd: this.commandCwd(context, args), path };
-  }
-
-  /**
    * Like `commandCwd`, but an absent directory is not an error: `''` means "no
    * project", which the prompt editor uses to edit only the user templates.
    */
@@ -765,25 +717,6 @@ export function isLoopback(address: string | undefined): boolean {
     normalized === 'localhost' ||
     normalized.startsWith('127.')
   );
-}
-
-/**
- * The zero-based position an LSP command names, in LSP's own frame (`lsp.ts`
- * says why the wire keeps it). A request without one is a client bug, so it is
- * refused rather than defaulted to the top of the file.
- */
-function lspPosition(args: Record<string, unknown> | undefined): LspPosition {
-  const line = args?.line;
-  const character = args?.character;
-  if (
-    !Number.isInteger(line) ||
-    !Number.isInteger(character) ||
-    (line as number) < 0 ||
-    (character as number) < 0
-  ) {
-    throw new UnsupportedByHostError('An LSP command needs a zero-based "line" and "character".');
-  }
-  return { line: line as number, character: character as number };
 }
 
 /** The scope a mutation edits, when the panel named one. */
