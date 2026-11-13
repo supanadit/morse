@@ -134,9 +134,9 @@
           >
             <svg
               class="graph"
-              [attr.width]="entries().graphWidth"
+              [attr.width]="rowWidth(entry.row)"
               [attr.height]="rowHeight"
-              [attr.viewBox]="'0 0 ' + entries().graphWidth + ' ' + rowHeight"
+              [attr.viewBox]="'0 0 ' + rowWidth(entry.row) + ' ' + rowHeight"
               aria-hidden="true"
             >
               @for (edge of entry.row.edges; track $index) {

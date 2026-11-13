@@ -202,8 +202,8 @@ describe('GitLogView', () => {
     const row = host.querySelector('.commit') as HTMLElement;
     const graph = row.querySelector('.graph') as SVGElement;
 
-    expect(graph.getAttribute('height')).toBe('32');
-    expect(getComputedStyle(row).height).toBe('32px');
+    expect(graph.getAttribute('height')).toBe('26');
+    expect(getComputedStyle(row).height).toBe('26px');
   });
 
   it('filters by text and author', async () => {

@@ -23,6 +23,8 @@ export interface GraphRow {
   lane: number;
   color: number;
   edges: GraphEdge[];
+  /** Lane slots this row spans; the row's graph is only this wide. */
+  width: number;
 }
 
 export interface GraphLayout {
@@ -102,7 +104,22 @@ export function layoutGraph(commits: readonly GitCommit[]): GraphLayout {
     }
 
     laneCount = Math.max(laneCount, lanes.length);
-    rows.push({ lane, color: lane, edges });
+    // Each row reserves only the lanes it actually spans, so the message beside
+    // it starts right after *this* row's graph instead of a global max column.
+    const widthBefore = before.reduce(
+      (width, held, index) => (held === undefined ? width : Math.max(width, index + 1)),
+      0,
+    );
+    const widthAfter = edges.reduce(
+      (width, edge) => (edge.toY === 1 ? Math.max(width, edge.toLane + 1) : width),
+      0,
+    );
+    rows.push({
+      lane,
+      color: lane,
+      edges,
+      width: Math.max(widthBefore, widthAfter, lane + 1),
+    });
   }
 
   return { rows, laneCount };

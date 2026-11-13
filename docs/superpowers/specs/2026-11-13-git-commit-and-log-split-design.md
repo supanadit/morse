@@ -152,7 +152,9 @@ behaviour; no new state.
   clears it. Checkout is not offered here.
 - **Toolbar** — refresh, a message/hash filter, an author filter populated from the loaded
   commits, and the count of commits shown. Filters are client-side over loaded pages.
-- **Commit table** — graph gutter, subject, refs, author, relative date, short hash.
+- **Commit table** — a graph gutter whose width is each row's own lane span, so the
+  message follows its own graph (not one global far-right column); then subject, refs,
+  author, relative date, short hash.
   Refs are chips; the lane graph uses the existing geometry. Rows are airy and the subject
   is primary. Paging on scroll calls `loadMore()`.
 - **Details pane** — selecting a row loads `gitCommitFiles`/`gitCommitDiff` for that hash

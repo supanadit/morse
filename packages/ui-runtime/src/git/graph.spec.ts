@@ -70,6 +70,23 @@ describe('layoutGraph', () => {
     });
   });
 
+  it('reports a per-row width, so each message follows its own graph', () => {
+    const linear = layoutGraph([
+      commit('c', ['b']),
+      commit('b', ['a']),
+      commit('a', []),
+    ]);
+    expect(linear.rows.map((row) => row.width)).toEqual([1, 1, 1]);
+
+    const merge = layoutGraph([
+      commit('m', ['a', 'b']),
+      commit('a', ['c']),
+      commit('b', ['c']),
+      commit('c', []),
+    ]);
+    expect(merge.rows.map((row) => row.width)).toEqual([2, 2, 2, 1]);
+  });
+
   it('reuses a parent already expected by another branch instead of forking a lane', () => {
     const { rows, laneCount } = layoutGraph([
       commit('x', ['p']),

@@ -25,8 +25,8 @@ import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Splitter } from '../../ui/splitter/splitter';
 import { TreeList } from '../../ui/tree-list/tree-list';
 
-const LANE_WIDTH = 16;
-const ROW_HEIGHT = 32;
+const LANE_WIDTH = 14;
+const ROW_HEIGHT = 26;
 const MAX_REFS = 2;
 const PALETTE = [
   'var(--morse-accent)',
@@ -203,11 +203,7 @@ export class GitLogView {
         restTitle: rest.map((ref) => this.refLabel(ref)).join(', '),
       };
     });
-    return {
-      rows,
-      graphWidth: Math.max(1, layout.laneCount) * LANE_WIDTH,
-      laneCount: layout.laneCount,
-    };
+    return { rows };
   });
 
   protected readonly selectedHash = computed(() => {
@@ -471,6 +467,11 @@ export class GitLogView {
 
   protected rowColor(row: GraphRow): string {
     return this.color(row.color);
+  }
+
+  /** This row's own graph width: no lane column reserved by other rows. */
+  protected rowWidth(row: GraphRow): number {
+    return row.width * LANE_WIDTH;
   }
 
   protected readonly rowHeight = ROW_HEIGHT;
