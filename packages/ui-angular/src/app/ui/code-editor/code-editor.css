@@ -1,0 +1,268 @@
+/*
+ * The editor's look, scoped to the `morse-code-editor` host element.
+ *
+ * Every selector starts with the host name because the component sets
+ * `ViewEncapsulation.None`: CodeMirror's own DOM carries no Angular attribute,
+ * and `conventions.spec.ts` (R-U8) fails the build when a selector escapes.
+ *
+ * Colours come from the Morse tokens only; `--morse-comment`, `--morse-punct`,
+ * `--morse-editor-bg` and `--morse-editor-gutter` exist as aliases so a theme
+ * change keeps touching one value.
+ */
+
+morse-code-editor {
+  display: flex;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--morse-editor-bg, var(--morse-code-bg));
+  color: var(--morse-fg);
+  font-family: var(--morse-font-mono);
+  font-size: var(--morse-font-size);
+}
+
+morse-code-editor .morse-editor-host {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+morse-code-editor .cm-editor {
+  height: 100%;
+  background: transparent;
+  color: inherit;
+}
+
+morse-code-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+morse-code-editor .cm-scroller {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.55;
+  overscroll-behavior: contain;
+}
+
+morse-code-editor .cm-content {
+  padding: 6px 0;
+  caret-color: var(--morse-fg);
+  cursor: text;
+}
+
+morse-code-editor .cm-line {
+  padding: 0 16px 0 6px;
+}
+
+morse-code-editor .cm-gutters {
+  background: var(--morse-editor-gutter, var(--morse-panel));
+  color: var(--morse-fg-muted);
+  border: none;
+  border-right: 1px solid var(--morse-border);
+  user-select: none;
+}
+
+morse-code-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 32px;
+  padding: 0 8px 0 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+morse-code-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
+  color: var(--morse-fg);
+}
+
+morse-code-editor .cm-foldGutter .cm-gutterElement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+morse-code-editor .cm-gutters:hover .cm-foldGutter .cm-gutterElement {
+  opacity: 1;
+}
+
+morse-code-editor .cm-foldPlaceholder {
+  background: var(--morse-hover);
+  border: none;
+  color: var(--morse-fg-muted);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin: 0 2px;
+}
+
+morse-code-editor .cm-selectionBackground {
+  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+}
+
+morse-code-editor .cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--morse-accent) 30%, transparent);
+}
+
+morse-code-editor .cm-cursor,
+morse-code-editor .cm-dropCursor {
+  border-left: 2px solid var(--morse-fg);
+  margin-left: -1px;
+}
+
+morse-code-editor .cm-cursorLayer.morse-caret-glide > .cm-cursor {
+  transition:
+    left 120ms cubic-bezier(0.16, 1, 0.3, 1),
+    top 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+morse-code-editor .morse-caret-row {
+  position: relative;
+}
+
+morse-code-editor .morse-caret-row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1000;
+  background: color-mix(in srgb, var(--morse-accent) 7%, transparent);
+  pointer-events: none;
+}
+
+morse-code-editor .morse-guides {
+  position: relative;
+}
+
+morse-code-editor .morse-guides::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  width: calc(var(--morse-guides-depth, 0) * 2ch);
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--morse-border) 0 1px,
+    transparent 1px 2ch
+  );
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+morse-code-editor .morse-bracket-1 {
+  color: var(--morse-keyword);
+}
+
+morse-code-editor .morse-bracket-2 {
+  color: var(--morse-string);
+}
+
+morse-code-editor .morse-bracket-3 {
+  color: var(--morse-number);
+}
+
+morse-code-editor .morse-bracket-4 {
+  color: var(--morse-typename);
+}
+
+morse-code-editor .morse-bracket-5 {
+  color: var(--morse-attr);
+}
+
+morse-code-editor .morse-sticky {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 12px;
+  z-index: 4;
+  background: var(--morse-editor-bg, var(--morse-code-bg));
+  border-bottom: 1px solid var(--morse-border);
+  box-shadow: 0 3px 6px -2px rgb(0 0 0 / 18%);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.55;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+morse-code-editor .morse-sticky-line {
+  display: flex;
+  white-space: pre;
+}
+
+morse-code-editor .morse-sticky-number {
+  flex: none;
+  width: 50px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--morse-fg-muted);
+}
+
+morse-code-editor .morse-sticky-text {
+  flex: 1;
+  overflow: hidden;
+}
+
+morse-code-editor .cm-panel.cm-search {
+  background: var(--morse-panel);
+  color: var(--morse-fg);
+  border-bottom: 1px solid var(--morse-border);
+  padding: 4px 8px;
+  font-family: var(--morse-font);
+  font-size: 12px;
+}
+
+morse-code-editor .cm-panel.cm-search input {
+  background: var(--morse-input-bg);
+  color: var(--morse-input-fg);
+  border: 1px solid var(--morse-input-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+morse-code-editor .cm-panel.cm-search button {
+  background: var(--morse-button-secondary);
+  color: var(--morse-button-secondary-fg);
+  border: 1px solid var(--morse-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+morse-code-editor .cm-searchMatch {
+  background: color-mix(in srgb, var(--morse-warn) 32%, transparent);
+}
+
+morse-code-editor .cm-searchMatch-selected {
+  background: color-mix(in srgb, var(--morse-warn) 55%, transparent);
+}
+
+morse-code-editor .morse-line-flash {
+  animation: morse-line-flash 900ms ease-out;
+}
+
+morse-code-editor .morse-rail {
+  display: none;
+}
+
+@keyframes morse-line-flash {
+  from {
+    background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  morse-code-editor .cm-cursorLayer.morse-caret-glide > .cm-cursor {
+    transition: none;
+  }
+
+  morse-code-editor .morse-line-flash {
+    animation: none;
+  }
+}

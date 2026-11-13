@@ -191,4 +191,25 @@ describe('frontend conventions', () => {
 
     expect(broken).toEqual([]);
   });
+
+  it('R-U8: the editor stylesheet scopes every selector to its host', () => {
+    const css = readFileSync(join(APP, 'ui/code-editor/code-editor.css'), 'utf8');
+    const selectors = css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(
+        (line) =>
+          line.endsWith('{') &&
+          !line.startsWith('@') &&
+          !/^\d+%/.test(line) &&
+          line !== 'from {' &&
+          line !== 'to {',
+      )
+      .map((line) => line.slice(0, -1).trim());
+    const unscoped = selectors.filter((selector) =>
+      selector.split(',').some((part) => !part.trim().startsWith('morse-code-editor')),
+    );
+    expect(unscoped).toEqual([]);
+  });
 });
