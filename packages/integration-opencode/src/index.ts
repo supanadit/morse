@@ -22,6 +22,7 @@ export {
   createBotOpenCodeEngine,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
+  writeOpenCodeSubagents,
   type BotOpenCodeEngineOptions,
 } from './bot-engine.js';
 export { OpenCodeSessionCatalog } from './opencode-session-catalog.js';

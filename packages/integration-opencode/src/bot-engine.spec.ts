@@ -23,6 +23,7 @@ import {
   createBotOpenCodeEngine,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
+  writeOpenCodeSubagents,
 } from './bot-engine.js';
 
 /**
@@ -344,6 +345,121 @@ describe('writeOpenCodeCredentials', () => {
     writeOpenCodeCredentials(botRoot, [{ provider: 'anthropic', apiKey: 'sk' }]);
 
     expect(readdirSync(join(botRoot, 'sessions'))).toEqual(['opencode']);
+  });
+});
+
+describe('writeOpenCodeSubagents', () => {
+  /** The bot's own OpenCode config: XDG_CONFIG_HOME (`<botRoot>/config`) + `opencode`. */
+  const configPath = (botRoot: string): string =>
+    join(botRoot, 'config', 'opencode', 'opencode.json');
+
+  function configDir(botRoot: string): string {
+    return join(botRoot, 'config', 'opencode');
+  }
+
+  it("creates the agent entries in the bot's own OpenCode config", () => {
+    const botRoot = tempRoot();
+
+    writeOpenCodeSubagents(botRoot, [
+      { name: 'reviewer', prompt: 'Read the diff and report risks.\nThen stay quiet.' },
+    ]);
+
+    // The first line becomes the description OpenCode shows for the agent; the
+    // whole prompt stays the agent's system prompt.
+    expect(JSON.parse(readFileSync(configPath(botRoot), 'utf8'))).toEqual({
+      agent: {
+        reviewer: {
+          mode: 'subagent',
+          description: 'Read the diff and report risks.',
+          prompt: 'Read the diff and report risks.\nThen stay quiet.',
+        },
+      },
+    });
+  });
+
+  it('preserves the mcp section and every other key the file already carries', () => {
+    const botRoot = tempRoot();
+    mkdirSync(configDir(botRoot), { recursive: true });
+    const existing = {
+      $schema: 'https://opencode.ai/config.json',
+      mcp: { bot_one: { type: 'local', command: ['npx', '-y', 'one'] } },
+      model: 'anthropic/claude-sonnet-4',
+      agent: { builder: { mode: 'primary', prompt: 'Build.' } },
+    };
+    writeFileSync(configPath(botRoot), JSON.stringify(existing));
+
+    writeOpenCodeSubagents(botRoot, [{ name: 'reviewer', prompt: 'Review.' }]);
+
+    const written = JSON.parse(readFileSync(configPath(botRoot), 'utf8')) as {
+      mcp: unknown;
+      agent: Record<string, unknown>;
+    };
+    // One file carries the bot's MCP servers, model and agents: a subagent write
+    // may add to `agent` and must not touch anything else.
+    expect(written.mcp).toEqual(existing.mcp);
+    expect(written).toMatchObject({
+      $schema: existing.$schema,
+      model: existing.model,
+    });
+    expect(written.agent['builder']).toEqual(existing.agent.builder);
+    expect(written.agent['reviewer']).toMatchObject({
+      mode: 'subagent',
+      description: 'Review.',
+      prompt: 'Review.',
+    });
+  });
+
+  it('upserts a second call instead of duplicating the agent', () => {
+    const botRoot = tempRoot();
+    writeOpenCodeSubagents(botRoot, [{ name: 'reviewer', prompt: 'Review.' }]);
+
+    writeOpenCodeSubagents(botRoot, [{ name: 'reviewer', prompt: 'Review harder.' }]);
+
+    const written = JSON.parse(readFileSync(configPath(botRoot), 'utf8')) as {
+      agent: Record<string, unknown>;
+    };
+    expect(Object.keys(written.agent)).toEqual(['reviewer']);
+    expect(written.agent['reviewer']).toEqual({
+      mode: 'subagent',
+      description: 'Review harder.',
+      prompt: 'Review harder.',
+    });
+  });
+
+  it('caps the description at 80 characters and falls back to the name', () => {
+    const botRoot = tempRoot();
+
+    writeOpenCodeSubagents(botRoot, [
+      { name: 'long-winded', prompt: `${'a'.repeat(120)}\nsecond line` },
+      { name: 'blank', prompt: '   ' },
+    ]);
+
+    const { agent } = JSON.parse(readFileSync(configPath(botRoot), 'utf8')) as {
+      agent: Record<string, { description: string; prompt: string }>;
+    };
+    expect(agent['long-winded']?.description).toBe('a'.repeat(80));
+    // A prompt with no usable first line still needs a description OpenCode can
+    // show, and the name is the only honest one.
+    expect(agent['blank']?.description).toBe('blank');
+    expect(agent['blank']?.prompt).toBe('   ');
+  });
+
+  it('leaves no temp file beside the config', () => {
+    const botRoot = tempRoot();
+
+    writeOpenCodeSubagents(botRoot, [{ name: 'reviewer', prompt: 'Review.' }]);
+
+    expect(readdirSync(configDir(botRoot))).toEqual(['opencode.json']);
+  });
+
+  it('refuses an agent section that is not an object', () => {
+    const botRoot = tempRoot();
+    mkdirSync(configDir(botRoot), { recursive: true });
+    writeFileSync(configPath(botRoot), JSON.stringify({ agent: ['not', 'an', 'object'] }));
+
+    expect(() =>
+      writeOpenCodeSubagents(botRoot, [{ name: 'reviewer', prompt: 'Review.' }]),
+    ).toThrow(/"agent" must be an object/);
   });
 });
 

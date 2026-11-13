@@ -6,6 +6,7 @@ import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
 import { connectOpenCode, type OpenCodeConnection } from './internal/connection.js';
+import { readOpenCodeFile } from './internal/opencode-mcp-config.js';
 import { OpenCodeApi } from './internal/client.js';
 import { OpenCodeEventStream } from './internal/event-stream.js';
 
@@ -180,6 +181,86 @@ function writePrivateJson(path: string, value: unknown): void {
     try {
       writeFileSync(path, serialized, { mode: PRIVATE_FILE_MODE });
       chmodSync(path, PRIVATE_FILE_MODE);
+      rmSync(temp, { force: true });
+    } catch {
+      rmSync(temp, { force: true });
+      throw error;
+    }
+  }
+}
+
+/** OpenCode renders an agent's description in one row, so it is written short. */
+const SUBAGENT_DESCRIPTION_MAX = 80;
+
+/**
+ * The one-line label OpenCode shows for an agent.
+ *
+ * The first line of the prompt is the sentence the reader already wrote about
+ * what this subagent does; a prompt that starts blank has no such sentence, so
+ * the name stands in. The cap applies to whichever wins.
+ */
+function subagentDescription(name: string, prompt: string): string {
+  const firstLine = prompt.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  return (firstLine === '' ? name : firstLine).slice(0, SUBAGENT_DESCRIPTION_MAX);
+}
+
+/**
+ * Writes a bot's named subagents into its own OpenCode config.
+ *
+ * OpenCode keeps agents, MCP servers, models and every other setting in one
+ * file — the same `<botRoot>/config/opencode/opencode.json` the bot's server
+ * reads (see `createBotOpenCodeEngine`) — so this merges into the `agent` key
+ * and preserves everything around it. The entry is OpenCode's native custom
+ * subagent: `mode: 'subagent'`, a description and the prompt. A second call for
+ * the same name replaces that entry rather than adding a duplicate, which is
+ * what an edited wizard row means.
+ *
+ * The write is atomic (temp file beside it, then rename), the same discipline
+ * as `writeOpenCodeCredentials`: a host that dies mid-save leaves the previous
+ * config intact instead of a truncated one that would lose the bot's MCP
+ * servers.
+ */
+export function writeOpenCodeSubagents(
+  botRoot: string,
+  subagents: { name: string; prompt: string }[],
+): void {
+  const path = join(botRoot, 'config', 'opencode', 'opencode.json');
+  const file = readOpenCodeFile(path);
+  const existing = file.agent;
+  if (
+    existing !== undefined &&
+    (typeof existing !== 'object' || existing === null || Array.isArray(existing))
+  ) {
+    throw new Error(`${path}: "agent" must be an object.`);
+  }
+  const agents: Record<string, unknown> = { ...(existing as Record<string, unknown> | undefined) };
+  for (const subagent of subagents) {
+    agents[subagent.name] = {
+      mode: 'subagent',
+      description: subagentDescription(subagent.name, subagent.prompt),
+      prompt: subagent.prompt,
+    };
+  }
+  file.agent = agents;
+  writeConfigJson(path, file);
+}
+
+/**
+ * Temp file beside the target, then rename: the config is either the previous
+ * file or the new one, never half of each. The fallback mirrors the credential
+ * writer, because a mount that refuses a rename over an existing file must not
+ * fail the create.
+ */
+function writeConfigJson(path: string, value: unknown): void {
+  const serialized = `${JSON.stringify(value, null, 2)}\n`;
+  const temp = `${path}.${process.pid}.tmp`;
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    writeFileSync(temp, serialized, 'utf8');
+    renameSync(temp, path);
+  } catch (error) {
+    try {
+      writeFileSync(path, serialized, 'utf8');
       rmSync(temp, { force: true });
     } catch {
       rmSync(temp, { force: true });
