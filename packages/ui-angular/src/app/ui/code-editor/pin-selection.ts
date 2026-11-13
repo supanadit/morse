@@ -97,3 +97,26 @@ export function pinFromOffsets(
     ...(singleLine ? { text: text.slice(start, end) } : {}),
   };
 }
+
+/** `L14`, `L14-22`, `L14:3-18` or `L14:3-22` — the same label the composer chip shows. */
+export function pinRangeLabel(request: Pick<PinRequest, 'startLine' | 'endLine' | 'startColumn' | 'endColumn'>): string {
+  const lines = request.endLine === undefined ? `L${request.startLine}` : `L${request.startLine}-${request.endLine}`;
+  if (request.startColumn === undefined) {
+    return lines;
+  }
+  const end = request.endLine === undefined ? request.endColumn : request.endLine;
+  return end === undefined ? `${lines}:${request.startColumn}` : `L${request.startLine}:${request.startColumn}-${end}`;
+}
+
+/** Where a floating pill sits below a selection rect, kept inside the viewport. */
+export function pillAnchoredAt(
+  rect: { left: number; top: number; bottom: number },
+  viewport: { width: number; height: number },
+  pill: { width: number; height: number },
+  margin = 6,
+): { left: number; top: number } {
+  const left = Math.min(rect.left, Math.max(0, viewport.width - pill.width));
+  const below = rect.bottom + margin;
+  const top = below + pill.height > viewport.height - margin ? rect.top - pill.height - margin : below;
+  return { left, top };
+}

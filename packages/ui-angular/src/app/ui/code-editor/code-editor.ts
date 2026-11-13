@@ -21,16 +21,27 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { Compartment, EditorState } from '@codemirror/state';
+import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
-import type { PinRequest } from './pin-selection';
+import { pillAnchoredAt, pinFromOffsets, pinRangeLabel, type PinRequest } from './pin-selection';
 import { clearFlash, flashExtension, revealLine } from './scroll';
 
 /** How long a jumped-to line stays lit. */
 const FLASH_MS = 900;
+/** The pill's assumed box, used to keep it inside the viewport. */
+const PILL_SIZE = { width: 132, height: 26 } as const;
+
+/** The floating "pin this selection" affordance. */
+interface Pill {
+  readonly left: number;
+  readonly top: number;
+  readonly label: string;
+  readonly from: number;
+  readonly to: number;
+}
 
 @Component({
   selector: 'morse-code-editor',
@@ -41,6 +52,7 @@ const FLASH_MS = 900;
   // it; the stylesheet scopes every selector to the host element instead, and
   // `conventions.spec.ts` holds that line.
   encapsulation: ViewEncapsulation.None,
+  host: { '(keydown)': 'onEditorKeydown($event)' },
 })
 export class CodeEditor {
   /** The file's text, as the tab store read it. */
@@ -59,9 +71,13 @@ export class CodeEditor {
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private readonly language = new Compartment();
   private readonly ready = signal(false);
+  /** The selection pill, when a confirmation-worthy selection exists. */
+  protected readonly pill = signal<Pill | undefined>(undefined);
   private view: EditorView | undefined;
   private loadedPath: string | undefined;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A gutter drag paints a line selection; it must not raise the pill. */
+  private dragging = false;
 
   constructor() {
     afterNextRender(() => this.mount());
@@ -93,7 +109,19 @@ export class CodeEditor {
       parent: this.host().nativeElement,
       state: EditorState.create({
         doc: this.text(),
-        extensions: [editorExtensions(), flashExtension, this.language.of([])],
+        extensions: [
+          editorExtensions(),
+          flashExtension,
+          this.language.of([]),
+          EditorView.updateListener.of((update) => {
+            if (update.selectionSet || update.docChanged || update.geometryChanged) {
+              this.updatePill(update.view);
+            }
+          }),
+          EditorView.domEventHandlers({
+            mousedown: (event, view) => this.startGutterDrag(event, view),
+          }),
+        ],
       }),
     });
     this.ready.set(true);
@@ -102,6 +130,121 @@ export class CodeEditor {
     if (line !== undefined) {
       this.reveal(line);
     }
+  }
+
+  /** Show, move or clear the pill from the current selection. */
+  private updatePill(view: EditorView): void {
+    if (this.dragging) {
+      return;
+    }
+    const range = view.state.selection.main;
+    const head = range.empty ? null : view.coordsAtPos(range.head);
+    if (head === null) {
+      this.pill.set(undefined);
+      return;
+    }
+    const request = pinFromOffsets(view.state.doc.toString(), range.from, range.to);
+    if (request === null) {
+      this.pill.set(undefined);
+      return;
+    }
+    const box = view.dom.getBoundingClientRect();
+    const position = pillAnchoredAt(
+      { left: head.left - box.left, top: head.top - box.top, bottom: head.bottom - box.top },
+      { width: box.width, height: box.height },
+      PILL_SIZE,
+    );
+    this.pill.set({
+      ...position,
+      label: pinRangeLabel(request),
+      from: range.from,
+      to: range.to,
+    });
+  }
+
+  /** Enter or a click on the pill commits it; the range goes up as a request. */
+  protected confirmPill(pill: Pill): void {
+    const view = this.view;
+    this.pill.set(undefined);
+    if (view === undefined) {
+      return;
+    }
+    const request = pinFromOffsets(view.state.doc.toString(), pill.from, pill.to);
+    if (request !== null) {
+      this.pinRequested.emit(request);
+    }
+  }
+
+  /** Escape dismisses the pill; Enter confirms it. */
+  protected onEditorKeydown(event: KeyboardEvent): void {
+    const pill = this.pill();
+    if (pill === undefined) {
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.pill.set(undefined);
+      return;
+    }
+    if (event.key === 'Enter' && !event.isComposing) {
+      event.preventDefault();
+      this.confirmPill(pill);
+    }
+  }
+
+  /** The whole-line range under a gutter pointer position. */
+  private lineRangeAt(view: EditorView, clientY: number): { from: number; to: number } | null {
+    const box = view.scrollDOM.getBoundingClientRect();
+    const block = view.lineBlockAtHeight(clientY - box.top + view.scrollDOM.scrollTop);
+    const line = view.state.doc.lineAt(block.from);
+    const to = line.to === line.from ? Math.min(line.to + 1, view.state.doc.length) : line.to;
+    return to > line.from ? { from: line.from, to } : null;
+  }
+
+  /**
+   * Dragging the line numbers pins whole lines: the range forms live as a
+   * selection, and release hands it to the feature. Selecting text, by contrast,
+   * raises the pill — selecting is also how a reader copies.
+   */
+  private startGutterDrag(event: MouseEvent, view: EditorView): boolean {
+    const target = event.target as HTMLElement | null;
+    if (target === null || target.closest('.cm-lineNumbers') === null) {
+      return false;
+    }
+    const first = this.lineRangeAt(view, event.clientY);
+    if (first === null) {
+      return false;
+    }
+    event.preventDefault();
+    this.dragging = true;
+    this.pill.set(undefined);
+    let from = first.from;
+    let to = first.to;
+    const apply = (clientY: number) => {
+      const next = this.lineRangeAt(view, clientY);
+      if (next === null) {
+        return;
+      }
+      from = Math.min(first.from, next.from);
+      to = Math.max(first.to, next.to);
+      view.dispatch({ selection: EditorSelection.range(from, to), scrollIntoView: false });
+    };
+    apply(event.clientY);
+    const move = (pointer: PointerEvent) => apply(pointer.clientY);
+    const up = (pointer: PointerEvent) => {
+      document.removeEventListener('pointermove', move);
+      apply(pointer.clientY);
+      this.dragging = false;
+      this.pill.set(undefined);
+      const request = pinFromOffsets(view.state.doc.toString(), from, to, { lineOnly: true });
+      if (request !== null) {
+        this.pinRequested.emit(request);
+      }
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up, { once: true });
+    return true;
   }
 
   private replaceText(text: string): void {

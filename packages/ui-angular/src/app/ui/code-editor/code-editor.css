@@ -247,6 +247,28 @@ morse-code-editor .morse-rail {
   display: none;
 }
 
+morse-code-editor .morse-pin-pill {
+  position: absolute;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: 13px;
+  background: var(--morse-panel);
+  color: var(--morse-fg);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+  font-family: var(--morse-font);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+morse-code-editor .morse-pin-pill:hover {
+  background: var(--morse-hover);
+}
+
 @keyframes morse-line-flash {
   from {
     background: color-mix(in srgb, var(--morse-accent) 22%, transparent);

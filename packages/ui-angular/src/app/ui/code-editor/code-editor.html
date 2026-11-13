@@ -1,3 +1,15 @@
 <!-- The CodeMirror view owns this div; the rail beside it is Angular's (Task 8). -->
 <div class="morse-editor-host" #host></div>
+@if (pill(); as p) {
+  <button
+    type="button"
+    class="morse-pin-pill"
+    [style.left.px]="p.left"
+    [style.top.px]="p.top"
+    [attr.aria-label]="'Pin ' + p.label + ' to this message'"
+    (click)="confirmPill(p)"
+  >
+    ⧉ Pin {{ p.label }}
+  </button>
+}
 <div class="morse-rail" aria-hidden="true"></div>
