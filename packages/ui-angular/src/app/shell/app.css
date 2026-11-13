@@ -13,10 +13,13 @@
   display: grid;
   /*
    * Two faces of the left column (sessions and files) and, on the web host, the rail
-   * that picks between them. Named areas keep each host/width combination stated once:
-   * an optional fourth track cannot shift the nav into a 0px rail track.
+   * that picks between them. The area rows mirror the shell's three rows, so the
+   * columns stay in the middle band; the dots are the chrome's own row and column.
    */
-  grid-template-areas: 'nav main';
+  grid-template-areas:
+    '. .'
+    'nav main'
+    '. .';
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
   /*
    * Three rows: the window's chrome, the columns that share the width, and the chrome
@@ -125,7 +128,10 @@
 .shell.embedded.collapsed.with-rail.with-git,
 .shell.embedded.collapsed.with-rail.with-search,
 .shell.embedded.collapsed.with-rail.git-expanded {
-  grid-template-areas: 'main';
+  grid-template-areas:
+    '.'
+    'main'
+    '.';
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -138,7 +144,10 @@
  */
 .shell.with-git,
 .shell.with-search {
-  grid-template-areas: 'nav main git';
+  grid-template-areas:
+    '. . .'
+    'nav main git'
+    '. . .';
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr) var(--morse-git-width);
 }
 
@@ -147,13 +156,19 @@
  * and the rail is never folded with it.
  */
 .shell.with-rail {
-  grid-template-areas: 'rail nav main';
+  grid-template-areas:
+    '. . .'
+    'rail nav main'
+    '. . .';
   grid-template-columns: var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr);
 }
 
 .shell.with-rail.with-git,
 .shell.with-rail.with-search {
-  grid-template-areas: 'rail nav main git';
+  grid-template-areas:
+    '. . . .'
+    'rail nav main git'
+    '. . . .';
   grid-template-columns:
     var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr)
     var(--morse-git-width);
@@ -164,12 +179,18 @@
  * so a wide graph has room. The chat steps aside instead of sharing the width.
  */
 .shell.git-expanded {
-  grid-template-areas: 'nav git';
+  grid-template-areas:
+    '. .'
+    'nav git'
+    '. .';
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
 }
 
 .shell.with-rail.git-expanded {
-  grid-template-areas: 'rail nav git';
+  grid-template-areas:
+    '. . .'
+    'rail nav git'
+    '. . .';
   grid-template-columns: var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr);
 }
 
@@ -610,12 +631,18 @@
    * conversation, while the rail stays on screen so Files remains reachable.
    */
   .shell {
-    grid-template-areas: 'main';
+    grid-template-areas:
+      '.'
+      'main'
+      '.';
     grid-template-columns: minmax(0, 1fr);
   }
 
   .shell.with-rail {
-    grid-template-areas: 'rail main';
+    grid-template-areas:
+      '. .'
+      'rail main'
+      '. .';
     grid-template-columns: var(--morse-rail-width) minmax(0, 1fr);
   }
 
@@ -626,20 +653,29 @@
    */
   .shell.with-git,
   .shell.with-search {
-    grid-template-areas: 'main';
+    grid-template-areas:
+      '.'
+      'main'
+      '.';
     grid-template-columns: minmax(0, 1fr);
   }
 
   /* Expanded on a narrow window: the graph fills the screen, the chat is gone. */
   .shell.git-expanded {
-    grid-template-areas: 'main';
+    grid-template-areas:
+      '.'
+      'main'
+      '.';
     grid-template-columns: minmax(0, 1fr);
   }
 
   .shell.with-rail.with-git,
   .shell.with-rail.with-search,
   .shell.with-rail.git-expanded {
-    grid-template-areas: 'rail main';
+    grid-template-areas:
+      '. .'
+      'rail main'
+      '. .';
     grid-template-columns: var(--morse-rail-width) minmax(0, 1fr);
   }
 

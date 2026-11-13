@@ -83,6 +83,22 @@ describe('App left rail', () => {
     TestBed.resetTestingModule();
   });
 
+  it('keeps the columns in the shell middle row', () => {
+    render();
+    const rules = [...document.styleSheets]
+      .flatMap((sheet) => [...sheet.cssRules])
+      .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+      .filter((rule) => /\.shell(\[[^\]]+\])?$/.test(rule.selectorText));
+    const areas = rules
+      .map((rule) => rule.style.getPropertyValue('grid-template-areas'))
+      .filter((value) => value.length > 0);
+
+    expect(areas.length).toBeGreaterThan(0);
+    // Three bands: the chrome above, the columns, the chrome below. One row would
+    // put the rail, nav and chat on the toolbar's row instead of under it.
+    expect(areas.every((value) => value.split('"').length === 7)).toBe(true);
+  });
+
   it('opens on the session list behind the rail', () => {
     const fixture = render();
     const host = fixture.nativeElement as HTMLElement;
