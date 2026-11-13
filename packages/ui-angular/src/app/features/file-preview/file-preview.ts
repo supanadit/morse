@@ -27,14 +27,14 @@ import {
   type UnifiedRow,
 } from '@morse/ui-runtime';
 import type { PopoverAnchor } from '@morse/ui-runtime';
-import { AttachmentStore, type PendingPin } from '../../state/attachments';
+import { AttachmentStore } from '../../state/attachments';
 import { DisplayPrefs, type DiffView } from '../../state/display-prefs';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs, type FileTab } from '../../state/workspace-tabs';
 import { PinActions } from '../../ui/pin-annotation/pin-actions';
 import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import { CODE_EDITOR_LOADER, type CodeEditorLoader } from '../../ui/code-editor/code-editor-loader';
-import { editorPins } from '../../ui/code-editor/pins';
+import { editorPins, type EditorPin } from '../../ui/code-editor/pins';
 import type { PinRequest } from '../../ui/code-editor/pin-selection';
 
 /**
@@ -180,6 +180,80 @@ export class FilePreview {
   /** This file's pins, which the editor draws and the header counts. */
   protected readonly pins = computed(() => editorPins(this.attachments.pins(), this.tab().path));
   protected readonly pinnedCount = computed(() => this.pins().length);
+
+  /**
+   * The row each pin's Notes/Cancel pair belongs to: the bottom of its band.
+   *
+   * Matching the anchor alone is not enough. Every row of a deletion block maps
+   * to the same new-file line, so a pin ending there would paint a pair on
+   * every deleted row; the last changed row on that line is the one corner the
+   * pair belongs on.
+   */
+  protected readonly unifiedPairRows = computed(() => {
+    const rows = this.unified();
+    const out = new Map<number, EditorPin>();
+    for (const pin of this.pins()) {
+      const end = pin.endLine ?? pin.startLine;
+      let last = -1;
+      let lastChange = -1;
+      rows.forEach((row, i) => {
+        if (row.kind === 'hunk' || row.newAnchor !== end) {
+          return;
+        }
+        last = i;
+        if (row.kind === 'add' || row.kind === 'del') {
+          lastChange = i;
+        }
+      });
+      const index = lastChange >= 0 ? lastChange : last;
+      if (index >= 0) {
+        out.set(index, pin);
+      }
+    }
+    return out;
+  });
+
+  /** The split view's version: the pair rides the side the band ends on. */
+  protected readonly splitPairRows = computed(() => {
+    const rows = this.split();
+    const left = new Map<number, EditorPin>();
+    const right = new Map<number, EditorPin>();
+    for (const pin of this.pins()) {
+      const end = pin.endLine ?? pin.startLine;
+      let rightAdd = -1;
+      let leftDel = -1;
+      let rightLast = -1;
+      let leftLast = -1;
+      rows.forEach((pair, i) => {
+        const next = pair.right;
+        if (next !== undefined && next.newAnchor === end) {
+          rightLast = i;
+          if (next.kind === 'add') {
+            rightAdd = i;
+          }
+        }
+        const old = pair.left;
+        if (old !== undefined && old.newAnchor === end) {
+          leftLast = i;
+          if (old.kind === 'del') {
+            leftDel = i;
+          }
+        }
+      });
+      // An addition (or a context line) ends on the new side; a deletion that
+      // leaves no added row behind ends on the old side, where it is drawn.
+      if (rightAdd >= 0) {
+        right.set(rightAdd, pin);
+      } else if (leftDel >= 0) {
+        left.set(leftDel, pin);
+      } else if (rightLast >= 0) {
+        right.set(rightLast, pin);
+      } else if (leftLast >= 0) {
+        left.set(leftLast, pin);
+      }
+    }
+    return { left, right };
+  });
 
   // --- the editor -----------------------------------------------------------
 
@@ -379,42 +453,6 @@ export class FilePreview {
       'info',
       `Pinned ${this.tab().title} ${rangeText(change)} to this message.`,
     );
-  }
-
-  /**
-   * The pin whose range **ends** on this new-file anchor, so the one annotation
-   * affordance per pin lands at the last row of what it covers (unified and
-   * split alike; split looks only at the new-file anchor the rows already
-   * carry). `undefined` when no pin of this file ends here.
-   */
-  protected notePinAt(anchor: number | undefined): PendingPin | undefined {
-    if (anchor === undefined) {
-      return undefined;
-    }
-    const path = this.tab().path;
-    return this.attachments
-      .pins()
-      .find(
-        (pin) =>
-          pin.path === path &&
-          pin.startLine !== undefined &&
-          (pin.endLine ?? pin.startLine) === anchor,
-      );
-  }
-
-  /**
-   * The old side's affordance in the split view: it hosts the ✎ only when the
-   * new side has **no** row at the pin's end — a deletion at the end of its
-   * hunk leaves no new-file row behind — and never as a second button beside
-   * the new side's.
-   */
-  protected splitOldNotePin(
-    side: DiffRow | undefined,
-    other: DiffRow | undefined,
-  ): PendingPin | undefined {
-    return this.notePinAt(other?.newAnchor) !== undefined
-      ? undefined
-      : this.notePinAt(side?.newAnchor);
   }
 
   /** The ✎ on a diff row: open the annotation editor anchored to that button. */

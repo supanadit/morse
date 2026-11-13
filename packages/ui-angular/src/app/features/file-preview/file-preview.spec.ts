@@ -354,6 +354,27 @@ describe('FilePreview annotations', () => {
     expect(attachments.pin).not.toHaveBeenCalled();
   });
 
+  it('puts one pair on a deleted block, on its last row', () => {
+    const { fixture, pins } = render(
+      {
+        content: 'const a = 1;\nconst c = 3;\n',
+        diff: '@@ -1,4 +1,2 @@\n const a = 1;\n-const b = 2;\n-const b2 = 2;\n const c = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    // Every deleted row maps to the same new-file line, so matching the anchor
+    // alone would paint a pair on each of them.
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
+    fixture.detectChanges();
+    setDiffMode(fixture, 'Unified diff');
+
+    const rows = fixture.nativeElement.querySelectorAll('.drow.del');
+    expect(rows).toHaveLength(2);
+    expect(fixture.nativeElement.querySelectorAll('.drow.del morse-pin-actions')).toHaveLength(1);
+    expect(rows[rows.length - 1]?.querySelector('morse-pin-actions')).not.toBeNull();
+    expect(rows[0]?.querySelector('morse-pin-actions')).toBeNull();
+  });
+
   it('hosts the deletion pin’s note and Cancel on the old side when there is no new row', () => {
     const { fixture, pins } = render(
       {

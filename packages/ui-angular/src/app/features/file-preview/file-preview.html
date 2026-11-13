@@ -86,7 +86,7 @@
               <!-- Deletion blocks whose line the new file no longer has live
                    only on the old side; the affordance falls back here when the
                    new-file side has no row to carry it. -->
-              @if (splitOldNotePin(pair.left, pair.right); as noted) {
+              @if (splitPairRows().left.get($index); as noted) {
                 <morse-pin-actions
                   [note]="noted.note"
                   [target]="'this change of ' + tab().title"
@@ -112,7 +112,7 @@
               <span class="dtext" [innerHTML]="pair.right?.html"></span>
               <!-- The annotation affordance lives on the new-file side, where a
                    pin's lines point; the old side only when it must. -->
-              @if (notePinAt(pair.right?.newAnchor); as noted) {
+              @if (splitPairRows().right.get($index); as noted) {
                 <morse-pin-actions
                   [note]="noted.note"
                   [target]="'this change of ' + tab().title"
@@ -154,7 +154,7 @@
               unpins. The pair stops its own clicks, so the row's pin/unpin
               behaviour is untouched around it.
             -->
-            @if (notePinAt(row.newAnchor); as noted) {
+            @if (unifiedPairRows().get($index); as noted) {
               <morse-pin-actions
                 [note]="noted.note"
                 [target]="'this change of ' + tab().title"
