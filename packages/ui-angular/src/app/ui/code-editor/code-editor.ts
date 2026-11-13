@@ -21,18 +21,23 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Range } from '@codemirror/state';
+import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
+import { foldedRanges } from '@codemirror/language';
 import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
 import { pillAnchoredAt, pinFromOffsets, pinRangeLabel, type PinRequest } from './pin-selection';
+import { railSlots } from './rail';
 import { clearFlash, flashExtension, revealLine } from './scroll';
+import { Markdown } from '../markdown/markdown';
 
 /** How long a jumped-to line stays lit. */
 const FLASH_MS = 900;
 /** The pill's assumed box, used to keep it inside the viewport. */
 const PILL_SIZE = { width: 132, height: 26 } as const;
+/** Every card is the same height (the note clamps), so placement needs no measuring. */
+const CARD_HEIGHT = 76;
 
 /** The floating "pin this selection" affordance. */
 interface Pill {
@@ -43,10 +48,36 @@ interface Pill {
   readonly to: number;
 }
 
+/** One card in the rail, already placed. */
+interface RailCard {
+  readonly pin: EditorPin;
+  readonly label: string;
+  readonly top: number;
+}
+
+/** Replace the pinned ranges' line tints. */
+const setPinTints = StateEffect.define<DecorationSet>();
+
+const pinTint = Decoration.line({ class: 'morse-pin-line' });
+
+const pinTintField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setPinTints)) {
+        return effect.value;
+      }
+    }
+    return value.map(transaction.changes);
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 @Component({
   selector: 'morse-code-editor',
   templateUrl: './code-editor.html',
   styleUrl: './code-editor.css',
+  imports: [Markdown],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // CodeMirror builds its own DOM, so emulated encapsulation would never reach
   // it; the stylesheet scopes every selector to the host element instead, and
@@ -69,15 +100,19 @@ export class CodeEditor {
   readonly unpinned = output<{ id: string }>();
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
+  private readonly track = viewChild<ElementRef<HTMLElement>>('track');
   private readonly language = new Compartment();
   private readonly ready = signal(false);
   /** The selection pill, when a confirmation-worthy selection exists. */
   protected readonly pill = signal<Pill | undefined>(undefined);
+  /** The rail's cards, placed in document coordinates. */
+  protected readonly cards = signal<readonly RailCard[]>([]);
   private view: EditorView | undefined;
   private loadedPath: string | undefined;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
   /** A gutter drag paints a line selection; it must not raise the pill. */
   private dragging = false;
+  private readonly onScroll = () => this.syncTrack();
 
   constructor() {
     afterNextRender(() => this.mount());
@@ -96,10 +131,15 @@ export class CodeEditor {
       }
       untracked(() => this.reveal(line));
     });
+    effect(() => {
+      this.pins();
+      untracked(() => this.applyPins());
+    });
     inject(DestroyRef).onDestroy(() => {
       if (this.flashTimer !== undefined) {
         clearTimeout(this.flashTimer);
       }
+      this.view?.scrollDOM.removeEventListener('scroll', this.onScroll);
       this.view?.destroy();
     });
   }
@@ -112,10 +152,14 @@ export class CodeEditor {
         extensions: [
           editorExtensions(),
           flashExtension,
+          pinTintField,
           this.language.of([]),
           EditorView.updateListener.of((update) => {
             if (update.selectionSet || update.docChanged || update.geometryChanged) {
               this.updatePill(update.view);
+            }
+            if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+              this.refreshCards(update.view);
             }
           }),
           EditorView.domEventHandlers({
@@ -124,12 +168,74 @@ export class CodeEditor {
         ],
       }),
     });
+    this.view?.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
     this.ready.set(true);
     void this.applyLanguage(this.path());
     const line = this.line();
     if (line !== undefined) {
       this.reveal(line);
     }
+    this.applyPins();
+  }
+
+  /** Tint every line a pin covers, and place its card. */
+  private applyPins(): void {
+    const view = this.view;
+    if (view === undefined) {
+      return;
+    }
+    const doc = view.state.doc;
+    const ranges: Range<Decoration>[] = [];
+    for (const pin of this.pins()) {
+      const first = Math.min(Math.max(1, pin.startLine), doc.lines);
+      const last = Math.min(Math.max(first, pin.endLine ?? first), doc.lines);
+      for (let number = first; number <= last; number += 1) {
+        ranges.push(pinTint.range(doc.line(number).from));
+      }
+    }
+    view.dispatch({ effects: setPinTints.of(Decoration.set(ranges, true)) });
+    this.refreshCards(view);
+  }
+
+  /**
+   * Place each card beside its line, in document coordinates: the rail track is
+   * translated by the scroll offset, so cards move with the text and are placed
+   * once per measure rather than once per scroll pixel.
+   */
+  private refreshCards(view: EditorView): void {
+    const doc = view.state.doc;
+    const folded = foldedRanges(view.state);
+    const pinned = this.pins();
+    const anchors = pinned.map((pin) => {
+      const number = Math.min(Math.max(1, pin.startLine), doc.lines);
+      const line = doc.line(number);
+      let hidden = false;
+      folded.between(line.from, line.from, () => {
+        hidden = true;
+        return false;
+      });
+      return hidden ? null : view.lineBlockAt(line.from).top;
+    });
+    const slots = railSlots(anchors, pinned.map(() => CARD_HEIGHT));
+    const cards: RailCard[] = [];
+    pinned.forEach((pin, index) => {
+      const slot = slots[index];
+      if (slot !== null && slot !== undefined) {
+        cards.push({ pin, label: pinRangeLabel(pin), top: slot.top });
+      }
+    });
+    this.cards.set(cards);
+    this.syncTrack();
+  }
+
+  /** Keep the rail's cards beside their lines while the editor scrolls. */
+  private syncTrack(): void {
+    const track = this.track()?.nativeElement;
+    const view = this.view;
+    if (track === undefined || view === undefined) {
+      return;
+    }
+    track.style.transform = `translateY(${-view.scrollDOM.scrollTop}px)`;
   }
 
   /** Show, move or clear the pill from the current selection. */

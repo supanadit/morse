@@ -1,5 +1,21 @@
-<!-- The CodeMirror view owns this div; the rail beside it is Angular's (Task 8). -->
+<!-- The CodeMirror view owns the host div; the rail beside it is Angular's. -->
 <div class="morse-editor-host" #host></div>
+@if (cards().length) {
+  <div class="morse-rail">
+    <div class="morse-rail-track" #track>
+      @for (card of cards(); track card.pin.id) {
+        <article class="morse-card" [style.top.px]="card.top">
+          <span class="morse-card-range">{{ card.label }}</span>
+          @if (card.pin.note) {
+            <morse-markdown class="morse-card-note" [text]="card.pin.note" />
+          } @else {
+            <span class="morse-card-note ghost">Add a note…</span>
+          }
+        </article>
+      }
+    </div>
+  </div>
+}
 @if (pill(); as p) {
   <button
     type="button"
@@ -12,4 +28,3 @@
     ⧉ Pin {{ p.label }}
   </button>
 }
-<div class="morse-rail" aria-hidden="true"></div>
