@@ -29,7 +29,7 @@ import { pinAtLine } from './bands';
 import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
-import { pillAnchoredAt, pinFromText, type PinRequest } from './pin-selection';
+import { pinFromText, type PinRequest } from './pin-selection';
 import { clearFlash, flashExtension, revealLine } from './scroll';
 import { PinActions } from '../pin-annotation/pin-actions';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
@@ -37,18 +37,6 @@ import { pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
 
 /** How long a jumped-to line stays lit. */
 const FLASH_MS = 900;
-/** The pill's assumed box, used to keep it inside the viewport. */
-const PILL_SIZE = { width: 132, height: 26 } as const;
-
-/** The floating "pin this selection" affordance. */
-interface Pill {
-  readonly left: number;
-  readonly top: number;
-  readonly label: string;
-  readonly from: number;
-  readonly to: number;
-}
-
 /** A pin's note/Cancel pair, floating at the bottom edge of its band. */
 interface BandAction {
   readonly pin: EditorPin;
@@ -89,7 +77,7 @@ const pinTintField = StateField.define<DecorationSet>({
   // it; the stylesheet scopes every selector to the host element instead, and
   // `conventions.spec.ts` holds that line.
   encapsulation: ViewEncapsulation.None,
-  host: { '(keydown)': 'onEditorKeydown($event)', '[attr.aria-label]': "'File ' + path()" },
+  host: { '[attr.aria-label]': "'File ' + path()" },
 })
 export class CodeEditor {
   /** The file's text, as the tab store read it. */
@@ -104,12 +92,18 @@ export class CodeEditor {
   readonly pinRequested = output<PinRequest>();
   readonly noteEdited = output<{ id: string; note: string }>();
   readonly unpinned = output<{ id: string }>();
+  /**
+   * The selection a pin could be made from, or `null`.
+   *
+   * The affordance itself lives in the file's header, not floating over the code: a
+   * pill pinned to the selection's head sat on top of the very lines it was about,
+   * and stayed there after the pin was made.
+   */
+  readonly selectionChanged = output<PinRequest | null>();
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private readonly bandTrack = viewChild<ElementRef<HTMLElement>>('bandTrack');
   private readonly language = new Compartment();
-  /** The selection pill, when a confirmation-worthy selection exists. */
-  protected readonly pill = signal<Pill | undefined>(undefined);
   /**
    * Each pin's pair, at the bottom of its band in document coordinates.
    *
@@ -144,8 +138,8 @@ export class CodeEditor {
   private view: EditorView | undefined;
   private loadedPath: string | undefined;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
-  /** A gutter drag paints a line selection; it must not raise the pill. */
-  private dragging = false;
+  /** The last selection reported up, so an unchanged one is not re-emitted. */
+  private reportedSelection: string | null = null;
   private readonly onScroll = () => this.syncTrack();
 
   constructor() {
@@ -205,7 +199,7 @@ export class CodeEditor {
           this.language.of([]),
           EditorView.updateListener.of((update) => {
             if (update.selectionSet || update.docChanged || update.geometryChanged) {
-              this.updatePill(update.view);
+              this.reportSelection(update.view);
             }
             if (update.docChanged || update.viewportChanged || update.geometryChanged) {
               this.refreshBands(update.view);
@@ -332,66 +326,32 @@ export class CodeEditor {
     this.unpinned.emit({ id: pin.id });
   }
 
-  /** Show, move or clear the pill from the current selection. */
-  private updatePill(view: EditorView): void {
-    if (this.dragging) {
-      return;
-    }
+  /**
+   * Report the selection a pin could be made from, so the file's header can offer it.
+   * A drag on the line numbers is a pin in progress, not a selection to offer.
+   */
+  private reportSelection(view: EditorView): void {
     const range = view.state.selection.main;
-    const head = range.empty ? null : view.coordsAtPos(range.head);
-    if (head === null) {
-      this.pill.set(undefined);
+    const request = range.empty ? null : pinFromText(view.state.doc, range.from, range.to);
+    const key = request === null ? null : JSON.stringify(request);
+    if (key === this.reportedSelection) {
       return;
     }
-    const request = pinFromText(view.state.doc, range.from, range.to);
-    if (request === null) {
-      this.pill.set(undefined);
-      return;
-    }
-    const box = view.dom.getBoundingClientRect();
-    const position = pillAnchoredAt(
-      { left: head.left - box.left, top: head.top - box.top, bottom: head.bottom - box.top },
-      { width: box.width, height: box.height },
-      PILL_SIZE,
-    );
-    this.pill.set({
-      ...position,
-      label: pinRangeLabel(request),
-      from: range.from,
-      to: range.to,
-    });
+    this.reportedSelection = key;
+    this.selectionChanged.emit(request);
   }
 
-  /** Enter or a click on the pill commits it; the range goes up as a request. */
-  protected confirmPill(pill: Pill): void {
+  /**
+   * Collapse the selection, called by the feature once the pin it asked for exists:
+   * the tint is the record of those lines now, and a drag left painted over them
+   * only looks like an unfinished edit.
+   */
+  clearSelection(): void {
     const view = this.view;
-    this.pill.set(undefined);
-    if (view === undefined) {
+    if (view === undefined || view.state.selection.main.empty) {
       return;
     }
-    const request = pinFromText(view.state.doc, pill.from, pill.to);
-    if (request !== null) {
-      this.dismissed.set(true);
-      this.pinRequested.emit(request);
-    }
-  }
-
-  /** Escape dismisses the pill; Enter confirms it. */
-  protected onEditorKeydown(event: KeyboardEvent): void {
-    const pill = this.pill();
-    if (pill === undefined) {
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      this.pill.set(undefined);
-      return;
-    }
-    if (event.key === 'Enter' && !event.isComposing) {
-      event.preventDefault();
-      this.confirmPill(pill);
-    }
+    view.dispatch({ selection: EditorSelection.cursor(view.state.selection.main.to) });
   }
 
   /** The whole-line range under a gutter pointer position. */
@@ -407,7 +367,7 @@ export class CodeEditor {
   /**
    * Dragging the line numbers pins whole lines: the range forms live as a
    * selection, and release hands it to the feature. Selecting text, by contrast,
-   * raises the pill — selecting is also how a reader copies.
+   * offers the header's pin button — selecting is also how a reader copies.
    */
   private startGutterDrag(event: MouseEvent, view: EditorView): boolean {
     const target = event.target as HTMLElement | null;
@@ -419,8 +379,6 @@ export class CodeEditor {
       return false;
     }
     event.preventDefault();
-    this.dragging = true;
-    this.pill.set(undefined);
     let from = first.from;
     let to = first.to;
     const apply = (clientY: number) => {
@@ -437,13 +395,13 @@ export class CodeEditor {
     const up = (pointer: PointerEvent) => {
       document.removeEventListener('pointermove', move);
       apply(pointer.clientY);
-      this.dragging = false;
-      this.pill.set(undefined);
       const request = pinFromText(view.state.doc, from, to, { lineOnly: true });
       if (request !== null) {
-        // Applied: the highlight is the answer, not a pair left over the lines.
+        // Applied: the highlight is the answer, not a pair left over the lines, and
+        // not a drag still painted across them.
         this.dismissed.set(true);
         this.pinRequested.emit(request);
+        this.clearSelection();
       }
     };
     document.addEventListener('pointermove', move);

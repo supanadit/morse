@@ -174,7 +174,8 @@ The browser host has neither, so `filePreview: true` gives the frontend an Explo
 strip above the conversation, where sessions and files open side by side. A file opens in a **read-only
 CodeMirror editor** — syntax highlighting, line numbers, folding, find, sticky scrolled declarations — loaded as its own
 lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. Dragging
-the line numbers pins whole lines (dragging across the code selects text and offers the pin pill instead). A pin is a
+the line numbers pins whole lines, and selecting text offers `⧉ Pin L12-14` in the file's header (nothing floats
+over the code, and the selection clears once the pin exists). A pin is a
 tinted band, and the **Notes**/**Cancel** pair at its bottom-right corner appears only for the band the pointer is
 on — it steps aside once the reader uses it or applies the pin, leaving the tint. The chip says `Notes` until
 something is written and then the note's own opening words, hovering it shows the whole annotation as markdown,

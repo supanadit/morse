@@ -37,6 +37,19 @@
         <span class="stat">{{ diffStats() }}</span>
       }
     }
+    @if (pendingPin(); as pending) {
+      <!-- The selection the editor offers to pin, in the file's own chrome: a pill
+           floating at the selection's head sat on top of the lines it was about. -->
+      <button
+        type="button"
+        class="pin-selection"
+        title="Pin these lines to your next message"
+        [attr.aria-label]="'Pin ' + pinRangeLabel(pending) + ' to your next message'"
+        (click)="pinPending()"
+      >
+        ⧉ Pin {{ pinRangeLabel(pending) }}
+      </button>
+    }
     @if (pinnedCount()) {
       <!-- The pinned ranges' only overview now that no card column repeats them:
            each click reveals the next one, wrapping at the end. -->

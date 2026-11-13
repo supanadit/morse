@@ -21,18 +21,6 @@
     </div>
   }
 </div>
-@if (pill(); as p) {
-  <button
-    type="button"
-    class="morse-pin-pill"
-    [style.left.px]="p.left"
-    [style.top.px]="p.top"
-    [attr.aria-label]="'Pin ' + p.label + ' to this message'"
-    (click)="confirmPill(p)"
-  >
-    ⧉ Pin {{ p.label }}
-  </button>
-}
 @if (noteEditing(); as editing) {
   @if (noteTarget(); as target) {
     <morse-pin-annotation

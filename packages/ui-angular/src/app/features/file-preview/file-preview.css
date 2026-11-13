@@ -57,6 +57,27 @@
   font-size: 11px;
 }
 /*
+ * The selection the editor offers to pin. It lives here, in the file's chrome,
+ * instead of floating over the code at the selection's head.
+ */
+.pin-selection {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--morse-accent) 18%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.pin-selection:hover:not(:disabled),
+.pin-selection:focus-visible {
+  background: color-mix(in srgb, var(--morse-accent) 30%, transparent);
+}
+
+/*
  * The pinned ranges, right where the drag happened — and the button that walks
  * them, now that no card column lists them beside the code.
  */

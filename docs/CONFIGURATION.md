@@ -160,8 +160,9 @@ restoration and restores nothing here. The file opens in a read-only editor (syn
 highlighting, folding, find, no language server), so a file over 512 KB is shown truncated and a binary file
 is named rather than decoded.
 Drag across the editor's line numbers to pin a range (`path:start-end`) to your next message, or select text
-and confirm the pill that appears to pin the exact columns — picking a file in the `@` picker opens it so the
-drag is one step away. Ranges that touch or overlap become one chip (and one highlight). A pinned range is tinted
+and press `⧉ Pin L12-14` in the file's header to pin the exact columns — picking a file in the `@` picker opens it
+so the drag is one step away. Either way the pin replaces the paint: the range keeps its tint, and the selection
+goes. Ranges that touch or overlap become one chip (and one highlight). A pinned range is tinted
 in the code, and pointing at the range raises a corner pair: the chip carries the note's opening words — hover it
 to read the whole annotation, click it to write one — and `Cancel` unpins. The pair goes as soon as it is used, so
 what stays on the file is the highlight; the header's `N ranges` button walks from one pinned range to the next.

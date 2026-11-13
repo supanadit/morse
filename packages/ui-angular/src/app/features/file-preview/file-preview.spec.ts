@@ -27,6 +27,8 @@ class FakeEditor {
   readonly pinRequested = output<PinRequest>();
   readonly noteEdited = output<{ id: string; note: string }>();
   readonly unpinned = output<{ id: string }>();
+  readonly selectionChanged = output<PinRequest | null>();
+  clearSelection = vi.fn();
 }
 
 function render(
@@ -158,6 +160,29 @@ describe('FilePreview', () => {
       endLine: 3,
       characters: 4,
     });
+  });
+
+  it('offers the editor’s selection in the header, not as a pill over the code', async () => {
+    const { fixture, attachments } = await mount({ content: 'a\nb\nc\n' });
+
+    editorOf(fixture)?.selectionChanged.emit({ startLine: 2, startColumn: 1, endColumn: 2 });
+    fixture.detectChanges();
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector('button.pin-selection');
+    expect(button?.textContent?.trim()).toBe('⧉ Pin L2:1-2');
+
+    button?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(attachments.pin).toHaveBeenCalledWith({
+      path: 'src/main.ts',
+      startLine: 2,
+      startColumn: 1,
+      endColumn: 2,
+    });
+    // The paint goes with the pin: the tint is the record of those lines now.
+    expect(editorOf(fixture)?.clearSelection).toHaveBeenCalled();
+    expect((fixture.nativeElement as HTMLElement).querySelector('button.pin-selection')).toBeNull();
   });
 
   it('writes a note edited in a card onto its pin', async () => {

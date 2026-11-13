@@ -55,6 +55,10 @@ interface EditorOutputs {
   readonly pinRequested: OutputEmitterRef<PinRequest>;
   readonly noteEdited: OutputEmitterRef<{ id: string; note: string }>;
   readonly unpinned: OutputEmitterRef<{ id: string }>;
+  /** The selection a pin could be made from, or `null`. */
+  readonly selectionChanged: OutputEmitterRef<PinRequest | null>;
+  /** Collapse the selection once its pin exists. */
+  clearSelection(): void;
 }
 
 /** The outputs and inputs the feature drives on the mounted editor. */
@@ -181,11 +185,27 @@ export class FilePreview {
   protected readonly pins = computed(() => editorPins(this.attachments.pins(), this.tab().path));
   protected readonly pinnedCount = computed(() => this.pins().length);
   /**
-   * Where the header's pin chip last sent the reader, so the next click moves on.
-   * The chip is the pinned ranges' only overview: their notes ride their own bands
-   * in the code, so this is how a reader reaches a pin they cannot see.
+   * The selection the editor is offering to pin. It shows up in the header rather
+   * than as a pill over the code, so the lines it is about stay readable.
    */
+  protected readonly pendingPin = signal<PinRequest | null>(null);
+  /** The `L14-23` label the header's pin button and the diff rows share. */
+  protected readonly pinRangeLabel = pinRangeLabel;
+  /** Where the header's pin chip last sent the reader, so the next click moves on. */
   private readonly revealedPinLine = signal(0);
+
+  /** The header's pin button: pin what the editor has selected, then drop the paint. */
+  protected pinPending(): void {
+    const pending = this.pendingPin();
+    if (pending === null) {
+      return;
+    }
+    this.pendingPin.set(null);
+    this.pinSelection(pending);
+    // The tint is the record of those lines now: a drag left painted over them only
+    // looks like an unfinished edit.
+    this.mounted()?.instance.clearSelection();
+  }
 
   /** The header's pin chip: reveals the next pinned range in this file, wrapping. */
   protected revealNextPin(): void {
@@ -332,6 +352,7 @@ export class FilePreview {
             this.attachments.setPinNote(id, note.trim().length === 0 ? undefined : note),
           ),
           ref.instance.unpinned.subscribe(({ id }) => this.attachments.removePin(id)),
+          ref.instance.selectionChanged.subscribe((request) => this.pendingPin.set(request)),
         ];
         this.mounted.set(ref);
         onCleanup(() => {
@@ -365,6 +386,7 @@ export class FilePreview {
       untracked(() => {
         this.annotationPin.set(undefined);
         this.annotationAnchor.set(undefined);
+        this.pendingPin.set(null);
       });
     });
     // A diff view pulls the file's diff the first time it is shown.
