@@ -85,6 +85,8 @@ export class GitPanel {
   protected readonly staging = signal(false);
   /** The changes filter, shared by every open repository. */
   protected readonly changeFilter = signal('');
+  /** Amend the last commit instead of creating a new one. */
+  protected readonly amend = signal(false);
 
   /**
    * Each repository's section, with its change groups already derived, so the
@@ -112,7 +114,9 @@ export class GitPanel {
       matchingCount: groups.reduce((total, group) => total + group.rows.length, 0),
       stagedLabel: changedCount === 0 ? undefined : `${staged.length} of ${changedCount} staged`,
       canCommit:
-        this.messageFor(state).trim().length > 0 && staged.length > 0 && !state.committing(),
+        !state.committing() &&
+        (this.amend() ||
+          (this.messageFor(state).trim().length > 0 && staged.length > 0)),
     };
   }
 
@@ -266,21 +270,56 @@ export class GitPanel {
     this.messages.update((map) => ({ ...map, [state.info.path]: value }));
   }
 
-  /** Commits what is staged in the repository; the message clears only on success. */
+  /** Commits what is staged — or rewrites the last commit when Amend is on. */
   protected submitCommit(state: GitRepoState): void {
     const message = this.messageFor(state).trim();
-    if (message.length === 0 || state.committing()) {
+    if (state.committing()) {
       return;
     }
-    if (this.changesFor(state, 'staged').length === 0) {
+    if (!this.amend() && message.length === 0) {
+      return;
+    }
+    if (!this.amend() && this.changesFor(state, 'staged').length === 0) {
       state.refuse('Nothing is staged to commit. Stage a change first.');
       return;
     }
-    void state.commit(message).then((ok) => {
+    void state.commit(message, this.amend()).then((ok) => {
       if (ok) {
         this.messages.update((map) => ({ ...map, [state.info.path]: '' }));
       }
     });
+  }
+
+  /** Commit, then push the branch when the commit landed. */
+  protected commitAndPush(state: GitRepoState): void {
+    if (this.amend() || state.committing()) {
+      return;
+    }
+    const message = this.messageFor(state).trim();
+    if (message.length === 0 || this.changesFor(state, 'staged').length === 0) {
+      state.refuse('Nothing is staged to commit. Stage a change first.');
+      return;
+    }
+    void state.commit(message, false).then((ok) => {
+      if (!ok) {
+        return;
+      }
+      this.messages.update((map) => ({ ...map, [state.info.path]: '' }));
+      void state.push();
+    });
+  }
+
+  protected toggleAmend(event: Event): void {
+    this.amend.set((event.target as HTMLInputElement).checked);
+  }
+
+  /** Ctrl/Cmd+Enter commits from the message box. */
+  protected onCommitKey(event: KeyboardEvent, state: GitRepoState): void {
+    if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+    event.preventDefault();
+    this.submitCommit(state);
   }
 
   protected syncLabel(state: GitRepoState): string {

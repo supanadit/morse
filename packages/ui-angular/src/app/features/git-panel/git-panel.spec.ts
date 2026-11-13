@@ -221,6 +221,51 @@ describe('GitPanel', () => {
     expect(input.value).toBe('');
   });
 
+  it('amends with an empty message and stands Commit and Push down', async () => {
+    const { fixture, fake } = setup(LOG, {
+      status: { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] },
+      mutation: { ok: true },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    (host.querySelector('.amend input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    expect((host.querySelector('.commit-push') as HTMLButtonElement).disabled).toBe(true);
+
+    (host.querySelector('.commit-button') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith(
+      'gitCommit',
+      { message: '', amend: true },
+      60_000,
+    );
+  });
+
+  it('commits and pushes in one action', async () => {
+    const { fixture, fake } = setup(LOG, {
+      status: { isRepo: true, files: [{ path: 'a.ts', status: 'M ' }] },
+      mutation: { ok: true },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+
+    const input = host.querySelector('.commit-input') as HTMLTextAreaElement;
+    input.value = 'ship it';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (host.querySelector('.commit-push') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(fake.requestHostCommand).toHaveBeenCalledWith(
+      'gitCommit',
+      { message: 'ship it', amend: false },
+      60_000,
+    );
+    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitPush', undefined, 180_000);
+  });
+
   it('shows why git refused the commit', async () => {
     const { fixture } = setup(LOG, {
       files: [],
@@ -252,8 +297,10 @@ describe('GitPanel', () => {
     input.value = 'asS';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
-    // Enter goes through `submitCommit`, which the disabled button does not stop.
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    // Ctrl+Enter goes through `submitCommit`, which the disabled button does not stop.
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+    );
     await settle(fixture);
 
     expect(host.querySelector('.commit-error')?.textContent).toContain('Nothing is staged');

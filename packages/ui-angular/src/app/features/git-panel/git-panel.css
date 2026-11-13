@@ -299,13 +299,15 @@ button.repo-toggle:hover {
 .commit-box {
   flex: none;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
   padding: 6px 8px 6px 10px;
   border-bottom: 1px solid var(--morse-border);
 }
 .commit-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  min-height: 54px;
+  resize: vertical;
   padding: 5px 8px;
   border: 1px solid var(--morse-input-border);
   border-radius: var(--morse-radius-sm);
@@ -314,6 +316,47 @@ button.repo-toggle:hover {
   font: inherit;
   font-size: 12px;
 }
+.commit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.amend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.amend input {
+  margin: 0;
+  accent-color: var(--morse-accent);
+}
+
+.commit-push {
+  flex: none;
+  padding: 5px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-button-secondary);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.commit-push:hover:not(:disabled) {
+  background: var(--morse-hover);
+}
+
+.commit-push:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .commit-button {
   flex: none;
   padding: 5px 10px;

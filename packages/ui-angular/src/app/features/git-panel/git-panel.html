@@ -93,28 +93,52 @@
               </button>
             </div>
 
-            <!-- Commit box: what is staged goes in with one line and Enter. -->
+            <!-- Commit box: the message, Amend, and the two ways to land it. -->
             <div class="commit-box">
-              <input
+              <textarea
                 class="commit-input"
-                type="text"
+                rows="3"
                 [placeholder]="
-                  'Message (Enter to commit on ' + (view.state.branch() ?? 'HEAD') + ')'
+                  'Message (Ctrl/Cmd+Enter to commit on ' + (view.state.branch() ?? 'HEAD') + ')'
                 "
                 aria-label="Commit message"
                 [value]="messageFor(view.state)"
                 [disabled]="view.state.committing()"
                 (input)="onCommitMessage(view.state, $event)"
-                (keydown.enter)="submitCommit(view.state)"
-              />
-              <button
-                type="button"
-                class="commit-button"
-                [disabled]="!view.canCommit"
-                (click)="submitCommit(view.state)"
-              >
-                Commit
-              </button>
+                (keydown)="onCommitKey($event, view.state)"
+              ></textarea>
+              <div class="commit-actions">
+                <label class="amend">
+                  <input
+                    type="checkbox"
+                    [checked]="amend()"
+                    (change)="toggleAmend($event)"
+                  />
+                  <span>Amend</span>
+                </label>
+                <span class="grow"></span>
+                <button
+                  type="button"
+                  class="commit-button"
+                  [disabled]="!view.canCommit"
+                  (click)="submitCommit(view.state)"
+                >
+                  Commit
+                </button>
+                <button
+                  type="button"
+                  class="commit-push"
+                  [disabled]="!view.canCommit || amend()"
+                  [title]="
+                    amend()
+                      ? 'Amend rewrites the last commit; push separately'
+                      : 'Commit, then push the branch'
+                  "
+                  (click)="commitAndPush(view.state)"
+                >
+                  Commit and Push
+                </button>
+              </div>
             </div>
             @if (view.state.notice(); as result) {
               @if (!result.ok) {
