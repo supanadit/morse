@@ -1,0 +1,248 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  background: var(--morse-bg);
+}
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Who this is, and the one room-wide gesture. */
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--morse-border);
+}
+.titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.eyebrow {
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.title {
+  margin: 0;
+  color: var(--morse-fg);
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.members {
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.new-discussion {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.new-discussion:hover {
+  background: color-mix(in srgb, var(--morse-fg) 8%, transparent);
+}
+
+/*
+ * The round in flight sits between the room and its lines: a status line, not a
+ * message, so it never enters the transcript the host keeps.
+ */
+.routing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--morse-border);
+  background: color-mix(in srgb, var(--morse-accent) 7%, transparent);
+  font-size: 12px;
+}
+.asking {
+  color: var(--morse-fg);
+  font-weight: 500;
+}
+.queued {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+}
+.stop {
+  flex: none;
+  margin-left: auto;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.stop:hover {
+  background: var(--morse-hover);
+}
+/* The same three-dot pulse the composer uses while a run is working. */
+.spinner {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--morse-accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* The lines: the only part that scrolls, so the head and the box stay put. */
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 16px 8px;
+}
+.empty-note {
+  margin: auto;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 12.5px;
+}
+
+.entry {
+  display: flex;
+  gap: 10px;
+  max-width: 100%;
+}
+/* The reader's line reads right-aligned, like the code transcript's prompt. */
+.entry.user {
+  justify-content: flex-end;
+}
+.entry.user .bubble {
+  max-width: min(680px, 82%);
+  padding: 8px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-lg);
+  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+  overflow-wrap: anywhere;
+}
+/* A bot's line: its mark, its name, then the answer as markdown. */
+.entry.bot {
+  align-items: flex-start;
+}
+.avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+  color: var(--morse-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.entry.bot .body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.author {
+  color: var(--morse-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.entry.bot .text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Morse's own note: muted, centred, never mistaken for a bot. */
+.entry.system {
+  align-self: center;
+  margin: 0;
+  padding: 2px 8px;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 11.5px;
+  font-style: italic;
+  text-align: center;
+}
+
+/* The box stays under the lines, in the column's own flow. */
+.composer-host {
+  flex: none;
+  padding: 0;
+}
+
+/* No conversation: the column says what to do, not that it is broken. */
+.bot-chat-placeholder {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px;
+  text-align: center;
+}
+.bot-eyebrow {
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.bot-chat-placeholder h2 {
+  margin: 0;
+  color: var(--morse-fg);
+  font-size: 16px;
+  font-weight: 600;
+}
+.bot-chat-placeholder p {
+  margin: 0;
+  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
+  font-size: 12.5px;
+}

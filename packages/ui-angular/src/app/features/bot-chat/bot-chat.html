@@ -1,0 +1,88 @@
+<!--
+  One conversation, whole: who it is with, the round in flight, the lines, and
+  the box that answers. When no conversation is open the column says so rather
+  than showing an empty chat nobody can type into.
+-->
+@if (conversation(); as conversation) {
+  <section class="chat" [attr.aria-label]="'Conversation with ' + conversation.title">
+    <header class="head">
+      <div class="titles">
+        <span class="eyebrow">
+          {{ conversation.kind === 'group' ? 'Group' : 'Direct message' }}
+        </span>
+        <h2 class="title">{{ conversation.title }}</h2>
+        <span class="members">{{ conversation.members.join(', ') }}</span>
+      </div>
+      <button
+        type="button"
+        class="new-discussion"
+        title="Start every bot on a fresh engine session, keeping this history"
+        (click)="newDiscussion()"
+      >
+        New discussion
+      </button>
+    </header>
+
+    <!--
+      The round in flight: whom the host is asking, whom it queued behind them,
+      and the one control that belongs to it. It appears only while a round is
+      set, so its presence is the state.
+    -->
+    @if (routing(); as routing) {
+      <div class="routing" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span class="asking">Asking {{ routing.target }}…</span>
+        @if (routing.queued.length > 0) {
+          <span class="queued">then {{ routing.queued.join(', ') }}</span>
+        }
+        <button type="button" class="stop" title="Stop this round" (click)="stop()">Stop</button>
+      </div>
+    }
+
+    <div class="transcript" role="log" #scroll>
+      @if (entries().length === 0) {
+        <p class="empty-note">No messages yet. Say hello to {{ conversation.title }}.</p>
+      }
+      @for (entry of entries(); track entry.id) {
+        @switch (entry.author.role) {
+          @case ('user') {
+            <!-- The reader's own line, on the reading side, as they typed it. -->
+            <div class="entry user" [attr.data-entry-id]="entry.id">
+              <div class="bubble">
+                <morse-markdown [text]="entry.text" variant="user" />
+              </div>
+            </div>
+          }
+          @case ('bot') {
+            <div class="entry bot" [attr.data-entry-id]="entry.id">
+              <span class="avatar" aria-hidden="true">{{ mark(entry.author) }}</span>
+              <div class="body">
+                <span class="author">{{ entry.author.name }}</span>
+                <div class="text"><morse-markdown [text]="entry.text" /></div>
+              </div>
+            </div>
+          }
+          @case ('system') {
+            <!-- Morse's own note (a dropped relay, a stop): a quiet line, not chat. -->
+            <p class="entry system" [attr.data-entry-id]="entry.id">{{ entry.text }}</p>
+          }
+        }
+      }
+    </div>
+
+    <div class="composer-host">
+      <morse-chat-composer
+        [variant]="'bot'"
+        [placeholder]="'Message ' + conversation.title + '…'"
+        (botSend)="morse.sendBotMessage($event)"
+      />
+    </div>
+  </section>
+} @else {
+  <!-- Nothing is open: pick a room, do not type into a void. -->
+  <div class="bot-chat-placeholder empty">
+    <span class="bot-eyebrow">Bot mode</span>
+    <h2>No conversation open</h2>
+    <p>Pick a bot or a group in the sidebar.</p>
+  </div>
+}
