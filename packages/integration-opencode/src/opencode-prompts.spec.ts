@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { OpenCodePrompts } from './opencode-prompts.js';
@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('OpenCodePrompts', () => {
   it('round-trips a file command: create, list, edit, delete', () => {
-    const prompts = new OpenCodePrompts();
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
     const saved = prompts.save(
       { name: 'fresh', scope: 'project', raw: composeCommandFile('Fresh', '\nBody\n') },
       workspace,
@@ -51,7 +51,7 @@ describe('OpenCodePrompts', () => {
   });
 
   it('moves a file command between scopes, deleting the old file', () => {
-    const prompts = new OpenCodePrompts();
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
     prompts.save({ name: 'mv', scope: 'global', raw: composeCommandFile(undefined, '\nB\n') }, workspace);
     prompts.save(
       {
@@ -69,7 +69,7 @@ describe('OpenCodePrompts', () => {
   });
 
   it('round-trips a config command: upsert, list, edit, rename, delete', () => {
-    const prompts = new OpenCodePrompts();
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
     prompts.save(
       {
         name: 'cfg',
@@ -102,7 +102,7 @@ describe('OpenCodePrompts', () => {
   });
 
   it('keeps a same-named file and config command separate', () => {
-    const prompts = new OpenCodePrompts();
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
     prompts.save({ name: 'dual', scope: 'global', raw: composeCommandFile('F', '\nFile\n') }, workspace);
     prompts.save(
       { name: 'dual', scope: 'global', source: 'config', entry: { template: 'Config' } },
@@ -117,8 +117,32 @@ describe('OpenCodePrompts', () => {
   });
 
   it('refuses a config save without an entry and a file save without raw', () => {
-    const prompts = new OpenCodePrompts();
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
     expect(() => prompts.save({ name: 'x', scope: 'global', source: 'config' }, workspace)).toThrow(/structured entry/);
     expect(() => prompts.save({ name: 'x', scope: 'global', source: 'file' }, workspace)).toThrow(/raw markdown/);
+  });
+
+  it('edits the injected config dir, never the XDG one', () => {
+    // A bot passes its own tree; the host's XDG_CONFIG_HOME must stay untouched
+    // even though a host-wide shell would resolve there.
+    const decoy = join(root, 'xdg-decoy');
+    const previous = process.env['XDG_CONFIG_HOME'];
+    process.env['XDG_CONFIG_HOME'] = decoy;
+    try {
+      const prompts = new OpenCodePrompts({ configDir: globalBase });
+      prompts.save({ name: 'scoped', scope: 'global', raw: composeCommandFile('S', '\nBody\n') }, workspace);
+
+      const listed = prompts.list(workspace);
+      expect(listed.globalDir).toBe(join(globalBase, 'commands'));
+      expect(listed.configPath).toBe(join(globalBase, 'opencode.json'));
+      expect(existsSync(join(globalBase, 'commands', 'scoped.md'))).toBe(true);
+      expect(existsSync(decoy)).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env['XDG_CONFIG_HOME'];
+      } else {
+        process.env['XDG_CONFIG_HOME'] = previous;
+      }
+    }
   });
 });

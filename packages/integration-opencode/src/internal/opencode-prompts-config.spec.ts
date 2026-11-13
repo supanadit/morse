@@ -8,6 +8,7 @@ import {
   composeCommandFile,
   listCommands,
   moveConfigCommand,
+  openCodeCommandDirs,
   parseCommandFile,
   readConfigCommands,
   removeCommandFile,
@@ -149,6 +150,41 @@ describe('same name in both sources', () => {
     expect(rows.map((r) => r.source).sort()).toEqual(['config', 'file']);
     expect(rows.find((r) => r.source === 'file')?.body).toContain('File body');
     expect(rows.find((r) => r.source === 'config')?.entry?.template).toBe('Config body');
+  });
+});
+
+describe('openCodeCommandDirs', () => {
+  it('honours an explicit config dir over the environment', () => {
+    const botConfig = join(root, 'bot', 'config');
+
+    expect(openCodeCommandDirs('/w', botConfig)).toEqual({
+      globalDir: join(botConfig, 'commands'),
+      projectDir: join('/w', '.opencode', 'commands'),
+      configPath: join(botConfig, 'opencode.json'),
+    });
+    expect(openCodeCommandDirs(undefined, botConfig)).toEqual({
+      globalDir: join(botConfig, 'commands'),
+      configPath: join(botConfig, 'opencode.json'),
+    });
+  });
+
+  it('falls back to XDG_CONFIG_HOME/opencode when no dir is given', () => {
+    const xdg = join(root, 'xdg');
+    const previous = process.env['XDG_CONFIG_HOME'];
+    process.env['XDG_CONFIG_HOME'] = xdg;
+    try {
+      expect(openCodeCommandDirs('/w')).toEqual({
+        globalDir: join(xdg, 'opencode', 'commands'),
+        projectDir: join('/w', '.opencode', 'commands'),
+        configPath: join(xdg, 'opencode', 'opencode.json'),
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env['XDG_CONFIG_HOME'];
+      } else {
+        process.env['XDG_CONFIG_HOME'] = previous;
+      }
+    }
   });
 });
 

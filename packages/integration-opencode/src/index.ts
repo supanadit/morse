@@ -16,6 +16,14 @@ export {
   type OpenCodeEngineDeps,
 } from './opencode-engine.js';
 export { OpenCodeAgent, type ApiSessionInfo } from './opencode-agent.js';
+export {
+  OPENCODE_BOT_CAPABILITIES,
+  botOpenCodeEnv,
+  createBotOpenCodeEngine,
+  opencodeBotAdapterFactory,
+  writeOpenCodeCredentials,
+  type BotOpenCodeEngineOptions,
+} from './bot-engine.js';
 export { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
 export { findOpenCodeBinary } from './internal/resolve-opencode.js';
 export {

@@ -21,8 +21,23 @@ import {
  *
  * The rows carry `source: 'file' | 'config'` so the host and the editor can
  * label where each command lives and route edits back to the right surface.
+ *
+ * The global directory is injectable because a bot mode host runs the same
+ * integration against a bot's own config tree; without it the bot would edit
+ * the user's `~/.config/opencode`.
  */
 export class OpenCodePrompts {
+  constructor(
+    private readonly options: {
+      /**
+       * Overrides the global config directory (the one holding `commands/` and
+       * `opencode.json`). A bot passes its own tree so it never edits the
+       * user's `~/.config/opencode`; absent means today's XDG resolution.
+       */
+      configDir?: string;
+    } = {},
+  ) {}
+
   list(cwd: string): {
     templates: (OpenCodeCommand & { argumentHint?: undefined })[];
     globalDir: string;
@@ -31,7 +46,7 @@ export class OpenCodePrompts {
     trusted: true;
     configPath: string;
   } {
-    const { commands, globalDir, projectDir, configPath } = listCommands(cwd);
+    const { commands, globalDir, projectDir, configPath } = listCommands(cwd, this.options.configDir);
     return { templates: commands, globalDir, projectDir, trusted: true, configPath };
   }
 
@@ -55,7 +70,7 @@ export class OpenCodePrompts {
       if (input.entry === undefined) {
         throw new Error('A config command needs its structured entry (template, description, ...).');
       }
-      const configPath = openCodeCommandDirs(cwd).configPath;
+      const configPath = openCodeCommandDirs(cwd, this.options.configDir).configPath;
       upsertConfigCommand(configPath, input.name, input.entry);
       if (input.originalName !== undefined && input.originalName !== input.name && input.originalSource === 'config') {
         moveConfigCommand(configPath, input.originalName);
@@ -67,7 +82,7 @@ export class OpenCodePrompts {
     }
     // Touch nothing but the target: a scope move deletes the old file only
     // after the new one is written.
-    const dirs = openCodeCommandDirs(cwd);
+    const dirs = openCodeCommandDirs(cwd, this.options.configDir);
     const dir = input.scope === 'project' ? dirs.projectDir : dirs.globalDir;
     if (dir === undefined) {
       throw new Error('No workspace is open, so there is no project command directory.');
@@ -89,9 +104,9 @@ export class OpenCodePrompts {
   /** Delete by source: a file command removes the file, a config one the JSON key. */
   delete(name: string, scope: CommandScope, cwd: string, source: CommandSource = 'file'): { ok: boolean } {
     if (source === 'config') {
-      return { ok: moveConfigCommand(openCodeCommandDirs(cwd).configPath, name) };
+      return { ok: moveConfigCommand(openCodeCommandDirs(cwd, this.options.configDir).configPath, name) };
     }
-    const dirs = openCodeCommandDirs(cwd);
+    const dirs = openCodeCommandDirs(cwd, this.options.configDir);
     const dir = scope === 'project' ? dirs.projectDir ?? dirs.globalDir : dirs.globalDir;
     return { ok: removeCommandFile(dir, name) };
   }
