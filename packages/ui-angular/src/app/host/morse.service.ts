@@ -172,6 +172,16 @@ export class MorseService {
    * bot components read it as signals.
    */
   readonly bot = new BotState();
+  /**
+   * Bot mode's two creation dialogs, opened from the roster's buttons. Frontend
+   * state because the sidebar owns the click and the dialogs (Task 9) mount at
+   * the shell level — a plain pair of signals is all the two need to agree on.
+   */
+  readonly ui = {
+    wizardOpen: signal(false),
+    groupOpen: signal(false),
+  };
+
   /** How many lines this client echoed locally, so `local-<n>` never repeats. */
   private localEcho = 0;
 

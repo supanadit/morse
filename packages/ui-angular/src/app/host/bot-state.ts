@@ -41,9 +41,32 @@ export class BotState {
   /** The models each `bot/probeModels` request answered with, keyed by its id. */
   readonly models = signal<Record<string, ModelOption[]>>({});
 
-  /** A pushed roster replaces the old one whole — it is always the full list. */
+  /**
+   * A pushed roster replaces the old one whole — it is always the full list.
+   *
+   * The conversation in front is checked against it: a roster push that no longer
+   * lists it means the host dropped it (a deleted bot, and the DM it kept), so
+   * the workspace stops pointing at it. Leaving `activeId` behind would let the
+   * composer send a prompt to a conversation that no longer exists, and the held
+   * transcript would linger for a row that is gone.
+   */
   onRoster(roster: BotRosterMessage['payload']): void {
-    this.roster.set({ bots: [...roster.bots], conversations: [...roster.conversations] });
+    const conversations = [...roster.conversations];
+    this.roster.set({ bots: [...roster.bots], conversations });
+    const active = this.activeId();
+    if (active === null || conversations.some((conversation) => conversation.id === active)) {
+      return;
+    }
+    this.activeId.set(null);
+    this.routing.set(null);
+    this.transcripts.update((held) => {
+      if (held[active] === undefined) {
+        return held;
+      }
+      const next = { ...held };
+      delete next[active];
+      return next;
+    });
   }
 
   /**

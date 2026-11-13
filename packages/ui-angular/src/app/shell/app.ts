@@ -48,6 +48,7 @@ import { WorkspaceTabs } from '../state/workspace-tabs';import { WorkbenchPersis
 import { QueueDrain } from '../services/queue-drain';
 import { EnterDirective } from '../ui/enter.directive';
 import { SessionNav } from '../features/session-nav/session-nav';
+import { BotNav } from '../features/bot-nav/bot-nav';
 import { ProjectPicker } from '../features/project-picker/project-picker';
 import { AboutDialog } from '../features/about/about-dialog';
 import { ShortcutsDialog } from '../features/shortcuts-dialog/shortcuts-dialog';
@@ -76,6 +77,7 @@ function previewBoot(): boolean {
     Toolbar,
     StatusBar,
     SessionNav,
+    BotNav,
     ProjectPicker,
     AboutDialog,
     ShortcutsDialog,
@@ -117,6 +119,13 @@ export class App {
    * the default `false` is the standalone app.
    */
   readonly embedded = input(false);
+  /**
+   * Which product the window is in. Code is the shell as it has always been;
+   * Bot swaps the sidebar for the roster and the conversation column for the bot
+   * chat. The toolbar only reports a click — the switch itself is here, so the
+   * two columns can never show different modes.
+   */
+  readonly mode = signal<'code' | 'bot'>('code');
   private readonly morse = inject(MorseService);
   private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
@@ -187,6 +196,14 @@ export class App {
    */
   protected readonly filesMounted = computed(
     () => this.filesEnabled() && (this.leftPane() === 'files' || this.filesSeen()),
+  );
+  /**
+   * The rail picks which code-mode list the column shows, so bot mode — which
+   * owns the column whole — stands it down rather than leaving a switch whose
+   * faces are not rendered.
+   */
+  protected readonly railVisible = computed(
+    () => this.filesEnabled() && !this.embedded() && this.mode() === 'code',
   );
   /**
    * The browser host's bottom panel. VS Code leaves `terminal` off (its own
@@ -341,6 +358,18 @@ export class App {
   protected readonly piUiVisible = computed(() => {
     const state = this.morse.state();
     return (state.widgets?.length ?? 0) + (state.statuses?.length ?? 0) > 0;
+  });
+  /**
+   * The bot conversation in front, named from the roster. Task 9 mounts the chat
+   * itself; until then the shell shows which conversation the mode is on, so
+   * picking one in the sidebar is visibly a switch and not a blank room.
+   */
+  protected readonly activeBotConversation = computed(() => {
+    const id = this.morse.bot.activeId();
+    if (id === null) {
+      return undefined;
+    }
+    return this.morse.bot.roster()?.conversations.find((conversation) => conversation.id === id);
   });
 
   /**

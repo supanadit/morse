@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
 import { DisplayPrefs } from '../../state/display-prefs';
@@ -45,6 +53,22 @@ export class Toolbar {
    */
   protected readonly webHost = computed(
     () => this.morse.capabilities()?.hostKind === 'server',
+  );
+  /**
+   * The mode the window is in. Owned by the shell (`App`), which swaps the
+   * sidebar and the main column; the row only draws it and reports a click, so
+   * the two halves of a mode switch cannot disagree.
+   */
+  readonly mode = input<'code' | 'bot'>('code');
+  readonly modeChange = output<'code' | 'bot'>();
+  /**
+   * Bot mode is live only where the host advertises it. A VS Code host never
+   * does, and its window draws the modes anyway — so there the tab keeps its
+   * `Soon` chip rather than opening a room with nothing behind it.
+   */
+  protected readonly botEnabled = computed(() => this.morse.capabilities()?.bot === true);
+  protected readonly botTitle = computed(() =>
+    this.botEnabled() ? 'Bot — chat with isolated agents' : 'Bot — coming soon',
   );
 
   /**
@@ -182,6 +206,18 @@ export class Toolbar {
 
   protected openPalette(): void {
     this.shell.togglePalette();
+  }
+
+  /**
+   * The row is a choice, not an action: it reports the mode the reader picked
+   * and the shell makes it so. A disabled Bot tab never reaches this (the
+   * button is disabled), so re-checking the capability only guards a stray call.
+   */
+  protected switchMode(mode: 'code' | 'bot'): void {
+    if (mode === this.mode() || (mode === 'bot' && !this.botEnabled())) {
+      return;
+    }
+    this.modeChange.emit(mode);
   }
 
   /** Flips between the detailed timeline and the compact summary, and remembers it. */

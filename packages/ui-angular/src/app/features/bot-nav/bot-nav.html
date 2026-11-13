@@ -1,0 +1,91 @@
+<!--
+  One sidebar with two sections, the way the session list groups its projects:
+  first the bots themselves (each row is its DM), then the groups they talk in.
+  The two creation actions sit above both, where the reader reaches before there
+  is anything to pick.
+-->
+<div class="head">
+  <button type="button" class="create new-bot" (click)="newBot()">
+    <span class="plus" aria-hidden="true">+</span>
+    <span>New bot</span>
+  </button>
+  <button type="button" class="create new-group" (click)="newGroup()">
+    <span class="plus" aria-hidden="true">+</span>
+    <span>New group</span>
+  </button>
+</div>
+
+<nav class="roster" aria-label="Bots and groups">
+  <section class="section">
+    <div class="section-head">
+      <span class="section-label">Bots</span>
+      <span class="count">{{ bots().length }}</span>
+    </div>
+    @if (bots().length > 0) {
+      <ul>
+        @for (bot of bots(); track bot.name) {
+          <li>
+            <button
+              type="button"
+              class="row bot"
+              [class.active]="activeId() === 'dm-' + bot.name"
+              [attr.aria-current]="activeId() === 'dm-' + bot.name ? 'true' : null"
+              [title]="bot.description"
+              (click)="openBot(bot)"
+            >
+              <span class="avatar" aria-hidden="true">{{ mark(bot) }}</span>
+              <span class="body">
+                <span class="name">{{ bot.name }}</span>
+                <span class="description">{{ bot.description }}</span>
+              </span>
+              <!-- Presence, the roster's one at-a-glance fact: a warm bot's
+                   engine is already running, a cold one starts on its first
+                   message. -->
+              <span
+                class="presence"
+                [class.warm]="bot.warm"
+                [attr.title]="
+                  bot.warm ? 'Warm — its engine is running' : 'Cold — starts on the first message'
+                "
+                aria-hidden="true"
+              ></span>
+            </button>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty">{{ loaded() ? 'No bots yet.' : 'Loading bots…' }}</p>
+    }
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="section-label">Groups</span>
+      <span class="count">{{ groups().length }}</span>
+    </div>
+    @if (groups().length > 0) {
+      <ul>
+        @for (group of groups(); track group.id) {
+          <li>
+            <button
+              type="button"
+              class="row group"
+              [class.active]="activeId() === group.id"
+              [attr.aria-current]="activeId() === group.id ? 'true' : null"
+              [title]="group.title"
+              (click)="openGroup(group)"
+            >
+              <span class="avatar group-mark" aria-hidden="true">{{ groupMark(group) }}</span>
+              <span class="body">
+                <span class="name">{{ group.title }}</span>
+                <span class="description">{{ group.members.join(', ') }}</span>
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty">{{ loaded() ? 'No groups yet.' : 'Loading groups…' }}</p>
+    }
+  </section>
+</nav>

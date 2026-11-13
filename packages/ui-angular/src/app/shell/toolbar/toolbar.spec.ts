@@ -52,6 +52,51 @@ class VsCodeHostTransport extends BaseHostTransport {
   }
 }
 
+/** The web host that runs Bot mode: the mode row's Bot tab is live. */
+class BotHostTransport extends BaseHostTransport {
+  readonly kind = 'memory' as const;
+
+  connect(): void {
+    this.emitStatus('open');
+  }
+
+  dispose(): void {
+    this.emitStatus('closed');
+  }
+
+  send(message: ClientToHostMessage): void {
+    if (message.type !== 'client/ready') {
+      return;
+    }
+    this.emitMessage({
+      type: 'host/ready',
+      payload: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {
+          hostKind: 'server',
+          scope: 'global',
+          editorContext: false,
+          nativeDialogs: false,
+          insertIntoEditor: false,
+          revealFile: false,
+          bot: true,
+        },
+        state: {
+          workspace: { cwd: '/work/morse', name: 'morse' },
+          thinkingLevel: 'off',
+          availableModels: [],
+          availableThinkingLevels: [],
+          availableCommands: [],
+          streaming: false,
+          busy: false,
+          agentReady: true,
+          agentStarting: false,
+        },
+      },
+    });
+  }
+}
+
 /** The toolbar's one job: the window's way into every command. */
 describe('Toolbar', () => {
   afterEach(() => TestBed.resetTestingModule());
@@ -104,6 +149,70 @@ describe('Toolbar', () => {
     expect(code?.getAttribute('aria-current')).toBe('page');
     expect(bot?.disabled).toBe(true);
     expect(bot?.textContent).toContain('Soon');
+    expect(bot?.getAttribute('title')).toBe('Bot — coming soon');
+  });
+
+  it('enables Bot, and drops its Soon chip, where the host runs bots', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [Toolbar],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new BotHostTransport() }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+
+    const bot = [...fixture.nativeElement.querySelectorAll('.mode')].find((one: HTMLElement) =>
+      one.textContent?.includes('Bot'),
+    ) as HTMLButtonElement;
+
+    expect(bot.disabled).toBe(false);
+    expect(bot.querySelector('.soon')).toBeNull();
+    expect(bot.getAttribute('title')).toBe('Bot — chat with isolated agents');
+  });
+
+  it('switches the mode from the row, and back from Code', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [Toolbar],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new BotHostTransport() }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+    const emitted: Array<'code' | 'bot'> = [];
+    fixture.componentInstance.modeChange.subscribe((mode) => emitted.push(mode));
+
+    const modes = [...fixture.nativeElement.querySelectorAll('.mode')] as HTMLButtonElement[];
+    const code = modes.find((one) => one.textContent?.includes('Code')) as HTMLButtonElement;
+    const bot = modes.find((one) => one.textContent?.includes('Bot')) as HTMLButtonElement;
+
+    bot.click();
+    expect(emitted).toEqual(['bot']);
+
+    // The shell owns the mode, so the row only reports the click: once it hands
+    // the new mode back, the row shows where the window is.
+    fixture.componentRef.setInput('mode', 'bot');
+    fixture.detectChanges();
+    expect(bot.classList.contains('on')).toBe(true);
+    expect(bot.getAttribute('aria-current')).toBe('page');
+    expect(code.classList.contains('on')).toBe(false);
+    expect(code.getAttribute('aria-current')).toBeNull();
+
+    code.click();
+    expect(emitted).toEqual(['bot', 'code']);
+  });
+
+  it('reports nothing from the Bot tab while the host has no bots', () => {
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+    const emitted: Array<'code' | 'bot'> = [];
+    fixture.componentInstance.modeChange.subscribe((mode) => emitted.push(mode));
+
+    const bot = [...fixture.nativeElement.querySelectorAll('.mode')].find((one: HTMLElement) =>
+      one.textContent?.includes('Bot'),
+    ) as HTMLButtonElement;
+    bot.click();
+
+    expect(emitted).toEqual([]);
   });
 
   it('keeps the mode row out of the VS Code host', async () => {

@@ -3,7 +3,7 @@
   morseSelectionFocus
   [class.collapsed]="navigationCollapsed()"
   [class.embedded]="embedded()"
-  [class.with-rail]="filesEnabled() && !embedded()"
+  [class.with-rail]="railVisible()"
   [class.with-git]="gitOpen()"
   [class.git-expanded]="gitExpanded()"
   [class.panel-full]="bottomPanelFull()"
@@ -102,7 +102,7 @@
        same reason the navigation column is not.
   -->
   @if (!embedded()) {
-    <morse-toolbar />
+    <morse-toolbar [mode]="mode()" (modeChange)="mode.set($event)" />
   }
   @if (bootVisible()) {
     <morse-boot-splash
@@ -124,7 +124,7 @@
     />
   }
 
-  @if (filesEnabled() && !embedded()) {
+  @if (railVisible()) {
     <morse-activity-rail class="rail" />
   }
 
@@ -138,9 +138,15 @@
         label="Resize the navigation column"
         title="Drag to resize"
       ></div>
-      <morse-session-nav class="left-view" [hidden]="leftPane() !== 'sessions'" />
-      @if (filesMounted()) {
-        <morse-file-explorer class="left-view" [hidden]="leftPane() !== 'files'" />
+      @if (mode() === 'bot') {
+        <!-- Bot mode owns the column whole: the session list and the Explorer
+             stand down rather than hiding behind the roster. -->
+        <morse-bot-nav class="left-view" />
+      } @else {
+        <morse-session-nav class="left-view" [hidden]="leftPane() !== 'sessions'" />
+        @if (filesMounted()) {
+          <morse-file-explorer class="left-view" [hidden]="leftPane() !== 'files'" />
+        }
       }
     </div>
   }
@@ -207,230 +213,251 @@
     (dragleave)="onDragLeave()"
     (drop)="onDrop($event)"
   >
-    @if (dragging()) {
-      <div class="dropzone" aria-hidden="true">
-        <span class="dropzone-ring"></span>
-        <div class="dropzone-card" [morseEnter]="0" [morseEnterY]="-6">
-          <span class="dropzone-icon">⤓</span>
-          <strong>Drop to attach</strong>
-          <span>Images ride with the prompt · other files become <code>@mentions</code></span>
+    @if (mode() === 'bot') {
+      <!-- Bot mode's own column. Task 9 mounts the conversation itself here;
+           until then the open conversation is named, so a click in the sidebar
+           lands in the room it picked instead of a blank column. -->
+      @if (activeBotConversation(); as conversation) {
+        <div class="bot-chat-placeholder">
+          <span class="bot-eyebrow">
+            {{ conversation.kind === 'group' ? 'Group' : 'Direct message' }}
+          </span>
+          <h2>{{ conversation.title }}</h2>
         </div>
-      </div>
-    }
-
-    <!-- The browser host's tabs: sessions and files side by side. VS
-         Code keeps its own editor tabs and never renders this strip. -->
-    @if (tabsEnabled() && !promptEditorOpen()) {
-      <morse-tab-strip />
-    }
-
-    <!-- The one-time "notifications are off" nudge, like a chat app's: it stops
-         asking once the reader answers it (turn on, or dismiss). -->
-    @if (notificationPrompt(); as prompt) {
-      <div class="notify-prompt" role="status">
-        <span class="notify-glyph" aria-hidden="true">
-          <svg viewBox="0 0 16 16">
-            <path
-              d="M8 2.2a3.4 3.4 0 0 0-3.4 3.4c0 3.2-1.4 4-1.4 4h9.6s-1.4-.8-1.4-4A3.4 3.4 0 0 0 8 2.2Z"
-            />
-            <path d="M6.6 12.2a1.5 1.5 0 0 0 2.8 0" />
-            <path d="m3.2 13.2 9.6-10.4" />
-          </svg>
-        </span>
-        <span class="notify-text">
-          @if (prompt === 'blocked') {
-            Notifications are blocked for this site — allow them in your browser's site settings.
-          } @else {
-            Notifications are off — you won't hear when a session finishes.
-            <button type="button" class="notify-on" (click)="enableNotifications()">Turn on</button>
-          }
-        </span>
-        @if (prompt === 'blocked') {
-          <button type="button" class="notify-off" (click)="turnOffNotifications()">
-            Turn off
-          </button>
-        } @else {
-          <button
-            type="button"
-            class="notify-dismiss"
-            aria-label="Dismiss"
-            title="Dismiss"
-            (click)="dismissNotificationPrompt()"
-          >
-            ×
-          </button>
-        }
-      </div>
-    }
-
-    @if (diagnostics().length) {
-      <!-- pi's own configuration warnings (a prompt template it refused). A row
-           above the conversation, never lines inside it: the details are a
-           click away, and no session's history is rewritten to carry them. -->
-      <div class="diagnostics" role="status">
-        <span class="diagnostics-glyph" aria-hidden="true">
-          <svg viewBox="0 0 16 16">
-            <path d="M8 2.4 1.6 13.4h12.8L8 2.4Z" />
-            <path d="M8 6.4v3.4" />
-            <path d="M8 11.6h.01" />
-          </svg>
-        </span>
-        <span class="diagnostics-text">
-          pi reported
-          <strong>
-            {{ diagnostics().length }}
-            {{ diagnostics().length === 1 ? 'configuration warning' : 'configuration warnings' }}
-          </strong>
-          while loading its files.
-        </span>
-        <button type="button" class="diagnostics-toggle" (click)="toggleDiagnostics()">
-          {{ diagnosticsOpen() ? 'Hide details' : 'Details' }}
-        </button>
-        @if (diagnosticsOpen()) {
-          <ul class="diagnostics-list">
-            @for (diagnostic of diagnostics(); track diagnostic.text) {
-              <li>{{ diagnostic.text }}</li>
-            }
-          </ul>
-        }
-      </div>
-    }
-
-    @if (promptEditorOpen()) {
-      <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
-           its own chunk instead of joining the initial bundle. -->
-      <ng-container [ngComponentOutlet]="promptEditorComponent()" />
-    } @else if (activeMcp()) {
-      <morse-mcp-editor />
-    } @else if (activeFile(); as file) {
-      <morse-file-preview [tab]="file" />
-    } @else {
-      @if (lastError(); as error) {
-        <section class="alert offline" role="status">
-          <strong>Offline — the host wouldn't take this frontend</strong>
-          <p>{{ error.message }}<br />{{ error.detail }}</p>
-          <div class="actions">
-            <button type="button" (click)="reload()">Reload</button>
-            <button type="button" class="secondary" (click)="retryConnection()">Retry</button>
-            <button type="button" class="secondary" (click)="showLog()">Show log</button>
-          </div>
-        </section>
-      } @else if (offline()) {
-        <section class="alert offline" role="status">
-          <strong>Offline — reconnecting</strong>
-          <p>
-            Morse keeps retrying in the background; the rest of the interface stays available while
-            it does.
-          </p>
-          <div class="actions">
-            <button type="button" (click)="retryConnection()">Retry now</button>
-            <button type="button" class="secondary" (click)="showConnectionHelp()">
-              Connection help
-            </button>
-          </div>
-        </section>
-      } @else if (agentBanner()) {
-        <!-- A spawn failure with a transcript to read above it. An empty panel gets
-             `morse-agent-screen` instead, which can say a great deal more; a window
-             with no session yet (lazy open) is a normal empty state and gets neither. -->
-        <section class="alert" role="alert">
-          <!-- Not named after an engine: the session may be running pi or
-               OpenCode, and the host's own message below already names which
-               one failed and why. -->
-          <strong>Agent unavailable</strong>
-          <p>{{ agentError() || 'Morse could not start the coding agent.' }}</p>
-          <div class="actions">
-            <button type="button" (click)="retryAgent()">Retry</button>
-            <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
-            <button type="button" class="secondary" (click)="showLog()">Show log</button>
-          </div>
-        </section>
-      }
-
-      @if (agentScreen()) {
-        <morse-agent-screen />
-      } @else if (restoringSession()) {
-        <!-- A saved session is still travelling back from the host. Covering the
-             panel — and keeping the composer unmounted — is the point: an
-             empty-looking panel reads as a brand-new session, and a prompt typed
-             into it would open a throwaway conversation in front of the one
-             being restored. -->
-        <div class="restoring" role="status">
-          <span class="restoring-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-          <p class="restoring-title">Restoring your session…</p>
-          <p class="restoring-note">The conversation is on its way back.</p>
-        </div>
-      } @else if (noSessionSelected()) {
-        <!-- No tab is in front: nothing to read and nothing to send. The panel
-             says so and offers the one action that changes it. -->
-        <morse-empty-session [hasTabs]="hasSessionTabs()" (create)="newSession()" />
       } @else {
-        @if (activeIsSubagent()) {
-          <!-- A spawned session watched from its tool row: read-only. The dock
-               (composer, tasks, pi's question) belongs to a conversation the
-               reader steers — a subagent's parent does that — so none of it
-               mounts here, and the bar offers the way back. -->
-          <div class="subagent-bar" role="status">
-            <div class="row nav-row">
-              <button type="button" class="back" (click)="backToParent()">
-                ← {{ activeParent()?.title ?? 'back to parent' }}
-              </button>
-              <span class="watching">subagent</span>
-              <!-- The child is written by its parent's process, so what is on
-                   screen ages; this pulls the latest from the agent's storage. -->
-              <button type="button" class="refresh" (click)="morse.refreshSession()">
-                ↻ refresh
-              </button>
-            </div>
-            <!-- What the child runs with, read from its own session state: a
-                 subagent can be configured with a model of its own (OpenCode
-                 names one per agent in its settings), so this is the child's,
-                 not the parent's. Read-only: the parent steers. -->
-            <div class="row child-status">
-              <span class="meta">{{ morse.engine() ?? 'agent' }}</span>
-              @if (morse.model(); as model) {
-                <span class="meta model" [title]="model.provider + '/' + model.id">
-                  {{ model.name }}
-                </span>
-              }
-              @if (childAgent(); as agent) {
-                <span class="meta agent">{{ agent }}</span>
-              }
-              @if (morse.mode(); as mode) {
-                <span class="meta">{{ mode }}</span>
-              }
-              <span class="meta">{{ morse.thinkingLevel() }}</span>
-            </div>
+        <div class="bot-chat-placeholder empty">
+          <span class="bot-eyebrow">Bot mode</span>
+          <h2>No conversation open</h2>
+          <p>Pick a bot or a group in the sidebar.</p>
+        </div>
+      }
+    } @else {
+      <!-- Code mode: the conversation column the product has always had. -->
+      @if (dragging()) {
+        <div class="dropzone" aria-hidden="true">
+          <span class="dropzone-ring"></span>
+          <div class="dropzone-card" [morseEnter]="0" [morseEnterY]="-6">
+            <span class="dropzone-icon">⤓</span>
+            <strong>Drop to attach</strong>
+            <span>Images ride with the prompt · other files become <code>@mentions</code></span>
           </div>
+        </div>
+      }
+
+      <!-- The browser host's tabs: sessions and files side by side. VS
+           Code keeps its own editor tabs and never renders this strip. -->
+      @if (tabsEnabled() && !promptEditorOpen()) {
+        <morse-tab-strip />
+      }
+
+      <!-- The one-time "notifications are off" nudge, like a chat app's: it stops
+           asking once the reader answers it (turn on, or dismiss). -->
+      @if (notificationPrompt(); as prompt) {
+        <div class="notify-prompt" role="status">
+          <span class="notify-glyph" aria-hidden="true">
+            <svg viewBox="0 0 16 16">
+              <path
+                d="M8 2.2a3.4 3.4 0 0 0-3.4 3.4c0 3.2-1.4 4-1.4 4h9.6s-1.4-.8-1.4-4A3.4 3.4 0 0 0 8 2.2Z"
+              />
+              <path d="M6.6 12.2a1.5 1.5 0 0 0 2.8 0" />
+              <path d="m3.2 13.2 9.6-10.4" />
+            </svg>
+          </span>
+          <span class="notify-text">
+            @if (prompt === 'blocked') {
+              Notifications are blocked for this site — allow them in your browser's site settings.
+            } @else {
+              Notifications are off — you won't hear when a session finishes.
+              <button type="button" class="notify-on" (click)="enableNotifications()">Turn on</button>
+            }
+          </span>
+          @if (prompt === 'blocked') {
+            <button type="button" class="notify-off" (click)="turnOffNotifications()">
+              Turn off
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="notify-dismiss"
+              aria-label="Dismiss"
+              title="Dismiss"
+              (click)="dismissNotificationPrompt()"
+            >
+              ×
+            </button>
+          }
+        </div>
+      }
+
+      @if (diagnostics().length) {
+        <!-- pi's own configuration warnings (a prompt template it refused). A row
+             above the conversation, never lines inside it: the details are a
+             click away, and no session's history is rewritten to carry them. -->
+        <div class="diagnostics" role="status">
+          <span class="diagnostics-glyph" aria-hidden="true">
+            <svg viewBox="0 0 16 16">
+              <path d="M8 2.4 1.6 13.4h12.8L8 2.4Z" />
+              <path d="M8 6.4v3.4" />
+              <path d="M8 11.6h.01" />
+            </svg>
+          </span>
+          <span class="diagnostics-text">
+            pi reported
+            <strong>
+              {{ diagnostics().length }}
+              {{ diagnostics().length === 1 ? 'configuration warning' : 'configuration warnings' }}
+            </strong>
+            while loading its files.
+          </span>
+          <button type="button" class="diagnostics-toggle" (click)="toggleDiagnostics()">
+            {{ diagnosticsOpen() ? 'Hide details' : 'Details' }}
+          </button>
+          @if (diagnosticsOpen()) {
+            <ul class="diagnostics-list">
+              @for (diagnostic of diagnostics(); track diagnostic.text) {
+                <li>{{ diagnostic.text }}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
+
+      @if (promptEditorOpen()) {
+        <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
+             its own chunk instead of joining the initial bundle. -->
+        <ng-container [ngComponentOutlet]="promptEditorComponent()" />
+      } @else if (activeMcp()) {
+        <morse-mcp-editor />
+      } @else if (activeFile(); as file) {
+        <morse-file-preview [tab]="file" />
+      } @else {
+        @if (lastError(); as error) {
+          <section class="alert offline" role="status">
+            <strong>Offline — the host wouldn't take this frontend</strong>
+            <p>{{ error.message }}<br />{{ error.detail }}</p>
+            <div class="actions">
+              <button type="button" (click)="reload()">Reload</button>
+              <button type="button" class="secondary" (click)="retryConnection()">Retry</button>
+              <button type="button" class="secondary" (click)="showLog()">Show log</button>
+            </div>
+          </section>
+        } @else if (offline()) {
+          <section class="alert offline" role="status">
+            <strong>Offline — reconnecting</strong>
+            <p>
+              Morse keeps retrying in the background; the rest of the interface stays available while
+              it does.
+            </p>
+            <div class="actions">
+              <button type="button" (click)="retryConnection()">Retry now</button>
+              <button type="button" class="secondary" (click)="showConnectionHelp()">
+                Connection help
+              </button>
+            </div>
+          </section>
+        } @else if (agentBanner()) {
+          <!-- A spawn failure with a transcript to read above it. An empty panel gets
+               `morse-agent-screen` instead, which can say a great deal more; a window
+               with no session yet (lazy open) is a normal empty state and gets neither. -->
+          <section class="alert" role="alert">
+            <!-- Not named after an engine: the session may be running pi or
+                 OpenCode, and the host's own message below already names which
+                 one failed and why. -->
+            <strong>Agent unavailable</strong>
+            <p>{{ agentError() || 'Morse could not start the coding agent.' }}</p>
+            <div class="actions">
+              <button type="button" (click)="retryAgent()">Retry</button>
+              <button type="button" class="secondary" (click)="openSettings()">Open settings</button>
+              <button type="button" class="secondary" (click)="showLog()">Show log</button>
+            </div>
+          </section>
         }
-        <morse-chat-transcript (openChild)="openSubagent($event)" />
-        <!--
-             The composer floats over the conversation, not under it: as a solid
-             row it took a slab of the column's height, which on a narrow window is
-             the room the transcript needs. Everything that reads as part of the
-             composer — the session's tasks and pi's question — rides in the same
-             dock, so they belong to the slab instead of shrinking the transcript.
-        -->
-        @if (!activeIsSubagent()) {
-          <div class="dock" #dock>
-            <!-- The session's todo list, docked just above the composer: pi's TUI
-                 shows a todo widget there, and RPC cannot carry it (the extension
-                 registers a component factory, which RPC mode drops). Rebuilt from
-                 the transcript's task-shaped tool results instead. Self-hiding: with
-                 no open work left it renders nothing. -->
-            <morse-task-overlay />
-            <morse-interaction-panel />
-            <morse-chat-composer />
+
+        @if (agentScreen()) {
+          <morse-agent-screen />
+        } @else if (restoringSession()) {
+          <!-- A saved session is still travelling back from the host. Covering the
+               panel — and keeping the composer unmounted — is the point: an
+               empty-looking panel reads as a brand-new session, and a prompt typed
+               into it would open a throwaway conversation in front of the one
+               being restored. -->
+          <div class="restoring" role="status">
+            <span class="restoring-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <p class="restoring-title">Restoring your session…</p>
+            <p class="restoring-note">The conversation is on its way back.</p>
           </div>
+        } @else if (noSessionSelected()) {
+          <!-- No tab is in front: nothing to read and nothing to send. The panel
+               says so and offers the one action that changes it. -->
+          <morse-empty-session [hasTabs]="hasSessionTabs()" (create)="newSession()" />
+        } @else {
+          @if (activeIsSubagent()) {
+            <!-- A spawned session watched from its tool row: read-only. The dock
+                 (composer, tasks, pi's question) belongs to a conversation the
+                 reader steers — a subagent's parent does that — so none of it
+                 mounts here, and the bar offers the way back. -->
+            <div class="subagent-bar" role="status">
+              <div class="row nav-row">
+                <button type="button" class="back" (click)="backToParent()">
+                  ← {{ activeParent()?.title ?? 'back to parent' }}
+                </button>
+                <span class="watching">subagent</span>
+                <!-- The child is written by its parent's process, so what is on
+                     screen ages; this pulls the latest from the agent's storage. -->
+                <button type="button" class="refresh" (click)="morse.refreshSession()">
+                  ↻ refresh
+                </button>
+              </div>
+              <!-- What the child runs with, read from its own session state: a
+                   subagent can be configured with a model of its own (OpenCode
+                   names one per agent in its settings), so this is the child's,
+                   not the parent's. Read-only: the parent steers. -->
+              <div class="row child-status">
+                <span class="meta">{{ morse.engine() ?? 'agent' }}</span>
+                @if (morse.model(); as model) {
+                  <span class="meta model" [title]="model.provider + '/' + model.id">
+                    {{ model.name }}
+                  </span>
+                }
+                @if (childAgent(); as agent) {
+                  <span class="meta agent">{{ agent }}</span>
+                }
+                @if (morse.mode(); as mode) {
+                  <span class="meta">{{ mode }}</span>
+                }
+                <span class="meta">{{ morse.thinkingLevel() }}</span>
+              </div>
+            </div>
+          }
+          <morse-chat-transcript (openChild)="openSubagent($event)" />
+          <!--
+               The composer floats over the conversation, not under it: as a solid
+               row it took a slab of the column's height, which on a narrow window is
+               the room the transcript needs. Everything that reads as part of the
+               composer — the session's tasks and pi's question — rides in the same
+               dock, so they belong to the slab instead of shrinking the transcript.
+          -->
+          @if (!activeIsSubagent()) {
+            <div class="dock" #dock>
+              <!-- The session's todo list, docked just above the composer: pi's TUI
+                   shows a todo widget there, and RPC cannot carry it (the extension
+                   registers a component factory, which RPC mode drops). Rebuilt from
+                   the transcript's task-shaped tool results instead. Self-hiding: with
+                   no open work left it renders nothing. -->
+              <morse-task-overlay />
+              <morse-interaction-panel />
+              <morse-chat-composer />
+            </div>
+          }
         }
       }
-    }
-
-    <!-- Pi's own TUI chrome (extension widgets and status lines), above the
-         bottom panel in the browser host and at the foot of the chat in VS Code.
-         Mounted only while an extension has set something. -->
-    @if (piUiVisible()) {
-      <morse-pi-ui />
+      <!-- Pi's own TUI chrome (extension widgets and status lines), above the
+           bottom panel in the browser host and at the foot of the chat in VS Code.
+           Mounted only while an extension has set something; it belongs to the
+           code conversation, so bot mode does not carry it. -->
+      @if (piUiVisible()) {
+        <morse-pi-ui />
+      }
     }
 
     @if (toast(); as notice) {

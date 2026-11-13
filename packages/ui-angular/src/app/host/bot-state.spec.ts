@@ -39,6 +39,40 @@ describe('BotState', () => {
     expect(state.roster()).toEqual({ bots: [bot('sable')], conversations: [] });
   });
 
+  it('forgets the open conversation when a pushed roster drops it', () => {
+    const state = new BotState();
+    state.onRoster({ bots: [bot('forge')], conversations: [conversation('dm-forge')] });
+    state.open('dm-forge');
+    state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'hi')], replace: true });
+    state.onRouting({ conversationId: 'dm-forge', target: 'forge', queued: [] });
+
+    // The bot was deleted: its conversation is gone from the roster, so the
+    // workspace must not keep pointing at it — a prompt typed now would be sent
+    // to a conversation the host no longer has.
+    state.onRoster({ bots: [], conversations: [] });
+
+    expect(state.activeId()).toBeNull();
+    expect(state.transcripts()['dm-forge']).toBeUndefined();
+    expect(state.routing()).toBeNull();
+  });
+
+  it('keeps the open conversation when a pushed roster still lists it', () => {
+    const state = new BotState();
+    state.onRoster({ bots: [bot('forge')], conversations: [conversation('dm-forge')] });
+    state.open('dm-forge');
+    state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'hi')], replace: true });
+
+    // A rename or a new conversation elsewhere replaces the roster whole; the one
+    // in front is still there, so the workspace stays on it.
+    state.onRoster({
+      bots: [bot('forge'), bot('sable')],
+      conversations: [conversation('dm-forge', { updatedAt: 5 }), conversation('dm-sable')],
+    });
+
+    expect(state.activeId()).toBe('dm-forge');
+    expect(state.transcripts()['dm-forge']).toEqual([line('a', 'hi')]);
+  });
+
   it('resets one conversation when the host says replace', () => {
     const state = new BotState();
     state.onTranscript({

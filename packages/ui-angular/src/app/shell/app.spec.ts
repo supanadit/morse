@@ -187,6 +187,61 @@ describe('App', () => {
     fixture.detectChanges();
     expect(shell.classList.contains('collapsed')).toBe(false);
   });
+
+  it('swaps the sidebar for the bot roster in bot mode', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('morse-session-nav')).not.toBeNull();
+    expect(host.querySelector('morse-bot-nav')).toBeNull();
+
+    // The shell owns the mode (the toolbar only reports the click), so setting
+    // it here is the same thing the toolbar's button does.
+    fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-bot-nav')).not.toBeNull();
+    expect(host.querySelector('morse-session-nav')).toBeNull();
+    // The mode takes the whole window: the code-mode conversation is not behind
+    // the bot view, waiting to be typed into.
+    expect(host.querySelector('morse-chat-transcript')).toBeNull();
+
+    fixture.componentInstance.mode.set('code');
+    fixture.detectChanges();
+    expect(host.querySelector('morse-session-nav')).not.toBeNull();
+    expect(host.querySelector('morse-bot-nav')).toBeNull();
+  });
+
+  it('names the open bot conversation in the main column', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const morse = TestBed.inject(MorseService);
+    morse.bot.onRoster({
+      bots: [
+        { name: 'Forge', description: 'Keeps the forge hot', engineKind: 'pi', warm: true },
+      ],
+      conversations: [
+        {
+          id: 'dm-Forge',
+          kind: 'dm',
+          title: 'Forge',
+          members: ['Forge'],
+          chainCap: 8,
+          updatedAt: 1,
+        },
+      ],
+    });
+    morse.openBotConversation('dm-Forge');
+
+    fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+
+    // Task 9 owns the conversation itself; until then the placeholder says which
+    // conversation the mode is on, so the switch is not a blank room.
+    const placeholder = host.querySelector('.bot-chat-placeholder') as HTMLElement;
+    expect(placeholder.textContent).toContain('Forge');
+  });
 });
 
 /** The mock host, plus everything the frontend asked it to do. */
