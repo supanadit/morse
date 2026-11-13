@@ -1,5 +1,14 @@
 <section class="log">
-  <aside class="tree" aria-label="Branches">
+  <aside class="tree" aria-label="Branches" [style.width.px]="treeWidth()">
+    <div
+      class="resize edge-right"
+      [morseSplitter]="'logTree'"
+      edge="right"
+      [min]="160"
+      [max]="520"
+      label="Resize the branch tree"
+      title="Drag to resize"
+    ></div>
     @if (repos().length > 1) {
       <select
         class="repo-picker"
@@ -176,7 +185,16 @@
   </div>
 
   @if (selectedHash(); as hash) {
-    <aside class="details" aria-label="Commit files">
+    <aside class="details" aria-label="Commit files" [style.width.px]="detailsWidth()">
+      <div
+        class="resize edge-left"
+        [morseSplitter]="'logDetails'"
+        edge="left"
+        [min]="220"
+        [max]="720"
+        label="Resize the commit files"
+        title="Drag to resize"
+      ></div>
       <div class="details-head">Files in {{ hash.slice(0, 7) }}</div>
       @if (selectedFiles().loading) {
         <p class="hint">Reading the commit…</p>

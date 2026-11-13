@@ -122,4 +122,33 @@ describe('LayoutState', () => {
     expect(localStorage.getItem('morse.git.width')).toBe('520');
   });
 
+
+  it('remembers the log columns and the git detail height', () => {
+    const layout = TestBed.inject(LayoutState);
+    expect(layout.logTreeSize()).toBeUndefined();
+    expect(layout.logDetailsSize()).toBeUndefined();
+    expect(layout.repoDetailSize()).toBeUndefined();
+
+    layout.setSize('logTree', 300);
+    layout.setSize('logDetails', 420);
+    layout.setSize('repoDetail', 360);
+    expect(layout.logTreeSize()).toBe(300);
+    expect(layout.logDetailsSize()).toBe(420);
+    expect(layout.repoDetailSize()).toBe(360);
+    expect(localStorage.getItem('morse.log.treeWidth')).toBe('300');
+    expect(localStorage.getItem('morse.log.detailsWidth')).toBe('420');
+    expect(localStorage.getItem('morse.git.detailHeight')).toBe('360');
+
+    // Each has its own floor.
+    layout.setSize('logTree', 10);
+    expect(layout.logTreeSize()).toBe(160);
+    layout.setSize('repoDetail', 10);
+    expect(layout.repoDetailSize()).toBe(280);
+
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(LayoutState).logTreeSize()).toBe(160);
+    expect(TestBed.inject(LayoutState).logDetailsSize()).toBe(420);
+    expect(TestBed.inject(LayoutState).repoDetailSize()).toBe(280);
+  });
+
     });

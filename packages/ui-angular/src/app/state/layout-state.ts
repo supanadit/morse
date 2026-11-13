@@ -5,8 +5,15 @@ import { Injectable, computed, signal } from '@angular/core';
  */
 export type RegionId = 'toolbar' | 'left' | 'main' | 'right' | 'status';
 
-/** Everything whose size the reader can drag: a column's width. */
-export type SizeId = RegionId;
+/**
+ * A box inside a panel whose size the reader drags: the log's branch tree and
+ * commit-files columns, and the open repository's detail height. Not regions —
+ * they are sized, never placed — but their size is remembered like a column's.
+ */
+export type PaneId = 'logTree' | 'logDetails' | 'repoDetail';
+
+/** Everything whose size the reader can drag: a column's width, a box's size. */
+export type SizeId = RegionId | PaneId;
 
 export interface Region {
   readonly id: RegionId;
@@ -47,6 +54,17 @@ export interface Layout {
 const COLUMN_MIN = 220;
 const COLUMN_MAX = 1600;
 
+/** Each draggable box's range, in px. */
+const PANE_RANGE: Record<PaneId, { min: number; max: number }> = {
+  logTree: { min: 160, max: 520 },
+  logDetails: { min: 220, max: 720 },
+  repoDetail: { min: 280, max: 900 },
+};
+
+function isPane(id: SizeId): id is PaneId {
+  return id === 'logTree' || id === 'logDetails' || id === 'repoDetail';
+}
+
 /**
  * The reader's stored layout. These are the keys the shell wrote before there was a model
  * (`morse.navigation.collapsed`, `morse.git.open`, `morse.git.width`), and they stay
@@ -70,9 +88,16 @@ const VISIBLE_KEYS: Partial<Record<RegionId, string>> = {
 const SIZE_KEYS: Partial<Record<SizeId, string>> = {
   left: 'morse.nav.width',
   right: 'morse.git.width',
+  logTree: 'morse.log.treeWidth',
+  logDetails: 'morse.log.detailsWidth',
+  repoDetail: 'morse.git.detailHeight',
 };
 
-function clampSize(px: number): number {
+function clampSize(id: SizeId, px: number): number {
+  if (isPane(id)) {
+    const range = PANE_RANGE[id];
+    return Math.round(Math.min(range.max, Math.max(range.min, px)));
+  }
   return Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, px)));
 }
 
@@ -104,7 +129,7 @@ function readSize(id: SizeId): number | undefined {
       return undefined;
     }
     const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) ? clampSize(value) : undefined;
+    return Number.isFinite(value) ? clampSize(id, value) : undefined;
   } catch {
     return undefined;
   }
@@ -139,6 +164,12 @@ function initialLayout(): Layout {
 @Injectable({ providedIn: 'root' })
 export class LayoutState {
   private readonly layout = signal<Layout>(initialLayout());
+  /** The boxes inside panels, sized but never placed. */
+  private readonly panes = signal<Record<PaneId, number | undefined>>({
+    logTree: readSize('logTree'),
+    logDetails: readSize('logDetails'),
+    repoDetail: readSize('repoDetail'),
+  });
   /** Chrome above the columns, left to right: the toolbar. */
   readonly top = computed(() => this.layout().top);
   /** The columns that share the window's width, left to right. */
@@ -156,6 +187,12 @@ export class LayoutState {
   readonly leftCollapsed = computed(() => !this.region('left').visible);
   /** Its dragged width, or `undefined` for the default from `styles.css`. */
   readonly leftSize = computed(() => this.region('left').size);
+  /** The log's branch tree width, or `undefined` for the CSS default. */
+  readonly logTreeSize = computed(() => this.panes().logTree);
+  /** The log's commit-files width, or `undefined` for the CSS default. */
+  readonly logDetailsSize = computed(() => this.panes().logDetails);
+  /** The open repository's detail height, or `undefined` for the CSS floor. */
+  readonly repoDetailSize = computed(() => this.panes().repoDetail);
   /** The browser host's git panel is one of the columns. */
   readonly rightVisible = computed(() => this.region('right').visible);
   /** Its dragged width, or `undefined` for the default from `styles.css`. */
@@ -177,7 +214,7 @@ export class LayoutState {
 
   /** One size, as the reader left it. `undefined` is the CSS default. */
   size(id: SizeId): number | undefined {
-    return this.region(id).size;
+    return isPane(id) ? this.panes()[id] : this.region(id).size;
   }
 
   setVisible(id: RegionId, visible: boolean): void {
@@ -199,8 +236,12 @@ export class LayoutState {
    * applied on every frame, but written once, when the drag ends.
    */
   setSize(id: SizeId, px: number | undefined, persist = true): void {
-    const size = px === undefined ? undefined : clampSize(px);
-    this.update(id, (region) => ({ ...region, size }));
+    const size = px === undefined ? undefined : clampSize(id, px);
+    if (isPane(id)) {
+      this.panes.update((panes) => ({ ...panes, [id]: size }));
+    } else {
+      this.update(id, (region) => ({ ...region, size }));
+    }
     if (!persist) {
       return;
     }

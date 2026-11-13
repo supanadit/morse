@@ -33,7 +33,11 @@
           ></ng-container>
 
           @if (view.path === openPath()) {
-            <div class="repo-detail-pane">
+            <div
+              class="repo-detail-pane"
+              [class.sized]="detailHeight() !== null"
+              [style.height.px]="detailHeight()"
+            >
             <!--
               The column is the working tree: the branch distance, the commit form
               and the Staged / Unstaged lists fold together under one title. History
@@ -181,6 +185,17 @@
             }
             }
             </morse-pane>
+
+            <div
+              class="detail-resize"
+              [morseSplitter]="'repoDetail'"
+              edge="bottom"
+              box="parent"
+              [min]="280"
+              [max]="900"
+              label="Resize the repository detail"
+              title="Drag to resize"
+            ></div>
 
             </div>
           }

@@ -101,6 +101,8 @@ export class GitPanel {
   protected readonly openPath = this.git.openPath;
   /** The open repository's Changes fold, from the shell (one panel, one fold). */
   protected readonly changesCollapsed = this.shell.gitChangesCollapsed;
+  /** The detail height the reader dragged; `null` keeps the 280px floor. */
+  protected readonly detailHeight = computed(() => this.layout.repoDetailSize() ?? null);
 
   private viewOf(state: GitRepoState): RepoView {
     const staged = this.changesFor(state, 'staged');

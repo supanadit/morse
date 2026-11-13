@@ -501,6 +501,27 @@ describe('GitPanel', () => {
     expect(getComputedStyle(detail).flexShrink).toBe('0');
   });
 
+  it('drags the repository detail height through the layout', async () => {
+    const { fixture } = setup(LOG, {
+      files: [],
+      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
+    });
+    await settle(fixture);
+    const host = fixture.nativeElement as HTMLElement;
+    const detail = host.querySelector('.repo-detail-pane') as HTMLElement;
+    const layout = TestBed.inject(LayoutState);
+
+    const handle = detail.querySelector<HTMLElement>(
+      '[aria-label="Resize the repository detail"]',
+    );
+    expect(handle).not.toBeNull();
+
+    layout.setSize('repoDetail', 360);
+    fixture.detectChanges();
+    expect(detail.style.height).toBe('360px');
+    expect(detail.classList.contains('sized')).toBe(true);
+  });
+
   it('opens one repository in place and leaves the other headers put', async () => {
     const { fixture } = setup(LOG, {
       files: [],

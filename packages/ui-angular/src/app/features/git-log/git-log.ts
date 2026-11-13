@@ -20,7 +20,9 @@ import {
 } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
 import { GitPanelState, type GitRepoState } from '../../services/git-panel-state';
+import { LayoutState } from '../../state/layout-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
+import { Splitter } from '../../ui/splitter/splitter';
 import { TreeList } from '../../ui/tree-list/tree-list';
 
 const LANE_WIDTH = 16;
@@ -59,7 +61,7 @@ const EMPTY_FILES: CommitFiles = { loading: false, files: [] };
  */
 @Component({
   selector: 'morse-git-log',
-  imports: [TreeList],
+  imports: [Splitter, TreeList],
   templateUrl: './git-log.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './git-log.css',
@@ -67,10 +69,14 @@ const EMPTY_FILES: CommitFiles = { loading: false, files: [] };
 export class GitLogView {
   private readonly git = inject(GitPanelState);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly layout = inject(LayoutState);
   private readonly morse = inject(MorseService);
 
   protected readonly repos = this.git.repos;
   protected readonly loading = this.git.loading;
+  /** The widths the reader dragged; `null` leaves the stylesheet's default. */
+  protected readonly treeWidth = computed(() => this.layout.logTreeSize() ?? null);
+  protected readonly detailsWidth = computed(() => this.layout.logDetailsSize() ?? null);
 
   private readonly chosenPath = signal<string | undefined>(undefined);
   protected readonly query = signal('');

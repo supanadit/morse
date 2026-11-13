@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
+import { LayoutState } from '../../state/layout-state';
 import { GitLogView } from './git-log';
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -255,6 +256,28 @@ describe('GitLogView', () => {
     fixture.detectChanges();
 
     expect(host.querySelector('.commit .subject')?.textContent).toContain('other work');
+  });
+
+  it('resizes the branch tree and the commit files with the layout', async () => {
+    const { fixture } = await render();
+    const host = fixture.nativeElement as HTMLElement;
+    const layout = TestBed.inject(LayoutState);
+    const tree = host.querySelector('.tree') as HTMLElement;
+
+    expect(host.querySelector('[aria-label="Resize the branch tree"]')).not.toBeNull();
+    layout.setSize('logTree', 300);
+    fixture.detectChanges();
+    expect(tree.style.width).toBe('300px');
+
+    (host.querySelector('.commit') as HTMLElement).click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    expect(host.querySelector('[aria-label="Resize the commit files"]')).not.toBeNull();
+    layout.setSize('logDetails', 380);
+    fixture.detectChanges();
+    expect((host.querySelector('.details') as HTMLElement).style.width).toBe('380px');
   });
 
   it('shows a commit’s files in the details pane', async () => {

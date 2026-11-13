@@ -16,6 +16,7 @@
 
 /* The branch tree: one ref per row, never a checkout. */
 .tree {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -266,6 +267,7 @@
 
 /* The selected commit's files. */
 .details {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 300px;
@@ -281,6 +283,29 @@
   color: var(--morse-fg-muted);
   font-family: var(--morse-font-mono);
   font-size: 10.5px;
+}
+
+/* The two inner edges: drag them to size the tree and the files column. */
+.resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 3;
+  cursor: ew-resize;
+}
+
+.resize.edge-right {
+  right: 0;
+}
+
+.resize.edge-left {
+  left: 0;
+}
+
+.resize:hover,
+.resize:active {
+  background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
 }
 
 @container (max-width: 720px) {

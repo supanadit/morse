@@ -19,7 +19,8 @@ column.
 ## Goals
 
 - The right git column shows only the working tree: branch row, sync, commit form, staged
-  and unstaged files, repo accordion. No history, no Changes/History divider.
+  and unstaged files, repo accordion. No history, no Changes/History divider. The open
+  repository's detail keeps a dragged height (280–900px) with a handle at its bottom edge.
 - The bottom panel gains a **Git Log** tab next to Terminal on hosts that advertise
   `gitPanel`, using the same chip/resize/full-screen machinery.
 - The bottom tool window is a band of the shell, spanning every column, so the terminal
@@ -29,7 +30,9 @@ column.
   - a commit table with graph gutter, subject, refs, author, date and short hash;
   - filters for message/hash and author over the loaded commits;
   - paging as the list scrolls;
-  - a selected commit's files and diff in a details pane.
+  - a selected commit's files and diff in a details pane;
+  - drag handles between the branch tree and the list, and between the list and the
+    details, remembered like a column's width.
 - No avatars or email. The author is the name string the host already sends.
 - `gitLog` accepts a **ref** so the tree selects an exact history, and `gitCommit` accepts
   **amend** so the commit form can rewrite HEAD.

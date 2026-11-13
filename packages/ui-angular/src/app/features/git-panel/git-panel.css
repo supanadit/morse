@@ -179,11 +179,30 @@ button.branch:disabled {
 .repo-detail-pane {
   /* Never shrinks below a usable form: a crowded header list scrolls the body
      instead of collapsing the detail to zero height. */
+  position: relative;
   flex: 1 0 auto;
   min-height: 280px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* Dragged: the reader asked for exactly this height, so the flex growth stands down. */
+.repo-detail-pane.sized {
+  flex: none;
+}
+/* The detail's bottom edge. */
+.detail-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  z-index: 3;
+  cursor: ns-resize;
+}
+.detail-resize:hover,
+.detail-resize:active {
+  background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
 }
 .changes {
   flex: 1;
