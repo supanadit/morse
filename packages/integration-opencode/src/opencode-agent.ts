@@ -146,6 +146,12 @@ export interface OpenCodeAgentOptions {
   sessionId?: string;
   /** The mode a newly created session should start in. Ignored when attaching. */
   mode?: string;
+  /**
+   * The OpenCode config dir this agent's command templates resolve from,
+   * defaulting to the host's XDG one. A bot passes its own, so `localTemplates`
+   * never reads the user's global commands.
+   */
+  configDir?: string;
 }
 
 export class OpenCodeAgent extends Session {
@@ -154,6 +160,7 @@ export class OpenCodeAgent extends Session {
   private readonly api: OpenCodeApi;
   private readonly stream: OpenCodeEventStream;
   private readonly log: MorseLogger;
+  private readonly configDir: string | undefined;
   private readonly mapper = new OpenCodeEventMapper();
   private readonly models = new Map<string, ApiModel>();
   private readonly imageFiles: string[] = [];
@@ -178,6 +185,7 @@ export class OpenCodeAgent extends Session {
     this.api = options.api;
     this.stream = options.stream;
     this.log = options.logger;
+    this.configDir = options.configDir;
     this.engineId = session.id;
   }
 
@@ -241,7 +249,7 @@ export class OpenCodeAgent extends Session {
           options.logger.warn('Could not read the OpenCode model catalog', error);
           return [];
         }),
-      readAvailableCommands(options.api, directory, options.logger),
+      readAvailableCommands(options.api, directory, options.logger, options.configDir),
       readAgentModes(options.api, directory, options.logger),
     ]);
     // A fresh session has no model until its first prompt, so read the one the
@@ -596,7 +604,12 @@ export class OpenCodeAgent extends Session {
         if (this.disposed) {
           return;
         }
-        const commands = await readAvailableCommands(this.api, directory, this.log);
+        const commands = await readAvailableCommands(
+          this.api,
+          directory,
+          this.log,
+          this.configDir,
+        );
         if (this.disposed) {
           return;
         }
@@ -1023,6 +1036,7 @@ export async function readAvailableCommands(
   api: OpenCodeApi,
   directory: string,
   logger: MorseLogger,
+  configDir?: string,
 ): Promise<AgentCommand[]> {
   // The project travels as `location[directory]`, the same way the agent catalog
   // asks for it: a plain `directory` query param is ignored, and the server would
@@ -1042,7 +1056,7 @@ export async function readAvailableCommands(
       }),
   ]);
   const entries: AgentCommand[] = [];
-  const templates = localTemplates(directory, logger);
+  const templates = localTemplates(directory, logger, configDir);
   for (const command of commands) {
     if (typeof command.name !== 'string' || command.name.length === 0) {
       continue;
@@ -1082,14 +1096,19 @@ export async function readAvailableCommands(
  * Anything else — no arguments at all, or OpenCode-only features like `` !`sh` ``
  * injection — stays absent, so the bare `/name` keeps the server's own
  * expansion. Same for commands Morse cannot find a file for: nested `a/b`
- * names, plugin-provided ones.
+ * names, plugin-provided ones. A bot's agent passes its own config dir, so the
+ * global half resolves inside the bot instead of the host's XDG one.
  */
-function localTemplates(directory: string, logger: MorseLogger): Map<string, string> {
+function localTemplates(
+  directory: string,
+  logger: MorseLogger,
+  configDir?: string,
+): Map<string, string> {
   try {
     const templates = new Map<string, string>();
     // Project files come first in `listCommands`, so first-write-wins keeps a
     // project definition over a same-named global one.
-    for (const command of listCommands(directory).commands) {
+    for (const command of listCommands(directory, configDir).commands) {
       if (command.error !== undefined || templates.has(command.name)) {
         continue;
       }

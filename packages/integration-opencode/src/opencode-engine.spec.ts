@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSessionState, ModelRef } from '@morse/agent';
 import { UnsupportedByHostError, silentLogger } from '@morse/system';
@@ -104,6 +107,8 @@ function engineWith(
   options: {
     sessions?: SessionRow[];
     owned?: boolean;
+    /** The config dir its agents read global command templates from. */
+    configDir?: string;
   } = {},
 ): {
   engine: OpenCodeEngine;
@@ -146,6 +151,7 @@ function engineWith(
       subscribe: () => () => undefined,
     } as unknown as OpenCodeEventStream,
     logger: silentLogger,
+    ...(options.configDir === undefined ? {} : { configDir: options.configDir }),
   });
   return { engine, api, closed };
 }
@@ -232,6 +238,39 @@ describe('OpenCodeEngine', () => {
     await probe.dispose();
     // A draft refuses what it cannot do instead of pretending.
     await expect(probe.prompt('hi', 'new')).rejects.toBeInstanceOf(UnsupportedByHostError);
+  });
+
+  it("reads a bot's command templates from its own config dir, not the host's XDG one", async () => {
+    // A bot's engine is handed `<botRoot>/config/opencode`; the decoy stands in
+    // for the host's XDG config, so a template resolved there would prove the
+    // leak this pins shut.
+    const root = mkdtempSync(join(tmpdir(), 'oc-engine-bot-'));
+    try {
+      const decoy = join(root, 'host');
+      const botConfigDir = join(root, 'bot', 'config', 'opencode');
+      for (const [base, body] of [
+        [join(decoy, 'opencode'), 'Host body for $1.'],
+        [botConfigDir, 'Bot body for $1.'],
+      ] as const) {
+        mkdirSync(join(base, 'commands'), { recursive: true });
+        writeFileSync(join(base, 'commands', 'init.md'), body, 'utf8');
+      }
+      vi.stubEnv('XDG_CONFIG_HOME', decoy);
+      try {
+        const { engine } = engineWith({ sessions: [], configDir: botConfigDir });
+        const probe = await engine.factory.probeDefaults({ workspace: WORKSPACE });
+        const state = await probe.state();
+
+        expect(state.availableCommands.find((command) => command.name === 'init')?.template).toBe(
+          'Bot body for $1.',
+        );
+        await probe.dispose();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("offers the picked model's levels on a probe", async () => {

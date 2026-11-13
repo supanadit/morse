@@ -1182,4 +1182,33 @@ describe('readAvailableCommands template enrichment', () => {
       { name: 'plugin-provided', description: 'from a plugin', source: 'prompt' },
     ]);
   });
+
+  it("reads a bot's commands from its own config dir, never the host's XDG one", async () => {
+    // The decoy is what the host's XDG points at: a bot's agent must resolve its
+    // global templates inside the bot, exactly as its server does, so the user's
+    // own commands are neither read nor leaked into a bot's composer.
+    writeGlobalCommand('review', 'Host body for $1.');
+    const botConfigDir = join(configDirs[configDirs.length - 1]!, 'bot', 'config', 'opencode');
+    mkdirSync(join(botConfigDir, 'commands'), { recursive: true });
+    writeFileSync(
+      join(botConfigDir, 'commands', 'review.md'),
+      '---\nargument-hint: <scope>\n---\nBot body for $1.',
+      'utf8',
+    );
+
+    const commands = await readAvailableCommands(
+      commandApi([{ name: 'review' }]),
+      WORKSPACE.cwd,
+      silentLogger,
+      botConfigDir,
+    );
+
+    expect(commands).toEqual([
+      {
+        name: 'review',
+        source: 'prompt',
+        template: '---\nargument-hint: <scope>\n---\nBot body for $1.',
+      },
+    ]);
+  });
 });

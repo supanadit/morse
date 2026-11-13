@@ -57,6 +57,12 @@ export interface OpenCodeEngineDeps {
   /** Overrides the MCP administration; tests inject one with a temp config dir. */
   mcp?: OpenCodeMcp;
   prompts?: OpenCodePrompts;
+  /**
+   * The OpenCode config dir this engine's agents resolve command templates
+   * from. Omitted means the host's XDG dir; a bot passes its own so no template
+   * is read out of the user's config.
+   */
+  configDir?: string;
 }
 
 export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
@@ -97,6 +103,7 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
       api: deps.api,
       stream: deps.stream,
       logger: deps.logger,
+      ...(deps.configDir === undefined ? {} : { configDir: deps.configDir }),
     });
     this.catalog = new OpenCodeSessionCatalog({
       api: deps.api,
@@ -234,6 +241,8 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       api: OpenCodeApi;
       stream: OpenCodeEventStream;
       logger: MorseLogger;
+      /** Where this engine's agents read global command templates from. */
+      configDir?: string;
     },
   ) {}
 
@@ -249,6 +258,7 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       logger: this.deps.logger,
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       ...(input.mode === undefined ? {} : { mode: input.mode }),
+      ...(this.deps.configDir === undefined ? {} : { configDir: this.deps.configDir }),
     });
   }
 
@@ -266,7 +276,7 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
           this.deps.logger.warn('Could not read the OpenCode model catalog', error);
           return [];
         }),
-      readAvailableCommands(this.deps.api, directory, this.deps.logger),
+      readAvailableCommands(this.deps.api, directory, this.deps.logger, this.deps.configDir),
       readAgentModes(this.deps.api, directory, this.deps.logger),
       readDefaultModel(this.deps.api, directory, this.deps.logger),
     ]);

@@ -26,11 +26,9 @@ import { OpenCodeEventStream } from './internal/event-stream.js';
  * engine — one long-lived server — is created per bot and every session lives
  * inside it.
  *
- * Known read-only leak: the agent's composer templates (`OpenCodeAgent`'s
- * `localTemplates`) still resolve global command files from the host's
- * `XDG_CONFIG_HOME` because that path does not take a config dir yet. A bot can
- * therefore *read* the user's global command templates; nothing is written
- * there. Threading the dir through the agent is a scheduled follow-up.
+ * The same config dir is handed to the engine's agents, so the composer's
+ * command-template expansion reads the bot's own global commands instead of the
+ * host's XDG ones: isolation holds on the read path too, not only for writes.
  */
 
 /** A file holding API keys is readable by its owner only. */
@@ -115,6 +113,7 @@ export async function createBotOpenCodeEngine(
     logger: options.logger,
     mcp: new OpenCodeMcp({ configDir }),
     prompts: new OpenCodePrompts({ configDir }),
+    configDir,
   });
 }
 
