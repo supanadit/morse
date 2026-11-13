@@ -120,6 +120,29 @@ describe('App bottom panel', () => {
     TestBed.resetTestingModule();
   });
 
+  it('gives the bottom tool window its own row across every column', () => {
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new TerminalHostTransport() }],
+    });
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const rules = [...document.styleSheets]
+      .flatMap((sheet) => [...sheet.cssRules])
+      .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+      .map((rule) => rule.cssText);
+
+    expect(rules.some((text) => text.includes('grid-template-rows: auto minmax(0, 1fr) auto auto'))).toBe(
+      true,
+    );
+    expect(
+      rules.some(
+        (text) => text.includes('morse-bottom-panel') && text.includes('grid-column: 1 / -1'),
+      ),
+    ).toBe(true);
+  });
+
   /**
    * The bottom panel is the shell's own band, not the conversation's: it spans
    * every column, and full screen gives it the whole height between the chrome.
