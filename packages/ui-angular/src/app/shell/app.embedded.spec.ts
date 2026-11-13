@@ -82,6 +82,8 @@ describe('App embedded (a session editor tab)', () => {
     const host: HTMLElement = fixture.nativeElement;
 
     expect(host.querySelector('morse-session-nav')).toBeNull();
+    expect(host.querySelector('morse-activity-rail')).toBeNull();
+    expect(host.querySelector('morse-file-explorer')).toBeNull();
     // The conversation column is still one column: the toolbar already lives in
     // a host that has its own chrome, so the chat has nothing left to add on top.
     expect(host.querySelector('morse-toolbar')).toBeNull();

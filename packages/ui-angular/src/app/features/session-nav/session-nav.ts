@@ -21,7 +21,6 @@ import type { TreeNode } from '@morse/ui-runtime';
 import { UpdateCheck } from '../../services/update';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
-import { Splitter } from '../../ui/splitter/splitter';
 import { TreeList } from '../../ui/tree-list/tree-list';
 import { ProjectFilter, type ProjectOption } from '../project-filter/project-filter';
 
@@ -52,7 +51,7 @@ interface SessionMenu {
  */
 @Component({
   selector: 'morse-session-nav',
-  imports: [ProjectFilter, Pane, Splitter, TreeList],
+  imports: [ProjectFilter, Pane, TreeList],
   templateUrl: './session-nav.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './session-nav.css',

@@ -11,6 +11,12 @@
 .shell {
   position: relative;
   display: grid;
+  /*
+   * Two faces of the left column (sessions and files) and, on the web host, the rail
+   * that picks between them. Named areas keep each host/width combination stated once:
+   * an optional fourth track cannot shift the nav into a 0px rail track.
+   */
+  grid-template-areas: 'nav main';
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
   /*
    * Three rows: the window's chrome, the columns that share the width, and the chrome
@@ -34,15 +40,61 @@
 }
 
 /* The columns share the middle row; the chrome takes its own, across all of them. */
-.nav,
-.chat,
-.git-panel,
-.search-panel {
-  grid-row: 2;
+.rail {
+  grid-area: rail;
 }
 
 .nav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: column;
+  position: relative;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.chat {
+  grid-area: main;
+}
+
+.git-panel,
+.search-panel {
+  grid-area: git;
+  min-width: 0;
+}
+
+/* One column, two faces: the session list and the Explorer take turns inside it. */
+.left-view {
+  flex: 1;
+  min-height: 0;
+}
+
+/* A hidden view leaves the layout *and* the tab order; `display:flex` would keep it. */
+.left-view[hidden] {
+  display: none;
+}
+
+/*
+ * The column's right edge. The fold toggle hides the whole column, so this is the only
+ * way to change how much room the conversation gets; the git column has the same handle.
+ * It lives on the wrapper, not in either face, so Files is resizable too. Below 760px
+ * the column is a drawer and the handle is left where it is — the drawer is the
+ * window's width, not the reader's choice.
+ */
+.edge-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 6px;
+  z-index: 3;
+  cursor: ew-resize;
+}
+
+.edge-resize:hover,
+.edge-resize:active {
+  background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
 }
 
 /*
@@ -58,16 +110,22 @@
  * zero and get a blank tab.
  */
 .shell.embedded,
-.shell.embedded.collapsed {
-  grid-template-columns: minmax(0, 1fr);
-}
-
+.shell.embedded.with-rail,
 .shell.embedded.with-git,
 .shell.embedded.with-search,
 .shell.embedded.git-expanded,
+.shell.embedded.with-rail.with-git,
+.shell.embedded.with-rail.with-search,
+.shell.embedded.with-rail.git-expanded,
+.shell.embedded.collapsed,
+.shell.embedded.collapsed.with-rail,
 .shell.embedded.collapsed.with-git,
 .shell.embedded.collapsed.with-search,
-.shell.embedded.collapsed.git-expanded {
+.shell.embedded.collapsed.git-expanded,
+.shell.embedded.collapsed.with-rail.with-git,
+.shell.embedded.collapsed.with-rail.with-search,
+.shell.embedded.collapsed.with-rail.git-expanded {
+  grid-template-areas: 'main';
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -80,12 +138,25 @@
  */
 .shell.with-git,
 .shell.with-search {
+  grid-template-areas: 'nav main git';
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr) var(--morse-git-width);
 }
 
-.git-panel,
-.search-panel {
-  min-width: 0;
+/*
+ * The web host's rail: one more track at the far left. The nav keeps its own width,
+ * and the rail is never folded with it.
+ */
+.shell.with-rail {
+  grid-template-areas: 'rail nav main';
+  grid-template-columns: var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr);
+}
+
+.shell.with-rail.with-git,
+.shell.with-rail.with-search {
+  grid-template-areas: 'rail nav main git';
+  grid-template-columns:
+    var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr)
+    var(--morse-git-width);
 }
 
 /*
@@ -93,7 +164,13 @@
  * so a wide graph has room. The chat steps aside instead of sharing the width.
  */
 .shell.git-expanded {
+  grid-template-areas: 'nav git';
   grid-template-columns: var(--morse-nav-width) minmax(0, 1fr);
+}
+
+.shell.with-rail.git-expanded {
+  grid-template-areas: 'rail nav git';
+  grid-template-columns: var(--morse-rail-width) var(--morse-nav-width) minmax(0, 1fr);
 }
 
 .shell.git-expanded .chat {
@@ -138,6 +215,20 @@
 
   .shell.collapsed.git-expanded {
     grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .shell.collapsed.with-rail {
+    grid-template-columns: var(--morse-rail-width) 0 minmax(0, 1fr);
+  }
+
+  .shell.collapsed.with-rail.with-git,
+  .shell.collapsed.with-rail.with-search {
+    grid-template-columns:
+      var(--morse-rail-width) 0 minmax(0, 1fr) var(--morse-git-width);
+  }
+
+  .shell.collapsed.with-rail.git-expanded {
+    grid-template-columns: var(--morse-rail-width) 0 minmax(0, 1fr);
   }
 
   /*
@@ -514,8 +605,18 @@
 }
 
 @media (max-width: 759px) {
+  /*
+   * One column, and the rail keeps its own track: the panel is a drawer over the
+   * conversation, while the rail stays on screen so Files remains reachable.
+   */
   .shell {
+    grid-template-areas: 'main';
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.with-rail {
+    grid-template-areas: 'rail main';
+    grid-template-columns: var(--morse-rail-width) minmax(0, 1fr);
   }
 
   /*
@@ -525,12 +626,21 @@
    */
   .shell.with-git,
   .shell.with-search {
+    grid-template-areas: 'main';
     grid-template-columns: minmax(0, 1fr);
   }
 
   /* Expanded on a narrow window: the graph fills the screen, the chat is gone. */
   .shell.git-expanded {
+    grid-template-areas: 'main';
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.with-rail.with-git,
+  .shell.with-rail.with-search,
+  .shell.with-rail.git-expanded {
+    grid-template-areas: 'rail main';
+    grid-template-columns: var(--morse-rail-width) minmax(0, 1fr);
   }
 
   .shell.git-expanded .git-panel {
@@ -548,7 +658,7 @@
   .shell > .git-panel,
   .shell > .search-panel {
     position: absolute;
-    grid-row: auto;
+    grid-area: auto;
     z-index: 20;
     top: 0;
     bottom: 0;
@@ -561,10 +671,11 @@
    * Narrow window: the drawer overlays full height but leaves a strip of the
    * conversation on the right — a click there (the scrim behind it) closes it,
    * a full-width drawer would have to be closed by nothing but its own content.
+   * With the rail, the drawer starts to its right, so the rail stays clickable.
    */
   .nav {
     position: absolute;
-    grid-row: auto;
+    grid-area: auto;
     z-index: 20;
     top: 0;
     bottom: 0;
@@ -573,6 +684,16 @@
     transform: translateX(-102%);
     transition: transform 160ms ease;
     box-shadow: 0 0 24px rgb(0 0 0 / 35%);
+  }
+
+  .shell.with-rail .nav {
+    left: var(--morse-rail-width);
+    width: min(100% - 96px, 420px);
+  }
+
+  .rail {
+    position: relative;
+    z-index: 25;
   }
 
   .nav.open {

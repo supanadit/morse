@@ -8,6 +8,7 @@ import {
   inject,
   input,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
@@ -28,6 +29,9 @@ import { TaskOverlay } from '../features/tasks/tasks';
 import { TabStrip } from '../features/tab-strip/tab-strip';
 import { GitPanel } from '../features/git-panel/git-panel';
 import { SearchPanel } from '../features/search-panel/search-panel';
+import { ActivityRail } from '../features/activity-rail/activity-rail';
+import { FileExplorer } from '../features/file-explorer/file-explorer';
+import { Splitter } from '../ui/splitter/splitter';
 import { AnimationService } from '../ui/animation.service';
 import { AttachmentStore } from '../state/attachments';
 import { LayoutState } from '../state/layout-state';
@@ -39,9 +43,8 @@ import { RunNotifier } from '../services/run-notifier';
 import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
 import { RestoreState } from '../state/restore-state';
-import { ShellState } from '../state/shell-state';
-import { WorkspaceTabs } from '../state/workspace-tabs';
-import { WorkbenchPersistence } from '../services/workbench-persistence';
+import { ShellState, type LeftPane } from '../state/shell-state';
+import { WorkspaceTabs } from '../state/workspace-tabs';import { WorkbenchPersistence } from '../services/workbench-persistence';
 import { QueueDrain } from '../services/queue-drain';
 import { EnterDirective } from '../ui/enter.directive';
 import { SessionNav } from '../features/session-nav/session-nav';
@@ -93,6 +96,9 @@ function previewBoot(): boolean {
     FilePreview,
     GitPanel,
     SearchPanel,
+    ActivityRail,
+    FileExplorer,
+    Splitter,
     EnterDirective,
     SelectionFocusDirective,
     BootSplash,
@@ -161,6 +167,26 @@ export class App {
    * own capability, so VS Code — which has an editor already — stays as it was.
    */
   protected readonly tabsEnabled = computed(() => this.morse.capabilities()?.filePreview === true);
+  /**
+   * The left column's Files face: the same capability that draws the tab strip and
+   * the Explorer. A host without it keeps one face, the session list, and no rail.
+   */
+  protected readonly filesEnabled = computed(
+    () => this.morse.capabilities()?.filePreview === true,
+  );
+  /** The face the column shows: no files view means the list, whatever was stored. */
+  protected readonly leftPane = computed<LeftPane>(() =>
+    this.filesEnabled() ? this.shell.leftPane() : 'sessions',
+  );
+  private readonly filesSeen = signal(false);
+  /**
+   * The Explorer mounts on the first Files selection and then stays mounted, hidden
+   * behind the session list: its expanded folders, filter and scroll have to survive
+   * a swap back, and a reader who never opens Files never pays for the tree.
+   */
+  protected readonly filesMounted = computed(
+    () => this.filesEnabled() && (this.leftPane() === 'files' || this.filesSeen()),
+  );
   /**
    * The browser host's bottom panel. VS Code leaves `terminal` off (its own
    * panel has the terminal), so this is only ever mounted by the server host.
@@ -467,6 +493,16 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // Once Files has been opened, it stays mounted (hidden) so its tree, filter and
+    // scroll survive a swap back to the session list.
+    effect(() => {
+      const files = this.leftPane() === 'files';
+      untracked(() => {
+        if (files) {
+          this.filesSeen.set(true);
+        }
+      });
+    });
     // Pull the watched subagent's transcript while it is on screen: the child
     // is written by its parent's process, so the view ages in place. The host
     // skips identical pages, so the poll is quiet until something landed, and

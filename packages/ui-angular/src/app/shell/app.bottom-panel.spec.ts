@@ -148,9 +148,9 @@ describe('App bottom panel', () => {
   });
 
   /**
-   * The empty-session view is only the sidebar: no session means no project, so
-   * the Explorer, the git column and the terminal must not show whatever the
-   * last session or closed tab left behind. The terminal panel is hidden rather
+   * The empty-session view is only the sidebar: the Explorer mounts only after the
+   * reader picks Files, and the git column and the terminal must not show whatever
+   * the last session or closed tab left behind. The terminal panel is hidden rather
    * than unmounted, because unmounting it would end its host-owned shells.
    */
   it('hides every project surface while no session is in front', () => {
@@ -167,6 +167,8 @@ describe('App bottom panel', () => {
 
     // The empty state is the panel; nothing project-scoped is beside it.
     expect(host.querySelector('morse-empty-session')).not.toBeNull();
+    // The rail is chrome, so it stays; the Explorer is not mounted until Files is chosen.
+    expect(host.querySelector('morse-activity-rail')).not.toBeNull();
     expect(host.querySelector('morse-file-explorer')).toBeNull();
     expect(host.querySelector('morse-git-panel')).toBeNull();
     // The terminal panel is still mounted — hidden, so its shells survive — not
@@ -199,8 +201,7 @@ describe('App bottom panel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     expect(host.querySelector('morse-empty-session')).toBeNull();
-    // The sidebar is the session list; files belong to the conversation's tabs,
-    // so no Explorer is mounted beside it on any host.
+    // The sidebar is the session list; the Explorer mounts only once Files is chosen.
     expect(host.querySelector('morse-file-explorer')).toBeNull();
     expect(host.querySelector('morse-git-panel')).not.toBeNull();
     const terminalPanel = host.querySelector('morse-bottom-panel');

@@ -89,6 +89,8 @@
   --morse-status-height: 22px;
   /* The navigation column's width; the shell's grid and the column itself agree on it. */
   --morse-nav-width: 272px;
+  /* The web host's activity rail: a fixed strip the panels never resize away. */
+  --morse-rail-width: 48px;
   /* The browser host's git panel width (the shell's third column). */
   --morse-git-width: 340px;
   /*

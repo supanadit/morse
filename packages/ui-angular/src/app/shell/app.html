@@ -5,6 +5,7 @@
   [style.--morse-changes-height]="changesHeight()"
   [style.--morse-detail-height]="detailHeight()"
   [class.embedded]="embedded()"
+  [class.with-rail]="filesEnabled() && !embedded()"
   [class.with-git]="gitOpen()"
   [class.with-search]="searchOpen()"
   [class.git-expanded]="gitExpanded()"
@@ -125,8 +126,25 @@
     />
   }
 
+  @if (filesEnabled() && !embedded()) {
+    <morse-activity-rail class="rail" />
+  }
+
   @if (!embedded()) {
-    <morse-session-nav class="nav" [class.open]="navigationOpen()" />
+    <div class="nav" [class.open]="navigationOpen()">
+      <div
+        class="edge-resize"
+        [morseSplitter]="'left'"
+        edge="right"
+        [min]="220"
+        label="Resize the navigation column"
+        title="Drag to resize"
+      ></div>
+      <morse-session-nav class="left-view" [hidden]="leftPane() !== 'sessions'" />
+      @if (filesMounted()) {
+        <morse-file-explorer class="left-view" [hidden]="leftPane() !== 'files'" />
+      }
+    </div>
   }
 
   @if (paletteOpen()) {

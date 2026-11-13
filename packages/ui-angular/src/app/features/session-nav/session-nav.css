@@ -7,25 +7,6 @@
   background: var(--morse-nav-bg);
   border-right: 1px solid var(--morse-border);
 }
-/*
- * The column's right edge. The fold toggle hides the whole column, so this is the only
- * way to change how much room the conversation gets; the git column has the same handle.
- * Below 760px the column is a drawer and the handle is left where it is — the drawer is
- * the window's width, not the reader's choice.
- */
-.edge-resize {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: 6px;
-  z-index: 3;
-  cursor: ew-resize;
-}
-.edge-resize:hover,
-.edge-resize:active {
-  background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
-}
 
 /*
  * The first thing in the column: one way to start something. It reads as a control
