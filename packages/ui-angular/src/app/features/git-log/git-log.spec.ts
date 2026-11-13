@@ -3,9 +3,21 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
-import { GitLogView } from './git-log';
+import { GitLogView, projectLog } from './git-log';
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+function commit(hash: string, parents: string[]) {
+  return {
+    hash,
+    shortHash: hash.slice(0, 7),
+    parents,
+    refs: [],
+    author: 'A',
+    date: '2024-01-01T00:00:00Z',
+    subject: hash,
+  };
+}
 
 function fakeHost() {
   const branches = {
@@ -325,5 +337,26 @@ describe('GitLogView', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.empty')?.textContent).toContain(
       'No commits',
     );
+  });
+});
+
+describe('projectLog', () => {
+  it('links a filtered commit to its nearest visible ancestor, dashed', () => {
+    const all = [commit('a', ['b']), commit('b', ['c']), commit('c', [])];
+    const projected = projectLog(all, [all[0]!, all[2]!]);
+
+    expect(projected.map((entry) => entry.hash)).toEqual(['a', 'c']);
+    expect(projected[0]!.parents).toEqual(['c']);
+    expect(projected[0]!.dashedParents).toEqual(['c']);
+    expect(projected[1]!.parents).toEqual([]);
+    expect(projected[1]!.dashedParents).toBeUndefined();
+  });
+
+  it('keeps the direct links when nothing was hidden', () => {
+    const all = [commit('a', ['b']), commit('b', [])];
+    const projected = projectLog(all, all);
+
+    expect(projected[0]!.parents).toEqual(['b']);
+    expect(projected[0]!.dashedParents).toBeUndefined();
   });
 });

@@ -99,3 +99,17 @@ describe('layoutGraph', () => {
     expect(layoutGraph([])).toEqual({ rows: [], laneCount: 0 });
   });
 });
+
+describe('layoutGraph dashed links', () => {
+  it('marks a parent link dashed when a filter hid the commits in between', () => {
+    const projected = [
+      { ...commit('a', ['c']), dashedParents: ['c'] },
+      commit('c', []),
+    ];
+    const { rows } = layoutGraph(projected);
+    const outgoing = rows[0]?.edges.find((edge) => edge.fromY === 0.5 && edge.toY === 1);
+
+    expect(outgoing?.dashed).toBe(true);
+    expect(rows[1]?.edges.some((edge) => edge.dashed === true)).toBe(false);
+  });
+});

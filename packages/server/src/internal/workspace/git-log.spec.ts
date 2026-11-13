@@ -32,11 +32,10 @@ function commit(subject: string): void {
 }
 
 describe('readGitLog ref', () => {
-  it('keeps every branch when no ref is named', async () => {
+  it('keeps the current branch when no ref is named', async () => {
     const log = await readGitLog(root);
-    expect(log.commits.map((c) => c.subject)).toEqual(
-      expect.arrayContaining(['init', 'feat one', 'main two']),
-    );
+    expect(log.commits.map((c) => c.subject)).toEqual(['main two', 'init']);
+    expect(log.commits.map((c) => c.subject)).not.toContain('feat one');
   });
 
   it('returns only the named ref history', async () => {

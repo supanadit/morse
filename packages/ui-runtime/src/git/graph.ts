@@ -14,6 +14,8 @@ export interface GraphEdge {
   toY: GraphY;
   /** Lane index the edge takes its colour from. */
   color: number;
+  /** The link skips commits a filter hid; the renderer dashes it. */
+  dashed?: boolean;
 }
 
 export interface GraphRow {
@@ -80,6 +82,8 @@ export function layoutGraph(commits: readonly GitCommit[]): GraphLayout {
 
     // A parent another branch already expects keeps that lane instead of forking
     // a second one; only then does the first parent continue in this lane.
+    // A projected commit marks the parents a filter hid; those links are dashed.
+    const dashedParents = (commit as { dashedParents?: readonly string[] }).dashedParents;
     for (let index = 0; index < commit.parents.length; index += 1) {
       const parent = commit.parents[index]!;
       let target = existingLane(lanes, parent, lane);
@@ -87,7 +91,14 @@ export function layoutGraph(commits: readonly GitCommit[]): GraphLayout {
         target = index === 0 ? lane : firstFree(lanes);
       }
       lanes[target] = parent;
-      edges.push({ fromLane: lane, fromY: 0.5, toLane: target, toY: 1, color: target });
+      edges.push({
+        fromLane: lane,
+        fromY: 0.5,
+        toLane: target,
+        toY: 1,
+        color: target,
+        ...(dashedParents?.includes(parent) ? { dashed: true } : {}),
+      });
     }
 
     laneCount = Math.max(laneCount, lanes.length);

@@ -45,7 +45,7 @@ export class GitRepoState {
   private readonly commitPending = signal(false);
   private readonly branchPending = signal(false);
   private readonly feedback = signal<{ ok: boolean; text: string } | undefined>(undefined);
-  /** The ref the log is scoped to; `undefined` means HEAD's `--all` view. */
+  /** The ref the log is scoped to; `undefined` means HEAD's history. */
   private readonly refSignal = signal<string | undefined>(undefined);
   /** Bumped by every `refresh`, so a late page from an old project is dropped. */
   private generation = 0;
@@ -71,7 +71,7 @@ export class GitRepoState {
   readonly upstream = computed(() => this.syncState()?.upstream);
   readonly syncingNow = this.syncing.asReadonly();
   readonly branches = this.branchList.asReadonly();
-  /** The ref whose history the log shows; `undefined` is HEAD's all-branch view. */
+  /** The ref whose history the log shows; `undefined` is HEAD's history. */
   readonly logRef = this.refSignal.asReadonly();
   /** True while a commit is in flight, so the button stays disabled. */
   readonly committing = this.commitPending.asReadonly();
@@ -157,7 +157,7 @@ export class GitRepoState {
 
   /**
    * Scopes the log to a ref and reloads from the first page. Clearing the ref
-   * restores the all-branches view. Clearing the items first means a page still
+   * restores the HEAD view. Clearing the items first means a page still
    * in flight for the previous ref cannot be mistaken for this one's first page.
    */
   setLogRef(ref: string | undefined): void {

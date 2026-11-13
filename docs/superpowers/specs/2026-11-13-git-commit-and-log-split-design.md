@@ -72,6 +72,9 @@ column.
 - **Amend semantics.** Amend rewrites HEAD only. An empty message with Amend runs
   `git commit --amend --no-edit`, keeping the previous message; a typed message replaces it.
   A normal commit still refuses an empty message.
+- **Filtering keeps the graph.** A filtered commit links to its nearest visible ancestor;
+  a link that skipped hidden commits is dashed, so the graph stays connected instead of
+  re-laying-out only the matches.
 - **Paging.** A new ref resets the page cursor; `skip` and `max` behave as today. The
   "has more" heuristic stays `commits.length === GIT_PAGE_SIZE`.
 - **Graph.** `layoutGraph` and the lane geometry stay; the Log renders the same edges and
@@ -173,9 +176,9 @@ behaviour; no new state.
 `gitLog` (protocol → host):
 
 - Optional `ref` argument. The host validates it with the existing ref guard; a bad ref is
-  refused with a message. With a ref, the command runs `git log --end-of-options <ref>` and
-  drops `--all`; without one, today's `--all` behaviour is unchanged. `max` and `skip`
-  still apply.
+  refused with a message. The command runs `git log --end-of-options <ref>`; no ref means
+  `HEAD`, so the log follows the current branch and the lane column stays compact. `max`
+  and `skip` still apply.
 - The reply shape is untouched.
 
 `gitCommit`:

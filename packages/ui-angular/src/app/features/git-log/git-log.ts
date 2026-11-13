@@ -54,6 +54,66 @@ interface CommitFiles {
 
 const EMPTY_FILES: CommitFiles = { loading: false, files: [] };
 
+/** A commit whose visible parents were found by walking past filtered commits. */
+export interface ProjectedCommit extends GitCommit {
+  readonly dashedParents?: readonly string[];
+}
+
+/**
+ * What a filtered log shows: the matching commits, each linked to its nearest
+ * visible ancestors. A link that had to skip hidden commits is marked dashed,
+ * so the graph stays connected instead of re-laying out only the matches.
+ */
+export function projectLog(
+  all: readonly GitCommit[],
+  matches: readonly GitCommit[],
+): ProjectedCommit[] {
+  if (matches.length === all.length) {
+    return [...all];
+  }
+  const visible = new Set(matches.map((commit) => commit.hash));
+  const byHash = new Map(all.map((commit) => [commit.hash, commit]));
+  const cache = new Map<string, Set<string>>();
+
+  const nearest = (hash: string): Set<string> => {
+    const cached = cache.get(hash);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const found = new Set<string>();
+    const seen = new Set<string>();
+    const walk = (parent: string): void => {
+      if (visible.has(parent)) {
+        found.add(parent);
+        return;
+      }
+      if (seen.has(parent)) {
+        return;
+      }
+      seen.add(parent);
+      for (const next of byHash.get(parent)?.parents ?? []) {
+        walk(next);
+      }
+    };
+    for (const parent of byHash.get(hash)?.parents ?? []) {
+      walk(parent);
+    }
+    cache.set(hash, found);
+    return found;
+  };
+
+  return matches.map((commit) => {
+    const parents = [...nearest(commit.hash)];
+    const direct = new Set(commit.parents.filter((parent) => visible.has(parent)));
+    const dashedParents = parents.filter((parent) => !direct.has(parent));
+    return {
+      ...commit,
+      parents,
+      ...(dashedParents.length > 0 ? { dashedParents } : {}),
+    };
+  });
+}
+
 /**
  * The bottom panel's Git Log: one repository's history behind a branch tree.
  * The tree scopes the log; a ref never checks out a branch. The table keeps the
@@ -103,14 +163,15 @@ export class GitLogView {
     [...new Set((this.repo()?.commits() ?? []).map((commit) => commit.author))].sort(),
   );
 
-  protected readonly filtered = computed(() => {
+  protected readonly filtered = computed<ProjectedCommit[]>(() => {
     const repo = this.repo();
     if (repo === undefined) {
       return [];
     }
+    const all = repo.commits();
     const text = this.query().trim().toLowerCase();
     const author = this.author();
-    return repo.commits().filter((commit) => {
+    const matches = all.filter((commit) => {
       if (author.length > 0 && commit.author !== author) {
         return false;
       }
@@ -123,6 +184,8 @@ export class GitLogView {
         commit.shortHash.toLowerCase().startsWith(text)
       );
     });
+    // The graph keeps its topology: matches link to the nearest visible ancestor.
+    return projectLog(all, matches);
   });
 
   protected readonly entries = computed(() => {
@@ -223,7 +286,7 @@ export class GitLogView {
     return (this.logRef() ?? undefined) === ref;
   }
 
-  /** Chooses the ref the history lists. `undefined` is HEAD's all-branch view. */
+  /** Chooses the ref the history lists. `undefined` is HEAD's history. */
   protected selectRef(ref: string | undefined): void {
     const repo = this.repo();
     if (repo === undefined) {

@@ -590,7 +590,11 @@ export class MemoryHostTransport extends BaseHostTransport {
           return;
         }
         if (message.payload.command === 'gitLog' && message.payload.requestId) {
-          const ref = message.payload.args?.ref;
+          const requested = message.payload.args?.ref;
+          const ref =
+            typeof requested === 'string' && requested.length > 0
+              ? requested
+              : this.mockLog.branch;
           this.emit({
             type: 'host/command/result',
             payload: {
@@ -598,10 +602,7 @@ export class MemoryHostTransport extends BaseHostTransport {
               ok: true,
               data: {
                 ...this.mockLog,
-                commits:
-                  typeof ref === 'string' && ref.length > 0
-                    ? commitsReachableFrom(this.mockLog.commits, ref)
-                    : this.mockLog.commits,
+                commits: commitsReachableFrom(this.mockLog.commits, ref),
               },
             },
           });

@@ -34,7 +34,7 @@ const PRETTY_FORMAT = ['%H', '%h', '%P', '%D', '%an', '%aI', '%s'].join(FIELD) +
  * a path the client names. A directory that is not a repository is a normal
  * answer (`isRepo: false`), not an error — the panel says "no repository here".
  *
- * `--all --date-order` walks every ref so the graph shows side branches, and the
+ * `HEAD --date-order` walks the current branch so the lane column stays compact, and the
  * lanes are derived by the frontend from each commit's `parents`.
  */
 export async function readGitLog(
@@ -66,8 +66,11 @@ export async function readGitLog(
         `--max-count=${max}`,
         `--pretty=format:${PRETTY_FORMAT}`,
         // Every option precedes the revision; the guard above keeps the ref from
-        // reading as one, and `--end-of-options` pins it as the revision.
-        ...(named ? ['--end-of-options', named] : ['--all']),
+        // reading as one, and `--end-of-options` pins it as the revision. No ref
+        // means the current branch, not `--all`: the lane column stays compact and
+        // the tree's HEAD row means exactly that.
+        '--end-of-options',
+        named ?? 'HEAD',
       ],
       work,
     ),

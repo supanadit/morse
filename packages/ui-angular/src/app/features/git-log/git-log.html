@@ -140,7 +140,11 @@
               aria-hidden="true"
             >
               @for (edge of entry.row.edges; track $index) {
-                <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
+                <path
+                  [attr.d]="path(edge)"
+                  [attr.stroke-dasharray]="edge.dashed ? '3 3' : null"
+                  [style.stroke]="color(edge.color)"
+                />
               }
               <circle
                 [attr.cx]="x(entry.row.lane)"
