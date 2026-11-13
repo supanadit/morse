@@ -166,10 +166,12 @@ export class GitLogView {
   private readonly noGroups: ReadonlySet<string> = new Set();
 
   constructor() {
-    // The bottom panel can be the first surface to need git in a session.
+    // The log follows the project even when the change column is closed, so a
+    // session switch is not left showing the previous project's history.
     effect(() => {
-      if (!this.git.loaded()) {
-        this.git.refresh();
+      const cwd = this.morse.workspace().cwd;
+      if (cwd) {
+        untracked(() => this.git.refresh());
       }
     });
     // Every time the visible repository changes, ask for its branch list.
@@ -179,10 +181,12 @@ export class GitLogView {
         untracked(() => repo.loadBranches());
       }
     });
-    // A repository switch must not keep the previous repo's selected commit.
+    // A repository switch — the picker or a project change — must not keep the
+    // previous repository's selected commit.
     effect(() => {
-      this.chosenPath();
-      untracked(() => this.clearSelection());
+      if (this.repo() !== undefined) {
+        untracked(() => this.clearSelection());
+      }
     });
   }
 

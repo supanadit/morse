@@ -14,8 +14,9 @@ function fakeHost() {
     remote: ['origin/main'],
     tags: ['v1'],
   };
+  const workspace = signal({ cwd: '/r', name: 'r' });
   return {
-    workspace: signal({ cwd: '/r', name: 'r' }),
+    workspace,
     state: signal({
       sessionId: undefined,
       workspace: { cwd: '/r', name: 'r' },
@@ -23,17 +24,28 @@ function fakeHost() {
     capabilities: signal({ hostKind: 'server', gitPanel: true, filePicker: true }),
     requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>): Promise<unknown> => {
       if (command === 'gitRepos') {
+        const cwd = workspace().cwd;
         return Promise.resolve({
           isRepo: true,
           repos: [
-            { path: '', root: '/r', name: 'r', current: true, branch: 'main' },
             {
-              path: 'nested',
-              root: '/r/nested',
-              name: 'nested',
-              current: false,
-              branch: 'feat',
+              path: '',
+              root: cwd,
+              name: cwd === '/r' ? 'r' : 'other',
+              current: true,
+              branch: 'main',
             },
+            ...(cwd === '/r'
+              ? [
+                  {
+                    path: 'nested',
+                    root: '/r/nested',
+                    name: 'nested',
+                    current: false,
+                    branch: 'feat',
+                  },
+                ]
+              : []),
           ],
         });
       }
@@ -55,6 +67,24 @@ function fakeHost() {
       }
       const ref = String(args?.['ref'] ?? '');
       const nested = args?.['repo'] === 'nested';
+      if (workspace().cwd === '/other') {
+        return Promise.resolve({
+          isRepo: true,
+          root: '/other',
+          branch: 'main',
+          commits: [
+            {
+              hash: 'o1',
+              shortHash: 'o1',
+              parents: [],
+              refs: ['HEAD -> main'],
+              author: 'Ada',
+              date: new Date().toISOString(),
+              subject: 'other work',
+            },
+          ],
+        });
+      }
       const commits = nested
         ? [
             {
@@ -106,7 +136,7 @@ function fakeHost() {
 
 async function render(
   options: { failLog?: boolean; empty?: boolean } = {},
-): Promise<ComponentFixture<GitLogView>> {
+): Promise<{ fixture: ComponentFixture<GitLogView>; fake: ReturnType<typeof fakeHost> }> {
   const host = fakeHost();
   if (options.failLog) {
     host.requestHostCommand.mockImplementation(() => Promise.resolve(undefined));
@@ -130,14 +160,14 @@ async function render(
   fixture.detectChanges();
   await flush();
   fixture.detectChanges();
-  return fixture;
+  return { fixture, fake: host };
 }
 
 describe('GitLogView', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('lists the current branch and filters by a selected ref', async () => {
-    const fixture = await render();
+    const { fixture } = await render();
     const host = fixture.nativeElement as HTMLElement;
 
     expect(host.querySelector('.commit .subject')?.textContent).toContain('main work');
@@ -154,7 +184,7 @@ describe('GitLogView', () => {
   });
 
   it('filters by text and author', async () => {
-    const fixture = await render();
+    const { fixture } = await render();
     const host = fixture.nativeElement as HTMLElement;
     const text = host.querySelector('.filter-text') as HTMLInputElement;
 
@@ -174,8 +204,29 @@ describe('GitLogView', () => {
     expect(host.querySelector('.commit .subject')?.textContent).toContain('docs work');
   });
 
+  it('follows the project and drops the selected commit', async () => {
+    const { fixture, fake } = await render();
+    const host = fixture.nativeElement as HTMLElement;
+
+    (host.querySelector('.commit') as HTMLElement).click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(host.querySelector('.details')).not.toBeNull();
+
+    fake.workspace.set({ cwd: '/other', name: 'other' });
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.commit .subject')?.textContent).toContain('other work');
+    expect(host.querySelector('.details')).toBeNull();
+  });
+
   it('shows a commit’s files in the details pane', async () => {
-    const fixture = await render();
+    const { fixture } = await render();
     const host = fixture.nativeElement as HTMLElement;
 
     (host.querySelector('.commit') as HTMLElement).click();
@@ -187,7 +238,7 @@ describe('GitLogView', () => {
   });
 
   it('resets the ref and selection when the repository changes', async () => {
-    const fixture = await render();
+    const { fixture } = await render();
     const host = fixture.nativeElement as HTMLElement;
 
     (host.querySelector('[data-ref="feat"]') as HTMLElement).click();
@@ -208,14 +259,14 @@ describe('GitLogView', () => {
   });
 
   it('shows an error when the host cannot read the ref', async () => {
-    const fixture = await render({ failLog: true });
+    const { fixture } = await render({ failLog: true });
     expect((fixture.nativeElement as HTMLElement).querySelector('.hint.error')?.textContent).toContain(
       'git history',
     );
   });
 
   it('says when the selected ref has no commits', async () => {
-    const fixture = await render({ empty: true });
+    const { fixture } = await render({ empty: true });
     expect((fixture.nativeElement as HTMLElement).querySelector('.empty')?.textContent).toContain(
       'No commits',
     );
