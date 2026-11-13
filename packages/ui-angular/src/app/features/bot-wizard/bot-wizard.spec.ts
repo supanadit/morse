@@ -209,7 +209,10 @@ describe('BotWizard', () => {
     const subagentName = opencode.host.querySelector(
       'input[name="subagentName"]',
     ) as HTMLInputElement;
-    expect(subagentName.pattern).toBe('[\\p{L}\\p{N}_][\\p{L}\\p{N}_-]*');
+    // The value must compile under the HTML `v`-flag regex, where a literal
+    // `-` is only valid escaped; an uncompilable pattern would silently make the
+    // attribute inert.
+    expect(subagentName.pattern).toBe('[\\p{L}\\p{N}_][\\p{L}\\p{N}_\\-]*');
     button(opencode.host, '.remove-subagent').click();
     tick(opencode.fixture);
     expect(opencode.host.querySelector('.subagent-row')).toBeNull();

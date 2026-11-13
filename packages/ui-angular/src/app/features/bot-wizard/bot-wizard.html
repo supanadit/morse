@@ -262,7 +262,7 @@
                   autocomplete="off"
                   aria-label="Subagent name"
                   placeholder="reviewer"
-                  pattern="[\p{L}\p{N}_][\p{L}\p{N}_-]*"
+                  pattern="[\p{L}\p{N}_][\p{L}\p{N}_\-]*"
                   title="Letters, digits, dashes and underscores; start with a letter, digit or underscore."
                   [value]="subagent.name"
                   (input)="setSubagent($index, 'name', $event)"
