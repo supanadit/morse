@@ -83,6 +83,12 @@ export interface BotCreateInput {
   thinkingLevel?: ThinkingLevel;
   /** The bot workspace's AGENTS.md, when the wizard collected one. */
   agentsMd?: string;
+  /**
+   * The bot's named subagents, each with its own system prompt. An engine that
+   * supports them stores them natively (OpenCode's `agent` config); the host
+   * ignores them for an engine that does not.
+   */
+  subagents?: Array<{ name: string; prompt: string }>;
 }
 
 /** What the New group dialog sends; `chainCap` defaults to the service's cap. */

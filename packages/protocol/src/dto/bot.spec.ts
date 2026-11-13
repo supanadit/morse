@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import type { BotCreateInput } from './bot.js';
 import { isClientToHostMessage, isHostToClientMessage } from '../wire.js';
+
+/**
+ * The subagent rows travel as their own field: the wizard's rows are data the
+ * host writes into the bot's engine config, not prose folded into AGENTS.md.
+ * Annotating the input is the type-level half of this test; the wire assertions
+ * below are the runtime half.
+ */
+const SUBAGENTS: NonNullable<BotCreateInput['subagents']> = [
+  { name: 'reviewer', prompt: 'Read the diff and report risks.' },
+];
 
 /**
  * Every bot message the client sends, with the payload it sends. The type guards
@@ -18,6 +29,7 @@ const CLIENT_BOT_MESSAGES = [
       credentials: [{ provider: 'anthropic', apiKey: 'sk' }],
       envVars: ['ANTHROPIC_API_KEY'],
       persona: 'You are Forge.',
+      subagents: SUBAGENTS,
     },
   },
   { type: 'bot/delete', payload: { name: 'forge' } },
@@ -57,6 +69,25 @@ describe('bot wire messages', () => {
     for (const message of HOST_BOT_MESSAGES) {
       expect(isHostToClientMessage(message)).toBe(true);
     }
+  });
+
+  it('carries the subagent rows on bot/create untouched', () => {
+    const message = {
+      type: 'bot/create',
+      payload: {
+        requestId: 'req-1',
+        name: 'forge',
+        description: 'Builds things',
+        engineKind: 'opencode',
+        credentials: [],
+        envVars: [],
+        persona: '',
+        subagents: SUBAGENTS,
+      },
+    };
+
+    expect(isClientToHostMessage(message)).toBe(true);
+    expect(message.payload.subagents).toEqual(SUBAGENTS);
   });
 
   it('rejects an unknown bot message type in both directions', () => {
