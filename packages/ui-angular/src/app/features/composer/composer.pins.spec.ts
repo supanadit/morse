@@ -11,6 +11,11 @@ class ReadyHostTransport extends BaseHostTransport {
   readonly kind = 'memory' as const;
   readonly sent: ClientToHostMessage[] = [];
 
+  /** Extra host capabilities the case needs; the defaults are VS Code's. */
+  constructor(private readonly extra: Record<string, unknown> = {}) {
+    super();
+  }
+
   connect(): void {
     this.emitStatus('open');
   }
@@ -31,6 +36,7 @@ class ReadyHostTransport extends BaseHostTransport {
           nativeDialogs: false,
           insertIntoEditor: false,
           revealFile: false,
+          ...this.extra,
         },
         state: {
           workspace: { cwd: '/work/morse', name: 'morse' },
@@ -52,8 +58,8 @@ class ReadyHostTransport extends BaseHostTransport {
   }
 }
 
-async function mount() {
-  const transport = new ReadyHostTransport();
+async function mount(extra: Record<string, unknown> = {}) {
+  const transport = new ReadyHostTransport(extra);
   await TestBed.configureTestingModule({
     imports: [ChatComposer],
     providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
@@ -101,6 +107,24 @@ describe('ChatComposer attachment chips', () => {
     expect(chipLabels(host)).toEqual(['L18-20']);
     const title = host.querySelector('.chip:not(.live) .chip-body')?.getAttribute('title') ?? '';
     expect(title).toContain('lines 18-20');
+  });
+
+  it('leaves the note to the card when the host shows files in an editor', async () => {
+    const { fixture, host, store } = await mount({ filePreview: true });
+    store.pin({ path: 'src/app.ts', startLine: 3, endLine: 3, note: 'why' });
+    fixture.detectChanges();
+
+    // Read, not edited, here: the card beside the code owns the editor.
+    expect(host.querySelector('button.chip-note')).toBeNull();
+    expect(host.querySelector('span.chip-note')?.textContent).toContain('why');
+  });
+
+  it('edits the note on the chip when the host has no editor', async () => {
+    const { fixture, host, store } = await mount();
+    store.pin({ path: 'src/app.ts', startLine: 3, endLine: 3, note: 'why' });
+    fixture.detectChanges();
+
+    expect(host.querySelector('button.chip-note')).not.toBeNull();
   });
 
   it('shows a whole-file pin with no range label', async () => {

@@ -250,7 +250,19 @@
             A pin with no note yet shows the ghost one, so there is always a
             visible way in — not only a way to see what got written.
           -->
-          @if (pin.note !== undefined) {
+          @if (canAnnotateInFile()) {
+            <!-- The card beside the code owns the note; the chip only shows it. -->
+            @if (pin.note !== undefined) {
+              <span
+                class="chip-note"
+                [morseNoteHover]="pin.note"
+                [attr.title]="pin.note"
+              >
+                <span aria-hidden="true">✎</span>
+                <span class="chip-note-text">{{ noteHint(pin.note) }}</span>
+              </span>
+            }
+          } @else if (pin.note !== undefined) {
             <button
               type="button"
               class="chip-note"

@@ -296,6 +296,15 @@ export class ChatComposer {
   protected readonly noteHint = pinNoteHint;
 
   /**
+   * Whether this host opens files in Morse's own editor. When it does, a pin's
+   * note is written in the card beside the code, and the chip only shows it.
+   * VS Code has no file tab, so there the chip keeps the editor.
+   */
+  protected readonly canAnnotateInFile = computed(
+    () => this.morse.capabilities()?.filePreview === true,
+  );
+
+  /**
    * The editor selection the host reports live: it is unlocked until the user
    * clicks it, which pins it. A payload without lines means the selection is
    * gone, and the chip goes with it.

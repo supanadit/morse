@@ -32,9 +32,9 @@ export interface FileTab {
   sessionId?: string;
   language?: string;
   /**
-   * The line a language-server jump sent this tab to (1-based, as it renders).
-   * The preview scrolls to it and flashes it; a plain Explorer click leaves it
-   * unset and the file opens at the top.
+   * The line a jump sent this tab to (1-based, as it renders). The editor
+   * reveals and flashes it; a plain Explorer click leaves it unset, so the file
+   * opens at the top.
    */
   line?: number;
   content?: string;
