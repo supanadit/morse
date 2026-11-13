@@ -608,6 +608,21 @@ describe('BotService subagents', () => {
     expect(adapter.subagentWrites).toEqual([]);
     expect(service.roster().bots).toHaveLength(0);
   });
+
+  it('refuses an unusable subagent name even for an engine that stores none', async () => {
+    // The service is the only validator — the wire checks message types, not
+    // names — so a pi bot must not keep an unvalidated name on its record just
+    // because pi has nowhere to write it.
+    const { root, adapter, service } = harness();
+
+    await expect(
+      service.createBot(botInput({ subagents: [{ name: 'has space', prompt: 'Anything.' }] })),
+    ).rejects.toThrow('not a usable subagent name');
+
+    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    expect(adapter.subagentWrites).toEqual([]);
+    expect(service.roster().bots).toHaveLength(0);
+  });
 });
 
 describe('BotService rounds', () => {

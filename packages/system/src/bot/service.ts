@@ -267,23 +267,24 @@ export class BotService {
       // The adapter replaces the whole credential store: the wizard's list is
       // the complete answer for this bot, never a merge with an older one.
       adapter.writeCredentials(botRoot, input.credentials);
+      // The wizard validates these names, the wire does not — it checks message
+      // types, not payloads — so this is the boundary that keeps every stored
+      // name usable as a config key, whichever engine ends up storing it.
+      for (const subagent of input.subagents ?? []) {
+        if (!isSafeBotName(subagent.name)) {
+          throw new Error(
+            `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
+          );
+        }
+      }
       // Subagents are engine config, so only an engine that has them is asked to
-      // store them; a pi bot is created without one and keeps only the record's
-      // copy. The wizard validates these names, the wire does not, so this is the
-      // boundary that keeps a name usable as a config key.
+      // store them; a pi bot is created with just the record's copy.
       if (
         input.subagents !== undefined &&
         input.subagents.length > 0 &&
         adapter.writeSubagents !== undefined &&
         adapter.capabilities.supportsSubagents
       ) {
-        for (const subagent of input.subagents) {
-          if (!isSafeBotName(subagent.name)) {
-            throw new Error(
-              `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
-            );
-          }
-        }
         adapter.writeSubagents(botRoot, input.subagents);
       }
       if (input.agentsMd !== undefined) {
