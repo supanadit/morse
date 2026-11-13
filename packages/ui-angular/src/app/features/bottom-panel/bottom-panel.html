@@ -17,7 +17,7 @@
 
   <div class="bar">
     <div class="chips" role="tablist" aria-label="Bottom panel">
-      @for (view of views; track view.id) {
+      @for (view of views(); track view.id) {
         <div
           class="chip"
           [class.active]="activeView() === view.id && expanded()"

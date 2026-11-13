@@ -11,6 +11,8 @@ import {
 } from '@angular/core';
 import { PANEL_DEFAULT_HEIGHT, PanelState } from '../../state/panel-state';
 import { TerminalView } from '../terminal/terminal-view';
+import { GitLogView } from '../git-log/git-log';
+import { MorseService } from '../../host/morse.service';
 import { startResize } from '../../ui/resize-drag';
 
 /**
@@ -24,9 +26,16 @@ interface BottomPanelView {
   component: Type<unknown>;
 }
 
-const VIEWS: readonly BottomPanelView[] = [
-  { id: 'terminal', label: 'Terminal', component: TerminalView },
-];
+const TERMINAL_VIEW: BottomPanelView = {
+  id: 'terminal',
+  label: 'Terminal',
+  component: TerminalView,
+};
+const GIT_LOG_VIEW: BottomPanelView = {
+  id: 'git-log',
+  label: 'Git Log',
+  component: GitLogView,
+};
 
 /**
  * The browser host's bottom panel: a VS Code-style strip below the composer.
@@ -53,11 +62,18 @@ const VIEWS: readonly BottomPanelView[] = [
 })
 export class BottomPanel {
   private readonly panel = inject(PanelState);
+  private readonly morse = inject(MorseService);
 
   /** Whether the panel takes space at all; `false` hides it without unmounting. */
   readonly visible = input(true);
 
-  protected readonly views = VIEWS;
+  /**
+   * The tools this host offers. The terminal is always here; the git log joins it
+   * only where the host advertises `gitPanel` (the browser/server host).
+   */
+  protected readonly views = computed<readonly BottomPanelView[]>(() =>
+    this.morse.capabilities()?.gitPanel === true ? [TERMINAL_VIEW, GIT_LOG_VIEW] : [TERMINAL_VIEW],
+  );
   protected readonly defaultHeight = PANEL_DEFAULT_HEIGHT;
   protected readonly activeView = this.panel.activeView;
   protected readonly expanded = this.panel.expanded;
@@ -95,19 +111,19 @@ export class BottomPanel {
       this.panel.collapse();
       return;
     }
-    this.panel.toggle(this.activeView() ?? VIEWS[0]!.id);
+    this.panel.toggle(this.activeView() ?? TERMINAL_VIEW.id);
   }
 
   /** The expand glyph: hand the panel the whole column, or fit it back below the chat. */
   protected toggleFull(): void {
     if (!this.expanded()) {
-      this.panel.toggle(this.activeView() ?? VIEWS[0]!.id);
+      this.panel.toggle(this.activeView() ?? TERMINAL_VIEW.id);
     }
     this.panel.toggleFull();
   }
 
   protected componentFor(id: string): Type<unknown> | undefined {
-    return VIEWS.find((view) => view.id === id)?.component;
+    return this.views().find((view) => view.id === id)?.component;
   }
 
   /**

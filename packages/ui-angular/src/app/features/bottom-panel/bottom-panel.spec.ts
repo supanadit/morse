@@ -56,9 +56,11 @@ function press(element: Element, type: string, clientY = 0): void {
 type SessionState = { sessionId: string | undefined; workspace: { cwd: string; name: string } };
 
 /** The terminal view needs a host that exists (for the session key) and talks. */
-function morseStub() {
+function morseStub(gitPanel = false) {
   return {
     state: signal<SessionState>({ sessionId: 's1', workspace: { cwd: '/w', name: 'w' } }),
+    workspace: signal({ cwd: '/w', name: 'w' }),
+    capabilities: signal({ hostKind: 'server', gitPanel }),
     activateSession: vi.fn(),
     newSession: vi.fn(),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
@@ -72,12 +74,12 @@ function morseStub() {
   };
 }
 
-function setup(): {
+function setup(options: { gitPanel?: boolean } = {}): {
   fixture: ComponentFixture<BottomPanel>;
   host: HTMLElement;
   state: ReturnType<typeof signal<SessionState>>;
 } {
-  const morse = morseStub();
+  const morse = morseStub(options.gitPanel ?? false);
   TestBed.configureTestingModule({
     imports: [BottomPanel],
     providers: [{ provide: MorseService, useValue: morse }],
@@ -99,6 +101,28 @@ describe('BottomPanel', () => {
     const chips = [...host.querySelectorAll('.chip')].map((chip) => chip.textContent?.trim());
     expect(chips).toEqual(['Terminal']);
     expect(host.querySelector('.panel')?.classList.contains('expanded')).toBe(false);
+  });
+
+  it('offers the log only where the host has git', () => {
+    const { host } = setup({ gitPanel: false });
+    expect([...host.querySelectorAll('.chip')].map((chip) => chip.textContent?.trim())).toEqual([
+      'Terminal',
+    ]);
+  });
+
+  it('opens the git log beside the terminal', async () => {
+    const { fixture, host } = setup({ gitPanel: true });
+    expect([...host.querySelectorAll('.chip')].map((chip) => chip.textContent?.trim())).toEqual([
+      'Terminal',
+      'Git Log',
+    ]);
+
+    const logChip = [...host.querySelectorAll('.chip-label')][1] as HTMLElement;
+    logChip.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(host.querySelector('morse-git-log')).not.toBeNull();
   });
 
   it('opens the chip and folds it again without killing the tool', async () => {
