@@ -255,6 +255,12 @@ describe('BotWizard', () => {
     button(host, '.next').click();
     tick(fixture);
     expect(currentStep(host)).toBe('review');
+    // The review step shows what the host will write: AGENTS.md untouched, and
+    // the subagent names the rows will send.
+    expect(host.querySelector('.agents-preview')?.textContent).toBe('# Forge workspace');
+    expect(host.querySelector('.subagents-preview')?.textContent).toContain('reviewer');
+    // The rows are engine config now, not prose folded into the document.
+    expect(host.textContent).not.toContain('## Subagents');
 
     const create = vi.spyOn(morse, 'createBot');
     const list = vi.spyOn(morse, 'listBots');
@@ -270,8 +276,8 @@ describe('BotWizard', () => {
       persona: 'You are Forge, the builder.',
       model: claude,
       thinkingLevel: 'high',
-      agentsMd:
-        '# Forge workspace\n\n## Subagents\n\n### reviewer\n\nRead the diff and report risks.',
+      agentsMd: '# Forge workspace',
+      subagents: [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }],
       requestId: secondRequest,
     };
     expect(create).toHaveBeenCalledWith(expected);
@@ -285,6 +291,7 @@ describe('BotWizard', () => {
   it('closes once the roster names the bot it created', async () => {
     const { fixture, host, morse } = await render();
     morse.ui.wizardOpen.set(true);
+    const create = vi.spyOn(morse, 'createBot');
     const requestId = walkToModelStep(fixture, host, morse, 'pi');
     morse.bot.onModels({ requestId, kind: 'pi', models: [claude] });
     tick(fixture);
@@ -300,6 +307,11 @@ describe('BotWizard', () => {
     tick(fixture);
     button(host, '.create').click();
     tick(fixture);
+    // A pi bot carries no subagent rows and no workspace document it never
+    // collected: the engine has no place for either.
+    const submitted = create.mock.calls[0]?.[0];
+    expect(submitted).not.toHaveProperty('subagents');
+    expect(submitted).not.toHaveProperty('agentsMd');
     expect(morse.ui.wizardOpen()).toBe(true);
 
     // A roster that does not name it is another bot's push, not our answer.

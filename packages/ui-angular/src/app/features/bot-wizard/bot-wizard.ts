@@ -139,8 +139,21 @@ export class BotWizard {
   protected readonly model = computed<ModelOption | undefined>(() =>
     this.models().find((model) => modelKey(model) === this.modelKey()),
   );
-  /** The AGENTS.md the review step shows — the exact document the host will write. */
-  protected readonly composedAgentsMd = computed(() => this.composeAgentsMd() ?? '');
+  /**
+   * The subagent rows the submit will actually send: named rows only, trimmed.
+   * Both the review step and `bot/create` read this, so what the reader approves
+   * is byte for byte what the host writes into the bot's engine config.
+   */
+  protected readonly namedSubagents = computed<SubagentRow[]>(() =>
+    this.subagents()
+      .filter((row) => row.name.trim().length > 0)
+      .map((row) => ({ name: row.name.trim(), prompt: row.prompt.trim() })),
+  );
+  protected readonly subagentNames = computed(() =>
+    this.namedSubagents()
+      .map((row) => row.name)
+      .join(', '),
+  );
 
   constructor() {
     // `bot/create` has no per-request echo: the roster is the only confirmation.
@@ -296,10 +309,10 @@ export class BotWizard {
   /**
    * Creates the bot from the collected answers.
    *
-   * The subagent definitions are written into the bot's AGENTS.md: the wire's
-   * `BotCreateInput` has no field for them yet, and the workspace document is
-   * the one place the host delivers to the bot. They are shown on the review
-   * step as part of its AGENTS.md, so nothing is sent unseen.
+   * The subagent rows travel as their own field, not folded into AGENTS.md: the
+   * host hands them to an engine that stores named subagents natively (OpenCode's
+   * own config), so the workspace document stays exactly what the reader wrote.
+   * The review step shows both, so nothing is sent unseen.
    */
   protected submit(): void {
     if (!this.canSubmit()) {
@@ -310,7 +323,8 @@ export class BotWizard {
       return;
     }
     const name = this.name().trim();
-    const agentsMd = this.composeAgentsMd();
+    const agentsMd = this.agentsMd().trim();
+    const subagents = this.namedSubagents();
     const model = this.model();
     const input: BotCreateInput & { requestId: string } = {
       name,
@@ -324,26 +338,13 @@ export class BotWizard {
       persona: this.persona(),
       ...(model === undefined ? {} : { model }),
       thinkingLevel: this.thinking(),
-      ...(agentsMd === undefined ? {} : { agentsMd }),
+      ...(agentsMd.length > 0 ? { agentsMd } : {}),
+      ...(subagents.length > 0 ? { subagents } : {}),
       requestId,
     };
     this.morse.createBot(input);
     this.morse.listBots();
     this.pending.set(name);
-  }
-
-  /** The AGENTS.md the bot starts with, with any subagent definitions appended. */
-  private composeAgentsMd(): string | undefined {
-    const base = this.agentsMd().trim();
-    const rows = this.subagents().filter((row) => row.name.trim().length > 0);
-    if (rows.length === 0) {
-      return base.length > 0 ? base : undefined;
-    }
-    const sections = rows
-      .map((row) => `### ${row.name.trim()}\n\n${row.prompt.trim()}`)
-      .join('\n\n');
-    const block = `## Subagents\n\n${sections}`;
-    return base.length > 0 ? `${base}\n\n${block}` : block;
   }
 }
 

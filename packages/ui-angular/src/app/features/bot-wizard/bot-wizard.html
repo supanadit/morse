@@ -249,8 +249,8 @@
         @case ('subagents') {
           <div class="fields">
             <p class="field-note">
-              OpenCode bots can name subagents with their own system prompts. They are written into
-              this bot's AGENTS.md with the rest of its workspace notes.
+              OpenCode bots can name subagents with their own system prompts. Each one is written
+              into this bot's own OpenCode config as a subagent, beside its model and MCP servers.
             </p>
             @for (subagent of subagents(); track $index) {
               <div class="subagent-row">
@@ -309,10 +309,10 @@
               <dt>Persona</dt>
               <dd>{{ persona() || '—' }}</dd>
               <dt>AGENTS.md</dt>
-              <dd class="agents-preview">{{ composedAgentsMd() || '—' }}</dd>
-              @if (subagents().length > 0) {
+              <dd class="agents-preview">{{ agentsMd().trim() || '—' }}</dd>
+              @if (subagentNames().length > 0) {
                 <dt>Subagents</dt>
-                <dd>{{ subagents().length }}</dd>
+                <dd class="subagents-preview">{{ subagentNames() }}</dd>
               }
             </dl>
             @if (pending(); as creating) {
