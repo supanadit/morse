@@ -235,14 +235,10 @@ export class App {
     return width === undefined ? null : `${width}px`;
   });
   /**
-   * The dragged heights of the panes that are sized but never placed — the Explorer, the
-   * git panel's Changes section and its repository detail. The shell puts them on screen,
-   * so a drag repaints the layout instead of re-rendering the rows inside the pane.
+   * The dragged heights of the panes that are sized but never placed — the git panel's
+   * Changes section and its repository detail. The shell puts them on screen, so a drag
+   * repaints the layout instead of re-rendering the rows inside the pane.
    */
-  protected readonly explorerHeight = computed(() => {
-    const height = this.layout.explorerSize();
-    return height === undefined ? null : `${height}px`;
-  });
   protected readonly changesHeight = computed(() => {
     const height = this.layout.changesSize();
     return height === undefined ? null : `${height}px`;

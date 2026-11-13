@@ -124,21 +124,21 @@ describe('LayoutState', () => {
 
   it('clamps and remembers a pane height, and forgets it when the reader resets it', () => {
     const layout = TestBed.inject(LayoutState);
-    expect(layout.explorerSize()).toBeUndefined();
+    expect(layout.changesSize()).toBeUndefined();
 
-    layout.setSize('explorer', 300, false);
-    expect(layout.explorerSize()).toBe(300);
-    expect(localStorage.getItem('morse.explorer.height')).toBeNull();
+    layout.setSize('changes', 300, false);
+    expect(layout.changesSize()).toBe(300);
+    expect(localStorage.getItem('morse.git.changesHeight')).toBeNull();
 
-    layout.setSize('explorer', 300);
-    expect(localStorage.getItem('morse.explorer.height')).toBe('300');
-    layout.setSize('explorer', 10);
-    expect(layout.size('explorer')).toBe(140);
+    layout.setSize('changes', 300);
+    expect(localStorage.getItem('morse.git.changesHeight')).toBe('300');
+    layout.setSize('changes', 10);
+    expect(layout.size('changes')).toBe(48);
 
     // A double-click on a handle asks for the stylesheet's default back, so nothing is stored.
-    layout.setSize('explorer', undefined);
-    expect(layout.explorerSize()).toBeUndefined();
-    expect(localStorage.getItem('morse.explorer.height')).toBeNull();
+    layout.setSize('changes', undefined);
+    expect(layout.changesSize()).toBeUndefined();
+    expect(localStorage.getItem('morse.git.changesHeight')).toBeNull();
 
     layout.setSize('changes', 10_000);
     expect(layout.changesSize()).toBe(1200);

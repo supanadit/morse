@@ -40,6 +40,15 @@ describe('App', () => {
     expect(path?.textContent?.trim()).toBe('/mock/workspace');
   });
 
+  it('no longer gives the shell an Explorer height', () => {
+    localStorage.setItem('morse.explorer.height', '400');
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const shell = fixture.nativeElement.querySelector('.shell') as HTMLElement;
+
+    expect(shell.style.getPropertyValue('--morse-explorer-height')).toBe('');
+  });
+
   it('shows the composer once the agent is ready', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();

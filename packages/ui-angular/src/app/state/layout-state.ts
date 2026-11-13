@@ -6,12 +6,12 @@ import { Injectable, computed, signal } from '@angular/core';
 export type RegionId = 'toolbar' | 'left' | 'main' | 'right' | 'status';
 
 /**
- * A pane that stays where it is but can be made taller: the Explorer, the git panel's
- * Changes section, and the repository detail that holds Changes and History under an
- * open repository header. Not regions — they are sized, never placed — but they are
+ * A pane that stays where it is but can be made taller: the git panel's Changes
+ * section and the repository detail that holds Changes and History under an open
+ * repository header. Not regions — they are sized, never placed — but they are
  * dragged the same way, so their size is remembered in the same place (`setSize`, `size`).
  */
-export type PaneId = 'explorer' | 'changes' | 'detail';
+export type PaneId = 'changes' | 'detail';
 
 /** Everything whose size the reader can drag: a column's width, a pane's height. */
 export type SizeId = RegionId | PaneId;
@@ -56,17 +56,17 @@ const COLUMN_MIN = 220;
 const COLUMN_MAX = 1600;
 
 /** The range each pane's height is clamped into, in px. */
-const PANE_MIN: Record<PaneId, number> = { explorer: 140, changes: 48, detail: 240 };
-const PANE_MAX: Record<PaneId, number> = { explorer: 720, changes: 1200, detail: 1600 };
+const PANE_MIN: Record<PaneId, number> = { changes: 48, detail: 240 };
+const PANE_MAX: Record<PaneId, number> = { changes: 1200, detail: 1600 };
 
 /** A pane's height, against a column's width: the two kinds of size `SizeId` carries. */
 function isPane(id: SizeId): id is PaneId {
-  return id === 'explorer' || id === 'changes' || id === 'detail';
+  return id === 'changes' || id === 'detail';
 }
 
 /**
  * The reader's stored layout. These are the keys the shell wrote before there was a model
- * (`morse.navigation.collapsed`, `morse.git.open`, `morse.git.width`, `morse.explorer.height`,
+ * (`morse.navigation.collapsed`, `morse.git.open`, `morse.git.width`,
  * `morse.git.changesHeight`, `morse.git.detailHeight`), and they stay exactly as they are: a
  * stored layout belongs to the reader, and a rename is a migration nobody asked for.
  */
@@ -87,7 +87,6 @@ const VISIBLE_KEYS: Partial<Record<RegionId, string>> = {
 const SIZE_KEYS: Partial<Record<SizeId, string>> = {
   left: 'morse.nav.width',
   right: 'morse.git.width',
-  explorer: 'morse.explorer.height',
   changes: 'morse.git.changesHeight',
   detail: 'morse.git.detailHeight',
 };
@@ -167,7 +166,6 @@ export class LayoutState {
    * same kind of fact, and a pane that never moved does not need a home of its own.
    */
   private readonly panes = signal<Record<PaneId, number | undefined>>({
-    explorer: readSize('explorer'),
     changes: readSize('changes'),
     detail: readSize('detail'),
   });
@@ -193,8 +191,6 @@ export class LayoutState {
   readonly rightVisible = computed(() => this.region('right').visible);
   /** Its dragged width, or `undefined` for the default from `styles.css`. */
   readonly rightSize = computed(() => this.region('right').size);
-  /** The Explorer pane's dragged height, or `undefined` for the CSS default. */
-  readonly explorerSize = computed(() => this.panes().explorer);
   /** The git panel's Changes section height, or `undefined` for the CSS default. */
   readonly changesSize = computed(() => this.panes().changes);
   /** The git panel's open-repository detail height, or `undefined` for the CSS default. */

@@ -11,11 +11,11 @@ import { Splitter } from './splitter';
     <div class="box">
       <div
         class="handle"
-        [morseSplitter]="'explorer'"
+        [morseSplitter]="'changes'"
         edge="top"
-        [min]="140"
+        [min]="48"
         [max]="400"
-        label="Resize the explorer"
+        label="Resize the changes section"
       ></div>
     </div>
   `,
@@ -67,36 +67,36 @@ describe('Splitter', () => {
     const { handle } = render();
     const layout = TestBed.inject(LayoutState);
     // jsdom measures nothing, so the drag starts from the size the layout already holds.
-    layout.setSize('explorer', 300);
+    layout.setSize('changes', 300);
 
     press(handle, 'pointerdown', { clientY: 200 });
     press(handle, 'pointermove', { clientY: 140 });
     // The hand is on the pane's top edge, so dragging up grows it.
-    expect(layout.explorerSize()).toBe(360);
+    expect(layout.changesSize()).toBe(360);
 
     // The first move paints at once; the rest wait for the frame they share.
     press(handle, 'pointermove', { clientY: 1_000 });
-    expect(layout.explorerSize()).toBe(360);
+    expect(layout.changesSize()).toBe(360);
     await frame();
-    expect(layout.explorerSize()).toBe(140);
+    expect(layout.changesSize()).toBe(48);
 
     press(handle, 'pointerup');
     // Released: a later move must not reach the pane that was being sized.
     press(handle, 'pointermove', { clientY: 10 });
     // The first move after a release paints at once again.
-    expect(layout.explorerSize()).toBe(140);
+    expect(layout.changesSize()).toBe(48);
   });
 
   it('goes back to the default size on a double-click', () => {
     const { handle } = render();
     const layout = TestBed.inject(LayoutState);
-    layout.setSize('explorer', 400);
-    expect(localStorage.getItem('morse.explorer.height')).toBe('400');
+    layout.setSize('changes', 400);
+    expect(localStorage.getItem('morse.git.changesHeight')).toBe('400');
 
     handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 
-    expect(layout.explorerSize()).toBeUndefined();
-    expect(localStorage.getItem('morse.explorer.height')).toBeNull();
+    expect(layout.changesSize()).toBeUndefined();
+    expect(localStorage.getItem('morse.git.changesHeight')).toBeNull();
   });
 
   it('says what it resizes, so a screen reader can name the separator', () => {
@@ -104,6 +104,6 @@ describe('Splitter', () => {
 
     expect(handle.getAttribute('role')).toBe('separator');
     expect(handle.getAttribute('aria-orientation')).toBe('horizontal');
-    expect(handle.getAttribute('aria-label')).toBe('Resize the explorer');
+    expect(handle.getAttribute('aria-label')).toBe('Resize the changes section');
   });
 });
