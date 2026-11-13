@@ -183,6 +183,16 @@ describe('GitLogView', () => {
     expect(host.querySelector('.commit .subject')?.textContent).toContain('feat work');
   });
 
+  it('tiles the graph rows without a vertical gap', async () => {
+    const { fixture } = await render();
+    const host = fixture.nativeElement as HTMLElement;
+    const row = host.querySelector('.commit') as HTMLElement;
+    const graph = row.querySelector('.graph') as SVGElement;
+
+    expect(graph.getAttribute('height')).toBe('32');
+    expect(getComputedStyle(row).height).toBe('32px');
+  });
+
   it('filters by text and author', async () => {
     const { fixture } = await render();
     const host = fixture.nativeElement as HTMLElement;
