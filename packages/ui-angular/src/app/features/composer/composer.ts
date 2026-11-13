@@ -2,6 +2,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  EventEmitter,
+  Input,
+  Output,
   computed,
   effect,
   ElementRef,
@@ -111,6 +114,19 @@ export class ChatComposer {
   private readonly modePicker = viewChild<OptionPicker>('modePicker');
 
   protected readonly text = this.drafts.text;
+  /**
+   * Which conversation this box is typing into. `'session'` is the code-mode
+   * composer as it has always been. `'bot'` reuses the same editor for a bot
+   * conversation, where the model/engine/thinking pickers, the attach row and
+   * the `/` and `@` affordances describe a session that does not exist; its
+   * line leaves through `botSend` instead of the session prompt path. Defaults
+   * to `'session'`, so every existing mount keeps its behaviour.
+   */
+  @Input() variant: 'session' | 'bot' = 'session';
+  /** The placeholder in the bot variant; a session keeps its own contextual hint. */
+  @Input() placeholder?: string;
+  /** The reader's line for a bot conversation, trimmed and never empty. */
+  @Output() readonly botSend = new EventEmitter<string>();
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
@@ -129,6 +145,21 @@ export class ChatComposer {
   protected readonly canSend = computed(
     () => this.connected() && !this.agentStarting() && this.agentError() === undefined,
   );
+  /**
+   * Whether a line can be typed here. A bot conversation has no session behind
+   * it — its agent belongs to the host, not to this draft — so a code-mode
+   * spawn failure must not lock the bot composer.
+   */
+  protected canType(): boolean {
+    return this.variant === 'bot' ? this.connected() : this.canSend();
+  }
+  /**
+   * Whether a line can leave. The bot variant waits only for the handshake; the
+   * session variant also waits for a model pick's thinking levels to settle.
+   */
+  protected canSubmit(): boolean {
+    return this.variant === 'bot' ? this.connected() : this.canSend() && this.settingsSettled();
+  }
   /**
    * A send must wait for a model pick's thinking levels to land. The host orders
    * a prompt behind the switch, but letting Enter through here reads as "sent with
@@ -476,6 +507,21 @@ export class ChatComposer {
       ? 'Enter for a new line, Shift+Enter to send'
       : 'Enter to send, Shift+Enter for a new line',
   );
+  /** The session variant's placeholder: what the box is waiting for, per state. */
+  protected sessionPlaceholder(): string {
+    if (!this.connected()) {
+      return 'Waiting for a Morse host…';
+    }
+    if (this.agentStarting()) {
+      return 'Starting the agent…';
+    }
+    if (this.agentError()) {
+      return 'The agent is unavailable.';
+    }
+    return this.agentReady()
+      ? `Ask Morse… (${this.sendHint()})`
+      : `Type to start a session… (${this.sendHint()})`;
+  }
   /**
    * Height the user dragged the prompt to, in px. Null keeps the stylesheet's
    * small default; a drag pins the box and the text scrolls inside it.
@@ -738,8 +784,9 @@ export class ChatComposer {
       event.preventDefault();
       // A model pick's thinking levels are still being read: the send would be
       // held by the host anyway, and looking like it left with the previous
-      // model's level is the confusion. Do nothing until the pick settles.
-      if (!this.settingsSettled()) {
+      // model's level is the confusion. Do nothing until the pick settles. The
+      // bot variant has no such pick.
+      if (this.variant !== 'bot' && !this.settingsSettled()) {
         return;
       }
       this.sendWith(this.streaming() ? 'steer' : 'new');
@@ -748,13 +795,32 @@ export class ChatComposer {
 
   /** The Send button: the same hold Enter takes while a model pick settles. */
   protected onSendClick(): void {
-    if (!this.settingsSettled()) {
+    // The bot variant has no model pick of its own to settle.
+    if (this.variant !== 'bot' && !this.settingsSettled()) {
       return;
     }
     this.sendWith('new');
   }
 
+  /** A bot line: trimmed, emitted once, and the box emptied. Blank is a no-op. */
+  private sendBotLine(): void {
+    const text = this.drafts.text().trim();
+    if (text.length === 0) {
+      this.promptInput()?.nativeElement.focus();
+      return;
+    }
+    this.drafts.setText('');
+    this.syncInputValue();
+    this.botSend.emit(text);
+  }
+
   protected sendWith(mode: PromptMode): void {
+    // The bot variant's line is the whole prompt: no slash commands, no
+    // attachments, nothing for a session to expand. A blank line sends nothing.
+    if (this.variant === 'bot') {
+      this.sendBotLine();
+      return;
+    }
     // The restore's safety net: while the previous session is still travelling
     // back, a prompt must not open a throwaway conversation in front of it. The
     // composer is unmounted behind the restoring screen, so this guards the race
@@ -1051,7 +1117,8 @@ export class ChatComposer {
    * the toolbar promises this, so it has to work.
    */
   private refreshMentionQuery(value: string, caret: number | null): void {
-    if (!this.canPickFiles()) {
+    // A bot conversation has no workspace files to mention.
+    if (this.variant === 'bot' || !this.canPickFiles()) {
       return;
     }
     const before = value.slice(0, caret ?? value.length);
@@ -1079,6 +1146,10 @@ export class ChatComposer {
    * commands share one list; Enter runs, Tab inserts.
    */
   private refreshPaletteQuery(value: string, caret: number | null): void {
+    // The palette (and its `/` affordance) belongs to a code session.
+    if (this.variant === 'bot') {
+      return;
+    }
     const before = value.slice(0, caret ?? value.length);
     const match = /(?:^|\n)\s*\/([\w:-]*)$/.exec(before);
     if (!match) {

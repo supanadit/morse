@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { cacheHitRate, formatTokens, formatUsage } from '@morse/ui-runtime';
-import { outputChars, builtinName, compactInstructions } from './composer';
+import { TestBed } from '@angular/core/testing';
+import type { ClientToHostMessage } from '@morse/protocol';
+import { MemoryHostTransport, cacheHitRate, formatTokens, formatUsage } from '@morse/ui-runtime';
+import { afterEach, describe, expect, it } from 'vitest';
+import { MORSE_TRANSPORT } from '../../host/transport.token';
+import { ChatComposer, outputChars, builtinName, compactInstructions } from './composer';
 
 describe('formatTokens', () => {
   it('compacts like pi: 1.2k, 56k, 2.8M', () => {
@@ -117,5 +120,149 @@ describe('compactInstructions', () => {
     expect(compactInstructions('/compactable')).toBeUndefined();
     expect(compactInstructions('/fix-tests compact it')).toBeUndefined();
     expect(compactInstructions('please /compact this')).toBeUndefined();
+  });
+});
+
+/**
+ * The bot variant: the same prompt box, without the session's machinery around
+ * it. Bot mode reuses the composer so a reader keeps the editor, the send key
+ * and the look, but the model/thinking/engine pickers, the attach row and the
+ * `@`-mention affordances describe a session this conversation does not have.
+ * Its line leaves through `botSend`, not the session prompt path.
+ */
+class RecordingMemoryHost extends MemoryHostTransport {
+  readonly sent: ClientToHostMessage[] = [];
+
+  override send(message: ClientToHostMessage): void {
+    this.sent.push(message);
+    super.send(message);
+  }
+}
+
+async function mountComposer(): Promise<{
+  fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>;
+  host: HTMLElement;
+  sent: ClientToHostMessage[];
+}> {
+  TestBed.resetTestingModule();
+  const transport = new RecordingMemoryHost();
+  await TestBed.configureTestingModule({
+    imports: [ChatComposer],
+    providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(ChatComposer);
+  fixture.detectChanges();
+  return { fixture, host: fixture.nativeElement as HTMLElement, sent: transport.sent };
+}
+
+function botPrompt(host: HTMLElement): HTMLTextAreaElement {
+  return host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
+}
+
+function typeInto(host: HTMLElement, text: string): void {
+  const box = botPrompt(host);
+  box.value = text;
+  box.dispatchEvent(new Event('input'));
+}
+
+function pressSend(host: HTMLElement): void {
+  botPrompt(host).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+}
+
+describe('ChatComposer bot variant', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('hides the session pickers and the attach row', async () => {
+    const { fixture, host } = await mountComposer();
+    // The default variant keeps them — this is the control for the test below.
+    expect(host.querySelector('.model-button')).not.toBeNull();
+    expect(host.querySelector('morse-thinking-picker')).not.toBeNull();
+    expect(host.querySelector('.toolbar')).not.toBeNull();
+
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    expect(host.querySelector('.model-button')).toBeNull();
+    expect(host.querySelector('morse-thinking-picker')).toBeNull();
+    expect(host.querySelector('morse-option-picker')).toBeNull();
+    expect(host.querySelector('.toolbar')).toBeNull();
+    expect(host.querySelector('.attachments')).toBeNull();
+    // The editor itself stays: this is the one thing a bot message is typed in.
+    expect(botPrompt(host)).not.toBeNull();
+  });
+
+  it('emits botSend on Enter instead of the session prompt path', async () => {
+    const { fixture, host, sent } = await mountComposer();
+    const emitted: string[] = [];
+    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    typeInto(host, '  @Forge what changed?  ');
+    fixture.detectChanges();
+    pressSend(host);
+    fixture.detectChanges();
+
+    expect(emitted).toEqual(['@Forge what changed?']);
+    expect(sent.some((message) => message.type === 'chat/prompt')).toBe(false);
+    // The line left the box: a second Enter must not send it again.
+    expect(botPrompt(host).value).toBe('');
+  });
+
+  it('treats an empty or whitespace-only line as a no-op', async () => {
+    const { fixture, host, sent } = await mountComposer();
+    const emitted: string[] = [];
+    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    pressSend(host);
+    typeInto(host, '   \n  ');
+    fixture.detectChanges();
+    pressSend(host);
+    fixture.detectChanges();
+
+    expect(emitted).toEqual([]);
+    expect(sent.filter((message) => message.type === 'bot/send')).toHaveLength(0);
+  });
+
+  it('sends the bot line from the Send button too', async () => {
+    const { fixture, host } = await mountComposer();
+    const emitted: string[] = [];
+    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    typeInto(host, 'hello');
+    fixture.detectChanges();
+    (host.querySelector('.icon.send') as HTMLButtonElement).click();
+
+    expect(emitted).toEqual(['hello']);
+  });
+
+  it('takes a bot placeholder without changing the session one', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('placeholder', 'Message Forge…');
+    fixture.detectChanges();
+    // The session composer keeps its own contextual hint.
+    expect(botPrompt(host).placeholder).toContain('Ask Morse');
+
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+    expect(botPrompt(host).placeholder).toBe('Message Forge…');
+  });
+
+  it('keeps the default variant sending through the session prompt path', async () => {
+    const { fixture, host, sent } = await mountComposer();
+    const emitted: string[] = [];
+    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+
+    typeInto(host, 'hello');
+    fixture.detectChanges();
+    pressSend(host);
+    fixture.detectChanges();
+
+    expect(emitted).toEqual([]);
+    expect(sent.some((message) => message.type === 'chat/prompt')).toBe(true);
   });
 });

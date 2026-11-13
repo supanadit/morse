@@ -13,7 +13,7 @@
       <span>Ask Morse…</span>
     </button>
   } @else {
-  @if (queuedMessages().length) {
+  @if (queuedMessages().length && variant !== 'bot') {
     <div class="queue" role="region" aria-label="Queued follow-up messages">
       <div class="queue-head">
         <span class="queue-glyph" aria-hidden="true">⏲</span>
@@ -72,6 +72,12 @@
   <div class="box">
   <!-- Drag the top edge to size the prompt by hand. -->
   <div class="resize" title="Drag to resize the prompt" (pointerdown)="onResizeStart($event)"></div>
+  <!--
+       The session's toolbar — attach, mention and command hints, throughput,
+       folding and maximizing. None of it belongs to a bot conversation, so the
+       bot variant is the box and its editor alone.
+  -->
+  @if (variant !== 'bot') {
   <div class="toolbar">
     <button
       type="button"
@@ -142,8 +148,9 @@
       }
     </button>
   </div>
+  }
 
-  @if (pickerOpen()) {
+  @if (pickerOpen() && variant !== 'bot') {
     <morse-file-picker
       class="picker-host"
       [morsePopoverFit]="300"
@@ -159,7 +166,7 @@
     />
   }
 
-  @if (paletteOpen()) {
+  @if (paletteOpen() && variant !== 'bot') {
     <morse-command-picker
       class="palette-host"
       [morsePopoverFit]="320"
@@ -172,7 +179,7 @@
     />
   }
 
-  @if (images().length || pins().length || livePreview() !== null) {
+  @if ((images().length || pins().length || livePreview() !== null) && variant !== 'bot') {
     <ul class="attachments">
       @if (livePreview(); as live) {
         <li class="chip live" [morseEnter]="0" [morseEnterY]="6" [morseEnterScale]="0.55" [morseEnterDuration]="320">
@@ -299,6 +306,7 @@
   }
 
   @if (unroutedPiBuiltin(); as unrouted) {
+    @if (variant !== 'bot') {
     <div class="pi-builtin-notice" role="status">
       <span class="hint">
         <code>/{{ unrouted.name }}{{ unrouted.hint ?? '' }}</code>
@@ -306,6 +314,7 @@
       </span>
       <button type="button" class="notice-dismiss" (click)="dismissUnrouted()" aria-label="Dismiss">×</button>
     </div>
+    }
   }
 
   @if (maximized()) {
@@ -322,25 +331,15 @@
       aria-label="Prompt"
       [value]="text()"
       [style.height.px]="maximized() ? null : dragHeight()"
-      [disabled]="!canSend()"
-      [placeholder]="
-        !connected()
-          ? 'Waiting for a Morse host…'
-          : agentStarting()
-            ? 'Starting the agent…'
-            : agentError()
-              ? 'The agent is unavailable.'
-              : agentReady()
-                ? 'Ask Morse… (' + sendHint() + ')'
-                : 'Type to start a session… (' + sendHint() + ')'
-      "
+      [disabled]="!canType()"
+      [placeholder]="variant === 'bot' ? (placeholder ?? 'Message…') : sessionPlaceholder()"
       (input)="onInput($event)"
       (keydown)="onKeydown($event)"
       (paste)="onPaste($event)"
     ></textarea>
   </morse-markdown-view>
 
-  @if (showStatusRow()) {
+  @if (showStatusRow() && variant !== 'bot') {
     <div class="status-row">
       <div class="status-live">
         <!-- Session facts: anything session-scoped — the engine this session
@@ -383,6 +382,7 @@
   }
 
   <div class="controls">
+    @if (variant !== 'bot') {
     <div class="controls-metrics">
       @if (showEnginePicker()) {
         <morse-option-picker
@@ -441,6 +441,7 @@
         (pick)="onThinkingPick($event)"
       />
     </div>
+    }
 
     <div class="controls-actions">
       @if (streaming()) {
@@ -451,9 +452,9 @@
         <button
           type="button"
           class="icon send"
-          [title]="settingsSettled() ? 'Send (Enter)' : 'Waiting for the model’s thinking levels…'"
+          [title]="canSubmit() ? 'Send (Enter)' : 'Waiting for the model’s thinking levels…'"
           aria-label="Send"
-          [disabled]="!canSend() || !settingsSettled()"
+          [disabled]="!canSubmit()"
           (click)="onSendClick()"
         >
           ↑
