@@ -5,7 +5,7 @@
 }
 /* Full screen: the panel owns the chat column, so it grows to fill it. */
 :host(.full) {
-  flex: 1;
+  height: 100%;
   min-height: 0;
 }
 /*
