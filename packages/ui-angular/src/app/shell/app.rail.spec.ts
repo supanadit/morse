@@ -13,6 +13,7 @@ class RailHostTransport extends BaseHostTransport {
   constructor(
     private readonly sessionId: string | null = 'session-1',
     private readonly filePreview = true,
+    private readonly hostKind: 'server' | 'vscode' = 'server',
   ) {
     super();
   }
@@ -34,7 +35,7 @@ class RailHostTransport extends BaseHostTransport {
       payload: {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: {
-          hostKind: 'server',
+          hostKind: this.hostKind,
           scope: 'global',
           editorContext: false,
           nativeDialogs: false,
@@ -59,11 +60,18 @@ class RailHostTransport extends BaseHostTransport {
   }
 }
 
-function render(sessionId: string | null = 'session-1', filePreview = true) {
+function render(
+  sessionId: string | null = 'session-1',
+  filePreview = true,
+  hostKind: 'server' | 'vscode' = 'server',
+) {
   TestBed.configureTestingModule({
     imports: [App],
     providers: [
-      { provide: MORSE_TRANSPORT, useFactory: () => new RailHostTransport(sessionId, filePreview) },
+      {
+        provide: MORSE_TRANSPORT,
+        useFactory: () => new RailHostTransport(sessionId, filePreview, hostKind),
+      },
     ],
   });
   const fixture = TestBed.createComponent(App);
@@ -162,6 +170,17 @@ describe('App left rail', () => {
   it('does not mount the rail without filePreview, even with a stored Files view', () => {
     localStorage.setItem('morse.left.pane', 'files');
     const fixture = render('session-1', false);
+    const host = fixture.nativeElement as HTMLElement;
+    const nav = host.querySelector('morse-session-nav') as HTMLElement;
+
+    expect(host.querySelector('morse-activity-rail')).toBeNull();
+    expect(nav).not.toBeNull();
+    expect(nav.hasAttribute('hidden')).toBe(false);
+    expect(host.querySelector('morse-file-explorer')).toBeNull();
+  });
+
+  it('does not mount the rail on a VS Code host, even if it advertises files', () => {
+    const fixture = render('session-1', true, 'vscode');
     const host = fixture.nativeElement as HTMLElement;
     const nav = host.querySelector('morse-session-nav') as HTMLElement;
 

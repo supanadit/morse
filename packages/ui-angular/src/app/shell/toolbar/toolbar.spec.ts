@@ -1,10 +1,56 @@
 import { TestBed } from '@angular/core/testing';
+import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
+import { BaseHostTransport, MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryHostTransport } from '@morse/ui-runtime';
 import { ShellState } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { Toolbar } from './toolbar';
+
+/** A VS Code webview host: the window already owns the modes and the sidebar. */
+class VsCodeHostTransport extends BaseHostTransport {
+  readonly kind = 'memory' as const;
+
+  connect(): void {
+    this.emitStatus('open');
+  }
+
+  dispose(): void {
+    this.emitStatus('closed');
+  }
+
+  send(message: ClientToHostMessage): void {
+    if (message.type !== 'client/ready') {
+      return;
+    }
+    this.emitMessage({
+      type: 'host/ready',
+      payload: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {
+          hostKind: 'vscode',
+          scope: 'workspace',
+          editorContext: true,
+          nativeDialogs: true,
+          insertIntoEditor: true,
+          revealFile: true,
+          filePicker: true,
+        },
+        state: {
+          workspace: { cwd: '/work/morse', name: 'morse' },
+          thinkingLevel: 'off',
+          availableModels: [],
+          availableThinkingLevels: [],
+          availableCommands: [],
+          streaming: false,
+          busy: false,
+          agentReady: true,
+          agentStarting: false,
+        },
+      },
+    });
+  }
+}
 
 /** The toolbar's one job: the window's way into every command. */
 describe('Toolbar', () => {
@@ -58,6 +104,19 @@ describe('Toolbar', () => {
     expect(code?.getAttribute('aria-current')).toBe('page');
     expect(bot?.disabled).toBe(true);
     expect(bot?.textContent).toContain('Soon');
+  });
+
+  it('keeps the mode row out of the VS Code host', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [Toolbar],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new VsCodeHostTransport() }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(Toolbar);
+    fixture.detectChanges();
+
+    // The extension's window already owns the modes; only the web host grows the row.
+    expect(fixture.nativeElement.querySelector('.modes')).toBeNull();
   });
 
   it('prints the keys that open the palette inside the search box', () => {

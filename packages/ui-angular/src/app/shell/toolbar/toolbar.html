@@ -48,27 +48,29 @@
        it ships — disabled until there is something behind it, never a promise that
        opens an empty room.
   -->
-  <nav class="modes" aria-label="Modes">
-    <button
-      type="button"
-      class="mode on"
-      aria-current="page"
-      title="Code — sessions, projects and the agent"
-    >
-      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M5.4 4.4 2.6 8l2.8 3.6M10.6 4.4 13.4 8l-2.8 3.6" />
-      </svg>
-      <span class="mode-label">Code</span>
-    </button>
-    <button type="button" class="mode" disabled title="Bot — coming soon">
-      <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-        <rect x="3.2" y="5.4" width="9.6" height="7" rx="2" />
-        <path d="M8 2.4v3M5.8 8.6h.01M10.2 8.6h.01M6.6 10.8h2.8" />
-      </svg>
-      <span class="mode-label">Bot</span>
-      <span class="soon">Soon</span>
-    </button>
-  </nav>
+  @if (webHost()) {
+    <nav class="modes" aria-label="Modes">
+      <button
+        type="button"
+        class="mode on"
+        aria-current="page"
+        title="Code — sessions, projects and the agent"
+      >
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5.4 4.4 2.6 8l2.8 3.6M10.6 4.4 13.4 8l-2.8 3.6" />
+        </svg>
+        <span class="mode-label">Code</span>
+      </button>
+      <button type="button" class="mode" disabled title="Bot — coming soon">
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="3.2" y="5.4" width="9.6" height="7" rx="2" />
+          <path d="M8 2.4v3M5.8 8.6h.01M10.2 8.6h.01M6.6 10.8h2.8" />
+        </svg>
+        <span class="mode-label">Bot</span>
+        <span class="soon">Soon</span>
+      </button>
+    </nav>
+  }
 
   <span
     class="status"

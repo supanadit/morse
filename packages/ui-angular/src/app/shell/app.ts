@@ -171,9 +171,10 @@ export class App {
    * The left column's Files face: the same capability that draws the tab strip and
    * the Explorer. A host without it keeps one face, the session list, and no rail.
    */
-  protected readonly filesEnabled = computed(
-    () => this.morse.capabilities()?.filePreview === true,
-  );
+  protected readonly filesEnabled = computed(() => {
+    const capabilities = this.morse.capabilities();
+    return capabilities?.hostKind === 'server' && capabilities.filePreview === true;
+  });
   /** The face the column shows: no files view means the list, whatever was stored. */
   protected readonly leftPane = computed<LeftPane>(() =>
     this.filesEnabled() ? this.shell.leftPane() : 'sessions',

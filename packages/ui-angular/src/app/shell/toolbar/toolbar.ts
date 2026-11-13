@@ -39,6 +39,13 @@ export class Toolbar {
 
   protected readonly paletteOpen = this.shell.paletteOpen;
   protected readonly navigationOpen = this.shell.navigationOpen;
+  /**
+   * The mode row belongs to the web host. A VS Code window already owns the modes
+   * around the panel, so the panel must not grow a second one.
+   */
+  protected readonly webHost = computed(
+    () => this.morse.capabilities()?.hostKind === 'server',
+  );
 
   /**
    * The keys that open the command palette on this machine, printed in the box —
