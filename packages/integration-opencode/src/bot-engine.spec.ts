@@ -66,6 +66,7 @@ const ENV_KEYS = [
   'FAKE_OC_PASSWORD',
   'FAKE_OC_SPAWNS',
   'FAKE_OC_STOP_FILE',
+  'FAKE_OC_ENV_FILE',
 ] as const;
 const savedEnv = new Map<string, string | undefined>();
 
@@ -92,10 +93,10 @@ afterEach(() => {
 
 /**
  * An `opencode serve` stand-in, put first on `PATH` under the name the engine
- * resolves: it announces the fake server's address and counts its own launches,
- * which is how the test proves one engine ran one server for several sessions.
- * SIGTERM writes a marker, so a disposed engine is seen to stop the process it
- * owned.
+ * resolves: it announces the fake server's address, counts its own launches,
+ * and records the XDG roots it was handed — that marker is what proves the
+ * spawn actually received the bot's isolation environment. SIGTERM writes a
+ * stop marker, so a disposed engine is seen to stop the process it owned.
  */
 function fakeBinary(dir: string): string {
   const binDir = join(dir, 'bin');
@@ -106,6 +107,10 @@ function fakeBinary(dir: string): string {
     `#!/usr/bin/env node
 const fs = require('node:fs');
 fs.appendFileSync(process.env.FAKE_OC_SPAWNS, 'spawn\\n');
+fs.writeFileSync(
+  process.env.FAKE_OC_ENV_FILE,
+  JSON.stringify({ config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME }),
+);
 process.on('SIGTERM', () => {
   fs.writeFileSync(process.env.FAKE_OC_STOP_FILE, 'stopped');
   process.exit(0);
@@ -382,6 +387,45 @@ process.exit(3);
     expect((error as Error).message).toContain('address already in use');
   });
 
+  it('pins MCP and command administration to the config dir the server reads', async () => {
+    const botRoot = tempRoot();
+    const fake = await startFakeServer();
+    process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
+    process.env['FAKE_OC_URL'] = fake.url;
+    process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
+    process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
+    const engine = await createBotOpenCodeEngine({ botRoot, logger: silentLogger });
+    try {
+      // The server resolves its config from XDG_CONFIG_HOME + `opencode`, so an
+      // admin write must land exactly there — one level below the XDG base.
+      const configDir = join(botOpenCodeEnv(botRoot)['XDG_CONFIG_HOME']!, 'opencode');
+      const mutation = (await engine.extras!.mcp!.add(
+        { name: 'bot_one', command: 'npx', args: ['-y', 'one'] },
+        WORKSPACE.cwd,
+      )) as { ok: boolean; path?: string };
+      expect(mutation.ok).toBe(true);
+      expect(mutation.path).toBe(join(configDir, 'opencode.json'));
+      const written = JSON.parse(readFileSync(join(configDir, 'opencode.json'), 'utf8')) as {
+        mcp?: Record<string, unknown>;
+      };
+      expect(written.mcp?.['bot_one']).toMatchObject({
+        type: 'local',
+        command: ['npx', '-y', 'one'],
+      });
+
+      const listed = (await engine.extras!.prompts!.list(WORKSPACE.cwd)) as {
+        globalDir: string;
+        configPath: string;
+      };
+      expect(listed.globalDir).toBe(join(configDir, 'commands'));
+      expect(listed.configPath).toBe(join(configDir, 'opencode.json'));
+    } finally {
+      await engine.dispose();
+      await fake.close();
+    }
+  });
+
   it('names a missing binary and keeps the install remedy', async () => {
     const botRoot = tempRoot();
 
@@ -405,6 +449,7 @@ describe('opencodeBotAdapterFactory', () => {
     process.env['FAKE_OC_PASSWORD'] = PASSWORD;
     process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
     process.env['FAKE_OC_STOP_FILE'] = join(botRoot, 'stopped');
+    process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
     const factory = opencodeBotAdapterFactory(botRoot, silentLogger);
     const gateways: AgentGateway[] = [];
     try {
@@ -412,6 +457,12 @@ describe('opencodeBotAdapterFactory', () => {
       const first = await factory.create({ workspace: WORKSPACE, sessionId: 'ses_1' });
       const second = await factory.create({ workspace: WORKSPACE, sessionId: 'ses_2' });
       gateways.push(first, second);
+      // The spawned server really received the bot's XDG roots; without them it
+      // would read and write the user's own config and sessions.
+      expect(JSON.parse(readFileSync(join(botRoot, 'env.json'), 'utf8'))).toEqual({
+        config: join(botRoot, 'config'),
+        data: join(botRoot, 'sessions'),
+      });
       expect(first).not.toBe(second);
       expect((await first.state()).sessionId).toBe('ses_1');
       expect((await second.state()).sessionId).toBe('ses_2');
@@ -432,6 +483,13 @@ describe('opencodeBotAdapterFactory', () => {
       await factory.dispose();
       // The engine owned the server it spawned, so disposing it stopped it.
       expect(existsSync(join(botRoot, 'stopped'))).toBe(true);
+      expect(spawnCount(botRoot)).toBe(1);
+
+      // Disposal is final: a late create is told the engine is gone rather than
+      // quietly spawning a second server.
+      await expect(factory.create({ workspace: WORKSPACE })).rejects.toBeInstanceOf(
+        AgentUnavailableError,
+      );
       expect(spawnCount(botRoot)).toBe(1);
     } finally {
       for (const gateway of gateways.splice(0)) {

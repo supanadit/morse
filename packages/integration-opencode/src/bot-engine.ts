@@ -12,15 +12,24 @@ import { OpenCodeEventStream } from './internal/event-stream.js';
 /**
  * OpenCode confined to one bot's directory.
  *
- * The isolation is entirely environmental: OpenCode is XDG-aware, so a
- * `serve` process whose `XDG_CONFIG_HOME` and `XDG_DATA_HOME` point into the
- * bot's tree keeps its providers, agents, MCP servers, commands, sessions and
- * credentials there. Unlike pi there is no process-per-session to point at a
- * directory, so the engine — one long-lived server — is created per bot and
- * every session lives inside it.
+ * The isolation is environmental and covers three things:
+ * - the spawned server's `XDG_CONFIG_HOME` (`<botRoot>/config`) and
+ *   `XDG_DATA_HOME` (`<botRoot>/sessions`), which is where OpenCode reads and
+ *   writes providers, agents, MCP servers, commands, sessions and auth;
+ * - the MCP/command administration, pinned to the same config directory the
+ *   server reads (`<botRoot>/config/opencode`), so an edit lands in the bot;
+ * - credentials, written by Morse into the bot's data dir — never copied from
+ *   the user's config.
  *
- * Nothing is read from the user's own OpenCode config: credentials arrive from
- * the wizard, and the MCP/command administration is handed the bot's config dir.
+ * Unlike pi there is no process-per-session to point at a directory, so the
+ * engine — one long-lived server — is created per bot and every session lives
+ * inside it.
+ *
+ * Known read-only leak: the agent's composer templates (`OpenCodeAgent`'s
+ * `localTemplates`) still resolve global command files from the host's
+ * `XDG_CONFIG_HOME` because that path does not take a config dir yet. A bot can
+ * therefore *read* the user's global command templates; nothing is written
+ * there. Threading the dir through the agent is a scheduled follow-up.
  */
 
 /** A file holding API keys is readable by its owner only. */
@@ -51,7 +60,10 @@ export interface BotOpenCodeEngineOptions {
  * from inside the user's own OpenCode session inherits that user's dirs, and a
  * bot inheriting them would read and write the user's providers, sessions and
  * auth. Everything else — `PATH` above all, which the spawn needs to find the
- * binary — is inherited unchanged.
+ * binary — is inherited unchanged. Because that inheritance is wholesale, an
+ * `OPENCODE_*` config-path override already set by the host reaches the bot
+ * too and would bypass the XDG redirects; that is an accepted MVP risk,
+ * documented here rather than silently scrubbing the user's environment.
  */
 export function botOpenCodeEnv(
   botRoot: string,
@@ -90,9 +102,11 @@ export async function createBotOpenCodeEngine(
   const api = new OpenCodeApi(connection);
   const stream = new OpenCodeEventStream(connection, { logger: options.logger });
   // The same assembly as `createOpenCodeEngine`, with both administrations
-  // pinned to the bot's config dir: a bot's MCP servers and commands are its
-  // own, and an edit must never land in the user's `~/.config/opencode`.
-  const configDir = join(options.botRoot, 'config');
+  // pinned to the config directory the server itself reads: configDir is
+  // OpenCode's own dir, i.e. the XDG *base* plus `opencode/` (the resolvers
+  // join `opencode.json` and `commands/` off it). `botOpenCodeEnv` points
+  // XDG_CONFIG_HOME at `<botRoot>/config`, so this is `<botRoot>/config/opencode`.
+  const configDir = join(options.botRoot, 'config', 'opencode');
   return new OpenCodeEngine({
     connection,
     api,
@@ -181,8 +195,10 @@ function writePrivateJson(path: string, value: unknown): void {
  * server the way pi's do. The engine (and therefore the server) is shared and
  * lazy: `create()` starts it once, and every later session — reattached by
  * `sessionId` or newly created — goes through the engine's own factory.
- * `dispose()` stops the server Morse started; it is final, because task 6's
- * adapter builds a new factory rather than reopening a disposed one.
+ * `dispose()` stops the server Morse started and is final: a later `create()`
+ * reports the engine unavailable instead of silently spawning a second server,
+ * because task 6's adapter builds a fresh factory rather than reviving a
+ * disposed one.
  */
 export function opencodeBotAdapterFactory(
   botRoot: string,
@@ -190,6 +206,7 @@ export function opencodeBotAdapterFactory(
 ): AgentGatewayFactory & { dispose(): Promise<void> } {
   let pending: Promise<OpenCodeEngine> | undefined;
   let engine: OpenCodeEngine | undefined;
+  let disposed = false;
 
   // The promise, not only the engine, is cached so two concurrent `create()`
   // calls start one server. A failed start clears it, so the next call retries
@@ -211,16 +228,36 @@ export function opencodeBotAdapterFactory(
     return pending;
   };
 
+  // The teardown is final, so a late create must be told, not given a new
+  // engine: one bot, one server lifetime.
+  const disposedError = (): AgentUnavailableError =>
+    new AgentUnavailableError(
+      "This bot's OpenCode engine was disposed. Build a new bot factory to start it again.",
+    );
+
   return {
     async create(input) {
+      if (disposed) {
+        throw disposedError();
+      }
       const target = await ensureEngine();
+      // A dispose that raced the start above already tore the engine down.
+      if (disposed) {
+        throw disposedError();
+      }
       // Bot sessions and engine sessions share ids, so reattachment is a
       // straight hand-off; no session means the engine creates one.
       return target.factory.create(input);
     },
 
     async dispose() {
-      const started = pending;
+      if (disposed) {
+        return;
+      }
+      // Set before the awaits: a create() racing the teardown must see the
+      // engine as gone, not restart it.
+      disposed = true;
+      const started = pending ?? (engine === undefined ? undefined : Promise.resolve(engine));
       pending = undefined;
       engine = undefined;
       const created = await started?.catch(() => undefined);
