@@ -2,7 +2,6 @@ import { computed, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
-import { LayoutState } from '../../state/layout-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { FileExplorer, matchFiles } from './file-explorer';
 
@@ -430,36 +429,18 @@ describe('FileExplorer', () => {
     expect(fixture.nativeElement.querySelector('.hint')?.textContent).toContain('No file matches');
   });
 
-  it('offers a resize handle only while the pane is open', async () => {
+  it('fills its column with no resize handle and no fold control', async () => {
     const { fixture } = setup(['a.ts']);
     await flush();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('.resize')).not.toBeNull();
-
-    fixture.nativeElement.querySelector('.pane-fold').click();
-    fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.resize')).toBeNull();
-  });
-
-  it('takes its height from the shell, never from its own template', async () => {
-    const { fixture } = setup(['a.ts']);
-    await flush();
-    TestBed.inject(LayoutState).setSize('explorer', 300);
-    fixture.detectChanges();
-
-    /*
-     * The height is the shell's CSS variable — the pane keeps no inline size of its own,
-     * which is what keeps a resize from re-rendering every row in the list.
-     */
+    expect(fixture.nativeElement.querySelector('.pane-fold')).toBeNull();
     expect(fixture.nativeElement.style.height).toBe('');
-
-    fixture.nativeElement.querySelector('.pane-fold').click();
-    fixture.detectChanges();
-
-    // Folded, the pane is only its header.
-    expect((fixture.nativeElement as HTMLElement).classList.contains('folded')).toBe(true);
-});
+    expect(fixture.nativeElement.querySelector('morse-pane .pane-title')?.textContent).toBe(
+      'Explorer',
+    );
+  });
 
   it('marks a folder closed, then open, then closed again', async () => {
     const { fixture } = setup(['src/main.ts']);

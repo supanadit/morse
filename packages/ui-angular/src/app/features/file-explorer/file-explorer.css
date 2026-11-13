@@ -1,36 +1,17 @@
 :host {
   display: flex;
   flex-direction: column;
-  flex: none;
-  position: relative;
+  flex: 1;
+  min-width: 0;
   min-height: 0;
-  /* The shell keeps the dragged height; `auto` and the 42vh default stand until it does. */
-  height: var(--morse-explorer-height, auto);
-  max-height: var(--morse-explorer-height, 42vh);
-  border-top: 1px solid var(--morse-border);
+  height: 100%;
+  background: var(--morse-nav-bg);
+  border-right: 1px solid var(--morse-border);
 }
-/* Folded, the pane is its header: nothing to size. */
-:host(.folded) {
-  height: auto;
-}
-/* The pane takes the room the resize handle leaves it. */
+/* The pane takes the room the column gives it. */
 morse-pane {
   flex: 1;
   min-height: 0;
-}
-
-/* The top edge is the drag handle, VS Code's panel border. */
-.resize {
-  position: absolute;
-  top: -3px;
-  left: 0;
-  right: 0;
-  height: 7px;
-  z-index: 2;
-  cursor: ns-resize;
-}
-.resize:hover {
-  background: color-mix(in srgb, var(--morse-accent) 60%, transparent);
 }
 .icon {
   flex: none;

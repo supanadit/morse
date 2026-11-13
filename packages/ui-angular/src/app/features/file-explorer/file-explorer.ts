@@ -18,16 +18,12 @@ import {
   type TreeNode,
 } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
-import { ShellState } from '../../state/shell-state';
 import { WorkspaceFiles } from '../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
-import { Splitter } from '../../ui/splitter/splitter';
 import { TreeList } from '../../ui/tree-list/tree-list';
 import { rankFiles } from '../file-picker/file-picker';
-
-const MIN_EXPLORER_HEIGHT = 140;
 
 /** One row of the filtered list: a matching file and the folder it sits in. */
 export interface FileMatch {
@@ -56,26 +52,19 @@ export interface FileMatch {
  */
 @Component({
   selector: 'morse-file-explorer',
-  imports: [Pane, Splitter, TreeList],
+  imports: [Pane, TreeList],
   templateUrl: './file-explorer.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: {
-    // Folded, the pane is just its header: the dragged height must stand down, or it
-    // leaves a tall empty box behind.
-    '[class.folded]': 'collapsed()',
-  },
   styleUrl: './file-explorer.css',
 })
 export class FileExplorer {
   private readonly morse = inject(MorseService);
   private readonly tabs = inject(WorkspaceTabs);
-  private readonly shell = inject(ShellState);
   private readonly workspace = inject(WorkspaceFiles);
   private readonly workspaceStore = inject(WorkspaceFilesStore);
   private readonly rowsEl = viewChild<ElementRef<HTMLElement>>('rowsBox');
 
   private readonly expanded = signal<ReadonlySet<string>>(new Set());
-  private readonly folded = signal(false);
   /** The file in front, when the active tab is a file: the row the tree follows. */
   private readonly activePath = computed(() => {
     const tab = this.tabs.activeTab();
@@ -114,7 +103,6 @@ export class FileExplorer {
    */
   protected readonly nodes = computed<TreeNode<FileNode>[]>(() => this.toNodes(this.tree()));
   protected readonly fileCount = computed(() => countFiles(this.flatTree()));
-  protected readonly collapsed = this.folded.asReadonly();
   protected readonly isLoading = this.workspaceStore.busy;
   protected readonly errorMessage = this.workspaceStore.error;
   /**
@@ -201,7 +189,6 @@ export class FileExplorer {
     effect(() => {
       this.nodes();
       this.selected();
-      this.collapsed();
       this.workspaceStore.directories();
       untracked(() => {
         if (!this.scrollPending) {
@@ -410,10 +397,6 @@ export class FileExplorer {
     return this.changedDirs().has(path);
   }
 
-  protected toggleFold(): void {
-    this.folded.update((value) => !value);
-  }
-
   protected refresh(): void {
     this.workspace.refresh();
   }
@@ -451,17 +434,6 @@ export class FileExplorer {
   protected openMatch(match: FileMatch): void {
     this.tabs.openFile(match.path);
   }
-
-  /** The list above gives way, but never below a screenful of it. */
-  protected readonly explorerMax = (handle: HTMLElement): number => {
-    const box = handle.parentElement;
-    if (box === null) {
-      return Number.POSITIVE_INFINITY;
-    }
-    const bottom = box.getBoundingClientRect().bottom;
-    const top = box.parentElement?.getBoundingClientRect().top ?? 0;
-    return Math.max(MIN_EXPLORER_HEIGHT, bottom - top - 120);
-  };
 }
 
 /**
