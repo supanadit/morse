@@ -71,10 +71,14 @@
             <div
               class="side"
               [class.del]="pair.left?.kind === 'del'"
-              [class.clickable]="pair.left?.change !== undefined"
+              [class.clickable]="pair.left?.change !== undefined && !isChangePinned(pair.left?.newAnchor)"
               [class.pinned]="isChangePinned(pair.left?.newAnchor)"
-              [attr.title]="pair.left?.change !== undefined ? 'Click to pin this change to your next message' : null"
-              (click)="toggleChange(pair.left)"
+              [attr.title]="
+                pair.left?.change !== undefined && !isChangePinned(pair.left?.newAnchor)
+                  ? 'Click to pin this change to your next message'
+                  : null
+              "
+              (click)="pinChange(pair.left)"
             >
               <span class="dnum">{{ pair.left?.oldLine ?? '' }}</span>
               <span class="dsign">{{ diffSign(pair.left) }}</span>
@@ -86,7 +90,6 @@
                 <morse-pin-actions
                   [note]="noted.note"
                   [target]="'this change of ' + tab().title"
-                  [hint]="pinNoteHint(noted.note) ?? ''"
                   (edit)="openAnnotation(noted, $event)"
                   (cancel)="unpinPin(noted)"
                 />
@@ -95,10 +98,14 @@
             <div
               class="side"
               [class.add]="pair.right?.kind === 'add'"
-              [class.clickable]="pair.right?.change !== undefined"
+              [class.clickable]="pair.right?.change !== undefined && !isChangePinned(pair.right?.newAnchor)"
               [class.pinned]="isChangePinned(pair.right?.newAnchor)"
-              [attr.title]="pair.right?.change !== undefined ? 'Click to pin this change to your next message' : null"
-              (click)="toggleChange(pair.right)"
+              [attr.title]="
+                pair.right?.change !== undefined && !isChangePinned(pair.right?.newAnchor)
+                  ? 'Click to pin this change to your next message'
+                  : null
+              "
+              (click)="pinChange(pair.right)"
             >
               <span class="dnum">{{ pair.right?.newLine ?? '' }}</span>
               <span class="dsign">{{ diffSign(pair.right) }}</span>
@@ -109,7 +116,6 @@
                 <morse-pin-actions
                   [note]="noted.note"
                   [target]="'this change of ' + tab().title"
-                  [hint]="pinNoteHint(noted.note) ?? ''"
                   (edit)="openAnnotation(noted, $event)"
                   (cancel)="unpinPin(noted)"
                 />
@@ -129,10 +135,14 @@
             class="drow"
             [class.add]="row.kind === 'add'"
             [class.del]="row.kind === 'del'"
-            [class.clickable]="row.change !== undefined"
+            [class.clickable]="row.change !== undefined && !isChangePinned(row.newAnchor)"
             [class.pinned]="isChangePinned(row.newAnchor)"
-            [attr.title]="row.change !== undefined ? 'Click to pin this change to your next message' : null"
-            (click)="toggleChange(row)"
+            [attr.title]="
+              row.change !== undefined && !isChangePinned(row.newAnchor)
+                ? 'Click to pin this change to your next message'
+                : null
+            "
+            (click)="pinChange(row)"
           >
             <span class="dnum">{{ row.oldLine ?? '' }}</span>
             <span class="dnum">{{ row.newLine ?? '' }}</span>
@@ -148,7 +158,6 @@
               <morse-pin-actions
                 [note]="noted.note"
                 [target]="'this change of ' + tab().title"
-                [hint]="pinNoteHint(noted.note) ?? ''"
                 (edit)="openAnnotation(noted, $event)"
                 (cancel)="unpinPin(noted)"
               />

@@ -11,7 +11,6 @@ import { PinActions } from './pin-actions';
       <morse-pin-actions
         [note]="note()"
         [target]="target()"
-        [hint]="hint()"
         (edit)="edited.push($event)"
         (cancel)="cancelled = cancelled + 1"
       />
@@ -21,7 +20,6 @@ import { PinActions } from './pin-actions';
 class Host {
   readonly note = signal<string | undefined>(undefined);
   readonly target = signal('this change of main.ts');
-  readonly hint = signal('');
   bubbled = 0;
   cancelled = 0;
   readonly edited: HTMLElement[] = [];
@@ -38,20 +36,19 @@ function render(): {
 }
 
 describe('PinActions', () => {
-  it('offers the file preview’s two buttons: ✎ note and Cancel', () => {
+  it('offers the file preview’s two plain buttons: Notes and Cancel', () => {
     const { element } = render();
 
-    expect(element.querySelector('button.note')?.textContent?.trim()).toBe('✎ note');
+    expect(element.querySelector('button.note')?.textContent?.trim()).toBe('Notes');
     expect(element.querySelector('button.cancel')?.textContent?.trim()).toBe('Cancel');
   });
 
-  it('shows a written note’s first line on the button', () => {
+  it('marks the Notes button once a note is written', () => {
     const { fixture, host, element } = render();
     host.note.set('why this line');
-    host.hint.set('why this line');
     fixture.detectChanges();
 
-    expect(element.querySelector('button.note')?.textContent).toContain('why this line');
+    expect(element.querySelector('button.note')?.textContent?.trim()).toBe('Notes');
     expect(element.querySelector('button.note')?.classList.contains('has-note')).toBe(true);
   });
 

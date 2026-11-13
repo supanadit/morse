@@ -21,8 +21,6 @@ export class PinActions {
   readonly note = input<string | undefined>(undefined);
   /** What the annotation is on, for the accessible names ("this change of main.ts"). */
   readonly target = input('');
-  /** The first line to show on the note button instead of the word "note". */
-  readonly hint = input('');
 
   /** The button the annotation editor should anchor to. */
   readonly edit = output<HTMLElement>();

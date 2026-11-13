@@ -261,7 +261,7 @@ describe('FilePreview', () => {
 describe('FilePreview annotations', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('sits the file preview’s note and Cancel on the diff row the pin ends on', () => {
+  it('sits the file preview’s Notes and Cancel on the diff row the pin ends on', () => {
     const { fixture, pins, attachments } = render(
       {
         content: 'const a = 1;\nconst b = 3;\nconst c = 4;\n',
@@ -277,7 +277,8 @@ describe('FilePreview annotations', () => {
     const actions = fixture.nativeElement.querySelectorAll('.drow.add morse-pin-actions');
     expect(actions).toHaveLength(1);
     const note = actions[0]?.querySelector('button.note');
-    expect(note?.textContent).toContain('the block');
+    expect(note?.textContent?.trim()).toBe('Notes');
+    expect(note?.classList.contains('has-note')).toBe(true);
     expect(actions[0]?.querySelector('button.cancel')?.textContent).toContain('Cancel');
 
     // Opening the note must not read as “unpin this block”.
@@ -306,9 +307,51 @@ describe('FilePreview annotations', () => {
     cancel?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     fixture.detectChanges();
 
-    // The row's own click would unpin too; the pair stops it, so one press is one removal.
+    // The pair is the only way out: one press, one removal.
     expect(attachments.removePin).toHaveBeenCalledTimes(1);
     expect(attachments.removePin).toHaveBeenCalledWith('p1');
+  });
+
+  it('pins a changed block when its diff row is clicked', () => {
+    const { fixture, attachments } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\n',
+        diff: '@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    setDiffMode(fixture, 'Unified diff');
+
+    const row = fixture.nativeElement.querySelector('.drow.add');
+    row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(attachments.pin).toHaveBeenCalledWith({
+      path: 'src/main.ts',
+      startLine: 2,
+      endLine: undefined,
+    });
+  });
+
+  it('leaves an already-pinned change alone when its row is clicked', () => {
+    const { fixture, pins, attachments } = render(
+      {
+        content: 'const a = 1;\nconst b = 3;\n',
+        diff: '@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 3;\n',
+      },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
+    fixture.detectChanges();
+    setDiffMode(fixture, 'Unified diff');
+
+    const row = fixture.nativeElement.querySelector('.drow.add');
+    row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    // Like the file preview's band: the highlight is not a control.
+    expect(attachments.removePin).not.toHaveBeenCalled();
+    expect(attachments.pin).not.toHaveBeenCalled();
   });
 
   it('hosts the deletion pin’s note and Cancel on the old side when there is no new row', () => {

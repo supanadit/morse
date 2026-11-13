@@ -190,8 +190,10 @@
 }
 .drow.pinned,
 .side.pinned {
-  background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--morse-accent) 70%, transparent);
+  /* The file preview's band tint, exactly: a pinned range looks the same in
+     both views, and neither highlight is a control. */
+  background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
 }
 .drow.hunk {
   margin: 6px 0 2px;

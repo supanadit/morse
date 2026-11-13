@@ -248,19 +248,20 @@ a lot of chrome over the code. It is replaced wholesale, not ported.
   in a 4px lane left of the text, so ranges read as one object without fighting the selection; and
 - a **card in a note rail** on the right of the code: the range label and the note (rendered markdown,
   `morseNoteHover`-style), a preview rather than a control; and
-- the same two buttons a diff row carries — `✎ note` (edit) and `Cancel` (unpin) — floating at the
-  **bottom-right corner of the band**, over the code, one shared `morse-pin-actions` component so the
-  file view and the diff cannot drift apart.
+- the same two plain buttons a diff row carries — **Notes** (edit) and **Cancel** (unpin) — floating
+  at the **bottom-right corner of the band**, over the code, one shared `morse-pin-actions` component
+  so the file view and the diff cannot drift apart. The pinned tint is the same in both views, and in
+  neither is the highlight itself a control: clicking a pinned block leaves it pinned.
 
 ```
  14 │   const tabs = inject(WorkspaceTabs);    ┃ note ─────────────────┐
  15 │   const drafts = inject(ComposerDrafts); ┃ "drafts survive a     │
  16 │   const queued = inject(QueuedPrompts);  ┃  session switch"      │
                                             ┗━━━━━━━━━━━━━━━━━━━━━━━┛
-                                          ✎ note  Cancel
+                                          Notes  Cancel
 ```
 
-**Editing a note.** The band's pair is the only editor. Its ✎ opens the existing
+**Editing a note.** The band's pair is the only editor. Its **Notes** button opens the existing
 `morse-pin-annotation` popover *anchored to the button* instead of editing inside CM (widgets that
 take keystrokes fight CM's own handlers; an Angular button over the scroller does not). An empty note
 renders as the card's ghost "Add a note…", so the card still says what is missing.

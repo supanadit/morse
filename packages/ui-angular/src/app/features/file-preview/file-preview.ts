@@ -18,7 +18,6 @@ import {
   addedFileDiff,
   highlightCode,
   parseUnifiedDiff,
-  pinNoteHint,
   pinRangeLabel,
   splitRows,
   statusByPath,
@@ -215,9 +214,6 @@ export class FilePreview {
   /** The markdown the editor opens with (the pin's own note, if it has one). */
   protected readonly annotationNote = computed(() => this.annotationPin()?.note ?? '');
 
-  /** A chip's annotation hint: first line, cut short — the hover card has the rest. */
-  protected readonly pinNoteHint = pinNoteHint;
-
   constructor() {
     // Load the editor only while a file is actually shown: the chunk is large,
     // and `@defer` would put its runtime in the initial bundle instead.
@@ -351,11 +347,12 @@ export class FilePreview {
   }
 
   /**
-   * Clicking a change block in either diff layout pins its new-file range to the
-   * next prompt — the diff view's stand-in for dragging line numbers, so a click
-   * is enough. Clicking an already-pinned block unpins it again.
+   * Clicking a change block pins its new-file range to the next prompt — the
+   * diff view's stand-in for dragging line numbers. A block a pin already
+   * covers is left alone: like the file preview's band, the highlight is not a
+   * control, and the pair's Cancel is the way to unpin.
    */
-  protected toggleChange(row: UnifiedRow | DiffRow | undefined): void {
+  protected pinChange(row: UnifiedRow | DiffRow | undefined): void {
     const change = row !== undefined && row.kind !== 'hunk' ? row.change : undefined;
     if (change === undefined) {
       return;
@@ -371,7 +368,6 @@ export class FilePreview {
           (pin.endLine ?? pin.startLine) >= change.end,
       );
     if (covering !== undefined) {
-      this.attachments.removePin(covering.id);
       return;
     }
     this.attachments.pin({
