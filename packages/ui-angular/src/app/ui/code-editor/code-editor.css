@@ -20,7 +20,6 @@
 morse-code-editor {
   display: flex;
   position: relative;
-  container-type: inline-size;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -295,57 +294,6 @@ morse-code-editor .morse-editor-host .morse-line-flash {
   animation: morse-line-flash 900ms ease-out;
 }
 
-morse-code-editor .morse-rail {
-  position: relative;
-  flex: none;
-  width: 240px;
-  overflow: hidden;
-  border-left: 1px solid var(--morse-border);
-  background: var(--morse-panel);
-}
-
-morse-code-editor .morse-rail.overflow {
-  overflow-y: auto;
-}
-
-morse-code-editor .morse-rail-track {
-  position: absolute;
-  inset: 0 0 auto;
-}
-
-morse-code-editor .morse-card {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  height: 76px;
-  overflow: hidden;
-  padding: 6px 8px;
-  border: 1px solid var(--morse-border);
-  border-radius: 6px;
-  background: var(--morse-bg);
-  font-family: var(--morse-font);
-  font-size: 12px;
-}
-
-morse-code-editor .morse-card-range {
-  display: block;
-  margin-bottom: 2px;
-  color: var(--morse-fg-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-morse-code-editor .morse-card-note {
-  display: block;
-  max-height: 40px;
-  overflow: hidden;
-  color: var(--morse-fg);
-}
-
-morse-code-editor .morse-card-note.ghost {
-  color: var(--morse-fg-muted);
-  font-style: italic;
-}
-
 morse-code-editor .morse-editor-host .morse-pin-line {
   background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
   box-shadow: inset 2px 0 0 var(--morse-accent);
@@ -390,20 +338,5 @@ morse-code-editor .morse-pin-pill:hover {
 
   morse-code-editor .morse-editor-host .morse-line-flash {
     animation: none;
-  }
-}
-
-@container (max-width: 720px) {
-  morse-code-editor .morse-rail {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    background: color-mix(in srgb, var(--morse-panel) 94%, transparent);
-  }
-
-  /* The rail overlays the code's right edge; keep the pairs clear of it. */
-  morse-code-editor .morse-band-actions {
-    right: 248px;
   }
 }

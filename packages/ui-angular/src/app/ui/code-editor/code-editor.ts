@@ -29,9 +29,7 @@ import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
 import { pillAnchoredAt, pinFromText, type PinRequest } from './pin-selection';
-import { railOverflows, railSlots } from './rail';
 import { clearFlash, flashExtension, revealLine } from './scroll';
-import { Markdown } from '../markdown/markdown';
 import { PinActions } from '../pin-annotation/pin-actions';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
 import { pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
@@ -40,8 +38,6 @@ import { pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
 const FLASH_MS = 900;
 /** The pill's assumed box, used to keep it inside the viewport. */
 const PILL_SIZE = { width: 132, height: 26 } as const;
-/** Every card is the same height (the note clamps), so placement needs no measuring. */
-const CARD_HEIGHT = 76;
 
 /** The floating "pin this selection" affordance. */
 interface Pill {
@@ -50,13 +46,6 @@ interface Pill {
   readonly label: string;
   readonly from: number;
   readonly to: number;
-}
-
-/** One card in the rail, already placed. */
-interface RailCard {
-  readonly pin: EditorPin;
-  readonly label: string;
-  readonly top: number;
 }
 
 /** A pin's note/Cancel pair, floating at the bottom edge of its band. */
@@ -93,7 +82,7 @@ const pinTintField = StateField.define<DecorationSet>({
   selector: 'morse-code-editor',
   templateUrl: './code-editor.html',
   styleUrl: './code-editor.css',
-  imports: [Markdown, PinAnnotation, PinActions],
+  imports: [PinAnnotation, PinActions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // CodeMirror builds its own DOM, so emulated encapsulation would never reach
   // it; the stylesheet scopes every selector to the host element instead, and
@@ -108,7 +97,7 @@ export class CodeEditor {
   readonly path = input.required<string>();
   /** A 1-based line to reveal and flash (search hits, git jumps, a chip click). */
   readonly line = input<number | undefined>(undefined);
-  /** This file's ranges; the rail draws a tint and a card for each. */
+  /** This file's ranges; the editor tints each and floats its note pair on it. */
   readonly pins = input<readonly EditorPin[]>([]);
 
   readonly pinRequested = output<PinRequest>();
@@ -116,19 +105,19 @@ export class CodeEditor {
   readonly unpinned = output<{ id: string }>();
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
-  private readonly track = viewChild<ElementRef<HTMLElement>>('track');
   private readonly bandTrack = viewChild<ElementRef<HTMLElement>>('bandTrack');
   private readonly language = new Compartment();
   /** The selection pill, when a confirmation-worthy selection exists. */
   protected readonly pill = signal<Pill | undefined>(undefined);
-  /** The rail's cards, placed in document coordinates. */
-  protected readonly cards = signal<readonly RailCard[]>([]);
-  /** Each pin's pair, at the bottom of its band in document coordinates. */
+  /**
+   * Each pin's pair, at the bottom of its band in document coordinates.
+   *
+   * There is no card column beside the code: the note rides the band's own `Notes`
+   * chip, which renders it on hover and opens the annotation editor on a click. A
+   * fixed rail spent 240px of every file's reading width to repeat what the chip
+   * already holds.
+   */
   protected readonly bandActions = signal<readonly BandAction[]>([]);
-  /** The stack is taller than the document, so the rail scrolls itself. */
-  protected readonly railOverflow = signal(false);
-  /** How tall the stack is, when the rail owns the scrolling. */
-  protected readonly railHeight = signal(0);
   /** The range label the band pair and the annotation header both show. */
   protected readonly pinRangeLabel = pinRangeLabel;
 
@@ -169,13 +158,11 @@ export class CodeEditor {
       this.pins();
       untracked(() => this.applyPins());
     });
-    // The tracks only exist once their markup renders, so the transforms are
+    // The band track only exists once its markup renders, so the transform is
     // applied from an effect that watches the signals, not from the write that
     // created them.
     effect(() => {
-      this.cards();
       this.bandActions();
-      this.track();
       this.bandTrack();
       untracked(() => this.syncTrack());
     });
@@ -203,7 +190,7 @@ export class CodeEditor {
               this.updatePill(update.view);
             }
             if (update.docChanged || update.viewportChanged || update.geometryChanged) {
-              this.refreshCards(update.view);
+              this.refreshBands(update.view);
             }
           }),
           EditorView.domEventHandlers({
@@ -237,44 +224,21 @@ export class CodeEditor {
       }
     }
     view.dispatch({ effects: setPinTints.of(Decoration.set(ranges, true)) });
-    this.refreshCards(view);
+    this.refreshBands(view);
   }
 
   /**
-   * Place each card beside its line, in document coordinates: the rail track is
-   * translated by the scroll offset, so cards move with the text and are placed
-   * once per measure rather than once per scroll pixel.
+   * Place each pin's `Notes`/`Cancel` pair on the bottom edge of its band, in document
+   * coordinates: the band track is translated by the scroll offset, so a pair moves
+   * with its lines and is placed once per measure rather than once per scroll pixel.
    */
-  private refreshCards(view: EditorView): void {
+  private refreshBands(view: EditorView): void {
     const doc = view.state.doc;
     const folded = foldedRanges(view.state);
-    const pinned = this.pins();
-    const anchors = pinned.map((pin) => {
-      const number = Math.min(Math.max(1, pin.startLine), doc.lines);
-      const line = doc.line(number);
-      let hidden = false;
-      folded.between(line.from, line.from, () => {
-        hidden = true;
-        return false;
-      });
-      return hidden ? null : view.lineBlockAt(line.from).top;
-    });
-    const slots = railSlots(anchors, pinned.map(() => CARD_HEIGHT));
-    const cards: RailCard[] = [];
-    pinned.forEach((pin, index) => {
-      const slot = slots[index];
-      if (slot !== null && slot !== undefined) {
-        cards.push({ pin, label: pinRangeLabel(pin), top: slot.top });
-      }
-    });
-    const last = slots.reduce<number>((bottom, slot) => (slot === null ? bottom : Math.max(bottom, slot.top + slot.height)), 0);
-    this.railOverflow.set(railOverflows(last, view.contentHeight));
-    this.railHeight.set(last);
-    this.cards.set(cards);
     // Each pin's pair sits on the bottom edge of its band's last line — the
     // corner the file preview's band used, now over the code itself.
     const bands: BandAction[] = [];
-    for (const pin of pinned) {
+    for (const pin of this.pins()) {
       const number = Math.min(Math.max(1, pin.endLine ?? pin.startLine), doc.lines);
       const line = doc.line(number);
       let hidden = false;
@@ -290,20 +254,15 @@ export class CodeEditor {
     this.syncTrack();
   }
 
-  /** Keep the cards and the band pairs beside their lines while the editor scrolls. */
+  /** Keep the band pairs beside their lines while the editor scrolls. */
   private syncTrack(): void {
     const view = this.view;
     if (view === undefined) {
       return;
     }
-    const offset = view.scrollDOM.scrollTop;
-    const track = this.track()?.nativeElement;
-    if (track !== undefined) {
-      track.style.transform = this.railOverflow() ? 'none' : `translateY(${-offset}px)`;
-    }
     const band = this.bandTrack()?.nativeElement;
     if (band !== undefined) {
-      band.style.transform = `translateY(${-offset}px)`;
+      band.style.transform = `translateY(${-view.scrollDOM.scrollTop}px)`;
     }
   }
 

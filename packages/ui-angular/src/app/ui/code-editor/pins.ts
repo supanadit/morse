@@ -4,7 +4,7 @@
  */
 import type { PendingPin } from '../../state/attachments';
 
-/** One range the editor draws a tint and a note card for. */
+/** One range the editor tints, and floats a note chip on. */
 export interface EditorPin {
   readonly id: string;
   readonly startLine: number;
@@ -34,7 +34,7 @@ export function editorPins(pins: readonly PendingPin[], path: string): EditorPin
 }
 
 /**
- * Whether a pin's note is written in the file (the card beside the code) rather
+ * Whether a pin's note is written in the file (on the range's own chip) rather
  * than on the composer chip. The chip keeps the editor only where there is no
  * card to reach: no file tab at all, or a file the editor cannot show. Getting
  * this wrong strands a note with no surface, so it is a pure function with a

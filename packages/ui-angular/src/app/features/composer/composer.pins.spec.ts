@@ -129,7 +129,7 @@ describe('ChatComposer attachment chips', () => {
     store.pin({ path: 'src/app.ts', startLine: 3, endLine: 3, note: 'why' });
     fixture.detectChanges();
 
-    // Read, not edited, here: the card beside the code owns the editor.
+    // Read, not edited, here: the range's chip in the code owns the editor.
     expect(host.querySelector('button.chip-note')).toBeNull();
     expect(host.querySelector('span.chip-note')?.textContent).toContain('why');
   });

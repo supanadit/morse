@@ -38,9 +38,21 @@
       }
     }
     @if (pinnedCount()) {
-      <span class="range" [title]="'Pinned to the next prompt'">{{
-        pinnedCount() === 1 ? '1 range' : pinnedCount() + ' ranges'
-      }}</span>
+      <!-- The pinned ranges' only overview now that no card column repeats them:
+           each click reveals the next one, wrapping at the end. -->
+      <button
+        type="button"
+        class="range"
+        title="Pinned ranges — click to reveal the next one"
+        [attr.aria-label]="
+          'Reveal the next of ' +
+          pinnedCount() +
+          (pinnedCount() === 1 ? ' pinned range' : ' pinned ranges')
+        "
+        (click)="revealNextPin()"
+      >
+        {{ pinnedCount() === 1 ? '1 range' : pinnedCount() + ' ranges' }}
+      </button>
     }
     <span class="badge">{{ language() }}</span>
     <span class="stat">{{ size() }}</span>

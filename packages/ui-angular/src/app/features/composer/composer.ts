@@ -297,9 +297,10 @@ export class ChatComposer {
   protected readonly noteHint = pinNoteHint;
 
   /**
-   * Whether this pin's note is written in the card beside the code. The chip
-   * keeps the editor where there is no card to reach — VS Code (no file tab), a
-   * binary file, or one that failed to read — so a note is never stranded.
+   * Whether this pin's note is written on the range's own chip in the code. The
+   * composer's chip keeps the editor where there is no band to reach — VS Code (no
+   * file tab), a binary file, or one that failed to read — so a note is never
+   * stranded.
    */
   protected notesInFile(pin: PendingPin): boolean {
     const tab = this.tabs

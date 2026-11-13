@@ -9,7 +9,7 @@
   [attr.aria-label]="(hasNote() ? 'Edit the annotation on ' : 'Add an annotation on ') + target()"
   (click)="onEdit($event)"
 >
-  Notes
+  {{ label() }}
 </button>
 <button
   type="button"

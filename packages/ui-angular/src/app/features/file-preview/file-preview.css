@@ -56,14 +56,25 @@
   color: var(--morse-fg-muted);
   font-size: 11px;
 }
-/* The pinned range, right where the drag happened. */
+/*
+ * The pinned ranges, right where the drag happened — and the button that walks
+ * them, now that no card column lists them beside the code.
+ */
 .range {
   padding: 1px 7px;
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
   color: var(--morse-fg);
+  font: inherit;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.range:hover:not(:disabled),
+.range:focus-visible {
+  background: color-mix(in srgb, var(--morse-accent) 34%, transparent);
 }
 .icon {
   width: 24px;

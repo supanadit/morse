@@ -28,6 +28,9 @@
 
 .note {
   max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note.has-note {

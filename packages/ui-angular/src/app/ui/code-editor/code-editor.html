@@ -1,4 +1,4 @@
-<!-- The CodeMirror view owns the host div; the band pairs and the rail are Angular's. -->
+<!-- The CodeMirror view owns the host div; the band pairs are Angular's. -->
 <div class="morse-code-area">
   <div class="morse-editor-host" #host></div>
   @if (bandActions().length) {
@@ -16,22 +16,6 @@
     </div>
   }
 </div>
-@if (cards().length) {
-  <div class="morse-rail" [class.overflow]="railOverflow()">
-    <div class="morse-rail-track" #track [style.height.px]="railOverflow() ? railHeight() : null">
-      @for (card of cards(); track card.pin.id) {
-        <article class="morse-card" [style.top.px]="card.top">
-          <span class="morse-card-range">{{ card.label }}</span>
-          @if (card.pin.note) {
-            <morse-markdown class="morse-card-note" [text]="card.pin.note" />
-          } @else {
-            <span class="morse-card-note ghost">Add a note…</span>
-          }
-        </article>
-      }
-    </div>
-  </div>
-}
 @if (pill(); as p) {
   <button
     type="button"

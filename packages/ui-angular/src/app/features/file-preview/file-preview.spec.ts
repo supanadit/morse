@@ -277,7 +277,8 @@ describe('FilePreview annotations', () => {
     const actions = fixture.nativeElement.querySelectorAll('.drow.add morse-pin-actions');
     expect(actions).toHaveLength(1);
     const note = actions[0]?.querySelector('button.note');
-    expect(note?.textContent?.trim()).toBe('Notes');
+    // A written note is its own label, so the row says what the note says.
+    expect(note?.textContent?.trim()).toBe('the block');
     expect(note?.classList.contains('has-note')).toBe(true);
     expect(actions[0]?.querySelector('button.cancel')?.textContent).toContain('Cancel');
 

@@ -161,8 +161,10 @@ highlighting, folding, find, no language server), so a file over 512 KB is shown
 is named rather than decoded.
 Drag across the editor's line numbers to pin a range (`path:start-end`) to your next message, or select text
 and confirm the pill that appears to pin the exact columns — picking a file in the `@` picker opens it so the
-drag is one step away. Ranges that touch or overlap become one chip (and one highlight). A pinned range shows
-its note in a card beside the code; re-drag or re-select to change it.
+drag is one step away. Ranges that touch or overlap become one chip (and one highlight). A pinned range is tinted
+in the code, and its corner carries the note's opening words — hover it to read the whole annotation, click it to
+write one — while the header's `N ranges` button walks from one pinned range to the next. Re-drag or re-select to
+change the range.
 Right-click a tab for Close, Close Others, Close to the Right and Close All — the actions VS Code's own tab
 menu offers. The menu's scope is the tab you clicked: on a **session** it spans the whole strip (its quoted
 files go with it), but on a **file chip** it only spans that chip's row, so closing a chip can never take the

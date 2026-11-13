@@ -48,8 +48,23 @@ describe('PinActions', () => {
     host.note.set('why this line');
     fixture.detectChanges();
 
-    expect(element.querySelector('button.note')?.textContent?.trim()).toBe('Notes');
     expect(element.querySelector('button.note')?.classList.contains('has-note')).toBe(true);
+  });
+
+  it('says the note’s opening words, so it reads on its range without a card', () => {
+    const { fixture, host, element } = render();
+    host.note.set('## Why this line\n\nBecause `uuid` defaults…');
+    fixture.detectChanges();
+
+    // The chip is a label: no markdown markers, no second line.
+    expect(element.querySelector('button.note')?.textContent?.trim()).toBe('Why this line');
+  });
+
+  it('stays `Notes` for a note that is only whitespace or markers', () => {
+    const { fixture, host, element } = render();
+    host.note.set('  ');
+    fixture.detectChanges();
+    expect(element.querySelector('button.note')?.textContent?.trim()).toBe('Notes');
   });
 
   it('hands the pressed button up so the editor can anchor to it', () => {

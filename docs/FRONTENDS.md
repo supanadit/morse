@@ -175,8 +175,10 @@ strip above the conversation, where sessions and files open side by side. A file
 CodeMirror editor** — syntax highlighting, line numbers, folding, find, sticky scrolled declarations — loaded as its own
 lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. Dragging
 the line numbers pins whole lines (dragging across the code selects text and offers the pin pill instead). A pin is a
-tinted band with **Notes** and **Cancel** at its bottom-right corner; the note itself shows in a card beside
-the code. On VS Code, where there is no editor tab, the chip keeps its annotation button instead.
+tinted band with **Notes** and **Cancel** at its bottom-right corner: the chip says `Notes` until something is
+written and then the note's own opening words, hovering it shows the whole annotation as markdown, and clicking it
+opens the editor — the code keeps its full width, and the header's `N ranges` button walks the file's pins. On VS
+Code, where there is no editor tab, the composer chip keeps its annotation button instead.
 
 - The Explorer is drawn in levels. The flat `listFiles` listing the `@mention` picker uses (git-aware,
   the active session's directory, capped at five thousand files in the host's index) paints the first

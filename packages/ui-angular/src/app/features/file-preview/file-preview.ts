@@ -70,8 +70,8 @@ function rangeText(range: { start: number; end: number } | undefined): string {
 
 /**
  * A file opened from the Explorer: its diff (unified or split), or its text in a
- * read-only CodeMirror editor, with the file's pinned ranges carried as note
- * cards beside the code.
+ * read-only CodeMirror editor, with each pinned range tinted where it sits and its
+ * note on that band's own chip.
  *
  * The editor is CodeMirror and it is large, so it is loaded as its own chunk and
  * mounted through `CODE_EDITOR_LOADER` — the same seam specs replace with a fake,
@@ -180,6 +180,24 @@ export class FilePreview {
   /** This file's pins, which the editor draws and the header counts. */
   protected readonly pins = computed(() => editorPins(this.attachments.pins(), this.tab().path));
   protected readonly pinnedCount = computed(() => this.pins().length);
+  /**
+   * Where the header's pin chip last sent the reader, so the next click moves on.
+   * The chip is the pinned ranges' only overview: their notes ride their own bands
+   * in the code, so this is how a reader reaches a pin they cannot see.
+   */
+  private readonly revealedPinLine = signal(0);
+
+  /** The header's pin chip: reveals the next pinned range in this file, wrapping. */
+  protected revealNextPin(): void {
+    const pins = this.pins();
+    if (pins.length === 0) {
+      return;
+    }
+    const after = this.revealedPinLine();
+    const next = pins.find((pin) => pin.startLine > after) ?? pins[0]!;
+    this.revealedPinLine.set(next.startLine);
+    this.tabs.revealLine(this.tab().id, next.startLine);
+  }
 
   /**
    * The row each pin's Notes/Cancel pair belongs to: the bottom of its band.
