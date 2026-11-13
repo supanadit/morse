@@ -118,6 +118,11 @@
   --morse-number: var(--vscode-charts-orange, #e4a464);
   --morse-typename: var(--vscode-charts-purple, #b58fff);
   --morse-attr: var(--morse-typename);
+  /* The editor's own aliases: no new colours, one place to retheme. */
+  --morse-comment: var(--morse-fg-muted);
+  --morse-punct: var(--morse-fg-muted);
+  --morse-editor-bg: var(--morse-code-bg);
+  --morse-editor-gutter: var(--morse-panel);
   --morse-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
   /*
    * Structural guides (tool-tree connectors, timeline rails). `panel.border` is
@@ -161,6 +166,10 @@
     --morse-number: var(--vscode-charts-orange, #a3591a);
     --morse-typename: var(--vscode-charts-purple, #6f42c1);
     --morse-attr: var(--morse-typename);
+    --morse-comment: var(--morse-fg-muted);
+    --morse-punct: var(--morse-fg-muted);
+    --morse-editor-bg: var(--morse-code-bg);
+    --morse-editor-gutter: var(--morse-panel);
     --morse-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
     --morse-guide: color-mix(in srgb, var(--morse-fg) 30%, transparent);
     --morse-button-secondary: var(--vscode-button-secondaryBackground, rgba(0, 0, 0, 0.06));
@@ -224,6 +233,10 @@
   --morse-string: #8fd9a8;
   --morse-number: #f0b072;
   --morse-typename: #9ad8e8;
+  --morse-comment: var(--morse-fg-muted);
+  --morse-punct: var(--morse-fg-muted);
+  --morse-editor-bg: var(--morse-code-bg);
+  --morse-editor-gutter: var(--morse-panel);
   --morse-error: #f87171;
   --morse-warn: #fb923c;
   --morse-success: #4ade80;

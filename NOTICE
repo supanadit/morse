@@ -1,0 +1,11 @@
+Morse
+Copyright 2026 Morse contributors
+
+This product includes software derived from OpenIDEA
+(https://github.com/l0ng-ai/openidea), pinned at commit
+835c44615b0aa847d8aa8461a5d3f812ff8c8919, licensed under the Apache
+License, Version 2.0. Ported files retain their original headers and name
+the upstream path they came from.
+
+The full Apache License, Version 2.0 text is at
+https://www.apache.org/licenses/LICENSE-2.0
