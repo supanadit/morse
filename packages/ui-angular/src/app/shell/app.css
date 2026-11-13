@@ -26,7 +26,7 @@
    * below them. A definite middle row is what gives every pane the shell's height instead
    * of sizing to its own content, which is what lets their inner lists scroll.
    */
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -42,7 +42,8 @@
   outline: none;
 }
 
-/* The columns share the middle row; the chrome takes its own, across all of them. */
+/* The columns share the middle row; the chrome and the bottom tool window take
+   their own rows across all of them. */
 .rail {
   grid-area: rail;
 }
@@ -199,15 +200,30 @@
 }
 
 /*
- * Full-screen bottom panel: the terminal gets the whole conversation column, so
- * everything above it steps aside and the panel grows into the space. Only the
- * panel's own host stays, and it is the one that flexes.
+ * The bottom tool window is a band of the shell, not of the conversation: it
+ * spans every column, so the terminal and the log are never squeezed by the
+ * sidebars. Its own height (dragged or default) sizes the row.
  */
-.chat.bottom-full > morse-tab-strip,
-.chat.bottom-full > morse-file-preview,
-.chat.bottom-full > morse-chat-transcript,
-.chat.bottom-full > .dock {
-  display: none;
+morse-bottom-panel {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+}
+
+/*
+ * Full screen: the band takes the middle of the window, and the columns step
+ * aside instead of sharing the height.
+ */
+.shell.panel-full {
+  grid-template-rows: auto 0 minmax(0, 1fr) auto;
+}
+
+.shell.panel-full > .rail,
+.shell.panel-full > .nav,
+.shell.panel-full > .chat,
+.shell.panel-full > .git-panel,
+.shell.panel-full > .search-panel {
+  visibility: hidden;
 }
 
 /*

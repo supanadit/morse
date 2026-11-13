@@ -22,6 +22,8 @@ column.
   and unstaged files, repo accordion. No history, no Changes/History divider.
 - The bottom panel gains a **Git Log** tab next to Terminal on hosts that advertise
   `gitPanel`, using the same chip/resize/full-screen machinery.
+- The bottom tool window is a band of the shell, spanning every column, so the terminal
+  and the log are never squeezed by the sidebars.
 - The Log view shows one repository at a time:
   - a branch tree (HEAD, Local, Remote, tags) that selects which ref's history is listed;
   - a commit table with graph gutter, subject, refs, author, date and short hash;
@@ -125,6 +127,10 @@ repo header (name, change count, branch picker)
   a title explaining that amending rewrites the last commit.
 
 ### Bottom panel: the Git Log tab
+
+The panel itself moves out of the conversation column and becomes the shell's third row,
+spanning `1 / -1`; full screen gives it the middle row and hides the columns. Its own
+dragged height still sizes the row.
 
 `bottom-panel.ts` turns its static `VIEWS` into a computed list: Terminal always, Git Log
 when `capabilities.gitPanel === true`. The id is `git-log`, the label `Git Log`, the

@@ -7,6 +7,7 @@
   [class.with-git]="gitOpen()"
   [class.with-search]="searchOpen()"
   [class.git-expanded]="gitExpanded()"
+  [class.panel-full]="bottomPanelFull()"
   [style.--morse-git-width]="gitWidth()"
   [style.--morse-nav-width]="navWidth()"
 >
@@ -201,7 +202,6 @@
   <main
     class="chat"
     [class.dropping]="dragging()"
-    [class.bottom-full]="bottomPanelFull()"
     [style.--morse-dock-height]="dockHeight() + 'px'"
     (dragenter)="onDragEnter($event)"
     (dragover)="onDragOver($event)"
@@ -434,13 +434,6 @@
       <morse-pi-ui />
     }
 
-    <!-- The browser host's bottom panel: chips that open a tool (the terminal)
-         below the composer. VS Code has its own panel and never mounts it. It
-         stays mounted while hidden: unmounting it would kill every shell. -->
-    @if (bottomPanelEnabled()) {
-      <morse-bottom-panel [visible]="bottomPanelVisible()" />
-    }
-
     @if (toast(); as notice) {
       <div class="toast" [class]="notice.level" role="status">
         <span class="toast-text">{{ notice.text }}</span>
@@ -462,6 +455,14 @@
        never mounts it (`capabilities.searchPanel`). -->
   @if (searchOpen()) {
     <morse-search-panel class="search-panel" />
+  }
+
+  <!-- The browser host's bottom tool window: a band across every column, so the
+       terminal and the log get the window's width instead of the conversation's.
+       VS Code has its own panel and never mounts it. It stays mounted while
+       hidden: unmounting it would kill every shell. -->
+  @if (bottomPanelEnabled()) {
+    <morse-bottom-panel [visible]="bottomPanelVisible()" />
   }
 
   @if (!embedded()) {

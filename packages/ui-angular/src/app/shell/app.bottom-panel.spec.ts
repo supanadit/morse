@@ -121,10 +121,10 @@ describe('App bottom panel', () => {
   });
 
   /**
-   * Full screen is the bottom panel's answer to the git panel's full mode: the
-   * terminal takes the whole conversation column, and the chat steps aside.
+   * The bottom panel is the shell's own band, not the conversation's: it spans
+   * every column, and full screen gives it the whole height between the chrome.
    */
-  it('gives the bottom panel the whole conversation column in full screen', () => {
+  it('spreads the bottom panel across the shell', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new TerminalHostTransport() }],
@@ -132,8 +132,13 @@ describe('App bottom panel', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    const chat = host.querySelector('main.chat') as HTMLElement;
-    expect(chat.classList.contains('bottom-full')).toBe(false);
+    const shell = host.querySelector('.shell') as HTMLElement;
+    const panel = host.querySelector('morse-bottom-panel') as HTMLElement;
+
+    // Outside `main.chat`, so the sidebars cannot squeeze it.
+    expect(panel.parentElement).toBe(shell);
+    expect(host.querySelector('main.chat morse-bottom-panel')).toBeNull();
+    expect(shell.classList.contains('panel-full')).toBe(false);
 
     // The panel's own button is the only way in; drive it like a reader would.
     const full = host.querySelector(
@@ -143,8 +148,15 @@ describe('App bottom panel', () => {
     fixture.detectChanges();
 
     expect(TestBed.inject(PanelState).full()).toBe(true);
-    expect(chat.classList.contains('bottom-full')).toBe(true);
-    expect(host.querySelector('morse-bottom-panel')?.classList.contains('full')).toBe(true);
+    expect(shell.classList.contains('panel-full')).toBe(true);
+    expect(panel.classList.contains('full')).toBe(true);
+
+    const exit = host.querySelector(
+      'morse-bottom-panel .toggle[aria-label="Exit full screen"]',
+    ) as HTMLButtonElement;
+    exit.click();
+    fixture.detectChanges();
+    expect(shell.classList.contains('panel-full')).toBe(false);
   });
 
   /**

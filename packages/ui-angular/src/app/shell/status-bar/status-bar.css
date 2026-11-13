@@ -2,7 +2,7 @@
   display: block;
   /* The chrome spans the columns: it is a row of the shell, not a column in it. */
   grid-column: 1 / -1;
-  grid-row: 3;
+  grid-row: 4;
 }
 
 .bar {
