@@ -1,8 +1,8 @@
 <!-- The CodeMirror view owns the host div; the rail beside it is Angular's. -->
 <div class="morse-editor-host" #host></div>
 @if (cards().length) {
-  <div class="morse-rail">
-    <div class="morse-rail-track" #track>
+  <div class="morse-rail" [class.overflow]="railOverflow()">
+    <div class="morse-rail-track" #track [style.height.px]="railOverflow() ? railHeight() : null">
       @for (card of cards(); track card.pin.id) {
         <article class="morse-card" [style.top.px]="card.top">
           <header class="morse-card-head">

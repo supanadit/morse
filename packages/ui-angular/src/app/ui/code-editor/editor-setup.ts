@@ -8,7 +8,7 @@
  * completion, rendered doc comments, code lens, VCS lanes, relative numbers.
  */
 import type { Extension } from '@codemirror/state';
-import { EditorState } from '@codemirror/state';
+import { EditorState, StateField, type Range } from '@codemirror/state';
 import { foldGutter, foldKeymap, syntaxTree, syntaxHighlighting } from '@codemirror/language';
 import { defaultKeymap } from '@codemirror/commands';
 import { search, searchKeymap } from '@codemirror/search';
@@ -178,68 +178,86 @@ const bracketMarks = Array.from({ length: BRACKET_TINTS }, (_, index) =>
   Decoration.mark({ class: `morse-bracket-${index + 1}` }),
 );
 
-function bracketDepth(view: EditorView): DecorationSet {
-  const out = [];
-  const opens = '([{';
-  const closes = ')]}';
-  for (const { from, to } of view.visibleRanges) {
-    let depth = 0;
-    for (let position = from; position < to; position += 1) {
-      const char = view.state.sliceDoc(position, position + 1);
-      if (opens.includes(char)) {
-        out.push(bracketMarks[depth % BRACKET_TINTS]!.range(position, position + 1));
-        depth += 1;
-      } else if (closes.includes(char)) {
-        depth = Math.max(0, depth - 1);
-        out.push(bracketMarks[depth % BRACKET_TINTS]!.range(position, position + 1));
+const OPENERS = '([{';
+const CLOSERS = ')]}';
+/** A bracket inside one of these is text, not structure. */
+const LITERAL_NODE = /comment|string|regexp|template|character|quote/i;
+
+/**
+ * Bracket tints for the whole document, computed once from the syntax tree.
+ *
+ * The tree is what keeps a `{` inside a string or a comment plain, and scanning
+ * the document in order (rather than per visible range) is what keeps a
+ * bracket's colour from changing as the viewport scrolls.
+ */
+export function bracketDecorations(state: EditorState): DecorationSet {
+  const out: Range<Decoration>[] = [];
+  let depth = 0;
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.to - node.from !== 1) {
+        return;
       }
-    }
-  }
+      const parent = node.node.parent;
+      if (parent !== null && LITERAL_NODE.test(parent.name)) {
+        return;
+      }
+      const char = state.sliceDoc(node.from, node.to);
+      if (OPENERS.includes(char)) {
+        out.push(bracketMarks[depth % BRACKET_TINTS]!.range(node.from, node.to));
+        depth += 1;
+      } else if (CLOSERS.includes(char)) {
+        depth = Math.max(0, depth - 1);
+        out.push(bracketMarks[depth % BRACKET_TINTS]!.range(node.from, node.to));
+      }
+    },
+  });
   return Decoration.set(out, true);
 }
 
 /** Brackets tinted by nesting depth, so a deep expression reads at a glance. */
-const rainbowBrackets = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-    constructor(view: EditorView) {
-      this.decorations = bracketDepth(view);
-    }
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged) {
-        this.decorations = bracketDepth(update.view);
-      }
-    }
-  },
-  { decorations: (plugin) => plugin.decorations },
-);
+const rainbowBrackets = StateField.define<DecorationSet>({
+  create: (state) => bracketDecorations(state),
+  update: (value, transaction) => (transaction.docChanged ? bracketDecorations(transaction.state) : value),
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 // --- sticky scrolled declarations ------------------------------------------
 
-interface StickyLine {
+export interface StickyLine {
   readonly number: number;
   readonly text: string;
 }
 
-/** The enclosing declarations of the line at the top of the viewport, innermost first. */
-function stickyLines(view: EditorView): StickyLine[] {
-  const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
-  const line = view.state.doc.lineAt(block.from);
+/**
+ * The declarations enclosing a line, innermost first, capped at `STICKY_MAX`.
+ * Pure over the state so it can be tested without a view; the plugin below adds
+ * only the "which line is at the top" measurement.
+ */
+export function enclosingDeclarations(state: EditorState, lineNumber: number): StickyLine[] {
+  const line = state.doc.line(Math.min(Math.max(1, lineNumber), state.doc.lines));
   if (line.number <= 1) {
     return [];
   }
   const out: StickyLine[] = [];
-  let node = syntaxTree(view.state).resolveInner(line.from, 1);
+  let node = syntaxTree(state).resolveInner(line.from, 1);
   for (; node !== null; node = node.parent as typeof node) {
-    if (node.from === 0 || node.to <= line.from) {
+    if (node.name === 'Program' || node.name === 'Document' || node.to <= line.from) {
       continue;
     }
-    const start = view.state.doc.lineAt(node.from);
-    if (start.number < line.number) {
+    const start = state.doc.lineAt(node.from);
+    // A block starts on the same line as its declaration; one band, not two.
+    if (start.number < line.number && out.every((seen) => seen.number !== start.number)) {
       out.push({ number: start.number, text: start.text });
     }
   }
   return out.slice(0, STICKY_MAX).reverse();
+}
+
+/** The enclosing declarations of the line at the top of the viewport. */
+function stickyLines(view: EditorView): StickyLine[] {
+  const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
+  return enclosingDeclarations(view.state, view.state.doc.lineAt(block.from).number);
 }
 
 /** The pinned band: enclosing declarations stay at the top while their body scrolls. */

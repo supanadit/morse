@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AttachmentStore } from '../../state/attachments';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { ChatComposer } from './composer';
 
@@ -107,6 +108,20 @@ describe('ChatComposer attachment chips', () => {
     expect(chipLabels(host)).toEqual(['L18-20']);
     const title = host.querySelector('.chip:not(.live) .chip-body')?.getAttribute('title') ?? '';
     expect(title).toContain('lines 18-20');
+  });
+
+  it('opens a pin’s file at the pin’s first line', async () => {
+    const { fixture, host, store } = await mount({ filePreview: true });
+    store.pin({ path: 'src/app.ts', startLine: 12, endLine: 14 });
+    fixture.detectChanges();
+
+    host.querySelector<HTMLElement>('.chip:not(.live) .chip-body')?.click();
+    fixture.detectChanges();
+
+    const tab = TestBed.inject(WorkspaceTabs)
+      .tabs()
+      .find((candidate) => candidate.kind === 'file' && candidate.path === 'src/app.ts');
+    expect(tab?.kind === 'file' ? tab.line : undefined).toBe(12);
   });
 
   it('leaves the note to the card when the host shows files in an editor', async () => {

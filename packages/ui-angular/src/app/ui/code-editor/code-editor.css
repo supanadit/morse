@@ -253,6 +253,10 @@ morse-code-editor .morse-rail {
   background: var(--morse-panel);
 }
 
+morse-code-editor .morse-rail.overflow {
+  overflow-y: auto;
+}
+
 morse-code-editor .morse-rail-track {
   position: absolute;
   inset: 0 0 auto;

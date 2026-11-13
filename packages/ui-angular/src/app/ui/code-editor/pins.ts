@@ -32,3 +32,19 @@ export function editorPins(pins: readonly PendingPin[], path: string): EditorPin
   }
   return out.sort((a, b) => a.startLine - b.startLine || a.id.localeCompare(b.id));
 }
+
+/**
+ * Whether a pin's note is written in the file (the card beside the code) rather
+ * than on the composer chip. The chip keeps the editor only where there is no
+ * card to reach: no file tab at all, or a file the editor cannot show. Getting
+ * this wrong strands a note with no surface, so it is a pure function with a
+ * test for every combination.
+ */
+export function noteLivesInFile(input: {
+  filePreview: boolean;
+  binary?: boolean;
+  error?: string;
+  loading?: boolean;
+}): boolean {
+  return input.filePreview && input.binary !== true && input.error === undefined && input.loading !== true;
+}

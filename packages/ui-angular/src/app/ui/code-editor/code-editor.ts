@@ -28,12 +28,12 @@ import { foldedRanges } from '@codemirror/language';
 import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
-import { pillAnchoredAt, pinFromOffsets, pinRangeLabel, type PinRequest } from './pin-selection';
-import { railSlots } from './rail';
+import { pillAnchoredAt, pinFromText, type PinRequest } from './pin-selection';
+import { railOverflows, railSlots } from './rail';
 import { clearFlash, flashExtension, revealLine } from './scroll';
 import { Markdown } from '../markdown/markdown';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
-import type { PopoverAnchor } from '@morse/ui-runtime';
+import { pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
 
 /** How long a jumped-to line stays lit. */
 const FLASH_MS = 900;
@@ -92,7 +92,7 @@ const pinTintField = StateField.define<DecorationSet>({
   // it; the stylesheet scopes every selector to the host element instead, and
   // `conventions.spec.ts` holds that line.
   encapsulation: ViewEncapsulation.None,
-  host: { '(keydown)': 'onEditorKeydown($event)' },
+  host: { '(keydown)': 'onEditorKeydown($event)', '[attr.aria-label]': "'File ' + path()" },
 })
 export class CodeEditor {
   /** The file's text, as the tab store read it. */
@@ -111,11 +111,14 @@ export class CodeEditor {
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private readonly track = viewChild<ElementRef<HTMLElement>>('track');
   private readonly language = new Compartment();
-  private readonly ready = signal(false);
   /** The selection pill, when a confirmation-worthy selection exists. */
   protected readonly pill = signal<Pill | undefined>(undefined);
   /** The rail's cards, placed in document coordinates. */
   protected readonly cards = signal<readonly RailCard[]>([]);
+  /** The stack is taller than the document, so the rail scrolls itself. */
+  protected readonly railOverflow = signal(false);
+  /** How tall the stack is, when the rail owns the scrolling. */
+  protected readonly railHeight = signal(0);
   /** The card whose note is being edited, and where the popover points. */
   protected readonly noteEditing = signal<NoteEditor | undefined>(undefined);
   /** What the annotation editor names: this file, and the pin's range. */
@@ -153,6 +156,13 @@ export class CodeEditor {
       this.pins();
       untracked(() => this.applyPins());
     });
+    // The track only exists once the rail renders, so the transform is applied
+    // from an effect that watches both, not from the write that created it.
+    effect(() => {
+      this.cards();
+      this.track();
+      untracked(() => this.syncTrack());
+    });
     inject(DestroyRef).onDestroy(() => {
       if (this.flashTimer !== undefined) {
         clearTimeout(this.flashTimer);
@@ -187,7 +197,6 @@ export class CodeEditor {
       }),
     });
     this.view?.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
-    this.ready.set(true);
     void this.applyLanguage(this.path());
     const line = this.line();
     if (line !== undefined) {
@@ -242,6 +251,9 @@ export class CodeEditor {
         cards.push({ pin, label: pinRangeLabel(pin), top: slot.top });
       }
     });
+    const last = slots.reduce<number>((bottom, slot) => (slot === null ? bottom : Math.max(bottom, slot.top + slot.height)), 0);
+    this.railOverflow.set(railOverflows(last, view.contentHeight));
+    this.railHeight.set(last);
     this.cards.set(cards);
     this.syncTrack();
   }
@@ -253,7 +265,9 @@ export class CodeEditor {
     if (track === undefined || view === undefined) {
       return;
     }
-    track.style.transform = `translateY(${-view.scrollDOM.scrollTop}px)`;
+    track.style.transform = this.railOverflow()
+      ? 'none'
+      : `translateY(${-view.scrollDOM.scrollTop}px)`;
   }
 
   /** ✎ on a card: open the annotation editor anchored to it. */
@@ -297,7 +311,7 @@ export class CodeEditor {
       this.pill.set(undefined);
       return;
     }
-    const request = pinFromOffsets(view.state.doc.toString(), range.from, range.to);
+    const request = pinFromText(view.state.doc, range.from, range.to);
     if (request === null) {
       this.pill.set(undefined);
       return;
@@ -323,7 +337,7 @@ export class CodeEditor {
     if (view === undefined) {
       return;
     }
-    const request = pinFromOffsets(view.state.doc.toString(), pill.from, pill.to);
+    const request = pinFromText(view.state.doc, pill.from, pill.to);
     if (request !== null) {
       this.pinRequested.emit(request);
     }
@@ -391,7 +405,7 @@ export class CodeEditor {
       apply(pointer.clientY);
       this.dragging = false;
       this.pill.set(undefined);
-      const request = pinFromOffsets(view.state.doc.toString(), from, to, { lineOnly: true });
+      const request = pinFromText(view.state.doc, from, to, { lineOnly: true });
       if (request !== null) {
         this.pinRequested.emit(request);
       }

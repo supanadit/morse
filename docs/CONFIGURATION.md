@@ -159,10 +159,10 @@ those tabs — text, pins, mentions and inline images — are persisted per tab 
 restoration and restores nothing here. The file opens in a read-only editor (syntax
 highlighting, folding, find, no language server), so a file over 512 KB is shown truncated and a binary file
 is named rather than decoded.
-Drag across the preview's line numbers to pin a range (`path:start-end`) to your next message — picking a
-file in the `@` picker opens it so the drag is one step away. Ranges that touch or overlap become one chip
-(and one highlight); dragging from inside an existing highlight edits that range, and its top and bottom
-edges are handles you can pull to move a boundary. Pull one into a neighbouring range and the two merge.
+Drag across the editor's line numbers to pin a range (`path:start-end`) to your next message, or select text
+and confirm the pill that appears to pin the exact columns — picking a file in the `@` picker opens it so the
+drag is one step away. Ranges that touch or overlap become one chip (and one highlight). A pinned range shows
+its note in a card beside the code; re-drag or re-select to change it.
 Right-click a tab for Close, Close Others, Close to the Right and Close All — the actions VS Code's own tab
 menu offers. The menu's scope is the tab you clicked: on a **session** it spans the whole strip (its quoted
 files go with it), but on a **file chip** it only spans that chip's row, so closing a chip can never take the

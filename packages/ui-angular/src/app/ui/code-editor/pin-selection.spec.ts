@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pillAnchoredAt, pinFromOffsets, pinRangeLabel } from './pin-selection';
+import { pillAnchoredAt, pinFromOffsets } from './pin-selection';
 
 const doc = 'one\ntwo\nthree';
 
@@ -16,6 +16,14 @@ describe('pinFromOffsets', () => {
       text: 'one',
     });
   });
+  it('ends on the last selected character, not one past it', () => {
+    expect(pinFromOffsets('abcdef', 2, 5)).toMatchObject({
+      startColumn: 3,
+      endColumn: 5,
+      characters: 3,
+      text: 'cde',
+    });
+  });
   it('pins whole lines from a gutter drag', () => {
     expect(pinFromOffsets(doc, 0, 7, { lineOnly: true })).toEqual({
       startLine: 1,
@@ -28,15 +36,33 @@ describe('pinFromOffsets', () => {
       startLine: 1,
       endLine: 2,
       startColumn: 3,
-      endColumn: 3,
+      endColumn: 2,
       characters: 4,
     });
   });
-  it('counts UTF-16 units for emoji (Review Focus 5)', () => {
+  it('counts UTF-16 units for a selection over an emoji (Review Focus 5)', () => {
     expect(pinFromOffsets('a😀b', 1, 3)).toMatchObject({
       startColumn: 2,
       endColumn: 3,
       characters: 2,
+    });
+  });
+  it('counts UTF-16 units for a selection after an emoji (Review Focus 5)', () => {
+    expect(pinFromOffsets('a😀b', 3, 4)).toEqual({
+      startLine: 1,
+      startColumn: 4,
+      endColumn: 4,
+      characters: 1,
+      text: 'b',
+    });
+  });
+  it('normalises a selection that stops at a later line’s first column', () => {
+    expect(pinFromOffsets('ab\ncd\n', 0, 6)).toEqual({
+      startLine: 1,
+      endLine: 2,
+      startColumn: 1,
+      endColumn: 2,
+      characters: 6,
     });
   });
   it('clamps offsets past the end', () => {
@@ -47,15 +73,6 @@ describe('pinFromOffsets', () => {
   it('pins the last line when the doc ends with a newline', () => {
     expect(pinFromOffsets('ab\n', 3, 3)).toBeNull();
   });
-});
-
-describe('pinRangeLabel', () => {
-  it('labels a single line', () => expect(pinRangeLabel({ startLine: 14 })).toBe('L14'));
-  it('labels a line range', () => expect(pinRangeLabel({ startLine: 14, endLine: 22 })).toBe('L14-22'));
-  it('labels a one-line column range', () =>
-    expect(pinRangeLabel({ startLine: 14, startColumn: 3, endColumn: 18 })).toBe('L14:3-18'));
-  it('labels a multi-line column range', () =>
-    expect(pinRangeLabel({ startLine: 14, endLine: 22, startColumn: 3, endColumn: 9 })).toBe('L14:3-22'));
 });
 
 describe('pillAnchoredAt', () => {

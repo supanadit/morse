@@ -30,7 +30,8 @@ import { ShortcutService } from '../../services/shortcut.service';
 import { Uploader } from '../../services/uploads';
 import { WorkspaceFiles } from '../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
-import { WorkspaceTabs } from '../../state/workspace-tabs';
+import { WorkspaceTabs, type FileTab } from '../../state/workspace-tabs';
+import { noteLivesInFile } from '../../ui/code-editor/pins';
 
 /** What `getEditorContext` answers: the editor in front, as the composer pins it. */
 interface EditorSnapshot {
@@ -237,7 +238,7 @@ export class ChatComposer {
    */
   protected openPinPreview(pin: PendingPin): void {
     if (this.morse.capabilities()?.filePreview) {
-      this.tabs.openMentionFile(pin.path);
+      this.tabs.openMentionFile(pin.path, pin.startLine);
     }
   }
 
@@ -296,13 +297,21 @@ export class ChatComposer {
   protected readonly noteHint = pinNoteHint;
 
   /**
-   * Whether this host opens files in Morse's own editor. When it does, a pin's
-   * note is written in the card beside the code, and the chip only shows it.
-   * VS Code has no file tab, so there the chip keeps the editor.
+   * Whether this pin's note is written in the card beside the code. The chip
+   * keeps the editor where there is no card to reach — VS Code (no file tab), a
+   * binary file, or one that failed to read — so a note is never stranded.
    */
-  protected readonly canAnnotateInFile = computed(
-    () => this.morse.capabilities()?.filePreview === true,
-  );
+  protected notesInFile(pin: PendingPin): boolean {
+    const tab = this.tabs
+      .tabs()
+      .find((candidate): candidate is FileTab => candidate.kind === 'file' && candidate.path === pin.path);
+    return noteLivesInFile({
+      filePreview: this.morse.capabilities()?.filePreview === true,
+      binary: tab?.binary,
+      error: tab?.error,
+      loading: tab?.loading,
+    });
+  }
 
   /**
    * The editor selection the host reports live: it is unlocked until the user

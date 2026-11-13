@@ -259,9 +259,10 @@ export interface PinRangeLike {
 
 /**
  * The one range label every chip uses: `L18` for a single line, `L18-20` for
- * whole lines, `L18:45-79` for part of one line, and `L18:45-20:12` for a
- * partial range across lines. A whole-file pin has no label. A column pair is
- * only used when both ends are present; otherwise the line form is honest.
+ * whole lines, `L18:45-79` for part of one line, and `L18:45-20` for a partial
+ * range across lines (the end column lives in the tooltip and the mention, not
+ * in the label). A whole-file pin has no label. A column pair is only used when
+ * both ends are present; otherwise the line form is honest.
  */
 export function pinRangeLabel(pin: PinRangeLike): string {
   if (pin.startLine === undefined) {
@@ -271,7 +272,7 @@ export function pinRangeLabel(pin: PinRangeLike): string {
   if (pin.startColumn !== undefined && pin.endColumn !== undefined) {
     return endLine === pin.startLine
       ? `L${pin.startLine}:${pin.startColumn}-${pin.endColumn}`
-      : `L${pin.startLine}:${pin.startColumn}-${endLine}:${pin.endColumn}`;
+      : `L${pin.startLine}:${pin.startColumn}-${endLine}`;
   }
   return endLine === pin.startLine ? `L${pin.startLine}` : `L${pin.startLine}-${endLine}`;
 }

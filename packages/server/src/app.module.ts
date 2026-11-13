@@ -90,8 +90,8 @@ import {
     },
     MorseRegistryLifecycle,
     ServerTerminalBackend,
-    // The browser host's language servers: a singleton, like the terminal
-    // backend, because starting one is the expensive part.
+    // One session factory for the host: it owns the registry, the terminals and
+    // the per-session state a connection reads.
     MorseSessionFactory,
     MorseGateway,
   ],

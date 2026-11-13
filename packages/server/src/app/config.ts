@@ -51,12 +51,6 @@ export interface MorseServerConfig {
    */
   terminalIdleMs: number;
   /**
-   * How long a language server keeps running after the last request that used
-   * it. Starting one is expensive (the TypeScript server indexes a project
-   * before it answers), so it is worth keeping across a few files; only the idle
-   * clock — or the host shutting down — ends one. `0` disables the timeout.
-   */
-  /**
    * Whether the frontend may ask the registry for the latest release. On unless
    * `MORSE_UPDATE_CHECK=0`; an air-gapped host turns it off rather than letting
    * the panel try and fail.

@@ -250,7 +250,7 @@
             A pin with no note yet shows the ghost one, so there is always a
             visible way in — not only a way to see what got written.
           -->
-          @if (canAnnotateInFile()) {
+          @if (notesInFile(pin)) {
             <!-- The card beside the code owns the note; the chip only shows it. -->
             @if (pin.note !== undefined) {
               <span

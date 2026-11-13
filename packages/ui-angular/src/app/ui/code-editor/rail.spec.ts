@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { railSlots } from './rail';
+import { railOverflows, railSlots } from './rail';
 
 describe('railSlots', () => {
   it('places one card at its anchor', () => {
@@ -23,5 +23,14 @@ describe('railSlots', () => {
     for (let i = 1; i < slots.length; i += 1) {
       expect(slots[i]!.top).toBeGreaterThanOrEqual(slots[i - 1]!.top + 30 + 6);
     }
+  });
+});
+
+describe('railOverflows', () => {
+  it('rides the document while the stack fits', () => {
+    expect(railOverflows(900, 1200)).toBe(false);
+  });
+  it('scrolls itself when the stack is taller than the document', () => {
+    expect(railOverflows(1640, 1200)).toBe(true);
   });
 });

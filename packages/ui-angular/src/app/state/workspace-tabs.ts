@@ -589,9 +589,23 @@ export class WorkspaceTabs {
    * session in front — a chip in that session's row, keyed by it, so the same
    * path quoted elsewhere is a second chip.
    */
-  openMentionFile(path: string): void {
+  openMentionFile(path: string, line?: number): void {
     const owner = this.focusedOwner();
-    this.placeFileTab(`${FILE_PREFIX}${path}`, path, path, true, owner.id, owner.cwd);
+    const id = mentionTabId(owner.id, path);
+    const open = this.items().some((tab) => tab.id === id);
+    this.placeFileTab(
+      `${FILE_PREFIX}${path}`,
+      path,
+      path,
+      true,
+      owner.id,
+      owner.cwd,
+      line === undefined ? {} : { line },
+    );
+    // A tab that was already open keeps its old line: send it to the new one.
+    if (open && line !== undefined) {
+      this.revealLine(id, line);
+    }
   }
 
   /**

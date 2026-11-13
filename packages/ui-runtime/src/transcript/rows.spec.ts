@@ -173,7 +173,7 @@ describe('pinRangeLabel', () => {
 
   it('labels a partial range across lines with both endpoints', () => {
     expect(pinRangeLabel({ startLine: 18, endLine: 20, startColumn: 45, endColumn: 12 })).toBe(
-      'L18:45-20:12',
+      'L18:45-20',
     );
   });
 

@@ -257,7 +257,7 @@ Expected: FAIL — modules not found.
 
 `editorPins` filters by `path`, drops `startLine === undefined`, sorts by `startLine` then `id`, and copies only the six fields above.
 
-`pinFromOffsets` clamps `from`/`to` into `[0, text.length]`, swaps them when reversed, returns `null` when equal, splits the prefix `text.slice(0, from)` on `\n` for the 1-based start line/column, does the same for `to` for the end, and computes `characters` as `to - from` (UTF-16 units, which is what `String.length` and the store both use). With `lineOnly`, it returns only `startLine`, `endLine` (omitted when both ends share a line) and `characters`. Without it, `endColumn` is the exclusive caret column, and `text` is set only when the selection stays on one line.
+`pinFromOffsets` clamps `from`/`to` into `[0, text.length]`, swaps them when reversed, returns `null` when equal, splits the prefix `text.slice(0, from)` on `\n` for the 1-based start line/column, does the same for `to` for the end, and computes `characters` as `to - from` (UTF-16 units, which is what `String.length` and the store both use). With `lineOnly`, it returns only `startLine`, `endLine` (omitted when both ends share a line) and `characters`. Without it, `endColumn` is the 1-based column of the last selected character (the exclusive end's character index, normalised to the previous line's length when the selection stops at a later line's first column), and `text` is set only when the selection stays on one line.
 
 - [ ] **Step 4: Run both tests and confirm they pass**
 

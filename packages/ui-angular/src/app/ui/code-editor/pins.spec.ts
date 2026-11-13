@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { editorPins } from './pins';
+import { editorPins, noteLivesInFile } from './pins';
 import type { PendingPin } from '../../state/attachments';
 
 const pin = (over: Partial<PendingPin>): PendingPin => ({ id: 'p', path: 'a.ts', ...over }) as PendingPin;
@@ -25,5 +25,22 @@ describe('editorPins', () => {
       'a.ts',
     );
     expect(only).toEqual({ id: 'a', startLine: 1, endLine: 2, startColumn: 3, endColumn: 4, note: 'why' });
+  });
+});
+
+describe('noteLivesInFile', () => {
+  const base = { filePreview: true };
+  it('writes the note in the card when the host has an editor', () => {
+    expect(noteLivesInFile(base)).toBe(true);
+  });
+  it('keeps the chip when the host has no editor (VS Code)', () => {
+    expect(noteLivesInFile({ filePreview: false })).toBe(false);
+  });
+  it('keeps the chip for a binary file, which has no editor', () => {
+    expect(noteLivesInFile({ ...base, binary: true })).toBe(false);
+  });
+  it('keeps the chip while the file is loading or failed to read', () => {
+    expect(noteLivesInFile({ ...base, loading: true })).toBe(false);
+    expect(noteLivesInFile({ ...base, error: 'Could not read this file.' })).toBe(false);
   });
 });

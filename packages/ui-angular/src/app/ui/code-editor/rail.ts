@@ -35,3 +35,12 @@ export function railSlots(
   }
   return slots;
 }
+
+/**
+ * Whether a stack of cards is taller than the document it points at. Past that
+ * point no scroll of the editor can reach the tail, so the rail scrolls itself
+ * instead of riding the document.
+ */
+export function railOverflows(lastBottom: number, documentHeight: number): boolean {
+  return lastBottom > documentHeight;
+}

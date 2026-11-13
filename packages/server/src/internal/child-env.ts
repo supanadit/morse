@@ -10,9 +10,9 @@
  * `MORSE_*` is stripped, and so is the IPC channel `fork`/`node --watch` puts in
  * the environment (a child Node would otherwise speak the parent's protocol).
  *
- * The language servers get the same treatment for the same reason: `npx` and the
- * servers it runs are Node programs too, and one started under `node --watch`
- * would inherit `NODE_CHANNEL_FD` and try to talk to the host's supervisor.
+ * The same treatment is for the same reason as `MORSE_*`: a child Node started
+ * under `node --watch` would otherwise inherit `NODE_CHANNEL_FD` and try to
+ * talk to the host's supervisor.
  */
 export function childProcessEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};

@@ -237,9 +237,6 @@
 .dnote-text {
   margin-left: 2px;
 }
-.edge:hover {
-  background: color-mix(in srgb, var(--morse-accent) 70%, transparent);
-}
 .hint {
   margin: 0;
   padding: 12px 16px;
