@@ -5,6 +5,7 @@ import { isClientToHostMessage, isHostToClientMessage } from '../wire.js';
 /**
  * The subagent rows travel as their own field: the wizard's rows are data the
  * host writes into the bot's engine config, not prose folded into AGENTS.md.
+ * They are an OpenCode feature, so both fixtures below create an OpenCode bot.
  * Annotating the input is the type-level half of this test; the wire assertions
  * below are the runtime half.
  */
@@ -25,7 +26,7 @@ const CLIENT_BOT_MESSAGES = [
       requestId: 'req-1',
       name: 'forge',
       description: 'Builds things',
-      engineKind: 'pi',
+      engineKind: 'opencode',
       credentials: [{ provider: 'anthropic', apiKey: 'sk' }],
       envVars: ['ANTHROPIC_API_KEY'],
       persona: 'You are Forge.',

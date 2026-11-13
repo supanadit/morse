@@ -84,9 +84,10 @@ export interface BotCreateInput {
   /** The bot workspace's AGENTS.md, when the wizard collected one. */
   agentsMd?: string;
   /**
-   * The bot's named subagents, each with its own system prompt. An engine that
-   * supports them stores them natively (OpenCode's `agent` config); the host
-   * ignores them for an engine that does not.
+   * The bot's named subagents, each with its own system prompt. The host records
+   * them on the bot but only hands them to an engine that supports subagents
+   * (OpenCode stores them natively in its `agent` config); an engine without them
+   * keeps the record alone.
    */
   subagents?: Array<{ name: string; prompt: string }>;
 }
