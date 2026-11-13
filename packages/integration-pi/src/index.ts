@@ -4,6 +4,14 @@ export { PiRpcAgent } from './pi-rpc-agent.js';
 export type { PiRpcAgentOptions } from './pi-rpc-agent.js';
 export { PiRpcAgentFactory } from './pi-rpc-agent-factory.js';
 export type { PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
+export {
+  PI_BOT_CAPABILITIES,
+  PI_INSTALL_HINT,
+  botPiEnv,
+  createBotPiFactory,
+  writePiCredentials,
+} from './bot-engine.js';
+export type { BotPiFactoryOptions } from './bot-engine.js';
 export { PiMcp, parseMcpServerInput } from './pi-mcp.js';
 export type {
   McpConfigScope,
