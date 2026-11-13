@@ -196,12 +196,13 @@ const SUBAGENT_DESCRIPTION_MAX = 80;
  * The one-line label OpenCode shows for an agent.
  *
  * The first line of the prompt is the sentence the reader already wrote about
- * what this subagent does; a prompt that starts blank has no such sentence, so
- * the name stands in. The cap applies to whichever wins.
+ * what this subagent does, and it is the only part capped: OpenCode renders it
+ * in one row. A prompt that starts blank has no such sentence, so the name
+ * stands in whole — it is a label the reader chose, not prose to truncate.
  */
 function subagentDescription(name: string, prompt: string): string {
   const firstLine = prompt.split(/\r?\n/, 1)[0]?.trim() ?? '';
-  return (firstLine === '' ? name : firstLine).slice(0, SUBAGENT_DESCRIPTION_MAX);
+  return firstLine.slice(0, SUBAGENT_DESCRIPTION_MAX) || name;
 }
 
 /**
@@ -233,7 +234,14 @@ export function writeOpenCodeSubagents(
   ) {
     throw new Error(`${path}: "agent" must be an object.`);
   }
-  const agents: Record<string, unknown> = { ...(existing as Record<string, unknown> | undefined) };
+  // Prototype-less on purpose: a subagent may legitimately be named `__proto__`,
+  // and assigning that key on an ordinary object hits the prototype setter, so
+  // the entry silently never reaches the file. Merging into a bare object keeps
+  // every name — the file's existing entries included — as an own key.
+  const agents: Record<string, unknown> = Object.assign(
+    Object.create(null) as Record<string, unknown>,
+    existing as Record<string, unknown> | undefined,
+  );
   for (const subagent of subagents) {
     agents[subagent.name] = {
       mode: 'subagent',

@@ -428,10 +428,14 @@ describe('writeOpenCodeSubagents', () => {
 
   it('caps the description at 80 characters and falls back to the name', () => {
     const botRoot = tempRoot();
+    // A name is already a label OpenCode shows whole; only the prompt line is
+    // capped, so a long name is not truncated into something unreadable.
+    const longName = 'n'.repeat(90);
 
     writeOpenCodeSubagents(botRoot, [
       { name: 'long-winded', prompt: `${'a'.repeat(120)}\nsecond line` },
       { name: 'blank', prompt: '   ' },
+      { name: longName, prompt: '' },
     ]);
 
     const { agent } = JSON.parse(readFileSync(configPath(botRoot), 'utf8')) as {
@@ -442,6 +446,25 @@ describe('writeOpenCodeSubagents', () => {
     // show, and the name is the only honest one.
     expect(agent['blank']?.description).toBe('blank');
     expect(agent['blank']?.prompt).toBe('   ');
+    expect(agent[longName]?.description).toBe(longName);
+  });
+
+  it('writes a subagent named __proto__ as a plain key', () => {
+    const botRoot = tempRoot();
+
+    // `__proto__` is a legal agent name here, but assigning it on an ordinary
+    // object hits the prototype setter and the entry never reaches the file.
+    writeOpenCodeSubagents(botRoot, [{ name: '__proto__', prompt: 'Watch the prototype.' }]);
+
+    const written = JSON.parse(readFileSync(configPath(botRoot), 'utf8')) as {
+      agent: Record<string, unknown>;
+    };
+    expect(Object.keys(written.agent)).toContain('__proto__');
+    expect(written.agent['__proto__']).toEqual({
+      mode: 'subagent',
+      description: 'Watch the prototype.',
+      prompt: 'Watch the prototype.',
+    });
   });
 
   it('leaves no temp file beside the config', () => {
