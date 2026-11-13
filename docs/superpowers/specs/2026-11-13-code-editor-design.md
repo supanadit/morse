@@ -120,10 +120,9 @@ The component's public surface:
 
 - `text: string` — the file's content (already fetched by the tab store).
 - `path: string` — the grammar lookup key and the `aria-label`.
-- `line?: number` — 1-based line to reveal and flash (search hits, git jumps).
+- `line?: number` — 1-based line to reveal and flash (search hits, git jumps, a chip click).
 - `pins: readonly EditorPin[]` — every range this file carries, already filtered from the store:
   `{ id, startLine, endLine?, startColumn?, endColumn?, note? }`.
-- `focusPin?: string` — the pin to reveal and scroll to (the chip was clicked).
 
 **Outputs** (all delegated; the editor owns no pin state)
 
@@ -131,7 +130,6 @@ The component's public surface:
   `PendingPin` needs. Emitted on a committed gutter drag or a confirmed selection.
 - `noteEdited` — `{ id, note }` from the card's editor.
 - `unpinned` — `{ id }` from a card's ⌫.
-- `pinFocused` — `{ id }` when a card is activated, so the feature can mark it on the chip.
 
 ### D2 — Lazy loading
 
@@ -275,7 +273,8 @@ component and no second presentation.
 (and its `AnimationService` call), the per-band ✎ (the card's own), and — where the editor exists —
 the composer's note editing: `composer.ts` loses `openAnnotation` and the annotation
 target/anchor signals, and `morse-pin-annotation` leaves the composer's imports. Chips keep path,
-label, hover preview, click-to-open and remove; clicking a chip focuses its card (`focusPin`).
+label, hover preview, click-to-open and remove; clicking a chip opens the file at the pin's start
+line, where the editor flashes it and its card waits.
 
 **Hosts with no editor.** VS Code sets no `filePreview` capability: no tabs, no editor, no rail, so a
 card-only note would strand every VS Code user. The chip's ✎ therefore survives *exactly there* —
