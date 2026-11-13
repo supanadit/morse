@@ -22,6 +22,7 @@ export * from './logger.js';
 export * from './bot/types.js';
 export * from './bot/store.js';
 export * from './bot/mentions.js';
+export * from './bot/service.js';
 
 export * from './chat/service.js';
 export * from './chat/ports.js';
