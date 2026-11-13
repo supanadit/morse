@@ -122,7 +122,11 @@ describe('BottomPanel', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(host.querySelector('morse-git-log')).not.toBeNull();
+    const log = host.querySelector('morse-git-log') as HTMLElement;
+    expect(log).not.toBeNull();
+    // The host fills the panel body; `flex: 0 1 auto` left the log's main
+    // column at 0 width while the branch tree kept its own.
+    expect(getComputedStyle(log).flexGrow).toBe('1');
   });
 
   it('opens the chip and folds it again without killing the tool', async () => {
