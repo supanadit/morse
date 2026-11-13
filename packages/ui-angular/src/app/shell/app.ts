@@ -261,20 +261,6 @@ export class App {
     const width = this.layout.leftSize();
     return width === undefined ? null : `${width}px`;
   });
-  /**
-   * The dragged heights of the panes that are sized but never placed — the git panel's
-   * Changes section and its repository detail. The shell puts them on screen, so a drag
-   * repaints the layout instead of re-rendering the rows inside the pane.
-   */
-  protected readonly changesHeight = computed(() => {
-    const height = this.layout.changesSize();
-    return height === undefined ? null : `${height}px`;
-  });
-  /** The git panel's open-repository detail, dragged from its own handle under a crowded list. */
-  protected readonly detailHeight = computed(() => {
-    const height = this.layout.detailSize();
-    return height === undefined ? null : `${height}px`;
-  });
   /** The file the strip is showing, or `undefined` when a session tab is in front. */
   protected readonly activeFile = computed(() => {
     const tab = this.tabs.activeTab();

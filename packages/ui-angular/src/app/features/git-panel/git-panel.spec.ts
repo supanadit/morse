@@ -175,123 +175,14 @@ describe('GitPanel', () => {
   });
   afterEach(() => TestBed.resetTestingModule());
 
-  it('renders commits, refs and their graph', async () => {
-    const { fixture, fake } = setup(LOG);
+  it('leaves history to the bottom panel', async () => {
+    const { fixture } = setup(LOG);
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
 
-    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitLog', { max: 250, skip: 0 });
-    expect(host.querySelectorAll('.commit')).toHaveLength(2);
-    expect(host.textContent).toContain('Add the git panel');
-    // The node plus the edge between the two commits.
-    expect(host.querySelectorAll('.graph circle').length).toBe(2);
-    expect(host.querySelectorAll('.graph path').length).toBeGreaterThan(0);
-    expect(host.querySelector('.branch')?.textContent).toContain('main');
-    expect(host.querySelector('.ref.kind-tag')?.textContent).toContain('v0.8.0');
-    expect(host.querySelector('.ref.kind-head')?.textContent).toContain('main');
-  });
-
-  it('caps a long ref but keeps its full name in the title', async () => {
-    const long = 'origin/feat/pms-production-rebalance-sales-purchase-per-node';
-    const { fixture } = setup({
-      ...LOG,
-      commits: [{ ...LOG.commits[0], refs: [long] }, LOG.commits[1]],
-    });
-    await settle(fixture);
-
-    // The chip is CSS-capped; the full name survives for the hover tooltip.
-    const ref = (fixture.nativeElement as HTMLElement).querySelector('.ref') as HTMLElement;
-    expect(ref.getAttribute('title')).toBe(long);
-  });
-
-  it('folds a commit\'s extra branches into +N in the sidebar', async () => {
-    const { fixture } = setup({
-      ...LOG,
-      commits: [
-        { ...LOG.commits[0], refs: ['HEAD -> main', 'origin/main', 'origin/HEAD'] },
-        LOG.commits[1],
-      ],
-    });
-    await settle(fixture);
-
-    const host = fixture.nativeElement as HTMLElement;
-    const refs = host.querySelector('.commit')!.querySelectorAll('.ref');
-    expect(refs).toHaveLength(2);
-    expect(refs[1].textContent?.trim()).toBe('+2');
-    // The folded names are one hover away on the counter.
-    expect(refs[1].getAttribute('title')).toContain('origin/main');
-  });
-
-  it('shows the full commit in the row hover tooltip', async () => {
-    const long = 'feat(ui): round out the tab strip with a description the sidebar trims';
-    const { fixture } = setup({
-      ...LOG,
-      commits: [
-        {
-          ...LOG.commits[0],
-          subject: long,
-          author: 'Ada Lovelace',
-          refs: ['HEAD -> main', 'origin/main', 'tag: v0.9.5'],
-        },
-        LOG.commits[1],
-      ],
-    });
-    await settle(fixture);
-
-    const row = (fixture.nativeElement as HTMLElement).querySelector('.commit-row') as HTMLElement;
-    const title = row.getAttribute('title') ?? '';
-    // The full subject, and every ref — the two trimmed away in the sidebar.
-    expect(title).toContain(long);
-    expect(title).toContain('HEAD → main');
-    expect(title).toContain('origin/main');
-    expect(title).toContain('tag v0.9.5');
-    // The identity git would print alongside them.
-    expect(title).toContain('Ada Lovelace');
-    expect(title).toContain('f1a2b3c4');
-  });
-
-  it('unfolds a commit to its changed files and opens one as a commit diff', async () => {
-    const commitFiles = {
-      isRepo: true,
-      hash: LOG.commits[0].hash,
-      files: [
-        { path: 'src/a.ts', status: 'M ' },
-        { path: 'src/b.ts', status: 'A ' },
-      ],
-    };
-    const { fixture, fake } = setup(LOG, { files: [], commitFiles });
-    await settle(fixture);
-    const host = fixture.nativeElement as HTMLElement;
-
-    host.querySelector<HTMLElement>('.commit-row')!.click();
-    await settle(fixture);
-
-    expect(fake.requestHostCommand).toHaveBeenCalledWith('gitCommitFiles', {
-      hash: LOG.commits[0].hash,
-    });
-    const names = [...host.querySelectorAll('.commit-file-tree .row:not(.group) .label')].map((node) =>
-      node.textContent?.trim(),
-    );
-    expect(names).toEqual(['a.ts', 'b.ts']);
-    // A commit's files wear the same mark the Explorer and the changes tree give them.
-    const marks = [...host.querySelectorAll('.commit-file-tree .row:not(.group) use')].map((node) =>
-      node.getAttribute('href'),
-    );
-    expect(marks).toEqual(['#morse-code', '#morse-code']);
-    // The lane that survives the commit is drawn across the expanded list, so
-    // the graph line is not cut by the files.
-    expect(host.querySelectorAll('.commit-files .commit-rail .rail').length).toBeGreaterThan(0);
-
-    // Clicking a file opens a tab whose diff is against that commit, not HEAD.
-    host.querySelector<HTMLButtonElement>('.commit-file-tree .row:not(.group)')!.click();
-    fixture.detectChanges();
-    const tabs = TestBed.inject(WorkspaceTabs);
-    expect(tabs.tabs().map((tab) => tab.id)).toContain(`commit:${LOG.commits[0].hash}:src/a.ts`);
-
-    // Clicking the row again folds the list away.
-    host.querySelector<HTMLElement>('.commit-row')!.click();
-    fixture.detectChanges();
-    expect(host.querySelector('.commit-files')).toBeNull();
+    expect(host.querySelector('.history')).toBeNull();
+    expect(host.querySelector('.commit')).toBeNull();
+    expect(host.querySelector('.divider')).toBeNull();
   });
 
   it('shows the branch distance and pulls/pushes from the sync bar', async () => {
@@ -501,7 +392,7 @@ describe('GitPanel', () => {
     await settle(fixture);
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.repo-name')?.textContent?.trim()).toBe('one');
-    expect(host.querySelector('.subject')?.textContent?.trim()).toBe('commit in one');
+    expect(host.querySelector('.branch-name')?.textContent?.trim()).toBe('one-branch');
 
     workspace.set({ cwd: '/two', name: 'two' });
     fixture.detectChanges();
@@ -509,7 +400,7 @@ describe('GitPanel', () => {
 
     // The new project's repository, not the previous one's stale identity.
     expect(host.querySelector('.repo-name')?.textContent?.trim()).toBe('two');
-    expect(host.querySelector('.subject')?.textContent?.trim()).toBe('commit in two');
+    expect(host.querySelector('.branch-name')?.textContent?.trim()).toBe('two-branch');
   });
 
   it('says when the project is not a repository', async () => {
@@ -555,75 +446,6 @@ describe('GitPanel', () => {
     expect(host.querySelector('.commit-box')).toBeNull();
     expect(host.querySelector('.changes-tree')).toBeNull();
     expect(host.querySelector('.repo-detail-pane')).toBeNull();
-  });
-
-  it('folds and resizes the Changes and History sections inside the open repository', async () => {
-    const { fixture } = setup(LOG, {
-      files: [],
-      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
-    });
-    await settle(fixture);
-    const host = fixture.nativeElement as HTMLElement;
-
-    // Both sections are panes with their own fold, and a drag handle between.
-    const changes = host.querySelector('morse-pane.changes') as HTMLElement;
-    const history = host.querySelector('morse-pane.history') as HTMLElement;
-    expect(changes).not.toBeNull();
-    expect(history).not.toBeNull();
-    expect(host.querySelector('.divider')).not.toBeNull();
-
-    // Folding Changes hides its body but leaves History alone.
-    const changesFold = changes.querySelector<HTMLButtonElement>('.pane-fold')!;
-    changesFold.click();
-    fixture.detectChanges();
-    expect(host.querySelector('.commit-box')).toBeNull();
-    expect(host.querySelector('.changes-tree')).toBeNull();
-    expect(host.querySelector('.list')).not.toBeNull();
-    expect(host.querySelector('.repo-detail-pane')?.classList.contains('changes-collapsed')).toBe(
-      true,
-    );
-
-    // Folding History too collapses both to their headers; the divider goes away.
-    history.querySelector<HTMLButtonElement>('.pane-fold')!.click();
-    fixture.detectChanges();
-    expect(host.querySelector('.list')).toBeNull();
-    expect(host.querySelector('.divider.gone')).not.toBeNull();
-  });
-
-  it('carries the open detail a handle of its own, and drags its height through the layout', async () => {
-    const { fixture } = setup(LOG, {
-      files: [],
-      status: { isRepo: true, files: [{ path: 'a.ts', status: ' M' }] },
-    });
-    await settle(fixture);
-    const host = fixture.nativeElement as HTMLElement;
-    const layout = TestBed.inject(LayoutState);
-
-    // The handle sits at the detail's bottom edge — inside it, so the splitter
-    // measures the pane it grows — and names itself for a screen reader.
-    const handle = host.querySelector<HTMLElement>('.repo-detail-pane .detail-divider');
-    expect(handle).not.toBeNull();
-    expect(handle!.getAttribute('role')).toBe('separator');
-    expect(handle!.getAttribute('aria-label')).toBe('Resize the repository detail');
-
-    // Never dragged: the floor comes from the stylesheet, not a stored height.
-    expect(host.querySelector('.repo-detail-pane')?.classList.contains('sized')).toBe(false);
-
-    // Dragged: the pane wears the height the shell's variable puts on screen.
-    layout.setSize('detail', 400);
-    fixture.detectChanges();
-    expect(host.querySelector('.repo-detail-pane')?.classList.contains('sized')).toBe(true);
-
-    // The handle is on the pane's bottom edge, so the hand going down is taller —
-    // and jsdom measures no room, leaving the drag to its own minimum.
-    handle!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientY: 300 }));
-    handle!.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, cancelable: true, clientY: 350 }));
-    expect(layout.detailSize()).toBe(450);
-
-    // A double-click hands the height back to the stylesheet and forgets the drag.
-    handle!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-    expect(layout.detailSize()).toBeUndefined();
-    expect(localStorage.getItem('morse.git.detailHeight')).toBeNull();
   });
 
   it('opens one repository in place and leaves the other headers put', async () => {
@@ -681,7 +503,7 @@ describe('GitPanel', () => {
     expect(host.querySelectorAll('.repo-head')).toHaveLength(2);
   });
 
-  it('lists uncommitted changes above the graph and opens one in a tab', async () => {
+  it('lists uncommitted changes and opens one in a tab', async () => {
     const { fixture } = setup(LOG, {
       files: ['a.ts', 'b.ts'],
       status: {
@@ -889,7 +711,7 @@ describe('GitPanel', () => {
     expect(handle?.getAttribute('aria-label')).toBe('Resize the git panel');
   });
 
-  it('takes the full width and shows the author when expanded', async () => {
+  it('takes the full width when expanded', async () => {
     const { fixture } = setup(LOG);
     await settle(fixture);
     fixture.componentRef.setInput('expanded', true);
@@ -897,7 +719,6 @@ describe('GitPanel', () => {
     const host = fixture.nativeElement as HTMLElement;
 
     expect(host.querySelector('.panel.full')).toBeTruthy();
-    expect(host.querySelector('.commit.expanded .author')?.textContent).toContain('A');
 
     // The header's expand button flips the shell's layout flag.
     const shell = TestBed.inject(ShellState);

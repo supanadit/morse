@@ -122,44 +122,4 @@ describe('LayoutState', () => {
     expect(localStorage.getItem('morse.git.width')).toBe('520');
   });
 
-  it('clamps and remembers a pane height, and forgets it when the reader resets it', () => {
-    const layout = TestBed.inject(LayoutState);
-    expect(layout.changesSize()).toBeUndefined();
-
-    layout.setSize('changes', 300, false);
-    expect(layout.changesSize()).toBe(300);
-    expect(localStorage.getItem('morse.git.changesHeight')).toBeNull();
-
-    layout.setSize('changes', 300);
-    expect(localStorage.getItem('morse.git.changesHeight')).toBe('300');
-    layout.setSize('changes', 10);
-    expect(layout.size('changes')).toBe(48);
-
-    // A double-click on a handle asks for the stylesheet's default back, so nothing is stored.
-    layout.setSize('changes', undefined);
-    expect(layout.changesSize()).toBeUndefined();
-    expect(localStorage.getItem('morse.git.changesHeight')).toBeNull();
-
-    layout.setSize('changes', 10_000);
-    expect(layout.changesSize()).toBe(1200);
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(LayoutState).changesSize()).toBe(1200);
-  });
-
-  it('clamps and remembers the git detail height in its own range', () => {
-    const layout = TestBed.inject(LayoutState);
-    expect(layout.detailSize()).toBeUndefined();
-
-    // Too short for both sections under an open repository, and past any window.
-    layout.setSize('detail', 10);
-    expect(layout.detailSize()).toBe(240);
-    layout.setSize('detail', 99_999);
-    expect(layout.size('detail')).toBe(1600);
-    expect(localStorage.getItem('morse.git.detailHeight')).toBe('1600');
-
-    // Back to the stylesheet's floor: a double-click forgets the drag entirely.
-    layout.setSize('detail', undefined);
-    expect(layout.detailSize()).toBeUndefined();
-    expect(localStorage.getItem('morse.git.detailHeight')).toBeNull();
-  });
-});
+    });

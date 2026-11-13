@@ -6,7 +6,6 @@ import { OverlayStack } from './overlay-stack';
 const GIT_EXPANDED_KEY = 'morse.git.expanded';
 /** The git panel's Changes section: whether it is folded. */
 const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
-const GIT_HISTORY_COLLAPSED_KEY = 'morse.git.historyCollapsed';
 /** Which panel holds the shell's right column. */
 const RIGHT_PANE_KEY = 'morse.right.pane';
 /** Which face the shell's left column shows. */
@@ -118,9 +117,6 @@ export class ShellState {
   /** The open repository's Changes section: whether it is folded. */
   private readonly changesCollapsedSignal = signal(readFlag(GIT_CHANGES_COLLAPSED_KEY));
   readonly gitChangesCollapsed = this.changesCollapsedSignal.asReadonly();
-  /** The open repository's History section: whether it is folded. */
-  private readonly historyCollapsedSignal = signal(readFlag(GIT_HISTORY_COLLAPSED_KEY));
-  readonly gitHistoryCollapsed = this.historyCollapsedSignal.asReadonly();
 
   /**
    * Which panel the right column holds. The column's open flag and width are
@@ -282,12 +278,6 @@ export class ShellState {
   toggleGitChanges(): void {
     this.changesCollapsedSignal.update((collapsed) => !collapsed);
     storeFlag(GIT_CHANGES_COLLAPSED_KEY, this.changesCollapsedSignal());
-  }
-
-  /** Folds the History section down to its header, or brings it back. */
-  toggleGitHistory(): void {
-    this.historyCollapsedSignal.update((collapsed) => !collapsed);
-    storeFlag(GIT_HISTORY_COLLAPSED_KEY, this.historyCollapsedSignal());
   }
 
   openAbout(): void {

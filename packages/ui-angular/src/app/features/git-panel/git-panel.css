@@ -32,18 +32,6 @@
   background: color-mix(in srgb, var(--morse-accent) 45%, transparent);
 }
 /*
- * A drag in progress: no hover hit-testing under the pointer, and the
- * graph's flow stands still — that is what keeps the resize light. The
- * detail's own handle says the same about its box while it drags.
- */
-.panel.resizing .body {
-  pointer-events: none;
-}
-.panel.resizing .graph path.flow,
-.repo-detail-pane.resizing .graph path.flow {
-  animation: none;
-}
-/*
  * The panel is the host's single column: it fills the height and is the flex
  * container the frame inside it needs. Without a definite height here the frame
  * (and its body) size to their content, and a tall list has nothing to scroll
@@ -185,93 +173,21 @@ button.branch:disabled {
   overflow-y: auto;
   overflow-x: hidden;
 }
-/* The open repository's detail: a "Changes" section on top, a drag handle,
-   then "History", and a handle of its own at the bottom. The two sections share
-   the room and resize apart; only the lists inside them scroll.
-
-   The floor is what keeps the detail alive under a crowded header list: a parent
-   directory of twenty repositories leaves it no free space to grow into, so the
-   floor turns the squeeze into scroll — the body scrolls around a detail that
-   still shows both sections, instead of clipping them to a couple of title bars
-   over the history below. */
+/* The open repository's detail: the working-tree form, taking what the repository
+   headers leave. A crowded header list scrolls the body around it rather than
+   clipping the form. */
 .repo-detail-pane {
   flex: 1;
-  min-height: 400px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-/* A dragged height replaces the floor: the reader asked for exactly this. */
-.repo-detail-pane.sized {
-  flex: none;
-  min-height: 0;
-  height: var(--morse-detail-height, 400px);
-}
-/* Both sections folded: the pane is two title bars — no floor, no dragged height. */
-.repo-detail-pane.changes-collapsed.history-collapsed {
-  flex: none;
-  min-height: 0;
-  height: auto;
-}
-/*
- * The two sections share the room evenly — an even half each, never taller than
- * what is left. `min-height: 0` is what lets the lists inside scroll instead of
- * pushing the section past the pane; without it the two fight for height and
- * History gets shoved off the bottom.
- */
-.changes,
-.history {
-  flex: 1 1 0;
+.changes {
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-/* Once dragged, the split is the shell's variable; until then it is an even half.
-   The clamp keeps the promise the divider makes: no matter how the detail is
-   dragged afterwards, History keeps the 80px it was promised when this height
-   was chosen — otherwise a changes section sized while the detail was tall
-   would push the History title out of a later, shorter detail. */
-.changes.sized {
-  flex: 0 0 var(--morse-changes-height, 50%);
-  max-height: calc(100% - 80px);
-}
-/* Folded, a section is just its title bar; the other one takes the pane. The
-   `:not()` guards matter when *both* are folded: without them the grow rule
-   below wins and the two collapsed headers drift apart instead of sitting together. */
-.repo-detail-pane.changes-collapsed .changes,
-.repo-detail-pane.history-collapsed .history {
-  flex: none;
-}
-.repo-detail-pane.history-collapsed:not(.changes-collapsed) .changes,
-.repo-detail-pane.changes-collapsed:not(.history-collapsed) .history {
-  flex: 1 1 0;
-}
-.divider {
-  flex: none;
-  position: relative;
-  height: 5px;
-  border-top: 1px solid var(--morse-border);
-  background: transparent;
-  cursor: ns-resize;
-}
-.divider:hover {
-  border-top-color: var(--morse-accent);
-  background: color-mix(in srgb, var(--morse-accent) 30%, transparent);
-}
-/* A 5px line is a thin target; the overlay gives it a forgiving hit area. */
-.divider::after {
-  content: '';
-  position: absolute;
-  inset: -3px 0;
-}
-.divider.gone {
-  display: none;
-}
-/* The detail's own handle, at its bottom edge. Quiet at rest — the next
-   repository header draws the seam below it — and lit by the hover every
-   divider shares. */
-.detail-divider {
-  border-top-color: transparent;
 }
 /* One repository header: fold caret + name on the left, branch chip and changed
    count on the right, like a Source Control repository row. */

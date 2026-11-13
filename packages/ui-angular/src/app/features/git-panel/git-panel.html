@@ -1,4 +1,4 @@
-<aside class="panel" aria-label="Git history" [class.full]="expanded()">
+<aside class="panel" aria-label="Git changes" [class.full]="expanded()">
   <div
     class="edge-resize"
     [morseSplitter]="'right'"
@@ -33,20 +33,14 @@
           ></ng-container>
 
           @if (view.path === openPath()) {
-            <div
-              class="repo-detail-pane"
-              [class.sized]="detailSized()"
-              [class.changes-collapsed]="changesCollapsed()"
-              [class.history-collapsed]="historyCollapsed()"
-            >
+            <div class="repo-detail-pane">
             <!--
-              The uncommitted side is one "Changes" section: the branch distance,
-              the commit form and the Staged / Unstaged lists fold together under
-              its title. History below is its own section, so the two resize apart.
+              The column is the working tree: the branch distance, the commit form
+              and the Staged / Unstaged lists fold together under one title. History
+              lives in the bottom panel, not here.
             -->
             <morse-pane
               class="changes"
-              [class.sized]="changesHeightPx() !== null"
               title="Changes"
               [meta]="view.changedCount > 0 ? view.changedCount.toString() : undefined"
               [folded]="changesCollapsed()"
@@ -156,196 +150,6 @@
             }
             </morse-pane>
 
-            <div
-              class="divider"
-              [class.gone]="changesCollapsed() || historyCollapsed()"
-              [morseSplitter]="'changes'"
-              edge="bottom"
-              box="previous"
-              [min]="48"
-              [max]="changesMax"
-              label="Resize the git sections"
-              title="Drag to resize"
-            ></div>
-
-            <morse-pane
-              class="history"
-              title="History"
-              [folded]="historyCollapsed()"
-              (foldToggle)="toggleHistory()"
-            >
-            @if (!historyCollapsed()) {
-            <!-- The graph for this repository. It pages towards the root commit
-                 as it scrolls; a short list is the whole history. -->
-            @if (view.state.loading() && !view.state.loaded()) {
-              <p class="hint">Reading git history…</p>
-            } @else if (view.state.error(); as message) {
-              <p class="hint error">{{ message }}</p>
-            } @else if (view.state.commits().length === 0) {
-              <div class="empty">
-                <span class="mark node" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path class="line" d="M12 3v18" />
-                    <circle class="dot" cx="12" cy="12" r="3.4" />
-                  </svg>
-                </span>
-                No commits yet
-              </div>
-            } @else {
-              <ul class="list" (scroll)="onScroll(view.state, $event)">
-                @for (entry of view.entries.rows; track entry.commit.hash) {
-                  <li
-                    class="commit"
-                    [class.expanded]="expanded()"
-                    [class.open]="isCommitOpen(view.state, entry.commit.hash)"
-                  >
-                    <div
-                      class="commit-row"
-                      role="button"
-                      tabindex="0"
-                      [title]="commitTitle(entry.commit)"
-                      [attr.aria-expanded]="isCommitOpen(view.state, entry.commit.hash)"
-                      (click)="toggleCommit(view.state, entry.commit.hash)"
-                      (keydown.enter)="toggleCommit(view.state, entry.commit.hash)"
-                      (keydown.space)="toggleCommit(view.state, entry.commit.hash); $event.preventDefault()"
-                    >
-                      <svg
-                        class="graph"
-                        [attr.width]="view.graphWidth"
-                        [attr.height]="rowHeight"
-                        [attr.viewBox]="'0 0 ' + view.graphWidth + ' ' + rowHeight"
-                        aria-hidden="true"
-                      >
-                        @for (edge of entry.row.edges; track $index) {
-                          <path [attr.d]="path(edge)" [style.stroke]="color(edge.color)" />
-                          <path class="flow" [attr.d]="path(edge)" />
-                        }
-                        <circle
-                          [attr.cx]="x(entry.row.lane)"
-                          [attr.cy]="rowHeight / 2"
-                          r="3.4"
-                          [style.fill]="rowColor(entry.row)"
-                        />
-                      </svg>
-
-                      <span class="commit-chevron" [class.open]="isCommitOpen(view.state, entry.commit.hash)"
-                        >›</span
-                      >
-
-                      <span class="subject">{{ entry.commit.subject }}</span>
-
-                      @if (entry.refs.length > 0) {
-                        <span class="refs">
-                          @for (ref of entry.refs; track ref) {
-                            <span
-                              class="ref"
-                              [title]="refLabel(ref)"
-                              [class.kind-head]="refKind(ref) === 'head'"
-                              [class.kind-local]="refKind(ref) === 'local'"
-                              [class.kind-tag]="refKind(ref) === 'tag'"
-                              >{{ refLabel(ref) }}</span
-                            >
-                          }
-                          @if (entry.moreRefs > 0) {
-                            <span class="ref" [title]="entry.restTitle">+{{ entry.moreRefs }}</span>
-                          }
-                        </span>
-                      }
-
-                      <span class="grow"></span>
-
-                      <span class="meta">
-                        <span class="hash" [title]="entry.commit.hash">{{
-                          entry.commit.shortHash
-                        }}</span>
-                        <span class="sep" aria-hidden="true">·</span>
-                        <span class="when">{{ when(entry.commit.date) }}</span>
-                        @if (expanded()) {
-                          <span class="sep" aria-hidden="true">·</span>
-                          <span class="author">{{ entry.commit.author }}</span>
-                        }
-                      </span>
-
-                      <button
-                        type="button"
-                        class="copy"
-                        [title]="copied() === entry.commit.hash ? 'Copied' : 'Copy commit hash'"
-                        [attr.aria-label]="'Copy commit hash ' + entry.commit.shortHash"
-                        (click)="$event.stopPropagation(); copy(entry.commit)"
-                      >
-                        {{ copied() === entry.commit.hash ? '✓' : '⧉' }}
-                      </button>
-                    </div>
-
-                    @if (isCommitOpen(view.state, entry.commit.hash)) {
-                      <div class="commit-files">
-                        <!-- The lanes carrying on below the commit, drawn across the
-                             list so the expanded row does not cut the graph. -->
-                        <div class="commit-rail" aria-hidden="true">
-                          @for (edge of continuing(entry.row); track $index) {
-                            <span
-                              class="rail"
-                              [style.left.px]="x(edge.toLane)"
-                              [style.background]="color(edge.color)"
-                            ></span>
-                          }
-                        </div>
-                        @if (commitState(view.state, entry.commit.hash).loading) {
-                          <p class="commit-file-hint">Reading the commit…</p>
-                        } @else if (commitState(view.state, entry.commit.hash).error; as message) {
-                          <p class="commit-file-hint error">{{ message }}</p>
-                        } @else if (commitState(view.state, entry.commit.hash).files.length === 0) {
-                          <p class="commit-file-hint">No changed files under this session.</p>
-                        } @else {
-                          <morse-tree
-                            class="commit-file-tree"
-                            [nodes]="commitFileNodes(view.state, entry.commit.hash)"
-                            [expanded]="noGroups"
-                            (activate)="
-                              onCommitFileRow(
-                                view.state,
-                                $event,
-                                entry.commit.hash,
-                                entry.commit.subject
-                              )
-                            "
-                          />
-                        }
-                      </div>
-                    }
-                  </li>
-                }
-                <li class="more">
-                  @if (view.state.hasMore()) {
-                    {{
-                      view.state.loading()
-                        ? 'Loading older commits…'
-                        : 'Scroll for older commits'
-                    }}
-                  } @else {
-                    Beginning of history
-                  }
-                </li>
-              </ul>
-            }
-            }
-            </morse-pane>
-
-            <!--
-              The detail's own handle, at its bottom edge: drag it down to give Changes
-              and History more of the panel — the way a crowded header list leaves the
-              detail no room to grow into on its own.
-            -->
-            <div
-              class="divider detail-divider"
-              [morseSplitter]="'detail'"
-              edge="bottom"
-              box="parent"
-              [min]="detailMin"
-              [max]="detailMax"
-              label="Resize the repository detail"
-              title="Drag to resize"
-            ></div>
             </div>
           }
         }
