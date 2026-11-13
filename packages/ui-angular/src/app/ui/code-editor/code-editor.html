@@ -5,7 +5,27 @@
     <div class="morse-rail-track" #track>
       @for (card of cards(); track card.pin.id) {
         <article class="morse-card" [style.top.px]="card.top">
-          <span class="morse-card-range">{{ card.label }}</span>
+          <header class="morse-card-head">
+            <span class="morse-card-range">{{ card.label }}</span>
+            <button
+              type="button"
+              class="morse-card-edit"
+              title="Edit the note"
+              [attr.aria-label]="'Edit the note on ' + card.label"
+              (click)="openNote(card, $event)"
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              class="morse-card-remove"
+              title="Unpin this range"
+              [attr.aria-label]="'Unpin ' + card.label"
+              (click)="unpin(card)"
+            >
+              ⌫
+            </button>
+          </header>
           @if (card.pin.note) {
             <morse-markdown class="morse-card-note" [text]="card.pin.note" />
           } @else {
@@ -27,4 +47,15 @@
   >
     ⧉ Pin {{ p.label }}
   </button>
+}
+@if (noteEditing(); as editing) {
+  @if (noteTarget(); as target) {
+    <morse-pin-annotation
+      [anchor]="editing.anchor"
+      [target]="target"
+      [note]="editing.pin.note ?? ''"
+      (save)="saveNote($event)"
+      (cancel)="noteEditing.set(undefined)"
+    />
+  }
 }

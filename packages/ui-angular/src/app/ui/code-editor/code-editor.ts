@@ -20,6 +20,7 @@ import {
   signal,
   untracked,
   viewChild,
+  computed,
 } from '@angular/core';
 import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Range } from '@codemirror/state';
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
@@ -31,6 +32,8 @@ import { pillAnchoredAt, pinFromOffsets, pinRangeLabel, type PinRequest } from '
 import { railSlots } from './rail';
 import { clearFlash, flashExtension, revealLine } from './scroll';
 import { Markdown } from '../markdown/markdown';
+import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
+import type { PopoverAnchor } from '@morse/ui-runtime';
 
 /** How long a jumped-to line stays lit. */
 const FLASH_MS = 900;
@@ -55,6 +58,12 @@ interface RailCard {
   readonly top: number;
 }
 
+/** The card whose note is open in the annotation editor. */
+interface NoteEditor {
+  readonly pin: EditorPin;
+  readonly anchor: PopoverAnchor;
+}
+
 /** Replace the pinned ranges' line tints. */
 const setPinTints = StateEffect.define<DecorationSet>();
 
@@ -77,7 +86,7 @@ const pinTintField = StateField.define<DecorationSet>({
   selector: 'morse-code-editor',
   templateUrl: './code-editor.html',
   styleUrl: './code-editor.css',
-  imports: [Markdown],
+  imports: [Markdown, PinAnnotation],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // CodeMirror builds its own DOM, so emulated encapsulation would never reach
   // it; the stylesheet scopes every selector to the host element instead, and
@@ -107,6 +116,15 @@ export class CodeEditor {
   protected readonly pill = signal<Pill | undefined>(undefined);
   /** The rail's cards, placed in document coordinates. */
   protected readonly cards = signal<readonly RailCard[]>([]);
+  /** The card whose note is being edited, and where the popover points. */
+  protected readonly noteEditing = signal<NoteEditor | undefined>(undefined);
+  /** What the annotation editor names: this file, and the pin's range. */
+  protected readonly noteTarget = computed<AnnotationTarget | undefined>(() => {
+    const editing = this.noteEditing();
+    return editing === undefined
+      ? undefined
+      : { path: this.path(), range: pinRangeLabel(editing.pin) };
+  });
   private view: EditorView | undefined;
   private loadedPath: string | undefined;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -236,6 +254,36 @@ export class CodeEditor {
       return;
     }
     track.style.transform = `translateY(${-view.scrollDOM.scrollTop}px)`;
+  }
+
+  /** ✎ on a card: open the annotation editor anchored to it. */
+  protected openNote(card: RailCard, event: Event): void {
+    const element = event.currentTarget;
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    this.noteEditing.set({
+      pin: card.pin,
+      anchor: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+    });
+  }
+
+  /** Saving writes the note through; an empty note clears it. */
+  protected saveNote(note: string): void {
+    const editing = this.noteEditing();
+    this.noteEditing.set(undefined);
+    if (editing !== undefined) {
+      this.noteEdited.emit({ id: editing.pin.id, note: note.trim() });
+    }
+  }
+
+  /** ⌫ on a card: unpin the range. */
+  protected unpin(card: RailCard): void {
+    if (this.noteEditing()?.pin.id === card.pin.id) {
+      this.noteEditing.set(undefined);
+    }
+    this.unpinned.emit({ id: card.pin.id });
   }
 
   /** Show, move or clear the pill from the current selection. */
