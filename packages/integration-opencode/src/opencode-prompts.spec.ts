@@ -1,7 +1,7 @@
 import { join } from 'node:path';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenCodePrompts } from './opencode-prompts.js';
 import { composeCommandFile } from './internal/opencode-prompts-config.js';
 
@@ -190,5 +190,25 @@ describe('OpenCodePrompts', () => {
     );
 
     expect(prompts.configSignature(workspace)).not.toBe(before);
+  });
+
+  it('writes a bot tree a private command file', () => {
+    // A bot's tree is Morse's own: a file it creates is private from the moment
+    // it exists, not the 0644 a user-owned write leaves behind. The XDG dir is
+    // redirected too, so a regression writes inside this test's temp tree rather
+    // than the developer's own `~/.config/opencode`.
+    vi.stubEnv('XDG_CONFIG_HOME', join(root, 'xdg'));
+    const botRoot = join(root, 'bots', 'news-finder', 'config');
+    const prompts = new OpenCodePrompts({ ownership: 'isolated', root: botRoot });
+
+    expect(
+      prompts.save(
+        { name: 'bot', scope: 'global', raw: composeCommandFile('B', '\nBody\n') },
+        workspace,
+      ),
+    ).toMatchObject({ ok: true, source: 'file' });
+
+    expect(statSync(join(botRoot, 'opencode', 'commands', 'bot.md')).mode & 0o777).toBe(0o600);
+    vi.unstubAllEnvs();
   });
 });

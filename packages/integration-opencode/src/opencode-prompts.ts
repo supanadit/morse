@@ -44,20 +44,33 @@ export interface OpenCodePromptMutation {
  */
 export class OpenCodePrompts {
   private readonly definition: OpenCodeEngineDefinition;
+  private readonly ownership: 'user' | 'isolated';
+  private readonly root: string | undefined;
 
   constructor(
     options: {
       /**
        * Overrides the global config directory (the one holding `commands/` and
-       * `opencode.json`). A bot passes its own tree so it never edits the
-       * user's `~/.config/opencode`; absent means today's XDG resolution.
+       * `opencode.json`). Tests inject a temp one; a bot names its tree with
+       * `root` instead, so it never edits the user's `~/.config/opencode`.
        */
       configDir?: string;
+      /**
+       * Whose tree these files are: the reader's (`user`, the default) or one
+       * Morse generated (`isolated`, a bot's). An isolated tree names its
+       * `root` — the directory holding `opencode/` — and its files are private
+       * from the moment they exist instead of keeping a 0644.
+       */
+      ownership?: 'user' | 'isolated';
+      /** An isolated tree's root; ignored for a user tree. */
+      root?: string;
     } = {},
   ) {
     this.definition = new OpenCodeEngineDefinition(
       options.configDir === undefined ? {} : { configDir: options.configDir },
     );
+    this.ownership = options.ownership ?? 'user';
+    this.root = options.root;
   }
 
   list(cwd: string): {
@@ -127,9 +140,10 @@ export class OpenCodePrompts {
     const project = normalizeCwd(cwd);
     return this.definition.create(
       resolveEngineContext({
-        ownership: 'user',
+        ownership: this.ownership,
         home: homedir(),
         ...(project === undefined ? {} : { cwd: project }),
+        ...(this.root === undefined ? {} : { root: this.root }),
       }),
     );
   }

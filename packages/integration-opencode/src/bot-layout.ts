@@ -1,19 +1,15 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ModelInput } from '@morse/agent';
+import type { ConfigDocument, EngineInstance } from '@morse/engine-config';
 import type {
   BotEngineConfig,
   BotEngineLayout,
   BotEngineState,
-  BotMcpServer,
   BotProviderModel,
   BotProviderRecord,
 } from '@morse/system';
-import {
-  definesMcpServer,
-  readOpenCodeFile,
-  type OpenCodeMcpServer,
-} from './internal/opencode-mcp-config.js';
+import { OpenCodeEngineDefinition } from './engine/open-code-engine.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
 
 /**
@@ -87,14 +83,37 @@ export function openCodeWorkspacePath(botRoot: string): string {
  * hand-added survive (an edit through the wizard owns only what the wizard
  * shows). Everything Morse manages is written fresh, so removing a provider or
  * a subagent in the form removes it from the file.
+ *
+ * The document is read once, with the bot's own tree opened as the isolated
+ * engine Morse generated it as: the MCP block is applied to that document by the
+ * shared store and everything else is composed onto it, so one save is one write
+ * of one file. A config that cannot be read or parsed aborts before anything —
+ * the workspace document included — is written, because a save must not replace
+ * a file whose other keys it could not carry over.
  */
 export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig): void {
-  const path = openCodeConfigPath(botRoot);
-  const file = readOpenCodeFile(path);
+  const engine = botInstance(botRoot);
+  const document = engine.file('config', 'global').read();
+  const file = configObject(document);
+
+  // `mcpServers` is tri-state: absent leaves the block as the reader left it,
+  // `[]` removes it, and a list replaces the managed set. The store applies it
+  // to the document that was just read, so the write below is the only one.
+  let base = file;
+  if (config.mcpServers !== undefined) {
+    const applied = engine.mcp!.apply(document, config.mcpServers);
+    const issue = applied.issues[0];
+    if (issue !== undefined) {
+      throw new Error(issue.message);
+    }
+    base = asRecord(applied.value) ?? {};
+  }
 
   // The workspace document is the project's instructions; the persona is the
   // agent's system prompt, below. OpenCode discovers AGENTS.md from the project
-  // root on its own, and naming it here keeps its role explicit.
+  // root on its own, and naming it here keeps its role explicit. It is written
+  // only once the config is known to be readable, so a save that aborts leaves
+  // no half-applied bot behind.
   const instructions: string[] = [];
   if ((config.agentsMd ?? '').trim().length > 0) {
     writePrivateText(openCodeWorkspacePath(botRoot), config.agentsMd as string);
@@ -102,13 +121,13 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
   }
 
   const next: Record<string, unknown> = {
-    ...file,
+    ...base,
     $schema: CONFIG_SCHEMA,
     // OpenCode's own display-name field: what a person sees in its UI.
     username: config.name,
     // The bot is an agent of its own, and the one a new session starts in.
     default_agent: MORSE_AGENT,
-    // Only what Morse owns is replaced; `mcp`, `plugins` and friends survive.
+    // Only what Morse owns is replaced; `plugins` and friends survive.
     providers: providersBlock(config, asRecord(file['providers']) ?? {}),
     agents: agentsBlock(config),
     instructions,
@@ -121,26 +140,38 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     next['model'] = `${config.model.provider}/${config.model.id}`;
   }
 
-  if (config.mcpServers !== undefined) {
-    if (config.mcpServers.length === 0) {
-      delete next['mcp'];
-    } else {
-      const existingMcp = asRecord(file['mcp']) ?? {};
-      next['mcp'] = Object.fromEntries(
-        config.mcpServers.map((server) => [
-          server.name,
-          openCodeMcpEntry(server, existingMcp[server.name]),
-        ]),
-      );
-    }
-  }
-
-  writeJsonAtomic(path, next);
+  writeJsonAtomic(document.path, next);
   // No key collected means "keep the ones the engine already holds": an edit that
   // does not touch the keys must not wipe them.
   if (config.credentials.length > 0) {
     writeOpenCodeCredentials(botRoot, config.credentials);
   }
+}
+
+/**
+ * The bot's OpenCode tree, opened as the isolated tree it is: the engine that
+ * reads it is the one the bot's server reads, so a save lands where OpenCode
+ * looks and a file Morse creates stays private (`0600`).
+ */
+function botInstance(botRoot: string): EngineInstance {
+  return new OpenCodeEngineDefinition().isolated(join(botRoot, 'config'));
+}
+
+/**
+ * The document's own object, or a throw when the file could not be read, parsed
+ * or represented. Every caller of this module writes this file, so the guard is
+ * kept here rather than repeated at each call site.
+ */
+function configObject(document: ConfigDocument): Record<string, unknown> {
+  const blocking = document.issues.find((issue) => issue.code === 'parse' || issue.code === 'read');
+  if (blocking !== undefined) {
+    throw new Error(blocking.message);
+  }
+  const file = asRecord(document.value);
+  if (file === undefined && document.value !== undefined) {
+    throw new Error(`${document.path} is not a JSON object.`);
+  }
+  return file ?? {};
 }
 
 /**
@@ -333,98 +364,15 @@ function agentsBlock(config: BotEngineConfig): Record<string, unknown> {
 }
 
 /**
- * The `mcp` block: OpenCode stores servers under their name, each entry carrying
- * `type: 'local' | 'remote'` and transport fields. Morse reads them back into its
- * own `BotMcpServer` shape, skipping malformed entries rather than failing the
- * whole block.
- */
-function readOpenCodeMcp(value: unknown): BotMcpServer[] {
-  const entries = asRecord(value) ?? {};
-  return Object.entries(entries).flatMap(([name, raw]): BotMcpServer[] => {
-    const entry = asRecord(raw);
-    if (entry === undefined || !definesMcpServer(entry as OpenCodeMcpServer)) {
-      return [];
-    }
-    const enabled = entry['enabled'] !== false;
-    if (entry['type'] === 'local') {
-      const command = entry['command'];
-      if (
-        !Array.isArray(command) ||
-        command.length === 0 ||
-        !command.every((part) => typeof part === 'string' && part.length > 0)
-      ) {
-        return [];
-      }
-      const [first, ...rest] = command as string[];
-      return [
-        {
-          name,
-          type: 'stdio' as const,
-          command: first,
-          ...(rest.length === 0 ? {} : { args: rest }),
-          ...(entry['environment'] === undefined
-            ? {}
-            : { env: asStringRecord(entry['environment']) }),
-          ...(entry['cwd'] === undefined ? {} : { cwd: asString(entry['cwd']) as string }),
-          enabled,
-        },
-      ];
-    }
-    const url = asString(entry['url']);
-    if (url === undefined) {
-      return [];
-    }
-    return [
-      {
-        name,
-        type: 'http' as const,
-        url,
-        ...(entry['headers'] === undefined
-          ? {}
-          : { headers: asStringRecord(entry['headers']) }),
-        enabled,
-      },
-    ];
-  });
-}
-
-/**
- * One `mcp.<name>` entry, written in OpenCode's own shape. Unknown fields from a
- * hand-edited entry survive; Morse-owned fields are replaced so the form owns the
- * transport, cwd, env and enabled state.
- */
-function openCodeMcpEntry(server: BotMcpServer, kept: unknown): OpenCodeMcpServer {
-  const existing = { ...(asRecord(kept) ?? {}) };
-  for (const key of ['type', 'command', 'environment', 'url', 'headers', 'cwd', 'enabled']) {
-    delete existing[key];
-  }
-  if (server.type === 'stdio') {
-    return {
-      ...existing,
-      type: 'local',
-      command: [server.command ?? '', ...(server.args ?? [])],
-      ...(server.env === undefined ? {} : { environment: server.env }),
-      ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
-      ...(server.enabled === false ? { enabled: false } : {}),
-    } as OpenCodeMcpServer;
-  }
-  return {
-    ...existing,
-    type: 'remote',
-    url: server.url ?? '',
-    ...(server.headers === undefined ? {} : { headers: server.headers }),
-    ...(server.enabled === false ? { enabled: false } : {}),
-  } as OpenCodeMcpServer;
-}
-
-/**
  * Reads the bot's OpenCode configuration back into the wizard's own vocabulary,
  * so Edit bot shows what the engine actually holds rather than a copy.
  */
 export const openCodeBotLayout: BotEngineLayout = {
   write: writeOpenCodeBotConfig,
   read(botRoot: string): BotEngineState {
-    const file = readOpenCodeFile(openCodeConfigPath(botRoot));
+    const engine = botInstance(botRoot);
+    const document = engine.file('config', 'global').read();
+    const file = configObject(document);
     const model = readModel(file['model']);
     const agentsMd = readText(openCodeWorkspacePath(botRoot));
     const agents = asRecord(file['agents']) ?? asRecord(file['agent']) ?? {};
@@ -448,7 +396,9 @@ export const openCodeBotLayout: BotEngineLayout = {
         return { name, prompt };
       });
     const providers = readProviders(file['providers']);
-    const mcpServers = readOpenCodeMcp(file['mcp']);
+    // The shared store reads the block, so an entry is decoded exactly as the
+    // engine decodes it; an absent block lists as the empty set the form shows.
+    const mcpServers = engine.mcp!.list().items.map((entry) => entry.server);
     return {
       ...(model === undefined ? {} : { model }),
       ...(providers.length === 0 ? {} : { providers }),
@@ -467,8 +417,10 @@ export const openCodeBotLayout: BotEngineLayout = {
    * but the shape is obsolete.
    */
   repair(botRoot: string): void {
-    const path = openCodeConfigPath(botRoot);
-    const file = readOpenCodeFile(path);
+    const engine = botInstance(botRoot);
+    const document = engine.file('config', 'global').read();
+    const path = document.path;
+    const file = configObject(document);
     // 1. A persona an earlier Morse wrote to its own instruction file: fold it
     //    into the agent's `system`, which is the field that replaces OpenCode's
     //    base prompt, and drop the file so it is not also appended as context.
@@ -569,20 +521,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function asStringRecord(value: unknown): Record<string, string> | undefined {
-  const record = asRecord(value);
-  if (record === undefined) {
-    return undefined;
-  }
-  const result: Record<string, string> = {};
-  for (const [key, val] of Object.entries(record)) {
-    if (typeof val === 'string') {
-      result[key] = val;
-    }
-  }
-  return result;
 }
 
 function writePrivateText(path: string, text: string): void {

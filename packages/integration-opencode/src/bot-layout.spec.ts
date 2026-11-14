@@ -538,4 +538,66 @@ describe('openCodeBotLayout', () => {
       { name: 'good', type: 'http', url: 'https://example.com/mcp', enabled: true },
     ]);
   });
+
+  it('writes the bot config once, composing the mcp block beside every other section', () => {
+    // A document OpenCode already holds: a key Morse does not own. The save has
+    // to land the MCP block and everything Morse composes in one document — a
+    // second writer for this path, or a stale snapshot, would lose the sections
+    // that writer never read. The `description` is the field the shared codec
+    // carries and the layout's own writer never did, so it proves the block came
+    // from the store rather than a parallel implementation.
+    const path = openCodeConfigPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(path, JSON.stringify({ plugins: ['keep-me'] }));
+
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      mcpServers: [
+        {
+          name: 'notes',
+          type: 'stdio',
+          command: 'notes-mcp',
+          args: ['--stdio'],
+          description: 'Serves notes',
+        },
+        { name: 'web', type: 'http', url: 'https://notes.example/mcp' },
+      ],
+    });
+
+    const file = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    expect(file['mcp']).toEqual({
+      notes: { type: 'local', command: ['notes-mcp', '--stdio'], description: 'Serves notes' },
+      web: { type: 'remote', url: 'https://notes.example/mcp' },
+    });
+    // Everything else the save composes is in the same document.
+    expect(file['plugins']).toEqual(['keep-me']);
+    expect(file['$schema']).toBe('https://opencode.ai/config.json');
+    expect(file['username']).toBe('News Finder');
+    expect(file['default_agent']).toBe(OPENCODE_BOT_AGENT);
+    expect(file['model']).toBe('acme/acme-chat');
+    expect(file['providers']).toMatchObject({ acme: { name: 'Acme AI' } });
+    expect(file['agents']).toMatchObject({
+      morse: { mode: 'primary', system: 'You are News Finder.' },
+      reviewer: { mode: 'subagent' },
+    });
+    expect(file['instructions']).toEqual([join(botRoot, 'workspace', 'AGENTS.md')]);
+  });
+
+  it('aborts before writing when the existing config is corrupt', () => {
+    // A save must not replace a config it cannot read: the reader's other keys
+    // would be gone. The workspace document is a sentinel, because it is written
+    // alongside the config and must not be touched by a save that aborts.
+    const path = openCodeConfigPath(botRoot);
+    const corrupt = '{\n  "username": "News Finder",\n  "mcp": {\n';
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(path, corrupt);
+    const agentsPath = join(botRoot, 'workspace', 'AGENTS.md');
+    mkdirSync(join(botRoot, 'workspace'), { recursive: true });
+    writeFileSync(agentsPath, '# sentinel\n');
+
+    expect(() => writeOpenCodeBotConfig(botRoot, config)).toThrow();
+
+    expect(readFileSync(path, 'utf8')).toBe(corrupt);
+    expect(readFileSync(agentsPath, 'utf8')).toBe('# sentinel\n');
+  });
 });

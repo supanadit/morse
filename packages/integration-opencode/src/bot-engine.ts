@@ -12,7 +12,7 @@ import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
 import { connectOpenCode, type OpenCodeConnection } from './internal/connection.js';
-import { readOpenCodeFile } from './internal/opencode-mcp-config.js';
+import { readOpenCodeFile } from './internal/opencode-json.js';
 import { OpenCodeApi } from './internal/client.js';
 import { OpenCodeEventStream } from './internal/event-stream.js';
 
@@ -111,14 +111,18 @@ export async function createBotOpenCodeEngine(
   // OpenCode's own dir, i.e. the XDG *base* plus `opencode/` (the resolvers
   // join `opencode.json` and `commands/` off it). `botOpenCodeEnv` points
   // XDG_CONFIG_HOME at `<botRoot>/config`, so this is `<botRoot>/config/opencode`.
-  const configDir = join(options.botRoot, 'config', 'opencode');
+  const configRoot = join(options.botRoot, 'config');
+  const configDir = join(configRoot, 'opencode');
   return new OpenCodeEngine({
     connection,
     api,
     stream,
     logger: options.logger,
-    mcp: new OpenCodeMcp({ configDir }),
-    prompts: new OpenCodePrompts({ configDir }),
+    // The bot's tree is Morse's own: `isolated` names the root the resolver
+    // turns into `<root>/opencode` (the same `configDir`) and makes every file
+    // these managers create private, instead of the 0644 a user file gets.
+    mcp: new OpenCodeMcp({ ownership: 'isolated', root: configRoot }),
+    prompts: new OpenCodePrompts({ ownership: 'isolated', root: configRoot }),
     configDir,
   });
 }

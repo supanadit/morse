@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -193,6 +193,25 @@ describe('OpenCodeMcp', () => {
     it('trustProject succeeds without writing anything', async () => {
       expect(mcp.trustProject(cwd)).toEqual({ ok: true });
       expect(await mcp.configSignature(cwd)).toBe(await mcp.configSignature(cwd));
+    });
+  });
+
+  describe('bot ownership', () => {
+    // A bot's tree is Morse's own: a file it creates must be private from the
+    // moment it exists, not the 0644 a user-owned write leaves behind.
+    it('writes a bot tree a private config file', () => {
+      const root = join(dir, 'bots', 'news-finder', 'config');
+      // The XDG dir is redirected too, so a regression writes inside this test's
+      // temp tree rather than the developer's own `~/.config/opencode`.
+      const bot = new OpenCodeMcp({
+        ownership: 'isolated',
+        root,
+        env: { XDG_CONFIG_HOME: join(dir, 'xdg') },
+      });
+
+      const added = bot.add({ name: 'one', command: 'npx', args: ['one'] });
+      expect(added).toMatchObject({ ok: true, path: join(root, 'opencode', 'opencode.json') });
+      expect(statSync(join(root, 'opencode', 'opencode.json')).mode & 0o777).toBe(0o600);
     });
   });
 });

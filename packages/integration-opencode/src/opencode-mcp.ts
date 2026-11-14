@@ -52,6 +52,15 @@ export class OpenCodeMcp {
       env?: NodeJS.ProcessEnv;
       /** Overrides the global config directory; tests inject a temp one. */
       configDir?: string;
+      /**
+       * Whose tree these files are: the reader's (`user`, the default) or one
+       * Morse generated (`isolated`, a bot's). An isolated tree names its
+       * `root` — the directory holding `opencode/` — and its files are private
+       * from the moment they exist instead of keeping a 0644.
+       */
+      ownership?: 'user' | 'isolated';
+      /** An isolated tree's root; ignored for a user tree. */
+      root?: string;
     } = {},
   ) {
     this.definition = new OpenCodeEngineDefinition(
@@ -136,10 +145,11 @@ export class OpenCodeMcp {
   private instance(cwd: string | undefined): OpenCodeEngineInstance {
     return this.definition.create(
       resolveEngineContext({
-        ownership: 'user',
+        ownership: this.options.ownership ?? 'user',
         home: homedir(),
         ...(cwd === undefined ? {} : { cwd }),
         env: this.options.env ?? process.env,
+        ...(this.options.root === undefined ? {} : { root: this.options.root }),
       }),
     );
   }
