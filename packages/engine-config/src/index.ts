@@ -4,7 +4,12 @@
  * it; it never learns an engine's own file layout.
  */
 export * from './core/config-file.js';
+export * from './core/config-store.js';
 export * from './core/json-format.js';
 export * from './core/scope.js';
+export * from './core/section.js';
 export * from './core/types.js';
 export * from './core/write.js';
+export * from './engine/context.js';
+export * from './engine/locator.js';
+export * from './resource/resource-store.js';
