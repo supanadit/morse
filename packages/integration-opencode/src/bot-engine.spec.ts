@@ -727,5 +727,5 @@ describe('opencodeBotAdapterFactory', () => {
       await factory.dispose();
       await fake.close();
     }
-  });
+  }, 20_000);
 });

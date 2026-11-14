@@ -309,7 +309,14 @@ export interface BotGroupCreateInput {
   chainCap?: number;
 }
 
-/** What Edit group sends: the same room, with what the reader changed. */
+/**
+ * What Edit group sends: the same room, with what the reader changed.
+ *
+ * The fields are a patch, not a merge: an absent `lead` clears the lead (the
+ * room then only answers @mentions) and an absent `chainCap` resets the cap to
+ * the service default, rather than keeping the stored value. The dialog always
+ * sends the current form state, so what the reader sees is what is stored.
+ */
 export interface BotGroupUpdateInput {
   /** The group being edited; its id never changes. */
   id: string;

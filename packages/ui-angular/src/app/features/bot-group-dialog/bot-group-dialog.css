@@ -121,6 +121,17 @@ select {
   color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
   font-size: 11.5px;
 }
+/* A member the roster no longer carries: a note, not an error — saving fixes it. */
+.former-note {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--morse-warn) 35%, transparent);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-warn) 8%, transparent);
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
 
 .actions {
   display: flex;

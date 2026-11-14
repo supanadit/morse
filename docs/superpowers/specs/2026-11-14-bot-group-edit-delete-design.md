@@ -1,7 +1,7 @@
 # Bot group edit/delete and session cleanup
 
 Date: 2026-11-14
-Status: proposed
+Status: implemented
 
 ## Intent
 
@@ -114,7 +114,9 @@ Extend the bot factory contract with an optional `removeSession(engineSessionId)
 - `MorseService.ui` gains `groupTarget: signal<string | null>`; `groupOpen` keeps its meaning.
 - The New group dialog becomes the New/Edit group dialog. When `groupTarget` names a group it
   prefills name, members, lead and chain cap from the roster summary, and the title/action read
-  “Edit group” / “Save changes”. Otherwise it behaves exactly as it does now.
+  “Edit group” / “Save changes”. Otherwise it behaves exactly as it does now. A member the roster
+  no longer carries is dropped from the prefill (and its lead cleared) with a note saying it will be
+  removed on save, since the checkboxes only render bots that still exist.
 - The group row's menu gains:
   - **Edit group…** — opens the dialog for that group.
   - **Delete group…** — asks for confirmation inside the menu, like Delete bot, then sends

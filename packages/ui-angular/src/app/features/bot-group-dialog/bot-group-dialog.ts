@@ -13,7 +13,10 @@ import { Dialog } from '../../ui/dialog/dialog';
  *
  * The same form edits an existing group: the shell names it in
  * `ui.groupTarget`, and the roster already carries its summary, so the fields
- * open on what the group is now.
+ * open on what the group is now. Members the group still lists but this host no
+ * longer runs are dropped on open — the checkboxes only render roster bots, so a
+ * former member would otherwise be an invisible, unsaveable member — and the
+ * dialog says they will be removed rather than losing them silently.
  */
 @Component({
   selector: 'morse-bot-group-dialog',
@@ -30,9 +33,19 @@ export class BotGroupDialog {
 
   protected readonly editing = this.initial !== undefined;
   protected readonly bots = computed(() => this.morse.bot.roster()?.bots ?? []);
+  /** Members that still exist, so the form only carries members it can show. */
+  private readonly kept = (this.initial?.members ?? []).filter((member) =>
+    this.bots().some((bot) => bot.username === member),
+  );
+  /** Members of the group whose bot has since been deleted; they cannot be kept. */
+  private readonly former = (this.initial?.members ?? []).filter(
+    (member) => !this.kept.includes(member),
+  );
   protected readonly name = signal(this.initial?.title ?? '');
-  protected readonly members = signal<string[]>([...(this.initial?.members ?? [])]);
-  protected readonly lead = signal(this.initial?.lead ?? '');
+  protected readonly members = signal<string[]>([...this.kept]);
+  protected readonly lead = signal(
+    this.kept.includes(this.initial?.lead ?? '') ? (this.initial?.lead ?? '') : '',
+  );
   /** Bot-to-bot relays one human message may set off; the service's own default. */
   protected readonly chainCap = signal(this.initial?.chainCap ?? 8);
   protected readonly ready = computed(
@@ -56,6 +69,17 @@ export class BotGroupDialog {
   /** A member's display name: the lead picker names readers, not handles. */
   protected label(username: string): string {
     return this.bots().find((bot) => bot.username === username)?.name ?? username;
+  }
+
+  /** Names the dropped former members, so an edit never loses one without saying so. */
+  protected formerNote(): string {
+    if (this.former.length === 0) {
+      return '';
+    }
+    const handles = this.former.map((member) => `@${member}`).join(', ');
+    return this.former.length === 1
+      ? `A former member (${handles}) is no longer available and will be removed when you save.`
+      : `${this.former.length} former members (${handles}) are no longer available and will be removed when you save.`;
   }
 
   /** Adding or removing a member; a lead that leaves stops being the lead. */

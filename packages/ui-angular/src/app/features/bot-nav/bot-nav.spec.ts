@@ -408,6 +408,25 @@ describe('BotNav', () => {
     expect(remove).toHaveBeenCalledWith('group-workshop');
   });
 
+  it('cancels the group delete from the confirmation', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+    const remove = vi.spyOn(morse, 'deleteGroup');
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'delete-group').click();
+    fixture.detectChanges();
+    [...host.querySelectorAll('.context-menu-item')]
+      .find((one) => one.textContent?.trim() === 'Cancel')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(remove).not.toHaveBeenCalled();
+    expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
   it('refuses to edit or delete a group that is answering', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });

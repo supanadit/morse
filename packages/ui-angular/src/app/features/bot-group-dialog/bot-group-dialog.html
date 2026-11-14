@@ -40,6 +40,10 @@
       }
     </fieldset>
 
+    @if (formerNote().length > 0) {
+      <p class="former-note">{{ formerNote() }}</p>
+    }
+
     <label class="field">
       <span class="field-label">Lead <span class="optional">optional · members only</span></span>
       <select name="lead" [disabled]="members().length === 0" (change)="setLead($event)">

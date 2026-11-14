@@ -736,8 +736,9 @@ export class BotService {
 
   /**
    * Asks one bot's engine to drop a stored session. Best-effort by design: a
-   * group must still be deletable when its engine is offline, so a failure is
-   * logged and the Morse records are removed anyway.
+   * group must still be deletable when its engine is offline, so a failure to
+   * build the factory, a missing hook or a failed call is logged and the Morse
+   * records are removed anyway.
    */
   private async removeEngineSession(username: string, sessionId: string): Promise<void> {
     const bot = this.bot(username);
@@ -746,16 +747,19 @@ export class BotService {
     }
     const adapter = this.options.adapters[bot.engineKind];
     if (adapter === undefined) {
-      return;
-    }
-    const factory = this.factoryFor(bot, adapter);
-    if (factory.removeSession === undefined) {
       this.options.logger.warn(
-        `Bot engine "${bot.engineKind}" cannot remove a stored session; forgetting the pointer only.`,
+        `Bot engine "${bot.engineKind}" is no longer available; forgetting the session pointer only.`,
       );
       return;
     }
     try {
+      const factory = this.factoryFor(bot, adapter);
+      if (factory.removeSession === undefined) {
+        this.options.logger.warn(
+          `Bot engine "${bot.engineKind}" cannot remove a stored session; forgetting the pointer only.`,
+        );
+        return;
+      }
       await factory.removeSession(sessionId);
     } catch (error: unknown) {
       this.options.logger.warn("Failed to remove a deleted group's engine session", error);
@@ -1687,7 +1691,9 @@ export class BotService {
     username: string,
     upTo: string | undefined,
   ): void {
-    if (upTo === undefined) {
+    // A stopped round can finish after an edit removed its bot: writing the
+    // pointer then would resurrect a session for a member that is gone.
+    if (upTo === undefined || !conversation.members.includes(username)) {
       return;
     }
     const ref = conversation.sessions[username] ?? {};

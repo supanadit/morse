@@ -203,4 +203,49 @@ describe('BotGroupDialog', () => {
     expect(morse.ui.groupOpen()).toBe(false);
     expect(morse.ui.groupTarget()).toBeNull();
   });
+
+  it('drops a member whose bot is gone, so the edit can still be saved', async () => {
+    // The group remembers `ghost`, but the roster no longer runs it: the dialog
+    // cannot render an uncheckable member, and the host would refuse the save.
+    const ghosted: BotConversationSummary = {
+      ...launch,
+      members: ['forge', 'ghost'],
+      lead: 'ghost',
+    };
+    const { fixture, host, morse } = await render((service) => {
+      service.bot.onRoster({ bots: [forge, sable], conversations: [ghosted] });
+      service.ui.groupTarget.set(ghosted.id);
+    });
+    const update = vi.spyOn(morse, 'updateGroup');
+
+    expect(host.querySelector('.former-note')?.textContent).toContain('@ghost');
+    expect(field<HTMLSelectElement>(host, 'select[name="lead"]').value).toBe('');
+
+    field<HTMLButtonElement>(host, '.actions button.create').click();
+    fixture.detectChanges();
+
+    // The former member is dropped and its lead goes with it; no ghost reaches the host.
+    expect(update).toHaveBeenCalledWith({
+      id: ghosted.id,
+      name: 'Launch',
+      members: ['forge'],
+      chainCap: 4,
+    });
+  });
+
+  it('closes without saving when the edit is cancelled', async () => {
+    const { fixture, host, morse } = await render((service) => {
+      service.bot.onRoster({ bots: [forge, sable], conversations: [launch] });
+      service.ui.groupTarget.set(launch.id);
+      service.ui.groupOpen.set(true);
+    });
+    const update = vi.spyOn(morse, 'updateGroup');
+
+    field<HTMLButtonElement>(host, '.actions button.cancel').click();
+    fixture.detectChanges();
+
+    expect(update).not.toHaveBeenCalled();
+    expect(morse.ui.groupTarget()).toBeNull();
+    expect(morse.ui.groupOpen()).toBe(false);
+  });
 });
