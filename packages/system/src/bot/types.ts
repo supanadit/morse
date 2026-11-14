@@ -44,13 +44,22 @@ export interface GroupRecord {
 }
 
 /**
- * Where one bot's engine session for one conversation lives. An absent
- * `engineSessionId` means "start fresh": the next turn opens a new engine
- * session and stores its id here. "New discussion" clears this field rather
- * than the engine's own session files, which stay on disk for the engine.
+ * Where one bot's engine session for one conversation lives, and how much of the
+ * conversation it has been told. An absent `engineSessionId` means "start fresh":
+ * the next turn opens a new engine session and stores its id here. "New
+ * discussion" clears the id rather than the engine's own session files, which stay
+ * on disk for the engine.
  */
 export interface BotSessionRef {
   engineSessionId?: string;
+  /**
+   * The last transcript entry whose content this bot has been given, so the next
+   * turn hands it only what happened since — no repeats, and nothing missed while
+   * it sat a round out. Absent means "nothing yet": the whole transcript is
+   * context. "New discussion" sets it to the divider, so a fresh engine session
+   * starts from that boundary rather than being re-fed the history it left.
+   */
+  toldUpTo?: string;
 }
 
 /**

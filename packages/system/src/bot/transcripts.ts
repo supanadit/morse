@@ -85,6 +85,26 @@ export class BotTranscriptStore {
     return { entries: entries.slice(start, stop), hasMore: start > 0 };
   }
 
+  /**
+   * Everything after `afterId`, oldest first: the slice of the conversation one
+   * bot has not been told yet. An absent or unknown id (a first turn, or a
+   * transcript compacted since) yields the whole transcript rather than nothing —
+   * missed context is a worse failure than repeated context.
+   */
+  since(conversationId: string, afterId: string | undefined): BotTranscriptEntry[] {
+    const entries = this.readAll(conversationId);
+    if (afterId === undefined) {
+      return entries;
+    }
+    const seen = entries.findIndex((entry) => entry.id === afterId);
+    return seen === -1 ? entries : entries.slice(seen + 1);
+  }
+
+  /** The newest entry's id, or undefined for a conversation with no lines yet. */
+  lastId(conversationId: string): string | undefined {
+    return this.readAll(conversationId).at(-1)?.id;
+  }
+
   /** Appends one entry, durably enough that a crash cannot corrupt earlier ones. */
   append(conversationId: string, entry: BotTranscriptEntry): BotTranscriptEntry {
     const path = this.pathFor(conversationId);

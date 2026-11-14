@@ -533,6 +533,9 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
+/** The line a group's first prompt opens with: who is in the room, by handle. */
+const room = 'Group "Launch" — members: Forge (@forge), Sable (@sable).';
+
 function botInput(overrides: Partial<BotCreateInput> = {}): BotCreateInput {
   return {
     username: 'forge',
@@ -1011,7 +1014,9 @@ describe('BotService edits', () => {
       .flatMap((factory) => factory.gateways);
     expect(gateways.length).toBeGreaterThan(1);
     expect(adapter.layout.read(join(root, 'forge')).persona).toBe('You are Forge.');
-    expect(gateways.at(-1)?.prompts.at(-1)).toBe('[Forge] You: again');
+    // An edit drops the session id, so the next turn starts a fresh engine session
+    // — and is handed the conversation so far rather than continuing blind.
+    expect(gateways.at(-1)?.prompts.at(-1)).toBe('[Forge] You: hi\n\n[Forge] You: again');
   });
 
   it('refuses to edit a bot that is answering', async () => {
@@ -1193,9 +1198,14 @@ describe('BotService rounds', () => {
 
     await service.send(group.id, '@sable @forge go');
 
-    expect(gatewayFor(adapter, 'sable').prompts).toEqual(['[Launch] You: @sable @forge go']);
+    // The first prompt of a discussion introduces the room, because a bot can only
+    // address a teammate by handle and has no other way to learn it.
+    expect(gatewayFor(adapter, 'sable').prompts).toEqual([
+      `${room}\n\n[Launch] You: @sable @forge go`,
+    ]);
+    // Forge is second, so it also gets what Sable just said.
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
-      '[Launch] You: @sable @forge go\n\n[Launch] Sable: sable here',
+      `${room}\n\n[Launch] You: @sable @forge go\n\n[Launch] Sable: sable here`,
     ]);
     const entries = service.transcript(group.id);
     expect(entries.map((entry) => entry.author)).toEqual([
@@ -1214,9 +1224,9 @@ describe('BotService rounds', () => {
 
     await service.send(group.id, '@all standup');
 
-    expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Launch] You: @all standup']);
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${room}\n\n[Launch] You: @all standup`]);
     expect(gatewayFor(adapter, 'sable').prompts).toEqual([
-      '[Launch] You: @all standup\n\n[Launch] Forge: forge here',
+      `${room}\n\n[Launch] You: @all standup\n\n[Launch] Forge: forge here`,
     ]);
     expect(
       service
@@ -1227,6 +1237,96 @@ describe('BotService rounds', () => {
       { role: 'bot', name: 'Forge', username: 'forge' },
       { role: 'bot', name: 'Sable', username: 'sable' },
     ]);
+  });
+
+  it('catches a bot up on the rounds it sat out, and never repeats itself', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot, call }) => ({ text: `${bot} reply ${call}` }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+
+    // Round one: only Forge is asked.
+    await service.send(group.id, '@forge first');
+    // Round two: only Sable. It has never been prompted, so it is handed the whole
+    // discussion — including the reply that was relayed to nobody else.
+    await service.send(group.id, '@sable second');
+    const sable = gatewayFor(adapter, 'sable');
+    expect(sable.prompts[0]).toBe(
+      `${room}\n\n[Launch] You: @forge first\n\n[Launch] Forge: forge reply 1\n\n` +
+        '[Launch] You: @sable second',
+    );
+
+    // Round three: Forge again. It already knows what it said itself, so its own
+    // words are not repeated back to it as though someone else had said them.
+    await service.send(group.id, '@forge third');
+    const forge = gatewayFor(adapter, 'forge');
+    expect(forge.prompts[1]).toBe(
+      '[Launch] You: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] You: @forge third',
+    );
+    expect(forge.prompts[1]).not.toContain('forge reply 1');
+    // Nothing is sent twice: the mark advanced with every accepted prompt.
+    expect(forge.prompts[1]).not.toContain('@forge first');
+  });
+
+  it('keeps a direct message and each group on their own thread of context', async () => {
+    const { adapter, service } = harness({ script: ({ bot }) => ({ text: `${bot} here` }) });
+    await twoBots(service);
+    const launch = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const research = service.createGroup({ name: 'Research', members: ['forge'] });
+
+    await service.send('dm-forge', 'hello in the dm');
+    // A group answers when it is addressed (or has a lead), so each line names it.
+    await service.send(launch.id, '@forge hello in launch');
+    await service.send(research.id, '@forge hello in research');
+
+    // One gateway per (conversation, bot): the dm, then each group in the order
+    // they were opened.
+    const [dmGate, launchGate, researchGate] = factoryFor(adapter, 'forge').gateways;
+    // A conversation's context is its own: the dm line never shows up in a group,
+    // and a group's lines never show up in the dm.
+    expect(dmGate?.prompts).toEqual(['[Forge] You: hello in the dm']);
+    expect(launchGate?.prompts[0]).toContain('hello in launch');
+    expect(launchGate?.prompts[0]).not.toContain('hello in the dm');
+    expect(researchGate?.prompts[0]).toContain('hello in research');
+    expect(researchGate?.prompts[0]).not.toContain('hello in launch');
+  });
+
+  it('gives a new discussion a fresh session with none of the history it left', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'noted' }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'old line');
+    service.newDiscussion('dm-forge');
+    await service.send('dm-forge', 'new line');
+
+    // A new discussion drops the warm gateway, so the second turn is a new one.
+    const after = gatewayFor(adapter, 'forge', 1);
+    // The divider is the boundary: the fresh session is not re-fed what the reader
+    // deliberately walked away from.
+    expect(after.prompts[0]).toBe('[Forge] You: new line');
+    expect(after.prompts[0]).not.toContain('old line');
+  });
+
+  it('remembers how far each bot was told, across a restart', async () => {
+    const { root, adapter, service } = harness({ script: () => ({ text: 'noted' }) });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, '@sable only this');
+    await service.dispose();
+
+    // A second host opening the same data dir continues where the first left.
+    const again = serviceOn(root, adapter);
+    registerService(again);
+    await again.send(group.id, '@sable and now');
+    // A host restart ends the gateway, so the second host built its own factory and
+    // gateway — and the mark it read from disk meant the new line was added to what
+    // Sable already knew, rather than the whole discussion being replayed.
+    const newest = adapter.factories
+      .filter((candidate) => basename(candidate.botRoot) === 'sable')
+      .at(-1);
+    // Only the new line: the engine session id and the mark both persisted, so the
+    // resumed session is neither re-introduced nor replayed.
+    expect(newest?.gateways[0]?.prompts).toEqual(['[Launch] You: @sable and now']);
   });
 
   it('unaddressed group message routes to the lead', async () => {
@@ -1242,7 +1342,7 @@ describe('BotService rounds', () => {
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
       'You are the lead of the group "Launch". Answer or @mention the teammate who should answer.\n\n' +
-        '[Launch] You: what next',
+        `${room}\n\n[Launch] You: what next`,
     ]);
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });

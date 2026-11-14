@@ -147,6 +147,14 @@ export type BotControllerPort = Pick<
 const DEFAULT_IDLE_MS = 300_000;
 const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 const DEFAULT_CHAIN_CAP = 8;
+/**
+ * How much of the conversation one bot is given per turn: the newest entries and
+ * the newest characters. A chat can grow without bound, and a bot's window is the
+ * engine's to decide — past these the slice is trimmed and the bot is told so
+ * rather than the prompt being sent into an overflow.
+ */
+const CONTEXT_MAX_ENTRIES = 40;
+const CONTEXT_MAX_CHARS = 24_000;
 
 /** The refusal a second concurrent send gets, in the transcript and the promise. */
 const ROUND_IN_FLIGHT = 'A round is already running in this conversation.';
@@ -243,10 +251,6 @@ interface Round {
   attachments: BotOutgoingAttachments;
   /** The gateway answering right now, so `stop` can abort it. */
   current: WarmGateway | undefined;
-  /** Relays delivered in this round: the user's line first, then each reply. */
-  relays: string[];
-  /** How many relays each bot has seen, so a re-prompted bot gets only the new ones. */
-  seen: Map<string, number>;
   /** True once a routing state went out, so a silent round emits none. */
   announced: boolean;
 }
@@ -751,7 +755,12 @@ export class BotService {
         void this.dropWarm(warm, true);
       }
     }
-    conversation.sessions = {};
+    // Every member starts a fresh engine session, and none of them is handed the
+    // history it just left: the divider is the boundary, and each mark sits on it
+    // so the next turn carries only what is said after this point.
+    conversation.sessions = Object.fromEntries(
+      conversation.members.map((member) => [member, { toldUpTo: divider.id }]),
+    );
     saveBotRegistry(this.options.root, this.registry);
   }
 
@@ -802,7 +811,6 @@ export class BotService {
   ): Promise<void> {
     const images = attachments.images ?? [];
     const files = attachments.files ?? [];
-    const summary = attachmentSummary(images.length, files.length);
     const round: Round = {
       conversation,
       stopped: false,
@@ -811,11 +819,6 @@ export class BotService {
       activity: undefined,
       attachments: { images, files },
       current: undefined,
-      // Other bots only ever see the relay text, so what was attached is said
-      // here — otherwise a teammate would answer a message whose picture or
-      // file it was never told about.
-      relays: [relayLine(conversation.title, 'You', summary === '' ? text : `${text}\n${summary}`)],
-      seen: new Map(),
       announced: false,
     };
     this.rounds.set(conversation.id, round);
@@ -837,10 +840,8 @@ export class BotService {
         if (reply === undefined || round.stopped) {
           continue;
         }
-        round.relays.push(
-          relayLine(conversation.title, this.displayNameOf(target.username), reply),
-        );
-        round.seen.set(target.username, round.relays.length);
+        // The reply is in the transcript already, so the next target's context
+        // slice carries it — there is no relay list to keep here.
         this.queueChains(round, target, reply);
       }
     } finally {
@@ -872,12 +873,15 @@ export class BotService {
       );
       return undefined;
     }
-    const unseen = round.relays.slice(round.seen.get(bot.username) ?? 0);
-    round.seen.set(bot.username, round.relays.length);
-    const broadcast =
-      target.lead && conversation.kind === 'group'
-        ? `${leadBrief(conversation.title)}\n\n${unseen.join('\n\n')}`
-        : unseen.join('\n\n');
+    // What this bot has not been told yet, read from the conversation's own
+    // transcript: everything anyone said since its last turn, with its own lines
+    // left out (those are its own assistant turns in its session already).
+    const context = this.contextFor(conversation, bot);
+    const pieces = [
+      target.lead && conversation.kind === 'group' ? leadBrief(conversation.title) : '',
+      context.text,
+    ].filter((piece) => piece.length > 0);
+    const broadcast = pieces.join('\n\n');
 
     // The reader's attachments go to the bot being asked, in its own workspace:
     // engines take images as prompt content, and a file is written where this
@@ -902,6 +906,10 @@ export class BotService {
       // layout, so the engine applies it exactly as it would for a hand-built
       // agent. Morse sends only what the reader typed.
       const outcome = await this.promptAndWait(warm, promptText, round.attachments.images);
+      // The engine has the context now, so the next turn only carries what
+      // happened since. Recorded after the prompt was accepted, never before: a
+      // refusal must leave the slice to be offered again.
+      this.markTold(conversation, bot.username, context.upTo);
       if (round.stopped) {
         return undefined;
       }
@@ -1087,7 +1095,13 @@ export class BotService {
     });
     this.warm.set(key, warm);
     if (sessionId !== undefined) {
-      conversation.sessions[bot.username] = { engineSessionId: sessionId };
+      // Keep how far this bot has been told: the engine session id and the
+      // context mark belong to the same record, and losing one would re-feed or
+      // skip history.
+      conversation.sessions[bot.username] = {
+        ...conversation.sessions[bot.username],
+        engineSessionId: sessionId,
+      };
       this.touched(conversation);
     }
     this.touch(warm);
@@ -1436,6 +1450,85 @@ export class BotService {
    * and session directories at the bot's root. The declared names are copied
    * explicitly so a future host that scopes its base cannot silently drop them.
    */
+  /**
+   * The conversation as this bot has not seen it: everything said since its last
+   * turn, in order, framed the way a chat log reads.
+   *
+   * A bot's own words are left out — they are already its assistant turns in its
+   * own engine session, and repeating them would have it answer itself. Everyone
+   * else's are included, including replies relayed to somebody else: that is what
+   * makes a group coherent, so a bot that sat a round out is caught up when it is
+   * finally called. The slice's last id is what `upTo` records, so nothing is sent
+   * twice.
+   */
+  private contextFor(
+    conversation: ConversationRecord,
+    bot: BotRecord,
+  ): { text: string; upTo: string | undefined } {
+    const ref = conversation.sessions[bot.username];
+    const entries = this.transcripts.since(conversation.id, ref?.toldUpTo);
+    const upTo = entries.at(-1)?.id ?? ref?.toldUpTo;
+    const lines: string[] = [];
+    // The first prompt of a discussion introduces the room: a group's members are
+    // addressable by handle, and a bot has no other way to learn them.
+    if (ref?.engineSessionId === undefined && conversation.kind === 'group') {
+      const members = conversation.members.map((username) => {
+        const member = this.bot(username);
+        return member === undefined ? `@${username}` : `${member.name} (@${username})`;
+      });
+      lines.push(`Group "${conversation.title}" — members: ${members.join(', ')}.`);
+    }
+    const recent = entries.slice(-CONTEXT_MAX_ENTRIES);
+    if (entries.length > recent.length) {
+      lines.push(`(${entries.length - recent.length} earlier message(s) not repeated here.)`);
+    }
+    for (const entry of recent) {
+      const line = this.contextLine(entry, bot, conversation.title);
+      if (line !== undefined) {
+        lines.push(line);
+      }
+    }
+    return { text: lines.join('\n\n').slice(-CONTEXT_MAX_CHARS), upTo };
+  }
+
+  /** One transcript entry as a bot reads it, or nothing when it should not. */
+  private contextLine(
+    entry: BotTranscriptEntry,
+    bot: BotRecord,
+    title: string,
+  ): string | undefined {
+    if (entry.author.role === 'user') {
+      const attached = attachmentSummary(entry.images?.length ?? 0, entry.files?.length ?? 0);
+      const text = attached === '' ? entry.text : `${entry.text}\n${attached}`;
+      return relayLine(title, 'You', text);
+    }
+    if (entry.author.role === 'bot') {
+      // Its own reply is its own turn in its session; Morse's notes and the
+      // discussion boundaries are not conversation.
+      return entry.author.username === bot.username
+        ? undefined
+        : relayLine(title, entry.author.name, entry.text);
+    }
+    return undefined;
+  }
+
+  /** Records how far a bot has been told, so the next turn starts after it. */
+  private markTold(
+    conversation: ConversationRecord,
+    username: string,
+    upTo: string | undefined,
+  ): void {
+    if (upTo === undefined) {
+      return;
+    }
+    const ref = conversation.sessions[username] ?? {};
+    if (ref.toldUpTo === upTo) {
+      return;
+    }
+    conversation.sessions[username] = { ...ref, toldUpTo: upTo };
+    this.touched(conversation);
+  }
+
   /**
    * Puts the reader's files where this bot can open them and says so in the
    * prompt, as a path the bot resolves from its own cwd. A file that could not be

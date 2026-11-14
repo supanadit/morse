@@ -292,6 +292,30 @@ opens it with the tools it already has and no bot ever sees another's attachment
 every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
 relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
+### What a bot knows, and when it learns it
+
+Each bot of a conversation has its **own engine session for that conversation** (`ConversationRecord.sessions`
+holds it per member), so a group and a direct message never share one, and two groups never share one. That is
+what makes a bot's memory its own — and it is also why Morse cannot rely on it being complete.
+
+Engines do not offer "append these messages to this session without running you": pi owns its session files and
+has no such call, and OpenCode's message API differs by version. So Morse does the honest equivalent, at the
+moment a bot is asked: it hands that bot **everything said since its last turn**, read from the conversation
+transcript, framed as a chat log (`[Launch] Sable: …`). `BotSessionRef.toldUpTo` records the last entry a bot was
+given, which is what makes this exact rather than approximate:
+
+- a bot that sat a round out is caught up when it is finally called — including replies that were relayed to
+  someone else;
+- a bot is never handed its own words back, because those are already its assistant turns in its own session;
+- nothing is sent twice, so a long conversation does not grow its prompts quadratically;
+- a **new discussion** clears each member's engine session and marks the divider as the boundary, so the fresh
+  session starts from there instead of being re-fed the history the reader walked away from;
+- an **edit** drops the session (the persona and model are in the engine's files) and therefore starts a fresh
+  one, which *is* handed the conversation so far — a new session continuing an old chat has to know it.
+
+The slice is capped (`CONTEXT_MAX_ENTRIES`, `CONTEXT_MAX_CHARS`) and says so when it trims: a bot's window is the
+engine's to decide, and an over-long prompt is an overflow waiting to happen.
+
 ### `@` in a bot conversation
 
 The composer's `@` is one key with two meanings: in a code session it lists workspace files, in a bot
