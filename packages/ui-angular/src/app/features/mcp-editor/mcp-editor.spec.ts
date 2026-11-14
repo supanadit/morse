@@ -1,9 +1,11 @@
 import { signal } from '@angular/core';
+import type { McpServerStatus } from '@morse/protocol';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
+import { McpState } from '../../state/mcp-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { McpEditor } from './mcp-editor';
 
@@ -17,7 +19,12 @@ function render(
   noSession = false,
   respond: (command: string) => unknown = () => undefined,
   configFix = true,
-): { element: HTMLElement; fixture: ComponentFixture<McpEditor> } {
+  edit?: McpServerStatus,
+): {
+  element: HTMLElement;
+  fixture: ComponentFixture<McpEditor>;
+  request: ReturnType<typeof vi.fn>;
+} {
   const transport = new MemoryHostTransport();
   const fake = {
     capabilities: signal({
@@ -49,10 +56,22 @@ function render(
   }
   const fixture = TestBed.createComponent(McpEditor);
   fixture.detectChanges();
-  return { element: fixture.nativeElement as HTMLElement, fixture };
+  // The panel sets the edit target just before it opens the editor; doing it
+  // after the first detection is the same sequence.
+  if (edit !== undefined) {
+    TestBed.inject(McpState).beginEdit(edit);
+    fixture.detectChanges();
+  }
+  return { element: fixture.nativeElement as HTMLElement, fixture, request: fake.requestHostCommand };
 }
 
 afterEach(() => TestBed.resetTestingModule());
+
+/** Type into an input the way a reader does, so Angular's binding sees it. */
+function type(input: HTMLInputElement, value: string): void {
+  input.value = value;
+  input.dispatchEvent(new Event('input'));
+}
 
 describe('McpEditor', () => {
   it('restores a saved draft after a reload', () => {
@@ -139,6 +158,203 @@ describe('McpEditor', () => {
     expect(element.querySelector('.error')?.textContent).toMatch(
       /press Fix on it in the MCP manager/,
     );
+  });
+
+  const GITHUB: McpServerStatus = {
+    name: 'github',
+    scope: 'project',
+    source: '/repo/.pi/mcp.json',
+    enabled: true,
+    transport: 'stdio: npx -y server-github',
+    state: 'connecting',
+    tools: [],
+    config: {
+      name: 'github',
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-github'],
+      cwd: '/work/repo',
+      env: { GITHUB_TOKEN: 'secret' },
+    },
+  };
+
+  it('opens on an existing server with its entry prefilled and its name fixed', () => {
+    const { element } = render(undefined, false, () => undefined, true, GITHUB);
+
+    expect(element.querySelector('h2')?.textContent).toContain('Edit github');
+    const name = element.querySelector('#mcp-editor-name') as HTMLInputElement;
+    expect(name.value).toBe('github');
+    // The name is the entry's key, so a rename is not an in-place edit.
+    expect(name.readOnly).toBe(true);
+    expect((element.querySelector('#mcp-editor-command') as HTMLInputElement).value).toBe('npx');
+    expect((element.querySelector('#mcp-editor-args') as HTMLInputElement).value).toBe(
+      '-y server-github',
+    );
+    expect((element.querySelector('#mcp-editor-cwd') as HTMLInputElement).value).toBe('/work/repo');
+    const rows = [...element.querySelectorAll<HTMLInputElement>('.kv-row input')].map(
+      (input) => input.value,
+    );
+    expect(rows).toEqual(['GITHUB_TOKEN', 'secret']);
+    expect(
+      [...element.querySelectorAll('button')].some(
+        (button) => button.textContent?.trim() === 'Save changes',
+      ),
+    ).toBe(true);
+    // The entry keeps its own scope: a move would leave the original behind.
+    const scopes = [...element.querySelectorAll<HTMLButtonElement>('.scope-bar button')];
+    expect(scopes.every((button) => button.disabled)).toBe(true);
+  });
+
+  it('saves an edited server back under its own name and scope', async () => {
+    const { element, fixture, request } = render(
+      undefined,
+      false,
+      (command) => (command === 'mcpAdd' ? { ok: true, issues: [] } : undefined),
+      true,
+      GITHUB,
+    );
+
+    const save = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Save changes',
+    );
+    save?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(request).toHaveBeenCalledWith(
+      'mcpAdd',
+      expect.objectContaining({
+        name: 'github',
+        scope: 'project',
+        type: 'stdio',
+        command: 'npx',
+        cwd: '/work/repo',
+        env: { GITHUB_TOKEN: 'secret' },
+      }),
+      expect.any(Number),
+    );
+    expect(element.querySelector('.result.ok')?.textContent).toContain('Saved to this project');
+  });
+
+  /** The `mcpAdd` payload of a save, for the field-level assertions below. */
+  async function savedPayload(
+    element: HTMLElement,
+    fixture: ComponentFixture<McpEditor>,
+    request: ReturnType<typeof vi.fn>,
+  ): Promise<Record<string, unknown> | undefined> {
+    const save = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Save changes',
+    );
+    save?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    const call = request.mock.calls.find(([command]) => command === 'mcpAdd');
+    return call?.[1] as Record<string, unknown> | undefined;
+  }
+
+  it('keeps a disabled server disabled when it is edited', async () => {
+    const disabled: McpServerStatus = { ...GITHUB, enabled: false };
+    const { element, fixture, request } = render(
+      undefined,
+      false,
+      (command) => (command === 'mcpAdd' ? { ok: true, issues: [] } : undefined),
+      true,
+      disabled,
+    );
+
+    // A save rewrites the entry, so the `enabled: false` pin must be included.
+    expect(await savedPayload(element, fixture, request)).toMatchObject({ enabled: false });
+  });
+
+  it('does not write a project pin back into the entry it overrides', async () => {
+    const pinned: McpServerStatus = {
+      ...GITHUB,
+      enabled: false,
+      override: '/repo/.pi/mcp.json',
+    };
+    const { element, fixture, request } = render(
+      undefined,
+      false,
+      (command) => (command === 'mcpAdd' ? { ok: true, issues: [] } : undefined),
+      true,
+      pinned,
+    );
+
+    // The pin belongs to the project file; editing the server must not copy it.
+    const payload = await savedPayload(element, fixture, request);
+    expect(payload).toBeDefined();
+    expect(payload).not.toHaveProperty('enabled');
+  });
+
+  it('sends an untouched argv back verbatim, spaces and all', async () => {
+    const spaced: McpServerStatus = {
+      ...GITHUB,
+      config: { ...GITHUB.config!, args: ['-y', 'a b'] },
+    };
+    const { element, fixture, request } = render(
+      undefined,
+      false,
+      (command) => (command === 'mcpAdd' ? { ok: true, issues: [] } : undefined),
+      true,
+      spaced,
+    );
+
+    // The form shows `-y a b`; splitting it again would lose the argument.
+    expect(await savedPayload(element, fixture, request)).toMatchObject({
+      args: ['-y', 'a b'],
+    });
+  });
+
+  it('edits HTTP headers as part of the entry', async () => {
+    const { element, fixture, request } = render(
+      { ...DRAFT, type: 'http', command: '', url: 'https://example.com/mcp' },
+      false,
+      (command) => (command === 'mcpAdd' ? { ok: true, issues: [] } : undefined),
+    );
+
+    const addHeader = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '+ Add header',
+    );
+    addHeader?.click();
+    fixture.detectChanges();
+
+    const inputs = [...element.querySelectorAll<HTMLInputElement>('.kv-row input')];
+    expect(inputs).toHaveLength(2);
+    type(inputs[0]!, 'Authorization');
+    type(inputs[1]!, 'Bearer token');
+    fixture.detectChanges();
+
+    await addServer(element, fixture);
+    expect(request).toHaveBeenCalledWith(
+      'mcpAdd',
+      expect.objectContaining({
+        name: 'docs',
+        type: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer token' },
+      }),
+      expect.any(Number),
+    );
+  });
+
+  it('refuses a value without a name instead of dropping it', async () => {
+    const { element, fixture, request } = render(DRAFT, false, (command) =>
+      command === 'mcpAdd' ? { ok: true, issues: [] } : undefined,
+    );
+
+    const addVariable = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '+ Add variable',
+    );
+    addVariable?.click();
+    fixture.detectChanges();
+
+    const inputs = [...element.querySelectorAll<HTMLInputElement>('.kv-row input')];
+    type(inputs[1]!, 'orphan value');
+    fixture.detectChanges();
+
+    await addServer(element, fixture);
+    expect(element.querySelector('.error')?.textContent).toMatch(/Name the variable/);
+    expect(request).not.toHaveBeenCalledWith('mcpAdd', expect.anything(), expect.anything());
   });
 
   it('asks for a hand edit instead when the host does not offer Fix', async () => {

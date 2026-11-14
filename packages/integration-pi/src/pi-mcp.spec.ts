@@ -254,6 +254,31 @@ describe('PiMcp status', () => {
     expect(status.errors).toEqual([]);
   });
 
+  it('reports the entry itself so the panel can edit it', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), {
+      mcpServers: {
+        github: {
+          command: 'npx',
+          args: ['-y', 'server-github'],
+          env: { GITHUB_TOKEN: 'secret' },
+        },
+      },
+    });
+
+    const status = await new PiMcp({ agentDir }).status(cwd);
+
+    // The editor prefills from this, so env/args must survive the mapping.
+    expect(status.servers[0]?.config).toMatchObject({
+      name: 'github',
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-github'],
+      env: { GITHUB_TOKEN: 'secret' },
+    });
+  });
+
   it('probes enabled servers and fills tools', async () => {
     const agentDir = await tempRoot();
     const cwd = await tempRoot();

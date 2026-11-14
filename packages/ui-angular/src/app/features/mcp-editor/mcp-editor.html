@@ -1,10 +1,18 @@
 <div class="page">
-  <h2>Add an MCP server</h2>
-  <p class="lead">
-    Build the entry, then <strong>Test connection</strong> to check it before it is written to the
-    engine's config. The probe connects the same way the engine will, so a bad command, a dead URL
-    or a server that wants OAuth shows up here.
-  </p>
+  <h2>{{ isEditing() ? 'Edit ' + editingName() : 'Add an MCP server' }}</h2>
+  @if (isEditing()) {
+    <p class="lead">
+      Change the entry, then <strong>Test connection</strong> or save it back to the file that
+      defines it. Saving replaces that entry; the name is fixed, so a rename is a new server plus a
+      removal of the old one.
+    </p>
+  } @else {
+    <p class="lead">
+      Build the entry, then <strong>Test connection</strong> to check it before it is written to the
+      engine's config. The probe connects the same way the engine will, so a bad command, a dead URL
+      or a server that wants OAuth shows up here.
+    </p>
+  }
 
   <div class="scope-bar">
     <span class="scope-label">Save to</span>
@@ -13,8 +21,8 @@
         type="button"
         [class.active]="scope() === 'project'"
         [attr.aria-pressed]="scope() === 'project'"
-        [disabled]="noProject()"
-        [title]="noProject() ? 'Open a session to save into its project' : ''"
+        [disabled]="noProject() || isEditing()"
+        [title]="scopeHint(true)"
         (click)="setScope('project')"
       >
         This project
@@ -23,6 +31,8 @@
         type="button"
         [class.active]="scope() === 'global'"
         [attr.aria-pressed]="scope() === 'global'"
+        [disabled]="isEditing()"
+        [title]="scopeHint(false)"
         (click)="setScope('global')"
       >
         Global
@@ -36,6 +46,8 @@
       id="mcp-editor-name"
       type="text"
       placeholder="filesystem"
+      [readonly]="isEditing()"
+      [title]="isEditing() ? 'The name is the entry key; add a new server to rename it.' : ''"
       [value]="name()"
       (input)="setName($any($event.target).value)"
     />
@@ -59,6 +71,40 @@
         (input)="setUrl($any($event.target).value)"
       />
     </div>
+    <!-- Headers are part of the entry, not a post-save hand edit: a server that
+         wants one does not work without it. -->
+    <div class="field kv-field">
+      <span class="kv-label" id="mcp-editor-headers-label">Headers</span>
+      <div class="kv" role="group" aria-labelledby="mcp-editor-headers-label">
+        @for (row of headerRows(); track $index) {
+          <div class="kv-row">
+            <input
+              type="text"
+              placeholder="Authorization"
+              aria-label="Header name"
+              [value]="row.key"
+              (input)="setHeaderKey($index, $any($event.target).value)"
+            />
+            <input
+              type="text"
+              placeholder="Bearer …"
+              aria-label="Header value"
+              [value]="row.value"
+              (input)="setHeaderValue($index, $any($event.target).value)"
+            />
+            <button
+              type="button"
+              class="kv-remove"
+              [attr.aria-label]="'Remove header ' + (row.key || $index + 1)"
+              (click)="removeHeader($index)"
+            >
+              ✕
+            </button>
+          </div>
+        }
+        <button type="button" class="kv-add" (click)="addHeader()">+ Add header</button>
+      </div>
+    </div>
   } @else {
     <div class="field">
       <label for="mcp-editor-command">Command</label>
@@ -79,6 +125,49 @@
         [value]="argsText()"
         (input)="setArgs($any($event.target).value)"
       />
+    </div>
+    <div class="field">
+      <label for="mcp-editor-cwd">Working dir</label>
+      <input
+        id="mcp-editor-cwd"
+        type="text"
+        placeholder="/path/to/project"
+        [value]="workdir()"
+        (input)="setWorkdir($any($event.target).value)"
+      />
+    </div>
+    <!-- Env is part of the entry: most stdio servers need a token here. -->
+    <div class="field kv-field">
+      <span class="kv-label" id="mcp-editor-env-label">Environment</span>
+      <div class="kv" role="group" aria-labelledby="mcp-editor-env-label">
+        @for (row of envRows(); track $index) {
+          <div class="kv-row">
+            <input
+              type="text"
+              placeholder="GITHUB_TOKEN"
+              aria-label="Variable name"
+              [value]="row.key"
+              (input)="setEnvKey($index, $any($event.target).value)"
+            />
+            <input
+              type="text"
+              placeholder="value"
+              aria-label="Variable value"
+              [value]="row.value"
+              (input)="setEnvValue($index, $any($event.target).value)"
+            />
+            <button
+              type="button"
+              class="kv-remove"
+              [attr.aria-label]="'Remove variable ' + (row.key || $index + 1)"
+              (click)="removeEnv($index)"
+            >
+              ✕
+            </button>
+          </div>
+        }
+        <button type="button" class="kv-add" (click)="addEnv()">+ Add variable</button>
+      </div>
     </div>
   }
 
@@ -104,7 +193,7 @@
     </button>
     <span class="spacer"></span>
     <button type="button" [disabled]="adding() || testing()" (click)="add()">
-      {{ adding() ? 'Adding…' : 'Add server' }}
+      {{ adding() ? 'Saving…' : isEditing() ? 'Save changes' : 'Add server' }}
     </button>
   </div>
 
@@ -115,7 +204,10 @@
     <div class="result ok">
       <div class="result-head">
         <span class="dot" aria-hidden="true"></span>
-        <span>Added to {{ scope() === 'project' ? 'this project' : 'your user mcp.json' }}</span>
+        <span>
+          {{ isEditing() ? 'Saved' : 'Added' }} to
+          {{ scope() === 'project' ? 'this project' : 'your user mcp.json' }}
+        </span>
       </div>
       <div class="result-body">pi picks it up on the next session.</div>
     </div>

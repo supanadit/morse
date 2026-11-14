@@ -74,6 +74,70 @@ h2 {
   font-size: 12.5px;
   font-family: inherit;
 }
+/* Key/value rows (env, headers): the same label column as every other field,
+   then name/value inputs with their own remove button. */
+.kv-field {
+  align-items: flex-start;
+}
+.kv-label {
+  flex: none;
+  width: 92px;
+  padding-top: 6px;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+}
+.kv {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kv-row {
+  display: flex;
+  gap: 4px;
+}
+.kv-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-bg);
+  color: var(--morse-fg);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.kv-row input:first-child {
+  flex: 0 1 38%;
+}
+.kv-remove {
+  flex: none;
+  width: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.kv-remove:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-error);
+}
+.kv-add {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.kv-add:hover {
+  color: var(--morse-fg);
+}
 .actions {
   display: flex;
   align-items: center;
@@ -182,5 +246,8 @@ h2 {
   }
   .field label {
     width: auto;
+  }
+  .kv-row input:first-child {
+    flex: 1;
   }
 }

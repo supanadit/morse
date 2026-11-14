@@ -89,6 +89,20 @@ export class McpState {
   readonly canFix = computed(() => this.morse.capabilities()?.configFix === true);
 
   /**
+   * The server the editor is currently opened on, or `undefined` for a new one.
+   * The token makes a second click on the same row a fresh request, so the form
+   * reloads the entry instead of keeping half-typed edits keyed by identity.
+   */
+  private readonly editTarget = signal<{ server: McpServerStatus; token: number } | undefined>(
+    undefined,
+  );
+  private editToken = 0;
+  /** What the editor should open: a request, carrying the row the panel clicked. */
+  readonly editRequest = this.editTarget.asReadonly();
+  /** The row being edited, for the editor's heading and its locked name field. */
+  readonly editing = computed(() => this.editTarget()?.server);
+
+  /**
    * The engine the MCP modal is about: the draft's choice, or the session's
    * owner. Engines keep separate configs (`mcp.json` vs `opencode.json`), so it
    * rides every command and the cache is keyed by it — a pi session and an
@@ -366,6 +380,20 @@ export class McpState {
         this.setLoading(cwd, false);
       }
     }
+  }
+
+  /**
+   * Open the editor on one existing server. The panel sets this before it opens
+   * the editor, so the form prefills from the row the reader clicked; `endEdit`
+   * clears it when Add server is what they chose instead.
+   */
+  beginEdit(server: McpServerStatus): void {
+    this.editToken += 1;
+    this.editTarget.set({ server, token: this.editToken });
+  }
+
+  endEdit(): void {
+    this.editTarget.set(undefined);
   }
 
   async add(input: McpServerInput, cwd: string): Promise<McpMutation> {

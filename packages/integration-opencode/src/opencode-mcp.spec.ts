@@ -47,6 +47,28 @@ describe('OpenCodeMcp', () => {
   };
 
   describe('status', () => {
+    it('reports the entry itself so the panel can edit it', () => {
+      writeGlobal({
+        mcp: {
+          remote: {
+            type: 'remote',
+            url: 'https://example.com/mcp',
+            headers: { Authorization: 'Bearer t' },
+          },
+        },
+      });
+
+      const status = mcp.status(cwd);
+
+      // The editor prefills from this, so headers must survive the mapping.
+      expect(status.servers[0]?.config).toMatchObject({
+        name: 'remote',
+        type: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer t' },
+      });
+    });
+
     it('reports servers from both scopes, honest about configured state', () => {
       writeGlobal({
         mcp: {

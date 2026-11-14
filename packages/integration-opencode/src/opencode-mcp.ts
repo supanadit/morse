@@ -193,6 +193,8 @@ function toServerStatus(entry: McpServerEntry): McpServerStatus {
     transport: describeTransport(server),
     state: enabled ? 'disconnected' : 'disabled',
     tools: [],
+    // The entry itself, so the editor can open it without a second read.
+    config: server,
   };
 }
 

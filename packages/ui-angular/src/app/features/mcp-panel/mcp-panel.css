@@ -342,6 +342,9 @@ h2 {
 .actions .icon-button:hover:not(:disabled) {
   background: var(--morse-hover);
 }
+.actions .icon-button.edit:hover:not(:disabled) {
+  color: var(--morse-fg);
+}
 .actions .icon-button.remove:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--morse-error) 45%, transparent);
   color: var(--morse-error);

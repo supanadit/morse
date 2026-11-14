@@ -56,6 +56,13 @@ export interface McpServerStatus {
   /** A one-line summary of how it connects: `stdio: command args` or `http: url`. */
   transport: string;
   state: McpServerState;
+  /**
+   * The entry as the engine's file defines it, in Morse's neutral vocabulary:
+   * command/args/env or url/headers, plus cwd and exposure. The editor prefills
+   * from this, so editing never needs a second read of the config file. Absent
+   * from an older host, which is why the panel hides Edit without it.
+   */
+  config?: McpServer;
   /** The tool names the server offers once connected. */
   tools: string[];
   /** Per-tool exposure overrides, when they differ from the server's. */

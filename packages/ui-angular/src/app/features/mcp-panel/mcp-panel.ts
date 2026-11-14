@@ -246,6 +246,40 @@ export class McpPanel {
    * instead. Either way the manager closes — it is the list, not the form.
    */
   protected openAdd(): void {
+    // "Add server" always starts a new entry, even if Edit was used last.
+    this.mcp.endEdit();
+    this.openEditor();
+  }
+
+  /**
+   * Edit one row: the same editor, prefilled from the entry the panel holds.
+   * Only rows an engine actually stores can be edited — an extension's servers
+   * live in no file, and an older host sends no `config` to prefill from.
+   */
+  protected edit(server: McpServerStatus): void {
+    if (!this.canEditServer(server)) {
+      return;
+    }
+    this.mcp.beginEdit(server);
+    this.openEditor();
+  }
+
+  /**
+   * Whether this row can open in the editor. An extension's servers live in no
+   * file, and an older host sends no `config` to prefill from. The editor also
+   * has to share this form's `McpState`, which only the host with Morse's own tab
+   * strip does: VS Code's editor is a separate webview, so Edit waits for a
+   * payload-carrying `openMcpEditor`.
+   */
+  protected canEditServer(server: McpServerStatus): boolean {
+    return (
+      server.scope !== 'extension' &&
+      server.config !== undefined &&
+      this.morse.capabilities()?.filePreview === true
+    );
+  }
+
+  private openEditor(): void {
     if (this.morse.capabilities()?.filePreview === true) {
       this.tabs.openMcp();
     } else {

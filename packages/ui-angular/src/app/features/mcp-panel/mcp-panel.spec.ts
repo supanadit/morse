@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
-import type { ConfigIssue, McpStatus } from '@morse/protocol';
+import type { ConfigIssue, McpServerStatus, McpStatus } from '@morse/protocol';
 import { McpPanel } from './mcp-panel';
 import { McpState } from '../../state/mcp-state';
 import { MorseService } from '../../host/morse.service';
@@ -105,11 +105,12 @@ const PARSE_ISSUE: ConfigIssue = {
 function renderWithState(
   status: McpStatus,
   fixResult: unknown = { ok: true, issues: [] },
-  capabilities: { configFix?: boolean } = {},
+  capabilities: { configFix?: boolean; filePreview?: boolean } = {},
 ): {
   element: HTMLElement;
   fixture: ComponentFixture<McpPanel>;
   requestHostCommand: ReturnType<typeof vi.fn>;
+  openMcp: ReturnType<typeof vi.fn>;
 } {
   let fixed = false;
   const requestHostCommand = vi.fn((command: string) => {
@@ -123,8 +124,13 @@ function renderWithState(
     // A successful fix rewrites the file, so the next read is issue-free.
     return Promise.resolve(fixed ? { ...status, issues: [] } : status);
   });
+  const openMcp = vi.fn();
   const fake = {
-    capabilities: signal({ mcp: false, configFix: capabilities.configFix ?? true }),
+    capabilities: signal({
+      mcp: false,
+      configFix: capabilities.configFix ?? true,
+      filePreview: capabilities.filePreview ?? false,
+    }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
     engine: signal('opencode'),
     requestHostCommand,
@@ -137,7 +143,10 @@ function renderWithState(
     providers: [
       { provide: MorseService, useValue: fake },
       { provide: ShellState, useValue: { closeMcp: () => undefined } },
-      { provide: WorkspaceTabs, useValue: { noSessionInFront: signal(false) } },
+      {
+        provide: WorkspaceTabs,
+        useValue: { noSessionInFront: signal(false), openMcp },
+      },
     ],
   });
   const fixture = TestBed.createComponent(McpPanel);
@@ -146,6 +155,7 @@ function renderWithState(
     element: fixture.nativeElement as HTMLElement,
     fixture,
     requestHostCommand,
+    openMcp,
   };
 }
 
@@ -462,6 +472,66 @@ describe('McpPanel row controls', () => {
       { name: 'context7', scope: 'global', cwd: '/repo', engine: 'opencode' },
       expect.any(Number),
     );
+  });
+
+  it('edits an existing server through the pencil, prefilling the editor', async () => {
+    const server: McpServerStatus = {
+      name: 'github',
+      scope: 'global',
+      source: '/home/u/.pi/agent/mcp.json',
+      enabled: true,
+      transport: 'stdio: npx -y server-github',
+      state: 'connecting',
+      tools: [],
+      config: {
+        name: 'github',
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', 'server-github'],
+        env: { GITHUB_TOKEN: 'secret' },
+      },
+    };
+    const { element, fixture, openMcp } = renderWithState(
+      { servers: [server], errors: [], trusted: true },
+      { ok: true, issues: [] },
+      { filePreview: true },
+    );
+    await settle(fixture);
+
+    const edit = element.querySelector<HTMLButtonElement>('button[aria-label="Edit github"]');
+    expect(edit).not.toBeNull();
+    edit?.click();
+    fixture.detectChanges();
+
+    // The row is handed to the shared editor state, then the editor tab opens.
+    expect(TestBed.inject(McpState).editing()?.name).toBe('github');
+    expect(openMcp).toHaveBeenCalled();
+  });
+
+  it('offers no pencil on a host whose editor is a separate panel', async () => {
+    const server: McpServerStatus = {
+      name: 'github',
+      scope: 'global',
+      source: '/home/u/.pi/agent/mcp.json',
+      enabled: true,
+      transport: 'stdio: npx -y server-github',
+      state: 'connecting',
+      tools: [],
+      config: { name: 'github', type: 'stdio', command: 'npx' },
+    };
+    // No tab strip: the editor is its own webview with its own state.
+    const { element, fixture } = renderWithState({ servers: [server], errors: [], trusted: true });
+    await settle(fixture);
+
+    expect(element.querySelector('button[aria-label="Edit github"]')).toBeNull();
+  });
+
+  it('offers no pencil when the host does not send the entry', async () => {
+    // OPENCODE_STATUS rows carry no `config`: an older host cannot prefill a form.
+    const { element, fixture } = renderWithState(OPENCODE_STATUS);
+    await settle(fixture);
+
+    expect(element.querySelector('button[aria-label="Edit context7"]')).toBeNull();
   });
 
   it('disables the switch for a server the chosen scope cannot edit', async () => {
