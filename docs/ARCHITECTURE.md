@@ -265,6 +265,23 @@ contract, the failure rules and how to add a step are in [DATA-COMPATIBILITY.md]
 the runner is `packages/system/src/data/layout.ts`, and bot mode's steps and repair pass are
 `packages/system/src/bot/data.ts`.
 
+## Bot mode's presence line
+
+A bot conversation is a chat, not a trace of work: while a bot answers, the chat shows one line of presence
+where its message will land — "Wait, let me think…", "Reading launch-brief.md…", "Writing the answer…" — and
+nothing else. Two rules follow from that, and both are easy to break by accident:
+
+- **Presence, not a trace.** Tool activity never becomes a transcript entry. The host words each event
+  (`packages/system/src/bot/activity.ts` is the only place a tool name becomes English) and pushes it as
+  `BotRoutingState.activity`; the row is replaced as the bot moves on and removed when the answer arrives, so a
+  reader scrolling back sees the question and the answer, never the middle.
+- **The host words it, not the frontend.** Engines name tools differently and extensions invent their own, so
+  the label is built where the engine's vocabulary is already translated; the frontend only animates it. An
+  unknown tool still reads as a sentence ("Using memory_search …") instead of vanishing.
+
+The round is announced before its engine is warm (`starting`, "Getting started…"), because starting one takes
+seconds and a silent chat in those seconds reads as a dropped message.
+
 ## NestJS host specifics
 
 Two things about the NestJS host are easy to get wrong:

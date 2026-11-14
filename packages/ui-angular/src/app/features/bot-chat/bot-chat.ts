@@ -62,13 +62,53 @@ export class BotChat {
 
   /**
    * The round in flight, and only when it belongs to the conversation in front:
-   * a bot still answering in another room must not put "Asking …" over this one.
+   * a bot still answering in another room must not draw a row here.
    */
   protected readonly routing = computed(() => {
     const routing = this.morse.bot.routing();
     return routing !== null && routing.conversationId === this.morse.bot.activeId()
       ? routing
       : null;
+  });
+
+  /**
+   * The one line of presence the chat shows while a bot works — "Reading
+   * launch-brief.md" — where its answer will appear.
+   *
+   * A chat has presence, not a trace: the row is replaced as the bot moves on and
+   * gone when the answer lands, so it never enters the transcript the host keeps.
+   * `key` changes with every new activity, which is what makes Angular rebuild the
+   * node and replay the animation instead of quietly swapping the words.
+   */
+  protected readonly acting = computed<
+    {
+      key: string;
+      kind: string;
+      label: string;
+      name: string;
+      mark: string;
+      queued: string[];
+    }[]
+  >(() => {
+    const routing = this.routing();
+    const name = routing?.target;
+    if (routing === null || name === undefined) {
+      return [];
+    }
+    const activity = routing.activity;
+    const bot = this.morse.bot.roster()?.bots.find((one) => one.name === name);
+    return [
+      {
+        key: activity === undefined ? `waiting:${name}` : `${activity.kind}:${activity.at}`,
+        kind: activity?.kind ?? 'starting',
+        // No activity yet means the engine is still being started, which is its
+        // own kind of waiting and worth saying rather than showing nothing.
+        label: activity?.label ?? 'Getting started…',
+        name,
+        mark: bot?.avatar ?? name.slice(0, 1).toUpperCase(),
+        queued: routing.queued,
+      },
+    ];
   });
 
   constructor() {
@@ -110,6 +150,21 @@ export class BotChat {
             host.scrollTop = host.scrollHeight;
           }
         }, 0);
+      });
+    });
+    // The presence row is worth seeing the moment it appears — but only for a
+    // reader already at the end: someone reading history must not be pulled down
+    // every time a tool the bot runs changes the words.
+    effect(() => {
+      const key = this.acting()[0]?.key;
+      untracked(() => {
+        if (key === undefined) {
+          return;
+        }
+        const host = this.scrollHost()?.nativeElement;
+        if (host !== undefined && host.scrollHeight - host.scrollTop - host.clientHeight < 160) {
+          host.scrollTop = host.scrollHeight;
+        }
       });
     });
   }

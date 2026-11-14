@@ -132,32 +132,87 @@ describe('BotChat', () => {
     expect(host.querySelector('.transcript')?.textContent).not.toContain('Workshop line');
   });
 
-  it('shows whom the host is asking, and whom it queued behind them', async () => {
+  it('draws the round where the answer will land, and takes it away again', async () => {
     const { fixture, host, morse } = await render();
-    open(morse, workshop, []);
+    open(morse, workshop, [entry('1', { role: 'user' }, 'plan the launch')]);
     fixture.detectChanges();
-    expect(host.querySelector('.routing')).toBeNull();
+    expect(host.querySelector('.acting')).toBeNull();
 
-    morse.bot.onRouting({ conversationId: workshop.id, target: 'Forge', queued: ['Sable'] });
+    morse.bot.onRouting({
+      conversationId: workshop.id,
+      target: 'Forge',
+      queued: ['Sable'],
+      activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
+    });
     fixture.detectChanges();
 
-    const strip = host.querySelector('.routing') as HTMLElement;
-    expect(strip.querySelector('.asking')?.textContent?.trim()).toBe('Asking Forge…');
-    expect(strip.querySelector('.queued')?.textContent).toContain('Sable');
+    const row = host.querySelector('.transcript .acting') as HTMLElement;
+    expect(row.querySelector('.doing-label')?.textContent?.trim()).toBe('Reading launch-brief.md…');
+    expect(row.querySelector('.author')?.textContent?.trim()).toBe('Forge');
+    expect(row.querySelector('.queued')?.textContent).toContain('Sable');
+    // Presence, not history: the row is not a line anyone scrolls back to.
+    expect(host.querySelectorAll('.transcript .entry:not(.acting)').length).toBe(1);
 
     morse.bot.onRouting(null);
     fixture.detectChanges();
-    expect(host.querySelector('.routing')).toBeNull();
+    expect(host.querySelector('.acting')).toBeNull();
+    expect(host.querySelector('.transcript')?.textContent).toContain('plan the launch');
+    expect(host.querySelector('.transcript')?.textContent).not.toContain('Reading launch-brief.md');
   });
 
-  it('does not show another conversation’s round', async () => {
+  it('replaces the line as the bot moves on, and animates the new one', async () => {
     const { fixture, host, morse } = await render();
-    open(morse, dm, []);
+    open(morse, workshop, []);
+
+    morse.bot.onRouting({
+      conversationId: workshop.id,
+      target: 'Forge',
+      queued: [],
+      activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
+    });
+    fixture.detectChanges();
+    const first = host.querySelector('.acting .doing-label') as HTMLElement;
+
+    morse.bot.onRouting({
+      conversationId: workshop.id,
+      target: 'Forge',
+      queued: [],
+      activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
+    });
+    fixture.detectChanges();
+
+    const second = host.querySelector('.acting .doing-label') as HTMLElement;
+    expect(second.textContent?.trim()).toBe('Writing the answer…');
+    // A new node, so the row's entrance animation replays rather than the words
+    // quietly swapping inside a node that never moved.
+    expect(second).not.toBe(first);
+  });
+
+  it('says a bot is getting started before its engine reports anything', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
 
     morse.bot.onRouting({ conversationId: workshop.id, target: 'Sable', queued: [] });
     fixture.detectChanges();
 
-    expect(host.querySelector('.routing')).toBeNull();
+    expect(host.querySelector('.acting .doing-label')?.textContent?.trim()).toBe(
+      'Getting started…',
+    );
+  });
+
+  it('does not draw another conversation’s round', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, []);
+
+    morse.bot.onRouting({
+      conversationId: workshop.id,
+      target: 'Sable',
+      queued: [],
+      activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
+    });
+    fixture.detectChanges();
+
+    expect(host.querySelector('.acting')).toBeNull();
   });
 
   it('stops the round in flight, and only offers it while one is set', async () => {

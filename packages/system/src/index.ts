@@ -25,6 +25,7 @@ export * from './bot/types.js';
 export * from './bot/store.js';
 export * from './bot/providers.js';
 export * from './bot/mentions.js';
+export * from './bot/activity.js';
 export * from './bot/service.js';
 export * from './bot/data.js';
 

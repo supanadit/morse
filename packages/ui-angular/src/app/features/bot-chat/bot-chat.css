@@ -72,63 +72,130 @@
 }
 
 /*
- * The round in flight sits between the room and its lines: a status line, not a
- * message, so it never enters the transcript the host keeps.
+ * The round in flight, drawn where its answer will land: a line of presence, not
+ * a status bar and not a message. It is rebuilt on every activity, so the row
+ * slides in each time the bot moves on — a chat shows what is happening now, and
+ * a trace of it would be history nobody asked to keep.
  */
-.routing {
-  flex: none;
+.entry.acting {
+  align-items: flex-start;
+  animation: acting-in 200ms ease-out both;
+}
+.entry.bot.acting .body {
+  /* Sized by its words, so Stop sits beside them instead of at the far edge of
+     a wide conversation. Specificity has to beat `.entry.bot .body { flex: 1 }`. */
+  flex: 0 1 auto;
+  gap: 3px;
+  max-width: 100%;
+}
+.entry.acting .doing {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--morse-border);
-  background: color-mix(in srgb, var(--morse-accent) 7%, transparent);
-  font-size: 12px;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  color: color-mix(in srgb, var(--morse-fg) 68%, transparent);
+  font-size: 12.5px;
 }
-.asking {
-  color: var(--morse-fg);
-  font-weight: 500;
-}
-.queued {
-  flex: 1;
+.doing-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--morse-fg-muted);
+  animation: acting-label 260ms ease-out both;
 }
+/* Three dots that lift in turn, the way a chat says "at work" without words. */
+.dots {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+  gap: 3px;
+}
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--morse-accent);
+  animation: acting-dot 1.15s ease-in-out infinite;
+}
+.dots i:nth-child(2) {
+  animation-delay: 150ms;
+}
+.dots i:nth-child(3) {
+  animation-delay: 300ms;
+}
+/* A tool's own work reads a shade warmer than thinking, so a glance is enough. */
+.entry.acting[data-kind='tool'] .doing-label {
+  color: var(--morse-fg);
+}
+.entry.acting .queued {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 11.5px;
+}
+/* The round's one control: quiet until pointed at, never a permanent button bar. */
 .stop {
   flex: none;
-  margin-left: auto;
-  height: 24px;
-  padding: 0 9px;
+  align-self: center;
+  height: 22px;
+  padding: 0 8px;
   border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-md);
   background: transparent;
-  color: var(--morse-fg);
+  color: color-mix(in srgb, var(--morse-fg) 70%, transparent);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 11px;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 .stop:hover {
   background: var(--morse-hover);
+  color: var(--morse-fg);
 }
-/* The same three-dot pulse the composer uses while a run is working. */
-.spinner {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--morse-accent);
-  animation: pulse 1.4s ease-in-out infinite;
+@keyframes acting-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
-@keyframes pulse {
+@keyframes acting-label {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes acting-dot {
   0%,
   100% {
-    opacity: 0.35;
+    opacity: 0.25;
+    transform: translateY(0);
   }
-  50% {
+  40% {
     opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+/* Presence is feedback, not decoration: keep it, but without the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .entry.acting,
+  .doing-label {
+    animation: none;
+  }
+  .dots i {
+    animation: none;
+    opacity: 0.8;
   }
 }
 

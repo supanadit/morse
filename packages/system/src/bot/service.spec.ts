@@ -22,7 +22,7 @@ import type {
   ThinkingLevel,
   WorkspaceRef,
 } from '@morse/agent';
-import type { BotCreateInput } from '@morse/protocol';
+import type { BotCreateInput, BotRoutingState } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
@@ -49,6 +49,8 @@ const MODEL: ModelRef = {
 /** One scripted turn: what the fake agent says and asks before it settles. */
 interface FakeTurn {
   text?: string;
+  /** Work the fake reports before it answers, so activity can be observed. */
+  tools?: { name: string; title?: string; input?: string }[];
   interactions?: AgentInteractionRequest[];
   /** Keep the run open until `release()` or `abort()`, so a test can act mid-round. */
   hold?: boolean;
@@ -220,6 +222,20 @@ class FakeGateway implements AgentGateway {
     }
     if (this.aborted) {
       return;
+    }
+    let call = 0;
+    for (const tool of turn.tools ?? []) {
+      call += 1;
+      const toolCallId = `call-${call}`;
+      this.emit({
+        type: 'agent/tool-start',
+        at: 0,
+        toolCallId,
+        name: tool.name,
+        title: tool.title ?? tool.name,
+        ...(tool.input === undefined ? {} : { input: tool.input }),
+      });
+      this.emit({ type: 'agent/tool-end', at: 0, toolCallId, status: 'ok' });
     }
     this.emit({ type: 'agent/message', at: 0, text: turn.text ?? '', thinking: '' });
     this.emit({ type: 'agent/run-end', at: 0, reason: 'settled' });
@@ -1059,9 +1075,53 @@ describe('BotService rounds', () => {
     });
     expect(events).toContainEqual({
       type: 'routing',
-      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+      state: {
+        conversationId: 'dm-forge',
+        target: 'Forge',
+        queued: [],
+        activity: expect.objectContaining({ kind: 'starting' }),
+      },
     });
     expect(events.at(-1)).toEqual({ type: 'routing', state: null });
+  });
+
+  it('shows what the bot is doing as it goes, and keeps none of it', async () => {
+    const { service } = harness({
+      script: () => ({
+        text: 'Brief read, plan written.',
+        tools: [
+          { name: 'read', title: 'read: launch-brief.md' },
+          { name: 'bash', title: 'bash', input: '{"command":"npm run test:fast"}' },
+        ],
+      }),
+    });
+    await service.createBot(botInput());
+    const routing: BotRoutingState[] = [];
+    service.subscribe((event) => {
+      if (event.type === 'routing' && event.state !== null) {
+        routing.push(event.state);
+      }
+    });
+
+    await service.send('dm-forge', 'plan the launch');
+
+    // One line of presence, replaced as the bot moves on: started, thinking,
+    // each tool in turn (thinking between them), then gone before the answer.
+    expect(routing.map((state) => state.activity?.label)).toEqual([
+      'Getting started…',
+      'Wait, let me think…',
+      'Reading launch-brief.md…',
+      'Thinking it over…',
+      'Running npm run test:fast…',
+      'Thinking it over…',
+      undefined,
+    ]);
+    expect(routing.every((state) => state.target === 'Forge')).toBe(true);
+    // The trace is not history: the transcript holds the question and the answer.
+    expect(service.transcript('dm-forge').map((entry) => entry.text)).toEqual([
+      'plan the launch',
+      'Brief read, plan written.',
+    ]);
   });
 
   it('group explicit mentions answer in order, each seeing prior replies', async () => {

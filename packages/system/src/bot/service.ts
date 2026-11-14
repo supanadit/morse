@@ -14,6 +14,7 @@ import type {
   WorkspaceRef,
 } from '@morse/agent';
 import type {
+  BotActivity,
   BotAuthor,
   BotConfig,
   BotConversationSummary,
@@ -27,6 +28,7 @@ import type {
 } from '@morse/protocol';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
+import { activityForEvent, startingActivity } from './activity.js';
 import { mentionTokens, parseMentions } from './mentions.js';
 import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
 import { discoverOpenAiCompatibleModels } from './providers.js';
@@ -143,6 +145,11 @@ const DEFAULT_CHAIN_CAP = 8;
 /** The refusal a second concurrent send gets, in the transcript and the promise. */
 const ROUND_IN_FLIGHT = 'A round is already running in this conversation.';
 
+/** Whether two activities would draw the same row, so no update is sent for them. */
+function sameActivity(a: BotActivity | undefined, b: BotActivity): boolean {
+  return a !== undefined && a.kind === b.kind && a.label === b.label && a.tool === b.tool;
+}
+
 /** A run is in flight: the answer it is waiting on and what it has said so far. */
 interface PromptOutcome {
   reply: string;
@@ -182,6 +189,10 @@ interface Round {
   readonly conversation: ConversationRecord;
   stopped: boolean;
   queue: QueuedTarget[];
+  /** The target being asked right now, so an activity update can name it. */
+  target: QueuedTarget | undefined;
+  /** What that target is doing, or undefined when it has said its piece. */
+  activity: BotActivity | undefined;
   /** The gateway answering right now, so `stop` can abort it. */
   current: WarmGateway | undefined;
   /** Relays delivered in this round: the user's line first, then each reply. */
@@ -313,10 +324,7 @@ export class BotService {
       // otherwise look like a duplicate, and a dead directory would sit in the
       // data dir forever. The factory goes first, so an engine server the probe
       // started is stopped before its tree is removed.
-      await this.disposeFactory(
-        factory,
-        'Failed to dispose a bot factory whose create failed',
-      );
+      await this.disposeFactory(factory, 'Failed to dispose a bot factory whose create failed');
       rmSync(botRoot, { recursive: true, force: true });
       throw error;
     }
@@ -741,6 +749,8 @@ export class BotService {
       conversation,
       stopped: false,
       queue: this.resolveTargets(conversation, text),
+      target: undefined,
+      activity: undefined,
       current: undefined,
       relays: [relayLine(conversation.title, 'You', text)],
       seen: new Map(),
@@ -752,20 +762,19 @@ export class BotService {
     try {
       while (!round.stopped && round.queue.length > 0) {
         const target = round.queue.shift() as QueuedTarget;
-        round.announced = true;
-        this.emit({
-          type: 'routing',
-          state: {
-            conversationId: conversation.id,
-            target: this.displayNameOf(target.username),
-            queued: round.queue.map((queued) => this.displayNameOf(queued.username)),
-          },
-        });
+        // Announced before the engine is even warm: starting one takes seconds,
+        // and a silent chat for those seconds reads as a dropped message.
+        round.target = target;
+        round.activity = startingActivity(this.clock());
+        this.emitRouting(round);
         const reply = await this.answer(round, target);
+        round.activity = undefined;
         if (reply === undefined || round.stopped) {
           continue;
         }
-        round.relays.push(relayLine(conversation.title, this.displayNameOf(target.username), reply));
+        round.relays.push(
+          relayLine(conversation.title, this.displayNameOf(target.username), reply),
+        );
         round.seen.set(target.username, round.relays.length);
         this.queueChains(round, target, reply);
       }
@@ -1121,6 +1130,7 @@ export class BotService {
   /** Everything a gateway reports: idle bookkeeping, replies, prompts, completion. */
   private onGatewayEvent(warm: WarmGateway, event: AgentEvent): void {
     this.touch(warm);
+    this.reportActivity(warm, activityForEvent(event, this.clock()));
     switch (event.type) {
       case 'agent/message':
         // The last assistant message before run-end is the turn's reply;
@@ -1226,6 +1236,49 @@ export class BotService {
   /** A routing note: Morse speaking, not a bot. */
   private note(conversationId: string, text: string): void {
     this.append(conversationId, { role: 'system' }, text);
+  }
+
+  /**
+   * Shows what a bot is doing in the chat, replacing the line it showed before.
+   *
+   * A chat has presence, not a trace: nothing here reaches the transcript, so the
+   * row is dropped the moment the answer lands (`'clear'`) and the answer takes
+   * its place. Events from a gateway that is no longer the one being asked — a
+   * late report from a session a stop abandoned — are ignored, so a finished
+   * round never resurrects a row in a conversation that moved on.
+   */
+  private reportActivity(warm: WarmGateway, signal: ReturnType<typeof activityForEvent>): void {
+    if (signal === undefined) {
+      return;
+    }
+    const round = this.rounds.get(warm.conversationId);
+    if (round === undefined || round.current !== warm) {
+      return;
+    }
+    const next = signal === 'clear' ? undefined : { ...signal, at: this.clock() };
+    if (next === undefined ? round.activity === undefined : sameActivity(round.activity, next)) {
+      return;
+    }
+    round.activity = next;
+    this.emitRouting(round);
+  }
+
+  /** The round as the chat draws it: whom it asks, whom it queued, what is happening. */
+  private emitRouting(round: Round): void {
+    const target = round.target;
+    if (target === undefined) {
+      return;
+    }
+    round.announced = true;
+    this.emit({
+      type: 'routing',
+      state: {
+        conversationId: round.conversation.id,
+        target: this.displayNameOf(target.username),
+        queued: round.queue.map((queued) => this.displayNameOf(queued.username)),
+        ...(round.activity === undefined ? {} : { activity: round.activity }),
+      },
+    });
   }
 
   private emit(event: BotEvent): void {

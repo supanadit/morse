@@ -65,6 +65,26 @@ export interface BotTranscriptEntry {
   at: number;
 }
 
+/**
+ * What a bot is doing this moment, in the reader's words.
+ *
+ * A chat shows presence, not a trace: the line is replaced by whatever the bot
+ * moves on to and disappears with the answer, so nothing here is ever appended
+ * to the transcript. The host is the one that knows what an engine's events
+ * mean, hence the label ("Reading launch-brief.md") rather than an event shape:
+ * every engine says it differently and morse says it once.
+ */
+export interface BotActivity {
+  /** Which kind of work it is, for the row's tone and its dots. */
+  kind: 'starting' | 'thinking' | 'writing' | 'tool';
+  /** The phrase the row shows, already worded for a reader. */
+  label: string;
+  /** The engine's own tool name, when the work is a tool call (`bash`, `read`, …). */
+  tool?: string;
+  /** Epoch milliseconds the activity began: a changed `at` restarts the animation. */
+  at: number;
+}
+
 /** The round in flight on one conversation: whom the host asks, and whom it queued. */
 export interface BotRoutingState {
   conversationId: string;
@@ -76,6 +96,8 @@ export interface BotRoutingState {
   target?: string;
   /** Bots addressed after the current one, in the order they will speak. */
   queued: string[];
+  /** What the target is doing right now; absent until it reports, and after it says. */
+  activity?: BotActivity;
 }
 
 /** One provider credential the wizard collected, written into the bot's own config. */
@@ -86,15 +108,11 @@ export interface BotCredentialInput {
 
 /** The wire protocols Morse can translate into either engine's provider config. */
 export type BotProviderApi =
-  | 'openai-completions'
-  | 'openai-responses'
-  | 'anthropic-messages'
-  | 'google-generative-ai';
+  'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai';
 
 /** How a provider authenticates: a key stored in the bot's config, or an env ref. */
 export type BotProviderCredentialInput =
-  | { kind: 'stored'; apiKey: string }
-  | { kind: 'env'; name: string };
+  { kind: 'stored'; apiKey: string } | { kind: 'env'; name: string };
 
 /** One discovered or hand-entered model of a provider. */
 export interface BotProviderModelInput {

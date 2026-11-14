@@ -28,32 +28,16 @@
     </header>
 
     <!--
-      The round in flight: whom the host is asking, whom it queued behind them,
-      and the one control that belongs to it. It appears only while a round is
-      set, so its presence is the state.
+      The round in flight draws itself where the answer will land: see the
+      presence row at the end of the transcript. The Stop there is the one control
+      that belongs to the round.
     -->
-    @if (routing(); as routing) {
-      <div class="routing" role="status" aria-live="polite">
-        <span class="spinner" aria-hidden="true"></span>
-        <span class="asking">Asking {{ routing.target }}…</span>
-        @if (routing.queued.length > 0) {
-          <span class="queued">then {{ routing.queued.join(', ') }}</span>
-        }
-        <button type="button" class="stop" title="Stop this round" (click)="stop()">Stop</button>
-      </div>
-    }
-
     <!--
       The transcript scrolls one conversation across every engine session it has
       had. Scrolling to the top asks the host for the page before what is held, so
       history is lazy: the chat opens at the end and grows backwards.
     -->
-    <div
-      class="transcript"
-      role="log"
-      #scroll
-      (scroll)="onScroll($event)"
-    >
+    <div class="transcript" role="log" #scroll (scroll)="onScroll($event)">
       @if (hasOlder()) {
         <p class="older" data-loading-older>
           {{ loadingOlder() ? 'Loading earlier messages…' : 'Scroll up for earlier messages' }}
@@ -94,6 +78,22 @@
             </p>
           }
         }
+      }
+      @for (row of acting(); track row.key) {
+        <div class="entry bot acting" role="status" aria-live="polite" [attr.data-kind]="row.kind">
+          <span class="avatar" aria-hidden="true">{{ row.mark }}</span>
+          <div class="body">
+            <span class="author">{{ row.name }}</span>
+            <span class="doing">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="doing-label" [title]="row.label">{{ row.label }}</span>
+              @if (row.queued.length > 0) {
+                <span class="queued">then {{ row.queued.join(', ') }}</span>
+              }
+            </span>
+          </div>
+          <button type="button" class="stop" title="Stop this round" (click)="stop()">Stop</button>
+        </div>
       }
     </div>
 
