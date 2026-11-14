@@ -4,6 +4,9 @@
  * `command`, `environment` for a local server's env, `headers` for a remote
  * one — keeps the fields Morse does not edit (`oauth`, `timeout`, ...) and
  * recognizes no override: an entry *is* the server.
+ *
+ * `description` round-trips when the neutral server carries one; a stored one
+ * survives a save that omits it, so a hand-written note is never erased.
  */
 import {
   McpSection,
@@ -60,15 +63,16 @@ export class OpenCodeMcpSection extends McpSection {
       if (environment !== undefined) {
         server.env = environment;
       }
-      const cwd = nonEmptyString(raw.cwd);
+      const cwd = nonBlankString(raw.cwd);
       if (cwd !== undefined) {
         server.cwd = cwd;
       }
+      applyDescription(server, raw);
       return server;
     }
 
     if (raw.type === 'remote') {
-      const url = nonEmptyString(raw.url);
+      const url = nonBlankString(raw.url);
       if (url === undefined) {
         context.issues.push(
           this.entryIssue(context, name, `remote MCP server "${name}" needs a "url".`),
@@ -80,6 +84,7 @@ export class OpenCodeMcpSection extends McpSection {
       if (headers !== undefined) {
         server.headers = headers;
       }
+      applyDescription(server, raw);
       return server;
     }
 
@@ -115,11 +120,11 @@ export class OpenCodeMcpSection extends McpSection {
         // cannot represent it, so it is kept rather than deleted.
         encoded.environment = { ...(keptEntry.environment as Record<string, unknown>) };
       }
-      if (item.cwd !== undefined && item.cwd.length > 0) {
+      if (item.cwd !== undefined && item.cwd.trim().length > 0) {
         encoded.cwd = item.cwd;
       }
     } else {
-      if (item.url === undefined || item.url.length === 0) {
+      if (item.url === undefined || item.url.trim().length === 0) {
         throw new Error(`"${item.name}" is an http server and needs a non-empty "url".`);
       }
       encoded.type = 'remote';
@@ -134,6 +139,11 @@ export class OpenCodeMcpSection extends McpSection {
     // `enabled: true` is OpenCode's default, so only a pin is ever stored.
     if (item.enabled === false) {
       encoded.enabled = false;
+    }
+    // `description` is not a managed key, so an omitted one leaves the entry's
+    // own text in place instead of erasing a hand-written description.
+    if (item.description !== undefined) {
+      encoded.description = item.description;
     }
     return encoded;
   }
@@ -176,8 +186,16 @@ export class OpenCodeMcpSection extends McpSection {
   }
 }
 
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
+/** A value OpenCode can use: whitespace alone is not a url or a directory. */
+function nonBlankString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+/** The neutral description, when the entry carries one. */
+function applyDescription(server: McpServer, raw: Record<string, unknown>): void {
+  if (typeof raw.description === 'string') {
+    server.description = raw.description;
+  }
 }
 
 function stringArray(value: unknown): string[] | undefined {

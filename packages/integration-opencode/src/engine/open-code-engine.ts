@@ -20,6 +20,7 @@ import {
   OPEN_CODE_CONFIG_FILE_ID,
   discoverOpenCodeConfigPaths,
   discoverOpenCodeGlobalPaths,
+  globalConfigCandidates,
   openCodeConfigDir,
   projectConfigCandidates,
 } from './config-discovery.js';
@@ -98,9 +99,28 @@ export class OpenCodeEngineInstance extends EngineInstance {
     return new JsonConfigFile(path, fileId, scope, { ownership: this.ownership });
   }
 
+  /**
+   * Which scope a resolved path belongs to. The global file is derived from the
+   * context alone; a project file is only known because `paths()` discovered it,
+   * so a path this instance never resolved is refused (`UnsupportedScopeError`,
+   * which a store reports as `unsupported`) instead of being called global.
+   */
   scopeOf(fileId: string, path: string): ConfigScope {
     this.assertFileId(fileId);
-    return this.projectPaths.has(path) ? 'project' : 'global';
+    if (this.projectPaths.has(path)) {
+      return 'project';
+    }
+    if (globalConfigCandidates(this.context, this.configDir).includes(path)) {
+      return 'global';
+    }
+    throw new UnsupportedScopeError(
+      fileId,
+      // Global is always derivable, so an unresolved path is a project question
+      // this instance cannot answer; the message carries the real information.
+      'project',
+      path,
+      `"${path}" is not one of this OpenCode instance's config paths; resolve it through paths() first.`,
+    );
   }
 
   /** The directory a project chain starts from, or the typed refusal. */

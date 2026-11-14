@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { resolveEngineContext, type McpServerEntry } from '@morse/engine-config';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -57,6 +57,10 @@ function fixture(): Fixture {
   const home = root();
   const cwd = root();
   const instance = engine.create(resolveEngineContext({ ownership: 'user', home, cwd, env: {} }));
+  // Guard the shared fixture once: no test may write outside its own tree, even
+  // if a stray `opencode.json` exists in an ancestor of the temp root.
+  assertUnder(cwd, instance.paths('config', 'project', cwd).write);
+  assertUnder(home, instance.paths('config', 'global').write);
   return {
     home,
     cwd,
@@ -69,6 +73,15 @@ function fixture(): Fixture {
 
 function byName(items: readonly McpServerEntry[]): Map<string, McpServerEntry> {
   return new Map(items.map((item) => [item.server.name, item]));
+}
+
+/**
+ * A write target must be inside this test's temp tree. A stray `/tmp/opencode.json`
+ * (or `/opencode.json`) must never be the file a save rewrites.
+ */
+function assertUnder(root: string, path: string | undefined): void {
+  expect(path).toBeDefined();
+  expect(path === root || path!.startsWith(`${root}${sep}`)).toBe(true);
 }
 
 describe('OpenCodeMcpSection', () => {
@@ -130,6 +143,76 @@ describe('OpenCodeMcpSection', () => {
 
     expect(mcp.save(listed.items[0]!.server, 'global')).toMatchObject({ ok: true });
     expect(readServers(globalPath).remote_one).toEqual(entry);
+  });
+
+  it('round-trips a description and keeps a stored one when it is omitted', () => {
+    const { mcp, cwd, globalPath } = fixture();
+    writeJson(globalPath, {
+      mcp: { one: { type: 'local', command: ['x'], description: 'Project files' } },
+    });
+
+    const listed = mcp.list(cwd);
+    expect(listed.items[0]!.server.description).toBe('Project files');
+
+    // Omitted: the entry's own text stays instead of being erased.
+    mcp.save({ ...listed.items[0]!.server, description: undefined }, 'global');
+    expect(readServers(globalPath).one).toMatchObject({ description: 'Project files' });
+
+    // Provided: it is written.
+    mcp.save({ ...listed.items[0]!.server, description: 'Changed' }, 'global');
+    expect(readServers(globalPath).one).toMatchObject({ description: 'Changed' });
+    expect(mcp.list(cwd).items[0]!.server.description).toBe('Changed');
+  });
+
+  it('reports a malformed environment or headers record but keeps it on save', () => {
+    const { mcp, cwd, globalPath } = fixture();
+    writeJson(globalPath, {
+      mcp: {
+        local_bad_env: { type: 'local', command: ['x'], environment: { A: 1 } },
+        remote_bad_headers: { type: 'remote', url: 'https://x', headers: { B: 2 } },
+      },
+    });
+
+    const listed = mcp.list(cwd);
+    expect(listed.items.map((item) => item.server.name)).toEqual([
+      'local_bad_env',
+      'remote_bad_headers',
+    ]);
+    expect(listed.items[0]!.server.env).toBeUndefined();
+    expect(listed.items[1]!.server.headers).toBeUndefined();
+    expect(listed.issues.map((issue) => [issue.pointer, issue.code])).toEqual([
+      ['/mcp/local_bad_env/environment', 'shape'],
+      ['/mcp/remote_bad_headers/headers', 'shape'],
+    ]);
+
+    for (const entry of listed.items) {
+      expect(mcp.save(entry.server, 'global')).toMatchObject({ ok: true });
+    }
+    // OpenCode would still read these records; a save must not delete them.
+    expect(readServers(globalPath)).toEqual({
+      local_bad_env: { type: 'local', command: ['x'], environment: { A: 1 } },
+      remote_bad_headers: { type: 'remote', url: 'https://x', headers: { B: 2 } },
+    });
+  });
+
+  it('treats a whitespace-only url or cwd as missing', () => {
+    const { mcp, cwd, globalPath } = fixture();
+    writeJson(globalPath, {
+      mcp: {
+        blank_url: { type: 'remote', url: '   ' },
+        blank_cwd: { type: 'local', command: ['x'], cwd: '  ' },
+      },
+    });
+
+    const listed = mcp.list(cwd);
+    expect(listed.items.map((item) => item.server.name)).toEqual(['blank_cwd']);
+    expect(listed.items[0]!.server.cwd).toBeUndefined();
+    expect(listed.issues).toHaveLength(1);
+    expect(listed.issues[0]).toMatchObject({ pointer: '/mcp/blank_url', code: 'shape' });
+    expect(listed.issues[0]!.message).toMatch(/remote MCP server "blank_url" needs a "url"/);
+
+    expect(mcp.save(listed.items[0]!.server, 'global')).toMatchObject({ ok: true });
+    expect(readServers(globalPath).blank_cwd).toEqual({ type: 'local', command: ['x'] });
   });
 
   it('keeps enabled: false and every unknown field through a save', () => {
@@ -210,6 +293,49 @@ describe('OpenCodeMcpSection', () => {
 
     expect(mcp.normalize('global')).toMatchObject({ ok: true });
     expect(mcp.save(listed.items[0]!.server, 'global')).toMatchObject({ ok: true });
+  });
+
+  it('refuses a project jsonc write until that file is normalized', () => {
+    const { mcp, cwd } = fixture();
+    const projectJsonc = join(cwd, 'opencode.jsonc');
+    writeText(
+      projectJsonc,
+      '{\n  // project notes\n  "mcp": { "one": { "type": "local", "command": ["x"] } }\n}\n',
+    );
+
+    const listed = mcp.list(cwd);
+    expect(listed.items.map((item) => item.server.name)).toEqual(['one']);
+    expect(listed.items[0]!.source).toBe(projectJsonc);
+
+    const refused = mcp.save(listed.items[0]!.server, 'project', cwd);
+    expect(refused.ok).toBe(false);
+    expect(refused.issues[0]).toMatchObject({
+      code: 'normalize',
+      fixable: true,
+      file: projectJsonc,
+    });
+
+    expect(mcp.normalize('project', cwd)).toMatchObject({ ok: true });
+    expect(mcp.save(listed.items[0]!.server, 'project', cwd)).toMatchObject({
+      ok: true,
+      path: projectJsonc,
+    });
+    expect(readServers(projectJsonc).one).toEqual({ type: 'local', command: ['x'] });
+  });
+
+  it('prefers a project .opencode entry over a nearer direct file', () => {
+    const { mcp, cwd } = fixture();
+    const shared = join(cwd, '.opencode', 'opencode.jsonc');
+    writeText(shared, '{\n  "mcp": { "shared": { "type": "local", "command": ["shared"] } }\n}\n');
+    writeJson(join(cwd, 'opencode.json'), {
+      mcp: { shared: { type: 'local', command: ['direct'] } },
+    });
+
+    const listed = byName(mcp.list(cwd).items);
+    expect(listed.get('shared')).toMatchObject({ scope: 'project', source: shared });
+    expect(listed.get('shared')!.server.command).toBe('shared');
+    // A save lands where OpenCode reads the effective entry from.
+    expect(mcp.paths('project', cwd).write).toBe(shared);
   });
 
   it('lets a project entry replace a same-named global one', () => {

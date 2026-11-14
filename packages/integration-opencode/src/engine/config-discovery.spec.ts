@@ -4,7 +4,11 @@ import { dirname, join, sep } from 'node:path';
 import { UnsupportedScopeError, resolveEngineContext } from '@morse/engine-config';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { discoverOpenCodeConfigPaths, discoverOpenCodeGlobalPaths } from './config-discovery.js';
+import {
+  discoverOpenCodeConfigPaths,
+  discoverOpenCodeGlobalPaths,
+  projectConfigCandidates,
+} from './config-discovery.js';
 import { OpenCodeEngineDefinition } from './open-code-engine.js';
 import { OpenCodeMcpStore } from './open-code-mcp-store.js';
 
@@ -83,7 +87,7 @@ describe('config discovery', () => {
     expect(discoverOpenCodeGlobalPaths(context)).toEqual({ read: [json], write: json });
   });
 
-  it('finds project configs from the workspace and .opencode, nearest first', () => {
+  it('lets every .opencode config outrank every direct one, nearest first', () => {
     const base = root();
     const repo = join(base, 'repo');
     const app = join(repo, 'app');
@@ -97,15 +101,17 @@ describe('config discovery', () => {
     const paths = discoverOpenCodeConfigPaths(userContext(home, app));
 
     expect(under(paths.read, base)).toEqual([
+      // OpenCode's rule: the .opencode block wins over any direct file, even a
+      // nearer one, so the ancestor's .opencode config is read first.
+      join(repo, '.opencode', 'opencode.jsonc'),
       join(app, 'opencode.json'),
       join(repo, 'opencode.json'),
-      join(repo, '.opencode', 'opencode.jsonc'),
       globalPath,
     ]);
-    expect(paths.write).toBe(join(app, 'opencode.json'));
+    expect(paths.write).toBe(join(repo, '.opencode', 'opencode.jsonc'));
   });
 
-  it('reads a directory jsonc before its json, and .opencode after both', () => {
+  it('reads a directory jsonc before its json, and .opencode ahead of both', () => {
     const base = root();
     const repo = join(base, 'repo');
     const globalPath = join(base, 'home', '.config', 'opencode', 'opencode.json');
@@ -118,16 +124,33 @@ describe('config discovery', () => {
     const paths = discoverOpenCodeConfigPaths(userContext(join(base, 'home'), repo));
 
     expect(under(paths.read, base)).toEqual([
-      join(repo, 'opencode.jsonc'),
-      join(repo, 'opencode.json'),
       join(repo, '.opencode', 'opencode.jsonc'),
       join(repo, '.opencode', 'opencode.json'),
+      join(repo, 'opencode.jsonc'),
+      join(repo, 'opencode.json'),
       globalPath,
     ]);
-    expect(paths.write).toBe(join(repo, 'opencode.jsonc'));
+    expect(paths.write).toBe(join(repo, '.opencode', 'opencode.jsonc'));
   });
 
-  it('writes the nearest existing project file instead of creating one', () => {
+  it('orders every .opencode candidate ahead of every direct one, nearest first', () => {
+    expect(projectConfigCandidates('/w/app')).toEqual([
+      '/w/app/.opencode/opencode.jsonc',
+      '/w/app/.opencode/opencode.json',
+      '/w/.opencode/opencode.jsonc',
+      '/w/.opencode/opencode.json',
+      '/.opencode/opencode.jsonc',
+      '/.opencode/opencode.json',
+      '/w/app/opencode.jsonc',
+      '/w/app/opencode.json',
+      '/w/opencode.jsonc',
+      '/w/opencode.json',
+      '/opencode.jsonc',
+      '/opencode.json',
+    ]);
+  });
+
+  it('writes the first existing project candidate instead of creating one', () => {
     const base = root();
     const repo = join(base, 'repo');
     const app = join(repo, 'app');
@@ -234,7 +257,17 @@ describe('OpenCodeEngineInstance', () => {
     expect(instance.scopeOf('config', projectPath)).toBe('project');
     expect(instance.scopeOf('config', join(cwd, '.opencode', 'opencode.jsonc'))).toBe('project');
     expect(instance.scopeOf('config', globalPath)).toBe('global');
-    expect(instance.scopeOf('config', '/elsewhere/opencode.json')).toBe('global');
+    // The app-level spelling is derivable without a directory, resolved or not.
+    expect(instance.scopeOf('config', join(home, '.config', 'opencode', 'opencode.jsonc'))).toBe(
+      'global',
+    );
+    // A path this instance never resolved is refused, not reported as global.
+    expect(() => instance.scopeOf('config', '/elsewhere/opencode.json')).toThrow(
+      UnsupportedScopeError,
+    );
+    expect(() => instance.scopeOf('config', '/elsewhere/opencode.json')).toThrow(
+      /not one of this OpenCode instance's config paths/,
+    );
   });
 
   it('opens every file with the instance ownership', () => {

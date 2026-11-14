@@ -42,25 +42,43 @@ export function openCodeConfigDir(context: EngineContext, configDir?: string): s
 }
 
 /**
- * Every project config path that decides `cwd`, nearest directory first, whether
- * or not it exists. A directory's own files come before its `.opencode` block,
- * and a `jsonc` before the `json` beside it.
+ * Every project config path that decides `cwd`, nearest directory first,
+ * whether or not it exists. Two passes: every `.opencode` config outranks every
+ * direct one (OpenCode's own rule), and within one directory a `jsonc` before
+ * the `json` beside it.
  */
 export function projectConfigCandidates(cwd: string): string[] {
-  const candidates: string[] = [];
+  const dirs: string[] = [];
   for (let dir = resolve(cwd); ; dir = dirname(dir)) {
-    for (const name of FILE_NAMES) {
-      candidates.push(join(dir, name));
-    }
-    for (const name of FILE_NAMES) {
-      candidates.push(join(dir, PROJECT_DIR, name));
-    }
+    dirs.push(dir);
     // The root is its own parent; nothing above it can hold a project file.
     if (parse(dir).root === dir) {
       break;
     }
   }
-  return candidates;
+  const shared: string[] = [];
+  for (const dir of dirs) {
+    for (const name of FILE_NAMES) {
+      shared.push(join(dir, PROJECT_DIR, name));
+    }
+  }
+  const direct: string[] = [];
+  for (const dir of dirs) {
+    for (const name of FILE_NAMES) {
+      direct.push(join(dir, name));
+    }
+  }
+  return [...shared, ...direct];
+}
+
+/**
+ * The app-level config candidates (both spellings), whether or not they exist.
+ * The global scope is always derivable from the context alone; the project
+ * scope is not, because it depends on a directory the context may not have.
+ */
+export function globalConfigCandidates(context: EngineContext, configDir?: string): string[] {
+  const dir = openCodeConfigDir(context, configDir);
+  return FILE_NAMES.map((name) => join(dir, name));
 }
 
 /**
@@ -72,20 +90,20 @@ export function discoverOpenCodeGlobalPaths(
   context: EngineContext,
   configDir?: string,
 ): ConfigPaths {
-  const dir = openCodeConfigDir(context, configDir);
-  const existing = FILE_NAMES.map((name) => join(dir, name)).filter((path) => existsSync(path));
+  const existing = globalConfigCandidates(context, configDir).filter((path) => existsSync(path));
   if (existing.length === 0) {
-    const write = join(dir, JSON_FILE);
+    const write = join(openCodeConfigDir(context, configDir), JSON_FILE);
     return { read: [write], write };
   }
   return { read: existing, write: existing[0]! };
 }
 
 /**
- * The whole chain for file id `config`: the project files that exist, nearest
- * first, then the user file (or the isolated root's file) last. `write` is the
- * nearest existing project file — so an edit lands where OpenCode already reads
- * — else a new `<cwd>/opencode.json`.
+ * The whole chain for file id `config`: the project files that exist, in
+ * OpenCode's own precedence (`cwd`-nearest first, every `.opencode` config
+ * before every direct one), then the user file (or the isolated root's file)
+ * last. `write` is the first existing project file in that order — so an edit
+ * lands where OpenCode reads it from — else a new `<cwd>/opencode.json`.
  *
  * `cwd` overrides the context's own session directory, so a caller may resolve
  * another workspace's chain without rebuilding the instance.
