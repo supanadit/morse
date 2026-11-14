@@ -1,0 +1,236 @@
+/*
+ * The wizard's MCP step. Same control language as the wizard itself: tokens
+ * only, 30px actions, 12px/500 labels, 12.5px values, muted 11px notes. These
+ * styles are scoped to the child component, so the shared rules are restated
+ * here rather than relying on the parent's sheet.
+ */
+:host {
+  display: block;
+}
+
+.mcp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.mcp-server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+}
+
+.mcp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mcp-name {
+  overflow: hidden;
+  color: var(--morse-fg);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-summary {
+  overflow: hidden;
+  color: var(--morse-fg-muted);
+  font-family: var(--morse-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-badge {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+}
+
+.mcp-toggle,
+.mcp-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mcp-toggle input,
+.mcp-enabled input {
+  flex: none;
+  margin: 0;
+}
+
+.mcp-enabled {
+  margin: 0 0 12px;
+}
+
+.mcp-empty {
+  margin: 0 0 12px;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.mcp-draft {
+  max-width: 520px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 2%, transparent);
+}
+
+.mcp-draft-title {
+  margin-bottom: 10px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.field {
+  display: block;
+  margin: 0 0 12px;
+}
+
+.field > label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--morse-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field small {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12.5px;
+  transition: border-color 120ms ease;
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: var(--morse-fg-muted);
+}
+
+.field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.mcp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mcp-spacer {
+  flex: 1;
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.primary {
+  background: var(--morse-accent);
+  color: var(--morse-accent-fg);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--morse-accent-hover);
+}
+
+.secondary {
+  border-color: var(--morse-border);
+  background: transparent;
+}
+
+.secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Card actions are one size down: they sit inside a 30px row. */
+.mcp-server .secondary {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+.mcp-error,
+.mcp-probe {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.mcp-error,
+.mcp-probe.error {
+  color: var(--morse-error);
+}
+
+.mcp-probe.ok {
+  color: var(--morse-success);
+}

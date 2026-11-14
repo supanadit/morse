@@ -1,0 +1,166 @@
+<div class="mcp-step">
+  @if (servers().length > 0) {
+    <ul class="mcp-list">
+      @for (server of servers(); track server.name) {
+        <li class="mcp-server">
+          <div class="mcp-main">
+            <span class="mcp-name">{{ server.name }}</span>
+            <span class="mcp-summary">{{ summary(server) }}</span>
+          </div>
+          @if (engineKind() !== 'opencode' && server.exposure) {
+            <span class="mcp-badge">{{ server.exposure }}</span>
+          }
+          <label class="mcp-toggle">
+            <input type="checkbox" [checked]="server.enabled !== false" (change)="toggle(server)" />
+            <span>Enabled</span>
+          </label>
+          <button type="button" class="secondary mcp-edit" (click)="edit(server)">Edit</button>
+          <button type="button" class="secondary mcp-remove" (click)="remove(server.name)">
+            Remove
+          </button>
+        </li>
+      }
+    </ul>
+  } @else {
+    <p class="mcp-empty">No servers yet. This bot runs with none.</p>
+  }
+
+  <div class="mcp-draft">
+    <div class="mcp-draft-title">
+      {{ editing() === null ? 'Add a server' : 'Edit ' + editing() }}
+    </div>
+
+    <div class="field">
+      <label for="mcp-step-name">Name</label>
+      <input
+        id="mcp-step-name"
+        type="text"
+        placeholder="filesystem"
+        [value]="draft().name"
+        (input)="setName($any($event.target).value)"
+      />
+    </div>
+
+    <div class="field">
+      <label for="mcp-step-type">Transport</label>
+      <select
+        id="mcp-step-type"
+        class="mcp-type"
+        [value]="draft().type"
+        (change)="setType($any($event.target).value)"
+      >
+        <option value="stdio">stdio (command)</option>
+        <option value="http">HTTP (url)</option>
+      </select>
+    </div>
+
+    @if (draft().type === 'http') {
+      <div class="field">
+        <label for="mcp-step-url">URL</label>
+        <input
+          id="mcp-step-url"
+          type="text"
+          placeholder="https://example.com/mcp"
+          [value]="draft().url"
+          (input)="setUrl($any($event.target).value)"
+        />
+      </div>
+      <div class="field">
+        <label for="mcp-step-headers">Headers <small>Name: value per line</small></label>
+        <textarea
+          id="mcp-step-headers"
+          rows="3"
+          placeholder="Authorization: Bearer …"
+          [value]="draft().headersText"
+          (input)="setHeaders($any($event.target).value)"
+        ></textarea>
+      </div>
+    } @else {
+      <div class="field">
+        <label for="mcp-step-command">Command</label>
+        <input
+          id="mcp-step-command"
+          type="text"
+          placeholder="npx"
+          [value]="draft().command"
+          (input)="setCommand($any($event.target).value)"
+        />
+      </div>
+      <div class="field">
+        <label for="mcp-step-args">Arguments <small>whitespace-separated</small></label>
+        <input
+          id="mcp-step-args"
+          type="text"
+          placeholder="-y @modelcontextprotocol/server-filesystem ."
+          [value]="draft().argsText"
+          (input)="setArgs($any($event.target).value)"
+        />
+      </div>
+      <div class="field">
+        <label for="mcp-step-env">Environment <small>KEY=value per line</small></label>
+        <textarea
+          id="mcp-step-env"
+          rows="3"
+          placeholder="ALLOWED_DIR=/tmp"
+          [value]="draft().envText"
+          (input)="setEnv($any($event.target).value)"
+        ></textarea>
+      </div>
+    }
+
+    @if (engineKind() !== 'opencode') {
+      <div class="field">
+        <label for="mcp-step-exposure">Exposure</label>
+        <select
+          id="mcp-step-exposure"
+          class="mcp-exposure"
+          [value]="draft().exposure"
+          (change)="setExposure($any($event.target).value)"
+        >
+          <option value="">Engine default</option>
+          @for (exposure of exposures; track exposure) {
+            <option [value]="exposure">{{ exposure }}</option>
+          }
+        </select>
+      </div>
+    }
+
+    <label class="mcp-enabled">
+      <input
+        type="checkbox"
+        [checked]="draft().enabled"
+        (change)="setEnabled($any($event.target).checked)"
+      />
+      <span>Enabled</span>
+    </label>
+
+    <div class="mcp-actions">
+      <button type="button" class="secondary mcp-test" [disabled]="testing()" (click)="test()">
+        {{ testing() ? 'Testing…' : 'Test connection' }}
+      </button>
+      <span class="mcp-spacer"></span>
+      @if (editing() !== null) {
+        <button type="button" class="secondary" (click)="cancel()">Cancel</button>
+      }
+      <button type="button" class="primary mcp-add" (click)="submit()">
+        {{ editing() === null ? 'Add server' : 'Save changes' }}
+      </button>
+    </div>
+
+    @if (error(); as problem) {
+      <div class="mcp-error">{{ problem }}</div>
+    }
+
+    @if (testing()) {
+      <div class="mcp-probe">Connecting…</div>
+    } @else if (probe(); as result) {
+      @if (result.ok) {
+        <div class="mcp-probe ok">
+          Connected — {{ result.tools.length }} tool{{ result.tools.length === 1 ? '' : 's' }}
+        </div>
+      } @else {
+        <div class="mcp-probe error">{{ result.error?.message ?? 'Could not connect.' }}</div>
+      }
+    }
+  </div>
+</div>
