@@ -21,6 +21,7 @@ import type {
   BotConversationSummary,
   BotCreateInput,
   BotGroupCreateInput,
+  BotGroupUpdateInput,
   BotOutgoingAttachments,
   BotProviderConfig,
   BotProviderCredentialInput,
@@ -143,6 +144,7 @@ export type BotControllerPort = Pick<
   | 'inspectBot'
   | 'updateBot'
   | 'createGroup'
+  | 'updateGroup'
   | 'probeModels'
   | 'discoverModels'
   | 'open'
@@ -597,6 +599,65 @@ export class BotService {
     this.registry.groups.push(group);
     this.registry.conversations.push(conversation);
     saveBotRegistry(this.options.root, this.registry);
+    this.emit({ type: 'roster' });
+    return this.summarize(conversation);
+  }
+
+  async updateGroup(input: BotGroupUpdateInput): Promise<BotConversationSummary> {
+    const group = this.registry.groups.find((candidate) => candidate.id === input.id);
+    const conversation = this.registry.conversations.find(
+      (candidate) => candidate.id === input.id && candidate.kind === 'group',
+    );
+    if (group === undefined || conversation === undefined) {
+      throw new Error(`No bot group "${input.id}".`);
+    }
+    if (input.name.trim() === '') {
+      throw new Error('A group needs a name.');
+    }
+    if (input.members.length === 0) {
+      throw new Error('A group needs at least one member.');
+    }
+    for (const member of input.members) {
+      this.botOrThrow(member);
+    }
+    if (input.lead !== undefined && !input.members.includes(input.lead)) {
+      throw new Error(`The lead "${input.lead}" is not a member of the group.`);
+    }
+
+    const removed = conversation.members.filter((member) => !input.members.includes(member));
+    const added = input.members.filter((member) => !conversation.members.includes(member));
+    const chainCap = input.chainCap ?? this.chainCap;
+
+    // A round already speaking for the old room must not deliver to a member that
+    // just left. The UI also blocks this, but the service is the authority.
+    this.stop(input.id);
+
+    group.name = input.name.trim();
+    group.members = [...input.members];
+    if (input.lead === undefined) {
+      delete group.lead;
+    } else {
+      group.lead = input.lead;
+    }
+    group.chainCap = chainCap;
+
+    conversation.title = input.name.trim();
+    conversation.members = [...input.members];
+    if (input.lead === undefined) {
+      delete conversation.lead;
+    } else {
+      conversation.lead = input.lead;
+    }
+    conversation.chainCap = chainCap;
+
+    for (const member of [...removed, ...added]) {
+      delete conversation.sessions[member];
+      const warm = this.warm.get(warmKey(conversation.id, member));
+      if (warm !== undefined) {
+        await this.dropWarm(warm, true);
+      }
+    }
+    this.touched(conversation);
     this.emit({ type: 'roster' });
     return this.summarize(conversation);
   }

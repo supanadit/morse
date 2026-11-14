@@ -261,6 +261,10 @@ class FakeFactory implements AgentGatewayFactory {
   probeCalls = 0;
   /** How many times the service tore this factory down. */
   disposes = 0;
+  /** Engine session ids the service asked this factory to delete. */
+  readonly removedSessions: string[] = [];
+  /** Set to make an engine that cannot delete a session, like a read-only store. */
+  failRemoveSession = false;
   /** Whether the wizard's credentials were on disk when the factory was built. */
   readonly credentialsPresent: boolean;
   probeDefaults?: (options: { workspace: WorkspaceRef }) => Promise<AgentGateway>;
@@ -293,6 +297,15 @@ class FakeFactory implements AgentGatewayFactory {
   /** An engine server's teardown; the service must call it wherever it is done. */
   dispose(): Promise<void> {
     this.disposes += 1;
+    return Promise.resolve();
+  }
+
+  /** Deleting one stored engine session, the way a group delete will ask. */
+  removeSession(sessionId: string): Promise<void> {
+    if (this.failRemoveSession) {
+      return Promise.reject(new Error('engine offline'));
+    }
+    this.removedSessions.push(sessionId);
     return Promise.resolve();
   }
 
@@ -711,6 +724,75 @@ describe('BotService creation', () => {
       updatedAt: expect.any(Number) as number,
     });
     expect(service.roster().conversations).toContainEqual(group);
+  });
+
+  it('updateGroup rewrites the room and clears only the removed member session', async () => {
+    const { service, adapter, root } = harness({
+      script: ({ bot }) => ({ text: `${bot} here` }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({
+      name: 'Launch',
+      members: ['forge', 'sable'],
+      lead: 'forge',
+    });
+    await service.send(group.id, '@forge @sable hello');
+
+    const before = loadBotRegistry(root).conversations.find((one) => one.id === group.id);
+    expect(before?.sessions['forge']?.engineSessionId).toBeDefined();
+    const sableSession = before?.sessions['sable']?.engineSessionId;
+    const forgeGateway = gatewayFor(adapter, 'forge');
+
+    const updated = await service.updateGroup({
+      id: group.id,
+      name: 'Launch, revised',
+      members: ['sable'],
+      lead: 'sable',
+      chainCap: 2,
+    });
+
+    expect(updated).toMatchObject({
+      title: 'Launch, revised',
+      members: ['sable'],
+      lead: 'sable',
+      chainCap: 2,
+    });
+    const after = loadBotRegistry(root).conversations.find((one) => one.id === group.id);
+    expect(after?.sessions['forge']).toBeUndefined();
+    expect(after?.sessions['sable']?.engineSessionId).toBe(sableSession);
+    expect(forgeGateway.disposed).toBe(true);
+  });
+
+  it('starts a fresh session when a removed member is added back', async () => {
+    const { service, adapter } = harness({
+      script: ({ bot }) => ({ text: `${bot} here` }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, '@forge first');
+    await service.updateGroup({ id: group.id, name: 'Launch', members: ['sable'] });
+    await service.updateGroup({ id: group.id, name: 'Launch', members: ['sable', 'forge'] });
+
+    await service.send(group.id, '@forge again');
+
+    const create = factoryFor(adapter, 'forge').createCalls.at(-1);
+    expect(create?.sessionId).toBeUndefined();
+  });
+
+  it('updateGroup validates its members and lead like createGroup', async () => {
+    const { service } = harness();
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge'] });
+
+    await expect(
+      service.updateGroup({ id: group.id, name: '', members: ['forge'] }),
+    ).rejects.toThrow('A group needs a name.');
+    await expect(
+      service.updateGroup({ id: group.id, name: 'Launch', members: [] }),
+    ).rejects.toThrow('A group needs at least one member.');
+    await expect(
+      service.updateGroup({ id: group.id, name: 'Launch', members: ['forge'], lead: 'sable' }),
+    ).rejects.toThrow('The lead "sable" is not a member of the group.');
   });
 });
 
