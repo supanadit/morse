@@ -902,6 +902,12 @@ describe('BotService MCP servers', () => {
       service.createBot(botInput({ mcpServers: [{ ...MCP[0]!, name: '__proto__' }] })),
     ).rejects.toThrow('reserved');
     await expect(
+      service.createBot(botInput({ mcpServers: [{ ...MCP[0]!, name: 'prototype' }] })),
+    ).rejects.toThrow('reserved');
+    await expect(
+      service.createBot(botInput({ mcpServers: [{ ...MCP[0]!, name: 'constructor' }] })),
+    ).rejects.toThrow('reserved');
+    await expect(
       service.createBot(botInput({ mcpServers: [MCP[0]!, { ...MCP[0]!, command: 'other' }] })),
     ).rejects.toThrow('Two MCP servers are named "filesystem"');
     expect(existsSync(join(root, 'forge'))).toBe(false);
@@ -915,6 +921,13 @@ describe('BotService MCP servers', () => {
     await expect(
       service.createBot(botInput({ mcpServers: [{ name: 'web', type: 'http' }] })),
     ).rejects.toThrow('needs a url');
+  });
+
+  it('refuses an unknown MCP server type', async () => {
+    const { service } = harness();
+    await expect(
+      service.createBot(botInput({ mcpServers: [{ name: 'bad', type: 'sse' as 'http' }] })),
+    ).rejects.toThrow('needs a type of stdio or http');
   });
 });
 

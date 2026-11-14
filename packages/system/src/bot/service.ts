@@ -240,6 +240,8 @@ function toMcpConfig(server: BotMcpServer): BotMcpServerInput {
   };
 }
 
+const RESERVED_MCP_NAMES = new Set(['__proto__', 'prototype', 'constructor']);
+
 function assertMcpServers(servers: readonly BotMcpServerInput[]): void {
   const seen = new Set<string>();
   for (const server of servers) {
@@ -248,13 +250,18 @@ function assertMcpServers(servers: readonly BotMcpServerInput[]): void {
         `"${server.name}" is not a usable MCP server name: use letters, digits, dashes and underscores.`,
       );
     }
-    if (server.name === '__proto__') {
+    if (RESERVED_MCP_NAMES.has(server.name)) {
       throw new Error(`The MCP server name "${server.name}" is reserved.`);
     }
     if (seen.has(server.name)) {
       throw new Error(`Two MCP servers are named "${server.name}".`);
     }
     seen.add(server.name);
+    if (server.type !== 'stdio' && server.type !== 'http') {
+      throw new Error(
+        `The MCP server "${server.name}" needs a type of stdio or http.`,
+      );
+    }
     if (server.type === 'stdio' && (server.command === undefined || server.command === '')) {
       throw new Error(`The MCP server "${server.name}" needs a command.`);
     }
