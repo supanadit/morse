@@ -794,6 +794,59 @@ describe('BotService creation', () => {
       service.updateGroup({ id: group.id, name: 'Launch', members: ['forge'], lead: 'sable' }),
     ).rejects.toThrow('The lead "sable" is not a member of the group.');
   });
+
+  it('deleteGroup removes its transcript, records and every member session', async () => {
+    const { service, adapter, root } = harness({
+      script: ({ bot }) => ({ text: `${bot} here` }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, '@forge @sable hello');
+
+    const stored = loadBotRegistry(root).conversations.find((one) => one.id === group.id);
+    const forgeSession = stored?.sessions['forge']?.engineSessionId;
+    const sableSession = stored?.sessions['sable']?.engineSessionId;
+    const forgeGateway = gatewayFor(adapter, 'forge');
+    const sableGateway = gatewayFor(adapter, 'sable');
+
+    await service.deleteGroup(group.id);
+
+    expect(service.roster().conversations.some((one) => one.id === group.id)).toBe(false);
+    expect(service.transcript(group.id)).toEqual([]);
+    expect(factoryFor(adapter, 'forge').removedSessions).toEqual([forgeSession]);
+    expect(factoryFor(adapter, 'sable').removedSessions).toEqual([sableSession]);
+    expect(forgeGateway.disposed).toBe(true);
+    expect(sableGateway.disposed).toBe(true);
+  });
+
+  it('deleteGroup still removes the group when engine cleanup fails', async () => {
+    const { service, adapter } = harness({
+      script: ({ bot }) => ({ text: `${bot} here` }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge'], lead: 'forge' });
+    await service.send(group.id, 'hello');
+    factoryFor(adapter, 'forge').failRemoveSession = true;
+
+    await expect(service.deleteGroup(group.id)).resolves.toBeUndefined();
+
+    expect(service.roster().conversations.some((one) => one.id === group.id)).toBe(false);
+  });
+
+  it('deleteGroup stops a round in flight', async () => {
+    const { service, adapter } = harness({
+      script: ({ bot }) => ({ text: `${bot} here`, hold: true }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const sending = service.send(group.id, '@forge hold on');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    await service.deleteGroup(group.id);
+
+    await expect(sending).resolves.toBeUndefined();
+    expect(gatewayFor(adapter, 'forge').disposed).toBe(true);
+  });
 });
 
 describe('BotService providers', () => {

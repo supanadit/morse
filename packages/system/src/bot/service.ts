@@ -145,6 +145,7 @@ export type BotControllerPort = Pick<
   | 'updateBot'
   | 'createGroup'
   | 'updateGroup'
+  | 'deleteGroup'
   | 'probeModels'
   | 'discoverModels'
   | 'open'
@@ -660,6 +661,60 @@ export class BotService {
     this.touched(conversation);
     this.emit({ type: 'roster' });
     return this.summarize(conversation);
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    const group = this.registry.groups.find((candidate) => candidate.id === id);
+    const conversation = this.registry.conversations.find(
+      (candidate) => candidate.id === id && candidate.kind === 'group',
+    );
+    if (group === undefined || conversation === undefined) {
+      throw new Error(`No bot group "${id}".`);
+    }
+    this.stop(id);
+    const gateways = [...this.warm.values()].filter((warm) => warm.conversationId === id);
+    await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
+    for (const member of conversation.members) {
+      const sessionId = conversation.sessions[member]?.engineSessionId;
+      if (sessionId !== undefined) {
+        await this.removeEngineSession(member, sessionId);
+      }
+    }
+    this.transcripts.forget(id);
+    this.registry.groups = this.registry.groups.filter((candidate) => candidate.id !== id);
+    this.registry.conversations = this.registry.conversations.filter(
+      (candidate) => candidate.id !== id,
+    );
+    saveBotRegistry(this.options.root, this.registry);
+    this.emit({ type: 'roster' });
+  }
+
+  /**
+   * Asks one bot's engine to drop a stored session. Best-effort by design: a
+   * group must still be deletable when its engine is offline, so a failure is
+   * logged and the Morse records are removed anyway.
+   */
+  private async removeEngineSession(username: string, sessionId: string): Promise<void> {
+    const bot = this.bot(username);
+    if (bot === undefined) {
+      return;
+    }
+    const adapter = this.options.adapters[bot.engineKind];
+    if (adapter === undefined) {
+      return;
+    }
+    const factory = this.factoryFor(bot, adapter);
+    if (factory.removeSession === undefined) {
+      this.options.logger.warn(
+        `Bot engine "${bot.engineKind}" cannot remove a stored session; forgetting the pointer only.`,
+      );
+      return;
+    }
+    try {
+      await factory.removeSession(sessionId);
+    } catch (error: unknown) {
+      this.options.logger.warn("Failed to remove a deleted group's engine session", error);
+    }
   }
 
   /**
