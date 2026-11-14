@@ -1,25 +1,27 @@
-import { execFile } from 'node:child_process';
-import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
-  definesMcpServer,
-  findMcpServer,
   isValidMcpServerName,
-  removeMcpServer,
-  setMcpServerEnabled,
-  setMcpServerOverrideEnabled,
-  upsertMcpServer,
-  type McpConfigScope,
-  type McpFileExposure,
-  type McpFileServer,
-} from './internal/mcp-config.js';
-import { resolvePiCli } from './internal/resolve-pi.js';
+  resolveEngineContext,
+  type ConfigIssue,
+  type ConfigScope,
+  type McpExposure as EngineMcpExposure,
+  type McpServer,
+  type McpServerEntry,
+} from '@morse/engine-config';
+
+import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
+import type { PiMcpStore } from './engine/pi-mcp-store.js';
+import {
+  McpInspector,
+  type McpInspectOptions,
+  type McpInspection,
+  type McpServerSpec,
+} from './internal/mcp-client.js';
 import { readProjectTrust, writeProjectTrust, type TrustResult } from './internal/project-trust.js';
-import { cleanSpawnEnv } from './internal/spawn-env.js';
 
 /** How a server reaches the model (pi's `McpExposure`). */
-export type McpExposure = McpFileExposure;
+export type McpExposure = EngineMcpExposure;
 
 /** pi's connection lifecycle, plus the entry that is configured but turned off. */
 export type McpServerState =
@@ -34,9 +36,9 @@ export type McpServerState =
 export type McpServerScope = 'global' | 'project' | 'extension';
 
 /** Where a mutation edits: the user file or this project's `.pi/mcp.json`. */
-export type { McpConfigScope };
+export type McpConfigScope = ConfigScope;
 
-/** One server, as `pi mcp list --json` reports it. */
+/** One server, as pi's config files describe it and a probe finds it. */
 export interface McpServerStatus {
   name: string;
   scope: McpServerScope;
@@ -62,7 +64,7 @@ export interface McpServerStatus {
   error?: string;
 }
 
-/** What `mcpStatus` answers. `errors` are config-file problems pi could not attach to a server. */
+/** What `mcpStatus` answers. `errors` are config-file complaints and probe failures. */
 export interface McpStatus {
   servers: McpServerStatus[];
   errors: string[];
@@ -72,6 +74,14 @@ export interface McpStatus {
    * project files (including `.pi/mcp.json`) are ignored until it is trusted.
    */
   trusted?: boolean;
+  /** Config-file complaints, plus any probe failure met while answering. */
+  issues?: ConfigIssue[];
+}
+
+/** Options for `status`: leave `probe` off to answer from the files alone. */
+export interface McpStatusOptions {
+  /** Connect each enabled, trusted server and fill in its live state. */
+  probe?: boolean;
 }
 
 /** What `mcpAdd` takes. Exactly one of `command` (stdio) or `url` (http) is required. */
@@ -101,6 +111,13 @@ export interface McpMutation {
   scope?: McpConfigScope;
   /** True when a user-level server got a project override instead of a rewrite. */
   override?: boolean;
+  /** Config-file complaints the mutation collected while reading or writing. */
+  issues?: ConfigIssue[];
+}
+
+/** The slice of `McpInspector` a status probe uses; tests inject a fake. */
+export interface McpProbe {
+  inspect(spec: McpServerSpec, options: McpInspectOptions): Promise<McpInspection>;
 }
 
 /**
@@ -135,58 +152,106 @@ export function parseMcpServerInput(raw: unknown): McpServerInput {
 }
 
 export interface PiMcpOptions {
+  /**
+   * Retained for compatibility with the CLI-backed manager. Listing now reads
+   * pi's files directly, so nothing resolves or spawns the binary.
+   */
   piPath?: string;
+  /** Retained for compatibility; see `piPath`. */
   nodeEntryPath?: string;
   env?: NodeJS.ProcessEnv;
   /** Override the agent directory; defaults to `PI_CODING_AGENT_DIR` or `~/.pi/agent`. */
   agentDir?: string;
-  /** How long `pi mcp list` may take before it is killed. */
+  /** Retained for compatibility; probes use `PROBE_TIMEOUT_MS`. */
   timeoutMs?: number;
+  /** The prober; defaults to a real `McpInspector`. Tests inject a fake. */
+  inspector?: McpProbe;
 }
 
-/** `pi mcp list` connects every enabled server, so it is not instant. */
-const DEFAULT_TIMEOUT_MS = 20_000;
+/** A probe never takes longer than this; a hung server must not hang the list. */
+const PROBE_TIMEOUT_MS = 10_000;
+/** A panel with many servers still opens promptly when probes run three at a time. */
+const PROBE_CONCURRENCY = 3;
 
 /**
- * Driven adapter for pi's MCP configuration: list server state through the CLI,
- * and add, remove or toggle servers by editing the same `mcp.json` pi reads.
+ * Driven adapter for pi's MCP configuration: list the servers pi's own files
+ * declare, and add, remove or toggle them by editing the same `mcp.json` pi
+ * reads. The list never shells out to `pi mcp list`; a probe is what fills in
+ * live connection state.
  *
  * A session's MCP servers are scoped to its working directory (project
  * `.pi/mcp.json` next to the user-level file), so every method takes the `cwd`
  * of the session it is asked about.
  */
 export class PiMcp {
-  constructor(private readonly options: PiMcpOptions = {}) {}
+  private readonly definition = new PiEngineDefinition();
+  private readonly inspector: McpProbe;
 
-  /** Connect every enabled server and report what happened.
+  constructor(private readonly options: PiMcpOptions = {}) {
+    this.inspector = options.inspector ?? new McpInspector();
+  }
+
+  /** List the configured servers, optionally connecting each enabled one.
    *
-   * `cwd` is the session's project. Omitted means **global only**: the CLI runs
-   * in the agent directory, so it finds no project `.pi/mcp.json`, and no trust
-   * state is reported (there is no project to trust). That is what lets the MCP
-   * panel work from the empty-session view for the user's own servers.
+   * `cwd` is the session's project. Omitted means **global only**: the store
+   * reads just the agent directory's `mcp.json`, and no trust state is reported
+   * (there is no project to trust). That is what lets the MCP panel work from
+   * the empty-session view for the user's own servers.
    */
-  async status(cwd?: string): Promise<McpStatus> {
+  async status(cwd?: string, options: McpStatusOptions = {}): Promise<McpStatus> {
     const project = normalizeCwd(cwd);
-    const spawn = resolvePiCli(this.options);
-    const { stdout, stderr, failed, timedOut } = await run(
-      spawn.command,
-      [...spawn.baseArgs, 'mcp', 'list', '--json'],
-      project ?? this.agentDir(),
-      cleanSpawnEnv(this.env()),
-      this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      spawn.shell === true,
-    );
-    const parsed = parseStatus(stdout);
-    if (!parsed) {
-      const seconds = Math.round((this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000);
-      const detail = timedOut
-        ? `\`pi mcp list\` did not finish within ${seconds}s — a server is likely hanging (try \`pi mcp list\` in a terminal)`
-        : stderr.trim() || (failed ? `\`pi mcp list\` exited with an error` : 'no output');
-      throw new Error(`Could not read the MCP server list: ${detail}`);
+    const store = this.store(project);
+    const list = store.list(project);
+    const trusted = project === undefined ? undefined : readProjectTrust(project, this.agentDir());
+    const entries = trusted === false
+      ? list.items.filter((entry) => entry.scope !== 'project')
+      : list.items;
+    const servers = entries.map(toServerStatus);
+    const byName = new Map(entries.map((entry) => [entry.server.name, entry]));
+    const probeIssues: ConfigIssue[] = [];
+
+    if (options.probe === true) {
+      const enabled = servers.filter((server) => server.enabled);
+      await eachLimited(enabled, PROBE_CONCURRENCY, async (server) => {
+        const entry = byName.get(server.name);
+        if (entry === undefined) {
+          return;
+        }
+        const outcome = await this.probe(entry, project);
+        server.state = outcome.state;
+        if (outcome.tools !== undefined) {
+          server.tools = outcome.tools;
+        }
+        if (outcome.resources !== undefined) {
+          server.resources = outcome.resources;
+        }
+        if (outcome.resourceTemplates !== undefined) {
+          server.resourceTemplates = outcome.resourceTemplates;
+        }
+        if (outcome.error !== undefined) {
+          server.error = outcome.error;
+          probeIssues.push({
+            file: server.source,
+            fileId: 'mcp',
+            scope: entry.scope,
+            pointer: `/mcpServers/${server.name}`,
+            code: 'read',
+            message: `${server.name}: ${outcome.error}`,
+            fixable: false,
+          });
+        }
+      });
     }
+
+    const issues = [...list.issues, ...probeIssues];
+    const errors = issues.map((issue) => issue.message);
     return {
-      ...parsed,
-      ...(project ? { trusted: readProjectTrust(project, this.agentDir()) } : {}),
+      servers,
+      errors,
+      issues,
+      note:
+        'This list comes from the configured files only; a probe fills in live connection state.',
+      ...(trusted === undefined ? {} : { trusted }),
     };
   }
 
@@ -205,62 +270,38 @@ export class PiMcp {
         message: `"${input.name}" is not a valid server name (letters, digits, "_" and "-").`,
       };
     }
-    if (input.scope === 'project' && normalizeCwd(cwd) === undefined) {
+    const project = normalizeCwd(cwd);
+    if (input.scope === 'project' && project === undefined) {
       return { ok: false, message: 'Open a session to add a server to its project.' };
     }
     const isHttp = input.type === 'http' || (input.url !== undefined && input.command === undefined);
-    const config = this.toConfig(input, isHttp);
-    if (typeof config === 'string') {
-      return { ok: false, message: config };
+    const server = this.toConfig(input, isHttp);
+    if (typeof server === 'string') {
+      return { ok: false, message: server };
     }
-    const path = this.configPath(cwd, input.scope);
-    try {
-      upsertMcpServer(path, input.name, config);
-    } catch (error: unknown) {
-      return { ok: false, message: describe(error) };
-    }
-    return { ok: true, path };
+    const store = this.store(project);
+    const scope = input.scope ?? 'global';
+    return store.upsert(input.name, server, scope, project);
   }
 
+  /**
+   * Remove a server. With no scope named, the entry the chain lists decides:
+   * a project definition is removed before a user-level one.
+   */
   async remove(name: string, cwd?: string, scope?: McpConfigScope): Promise<McpMutation> {
-    if (scope === 'global') {
-      return this.removeFrom(this.globalPath(), name, 'global');
+    const project = normalizeCwd(cwd);
+    if (scope === 'project' && project === undefined) {
+      return { ok: false, message: "Open a session to edit this project's MCP servers." };
     }
-    if (scope === 'project') {
-      if (normalizeCwd(cwd) === undefined) {
-        return { ok: false, message: "Open a session to edit this project's MCP servers." };
-      }
-      return this.removeFrom(this.projectPath(cwd!), name, 'project');
+    const store = this.store(project);
+    if (scope !== undefined) {
+      return store.remove(name, scope, project);
     }
-    // No scope named: the defining file first (a project definition wins), then
-    // the user file — the behaviour before the editor exposed a scope.
-    for (const path of this.configPaths(cwd)) {
-      try {
-        if (removeMcpServer(path, name)) {
-          return { ok: true, path };
-        }
-      } catch (error: unknown) {
-        return { ok: false, message: describe(error) };
-      }
+    const entry = store.list(project).items.find((item) => item.server.name === name);
+    if (entry === undefined) {
+      return { ok: false, message: `No server named "${name}" is configured.` };
     }
-    return { ok: false, message: `No server named "${name}" is configured.` };
-  }
-
-  private removeFrom(path: string, name: string, scope: McpConfigScope): McpMutation {
-    try {
-      if (!removeMcpServer(path, name)) {
-        return {
-          ok: false,
-          message:
-            scope === 'project'
-              ? `"${name}" is not defined in this project's .pi/mcp.json.`
-              : `"${name}" is not defined in the user mcp.json.`,
-        };
-      }
-    } catch (error: unknown) {
-      return { ok: false, message: describe(error) };
-    }
-    return { ok: true, path, scope };
+    return store.remove(name, entry.scope, project);
   }
 
   /**
@@ -277,108 +318,86 @@ export class PiMcp {
     cwd?: string,
     scope?: McpConfigScope,
   ): Promise<McpMutation> {
-    if (scope === 'global') {
-      return this.setEnabledIn(this.globalPath(), name, enabled, 'global');
+    const project = normalizeCwd(cwd);
+    if (scope === 'project' && project === undefined) {
+      return { ok: false, message: "Open a session to edit this project's MCP servers." };
     }
-    if (scope === 'project') {
-      if (normalizeCwd(cwd) === undefined) {
-        return { ok: false, message: "Open a session to edit this project's MCP servers." };
-      }
-      const projectPath = this.projectPath(cwd!);
-      if (definesMcpServer(findMcpServer(projectPath, name))) {
-        return this.setEnabledIn(projectPath, name, enabled, 'project');
-      }
-      // A user-level server (or an existing project override): write the
-      // override rather than the defining file.
-      const known =
-        findMcpServer(projectPath, name) !== undefined ||
-        findMcpServer(this.globalPath(), name) !== undefined;
-      if (!known) {
-        return {
-          ok: false,
-          message: `No server named "${name}" is configured.`,
-        };
-      }
-      try {
-        setMcpServerOverrideEnabled(projectPath, name, enabled);
-      } catch (error: unknown) {
-        return { ok: false, message: describe(error) };
-      }
-      return { ok: true, path: projectPath, scope: 'project', override: true };
-    }
-    // No scope named: the defining file first (project, then global).
-    for (const path of this.configPaths(cwd)) {
-      try {
-        if (findMcpServer(path, name) === undefined) {
-          continue;
-        }
-        setMcpServerEnabled(path, name, enabled);
-        return { ok: true, path };
-      } catch (error: unknown) {
-        return { ok: false, message: describe(error) };
-      }
-    }
-    return { ok: false, message: `No server named "${name}" is configured.` };
-  }
-
-  private setEnabledIn(
-    path: string,
-    name: string,
-    enabled: boolean,
-    scope: McpConfigScope,
-  ): McpMutation {
-    try {
-      if (findMcpServer(path, name) === undefined) {
-        return {
-          ok: false,
-          message:
-            scope === 'project'
-              ? `"${name}" is not defined in this project's .pi/mcp.json.`
-              : `"${name}" is not defined in the user mcp.json.`,
-        };
-      }
-      setMcpServerEnabled(path, name, enabled);
-    } catch (error: unknown) {
-      return { ok: false, message: describe(error) };
-    }
-    return { ok: true, path, scope };
+    return this.store(project).setEnabled(name, enabled, scope, project);
   }
 
   /**
    * A fingerprint of the `mcp.json` files that decide this directory's servers:
    * the project file when there is one, then the user-wide one. Cheap enough to
-   * poll (two `stat`s), and it moves whenever a server is added, removed,
-   * toggled or hand-edited — which is what an external watcher needs.
+   * poll, and it moves whenever a server is added, removed, toggled or
+   * hand-edited — which is what an external watcher needs.
    */
   async configSignature(cwd?: string): Promise<string> {
-    const paths = this.configPaths(cwd);
-    const parts = await Promise.all(
-      paths.map(async (path) => {
-        const info = await stat(path).catch(() => undefined);
-        return info ? `${info.size}:${info.mtimeMs}` : '-';
+    const project = normalizeCwd(cwd);
+    return this.store(project).signature(project);
+  }
+
+  /**
+   * The store for one call. A set `agentDir` is an isolated root for a
+   * global-only list; with a project it names pi's user tree instead, so the
+   * project `.pi/mcp.json` still takes precedence.
+   */
+  private store(cwd: string | undefined): PiMcpStore {
+    return this.instance(cwd).mcp;
+  }
+
+  private instance(cwd: string | undefined): PiEngineInstance {
+    const env = this.env();
+    if (this.options.agentDir !== undefined) {
+      if (cwd === undefined) {
+        return this.definition.isolated(this.options.agentDir, {
+          env,
+          home: homedir(),
+        }) as PiEngineInstance;
+      }
+      return this.definition.create(
+        resolveEngineContext({
+          ownership: 'user',
+          home: homedir(),
+          cwd,
+          env: { ...env, PI_CODING_AGENT_DIR: this.options.agentDir },
+        }),
+      );
+    }
+    return this.definition.create(
+      resolveEngineContext({
+        ownership: 'user',
+        home: homedir(),
+        ...(cwd === undefined ? {} : { cwd }),
+        env,
       }),
     );
-    return parts.join('|');
   }
 
-  /** The project's file first, then the user's — so a project definition wins. */
-  private configPaths(cwd?: string): string[] {
-    const project = normalizeCwd(cwd);
-    return project ? [this.projectPath(project), this.globalPath()] : [this.globalPath()];
-  }
-
-  private configPath(cwd: string | undefined, scope: 'global' | 'project' | undefined): string {
-    return scope === 'project' && normalizeCwd(cwd) !== undefined
-      ? this.projectPath(cwd!)
-      : this.globalPath();
-  }
-
-  private globalPath(): string {
-    return join(this.agentDir(), 'mcp.json');
-  }
-
-  private projectPath(cwd: string): string {
-    return join(cwd, '.pi', 'mcp.json');
+  /** Connect one server and translate the inspection into a status patch. */
+  private async probe(entry: McpServerEntry, project: string | undefined): Promise<ProbeOutcome> {
+    const spec = toSpec(entry.server);
+    const cwd = spec.cwd ?? project ?? process.cwd();
+    try {
+      const result = await withTimeout(
+        this.inspector.inspect(spec, { cwd, env: this.env(), timeoutMs: PROBE_TIMEOUT_MS }),
+        PROBE_TIMEOUT_MS,
+      );
+      if (result.ok) {
+        return {
+          state: 'connected',
+          tools: result.tools.map((tool) => tool.name),
+          resources: result.resources.length,
+          resourceTemplates: result.resourceTemplates.length,
+        };
+      }
+      const kind = result.error?.kind;
+      return {
+        state: kind === 'auth' ? 'needs-auth' : kind === 'timeout' ? 'disconnected' : 'failed',
+        error: result.error?.message ?? 'The probe failed.',
+      };
+    } catch (error: unknown) {
+      return { state: 'disconnected', error: describe(error) };
+    }
   }
 
   private agentDir(): string {
@@ -394,172 +413,128 @@ export class PiMcp {
   }
 
   /** The stored entry, or an error message when the input is incomplete. */
-  private toConfig(input: McpServerInput, isHttp: boolean): McpFileServer | string {
-    const config: McpFileServer = {};
+  private toConfig(input: McpServerInput, isHttp: boolean): McpServer | string {
+    const server: McpServer = { name: input.name, type: isHttp ? 'http' : 'stdio' };
     if (isHttp) {
       const url = input.url?.trim();
       if (!url) {
         return 'An HTTP server needs a "url".';
       }
-      config.type = 'http';
-      config.url = url;
+      server.url = url;
       if (input.headers && Object.keys(input.headers).length > 0) {
-        config.headers = input.headers;
+        server.headers = input.headers;
       }
     } else {
       const command = input.command?.trim();
       if (!command) {
         return 'A stdio server needs a "command".';
       }
-      config.type = 'stdio';
-      config.command = command;
+      server.command = command;
       if (input.args && input.args.length > 0) {
-        config.args = input.args;
+        server.args = input.args;
       }
       if (input.cwd?.trim()) {
-        config.cwd = input.cwd.trim();
+        server.cwd = input.cwd.trim();
       }
       if (input.env && Object.keys(input.env).length > 0) {
-        config.env = input.env;
+        server.env = input.env;
       }
     }
     if (input.exposure && input.exposure !== 'codemode') {
-      config.exposure = input.exposure;
+      server.exposure = input.exposure;
     }
     if (input.description?.trim()) {
-      config.description = input.description.trim();
+      server.description = input.description.trim();
     }
     if (input.enabled === false) {
-      config.enabled = false;
+      server.enabled = false;
     }
-    return config;
+    return server;
   }
 }
 
-interface CliResult {
-  stdout: string;
-  stderr: string;
-  failed: boolean;
-  /** `execFile`'s timeout killed it (as opposed to the CLI choosing to exit non-zero). */
-  timedOut: boolean;
+/** A probe's result, as the fields a status row carries. */
+interface ProbeOutcome {
+  state: McpServerState;
+  tools?: string[];
+  resources?: number;
+  resourceTemplates?: number;
+  error?: string;
 }
 
-/**
- * Run the CLI and always resolve, even on a non-zero exit: `pi mcp list --json`
- * prints the full report to stdout and then exits 1 when a server is not
- * connected, which is exactly the answer Morse wants.
- */
-function run(
-  command: string,
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  timeoutMs: number,
-  shell = false,
-): Promise<CliResult> {
-  return new Promise((resolve, reject) => {
-    // On Windows, `shell: true` wraps in cmd.exe which can flash a console
-    // window. Spawn cmd.exe directly with windowsHide instead.
-    const isWin = process.platform === 'win32';
-    const useShellDirect = shell && isWin;
-    const actualCommand = useShellDirect ? 'cmd.exe' : command;
-    const actualArgs = useShellDirect
-      ? ['/d', '/s', '/c', command, ...args]
-      : args;
-    execFile(
-      actualCommand,
-      actualArgs,
-      { cwd, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, shell: shell && !isWin, windowsHide: true },
-      (error, stdout, stderr) => {
-        const err = error as (NodeJS.ErrnoException & { killed?: boolean }) | null;
-        const code = err?.code;
-        if (typeof code === 'string') {
-          // A spawn failure (ENOENT/EACCES), not an exit status.
-          reject(new Error(`Could not run "${command}": ${stderr.trim() || code}`));
-          return;
-        }
-        resolve({ stdout, stderr, failed: error !== null, timedOut: err?.killed === true });
-      },
-    );
-  });
-}
-
-function parseStatus(stdout: string): McpStatus | undefined {
-  const trimmed = stdout.trim();
-  if (trimmed.length === 0) {
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(trimmed) as Partial<McpStatus>;
-    if (!Array.isArray(parsed.servers)) {
-      return undefined;
-    }
-    return {
-      servers: parsed.servers.map(toServerStatus),
-      errors: Array.isArray(parsed.errors) ? parsed.errors.filter(isString) : [],
-      ...(typeof parsed.note === 'string' ? { note: parsed.note } : {}),
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-/** Normalise one row. The CLI's shape is stable, but the panel must not crash on a surprising one. */
-function toServerStatus(raw: unknown): McpServerStatus {
-  const row = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-  const scope = row.scope;
+/** One listed entry as the panel's row. State is filled by a probe, when asked. */
+function toServerStatus(entry: McpServerEntry): McpServerStatus {
+  const server = entry.server;
+  const enabled = server.enabled !== false;
   return {
-    name: isString(row.name) ? row.name : 'unknown',
-    scope: scope === 'project' || scope === 'extension' ? scope : 'global',
-    source: isString(row.source) ? row.source : '',
-    ...(isString(row.override) ? { override: row.override } : {}),
-    enabled: row.enabled !== false,
-    exposure: toExposure(row.exposure),
-    transport: isString(row.transport) ? row.transport : '',
-    state: toState(row.state),
-    tools: Array.isArray(row.tools) ? row.tools.filter(isString) : [],
-    ...(isRecord(row.toolExposure) ? { toolExposure: toExposureMap(row.toolExposure) } : {}),
-    ...(typeof row.resources === 'number' ? { resources: row.resources } : {}),
-    ...(typeof row.resourceTemplates === 'number'
-      ? { resourceTemplates: row.resourceTemplates }
-      : {}),
-    ...(isString(row.error) ? { error: row.error } : {}),
+    name: server.name,
+    scope: entry.scope,
+    source: entry.source,
+    ...(entry.override === undefined ? {} : { override: entry.override }),
+    enabled,
+    exposure: server.exposure ?? 'codemode',
+    transport: describeTransport(server),
+    state: enabled ? 'connecting' : 'disabled',
+    tools: [],
   };
 }
 
-function toState(value: unknown): McpServerState {
-  switch (value) {
-    case 'connecting':
-    case 'connected':
-    case 'disconnected':
-    case 'needs-auth':
-    case 'failed':
-    case 'closed':
-    case 'disabled':
-      return value;
-    default:
-      return 'failed';
+/** `stdio: command args` or `http: url`, the one-line summary the panel shows. */
+function describeTransport(server: McpServer): string {
+  if (server.type === 'http') {
+    return `http: ${server.url ?? ''}`.trimEnd();
   }
+  return `stdio: ${[server.command ?? '', ...(server.args ?? [])].join(' ')}`.trimEnd();
 }
 
-function toExposure(value: unknown): McpExposure {
-  switch (value) {
-    case 'codemode':
-    case 'deferred':
-    case 'direct':
-    case 'hidden':
-      return value;
-    default:
-      return 'codemode';
-  }
+/** The neutral server as an inspector spec, dropping keys it does not take. */
+function toSpec(server: McpServer): McpServerSpec {
+  const spec: McpServerSpec = { type: server.type };
+  if (server.command !== undefined) spec.command = server.command;
+  if (server.args !== undefined) spec.args = server.args;
+  if (server.cwd !== undefined) spec.cwd = server.cwd;
+  if (server.env !== undefined) spec.env = server.env;
+  if (server.url !== undefined) spec.url = server.url;
+  if (server.headers !== undefined) spec.headers = server.headers;
+  return spec;
 }
 
-function toExposureMap(value: Record<string, unknown>): Record<string, McpExposure> {
-  const result: Record<string, McpExposure> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    result[key] = toExposure(entry);
-  }
-  return result;
+/** Run an async worker over items with at most `limit` in flight. */
+async function eachLimited<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) {
+        return;
+      }
+      await worker(items[index] as T);
+    }
+  });
+  await Promise.all(runners);
+}
+
+/** Reject once the budget passes, even when the promise never settles. */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`The probe did not finish within ${Math.round(timeoutMs / 1000)}s.`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function isString(value: unknown): value is string {

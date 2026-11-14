@@ -18,11 +18,13 @@ export type {
   McpConfigScope,
   McpExposure,
   McpMutation,
+  McpProbe,
   McpServerInput,
   McpServerScope,
   McpServerState,
   McpServerStatus,
   McpStatus,
+  McpStatusOptions,
   PiMcpOptions,
 } from './pi-mcp.js';
 export { PiPrompts, isValidTemplateName, parsePromptTemplateInput } from './pi-prompts.js';

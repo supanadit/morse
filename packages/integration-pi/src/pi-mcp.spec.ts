@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { dirname, join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PiMcp, parseMcpServerInput } from './pi-mcp.js';
+import type { McpInspection, McpServerSpec } from './internal/mcp-client.js';
 
 const roots: string[] = [];
 
@@ -17,7 +18,7 @@ function readServers(path: string): Record<string, Record<string, unknown>> {
   const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
     mcpServers: Record<string, Record<string, unknown>>;
   };
-  return parsed.mcpServers;
+  return parsed.mcpServers ?? {};
 }
 
 afterEach(async () => {
@@ -183,6 +184,120 @@ describe('PiMcp', () => {
     expect(readServers(join(agentDir, 'mcp.json'))['tools']).toMatchObject({ enabled: false });
     // The override is independent and stays where it was.
     expect(readServers(join(cwd, '.pi', 'mcp.json'))['tools']).toMatchObject({ enabled: false });
+  });
+});
+
+function writeJson(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function fakeInspector(
+  result: McpInspection | (() => Promise<McpInspection>),
+): { inspect: ReturnType<typeof vi.fn> } {
+  const inspect = vi.fn(async (_spec: McpServerSpec) =>
+    typeof result === 'function' ? result() : result,
+  );
+  return { inspect };
+}
+
+function inspection(overrides: Partial<McpInspection> = {}): McpInspection {
+  return {
+    ok: true,
+    tools: [],
+    resources: [],
+    resourceTemplates: [],
+    prompts: [],
+    durationMs: 1,
+    ...overrides,
+  };
+}
+
+describe('PiMcp status', () => {
+  it('lists configured servers without a working pi binary', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers: { one: { command: 'node' } } });
+
+    const mcp = new PiMcp({ agentDir, piPath: '/nonexistent/pi' });
+    const status = await mcp.status(cwd);
+
+    expect(status.servers[0]).toMatchObject({ name: 'one', state: 'connecting', enabled: true });
+    expect(status.note).toMatch(/configured files only/);
+    expect(status.errors).toEqual([]);
+  });
+
+  it('probes enabled servers and fills tools', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers: { one: { command: 'node' } } });
+    const inspector = fakeInspector(
+      inspection({
+        tools: [{ name: 'read' }],
+        resources: [{ uri: 'file:///a' }],
+        resourceTemplates: [{ uriTemplate: 'file:///{path}' }],
+      }),
+    );
+
+    const mcp = new PiMcp({ agentDir, inspector });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.servers[0]).toMatchObject({
+      state: 'connected',
+      tools: ['read'],
+      resources: 1,
+      resourceTemplates: 1,
+    });
+    expect(inspector.inspect).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not probe a disabled server and reports its disabled state', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), {
+      mcpServers: { off: { command: 'node', enabled: false } },
+    });
+    const inspector = fakeInspector(inspection());
+
+    const mcp = new PiMcp({ agentDir, inspector });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.servers[0]).toMatchObject({ state: 'disabled', enabled: false, tools: [] });
+    expect(inspector.inspect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the project trust filter and reports untrusted', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers: { globalOne: { command: 'node' } } });
+    writeJson(join(cwd, '.pi', 'mcp.json'), { mcpServers: { projectOne: { command: 'node' } } });
+
+    const mcp = new PiMcp({ agentDir });
+    const status = await mcp.status(cwd);
+
+    expect(status.trusted).toBe(false);
+    expect(status.servers.map((server) => server.name)).toEqual(['globalOne']);
+  });
+
+  it('aborts the probe budget without failing the list', async () => {
+    vi.useFakeTimers();
+    try {
+      const agentDir = await tempRoot();
+      const cwd = await tempRoot();
+      writeJson(join(agentDir, 'mcp.json'), { mcpServers: { stuck: { command: 'node' } } });
+      const inspector = fakeInspector(() => new Promise<McpInspection>(() => {}));
+
+      const mcp = new PiMcp({ agentDir, inspector });
+      const pending = mcp.status(cwd, { probe: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const status = await pending;
+
+      expect(['connecting', 'disconnected']).toContain(status.servers[0]!.state);
+      expect(status.servers[0]!.error).toBeTruthy();
+      expect(status.issues?.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

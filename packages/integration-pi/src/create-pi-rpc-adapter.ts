@@ -103,20 +103,23 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
       env: config.env,
       removeFile: config.removeSessionFile,
     });
+    this.inspector = new McpInspector({ clientVersion: config.clientVersion });
+    // The same clock-bound prober the editor uses: `status({ probe: true })`
+    // connects servers through the one client Morse owns.
     this.mcp = new PiMcp({
       piPath: config.piPath,
       nodeEntryPath: config.nodeEntryPath,
       env: config.env,
+      inspector: this.inspector,
     });
     this.prompts = new PiPrompts({ env: config.env });
-    this.inspector = new McpInspector({ clientVersion: config.clientVersion });
     // Small wrappers rather than the classes themselves: the ports speak in
     // `Record<string, unknown>` and `string` scopes, because `@morse/system` must
     // not know pi's payload types. The casts live here, at the adapter edge.
     this.extras = {
       mcp: {
         configSignature: (cwd) => this.mcp.configSignature(cwd),
-        status: (cwd) => this.mcp.status(cwd),
+        status: (cwd, options) => this.mcp.status(cwd, options),
         add: (input, cwd) => this.mcp.add(input as unknown as McpServerInput, cwd),
         remove: (name, cwd, scope) =>
           this.mcp.remove(name, cwd, scope as McpConfigScope | undefined),

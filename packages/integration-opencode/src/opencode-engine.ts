@@ -84,7 +84,7 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
     this.extras = {
       mcp: {
         configSignature: (cwd) => mcp.configSignature(cwd),
-        status: (cwd) => Promise.resolve(mcp.status(cwd)),
+        status: (cwd, _options) => Promise.resolve(mcp.status(cwd)),
         add: (input, cwd) => Promise.resolve(mcp.add(input as McpServerInput, cwd)),
         remove: (name, cwd, scope) =>
           Promise.resolve(mcp.remove(name, cwd, scope as McpConfigScope | undefined)),

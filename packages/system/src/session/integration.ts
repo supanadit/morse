@@ -28,7 +28,8 @@ import type { SessionCatalog } from './ports.js';
 export interface AgentMcpExtras {
   /** A cheap fingerprint of the server configs, for change watching. */
   configSignature(cwd?: string): Promise<string>;
-  status(cwd?: string): Promise<unknown>;
+  /** `probe` asks the engine to connect enabled servers; engines that cannot ignore it. */
+  status(cwd?: string, options?: { probe?: boolean }): Promise<unknown>;
   add(input: unknown, cwd?: string): Promise<unknown>;
   remove(name: string, cwd?: string, scope?: string): Promise<unknown>;
   setEnabled(name: string, enabled: boolean, cwd?: string, scope?: string): Promise<unknown>;
