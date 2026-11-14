@@ -413,9 +413,11 @@ describe('PromptEditor config issues', () => {
 
     expect(element.textContent ?? '').toContain('the frontmatter is not valid YAML');
     expect(element.querySelector('.issue-file')).toBeNull();
+    // The path appears once, inside the message, not again as its own line.
+    expect((element.textContent ?? '').split('/repo/.pi/prompts/broken.md')).toHaveLength(2);
   });
 
-  it('keeps the path line for an unfixable issue even when the message repeats it', async () => {
+  it('drops the path line for an unfixable issue whose message already names the file', async () => {
     const { element, fixture } = render({
       templates: {
         templates: [],
@@ -434,9 +436,8 @@ describe('PromptEditor config issues', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
 
-    expect(element.querySelector('.issue-file')?.textContent).toContain(
-      '/repo/.pi/prompts/broken.md',
-    );
+    expect(element.querySelector('.issue-file')).toBeNull();
+    expect((element.textContent ?? '').split('/repo/.pi/prompts/broken.md')).toHaveLength(2);
     expect(element.textContent ?? '').toMatch(/hand edit/i);
   });
 
@@ -454,6 +455,10 @@ describe('PromptEditor config issues', () => {
     fixture.detectChanges();
 
     expect(element.textContent ?? '').toContain('the frontmatter is not valid YAML');
+    // The message does not name the file, so the row supplies the path.
+    expect(element.querySelector('.issue-file')?.textContent).toContain(
+      '/repo/.pi/prompts/broken.md',
+    );
     expect(
       [...element.querySelectorAll('button')].some(
         (button) => button.textContent?.trim() === 'Fix',

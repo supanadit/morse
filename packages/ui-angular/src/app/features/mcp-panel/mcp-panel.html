@@ -84,9 +84,9 @@
                 </button>
               }
             </div>
-            <!-- The message often starts with the path; repeat it only when it
-                 adds a locator the reader cannot get from the message itself. -->
-            @if (!issue.fixable || !issue.message.includes(issue.file)) {
+            <!-- The message usually starts with the path; show it as its own
+                 line only when the message does not already carry it. -->
+            @if (!issue.message.includes(issue.file)) {
               <div class="issue-file">{{ issue.file }}</div>
             }
             @if (issue.pointer; as pointer) {

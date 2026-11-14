@@ -276,9 +276,11 @@ describe('McpPanel config issues', () => {
 
     expect(element.textContent ?? '').toContain('rewrite this file without comments');
     expect(element.querySelector('.issue-file')).toBeNull();
+    // The path appears once, inside the message, not again as its own line.
+    expect((element.textContent ?? '').split('/c/opencode.json')).toHaveLength(2);
   });
 
-  it('keeps the path line for an unfixable issue even when the message repeats it', async () => {
+  it('drops the path line for an unfixable issue whose message already names the file', async () => {
     const { element, fixture } = renderWithState({
       servers: [],
       errors: [],
@@ -292,9 +294,8 @@ describe('McpPanel config issues', () => {
     });
     await settle(fixture);
 
-    expect(element.querySelector('.issue-file')?.textContent).toContain(
-      '/c/opencode.json',
-    );
+    expect(element.querySelector('.issue-file')).toBeNull();
+    expect((element.textContent ?? '').split('/c/opencode.json')).toHaveLength(2);
     expect(element.textContent ?? '').toMatch(/hand edit/i);
   });
 
@@ -315,6 +316,10 @@ describe('McpPanel config issues', () => {
 
     const text = element.textContent ?? '';
     expect(text).toContain('the file is not valid JSON');
+    // The message does not name the file, so the row supplies the path.
+    expect(element.querySelector('.issue-file')?.textContent).toContain(
+      '/c/opencode.json',
+    );
     expect(buttonNamed(element, 'Fix')).toBeUndefined();
     expect(text).toMatch(/hand edit/i);
   });
