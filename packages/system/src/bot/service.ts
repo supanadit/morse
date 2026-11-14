@@ -22,6 +22,7 @@ import type {
   BotCreateInput,
   BotGroupCreateInput,
   BotGroupUpdateInput,
+  BotMcpServerInput,
   BotOutgoingAttachments,
   BotProviderConfig,
   BotProviderCredentialInput,
@@ -51,6 +52,7 @@ import type {
   BotEngineConfig,
   BotEngineLayout,
   BotEngineState,
+  BotMcpServer,
   BotProviderRecord,
   BotRecord,
   BotRegistryFile,
@@ -204,6 +206,62 @@ function toProviderRecord(provider: BotProviderConfig): BotProviderRecord {
       ...(model.input === undefined ? {} : { input: model.input }),
     })),
   };
+}
+
+/** An MCP server from the wire, in the shape a layout writes. */
+function toMcpRecord(server: BotMcpServerInput): BotMcpServer {
+  return {
+    name: server.name,
+    type: server.type,
+    ...(server.command === undefined ? {} : { command: server.command }),
+    ...(server.args === undefined ? {} : { args: [...server.args] }),
+    ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
+    ...(server.env === undefined ? {} : { env: { ...server.env } }),
+    ...(server.url === undefined ? {} : { url: server.url }),
+    ...(server.headers === undefined ? {} : { headers: { ...server.headers } }),
+    ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
+    ...(server.exposure === undefined ? {} : { exposure: server.exposure }),
+  };
+}
+
+/** An MCP server from a layout, in the shape Edit bot reads back. */
+function toMcpConfig(server: BotMcpServer): BotMcpServerInput {
+  return {
+    name: server.name,
+    type: server.type,
+    ...(server.command === undefined ? {} : { command: server.command }),
+    ...(server.args === undefined ? {} : { args: [...server.args] }),
+    ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
+    ...(server.env === undefined ? {} : { env: { ...server.env } }),
+    ...(server.url === undefined ? {} : { url: server.url }),
+    ...(server.headers === undefined ? {} : { headers: { ...server.headers } }),
+    ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
+    ...(server.exposure === undefined ? {} : { exposure: server.exposure }),
+  };
+}
+
+function assertMcpServers(servers: readonly BotMcpServerInput[]): void {
+  const seen = new Set<string>();
+  for (const server of servers) {
+    if (!/^[A-Za-z0-9_-]+$/.test(server.name)) {
+      throw new Error(
+        `"${server.name}" is not a usable MCP server name: use letters, digits, dashes and underscores.`,
+      );
+    }
+    if (server.name === '__proto__') {
+      throw new Error(`The MCP server name "${server.name}" is reserved.`);
+    }
+    if (seen.has(server.name)) {
+      throw new Error(`Two MCP servers are named "${server.name}".`);
+    }
+    seen.add(server.name);
+    if (server.type === 'stdio' && (server.command === undefined || server.command === '')) {
+      throw new Error(`The MCP server "${server.name}" needs a command.`);
+    }
+    if (server.type === 'http' && (server.url === undefined || server.url === '')) {
+      throw new Error(`The MCP server "${server.name}" needs a url.`);
+    }
+  }
 }
 
 /** Whether two activities would draw the same row, so no update is sent for them. */
@@ -378,6 +436,7 @@ export class BotService {
           );
         }
       }
+      assertMcpServers(input.mcpServers ?? []);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
       // The probe runs as the bot itself — its root, its credentials — so a bad
       // key fails here instead of on the reader's first message.
@@ -490,6 +549,7 @@ export class BotService {
       ...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
       ...(input.tools === undefined ? {} : { tools: input.tools }),
       ...(input.subagents === undefined ? {} : { subagents: input.subagents }),
+      ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers.map(toMcpRecord) }),
     };
     adapter.layout.write(botRoot, config);
   }
@@ -519,6 +579,9 @@ export class BotService {
       ...(state.providers === undefined
         ? {}
         : { providers: state.providers.map(toProviderConfig) }),
+      ...(state.mcpServers === undefined
+        ? {}
+        : { mcpServers: state.mcpServers.map(toMcpConfig) }),
     };
   }
 
@@ -567,6 +630,7 @@ export class BotService {
         );
       }
     }
+    assertMcpServers(input.mcpServers ?? []);
     const updated: BotRecord = {
       username: bot.username,
       name: input.name.trim(),

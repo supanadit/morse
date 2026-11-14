@@ -4,6 +4,7 @@
  * shapes name those choices per bot instead of borrowing a session's view state.
  */
 import type { ModelOption } from './model.js';
+import type { McpExposure } from './mcp.js';
 import type { ModelInput, ThinkingLevel } from './primitives.js';
 import type { PromptImage } from './transcript.js';
 
@@ -194,6 +195,22 @@ export interface BotProviderConfig {
   models: BotProviderModelInput[];
 }
 
+/** One MCP server the wizard collected for a bot. */
+export interface BotMcpServerInput {
+  name: string;
+  type: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  /** Absent means enabled. */
+  enabled?: boolean;
+  /** pi only. */
+  exposure?: McpExposure;
+}
+
 /** What the New bot wizard sends to create one isolated bot. */
 export interface BotCreateInput {
   /**
@@ -229,6 +246,8 @@ export interface BotCreateInput {
   subagents?: Array<{ name: string; prompt: string }>;
   /** Providers written into the bot's own engine config (spec: Provider management). */
   providers?: BotProviderInput[];
+  /** MCP servers the bot carries with it. */
+  mcpServers?: BotMcpServerInput[];
 }
 
 /**
@@ -267,6 +286,8 @@ export interface BotConfig {
    * engine file names none (a catalog provider is the engine's, not the bot's).
    */
   providers?: BotProviderConfig[];
+  /** MCP servers the bot carries with it, read back from the engine's own files. */
+  mcpServers?: BotMcpServerInput[];
 }
 
 /**
@@ -299,6 +320,8 @@ export interface BotUpdateInput {
    * credentials already there, so an edit never needs the key again.
    */
   providers?: BotProviderConfig[];
+  /** MCP servers the bot carries with it; omitted leaves the engine's file alone. */
+  mcpServers?: BotMcpServerInput[];
 }
 
 /** What the New group dialog sends; `chainCap` defaults to the service's cap. */

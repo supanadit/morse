@@ -169,6 +169,24 @@ export interface BotProviderRecord {
   models: BotProviderModel[];
 }
 
+/** How pi exposes an MCP server's tools. OpenCode has no equivalent. */
+export type BotMcpExposure = 'codemode' | 'deferred' | 'direct' | 'hidden';
+
+/** One MCP server in the wizard's engine-neutral vocabulary. */
+export interface BotMcpServer {
+  name: string;
+  type: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  /** Absent means enabled, as both engine formats do. */
+  enabled?: boolean;
+  exposure?: BotMcpExposure;
+}
+
 /**
  * Everything a bot's engine needs, in engine-agnostic terms.
  *
@@ -212,6 +230,11 @@ export interface BotEngineConfig {
    */
   tools?: string[];
   subagents?: Array<{ name: string; prompt: string }>;
+  /**
+   * MCP servers the bot carries with it. Absent means "leave the engine's file
+   * alone"; an empty array clears it; a list replaces it.
+   */
+  mcpServers?: BotMcpServer[];
 }
 
 /** What a layout can read back out of an engine's own tree. */
@@ -230,6 +253,8 @@ export interface BotEngineState {
   persona?: string;
   agentsMd?: string;
   subagents?: Array<{ name: string; prompt: string }>;
+  /** Absent when the layout could not read it. */
+  mcpServers?: BotMcpServer[];
 }
 
 /**

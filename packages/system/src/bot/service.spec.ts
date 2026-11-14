@@ -22,12 +22,12 @@ import type {
   ThinkingLevel,
   WorkspaceRef,
 } from '@morse/agent';
-import type { BotCreateInput, BotRoutingState, PromptImage } from '@morse/protocol';
+import type { BotCreateInput, BotMcpServerInput, BotRoutingState, PromptImage } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
-import type { BotEngineConfig, BotEngineLayout, BotEngineState } from './types.js';
+import type { BotEngineConfig, BotEngineLayout, BotEngineState, BotMcpServer } from './types.js';
 import { BotService } from './service.js';
 import { loadBotRegistry, readBotIdentity, saveBotRegistry } from './store.js';
 import type { BotEngineCapabilities, BotRecord } from './types.js';
@@ -352,6 +352,7 @@ class FakeLayout implements BotEngineLayout {
     botRoot: string;
     subagents: { name: string; prompt: string }[];
   }[] = [];
+  readonly mcpWrites: { botRoot: string; servers: readonly BotMcpServer[] }[] = [];
   /** Set to make the engine's provider writer fail, like a full disk. */
   failProviders = false;
   private readonly states = new Map<string, BotEngineState>();
@@ -388,12 +389,16 @@ class FakeLayout implements BotEngineLayout {
     ) {
       this.subagentWrites.push({ botRoot, subagents: config.subagents });
     }
+    if (config.mcpServers !== undefined) {
+      this.mcpWrites.push({ botRoot, servers: config.mcpServers });
+    }
     this.states.set(botRoot, {
       persona: config.persona,
       ...(config.model === undefined ? {} : { model: config.model }),
       ...(config.thinkingLevel === undefined ? {} : { thinkingLevel: config.thinkingLevel }),
       ...(config.agentsMd === undefined ? {} : { agentsMd: config.agentsMd }),
       ...(config.subagents === undefined ? {} : { subagents: config.subagents }),
+      ...(config.mcpServers === undefined ? {} : { mcpServers: [...config.mcpServers] }),
     });
   }
 
@@ -846,6 +851,70 @@ describe('BotService creation', () => {
 
     await expect(sending).resolves.toBeUndefined();
     expect(gatewayFor(adapter, 'forge').disposed).toBe(true);
+  });
+});
+
+describe('BotService MCP servers', () => {
+  const MCP: BotMcpServerInput[] = [
+    {
+      name: 'filesystem',
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+      env: { ALLOWED_DIR: '/tmp' },
+      enabled: false,
+      exposure: 'deferred',
+    },
+    { name: 'web', type: 'http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
+  ];
+
+  it('forwards MCP servers to the layout and reads them back', async () => {
+    const { root, adapter, service } = harness({ models: [MODEL] });
+
+    await service.createBot(botInput({ mcpServers: MCP }));
+
+    expect(adapter.layout.mcpWrites).toEqual([{ botRoot: join(root, 'forge'), servers: MCP }]);
+    expect(service.inspectBot('forge').mcpServers).toEqual(MCP);
+  });
+
+  it('leaves MCP servers alone when an update does not mention them', async () => {
+    const { adapter, service } = harness();
+    await service.createBot(botInput({ mcpServers: MCP }));
+
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      persona: 'You are Forge.',
+      envVars: [],
+    });
+
+    expect(adapter.layout.mcpWrites).toHaveLength(1);
+  });
+
+  it('refuses an unusable, reserved or duplicate MCP name', async () => {
+    const { root, service } = harness();
+
+    await expect(
+      service.createBot(botInput({ mcpServers: [{ ...MCP[0]!, name: 'has space' }] })),
+    ).rejects.toThrow('not a usable MCP server name');
+    await expect(
+      service.createBot(botInput({ mcpServers: [{ ...MCP[0]!, name: '__proto__' }] })),
+    ).rejects.toThrow('reserved');
+    await expect(
+      service.createBot(botInput({ mcpServers: [MCP[0]!, { ...MCP[0]!, command: 'other' }] })),
+    ).rejects.toThrow('Two MCP servers are named "filesystem"');
+    expect(existsSync(join(root, 'forge'))).toBe(false);
+  });
+
+  it('refuses a server missing its command or url', async () => {
+    const { service } = harness();
+    await expect(
+      service.createBot(botInput({ mcpServers: [{ name: 'fs', type: 'stdio' }] })),
+    ).rejects.toThrow('needs a command');
+    await expect(
+      service.createBot(botInput({ mcpServers: [{ name: 'web', type: 'http' }] })),
+    ).rejects.toThrow('needs a url');
   });
 });
 
