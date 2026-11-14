@@ -339,7 +339,11 @@ export const piBotLayout: BotEngineLayout = {
     const providers = readProviders(join(agentDir, MODELS_FILE));
     // A bot with no `mcp.json` has no servers to show, and one whose file pi
     // could not read is skipped rather than shown as "none configured": Edit bot
-    // must not offer to overwrite a list it never saw.
+    // must not offer to overwrite a list it never saw. A file that is there and
+    // readable always answers with a list, even an empty one: a 0-byte file and
+    // a `"mcpServers": null` block both read as "no servers yet", the shared
+    // decoder's rule that an empty or null block is simply absent, and the next
+    // save writes the managed set over the key.
     const mcp = botEngine(botRoot).mcp;
     const mcpDocument = mcp.file('global').read();
     const mcpServers =

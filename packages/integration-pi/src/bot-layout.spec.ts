@@ -532,6 +532,65 @@ describe('piBotLayout', () => {
     });
   });
 
+  it('keeps a hand-written description the wizard does not carry', () => {
+    // No Morse form has a description field and `BotService` passes none, so a
+    // save must not read "the wizard said nothing" as "clear it": the old layout
+    // kept every key it did not own, and `description` is one of those.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({ mcpServers: { fs: { command: 'npx', description: 'keep me' } } }),
+    );
+
+    writePiBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+    });
+
+    const file = read(piMcpPath(botRoot)) as { mcpServers: Record<string, unknown> };
+    expect(file.mcpServers['fs']).toEqual({
+      command: 'npx',
+      description: 'keep me',
+      type: 'stdio',
+    });
+  });
+
+  it('omits mcpServers when the bot has no mcp.json', () => {
+    writePiBotConfig(botRoot, config);
+
+    expect(existsSync(piMcpPath(botRoot))).toBe(false);
+    expect('mcpServers' in piBotLayout.read(botRoot)).toBe(false);
+  });
+
+  it('reads a 0-byte mcp.json as no servers', () => {
+    // An empty document is not a syntax error in the shared config layer: it is a
+    // file waiting to be initialized, so the bot shows an empty list instead of
+    // claiming the file is unreadable.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(piMcpPath(botRoot), '');
+
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([]);
+  });
+
+  it('reads a null mcpServers block as empty and replaces it on the next write', () => {
+    // The shared decoder treats `mcpServers: null` as no block at all, so the bot
+    // shows an empty list rather than a complaint, and the next save writes the
+    // managed set over the key.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(piMcpPath(botRoot), JSON.stringify({ mcpServers: null }));
+
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([]);
+
+    writePiBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+    });
+
+    expect(read(piMcpPath(botRoot))).toEqual({
+      mcpServers: { fs: { type: 'stdio', command: 'npx' } },
+    });
+  });
+
   it('removes a server the form dropped and the key when the list empties', () => {
     writePiBotConfig(botRoot, { ...config, mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }] });
     writePiBotConfig(botRoot, { ...config, mcpServers: [] });

@@ -14,7 +14,14 @@ import {
   type SectionContext,
 } from '@morse/engine-config';
 
-/** The keys this codec owns; any other key of an entry is preserved verbatim. */
+/**
+ * The keys this codec owns; any other key of an entry is preserved verbatim.
+ *
+ * `description` is deliberately absent: no Morse form carries one through the
+ * wizard (`BotService` drops it), so treating "not supplied" as "delete" erased
+ * a hand-written description on any save. It is written when the caller does
+ * send one, and otherwise left exactly as the reader wrote it.
+ */
 const MANAGED_KEYS = [
   'type',
   'command',
@@ -25,7 +32,6 @@ const MANAGED_KEYS = [
   'headers',
   'enabled',
   'exposure',
-  'description',
 ] as const;
 
 export class PiMcpSection extends McpSection {
@@ -165,6 +171,9 @@ export class PiMcpSection extends McpSection {
     if (item.description !== undefined) {
       encoded.description = item.description;
     }
+    // No `else`: when the caller supplies no description the entry's own text is
+    // already in `encoded` and must stay there. Clearing one is not an edit any
+    // Morse form can express.
     return encoded;
   }
 
