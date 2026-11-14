@@ -873,9 +873,9 @@ git commit -m "feat(pi): define the pi engine and its MCP store"
 - [ ] **Step 1: Write the failing status tests**
 
 ```ts
-it('lists configured servers without spawning pi', async () => {
+it('lists configured servers without a working pi binary', async () => {
   // seed agentDir/mcp.json with one server
-  // spy on child_process.execFile -> not called
+  // new PiMcp({ agentDir, piPath: '/nonexistent/pi' })
   const status = await mcp.status(cwd);
   expect(status.servers[0]).toMatchObject({ name:'one', state:'connecting', enabled:true });
   expect(status.note).toMatch(/configured files only/);
@@ -1264,7 +1264,13 @@ it('writes the bot config once, keeping agents, providers and instructions', () 
   // seed opencode.json with agents.build, provider.acme, instructions
   // write a bot with mcpServers
   // read the file: all seeded keys survive and mcp has the new server
-  // a write spy on writeFileSync/renameSync sees one rename for opencode.json
+  // seed a corrupt mcp-only rewrite candidate is covered by the abort test below;
+  // a second writer for this path would drop agents/provider and fail this test
+});
+
+it('aborts before writing when the existing config is corrupt', () => {
+  // seed a parse-invalid opencode.json and sentinel workspace/AGENTS.md
+  // expect writeOpenCodeBotConfig to throw and the workspace file unchanged
 });
 ```
 
