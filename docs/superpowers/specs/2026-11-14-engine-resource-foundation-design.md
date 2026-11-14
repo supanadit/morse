@@ -442,8 +442,9 @@ Per engine, only the entry codec and paths differ:
 
 - pi user: `<agentDir>/mcp.json`; pi project: `<cwd>/.pi/mcp.json` (project wins).
 - OpenCode global: `<configHome>/opencode.json` and `opencode.jsonc`
-  (`.jsonc` higher precedence); project: `opencode.json[c]` and
-  `.opencode/opencode.json[c]` from the workspace upward, nearest wins.
+  (`.jsonc` higher precedence); project: `.opencode/opencode.json[c]` from the
+  workspace upward first, then direct `opencode.json[c]` from the workspace
+  upward, because every `.opencode` config outranks every direct config.
   `OPENCODE_CONFIG`, system/managed config and the OpenCode server API remain out
   of scope.
 - Isolated (bot): pi `<root>/mcp.json`; OpenCode `<root>/opencode/opencode.json[c]`.

@@ -1107,9 +1107,11 @@ it('finds json and jsonc in the global config dir, jsonc winning', () => {
   // write target = jsonc
 });
 
-it('finds project configs from the workspace and .opencode, nearest first', () => {
+it('finds project configs from the workspace and .opencode, .opencode first', () => {
   // /repo/opencode.json, /repo/.opencode/opencode.jsonc, /repo/app/opencode.json
-  // cwd /repo/app -> app first, then .opencode, then repo, then global
+  // OpenCode's rule: every .opencode config outranks every direct config.
+  // cwd /repo/app -> repo/.opencode/opencode.jsonc, app/opencode.json,
+  // repo/opencode.json, then global
 });
 
 it('returns one file for an isolated root', () => {
@@ -1137,7 +1139,7 @@ Expected: FAIL — modules not found.
 `config-discovery.ts`: given `EngineContext` and `cwd`, return `ConfigPaths` for `'config'`:
 - isolated: `<root>/opencode/opencode.json` and `.jsonc` (read both, `.jsonc` first), write the existing one or `.json`.
 - user global: `<xdgConfigHome>/opencode/opencode.json[c]`.
-- project: walk from `cwd` to the filesystem root, collecting `opencode.json[c]` and `.opencode/opencode.json[c]`; nearest first, `.jsonc` before `.json` within a directory; append global last. Write target = the nearest existing project file, else `<cwd>/opencode.json`.
+- project: walk from `cwd` to the filesystem root. Two passes: all `.opencode/opencode.json[c]` candidates nearest→root first, then all direct `opencode.json[c]` candidates nearest→root (OpenCode: every `.opencode` config outranks every direct config); within a directory `.jsonc` before `.json`; append global last. Write target = the first existing project candidate in that order, else `<cwd>/opencode.json`.
 - Skip the home directory's `opencode.json` at the root? Do not overreach: stop at the filesystem root, but do not include `.opencode` under `$HOME` unless it is an ancestor of cwd; tests pin the exact list.
 
 `OpenCodeEngineInstance`: implements `ConfigLocator`; `paths('mcp', scope, cwd)` = config discovery; `fileAt` opens any resolved path; `scopeOf` derives project/global from the discovery; `file` opens the write target with `JsonConfigFile`; `mcp = new OpenCodeMcpStore(this)`.
