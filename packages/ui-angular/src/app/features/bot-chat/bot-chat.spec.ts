@@ -80,6 +80,14 @@ function entry(id: string, author: BotTranscriptEntry['author'], text: string): 
   return { id, author, text, at: 1 };
 }
 
+/** Types into the composer's prompt, the way a reader does while `@` is open. */
+function mentionInto(fixture: ComponentFixture<BotChat>, host: HTMLElement, text: string): void {
+  const box = host.querySelector('textarea[aria-label="Prompt"]') as HTMLTextAreaElement;
+  box.value = text;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  fixture.detectChanges();
+}
+
 /** A conversation in front, with the lines the test wants to read. */
 function open(
   morse: MorseService,
@@ -131,6 +139,50 @@ describe('BotChat', () => {
 
     expect(host.querySelector('.transcript')?.textContent).toContain('Forge, are you there?');
     expect(host.querySelector('.transcript')?.textContent).not.toContain('Workshop line');
+  });
+
+  it('lists the room’s members when @ is typed, handles and names together', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    fixture.detectChanges();
+    mentionInto(fixture, host, '@');
+
+    const picker = host.querySelector('morse-mention-picker') as HTMLElement;
+    expect(picker).not.toBeNull();
+    // The people first; the broadcast words are the second section below them.
+    expect([...picker.querySelectorAll('.handle')].map((one) => one.textContent?.trim())).toEqual([
+      '@forge',
+      '@sable',
+      '@all',
+      '@everyone',
+    ]);
+    // The name travels with the handle: nobody remembers `@sable` on sight.
+    expect([...picker.querySelectorAll('.name')].map((one) => one.textContent?.trim())).toEqual([
+      'Forge',
+      'Sable',
+    ]);
+  });
+
+  it('offers the broadcast words in a group, and not in a direct message', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    fixture.detectChanges();
+    mentionInto(fixture, host, '@');
+
+    expect(host.querySelector('morse-mention-picker')?.textContent).toContain('Special mentions');
+    const handles = [
+      ...(host.querySelector('morse-mention-picker') as HTMLElement).querySelectorAll('.handle'),
+    ].map((one) => one.textContent?.trim());
+    expect(handles).toEqual(['@forge', '@sable', '@all', '@everyone']);
+
+    // A direct message has one member, so a broadcast word would mean what a
+    // plain line already does.
+    open(morse, dm, []);
+    fixture.detectChanges();
+    mentionInto(fixture, host, '@');
+    expect(host.querySelector('morse-mention-picker')?.textContent).not.toContain(
+      'Special mentions',
+    );
   });
 
   it('shows what the reader attached, and sends it on with the line', async () => {

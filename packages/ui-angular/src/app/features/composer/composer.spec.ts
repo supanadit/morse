@@ -432,6 +432,124 @@ describe('ChatComposer bot variant', () => {
     expect(lines[0]?.images).toEqual([]);
   });
 
+  it('lists the room’s members when @ is typed, and writes the chosen handle', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.componentRef.setInput('botMembers', [
+      {
+        username: 'job-hunter',
+        name: 'Job Hunter',
+        avatar: 'J',
+        description: 'You are Job Seeker',
+      },
+      { username: 'chitchatter', name: 'Chit Chat Bot', description: 'Friendly Chit Chat' },
+    ]);
+    fixture.detectChanges();
+
+    // `@` alone lists everyone, the way a chat client does.
+    typeInto(host, '@');
+    fixture.detectChanges();
+
+    const picker = host.querySelector('morse-mention-picker') as HTMLElement;
+    expect(picker).not.toBeNull();
+    const rows = [...picker.querySelectorAll('.handle')].map((one) => one.textContent?.trim());
+    expect(rows).toEqual(['@job-hunter', '@chitchatter']);
+    // A row carries what a reader recognises: the handle and the name beside it.
+    expect(picker.textContent).toContain('Job Hunter');
+    expect(picker.querySelector('.avatar')?.textContent?.trim()).toBe('J');
+
+    // Typing narrows it, by handle or by name.
+    typeInto(host, '@chit');
+    fixture.detectChanges();
+    const narrowed = [
+      ...(host.querySelector('morse-mention-picker') as HTMLElement).querySelectorAll('.handle'),
+    ].map((one) => one.textContent?.trim());
+    expect(narrowed).toEqual(['@chitchatter']);
+
+    typeInto(host, '@job');
+    fixture.detectChanges();
+    // Enter writes the handle over the token being typed, with a trailing space.
+    botPrompt(host).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+
+    expect(botPrompt(host).value).toBe('@job-hunter ');
+    expect(host.querySelector('morse-mention-picker')).toBeNull();
+  });
+
+  it('moves through the @ list with the arrow keys, and closes it on Escape', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.componentRef.setInput('botMembers', [
+      { username: 'forge', name: 'Forge' },
+      { username: 'sable', name: 'Sable' },
+    ]);
+    fixture.detectChanges();
+    typeInto(host, '@');
+    fixture.detectChanges();
+
+    const key = (name: string): void => {
+      botPrompt(host).dispatchEvent(
+        new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
+      );
+      fixture.detectChanges();
+    };
+    key('ArrowDown');
+    key('Enter');
+    expect(botPrompt(host).value).toBe('@sable ');
+
+    typeInto(host, '@');
+    fixture.detectChanges();
+    key('Escape');
+    expect(host.querySelector('morse-mention-picker')).toBeNull();
+    // Closing leaves the typed text alone: it is the reader's, not the list's.
+    expect(botPrompt(host).value).toBe('@');
+  });
+
+  it('offers @all and @everyone in a group with more than one bot', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.componentRef.setInput('botMembers', [
+      { username: 'forge', name: 'Forge' },
+      { username: 'sable', name: 'Sable' },
+    ]);
+    fixture.componentRef.setInput('botBroadcast', true);
+    fixture.detectChanges();
+    typeInto(host, '@');
+    fixture.detectChanges();
+
+    const picker = host.querySelector('morse-mention-picker') as HTMLElement;
+    expect(picker.textContent).toContain('Special mentions');
+    const handles = [...picker.querySelectorAll('.handle')].map((one) => one.textContent?.trim());
+    expect(handles).toEqual(['@forge', '@sable', '@all', '@everyone']);
+
+    // The list and the keyboard agree on what row three means.
+    const key = (name: string): void => {
+      botPrompt(host).dispatchEvent(
+        new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
+      );
+      fixture.detectChanges();
+    };
+    key('ArrowDown');
+    key('ArrowDown');
+    key('Enter');
+    expect(botPrompt(host).value).toBe('@all ');
+  });
+
+  it('shows no @ list where the room has nobody to mention', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    typeInto(host, '@');
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-mention-picker')).toBeNull();
+    // And `@` stays plain text, exactly as typed.
+    expect(botPrompt(host).value).toBe('@');
+  });
+
   it('keeps the session run controls out of the bot composer', async () => {
     const { fixture, host, transport } = await mountComposer();
     transport.runStreaming(true);

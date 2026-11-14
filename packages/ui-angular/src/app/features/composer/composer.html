@@ -91,7 +91,14 @@
       </button>
       <input #fileInput type="file" multiple hidden (change)="onFilesChosen($event)" />
       <span class="hint muted">
-        @if (botImages() === 'no') {
+        @if (botMembers.length > 0) {
+          &#64; to mention
+          @if (botImages() === 'no') {
+            · attach a file · this bot’s model takes text only
+          } @else {
+            · attach an image or a file
+          }
+        } @else if (botImages() === 'no') {
           attach a file · this bot’s model takes text only
         } @else {
           attach an image or a file
@@ -170,6 +177,20 @@
       }
     </button>
   </div>
+  }
+
+  @if (pickerOpen() && variant === 'bot') {
+    <morse-mention-picker
+      class="picker-host"
+      [morsePopoverFit]="320"
+      [members]="mentionMatches()"
+      [broadcast]="botBroadcast"
+      [query]="pickerFilter()"
+      [active]="mentionActive()"
+      (activeChange)="mentionActive.set($event)"
+      (pick)="onPickMention($event)"
+      (close)="onPickerClose()"
+    />
   }
 
   @if (pickerOpen() && variant !== 'bot') {

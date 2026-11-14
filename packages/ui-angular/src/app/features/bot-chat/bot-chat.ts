@@ -19,6 +19,7 @@ import { MorseService } from '../../host/morse.service';
 import { ComposerDrafts } from '../../state/composer-drafts';
 import { Markdown } from '../../ui/markdown/markdown';
 import { ChatComposer, type BotComposerSend } from '../composer/composer';
+import type { MentionCandidate } from '../mention-picker/mention-picker';
 
 /**
  * Bot mode's conversation: the lines of the DM or group in front, who said
@@ -208,6 +209,38 @@ export class BotChat {
   protected mark(author: BotAuthor & { role: 'bot' }): string {
     return author.avatar ?? author.name.slice(0, 1).toUpperCase();
   }
+
+  /**
+   * The members a `@` can address: every bot in the conversation, in roster order,
+   * with the handle the host routes on and the name the reader knows it by.
+   *
+   * A handle is the only thing the host parses — the display name is free text —
+   * and nobody remembers `@job-hunter` on sight, so the list carries both.
+   */
+  protected readonly mentionMembers = computed<MentionCandidate[]>(() => {
+    const conversation = this.conversation();
+    const roster = this.morse.bot.roster();
+    if (conversation === undefined || roster === null) {
+      return [];
+    }
+    const order = new Map(conversation.members.map((member, index) => [member, index]));
+    return roster.bots
+      .filter((bot) => order.has(bot.username))
+      .sort((left, right) => (order.get(left.username) ?? 0) - (order.get(right.username) ?? 0))
+      .map((bot) => ({
+        username: bot.username,
+        name: bot.name,
+        ...(bot.avatar === undefined ? {} : { avatar: bot.avatar }),
+        ...(bot.description.length === 0 ? {} : { description: bot.description }),
+      }));
+  });
+  /**
+   * `@all` / `@everyone` belong in a room with more than one bot. In a direct
+   * message they would address the only member, which is what a plain line does.
+   */
+  protected readonly canBroadcast = computed(() =>
+    this.conversation()?.kind === 'group' ? this.mentionMembers().length > 1 : false,
+  );
 
   /** A group's members by display name: the row is for the reader, not for keys. */
   protected memberNames(conversation: BotConversationSummary): string {

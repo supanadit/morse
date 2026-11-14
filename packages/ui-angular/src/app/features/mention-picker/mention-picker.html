@@ -1,0 +1,66 @@
+<div class="picker" [morseEnter]="0" [morseEnterY]="6">
+  <div class="head">
+    <span class="label">{{ members().length > 0 ? 'People' : 'Mentions' }}</span>
+    @if (query().length > 0) {
+      <span class="query">for “{{ query() }}”</span>
+    }
+  </div>
+
+  @if (members().length === 0 && query().length > 0) {
+    <div class="empty">Nobody here matches “{{ query() }}”.</div>
+  }
+
+  <ul #list>
+    @for (member of members(); track member.username; let index = $index) {
+      <li [class.active]="index === active()">
+        <button
+          type="button"
+          class="row"
+          (mouseenter)="activeChange.emit(index)"
+          (click)="pick.emit(member.username)"
+        >
+          <span class="avatar" aria-hidden="true">{{ mark(member) }}</span>
+          <span class="who">
+            <span class="line">
+              <span class="handle">&#64;{{ member.username }}</span>
+              <span class="name">{{ member.name }}</span>
+            </span>
+            @if (member.description) {
+              <span class="description">{{ member.description }}</span>
+            }
+          </span>
+        </button>
+      </li>
+    }
+  </ul>
+
+  @if (broadcast()) {
+    <div class="head section">
+      <span class="label">Special mentions</span>
+    </div>
+    <ul>
+      @for (row of broadcastRows; track row.handle; let offset = $index) {
+        <li [class.active]="members().length + offset === active()">
+          <button
+            type="button"
+            class="row broadcast"
+            (mouseenter)="activeChange.emit(members().length + offset)"
+            (click)="pick.emit(row.handle)"
+          >
+            <span class="glyph" aria-hidden="true">&#64;</span>
+            <span class="who">
+              <span class="line">
+                <span class="handle">&#64;{{ row.handle }}</span>
+              </span>
+              <span class="description">{{ row.hint }}</span>
+            </span>
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  <div class="hint">
+    <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> mention · <kbd>Esc</kbd> close
+  </div>
+</div>

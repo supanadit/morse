@@ -61,6 +61,7 @@ import { PopoverFit } from '../../ui/popover-fit.directive';
 import { startResize } from '../../ui/resize-drag';
 import { EnterDirective } from '../../ui/enter.directive';
 import { FilePicker, rankFiles } from '../file-picker/file-picker';
+import { MentionPicker, type MentionCandidate } from '../mention-picker/mention-picker';
 import { CommandPicker, rankPalette, type PaletteItem } from '../command-picker/command-picker';
 import {
   PromptTemplateDialog,
@@ -89,6 +90,7 @@ export interface BotComposerSend {
   imports: [
     EnterDirective,
     FilePicker,
+    MentionPicker,
     UsageIndicator,
     CommandPicker,
     ModelPicker,
@@ -139,6 +141,15 @@ export class ChatComposer {
   @Input() variant: 'session' | 'bot' = 'session';
   /** The placeholder in the bot variant; a session keeps its own contextual hint. */
   @Input() placeholder?: string;
+  /**
+   * Who a bot message can address: the members of the conversation in front.
+   * Typing `@` lists them the way a chat client does, and choosing one writes its
+   * handle into the line — the host routes a round from those handles, so this
+   * list is the only place the reader can learn them.
+   */
+  @Input() botMembers: readonly MentionCandidate[] = [];
+  /** Whether `@all` / `@everyone` belong in the list (a room with several bots). */
+  @Input() botBroadcast = false;
   /**
    * The reader's line for a bot conversation, trimmed and never empty, with what
    * they attached to it: a bot takes images as prompt content and any other file
@@ -449,6 +460,40 @@ export class ChatComposer {
     rankFiles(this.workspaceFiles(), this.pickerFilter()),
   );
   protected readonly mentionActive = signal(0);
+  /**
+   * The members a `@` lists, ranked the way a chat ranks them: a handle that
+   * starts with what was typed comes first, then one that merely contains it, and
+   * a display name is searchable too — a reader knows "Job Hunter" long before
+   * they know `@job-hunter`.
+   */
+  protected readonly mentionMatches = computed<MentionCandidate[]>(() => {
+    const needle = this.pickerFilter().trim().toLowerCase();
+    if (needle.length === 0) {
+      return [...this.botMembers];
+    }
+    const scored: { member: MentionCandidate; score: number }[] = [];
+    for (const member of this.botMembers) {
+      const handle = member.username.toLowerCase();
+      const name = member.name.toLowerCase();
+      const score = handle.startsWith(needle)
+        ? 0
+        : name.startsWith(needle)
+          ? 1
+          : handle.includes(needle) || name.includes(needle)
+            ? 2
+            : Number.POSITIVE_INFINITY;
+      if (score !== Number.POSITIVE_INFINITY) {
+        scored.push({ member, score });
+      }
+    }
+    return scored
+      .sort((left, right) => left.score - right.score || left.member.name.localeCompare(right.member.name))
+      .map((entry) => entry.member);
+  });
+  /** How many rows the open `@` list has, members plus the broadcast words. */
+  protected readonly mentionRowCount = computed(
+    () => this.mentionMatches().length + (this.botBroadcast ? 2 : 0),
+  );
   protected readonly canPickFiles = this.workspace.available;
   /** The host can take a file the browser read and store it on its own disk. */
   protected readonly canUpload = this.uploads.available;
@@ -809,6 +854,41 @@ export class ChatComposer {
     }
     // While the mention picker is open it consumes the navigation keys, but the
     // caret stays in the prompt — so `@query` is typed here, not in the popup.
+    // The `@` list is open: it owns the navigation keys in both modes, and the
+    // caret stays in the prompt, so the query is typed there rather than here.
+    if (this.pickerOpen() && this.variant === 'bot') {
+      const count = this.mentionRowCount();
+      switch (event.key) {
+        case 'Escape':
+          event.preventDefault();
+          this.onPickerClose();
+          return;
+        case 'ArrowDown':
+          event.preventDefault();
+          this.mentionActive.update((index) => Math.min(index + 1, Math.max(0, count - 1)));
+          return;
+        case 'ArrowUp':
+          event.preventDefault();
+          this.mentionActive.update((index) => Math.max(0, index - 1));
+          return;
+        case 'Tab':
+        case 'Enter': {
+          const handle = this.mentionHandleAt(this.mentionActive());
+          if (handle !== undefined) {
+            event.preventDefault();
+            this.onPickMention(handle);
+            return;
+          }
+          // Nothing to choose: Enter still sends, Tab stays inert.
+          if (event.key === 'Tab') {
+            event.preventDefault();
+          }
+          return;
+        }
+        default:
+          return;
+      }
+    }
     if (this.pickerOpen()) {
       const items = this.pickerMatches();
       switch (event.key) {
@@ -887,6 +967,11 @@ export class ChatComposer {
     }
     this.drafts.setText('');
     this.syncInputValue();
+    // The line left: an `@` list still open would be filtering text that is gone.
+    this.pickerOpen.set(false);
+    this.mentionMode.set(false);
+    this.pickerFilter.set('');
+    this.mentionActive.set(0);
     this.botSend.emit({ text, images, files });
   }
 
@@ -1246,8 +1331,11 @@ export class ChatComposer {
    * the toolbar promises this, so it has to work.
    */
   private refreshMentionQuery(value: string, caret: number | null): void {
-    // A bot conversation has no workspace files to mention.
-    if (this.variant === 'bot' || !this.canPickFiles()) {
+    if (this.variant === 'bot') {
+      this.refreshBotMentionQuery(value, caret);
+      return;
+    }
+    if (!this.canPickFiles()) {
       return;
     }
     const before = value.slice(0, caret ?? value.length);
@@ -1267,6 +1355,60 @@ export class ChatComposer {
     this.pickerFilter.set(match[1] ?? '');
     this.pickerOpen.set(true);
     this.workspace.ensureLoaded();
+  }
+
+  /**
+   * The bot conversation's `@`: a handle being typed at a word boundary opens the
+   * member list, filtered by what follows it, and a space (or a backspace past the
+   * `@`) closes it instead of leaving a dead popup behind.
+   *
+   * The token allows `-` and `_` because a handle may contain them — the wizard
+   * enforces `[a-z0-9][a-z0-9_-]{0,31}` — so `@job-h` keeps matching `job-hunter`
+   * rather than splitting at the dash.
+   */
+  private refreshBotMentionQuery(value: string, caret: number | null): void {
+    if (this.botMembers.length === 0) {
+      return;
+    }
+    const before = value.slice(0, caret ?? value.length);
+    const match = /(?:^|\s)@([\w-]*)$/.exec(before);
+    if (!match) {
+      if (this.mentionMode()) {
+        this.pickerOpen.set(false);
+        this.mentionMode.set(false);
+      }
+      return;
+    }
+    if (match[1] !== this.pickerFilter()) {
+      this.mentionActive.set(0);
+    }
+    this.mentionMode.set(true);
+    this.pickerFilter.set(match[1] ?? '');
+    this.pickerOpen.set(true);
+  }
+
+  /**
+   * Writes the chosen handle over the `@token` being typed, leaving the caret after
+   * a space so the next word is a new word — exactly what typing it by hand would
+   * leave behind.
+   */
+  protected onPickMention(handle: string): void {
+    const value = this.drafts.text();
+    const caret = this.promptInput()?.nativeElement.selectionStart ?? value.length;
+    const before = value.slice(0, caret);
+    const after = value.slice(caret);
+    const replaced = before.replace(/(^|\s)@([\w-]*)$/, `$1@${handle} `);
+    this.drafts.setText(`${replaced}${after}`);
+    this.pickerOpen.set(false);
+    this.mentionMode.set(false);
+    this.pickerFilter.set('');
+    this.mentionActive.set(0);
+    this.syncInputValue();
+    const input = this.promptInput()?.nativeElement;
+    if (input) {
+      input.focus();
+      input.setSelectionRange(replaced.length, replaced.length);
+    }
   }
 
   /**
@@ -1749,6 +1891,20 @@ export class ChatComposer {
       this.pickerOpen.set(false);
     }
     this.syncInputValue();
+  }
+
+  /** The handle a row index means: a member first, then the broadcast words. */
+  private mentionHandleAt(index: number): string | undefined {
+    const members = this.mentionMatches();
+    const member = members[index];
+    if (member !== undefined) {
+      return member.username;
+    }
+    if (!this.botBroadcast) {
+      return undefined;
+    }
+    const offset = index - members.length;
+    return offset === 0 ? 'all' : offset === 1 ? 'everyone' : undefined;
   }
 
   /** The picker's second target: mention the file and open it to quote lines. */

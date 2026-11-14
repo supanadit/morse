@@ -292,6 +292,19 @@ opens it with the tools it already has and no bot ever sees another's attachment
 every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
 relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
+### `@` in a bot conversation
+
+The composer's `@` is one key with two meanings: in a code session it lists workspace files, in a bot
+conversation it lists the members of the room. Same trigger, same keyboard ownership (the caret never leaves the
+prompt), different list — `features/mention-picker/` is presentational and the composer owns the query, the
+highlight and Enter.
+
+- Rows carry both the handle the host parses (`@job-hunter`) and the name the reader knows (`Job Hunter`), because
+  a bot's display name is free text and deliberately never parsed.
+- `@all` / `@everyone` sit in a `Special mentions` section in a group, and are hidden in a direct message where
+  they would mean what a plain line already does. The host already expanded them in `parseMentions`, so the list
+  is the only new part.
+
 ### Model limits are the reader's to state
 
 Auto-discovery is a convenience, never an authority. `GET {baseUrl}/models` is not a spec: a listing often says

@@ -123,6 +123,8 @@
       <morse-chat-composer
         [variant]="'bot'"
         [placeholder]="'Message ' + conversation.title + '…'"
+        [botMembers]="mentionMembers()"
+        [botBroadcast]="canBroadcast()"
         (botSend)="send($event)"
       />
     </div>
