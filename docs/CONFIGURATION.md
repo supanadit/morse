@@ -151,8 +151,8 @@ servers from your own configuration.
 pi's `settings.json` in a bot's agent dir carries
 `"$schema": "https://pi.dev/schemas/settings.schema.json"` as its first key. Morse writes that
 reference — `repair` seeds it into a bot's existing `settings.json` — but never validates the file
-against the schema; pi does, and an editor gets completion from it. OpenCode's `opencode.json`
-names its own (`https://opencode.ai/config.json`).
+against it: the schema is for the editor, which uses it to validate and complete the file. OpenCode's
+`opencode.json` names its own (`https://opencode.ai/config.json`).
 
 Entries are read leniently and written authoritatively. An entry that is null, is not an object, or
 names a transport without its `command` (stdio) or `url` (http) is skipped when the wizard reads the
@@ -162,8 +162,12 @@ stdio/http entry is gone after the next save; OpenCode's whole `mcp` block is re
 screen. What Morse does not show it does not delete: a pi entry with none of `command`, `url` or
 `type` is a project *override* that only switches a user-level server's `enabled`/`exposure`, and a
 `null` or non-object entry is left where it is. Unknown keys inside a managed server survive an edit
-too — `auth`, for instance, stays. A file that is not valid JSON is not read at all, so the bot's
-other settings still appear and the MCP step simply shows no servers.
+too — `auth`, for instance, stays. A pi `mcp.json` that is not valid JSON is ignored on read: the
+bot's other settings still appear and the MCP step shows no servers, but adding a server to that file
+makes the save fail, because the writer has to rewrite a file it cannot parse — repair it by hand
+first. `opencode.json` is stricter still, since MCP lives inside it: an invalid file can be neither
+read nor written, so Edit bot shows nothing at all — persona, model, tools, subagents and MCP alike —
+and a save fails until it is fixed by hand.
 
 ## Interface preferences
 

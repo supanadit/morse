@@ -32,7 +32,8 @@ import type { McpFileServer } from './internal/mcp-config.js';
  *   `defaultProvider`, `defaultModel`, `defaultThinkingLevel` and `defaultTools`:
  *   how pi remembers the model, thinking level and tool allowlist a session
  *   starts with. Morse writes the schema reference but never validates the file
- *   against it — pi does.
+ *   against it; the schema is for the editor, which uses it to validate and
+ *   complete the file.
  * - `mcp.json` — the bot's own MCP servers, under pi's `mcpServers.<name>` keys.
  *   Morse writes them from the wizard's list, so a bot carries the servers it was
  *   given and inherits none from the user's own configuration; entries that only
