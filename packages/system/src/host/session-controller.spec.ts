@@ -2868,6 +2868,8 @@ describe('HostSessionController bot messages', () => {
       createBot: async () => undefined,
       deleteBot: async () => undefined,
       createGroup: () => group,
+      updateGroup: async () => group,
+      deleteGroup: async () => undefined,
       probeModels: async () => [],
       open: () => [],
       send: () => Promise.resolve(),
@@ -2999,6 +3001,40 @@ describe('HostSessionController bot messages', () => {
       payload: { conversationId: 'dm-x', text: 'hi' },
     });
     expect(sent).toEqual([['dm-x', 'hi']]);
+  });
+
+  it('edits and deletes a group through the bot port', async () => {
+    const messages: HostToClientMessage[] = [];
+    const updated: unknown[] = [];
+    const removed: string[] = [];
+    const controller = botController(
+      messages,
+      fakePort({
+        updateGroup: async (input) => {
+          updated.push(input);
+          return group;
+        },
+        deleteGroup: async (id) => {
+          removed.push(id);
+        },
+      }),
+    );
+
+    await controller.handleClientMessage({
+      type: 'bot/groupUpdate',
+      payload: { id: 'group-1', name: 'reviewers', members: ['forge'] },
+    });
+    await controller.handleClientMessage({
+      type: 'bot/groupDelete',
+      payload: { id: 'group-1' },
+    });
+
+    expect(updated).toEqual([{ id: 'group-1', name: 'reviewers', members: ['forge'] }]);
+    expect(removed).toEqual(['group-1']);
+    expect(messages.at(-1)).toEqual({
+      type: 'bot/roster',
+      payload: { bots: [], conversations: [] },
+    });
   });
 
   it('reports a refused send as a notice instead of throwing at the socket', async () => {

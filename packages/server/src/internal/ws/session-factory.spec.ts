@@ -50,6 +50,8 @@ function fakeBot() {
     createBot: vi.fn(async () => undefined),
     deleteBot: vi.fn(async () => undefined),
     createGroup: vi.fn(() => group),
+    updateGroup: vi.fn(() => group),
+    deleteGroup: vi.fn(async () => undefined),
     probeModels: vi.fn(async () => [{ provider: 'pi', id: 'm', name: 'M' }]),
     open: vi.fn(() => ({
       entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
@@ -239,6 +241,20 @@ describe('MorseSessionFactory bot wiring', () => {
       payload: { name: 'reviewers', members: ['forge', 'sentinel'] },
     });
     expect(bot.calls.createGroup).toHaveBeenCalled();
+    expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: bot.roster });
+
+    await controller.handleClientMessage({
+      type: 'bot/groupUpdate',
+      payload: { id: 'group-1', name: 'reviewers, revised', members: ['forge'] },
+    });
+    expect(bot.calls.updateGroup).toHaveBeenCalled();
+    expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: bot.roster });
+
+    await controller.handleClientMessage({
+      type: 'bot/groupDelete',
+      payload: { id: 'group-1' },
+    });
+    expect(bot.calls.deleteGroup).toHaveBeenCalledWith('group-1');
     expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: bot.roster });
 
     await controller.handleClientMessage({ type: 'bot/delete', payload: { name: 'forge' } });
