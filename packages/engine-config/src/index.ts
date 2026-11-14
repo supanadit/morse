@@ -12,4 +12,7 @@ export * from './core/types.js';
 export * from './core/write.js';
 export * from './engine/context.js';
 export * from './engine/locator.js';
+export * from './prompt/prompt-store.js';
+export * from './resource/composite-store.js';
+export * from './resource/file-store.js';
 export * from './resource/resource-store.js';

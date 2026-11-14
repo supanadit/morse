@@ -12,6 +12,16 @@ export interface ResourceList<T> {
   issues: ConfigIssue[];
 }
 
+/**
+ * The two roots a file-backed store reads: the user's directory and this
+ * project's. `project` is absent when no workspace is open, so a project
+ * mutation can refuse instead of guessing a path.
+ */
+export interface ResourceDirs {
+  global: string;
+  project?: string;
+}
+
 /** A resource mutation is a config mutation: the same shape and issue codes. */
 export type ResourceMutation = ConfigMutation;
 
