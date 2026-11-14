@@ -141,6 +141,8 @@ Some display choices belong to whoever is reading, not to the host, so they live
 | `morse.chat.toolDisplay` | `compact` / `timeline` | `compact` (default): one summary line per turn, a tree of steps with their files; `timeline`: the legacy always-open cards |
 | `morse.view.sessionNav.folds` | JSON `{ "<path>": true }` | Projects folded in the session list, by path; a path absent from it is unfolded |
 | `morse.view.sessionNav.listFolded` | `true` / `false` | The whole session list folded to its title bar |
+| `morse.view.mode.current` | `code` / `bot` | Which tab the window was on |
+| `morse.view.mode.botConversation` | a conversation id (`group-…`, `dm-…`) | The bot DM or group that was in front |
 
 The tool-call toggle sits in the chat header, next to the conversation compactor; the compact tree is the
 default, and `timeline` is the opt-in legacy view. Storage is a nicety: with `localStorage` unavailable the
@@ -152,6 +154,11 @@ reader has folds on record, one project is unfolded — the one the open session
 used last — and every other project waits behind its header, so a catalog of hundreds of projects arrives
 as a list to scan rather than a wall of sessions. From then on the record is the reader's own: what they
 fold stays folded, and what they unfold stays open.
+
+The **tab** is remembered too: a reload comes back on `Code` or `Bot`, whichever the reader left, and bot mode
+reopens the DM or group that was in front (`state/mode-prefs.ts`). The conversation is a memory, not a
+promise — the roster decides. A conversation deleted while the page was shut is forgotten instead of being
+reopened as an empty room.
 
 ### Explorer and tabs (browser host)
 

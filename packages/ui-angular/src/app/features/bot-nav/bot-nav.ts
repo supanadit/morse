@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import type { BotConversationSummary, BotSummary } from '@morse/protocol';
 import { MorseService } from '../../host/morse.service';
+import { ModePrefs } from '../../state/mode-prefs';
 import { ShellState } from '../../state/shell-state';
 
 /** An anchor point for a menu, already clamped inside the viewport. */
@@ -50,6 +51,7 @@ type NavMenu =
 export class BotNav {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
+  private readonly prefs = inject(ModePrefs);
 
   protected readonly bots = computed(() => this.morse.bot.roster()?.bots ?? []);
   protected readonly groups = computed(() =>
@@ -111,10 +113,40 @@ export class BotNav {
   protected readonly createOpen = computed(() => this.menu()?.kind === 'create');
 
   constructor() {
+    /*
+     * Where the reader was, kept across a reload: the conversation in front is
+     * written down as it changes, and a page that came back in bot mode reopens the
+     * one it left — but only once the roster confirms it still exists. A bot or
+     * group deleted while the page was closed is forgotten rather than restored
+     * into an empty room.
+     *
+     * A roster arrives as a push, but nothing sends one until someone asks, so the
+     * first look at an empty roster asks for it. `untracked` keeps those requests
+     * from re-arming the effect: they change the same signals it watches.
+     */
     effect(() => {
-      if (this.morse.bot.roster() === null) {
+      const roster = this.morse.bot.roster();
+      const active = this.morse.bot.activeId();
+      if (roster === null) {
         untracked(() => this.morse.listBots());
+        return;
       }
+      if (active !== null) {
+        untracked(() => this.prefs.rememberBotConversation(active));
+        return;
+      }
+      const remembered = this.prefs.botConversation();
+      if (remembered === null) {
+        return;
+      }
+      const listed = roster.conversations.some((conversation) => conversation.id === remembered);
+      untracked(() => {
+        if (listed) {
+          this.morse.openBotConversation(remembered);
+        } else {
+          this.prefs.rememberBotConversation(null);
+        }
+      });
     });
   }
 

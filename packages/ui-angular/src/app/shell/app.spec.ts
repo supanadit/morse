@@ -14,6 +14,7 @@ import { MorseService } from '../host/morse.service';
 import { AttachmentStore } from '../state/attachments';
 import { RestoreState } from '../state/restore-state';
 import { ShellState } from '../state/shell-state';
+import { ModePrefs } from '../state/mode-prefs';
 import { MORSE_TRANSPORT } from '../host/transport.token';
 
 describe('App', () => {
@@ -255,6 +256,45 @@ describe('App', () => {
     expect(host.querySelector('.bot-chat-placeholder')).toBeNull();
     expect(host.querySelector('morse-bot-chat')?.textContent).toContain('Forge');
     expect(host.querySelector('morse-bot-chat morse-chat-composer')).not.toBeNull();
+  });
+
+  it('comes back on the tab it was left on', async () => {
+    // The last visit was in bot mode, so that is what the mode record says before
+    // the shell is built — the same thing a reload does.
+    TestBed.inject(ModePrefs).setMode('bot');
+
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('morse-bot-nav')).not.toBeNull();
+    expect(host.querySelector('morse-session-nav')).toBeNull();
+  });
+
+  it('remembers the tab the mode row switches to', async () => {
+    const morse = TestBed.inject(MorseService);
+    // The mock host leaves `bot` off; the tab is what this test is about.
+    const capabilities = morse.capabilities;
+    Object.defineProperty(morse, 'capabilities', {
+      value: () => ({ ...capabilities(), bot: true }),
+    });
+
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const bot = [...host.querySelectorAll('.modes .mode')].find((tab) =>
+      (tab.textContent ?? '').includes('Bot'),
+    ) as HTMLButtonElement | undefined;
+    expect(bot?.disabled).toBe(false);
+
+    bot?.click();
+    fixture.detectChanges();
+
+    // The switch is the shell's, and it is written down for the next visit.
+    expect(fixture.componentInstance.mode()).toBe('bot');
+    expect(TestBed.inject(ModePrefs).mode()).toBe('bot');
   });
 
   it('keeps code-mode panels shut while bot mode owns the window', async () => {

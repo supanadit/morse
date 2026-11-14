@@ -42,6 +42,7 @@ import { MorseService } from '../host/morse.service';
 import { RunNotifier } from '../services/run-notifier';
 import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
+import { ModePrefs, type ShellMode } from '../state/mode-prefs';
 import { RestoreState } from '../state/restore-state';
 import { ShellState, type LeftPane } from '../state/shell-state';
 import { WorkspaceTabs } from '../state/workspace-tabs';
@@ -126,13 +127,17 @@ export class App {
    * the default `false` is the standalone app.
    */
   readonly embedded = input(false);
+  private readonly modePrefs = inject(ModePrefs);
   /**
    * Which product the window is in. Code is the shell as it has always been;
    * Bot swaps the sidebar for the roster and the conversation column for the bot
    * chat. The toolbar only reports a click — the switch itself is here, so the
    * two columns can never show different modes.
+   *
+   * It starts on the tab the reader left (`ModePrefs`), and every switch goes
+   * through `setMode` so that choice is the one a reload comes back to.
    */
-  readonly mode = signal<'code' | 'bot'>('code');
+  readonly mode = signal<ShellMode>(this.modePrefs.mode());
   private readonly morse = inject(MorseService);
   private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
@@ -489,6 +494,16 @@ export class App {
 
   protected toggleDiagnostics(): void {
     this.diagnosticsOpen.update((open) => !open);
+  }
+
+  /**
+   * The toolbar's Code/Bot switch. The one place the mode changes, so the choice
+   * is written down for the next visit (`ModePrefs`) and the two columns cannot
+   * disagree about which product they are in.
+   */
+  protected setMode(mode: ShellMode): void {
+    this.mode.set(mode);
+    this.modePrefs.setMode(mode);
   }
   /** Highlight while files are dragged over the chat. */
   protected readonly dragging = this.dropZone.active;

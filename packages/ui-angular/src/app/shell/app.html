@@ -102,7 +102,7 @@
        same reason the navigation column is not.
   -->
   @if (!embedded()) {
-    <morse-toolbar [mode]="mode()" (modeChange)="mode.set($event)" />
+    <morse-toolbar [mode]="mode()" (modeChange)="setMode($event)" />
   }
   @if (bootVisible()) {
     <morse-boot-splash

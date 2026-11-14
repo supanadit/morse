@@ -3,6 +3,7 @@ import type { BotConversationSummary, BotSummary, ClientToHostMessage } from '@m
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
+import { ModePrefs } from '../../state/mode-prefs';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotNav } from './bot-nav';
 
@@ -47,10 +48,11 @@ class RecordingHost extends MemoryHostTransport {
   }
 }
 
-async function render(): Promise<{
+async function render(options: RenderOptions = {}): Promise<{
   fixture: ComponentFixture<BotNav>;
   host: HTMLElement;
   morse: MorseService;
+  prefs: ModePrefs;
   sent: ClientToHostMessage[];
 }> {
   TestBed.resetTestingModule();
@@ -59,14 +61,25 @@ async function render(): Promise<{
     imports: [BotNav],
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
   }).compileComponents();
+  // A remembered conversation is what a reload starts with: the last visit wrote it
+  // down before this window existed, so it is on record before the view mounts.
+  if (options.rememberedConversation !== undefined) {
+    TestBed.inject(ModePrefs).rememberBotConversation(options.rememberedConversation);
+  }
   const fixture = TestBed.createComponent(BotNav);
   fixture.detectChanges();
   return {
     fixture,
     host: fixture.nativeElement as HTMLElement,
     morse: TestBed.inject(MorseService),
+    prefs: TestBed.inject(ModePrefs),
     sent: transport.sent,
   };
+}
+
+/** What a test needs beyond a fresh mount: the conversation the last visit left open. */
+interface RenderOptions {
+  rememberedConversation?: string;
 }
 
 function rows(host: HTMLElement, kind: 'bot' | 'group'): HTMLButtonElement[] {
@@ -145,6 +158,44 @@ describe('BotNav', () => {
     rows(host, 'group')[0]?.click();
 
     expect(open).toHaveBeenCalledWith('group-workshop');
+  });
+
+  it('writes the open conversation down, so a reload can come back to it', async () => {
+    const { fixture, host, morse, prefs } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+
+    rows(host, 'group')[0]?.click();
+    fixture.detectChanges();
+
+    expect(prefs.botConversation()).toBe('group-workshop');
+  });
+
+  it('reopens the conversation the page came back to', async () => {
+    const { fixture, host, morse } = await render({ rememberedConversation: 'group-research' });
+    const open = vi.spyOn(morse, 'openBotConversation');
+
+    // The roster is what says the conversation still exists — it is reopened once
+    // it does, not on the strength of the remembered id alone.
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop, research] });
+    fixture.detectChanges();
+
+    expect(open).toHaveBeenCalledWith('group-research');
+    // And the row reads as the open one, so the pair cannot disagree.
+    expect(rows(host, 'group')[1]?.classList.contains('active')).toBe(true);
+  });
+
+  it('forgets a remembered conversation the host no longer lists', async () => {
+    const { fixture, morse, prefs } = await render({ rememberedConversation: 'group-gone' });
+    const open = vi.spyOn(morse, 'openBotConversation');
+
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+
+    // A conversation deleted while the page was shut must not be reopened into an
+    // empty room, and it must not be remembered for the next visit either.
+    expect(open).not.toHaveBeenCalled();
+    expect(prefs.botConversation()).toBeNull();
   });
 
   it('filters bots and groups as the reader types, and restores on clear', async () => {

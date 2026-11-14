@@ -222,6 +222,9 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   edit, because discovery cannot always know them — absent means the engine's default.
 - **Transcripts that survive.** One append-only JSONL per conversation, paged from the end, with "new
   discussion" as a divider rather than a lost history.
+- **Coming back to where you were.** The `Code`/`Bot` tab and the conversation that was in front are the
+  reader's, so they survive a reload: bot mode reopens the last DM or group, and forgets one the host no longer
+  lists (`state/mode-prefs.ts`).
 - **Data upgrades.** `.morse/` carries a layout version; migrations and an additive reconcile run on `morse start`
   (see [DATA-COMPATIBILITY.md](DATA-COMPATIBILITY.md)).
 
