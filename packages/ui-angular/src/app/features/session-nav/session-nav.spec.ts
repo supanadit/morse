@@ -713,6 +713,40 @@ describe('SessionNav', () => {
     expect(TestBed.inject(ShellState).projectFilterOpen()).toBe(false);
   });
 
+  it('keeps a stored project filter the host still serves', async () => {
+    // A previous visit left the list narrowed; the reload meets the same host,
+    // so the list comes back narrowed to that same project — not reset to all.
+    localStorage.setItem('morse.nav.projectFilter', '/work/morse');
+    const { host } = await render('global', false, {
+      sessions: [
+        { id: 'm1', title: 'First', cwd: '/work/morse', updatedAt: 2, messageCount: 1 },
+        { id: 'o1', title: 'Other', cwd: '/work/other', updatedAt: 1, messageCount: 1 },
+      ],
+    });
+
+    expect(TestBed.inject(ShellState).projectFilterPath()).toBe('/work/morse');
+    // The list comes back narrowed: one group row, that project's session —
+    // the other project's row is not drawn at all.
+    expect(host.querySelectorAll('.row.group')).toHaveLength(1);
+    expect(host.textContent).toContain('First');
+    expect(host.textContent).not.toContain('Other');
+  });
+
+  it('drops a stored project filter the host no longer serves', async () => {
+    // The stored project is gone from this host: a narrowed list of nothing is
+    // worse than the whole list, so the stale choice is dropped on arrival.
+    localStorage.setItem('morse.nav.projectFilter', '/work/gone');
+    const { fixture } = await render('global', false, {
+      sessions: [
+        { id: 'm1', title: 'First', cwd: '/work/morse', updatedAt: 1, messageCount: 1 },
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(TestBed.inject(ShellState).projectFilterPath()).toBe('');
+    expect(localStorage.getItem('morse.nav.projectFilter')).toBeNull();
+  });
+
   it('puts the caret in the session search with `/`, opening the drawer if needed', async () => {
     const { host, fixture } = await render('global');
     const search = host.querySelector('input[aria-label="Search sessions"]') as HTMLInputElement;

@@ -10,6 +10,8 @@ const GIT_CHANGES_COLLAPSED_KEY = 'morse.git.changesCollapsed';
 const RIGHT_PANE_KEY = 'morse.right.pane';
 /** Which face the shell's left column shows. */
 const LEFT_PANE_KEY = 'morse.left.pane';
+/** The project the session list is narrowed to, when the list survives a reload. */
+const PROJECT_FILTER_KEY = 'morse.nav.projectFilter';
 
 /**
  * The panels that share the shell's right column — the git panel and the search
@@ -53,6 +55,30 @@ function storeLeftPane(pane: LeftPane): void {
     globalThis.localStorage?.setItem(LEFT_PANE_KEY, pane);
   } catch {
     // As above.
+  }
+}
+
+/**
+ * The stored project filter, read before any host talks to us. An absent or
+ * unreadable entry is simply no filter — the list starts showing every project.
+ */
+function readProjectFilter(): string {
+  try {
+    return globalThis.localStorage?.getItem(PROJECT_FILTER_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function storeProjectFilter(path: string): void {
+  try {
+    if (path.length === 0) {
+      globalThis.localStorage?.removeItem(PROJECT_FILTER_KEY);
+    } else {
+      globalThis.localStorage?.setItem(PROJECT_FILTER_KEY, path);
+    }
+  } catch {
+    // As everywhere above: storage is a nicety, not a requirement.
   }
 }
 
@@ -193,8 +219,14 @@ export class ShellState {
    */
   private readonly projectFilter = signal(false);
   readonly projectFilterOpen = this.projectFilter.asReadonly();
-  private readonly projectFocus = signal('');
-  /** The project the sidebar is narrowed to; `''` shows every one of them. */
+  /**
+   * The project the sidebar is narrowed to; `''` shows every one of them. The
+   * choice is written through so it survives a browser refresh — the reader
+   * picked a project on purpose, and a reload must not un-narrow the list.
+   * A stored project the host no longer serves is dropped by `SessionNav`, which
+   * is the one that knows the host's projects.
+   */
+  private readonly projectFocus = signal(readProjectFilter());
   readonly projectFilterPath = this.projectFocus.asReadonly();
 
   /**
@@ -337,6 +369,7 @@ export class ShellState {
 
   /** Narrows the sidebar to one project; `''` is every project. */
   setProjectFilter(path: string): void {
+    storeProjectFilter(path);
     this.projectFocus.set(path);
   }
 

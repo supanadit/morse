@@ -80,15 +80,25 @@ describe('ShellState', () => {
     expect(shell.stopConfirmOpen()).toBe(false);
   });
 
-  it('shares the project the sidebar is narrowed to', () => {
+  it('shares the project the sidebar is narrowed to, and keeps it across a reload', () => {
     const shell = TestBed.inject(ShellState);
     expect(shell.projectFilterPath()).toBe('');
 
     shell.setProjectFilter('/work/morse');
     expect(shell.projectFilterPath()).toBe('/work/morse');
+    expect(localStorage.getItem('morse.nav.projectFilter')).toBe('/work/morse');
 
-    // Back to every project — the palette's "All projects" row uses the same setter.
-    shell.setProjectFilter('');
-    expect(shell.projectFilterPath()).toBe('');
+    // A browser refresh rebuilds the shell; the narrowed list must come back
+    // narrowed — the reader picked that project on purpose.
+    TestBed.resetTestingModule();
+    expect(TestBed.inject(ShellState).projectFilterPath()).toBe('/work/morse');
+
+    // Back to every project — the palette's "All projects" row uses the same
+    // setter, and the stored choice goes with it. The reset built a fresh
+    // instance; the old one is a leftover, so the assertion names the new one.
+    const reloaded = TestBed.inject(ShellState);
+    reloaded.setProjectFilter('');
+    expect(reloaded.projectFilterPath()).toBe('');
+    expect(localStorage.getItem('morse.nav.projectFilter')).toBeNull();
   });
 });

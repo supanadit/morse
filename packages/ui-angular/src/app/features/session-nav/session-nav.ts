@@ -522,6 +522,21 @@ export class SessionNav {
       const open = here ?? groups[0];
       untracked(() => this.prefs.seedFolds(groups.map((group) => group.path), open?.path));
     });
+    // The stored filter survives a reload, but the project it names may not: a
+    // host that no longer serves that folder must not leave the list narrowed
+    // onto nothing. Once the host's projects are known, a filter naming none of
+    // them is dropped — a filter that names one of them stays, which is the
+    // reload behaving like the reader left it.
+    effect(() => {
+      const groups = this.groups();
+      const filter = this.projectFilter();
+      if (groups.length === 0 || filter.length === 0) {
+        return;
+      }
+      if (!groups.some((group) => group.path === filter)) {
+        untracked(() => this.shell.setProjectFilter(''));
+      }
+    });
     // A page reply arrives as a `session/list`, which changes the sessions and
     // the per-project `hasMore` map. Clear only the projects whose session count
     // moved past what it was when their request went out, so an unrelated push
