@@ -8,17 +8,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { ConfigDocument } from '@morse/engine-config';
 import type {
   BotEngineConfig,
   BotEngineLayout,
   BotEngineState,
-  BotMcpServer,
   BotProviderApi,
   BotProviderRecord,
 } from '@morse/system';
 import type { ModelInput } from '@morse/agent';
-import { readMcpFile, definesMcpServer } from './internal/mcp-config.js';
-import type { McpFileServer } from './internal/mcp-config.js';
+import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
 
 /**
  * pi's configuration, as pi itself expects it.
@@ -38,7 +37,8 @@ import type { McpFileServer } from './internal/mcp-config.js';
  *   Morse writes them from the wizard's list, so a bot carries the servers it was
  *   given and inherits none from the user's own configuration; entries that only
  *   override a user-level server are left in place, and a malformed entry is
- *   skipped on read.
+ *   skipped on read. The file is pi's own, so it is written through the same
+ *   store the MCP panel uses — there is no bot-only copy of that codec.
  * - `SYSTEM.md` — **replaces** pi's own system prompt: the bot's persona, in the
  *   one file pi reserves for it.
  * - `<botRoot>/workspace/AGENTS.md` — the workspace document, which pi reads as a
@@ -123,130 +123,39 @@ export function piProviderEntry(provider: BotProviderRecord, kept: unknown): unk
   };
 }
 
-/** Reads `mcp.json` and returns the bot's own MCP servers, or undefined on error. */
-function readPiMcpServers(path: string): BotMcpServer[] | undefined {
-  if (!existsSync(path)) {
-    return undefined;
-  }
-  let file: ReturnType<typeof readMcpFile>;
-  try {
-    file = readMcpFile(path);
-  } catch {
-    return undefined;
-  }
-  return Object.entries(file.mcpServers).flatMap(([name, raw]) => {
-    const entry = asRecord(raw);
-    if (entry === undefined || !definesMcpServer(entry as McpFileServer)) {
-      return [];
-    }
-    const type: BotMcpServer['type'] =
-      entry.type === 'http' || (typeof entry.url === 'string' && entry.command === undefined)
-        ? 'http'
-        : 'stdio';
-    if (type === 'stdio' && (typeof entry.command !== 'string' || entry.command.length === 0)) {
-      return [];
-    }
-    if (type === 'http' && (typeof entry.url !== 'string' || entry.url.length === 0)) {
-      return [];
-    }
-    const server: BotMcpServer = {
-      name,
-      type,
-      enabled: entry.enabled !== false,
-    };
-    if (typeof entry.command === 'string' && entry.command.length > 0) {
-      server.command = entry.command;
-    }
-    if (Array.isArray(entry.args) && entry.args.length > 0) {
-      server.args = entry.args as string[];
-    }
-    if (typeof entry.cwd === 'string' && entry.cwd.length > 0) {
-      server.cwd = entry.cwd;
-    }
-    if (isStringRecord(entry.env)) {
-      server.env = entry.env;
-    }
-    if (typeof entry.url === 'string' && entry.url.length > 0) {
-      server.url = entry.url;
-    }
-    if (isStringRecord(entry.headers)) {
-      server.headers = entry.headers;
-    }
-    if (typeof entry.exposure === 'string') {
-      server.exposure = entry.exposure as BotMcpServer['exposure'];
-    }
-    return [server];
-  });
+/**
+ * The engine instance whose agent dir is this bot's `config/`: the same
+ * isolated pi the MCP panel and the prompt store use, so a bot's `mcp.json` has
+ * one codec rather than a bot-only copy of pi's.
+ */
+function botEngine(botRoot: string): PiEngineInstance {
+  return new PiEngineDefinition().isolated(piAgentDir(botRoot), {
+    env: process.env,
+  }) as PiEngineInstance;
 }
 
 /**
- * Replaces the managed MCP servers in `mcp.json`, keeping project overrides.
+ * Why pi could not read this `mcp.json`, or `undefined` when it can.
  *
- * The parsed file is passed in rather than read here: the caller parses it before
- * it writes anything else, so a corrupt file fails the whole update instead of
- * letting the identity and most of the config be applied first.
+ * The shared store reports a file it cannot parse as issues and carries on; a
+ * bot's save and Edit-bot read both need to tell "no servers" from "a file I
+ * cannot read", and the layout has always treated the second as unreadable. The
+ * document's own issues only describe the bytes, so the two shapes pi requires —
+ * an object at the root and an object under `mcpServers` — are checked here.
  */
-function writePiMcpServers(
-  path: string,
-  servers: readonly BotMcpServer[],
-  file: ReturnType<typeof readMcpFile>,
-): void {
-  const next: Record<string, unknown> = { ...file };
-  const nextServers: Record<string, unknown> = { ...file.mcpServers };
-  const serverNames = new Set(servers.map((server) => server.name));
-
-  for (const [name, raw] of Object.entries(file.mcpServers)) {
-    const entry = asRecord(raw);
-    if (entry !== undefined && definesMcpServer(entry as McpFileServer) && !serverNames.has(name)) {
-      delete nextServers[name];
-    }
+function mcpFileProblem(document: ConfigDocument): string | undefined {
+  const blocking = document.issues.find((issue) => issue.code === 'parse' || issue.code === 'read');
+  if (blocking !== undefined) {
+    return blocking.message;
   }
-
-  for (const server of servers) {
-    nextServers[server.name] = piMcpEntry(server, file.mcpServers[server.name]);
+  if (document.value !== undefined && asRecord(document.value) === undefined) {
+    return `${document.path} is not a JSON object.`;
   }
-
-  if (Object.keys(nextServers).length === 0) {
-    delete next.mcpServers;
-  } else {
-    next.mcpServers = nextServers;
+  const block = asRecord(document.value)?.['mcpServers'];
+  if (block !== undefined && block !== null && asRecord(block) === undefined) {
+    return `${document.path}: "mcpServers" must be an object.`;
   }
-
-  writePrivateJson(path, next);
-}
-
-/** Turns one `BotMcpServer` into pi's `mcpServers` entry, preserving unknown keys. */
-function piMcpEntry(server: BotMcpServer, kept: unknown): Record<string, unknown> {
-  const existing = asRecord(kept) ?? {};
-  for (const key of ['type', 'command', 'args', 'env', 'cwd', 'url', 'headers', 'enabled', 'exposure']) {
-    delete existing[key];
-  }
-  if (server.type === 'stdio') {
-    existing.type = 'stdio';
-    existing.command = server.command;
-    if (server.args !== undefined && server.args.length > 0) {
-      existing.args = server.args;
-    }
-    if (server.env !== undefined && Object.keys(server.env).length > 0) {
-      existing.env = server.env;
-    }
-    if (server.cwd !== undefined && server.cwd.length > 0) {
-      existing.cwd = server.cwd;
-    }
-  } else {
-    existing.type = 'http';
-    existing.url = server.url;
-    if (server.headers !== undefined && Object.keys(server.headers).length > 0) {
-      existing.headers = server.headers;
-    }
-  }
-  if (server.enabled === false) {
-    existing.enabled = false;
-  }
-  if (server.exposure !== undefined) {
-    existing.exposure = server.exposure;
-  }
-  return existing;
+  return undefined;
 }
 
 /**
@@ -322,15 +231,19 @@ function withPiSettingsSchema(settings: Record<string, unknown>): Record<string,
 /** Writes a bot's whole pi configuration, in pi's own layout. */
 export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void {
   const agentDir = piAgentDir(botRoot);
-  // Parse `mcp.json` before the first write. The file is the reader's, and a
+  const mcpStore = botEngine(botRoot).mcp;
+  // Read `mcp.json` before the first write. The file is the reader's, and a
   // malformed one is an error: discovering it after auth, models, settings and
   // the persona were rewritten would leave the bot half-updated, with no clear
-  // way to tell which half the form managed to apply.
-  const mcpPath = piMcpPath(botRoot);
-  const mcp =
-    config.mcpServers === undefined
-      ? undefined
-      : { servers: config.mcpServers, file: readMcpFile(mcpPath) };
+  // way to tell which half the form managed to apply. The store reports such a
+  // file as issues and would only refuse later, so the refusal is raised here —
+  // before anything else is touched.
+  if (config.mcpServers !== undefined) {
+    const problem = mcpFileProblem(mcpStore.file('global').read());
+    if (problem !== undefined) {
+      throw new Error(problem);
+    }
+  }
 
   // auth.json — pi's own credential store, rewritten whole when the form
   // collected keys: the wizard owns this bot's keys then, so a provider it no
@@ -389,8 +302,18 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
     writePrivateText(piWorkspacePath(botRoot), config.agentsMd as string);
   }
 
-  if (mcp !== undefined) {
-    writePiMcpServers(mcpPath, mcp.servers, mcp.file);
+  if (config.mcpServers !== undefined) {
+    // The one writer of `mcp.json`: the shared store replaces the managed set,
+    // keeps an entry that only overrides a user-level server, and preserves the
+    // unknown fields of the entries it rewrites.
+    const written = mcpStore.replaceManaged(config.mcpServers, 'global');
+    if (!written.ok) {
+      throw new Error(
+        written.issues?.[0]?.message ??
+          written.message ??
+          `${piMcpPath(botRoot)}: the MCP servers were not written.`,
+      );
+    }
   }
 }
 
@@ -414,7 +337,15 @@ export const piBotLayout: BotEngineLayout = {
     const persona = readText(join(agentDir, SYSTEM_FILE));
     const agentsMd = readText(piWorkspacePath(botRoot));
     const providers = readProviders(join(agentDir, MODELS_FILE));
-    const mcpServers = readPiMcpServers(piMcpPath(botRoot));
+    // A bot with no `mcp.json` has no servers to show, and one whose file pi
+    // could not read is skipped rather than shown as "none configured": Edit bot
+    // must not offer to overwrite a list it never saw.
+    const mcp = botEngine(botRoot).mcp;
+    const mcpDocument = mcp.file('global').read();
+    const mcpServers =
+      !mcpDocument.exists || mcpFileProblem(mcpDocument) !== undefined
+        ? undefined
+        : mcp.list().items.map((entry) => entry.server);
     return {
       ...(providers.length === 0 ? {} : { providers }),
       ...(typeof provider === 'string' && typeof model === 'string'
@@ -490,13 +421,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  return Object.values(value).every((one) => typeof one === 'string');
 }
 
 function writePrivateText(path: string, text: string): void {

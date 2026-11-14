@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BotEngineConfig } from '@morse/system';
@@ -438,6 +446,10 @@ describe('piBotLayout', () => {
       mcpServers[0],
       { ...mcpServers[1], enabled: true },
     ]);
+    // `mcp.json` now goes through the shared store rather than a bot-only writer;
+    // an isolated tree stays private, which is why the panel and the wizard can
+    // share one file without one of them loosening it.
+    expect(statSync(piMcpPath(botRoot)).mode & 0o777).toBe(0o600);
   });
 
   it('infers the transport of a hand-written entry without a type', () => {
@@ -456,6 +468,24 @@ describe('piBotLayout', () => {
       { name: 'fs', type: 'stdio', command: 'npx', args: ['server'], enabled: true },
       { name: 'web', type: 'http', url: 'https://example.com/mcp', enabled: true },
     ]);
+  });
+
+  it('reads an explicit type the way pi does, even against the other transport', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({
+        mcpServers: {
+          // pi infers the transport but an explicit `type` always wins. A bot's
+          // layout shared this file with the MCP panel, and the panel's codec is
+          // pi's: `type: 'stdio'` here means stdio, so the entry needs a command
+          // and is reported rather than guessed into an http server.
+          stated: { type: 'stdio', url: 'https://example.com/mcp' },
+        },
+      }),
+    );
+
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([]);
   });
 
   it('keeps unknown fields and project overrides when rewriting servers', () => {
@@ -480,6 +510,26 @@ describe('piBotLayout', () => {
       command: 'npx', args: ['new'], auth: { token: 'kept' }, type: 'stdio',
     });
     expect(file.mcpServers['fsOverride']).toEqual({ enabled: false, exposure: 'hidden' });
+  });
+
+  it("normalizes a hand-edited mcp.json with comments, because the file is the bot's own", () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      '{\n  // the reader left a note\n  "mcpServers": { "fs": { "command": "npx" } },\n}\n',
+    );
+
+    // A bot tree is Morse's own, so JSONC is read leniently and written back as
+    // strict JSON; a user's own file would be refused until they normalized it.
+    // The bot-only reader used to reject the comment outright and fail the save.
+    writePiBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'web', type: 'http', url: 'https://example.com/mcp' }],
+    });
+
+    expect(read(piMcpPath(botRoot))).toEqual({
+      mcpServers: { web: { type: 'http', url: 'https://example.com/mcp' } },
+    });
   });
 
   it('removes a server the form dropped and the key when the list empties', () => {
@@ -527,6 +577,30 @@ describe('piBotLayout', () => {
       expect(readFileSync(path, 'utf8')).toBe(text);
     }
     expect(readFileSync(piMcpPath(botRoot), 'utf8')).toBe('{ not json');
+  });
+
+  it('treats an mcpServers block of the wrong shape as a corrupt file, before writing', () => {
+    // The other half of "unparsable": the JSON is fine, but `mcpServers` is not
+    // the object pi reads. A save must refuse this in the same place — before
+    // auth.json is created, not after the bot's identity already changed.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(join(botRoot, 'config', 'settings.json'), '{"defaultModel":"old"}\n');
+    writeFileSync(piSystemPromptPath(botRoot), 'Old persona.\n');
+    writeFileSync(piMcpPath(botRoot), '{"mcpServers": ["not", "a", "block"]}');
+
+    expect(() =>
+      writePiBotConfig(botRoot, {
+        ...config,
+        mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+      }),
+    ).toThrow();
+
+    expect(existsSync(join(botRoot, 'config', 'auth.json'))).toBe(false);
+    expect(readFileSync(join(botRoot, 'config', 'settings.json'), 'utf8')).toBe(
+      '{"defaultModel":"old"}\n',
+    );
+    expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('Old persona.\n');
+    expect(readFileSync(piMcpPath(botRoot), 'utf8')).toBe('{"mcpServers": ["not", "a", "block"]}');
   });
 
   it('a corrupt mcp.json does not hide the rest of the configuration', () => {
