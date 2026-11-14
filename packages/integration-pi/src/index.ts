@@ -94,3 +94,5 @@ export {
 export { PiEngineDefinition, PiEngineInstance } from './engine/pi-engine.js';
 export { PiMcpSection } from './engine/pi-mcp-section.js';
 export { PiMcpStore } from './engine/pi-mcp-store.js';
+export { PiPromptStore } from './engine/pi-prompt-store.js';
+export type { PiPromptList, PiPromptStoreHost } from './engine/pi-prompt-store.js';

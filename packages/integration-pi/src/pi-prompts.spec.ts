@@ -94,6 +94,17 @@ describe('PiPrompts.list', () => {
     expect(result.trusted).toBe(false);
     expect(result.templates.map((template) => template.name)).toEqual(['review']);
   });
+
+  it('resolves the agent directory from PI_CODING_AGENT_DIR', async () => {
+    const agentDir = await tempRoot();
+    await withGlobal(agentDir);
+    const prompts = new PiPrompts({ env: { PI_CODING_AGENT_DIR: agentDir } });
+
+    const result = prompts.list('');
+
+    expect(result.globalDir).toBe(join(agentDir, 'prompts'));
+    expect(result.templates.map((template) => template.name)).toEqual(['review']);
+  });
 });
 
 describe('PiPrompts.save', () => {
@@ -107,7 +118,12 @@ describe('PiPrompts.save', () => {
       cwd,
     );
 
-    expect(result).toEqual({ ok: true, path: join(agentDir, 'prompts', 'fix.md'), scope: 'global' });
+    expect(result).toMatchObject({
+      ok: true,
+      path: join(agentDir, 'prompts', 'fix.md'),
+      scope: 'global',
+    });
+    expect(result.issues).toEqual([]);
     expect(readFileSync(join(agentDir, 'prompts', 'fix.md'), 'utf8')).toBe(
       '---\ndescription: Fix\n---\nFix $1.\n',
     );
@@ -194,10 +210,9 @@ describe('PiPrompts.delete', () => {
 
     const result = prompts.delete('missing', 'project', cwd);
 
-    expect(result).toEqual({
-      ok: false,
-      message: '"missing" is not defined in this project\'s .pi/prompts.',
-    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('missing');
+    expect(result.message).toContain(join(cwd, '.pi', 'prompts'));
   });
 });
 

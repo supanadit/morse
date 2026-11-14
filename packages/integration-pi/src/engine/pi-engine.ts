@@ -14,10 +14,10 @@ import {
   type ConfigPaths,
   type ConfigScope,
   type EngineContext,
-  type PromptStore,
 } from '@morse/engine-config';
 
 import { PiMcpStore } from './pi-mcp-store.js';
+import { PiPromptStore } from './pi-prompt-store.js';
 
 /** The config files this engine can resolve today; later files extend the map. */
 const FILE_NAMES = new Map<string, string>([['mcp', 'mcp.json']]);
@@ -35,10 +35,10 @@ export class PiEngineInstance extends EngineInstance {
   readonly context: EngineContext;
   readonly ownership: 'user' | 'isolated';
   readonly mcp: PiMcpStore;
-  /** pi's prompt templates arrive with their own store; the engine has none yet. */
-  readonly prompts: PromptStore | undefined = undefined;
+  /** pi's prompt templates, read and written as the `.md` files pi loads. */
+  readonly prompts: PiPromptStore;
 
-  private readonly agentDir: string;
+  readonly agentDir: string;
   /** Every project file this instance resolved, so `scopeOf` can name it. */
   private readonly projectPaths = new Set<string>();
 
@@ -52,6 +52,7 @@ export class PiEngineInstance extends EngineInstance {
         ? isolatedRoot(context)
         : context.env.PI_CODING_AGENT_DIR || join(context.home, '.pi', 'agent');
     this.mcp = new PiMcpStore(this);
+    this.prompts = new PiPromptStore(this);
     if (this.ownership === 'user' && context.cwd !== undefined) {
       this.projectPath('mcp', context.cwd);
     }

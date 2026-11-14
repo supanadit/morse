@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PiEngineDefinition, PiEngineInstance } from './pi-engine.js';
 import { PiMcpStore } from './pi-mcp-store.js';
+import { PiPromptStore } from './pi-prompt-store.js';
 
 const engine = new PiEngineDefinition();
 
@@ -53,8 +54,8 @@ describe('PiEngineDefinition', () => {
     expect(bot.context.root).toBe('/bots/x/config');
     expect(bot.definition.kind).toBe('pi');
     expect(bot.mcp).toBeInstanceOf(PiMcpStore);
-    // Prompt templates arrive with Task 8.
-    expect(bot.prompts).toBeUndefined();
+    expect(bot.prompts).toBeInstanceOf(PiPromptStore);
+    expect(bot.prompts.dirs()).toEqual({ global: '/bots/x/config/prompts' });
     expect(bot.paths('mcp', 'global')).toEqual({
       read: ['/bots/x/config/mcp.json'],
       write: '/bots/x/config/mcp.json',
