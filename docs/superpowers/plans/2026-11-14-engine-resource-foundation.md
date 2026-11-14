@@ -117,7 +117,8 @@ export abstract class ConfigSection<T> {
   abstract encode(value: T, existing: unknown): unknown;
 }
 
-export abstract class NamedConfigSection<T> extends ConfigSection<Record<string, T>> {
+export abstract class NamedConfigSection<T extends { name: string }>
+  extends ConfigSection<Record<string, T>> {
   abstract decodeEntry(name: string, raw: unknown, context: SectionContext): T | undefined;
   abstract encodeEntry(item: T, kept: unknown): unknown;
   /** pi: an entry that only overrides enabled/exposure of a user-level server. */
@@ -140,7 +141,12 @@ export interface EngineContext {
 export interface ConfigLocator {
   readonly ownership: 'user' | 'isolated';
   paths(fileId: string, scope: ConfigScope, cwd?: string): ConfigPaths;
+  /** The scope's write target. */
   file(fileId: string, scope: ConfigScope, cwd?: string): ConfigFile;
+  /** Any resolved candidate path (read chains can be longer than two files). */
+  fileAt(fileId: string, path: string, scope: ConfigScope): ConfigFile;
+  /** The scope a resolved candidate belongs to, for issue tagging. */
+  scopeOf(fileId: string, path: string): ConfigScope;
 }
 
 export abstract class EngineDefinition {
@@ -179,7 +185,7 @@ export abstract class ResourceStore<TItem, TSave = TItem> {
   abstract signature(cwd?: string): string;
 }
 
-export abstract class ConfigResourceStore<T, TItem = T>
+export abstract class ConfigResourceStore<T extends { name: string }, TItem = T>
   extends ResourceStore<TItem, T> {
   protected constructor(locator: ConfigLocator, fileId: string);
   abstract readonly section: NamedConfigSection<T>;
@@ -532,14 +538,14 @@ git commit -m "feat(engine): read JSONC and write config files atomically"
 Use a fake engine and a fake named section in the spec:
 
 ```ts
-class FakeSection extends NamedConfigSection<{ label: string }> {
+class FakeSection extends NamedConfigSection<{ name: string; label: string }> {
   readonly key = 'items';
-  decodeEntry(name: string, raw: unknown): { label: string } | undefined {
+  decodeEntry(name: string, raw: unknown): { name: string; label: string } | undefined {
     const row = raw as { label?: unknown };
-    return typeof row?.label === 'string' ? { label: row.label } : undefined;
+    return typeof row?.label === 'string' ? { name, label: row.label } : undefined;
   }
-  encodeEntry(item: { label: string }, kept: unknown): unknown {
-    return { ...(kept as object), label: item.label };
+  encodeEntry(item: { name: string; label: string }, kept: unknown): unknown {
+    return { ...(kept as object), name: item.name, label: item.label };
   }
   keepsOnReplace(raw: unknown): boolean {
     return (raw as { keep?: boolean })?.keep === true;
@@ -553,25 +559,30 @@ Assertions:
 it('merges project over global by name and keeps a malformed sibling', () => {
   // global: { items: { a: { label: 'global-a' }, b: { label: 'global-b' } } }
   // project: { items: { a: { label: 'project-a' }, bad: 3 } }
-  // list() -> items [{name:'a', item:{label:'project-a'}}, {name:'b',...}]
+  // list() -> items [{name:'a', label:'project-a'}, {name:'b', label:'global-b'}]
   // issues has one shape issue pointing at /items/bad
 });
 
+it('reads a three-file chain and reports the corrupt file without hiding the others', () => {
+  // paths.read = [project1, project2, global]; project1 corrupt, project2 has 'mid'
+  // list() -> items [{name:'mid', ...}], one parse issue with project1's path/scope
+});
+
 it('upserts into the named scope file and deletes an emptied block', () => {
-  // upsert('project', {name:'c', item:{label:'c'}}) writes project file
+  // upsert('project', {name:'c', label:'c'}) writes project file
   // remove('project','c') deletes the 'items' key when it was the last entry
 });
 
 it('replaceManaged removes unlisted entries but keeps kept-on-replace entries', () => {
   // file items: old, overridden {keep:true}
-  // replaceManaged([{name:'new', item:{label:'new'}}])
+  // replaceManaged([{name:'new', label:'new'}])
   // file items: new, overridden
 });
 
 it('apply is pure and returns the next document value', () => {
   const before = readFileSync(path, 'utf8');
-  const result = store.apply(store.file().read(), [{ name: 'new', item: { label: 'new' } }]);
-  expect(result.value).toMatchObject({ items: { new: { label: 'new' } } });
+  const result = store.apply(store.file().read(), [{ name: 'new', label: 'new' }]);
+  expect(result.value).toMatchObject({ items: { new: { name: 'new', label: 'new' } } });
   expect(readFileSync(path, 'utf8')).toBe(before);
 });
 ```
@@ -597,14 +608,16 @@ Expected: FAIL — modules not found.
 
 `ConfigResourceStore`:
 - `paths(scope, cwd)` delegates to `locator.paths(fileId, scope, cwd)`.
-- `readDocuments(cwd)`: read every read path; tag each issue with the path's scope (the project path is the first one when present; derive scope from the path list).
-- `list(cwd)`: iterate documents highest-precedence first, decode entries, first name wins; call `toItem` (default `(item) => item`); collect issues.
+- `documents(cwd)`: walk `paths.read` in order (dedupe, keep the first), append `paths.write` when it is absent, and open each path with `locator.fileAt(fileId, path, locator.scopeOf(fileId, path))`. Return `{ path, scope, document }[]`. A chain may be longer than two files (OpenCode discovery).
+- `list(cwd)`: iterate documents highest-precedence first, decode entries, first name wins; call `toItem` with the entry and its source; collect issues. The source is available to `toItem` so a subclass can report `{ server, scope, source }`.
 - `save(input, scope, cwd)`: `upsert` semantics.
-- `upsert(name, item, scope, cwd)`: read the target file, validate, apply the section with the existing kept entry, write; refused writes return issues.
-- `remove(name, scope, cwd)`: read the target/defining file; remove; delete the block when empty; write.
+- `upsert(name, item, scope, cwd)`: read the target file, validate, apply the section with the existing kept entry, write; refused writes return issues. `T` is the item and carries `name`; there is no `{name,item}` union.
+- `remove(name, scope, cwd)`: read the target/defining file; remove; delete the block when empty; write. Do not write a read fallback; a fallback-only name returns an issue.
 - `replaceManaged(items, scope, cwd)`: read target; remove entries that define a value and are not in the set and are not `keepsOnReplace`; encode items; delete block when empty; write.
-- `apply(document, items)`: pure — compute the next whole document value; used by `replaceManaged` and by the OpenCode bot layout.
-- `normalize(scope, cwd)`: `file.normalize()` only for files that exist and are not already strict-and-clean (Task 2's no-op guard), for the write target and each read fallback; aggregate issues.
+- `apply(document, items)`: pure — compute the next whole document value; used by `replaceManaged` and by the OpenCode bot layout. A non-object document root returns a `shape` issue and no value, rather than discarding it.
+- `normalize(scope, cwd)`: `file.normalize()` only for files that exist and are not already strict-and-clean (Task 2's no-op guard), across the chain; aggregate issues.
+- Build entry maps with `Object.create(null)` (or define own properties), so a `__proto__` name is data, not the prototype setter.
+- `ConfigStore<T>` (whole section) gets the same non-object-root guard before `encode`.
 
 `resolveEngineContext` defaults `home` to `os.homedir()`, `xdgConfigHome` to `env.XDG_CONFIG_HOME ?? join(home,'.config')`, `xdgDataHome` to `env.XDG_DATA_HOME ?? join(home,'.local','share')`, and carries `root`. `ConfigLocator` is the interface in the contracts; no engine class yet.
 
@@ -836,7 +849,7 @@ Expected: FAIL — modules not found.
 `PiEngineDefinition`:
 - `kind = 'pi'`.
 - `create(context)`: `new PiEngineInstance(this, context)`.
-- `PiEngineInstance` resolves the agent dir as `context.ownership === 'isolated' ? context.root! : (env.PI_CODING_AGENT_DIR || join(home,'.pi','agent'))`, project dir as `<cwd>/.pi`, global file `<agentDir>/mcp.json`, project file `<cwd>/.pi/mcp.json`. `paths` returns read precedence `[project, global]` (project first) and write = project for `'project'`, global for `'global'`. Isolated `'project'` returns a `ConfigIssue`-carrying unsupported `ConfigPaths` or throws `UnsupportedScopeError`; use a typed error and catch it in the store.
+- `PiEngineInstance` resolves the agent dir as `context.ownership === 'isolated' ? context.root! : (env.PI_CODING_AGENT_DIR || join(home,'.pi','agent'))`, project dir as `<cwd>/.pi`, global file `<agentDir>/mcp.json`, project file `<cwd>/.pi/mcp.json`. It implements `ConfigLocator`: `paths` returns read precedence `[project, global]` (project first) and write = project for `'project'`, global for `'global'`; `fileAt` opens any resolved path; `scopeOf` returns `'project'` for the project file and `'global'` otherwise. Isolated `'project'` returns a `ConfigIssue`-carrying unsupported `ConfigPaths` or throws `UnsupportedScopeError`; use a typed error and catch it in the store.
 - `mcp = new PiMcpStore(this)`.
 - `prompts` is `undefined` until Task 8.
 
@@ -1120,7 +1133,7 @@ Expected: FAIL — modules not found.
 - project: walk from `cwd` to the filesystem root, collecting `opencode.json[c]` and `.opencode/opencode.json[c]`; nearest first, `.jsonc` before `.json` within a directory; append global last. Write target = the nearest existing project file, else `<cwd>/opencode.json`.
 - Skip the home directory's `opencode.json` at the root? Do not overreach: stop at the filesystem root, but do not include `.opencode` under `$HOME` unless it is an ancestor of cwd; tests pin the exact list.
 
-`OpenCodeEngineInstance`: `paths('mcp', scope, cwd)` = config discovery; `file` uses `JsonConfigFile`; `mcp = new OpenCodeMcpStore(this)`.
+`OpenCodeEngineInstance`: implements `ConfigLocator`; `paths('mcp', scope, cwd)` = config discovery; `fileAt` opens any resolved path; `scopeOf` derives project/global from the discovery; `file` opens the write target with `JsonConfigFile`; `mcp = new OpenCodeMcpStore(this)`.
 
 `OpenCodeMcpSection`: key `mcp`; decode/encode as above; `enabled:true` dropped; invalid entries return `undefined` with issues.
 
