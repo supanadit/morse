@@ -11,6 +11,8 @@ export * from './core/section.js';
 export * from './core/types.js';
 export * from './core/write.js';
 export * from './engine/context.js';
+export * from './engine/definition.js';
+export * from './engine/instance.js';
 export * from './engine/locator.js';
 export * from './mcp/mcp-section.js';
 export * from './mcp/mcp-store.js';

@@ -12,6 +12,10 @@ import type { McpServer } from '@morse/protocol';
 import { NamedConfigSection } from '../core/section.js';
 import type { SectionContext } from '../core/types.js';
 
+// An engine's section is written against these types, so a package that only
+// depends on `@morse/engine-config` never has to reach for `@morse/protocol`.
+export type { McpExposure, McpServer } from '@morse/protocol';
+
 export abstract class McpSection extends NamedConfigSection<McpServer> {
   abstract override decodeEntry(
     name: string,

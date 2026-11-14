@@ -89,3 +89,6 @@ export {
   piSystemPromptPath,
   piWorkspacePath,
 } from './bot-layout.js';
+export { PiEngineDefinition, PiEngineInstance } from './engine/pi-engine.js';
+export { PiMcpSection } from './engine/pi-mcp-section.js';
+export { PiMcpStore } from './engine/pi-mcp-store.js';
