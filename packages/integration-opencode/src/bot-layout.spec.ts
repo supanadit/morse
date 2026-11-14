@@ -393,4 +393,125 @@ describe('openCodeBotLayout', () => {
       ],
     });
   });
+
+  it('writes the mcp block in OpenCode own shape and reads it back', () => {
+    const mcpServers = [
+      {
+        name: 'filesystem',
+        type: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+        env: { ALLOWED_DIR: '/tmp' },
+        cwd: '/tmp',
+        enabled: false,
+        exposure: 'deferred' as const,
+      },
+      {
+        name: 'web',
+        type: 'http' as const,
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer x' },
+      },
+    ];
+
+    writeOpenCodeBotConfig(botRoot, { ...config, mcpServers });
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      mcp: Record<string, unknown>;
+    };
+    expect(file.mcp).toEqual({
+      filesystem: {
+        type: 'local',
+        command: ['npx', '-y', '@modelcontextprotocol/server-filesystem', '.'],
+        environment: { ALLOWED_DIR: '/tmp' },
+        cwd: '/tmp',
+        enabled: false,
+      },
+      web: { type: 'remote', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
+    });
+    expect(openCodeBotLayout.read(botRoot).mcpServers).toEqual([
+      {
+        name: 'filesystem',
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+        env: { ALLOWED_DIR: '/tmp' },
+        cwd: '/tmp',
+        enabled: false,
+      },
+      {
+        name: 'web',
+        type: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer x' },
+        enabled: true,
+      },
+    ]);
+  });
+
+  it('keeps unrelated keys and an mcp entry unknown field', () => {
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx', args: ['old'] }],
+    });
+    const path = openCodeConfigPath(botRoot);
+    const before = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    (before['mcp'] as Record<string, Record<string, unknown>>)['fs']!['oauth'] = { kept: true };
+    writeFileSync(path, JSON.stringify(before));
+
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx', args: ['new'] }],
+    });
+
+    const after = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    expect(after['mcp']).toEqual({
+      fs: { type: 'local', command: ['npx', 'new'], oauth: { kept: true } },
+    });
+    expect(after['username']).toBe('News Finder');
+  });
+
+  it('removes a server the form dropped and the mcp key when the list empties', () => {
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+    });
+    writeOpenCodeBotConfig(botRoot, { ...config, mcpServers: [] });
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as Record<string, unknown>;
+    expect(file['mcp']).toBeUndefined();
+    expect(file['$schema']).toBe('https://opencode.ai/config.json');
+  });
+
+  it('leaves the mcp block alone when the caller does not mention MCP', () => {
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+    });
+
+    writeOpenCodeBotConfig(botRoot, config);
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      mcp: Record<string, unknown>;
+    };
+    expect(file.mcp).toEqual({ fs: { type: 'local', command: ['npx'] } });
+  });
+
+  it('skips a malformed mcp entry while its sibling still reads', () => {
+    const path = openCodeConfigPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        mcp: {
+          bad: { type: 'remote' },
+          good: { type: 'remote', url: 'https://example.com/mcp' },
+        },
+      }),
+    );
+
+    expect(openCodeBotLayout.read(botRoot).mcpServers).toEqual([
+      { name: 'good', type: 'http', url: 'https://example.com/mcp', enabled: true },
+    ]);
+  });
 });

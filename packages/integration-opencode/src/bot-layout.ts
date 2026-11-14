@@ -5,10 +5,15 @@ import type {
   BotEngineConfig,
   BotEngineLayout,
   BotEngineState,
+  BotMcpServer,
   BotProviderModel,
   BotProviderRecord,
 } from '@morse/system';
-import { readOpenCodeFile } from './internal/opencode-mcp-config.js';
+import {
+  definesMcpServer,
+  readOpenCodeFile,
+  type OpenCodeMcpServer,
+} from './internal/opencode-mcp-config.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
 
 /**
@@ -114,6 +119,20 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     delete next['model'];
   } else if (config.model !== undefined) {
     next['model'] = `${config.model.provider}/${config.model.id}`;
+  }
+
+  if (config.mcpServers !== undefined) {
+    if (config.mcpServers.length === 0) {
+      delete next['mcp'];
+    } else {
+      const existingMcp = asRecord(file['mcp']) ?? {};
+      next['mcp'] = Object.fromEntries(
+        config.mcpServers.map((server) => [
+          server.name,
+          openCodeMcpEntry(server, existingMcp[server.name]),
+        ]),
+      );
+    }
   }
 
   writeJsonAtomic(path, next);
@@ -314,6 +333,91 @@ function agentsBlock(config: BotEngineConfig): Record<string, unknown> {
 }
 
 /**
+ * The `mcp` block: OpenCode stores servers under their name, each entry carrying
+ * `type: 'local' | 'remote'` and transport fields. Morse reads them back into its
+ * own `BotMcpServer` shape, skipping malformed entries rather than failing the
+ * whole block.
+ */
+function readOpenCodeMcp(value: unknown): BotMcpServer[] {
+  const entries = asRecord(value) ?? {};
+  return Object.entries(entries).flatMap(([name, raw]) => {
+    const entry = asRecord(raw);
+    if (entry === undefined || !definesMcpServer(entry as OpenCodeMcpServer)) {
+      return [];
+    }
+    const enabled = entry['enabled'] !== false;
+    if (entry['type'] === 'local') {
+      const command = entry['command'];
+      if (
+        !Array.isArray(command) ||
+        command.length === 0 ||
+        !command.every((part) => typeof part === 'string' && part.length > 0)
+      ) {
+        return [];
+      }
+      const [first, ...rest] = command as string[];
+      return [
+        {
+          name,
+          type: 'stdio' as const,
+          command: first,
+          ...(rest.length === 0 ? {} : { args: rest }),
+          ...(entry['environment'] === undefined
+            ? {}
+            : { env: asStringRecord(entry['environment']) }),
+          ...(entry['cwd'] === undefined ? {} : { cwd: asString(entry['cwd']) as string }),
+          enabled,
+        },
+      ];
+    }
+    const url = asString(entry['url']);
+    if (url === undefined) {
+      return [];
+    }
+    return [
+      {
+        name,
+        type: 'http' as const,
+        url,
+        ...(entry['headers'] === undefined
+          ? {}
+          : { headers: asStringRecord(entry['headers']) }),
+        enabled,
+      },
+    ];
+  });
+}
+
+/**
+ * One `mcp.<name>` entry, written in OpenCode's own shape. Unknown fields from a
+ * hand-edited entry survive; Morse-owned fields are replaced so the form owns the
+ * transport, cwd, env and enabled state.
+ */
+function openCodeMcpEntry(server: BotMcpServer, kept: unknown): OpenCodeMcpServer {
+  const existing = { ...(asRecord(kept) ?? {}) };
+  for (const key of ['type', 'command', 'environment', 'url', 'headers', 'cwd', 'enabled']) {
+    delete existing[key];
+  }
+  if (server.type === 'stdio') {
+    return {
+      ...existing,
+      type: 'local',
+      command: [server.command ?? '', ...(server.args ?? [])],
+      ...(server.env === undefined ? {} : { environment: server.env }),
+      ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
+      ...(server.enabled === false ? { enabled: false } : {}),
+    } as OpenCodeMcpServer;
+  }
+  return {
+    ...existing,
+    type: 'remote',
+    url: server.url ?? '',
+    ...(server.headers === undefined ? {} : { headers: server.headers }),
+    ...(server.enabled === false ? { enabled: false } : {}),
+  } as OpenCodeMcpServer;
+}
+
+/**
  * Reads the bot's OpenCode configuration back into the wizard's own vocabulary,
  * so Edit bot shows what the engine actually holds rather than a copy.
  */
@@ -344,6 +448,7 @@ export const openCodeBotLayout: BotEngineLayout = {
         return { name, prompt };
       });
     const providers = readProviders(file['providers']);
+    const mcpServers = readOpenCodeMcp(file['mcp']);
     return {
       ...(model === undefined ? {} : { model }),
       ...(providers.length === 0 ? {} : { providers }),
@@ -351,6 +456,7 @@ export const openCodeBotLayout: BotEngineLayout = {
       ...(persona === undefined ? {} : { persona }),
       ...(agentsMd === undefined ? {} : { agentsMd }),
       ...(subagents.length === 0 ? {} : { subagents }),
+      ...(mcpServers.length === 0 ? {} : { mcpServers }),
     };
   },
   /**
@@ -463,6 +569,20 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  const record = asRecord(value);
+  if (record === undefined) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(record)) {
+    if (typeof val === 'string') {
+      result[key] = val;
+    }
+  }
+  return result;
 }
 
 function writePrivateText(path: string, text: string): void {
