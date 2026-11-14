@@ -200,12 +200,14 @@ export class PiMcp {
    */
   async status(cwd?: string, options: McpStatusOptions = {}): Promise<McpStatus> {
     const project = normalizeCwd(cwd);
-    const store = this.store(project);
-    const list = store.list(project);
     const trusted = project === undefined ? undefined : readProjectTrust(project, this.agentDir());
-    const entries = trusted === false
-      ? list.items.filter((entry) => entry.scope !== 'project')
-      : list.items;
+    // An untrusted project contributes nothing: pi would ignore its `.pi` tree,
+    // so its overrides must not tune a global row, turn one on for a probe, or
+    // add its parse/name complaints. Read the global chain alone instead.
+    const scopeCwd = trusted === false ? undefined : project;
+    const store = this.store(scopeCwd);
+    const list = store.list(scopeCwd);
+    const entries = list.items;
     const servers = entries.map(toServerStatus);
     const byName = new Map(entries.map((entry) => [entry.server.name, entry]));
     const probeIssues: ConfigIssue[] = [];
@@ -217,28 +219,27 @@ export class PiMcp {
         if (entry === undefined) {
           return;
         }
-        const outcome = await this.probe(entry, project);
-        server.state = outcome.state;
-        if (outcome.tools !== undefined) {
-          server.tools = outcome.tools;
-        }
-        if (outcome.resources !== undefined) {
-          server.resources = outcome.resources;
-        }
-        if (outcome.resourceTemplates !== undefined) {
-          server.resourceTemplates = outcome.resourceTemplates;
-        }
-        if (outcome.error !== undefined) {
-          server.error = outcome.error;
-          probeIssues.push({
-            file: server.source,
-            fileId: 'mcp',
-            scope: entry.scope,
-            pointer: `/mcpServers/${server.name}`,
-            code: 'read',
-            message: `${server.name}: ${outcome.error}`,
-            fixable: false,
-          });
+        try {
+          const outcome = await this.probe(entry, project);
+          server.state = outcome.state;
+          if (outcome.tools !== undefined) {
+            server.tools = outcome.tools;
+          }
+          if (outcome.resources !== undefined) {
+            server.resources = outcome.resources;
+          }
+          if (outcome.resourceTemplates !== undefined) {
+            server.resourceTemplates = outcome.resourceTemplates;
+          }
+          if (outcome.error !== undefined) {
+            server.error = outcome.error;
+            probeIssues.push(probeIssue(server, entry.scope, outcome.error));
+          }
+        } catch (error: unknown) {
+          // A worker must never reject the whole list; this row carries it.
+          server.state = 'failed';
+          server.error = describe(error);
+          probeIssues.push(probeIssue(server, entry.scope, server.error));
         }
       });
     }
@@ -301,7 +302,9 @@ export class PiMcp {
     if (entry === undefined) {
       return { ok: false, message: `No server named "${name}" is configured.` };
     }
-    return store.remove(name, entry.scope, project);
+    // A project override is the nearer edit: the pre-store manager removed the
+    // project's pin first, leaving the user-level definition in place.
+    return store.remove(name, entry.override === undefined ? entry.scope : 'project', project);
   }
 
   /**
@@ -322,7 +325,16 @@ export class PiMcp {
     if (scope === 'project' && project === undefined) {
       return { ok: false, message: "Open a session to edit this project's MCP servers." };
     }
-    return this.store(project).setEnabled(name, enabled, scope, project);
+    const store = this.store(project);
+    if (scope === undefined) {
+      // With no scope the nearer edit is the project's pin, exactly as the
+      // pre-store manager toggled the entry in the project file first.
+      const entry = store.list(project).items.find((item) => item.server.name === name);
+      if (entry?.override !== undefined) {
+        return store.setEnabled(name, enabled, 'project', project);
+      }
+    }
+    return store.setEnabled(name, enabled, scope, project);
   }
 
   /**
@@ -347,9 +359,10 @@ export class PiMcp {
 
   private instance(cwd: string | undefined): PiEngineInstance {
     const env = this.env();
-    if (this.options.agentDir !== undefined) {
+    const agentDir = this.configuredAgentDir();
+    if (agentDir !== undefined) {
       if (cwd === undefined) {
-        return this.definition.isolated(this.options.agentDir, {
+        return this.definition.isolated(agentDir, {
           env,
           home: homedir(),
         }) as PiEngineInstance;
@@ -359,7 +372,7 @@ export class PiMcp {
           ownership: 'user',
           home: homedir(),
           cwd,
-          env: { ...env, PI_CODING_AGENT_DIR: this.options.agentDir },
+          env: { ...env, PI_CODING_AGENT_DIR: agentDir },
         }),
       );
     }
@@ -375,9 +388,11 @@ export class PiMcp {
 
   /** Connect one server and translate the inspection into a status patch. */
   private async probe(entry: McpServerEntry, project: string | undefined): Promise<ProbeOutcome> {
-    const spec = toSpec(entry.server);
-    const cwd = spec.cwd ?? project ?? process.cwd();
     try {
+      // Building the spec is inside the guard too: a malformed row must not be
+      // able to reject the whole list.
+      const spec = toSpec(entry.server);
+      const cwd = spec.cwd ?? project ?? this.agentDir();
       const result = await withTimeout(
         this.inspector.inspect(spec, { cwd, env: this.env(), timeoutMs: PROBE_TIMEOUT_MS }),
         PROBE_TIMEOUT_MS,
@@ -396,13 +411,24 @@ export class PiMcp {
         error: result.error?.message ?? 'The probe failed.',
       };
     } catch (error: unknown) {
-      return { state: 'disconnected', error: describe(error) };
+      // Only our budget expiring is a disconnect; a thrown probe is a failure.
+      return {
+        state: error instanceof ProbeTimeoutError ? 'disconnected' : 'failed',
+        error: describe(error),
+      };
     }
   }
 
+  /** A set agent dir, or `undefined` for the environment/default fallback. */
+  private configuredAgentDir(): string | undefined {
+    const value = this.options.agentDir;
+    return value !== undefined && value.length > 0 ? value : undefined;
+  }
+
   private agentDir(): string {
-    if (this.options.agentDir) {
-      return this.options.agentDir;
+    const configured = this.configuredAgentDir();
+    if (configured !== undefined) {
+      return configured;
     }
     const fromEnv = this.env().PI_CODING_AGENT_DIR;
     return fromEnv && fromEnv.length > 0 ? fromEnv : join(homedir(), '.pi', 'agent');
@@ -451,6 +477,31 @@ export class PiMcp {
     }
     return server;
   }
+}
+
+/** Our own probe budget expired; distinct from a server-side timeout result. */
+class ProbeTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProbeTimeoutError';
+  }
+}
+
+/** A probe failure as a config issue, so the panel can show it beside the file. */
+function probeIssue(
+  server: McpServerStatus,
+  scope: ConfigScope,
+  message: string,
+): ConfigIssue {
+  return {
+    file: server.source,
+    fileId: 'mcp',
+    scope,
+    pointer: `/mcpServers/${server.name}`,
+    code: 'read',
+    message: `${server.name}: ${message}`,
+    fixable: false,
+  };
 }
 
 /** A probe's result, as the fields a status row carries. */
@@ -515,14 +566,19 @@ async function eachLimited<T>(
       await worker(items[index] as T);
     }
   });
-  await Promise.all(runners);
+  // All settled: one worker's mistake is that row's problem, never the list's.
+  await Promise.allSettled(runners);
 }
 
 /** Reject once the budget passes, even when the promise never settles. */
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`The probe did not finish within ${Math.round(timeoutMs / 1000)}s.`));
+      reject(
+        new ProbeTimeoutError(
+          `The probe did not finish within ${Math.round(timeoutMs / 1000)}s.`,
+        ),
+      );
     }, timeoutMs);
     promise.then(
       (value) => {

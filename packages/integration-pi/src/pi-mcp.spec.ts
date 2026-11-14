@@ -185,6 +185,33 @@ describe('PiMcp', () => {
     // The override is independent and stays where it was.
     expect(readServers(join(cwd, '.pi', 'mcp.json'))['tools']).toMatchObject({ enabled: false });
   });
+
+  it('toggles a project override when no scope is named', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    const mcp = new PiMcp({ agentDir });
+    await mcp.add({ name: 'tools', command: 'uvx' }, cwd);
+    await mcp.setEnabled('tools', false, cwd, 'project');
+
+    // The nearer edit is the project's pin, not the user-level definition.
+    await mcp.setEnabled('tools', true, cwd);
+
+    expect(readServers(join(cwd, '.pi', 'mcp.json'))['tools']).toBeUndefined();
+    expect(readServers(join(agentDir, 'mcp.json'))['tools']).not.toHaveProperty('enabled');
+  });
+
+  it('removes a project override before the global server when no scope is named', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    const mcp = new PiMcp({ agentDir });
+    await mcp.add({ name: 'tools', command: 'uvx' }, cwd);
+    await mcp.setEnabled('tools', false, cwd, 'project');
+
+    await expect(mcp.remove('tools', cwd)).resolves.toMatchObject({ ok: true });
+
+    expect(readServers(join(cwd, '.pi', 'mcp.json'))['tools']).toBeUndefined();
+    expect(readServers(join(agentDir, 'mcp.json'))['tools']).toBeDefined();
+  });
 });
 
 function writeJson(path: string, value: unknown): void {
@@ -279,6 +306,92 @@ describe('PiMcp status', () => {
     expect(status.servers.map((server) => server.name)).toEqual(['globalOne']);
   });
 
+  it('keeps an untrusted project from enabling a globally disabled server', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), {
+      mcpServers: { off: { command: 'node', enabled: false } },
+    });
+    // The project pins it on and carries a name issue. Neither may leak: pi
+    // ignores an untrusted project's `.pi` tree entirely.
+    writeJson(join(cwd, '.pi', 'mcp.json'), {
+      mcpServers: { off: { enabled: true }, 'bad name': { command: 'node' } },
+    });
+    const inspector = fakeInspector(inspection());
+
+    const mcp = new PiMcp({ agentDir, inspector });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.trusted).toBe(false);
+    expect(status.servers[0]).toMatchObject({ name: 'off', enabled: false, state: 'disabled' });
+    expect(inspector.inspect).not.toHaveBeenCalled();
+    expect(status.errors).toEqual([]);
+  });
+
+  it('keeps an untrusted project from disabling a global server', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers: { on: { command: 'node' } } });
+    writeJson(join(cwd, '.pi', 'mcp.json'), { mcpServers: { on: { enabled: false } } });
+    const inspector = fakeInspector(inspection());
+
+    const mcp = new PiMcp({ agentDir, inspector });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.servers[0]).toMatchObject({ enabled: true, state: 'connected' });
+    expect(inspector.inspect).toHaveBeenCalledTimes(1);
+  });
+
+  it('probes a trusted project override with the global row details', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), {
+      mcpServers: { one: { command: 'node', args: ['srv.js'] } },
+    });
+    writeJson(join(cwd, '.pi', 'mcp.json'), { mcpServers: { one: { exposure: 'direct' } } });
+    const inspector = fakeInspector(inspection());
+
+    const mcp = new PiMcp({ agentDir, inspector });
+    await mcp.trustProject(cwd);
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.trusted).toBe(true);
+    expect(status.servers[0]).toMatchObject({
+      name: 'one',
+      scope: 'global',
+      source: join(agentDir, 'mcp.json'),
+      transport: 'stdio: node srv.js',
+      exposure: 'direct',
+      override: join(cwd, '.pi', 'mcp.json'),
+      state: 'connected',
+    });
+  });
+
+  it('probes a global-only list in the agent directory', async () => {
+    const agentDir = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers: { one: { command: 'node' } } });
+    const inspector = fakeInspector(inspection());
+
+    const mcp = new PiMcp({ agentDir, inspector });
+    await mcp.status(undefined, { probe: true });
+
+    expect(inspector.inspect.mock.calls[0]?.[1]).toMatchObject({ cwd: agentDir });
+  });
+
+  it('treats an empty agentDir as unset', async () => {
+    const envAgentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(envAgentDir, 'mcp.json'), { mcpServers: { envOne: { command: 'node' } } });
+
+    const mcp = new PiMcp({
+      agentDir: '',
+      env: { ...process.env, PI_CODING_AGENT_DIR: envAgentDir },
+    });
+    const status = await mcp.status(cwd);
+
+    expect(status.servers.map((server) => server.name)).toEqual(['envOne']);
+  });
+
   it('aborts the probe budget without failing the list', async () => {
     vi.useFakeTimers();
     try {
@@ -292,12 +405,81 @@ describe('PiMcp status', () => {
       await vi.advanceTimersByTimeAsync(10_000);
       const status = await pending;
 
-      expect(['connecting', 'disconnected']).toContain(status.servers[0]!.state);
+      expect(status.servers[0]).toMatchObject({ state: 'disconnected' });
       expect(status.servers[0]!.error).toBeTruthy();
       expect(status.issues?.length).toBeGreaterThan(0);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps the list intact when one probe hangs and another settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const agentDir = await tempRoot();
+      const cwd = await tempRoot();
+      writeJson(join(agentDir, 'mcp.json'), {
+        mcpServers: { stuck: { command: 'stuck-cmd' }, quick: { command: 'quick-cmd' } },
+      });
+      const inspect = vi.fn((spec: McpServerSpec) =>
+        spec.command === 'stuck-cmd'
+          ? new Promise<McpInspection>(() => {})
+          : Promise.resolve(inspection({ tools: [{ name: 'quick-tool' }] })),
+      );
+
+      const mcp = new PiMcp({ agentDir, inspector: { inspect } });
+      const pending = mcp.status(cwd, { probe: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const status = await pending;
+      const rows = new Map(status.servers.map((server) => [server.name, server]));
+
+      expect(rows.get('quick')).toMatchObject({ state: 'connected', tools: ['quick-tool'] });
+      expect(rows.get('stuck')).toMatchObject({ state: 'disconnected' });
+      expect(rows.get('stuck')!.error).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('probes at most three servers at once', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    const mcpServers = Object.fromEntries(
+      Array.from({ length: 5 }, (_, index) => [`s${index}`, { command: 'node' }]),
+    );
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers });
+
+    let active = 0;
+    let peak = 0;
+    const inspect = vi.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return inspection();
+    });
+
+    const mcp = new PiMcp({ agentDir, inspector: { inspect } });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(inspect).toHaveBeenCalledTimes(5);
+    expect(peak).toBe(3);
+    expect(status.servers.every((server) => server.state === 'connected')).toBe(true);
+  });
+
+  it('reports a thrown probe as failed, not disconnected', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    writeJson(join(agentDir, 'mcp.json'), { mcpServers: { one: { command: 'node' } } });
+    const inspect = vi.fn(async () => {
+      throw new Error('probe exploded');
+    });
+
+    const mcp = new PiMcp({ agentDir, inspector: { inspect } });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.servers[0]).toMatchObject({ state: 'failed', error: 'probe exploded' });
+    expect(status.errors).toContain('one: probe exploded');
   });
 });
 
