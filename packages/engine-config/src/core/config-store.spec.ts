@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ConfigLocator } from '../engine/locator.js';
 import { JsonConfigFile } from './config-file.js';
 import { ConfigResourceStore, ConfigStore } from './config-store.js';
-import { ConfigSection, NamedConfigSection, type NamedConfigEntry } from './section.js';
+import { ConfigSection, NamedConfigSection } from './section.js';
 import type { ConfigPaths, SectionContext } from './types.js';
 
 const roots: string[] = [];
@@ -20,31 +20,27 @@ afterEach(() => {
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-class FakeSection extends NamedConfigSection<{ label: string }> {
+type Label = { name: string; label: string };
+
+class FakeSection extends NamedConfigSection<Label> {
   readonly key = 'items';
-  decodeEntry(name: string, raw: unknown): { label: string } | undefined {
+  decodeEntry(name: string, raw: unknown): Label | undefined {
     const row = raw as { label?: unknown };
-    return typeof row?.label === 'string' ? { label: row.label } : undefined;
+    return typeof row?.label === 'string' ? { name, label: row.label } : undefined;
   }
-  encodeEntry(item: { label: string }, kept: unknown): unknown {
-    return { ...(kept as object), label: item.label };
+  encodeEntry(item: Label, kept: unknown): unknown {
+    return { ...(kept as object), name: item.name, label: item.label };
   }
   keepsOnReplace(raw: unknown): boolean {
     return (raw as { keep?: boolean })?.keep === true;
   }
 }
 
-type FakeItem = { name: string; item: { label: string } };
-
-class FakeStore extends ConfigResourceStore<{ label: string }, FakeItem> {
+class FakeStore extends ConfigResourceStore<Label> {
   readonly section = new FakeSection();
 
   constructor(locator: ConfigLocator) {
     super(locator, 'fake');
-  }
-
-  protected override toItem(entry: NamedConfigEntry<{ label: string }>): FakeItem {
-    return entry;
   }
 }
 
@@ -103,6 +99,61 @@ class FakeLocator implements ConfigLocator {
       scope,
     );
   }
+
+  fileAt(fileId: string, path: string, scope: ConfigScope): JsonConfigFile {
+    return new JsonConfigFile(path, fileId, scope);
+  }
+
+  scopeOf(_fileId: string, path: string): ConfigScope {
+    return path === this.projectPath ? 'project' : 'global';
+  }
+}
+
+class ChainLocator implements ConfigLocator {
+  readonly ownership = 'user' as const;
+
+  constructor(
+    readonly readPaths: string[],
+    readonly writePath: string,
+  ) {}
+
+  paths(_fileId: string, _scope: ConfigScope, _cwd?: string): ConfigPaths {
+    return { read: this.readPaths, write: this.writePath };
+  }
+
+  file(fileId: string, _scope: ConfigScope, _cwd?: string): JsonConfigFile {
+    return new JsonConfigFile(this.writePath, fileId, this.scopeOf(fileId, this.writePath));
+  }
+
+  fileAt(fileId: string, path: string, scope: ConfigScope): JsonConfigFile {
+    return new JsonConfigFile(path, fileId, scope);
+  }
+
+  scopeOf(_fileId: string, path: string): ConfigScope {
+    return path === this.writePath ? 'project' : 'global';
+  }
+}
+
+class ChainStore extends ConfigResourceStore<Label, Label & { source: string }> {
+  readonly section = new FakeSection();
+
+  constructor(locator: ConfigLocator) {
+    super(locator, 'fake');
+  }
+
+  protected override toItem(item: Label, source: string): Label & { source: string } {
+    return { ...item, source };
+  }
+}
+
+function writeJson(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeText(path: string, value: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, value);
 }
 
 function setup(
@@ -117,13 +168,8 @@ function setup(
   const dir = root();
   const globalPath = join(dir, 'global', 'config.json');
   const projectPath = join(dir, 'project', 'config.json');
-  for (const [path, value] of [
-    [globalPath, global],
-    [projectPath, project],
-  ] as const) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-  }
+  writeJson(globalPath, global);
+  writeJson(projectPath, project);
   const locator = new FakeLocator(globalPath, projectPath);
   return { store: new FakeStore(locator), locator, globalPath, projectPath };
 }
@@ -138,8 +184,8 @@ describe('ConfigResourceStore', () => {
     const listed = store.list();
 
     expect(listed.items).toEqual([
-      { name: 'a', item: { label: 'project-a' } },
-      { name: 'b', item: { label: 'global-b' } },
+      { name: 'a', label: 'project-a' },
+      { name: 'b', label: 'global-b' },
     ]);
     expect(listed.issues).toHaveLength(1);
     expect(listed.issues[0]).toMatchObject({
@@ -153,10 +199,10 @@ describe('ConfigResourceStore', () => {
   it('upserts into the named scope file and deletes an emptied block', () => {
     const { store, globalPath, projectPath } = setup({ items: { a: { label: 'global-a' } } }, {});
 
-    const added = store.upsert('c', { label: 'c' }, 'project');
+    const added = store.upsert('c', { name: 'c', label: 'c' }, 'project');
     expect(added.ok).toBe(true);
     expect(JSON.parse(readFileSync(projectPath, 'utf8'))).toEqual({
-      items: { c: { label: 'c' } },
+      items: { c: { name: 'c', label: 'c' } },
     });
     expect(JSON.parse(readFileSync(globalPath, 'utf8'))).toEqual({
       items: { a: { label: 'global-a' } },
@@ -173,12 +219,12 @@ describe('ConfigResourceStore', () => {
       { items: { old: { label: 'old' }, overridden: { label: 'over', keep: true } } },
     );
 
-    const replaced = store.replaceManaged([{ name: 'new', item: { label: 'new' } }], 'project');
+    const replaced = store.replaceManaged([{ name: 'new', label: 'new' }], 'project');
 
     expect(replaced.ok).toBe(true);
     expect(JSON.parse(readFileSync(projectPath, 'utf8'))).toEqual({
       items: {
-        new: { label: 'new' },
+        new: { name: 'new', label: 'new' },
         overridden: { label: 'over', keep: true },
       },
     });
@@ -188,7 +234,7 @@ describe('ConfigResourceStore', () => {
     const { store, projectPath } = setup({}, { items: { old: { label: 'old' } } });
     const before = readFileSync(projectPath, 'utf8');
 
-    const result = store.apply(store.file().read(), [{ name: 'new', item: { label: 'new' } }]);
+    const result = store.apply(store.file().read(), [{ name: 'new', label: 'new' }]);
 
     expect(result.value).toMatchObject({ items: { new: { label: 'new' } } });
     expect(readFileSync(projectPath, 'utf8')).toBe(before);
@@ -196,20 +242,175 @@ describe('ConfigResourceStore', () => {
 
   it('refuses a JSONC target until it is normalized, then upserts', () => {
     const { store, projectPath } = setup({}, {});
-    writeFileSync(projectPath, '{\n  // keep?\n  "items": {}\n}\n');
+    writeText(projectPath, '{\n  // keep?\n  "items": {}\n}\n');
 
-    const refused = store.upsert('c', { label: 'c' }, 'project');
+    const refused = store.upsert('c', { name: 'c', label: 'c' }, 'project');
     expect(refused.ok).toBe(false);
     expect(refused.issues[0]).toMatchObject({ code: 'normalize', fixable: true });
     expect(readFileSync(projectPath, 'utf8')).toContain('// keep?');
 
     expect(store.normalize('project')).toMatchObject({ ok: true, issues: [] });
-    expect(store.upsert('c', { label: 'c' }, 'project').ok).toBe(true);
+    expect(store.upsert('c', { name: 'c', label: 'c' }, 'project').ok).toBe(true);
     expect(JSON.parse(readFileSync(projectPath, 'utf8'))).toEqual({
-      items: { c: { label: 'c' } },
+      items: { c: { name: 'c', label: 'c' } },
     });
   });
+
+  it('lists the lower file when a higher-precedence file is corrupt', () => {
+    const { store, projectPath } = setup({ items: { g: { label: 'global' } } }, {});
+    writeText(projectPath, '{ not json');
+
+    const listed = store.list();
+
+    expect(listed.items).toEqual([{ name: 'g', label: 'global' }]);
+    expect(listed.issues).toHaveLength(1);
+    expect(listed.issues[0]).toMatchObject({
+      code: 'parse',
+      file: projectPath,
+      scope: 'project',
+    });
+  });
+
+  it('walks a three-file chain and finds an entry only the middle file defines', () => {
+    const dir = root();
+    const projectPath = join(dir, 'project', 'config.json');
+    const middlePath = join(dir, 'ancestor', 'config.json');
+    const globalPath = join(dir, 'global', 'config.json');
+    writeJson(projectPath, { items: {} });
+    writeJson(middlePath, { items: { mid: { label: 'middle' } } });
+    writeJson(globalPath, { items: { g: { label: 'global' } } });
+    const store = new ChainStore(
+      new ChainLocator([projectPath, middlePath, globalPath], projectPath),
+    );
+
+    expect(store.list().items).toEqual([
+      { name: 'mid', label: 'middle', source: middlePath },
+      { name: 'g', label: 'global', source: globalPath },
+    ]);
+    expect(store.signature().split(',')).toHaveLength(3);
+  });
+
+  it('keeps listing the middle file when the first chain file is corrupt', () => {
+    const dir = root();
+    const projectPath = join(dir, 'project', 'config.json');
+    const middlePath = join(dir, 'ancestor', 'config.json');
+    const globalPath = join(dir, 'global', 'config.json');
+    writeText(projectPath, '{ not json');
+    writeJson(middlePath, { items: { mid: { label: 'middle' } } });
+    writeJson(globalPath, { items: { g: { label: 'global' } } });
+    const store = new ChainStore(
+      new ChainLocator([projectPath, middlePath, globalPath], projectPath),
+    );
+
+    const listed = store.list();
+
+    expect(listed.items.map((item) => item.name)).toEqual(['mid', 'g']);
+    expect(listed.issues).toHaveLength(1);
+    expect(listed.issues[0]).toMatchObject({
+      code: 'parse',
+      file: projectPath,
+      scope: 'project',
+    });
+  });
+
+  it('refuses to remove a global entry through the project scope', () => {
+    const { store, globalPath, projectPath } = setup({ items: { g: { label: 'global' } } }, {});
+    const before = readFileSync(globalPath, 'utf8');
+
+    const refused = store.remove('g', 'project');
+
+    expect(refused.ok).toBe(false);
+    expect(refused.issues[0]).toMatchObject({
+      code: 'unsupported',
+      file: projectPath,
+      scope: 'project',
+    });
+    expect(readFileSync(globalPath, 'utf8')).toBe(before);
+    expect(store.list().items).toEqual([{ name: 'g', label: 'global' }]);
+  });
+
+  it('keeps unknown top-level keys through upsert, remove and replaceManaged', () => {
+    const { store, projectPath } = setup(
+      {},
+      {
+        $schema: 'https://example.test/schema',
+        other: { keep: 1 },
+        items: { old: { label: 'old' } },
+      },
+    );
+    const read = (): Record<string, unknown> =>
+      JSON.parse(readFileSync(projectPath, 'utf8')) as Record<string, unknown>;
+
+    expect(store.upsert('new', { name: 'new', label: 'new' }, 'project').ok).toBe(true);
+    expect(read()).toMatchObject({ $schema: 'https://example.test/schema', other: { keep: 1 } });
+
+    expect(store.remove('new', 'project').ok).toBe(true);
+    expect(read()).toMatchObject({ $schema: 'https://example.test/schema', other: { keep: 1 } });
+
+    expect(store.replaceManaged([{ name: 'next', label: 'next' }], 'project').ok).toBe(true);
+    expect(read()).toMatchObject({
+      $schema: 'https://example.test/schema',
+      other: { keep: 1 },
+      items: { next: { label: 'next' } },
+    });
+  });
+
+  it('treats __proto__ as an entry name, not a prototype setter', () => {
+    const { store, projectPath } = setup({}, {});
+
+    expect(store.upsert('__proto__', { name: '__proto__', label: 'data' }, 'project').ok).toBe(
+      true,
+    );
+    let items = (
+      JSON.parse(readFileSync(projectPath, 'utf8')) as { items: Record<string, unknown> }
+    ).items;
+    expect(Object.hasOwn(items, '__proto__')).toBe(true);
+    expect(items['__proto__']).toEqual({ name: '__proto__', label: 'data' });
+    expect(Object.getPrototypeOf(items)).toBe(Object.prototype);
+    expect(store.list().items).toEqual([{ name: '__proto__', label: 'data' }]);
+
+    expect(store.replaceManaged([{ name: '__proto__', label: 'replaced' }], 'project').ok).toBe(
+      true,
+    );
+    items = (JSON.parse(readFileSync(projectPath, 'utf8')) as { items: Record<string, unknown> })
+      .items;
+    expect(Object.hasOwn(items, '__proto__')).toBe(true);
+    expect(items['__proto__']).toEqual({ name: '__proto__', label: 'replaced' });
+
+    expect(store.remove('__proto__', 'project').ok).toBe(true);
+    expect(JSON.parse(readFileSync(projectPath, 'utf8'))).toEqual({});
+  });
+
+  it('apply reports a shape issue and no value for a non-object document root', () => {
+    const { store } = setup({}, []);
+
+    const result = store.apply(store.file().read(), []);
+
+    expect(result.value).toBeUndefined();
+    expect(result.issues[0]).toMatchObject({
+      code: 'shape',
+      file: store.file().path,
+      fixable: false,
+    });
+  });
+
+  it('turns an unexpected locator failure into a write issue with the target path', () => {
+    const { locator, projectPath } = setup({}, {});
+    const broken = new FakeStore(new BrokenLocator(locator.globalPath, locator.projectPath));
+
+    const result = broken.upsert('x', { name: 'x', label: 'x' }, 'project');
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]).toMatchObject({ code: 'write', file: projectPath });
+    expect(result.issues[0].message).toContain('EACCES');
+  });
 });
+
+class BrokenLocator extends FakeLocator {
+  override fileAt(): JsonConfigFile {
+    throw new Error('EACCES: permission denied');
+  }
+}
 
 describe('ConfigStore', () => {
   it('reads and saves the whole document section', () => {
@@ -226,5 +427,17 @@ describe('ConfigStore', () => {
       settings: { theme: 'light' },
       other: 1,
     });
+  });
+
+  it('refuses to save a whole section over a non-object root', () => {
+    const { locator, globalPath } = setup([], {});
+    const store = new FakeConfigStore(locator);
+    const before = readFileSync(globalPath, 'utf8');
+
+    const saved = store.save({ theme: 'light' }, 'global');
+
+    expect(saved.ok).toBe(false);
+    expect(saved.issues[0]).toMatchObject({ code: 'shape', file: globalPath });
+    expect(readFileSync(globalPath, 'utf8')).toBe(before);
   });
 });

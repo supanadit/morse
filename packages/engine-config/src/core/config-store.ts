@@ -7,14 +7,13 @@
  */
 import type { ConfigIssue, ConfigIssueCode, ConfigMutation, ConfigScope } from '@morse/protocol';
 
-import type { ConfigLocator } from '../engine/locator.js';
+import { UnsupportedScopeError, type ConfigLocator } from '../engine/locator.js';
 import { ResourceStore, type ResourceList } from '../resource/resource-store.js';
 import type { ConfigFile } from './config-file.js';
 import {
   configPointer,
   isPlainObject,
   type ConfigSection,
-  type NamedConfigEntry,
   type NamedConfigSection,
 } from './section.js';
 import type { ConfigDocument, ConfigPaths } from './types.js';
@@ -25,8 +24,12 @@ export interface ConfigApplyResult {
   issues: ConfigIssue[];
 }
 
-/** One managed entry: a name/item pair, or an item that already carries its name. */
-export type ConfigManagedEntry<T> = NamedConfigEntry<T> | T;
+/** One file of a precedence chain after it was read. */
+export interface ConfigDocumentSource {
+  path: string;
+  scope: ConfigScope;
+  document: ConfigDocument;
+}
 
 /** What `ConfigStore.read` found in the defining document. */
 export interface ConfigStoreRead<T> {
@@ -37,12 +40,14 @@ export interface ConfigStoreRead<T> {
   issues: ConfigIssue[];
 }
 
-/** One file in a precedence chain: its path, the scope it belongs to, and its handle. */
+/** One file in a precedence chain: its path, resolved scope and handle. */
 interface ConfigTarget {
   path: string;
   scope: ConfigScope;
   file: ConfigFile;
 }
+
+type WriteTargetResult = { target: ConfigTarget } | { issue: ConfigIssue };
 
 export abstract class ConfigStore<T> {
   protected readonly locator: ConfigLocator;
@@ -70,9 +75,9 @@ export abstract class ConfigStore<T> {
   read(scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigStoreRead<T> {
     let found: ConfigTarget[];
     try {
-      found = targets(this.locator, this.fileId, scope, cwd);
+      found = chain(this.locator, this.fileId, scope, cwd);
     } catch (error) {
-      return { path: '', scope, issues: [rejection(error, this.fileId, scope)] };
+      return { path: '', scope, issues: [rejection(error, this.fileId, scope, 'read')] };
     }
     const issues: ConfigIssue[] = [];
     for (const target of found) {
@@ -97,13 +102,20 @@ export abstract class ConfigStore<T> {
 
   /** Encode the section into the scope's write target, preserving its other keys. */
   save(item: T, scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigMutation {
-    let file: ConfigFile;
-    try {
-      file = this.locator.file(this.fileId, scope, cwd);
-    } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope)] };
+    const resolved = writeTarget(this.locator, this.fileId, scope, cwd);
+    if ('issue' in resolved) {
+      return { ok: false, scope, issues: [resolved.issue] };
     }
+    const file = resolved.target.file;
     const document = file.read();
+    if (document.value !== undefined && !isPlainObject(document.value)) {
+      return {
+        ok: false,
+        path: file.path,
+        scope,
+        issues: [rootIssue(file.path, this.fileId, scope)],
+      };
+    }
     let value: unknown;
     try {
       value = this.section.encode(item, document.value);
@@ -122,23 +134,26 @@ export abstract class ConfigStore<T> {
   normalize(scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigMutation {
     let found: ConfigTarget[];
     try {
-      found = targets(this.locator, this.fileId, scope, cwd);
+      found = chain(this.locator, this.fileId, scope, cwd);
     } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope)] };
+      return { ok: false, scope, issues: [rejection(error, this.fileId, scope, 'read')] };
     }
     return normalizeTargets(found, scope);
   }
 
   signature(cwd?: string): string {
     try {
-      return targetsSignature(targets(this.locator, this.fileId, defaultScope(this.locator), cwd));
+      return chainSignature(chain(this.locator, this.fileId, defaultScope(this.locator), cwd));
     } catch {
       return '';
     }
   }
 }
 
-export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TItem, T> {
+export abstract class ConfigResourceStore<
+  T extends { name: string },
+  TItem = T,
+> extends ResourceStore<TItem, T> {
   protected readonly locator: ConfigLocator;
   readonly fileId: string;
   abstract readonly section: NamedConfigSection<T>;
@@ -158,56 +173,67 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
   }
 
   /**
+   * The whole read chain as documents, highest precedence first. Subclasses
+   * reuse it for their own listings; it throws only when the locator cannot
+   * resolve the chain, which the concrete operations catch.
+   */
+  protected documents(cwd?: string): ConfigDocumentSource[] {
+    return chain(this.locator, this.fileId, defaultScope(this.locator), cwd).map((target) => ({
+      path: target.path,
+      scope: target.scope,
+      document: target.file.read(),
+    }));
+  }
+
+  /**
    * Every entry the read chain defines, highest precedence first, with the
-   * first name winning. A malformed entry is skipped with its pointer; its
-   * siblings in the same file still list.
+   * first name winning. A malformed file yields its siblings; a malformed entry
+   * is skipped with its pointer.
    */
   list(cwd?: string): ResourceList<TItem> {
     const scope = defaultScope(this.locator);
-    let found: ConfigTarget[];
+    let sources: ConfigDocumentSource[];
     try {
-      found = targets(this.locator, this.fileId, scope, cwd);
+      sources = this.documents(cwd);
     } catch (error) {
-      return { items: [], issues: [rejection(error, this.fileId, scope)] };
+      return { items: [], issues: [rejection(error, this.fileId, scope, 'read')] };
     }
     const items: TItem[] = [];
     const issues: ConfigIssue[] = [];
     const seen = new Set<string>();
-    for (const target of found) {
-      const document = target.file.read();
+    for (const source of sources) {
       const own: ConfigIssue[] = [];
-      const entries = this.section.decode(document.value, {
-        file: target.path,
+      const entries = this.section.decode(source.document.value, {
+        file: source.path,
         fileId: this.fileId,
-        scope: target.scope,
+        scope: source.scope,
         issues: own,
         pointer: configPointer,
       });
-      issues.push(...tagged(document.issues, target), ...own);
+      issues.push(...tagged(source.document.issues, source), ...own);
       for (const [name, item] of Object.entries(entries)) {
         if (seen.has(name)) {
           continue;
         }
         seen.add(name);
-        items.push(this.toItem({ name, item }));
+        items.push(this.toItem(item, source.path, source.scope));
       }
     }
     return { items, issues };
   }
 
-  /** Save an item whose own `name` field names its section entry. */
+  /** Save an entry; its `name` field keys the section entry. */
   save(input: T, scope: ConfigScope, cwd?: string): ConfigMutation {
-    return this.upsert(this.nameOf(input), input, scope, cwd);
+    return this.upsert(input.name, input, scope, cwd);
   }
 
   /** Add or replace one named entry, keeping every other entry and document key. */
   upsert(name: string, item: T, scope: ConfigScope, cwd?: string): ConfigMutation {
-    let file: ConfigFile;
-    try {
-      file = this.locator.file(this.fileId, scope, cwd);
-    } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope)] };
+    const resolved = writeTarget(this.locator, this.fileId, scope, cwd);
+    if ('issue' in resolved) {
+      return { ok: false, scope, issues: [resolved.issue] };
     }
+    const file = resolved.target.file;
     if (name.trim().length === 0) {
       return {
         ok: false,
@@ -255,14 +281,17 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
     return file.write(next);
   }
 
-  /** Remove one named entry from the scope's target; the block goes when empty. */
+  /**
+   * Remove one entry from the scope's write target. The block is deleted when
+   * it empties. A name defined only in a read fallback is refused: a mutation
+   * never writes a fallback file.
+   */
   remove(name: string, scope: ConfigScope, cwd?: string, _source?: string): ConfigMutation {
-    let file: ConfigFile;
-    try {
-      file = this.locator.file(this.fileId, scope, cwd);
-    } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope)] };
+    const resolved = writeTarget(this.locator, this.fileId, scope, cwd);
+    if ('issue' in resolved) {
+      return { ok: false, scope, issues: [resolved.issue] };
     }
+    const file = resolved.target.file;
     const document = file.read();
     const root = documentRoot(document);
     if (root === undefined) {
@@ -275,16 +304,30 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
     }
     const existing = blockOf(root[this.section.key]);
     if (!Object.hasOwn(existing, name)) {
+      const message = `No "${this.section.key}" entry named "${name}" is configured in ${file.path}; a ${scope} mutation does not edit a read fallback.`;
       return {
         ok: false,
         path: file.path,
         scope,
-        message: `No "${this.section.key}" entry named "${name}" is configured in ${file.path}.`,
-        issues: [],
+        message,
+        issues: [
+          issue(
+            file.path,
+            this.fileId,
+            scope,
+            'unsupported',
+            message,
+            configPointer(this.section.key, name),
+          ),
+        ],
       };
     }
-    const nextBlock = { ...existing };
-    delete nextBlock[name];
+    const nextBlock: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    for (const [entryName, raw] of Object.entries(existing)) {
+      if (entryName !== name) {
+        nextBlock[entryName] = raw;
+      }
+    }
     const next: Record<string, unknown> = { ...root };
     if (Object.keys(nextBlock).length === 0) {
       delete next[this.section.key];
@@ -298,27 +341,13 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
    * Replace the managed set. Unlisted entries are dropped unless the section
    * keeps them (`keepsOnReplace`); listed entries keep their unknown fields.
    */
-  replaceManaged(
-    items: readonly ConfigManagedEntry<T>[],
-    scope: ConfigScope,
-    cwd?: string,
-  ): ConfigMutation {
-    let file: ConfigFile;
-    try {
-      file = this.locator.file(this.fileId, scope, cwd);
-    } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope)] };
+  replaceManaged(items: readonly T[], scope: ConfigScope, cwd?: string): ConfigMutation {
+    const resolved = writeTarget(this.locator, this.fileId, scope, cwd);
+    if ('issue' in resolved) {
+      return { ok: false, scope, issues: [resolved.issue] };
     }
-    const document = file.read();
-    if (documentRoot(document) === undefined) {
-      return {
-        ok: false,
-        path: file.path,
-        scope,
-        issues: [rootIssue(file.path, this.fileId, scope)],
-      };
-    }
-    const applied = this.apply(document, items);
+    const file = resolved.target.file;
+    const applied = this.apply(file.read(), items);
     if (applied.issues.length > 0) {
       return { ok: false, path: file.path, scope, issues: applied.issues };
     }
@@ -330,14 +359,19 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
    * disk. A caller that also edits other sections composes on this value and
    * writes once.
    */
-  apply(document: ConfigDocument, items: readonly ConfigManagedEntry<T>[]): ConfigApplyResult {
+  apply(document: ConfigDocument, items: readonly T[]): ConfigApplyResult {
+    if (document.value !== undefined && !isPlainObject(document.value)) {
+      return {
+        value: undefined,
+        issues: [rootIssue(document.path, this.fileId, document.scope)],
+      };
+    }
     const issues: ConfigIssue[] = [];
     const root = isPlainObject(document.value) ? document.value : {};
     const existing = blockOf(root[this.section.key]);
     const managed = new Map<string, T>();
-    for (const input of items) {
-      const entry = this.managedEntry(input);
-      if (entry.name.trim().length === 0) {
+    for (const item of items) {
+      if (item.name.trim().length === 0) {
         issues.push(
           issue(
             document.path,
@@ -349,9 +383,9 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
         );
         continue;
       }
-      managed.set(entry.name, entry.item);
+      managed.set(item.name, item);
     }
-    const nextBlock: Record<string, unknown> = {};
+    const nextBlock: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [name, raw] of Object.entries(existing)) {
       const item = managed.get(name);
       if (item !== undefined) {
@@ -383,42 +417,24 @@ export abstract class ConfigResourceStore<T, TItem = T> extends ResourceStore<TI
   normalize(scope: ConfigScope, cwd?: string): ConfigMutation {
     let found: ConfigTarget[];
     try {
-      found = targets(this.locator, this.fileId, scope, cwd);
+      found = chain(this.locator, this.fileId, scope, cwd);
     } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope)] };
+      return { ok: false, scope, issues: [rejection(error, this.fileId, scope, 'read')] };
     }
     return normalizeTargets(found, scope);
   }
 
   signature(cwd?: string): string {
     try {
-      return targetsSignature(targets(this.locator, this.fileId, defaultScope(this.locator), cwd));
+      return chainSignature(chain(this.locator, this.fileId, defaultScope(this.locator), cwd));
     } catch {
       return '';
     }
   }
 
-  /** The item a listed entry becomes; the default drops the name (the item carries it). */
-  protected toItem(entry: NamedConfigEntry<T>): TItem {
-    return entry.item as unknown as TItem;
-  }
-
-  /** The entry name an item saves under; items managed by name expose `name`. */
-  protected nameOf(item: T): string {
-    const name = (item as { name?: unknown }).name;
-    return typeof name === 'string' ? name : '';
-  }
-
-  /**
-   * Normalize a managed-set input. A plain `{ name, item }` pair names itself;
-   * otherwise the item's own `name` is used. A section whose value also has an
-   * `item` key overrides this.
-   */
-  protected managedEntry(input: ConfigManagedEntry<T>): NamedConfigEntry<T> {
-    if (isPlainObject(input) && typeof input['name'] === 'string' && 'item' in input) {
-      return { name: input['name'], item: input['item'] as T };
-    }
-    return { name: this.nameOf(input as T), item: input as T };
+  /** The item a listed entry becomes; `source` is the file that defined it. */
+  protected toItem(item: T, _source: string, _scope: ConfigScope): TItem {
+    return item as unknown as TItem;
   }
 
   private encode(
@@ -451,8 +467,12 @@ function defaultScope(locator: ConfigLocator): ConfigScope {
   return locator.ownership === 'isolated' ? 'global' : 'project';
 }
 
-/** The write target plus each read fallback, deduplicated and tagged with its scope. */
-function targets(
+/**
+ * The whole precedence chain: read paths in order, then the write target when
+ * it is not already read. Every path is opened by path so a chain may hold
+ * more than the project and global files.
+ */
+function chain(
   locator: ConfigLocator,
   fileId: string,
   scope: ConfigScope,
@@ -460,40 +480,42 @@ function targets(
 ): ConfigTarget[] {
   const paths = locator.paths(fileId, scope, cwd);
   const ordered: string[] = [];
-  for (const path of [paths.write, ...paths.read]) {
+  for (const path of paths.read) {
     if (!ordered.includes(path)) {
       ordered.push(path);
     }
   }
+  if (!ordered.includes(paths.write)) {
+    ordered.push(paths.write);
+  }
   return ordered.map((path) => {
-    const targetScope: ConfigScope =
-      locator.ownership === 'isolated' || path !== paths.write ? 'global' : scope;
-    return { path, scope: targetScope, file: fileAt(locator, fileId, path, targetScope, cwd) };
+    const targetScope = locator.scopeOf(fileId, path);
+    return { path, scope: targetScope, file: locator.fileAt(fileId, path, targetScope) };
   });
 }
 
-/** Open the file for a path, preferring the scope it was resolved under. */
-function fileAt(
+/** Resolve and open the scope's write target, or report why it cannot be opened. */
+function writeTarget(
   locator: ConfigLocator,
   fileId: string,
-  path: string,
   scope: ConfigScope,
   cwd?: string,
-): ConfigFile {
-  const file = locator.file(fileId, scope, cwd);
-  if (file.path === path) {
-    return file;
-  }
-  const alternate: ConfigScope = scope === 'project' ? 'global' : 'project';
+): WriteTargetResult {
+  let path: string | undefined;
   try {
-    const other = locator.file(fileId, alternate, cwd);
-    if (other.path === path) {
-      return other;
-    }
-  } catch {
-    // The engine has no such scope; keep the requested file.
+    const paths = locator.paths(fileId, scope, cwd);
+    path = paths.write;
+    const targetScope = locator.scopeOf(fileId, paths.write);
+    return {
+      target: {
+        path: paths.write,
+        scope: targetScope,
+        file: locator.fileAt(fileId, paths.write, targetScope),
+      },
+    };
+  } catch (error) {
+    return { issue: rejection(error, fileId, scope, 'write', path) };
   }
-  return file;
 }
 
 /** The section block as a name-to-raw map; a malformed block reads as empty. */
@@ -519,11 +541,14 @@ function rootIssue(path: string, fileId: string, scope: ConfigScope): ConfigIssu
   );
 }
 
-function tagged(issues: ConfigIssue[], target: ConfigTarget): ConfigIssue[] {
+function tagged(
+  issues: ConfigIssue[],
+  source: { path: string; scope: ConfigScope },
+): ConfigIssue[] {
   return issues.map((existing) => ({
     ...existing,
-    file: existing.file || target.path,
-    scope: target.scope,
+    file: existing.file || source.path,
+    scope: source.scope,
   }));
 }
 
@@ -549,22 +574,40 @@ function normalizeTargets(found: ConfigTarget[], scope: ConfigScope): ConfigMuta
   return { ok, path, scope, issues };
 }
 
-function targetsSignature(found: ConfigTarget[]): string {
+function chainSignature(found: ConfigTarget[]): string {
   return found.map((target) => target.file.signature()).join(',');
 }
 
-/** A locator that refuses a scope becomes an unsupported issue, never a throw. */
-function rejection(error: unknown, fileId: string, scope: ConfigScope): ConfigIssue {
-  const carried = (error as { issue?: ConfigIssue }).issue;
-  if (carried !== undefined) {
-    return { ...carried, fileId: carried.fileId || fileId, scope };
+/**
+ * A locator's typed scope refusal becomes `unsupported`; any other thrown error
+ * is a real read/write failure. The issue names the would-be path when one is
+ * known, falling back to the file id so `file` is never empty.
+ */
+function rejection(
+  error: unknown,
+  fileId: string,
+  scope: ConfigScope,
+  intent: 'read' | 'write',
+  path?: string,
+): ConfigIssue {
+  const known = path ?? (error instanceof UnsupportedScopeError ? error.path : undefined) ?? fileId;
+  if (error instanceof UnsupportedScopeError) {
+    return {
+      file: known,
+      fileId,
+      scope,
+      code: 'unsupported',
+      message: error.message,
+      fixable: false,
+    };
   }
+  const message = messageOf(error);
   return {
-    file: (error as { path?: string }).path ?? '',
+    file: known,
     fileId,
     scope,
-    code: 'unsupported',
-    message: messageOf(error),
+    code: intent,
+    message: path !== undefined ? `${path}: ${message}` : message,
     fixable: false,
   };
 }

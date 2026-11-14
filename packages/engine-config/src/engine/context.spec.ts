@@ -6,10 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { ConfigResourceStore } from '../core/config-store.js';
 import { JsonConfigFile } from '../core/config-file.js';
-import { NamedConfigSection, type NamedConfigEntry } from '../core/section.js';
+import { NamedConfigSection } from '../core/section.js';
 import type { ConfigPaths } from '../core/types.js';
 import { resolveEngineContext } from './context.js';
-import type { ConfigLocator } from './locator.js';
+import { UnsupportedScopeError, type ConfigLocator } from './locator.js';
 
 const roots: string[] = [];
 function root(): string {
@@ -21,28 +21,24 @@ afterEach(() => {
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-class LabelSection extends NamedConfigSection<{ label: string }> {
+type Label = { name: string; label: string };
+
+class LabelSection extends NamedConfigSection<Label> {
   readonly key = 'items';
-  decodeEntry(_name: string, raw: unknown): { label: string } | undefined {
+  decodeEntry(name: string, raw: unknown): Label | undefined {
     const row = raw as { label?: unknown };
-    return typeof row?.label === 'string' ? { label: row.label } : undefined;
+    return typeof row?.label === 'string' ? { name, label: row.label } : undefined;
   }
-  encodeEntry(item: { label: string }, kept: unknown): unknown {
+  encodeEntry(item: Label, kept: unknown): unknown {
     return { ...(kept as object), label: item.label };
   }
 }
 
-type LabelItem = { name: string; label: string };
-
-class LabelStore extends ConfigResourceStore<{ label: string }, LabelItem> {
+class LabelStore extends ConfigResourceStore<Label> {
   readonly section = new LabelSection();
 
   constructor(locator: ConfigLocator) {
     super(locator, 'items');
-  }
-
-  protected override toItem(entry: NamedConfigEntry<{ label: string }>): LabelItem {
-    return { name: entry.name, label: entry.item.label };
   }
 }
 
@@ -67,25 +63,47 @@ class FakeLocator implements ConfigLocator {
       scope,
     );
   }
+
+  fileAt(fileId: string, path: string, scope: ConfigScope): JsonConfigFile {
+    return new JsonConfigFile(path, fileId, scope);
+  }
+
+  scopeOf(_fileId: string, path: string): ConfigScope {
+    return path === this.projectPath ? 'project' : 'global';
+  }
 }
 
 class IsolatedLocator implements ConfigLocator {
   readonly ownership = 'isolated' as const;
 
-  constructor(readonly globalPath: string) {}
+  constructor(
+    readonly globalPath: string,
+    readonly projectPath: string,
+  ) {}
 
-  paths(_fileId: string, scope: ConfigScope, _cwd?: string): ConfigPaths {
+  paths(fileId: string, scope: ConfigScope, _cwd?: string): ConfigPaths {
     if (scope === 'project') {
-      throw new Error('project scope is unsupported in an isolated engine');
+      throw new UnsupportedScopeError(fileId, scope, this.projectPath);
     }
     return { write: this.globalPath, read: [this.globalPath] };
   }
 
   file(fileId: string, scope: ConfigScope, _cwd?: string): JsonConfigFile {
     if (scope === 'project') {
-      throw new Error('project scope is unsupported in an isolated engine');
+      throw new UnsupportedScopeError(fileId, scope, this.projectPath);
     }
     return new JsonConfigFile(this.globalPath, fileId, scope);
+  }
+
+  fileAt(fileId: string, path: string, scope: ConfigScope): JsonConfigFile {
+    if (scope === 'project') {
+      throw new UnsupportedScopeError(fileId, scope, this.projectPath);
+    }
+    return new JsonConfigFile(path, fileId, scope);
+  }
+
+  scopeOf(_fileId: string, _path: string): ConfigScope {
+    return 'global';
   }
 }
 
@@ -132,12 +150,14 @@ describe('ConfigResourceStore precedence and paths', () => {
     const { globalPath, projectPath } = fixture();
     const locator: ConfigLocator = {
       ownership: 'user',
-      paths: (fileId, scope) => ({
+      paths: (_fileId, scope) => ({
         write: scope === 'project' ? projectPath : globalPath,
         read: scope === 'project' ? [projectPath, globalPath] : [globalPath],
       }),
       file: (fileId, scope) =>
         new JsonConfigFile(scope === 'project' ? projectPath : globalPath, fileId, scope),
+      fileAt: (fileId, path, scope) => new JsonConfigFile(path, fileId, scope),
+      scopeOf: (_fileId, path) => (path === projectPath ? 'project' : 'global'),
     };
 
     expect(new LabelStore(locator).list().items.map((item) => item.name)).toEqual(['a', 'b']);
@@ -146,14 +166,19 @@ describe('ConfigResourceStore precedence and paths', () => {
   it('turns a rejected isolated project scope into an unsupported issue', () => {
     const dir = root();
     const globalPath = join(dir, 'config.json');
+    const projectPath = join(dir, 'project.json');
     writeFileSync(globalPath, `${JSON.stringify({ items: { g: { label: 'g' } } }, null, 2)}\n`);
-    const store = new LabelStore(new IsolatedLocator(globalPath));
+    const store = new LabelStore(new IsolatedLocator(globalPath, projectPath));
 
     expect(store.list().items).toEqual([{ name: 'g', label: 'g' }]);
 
-    const refused = store.upsert('p', { label: 'p' }, 'project');
+    const refused = store.upsert('p', { name: 'p', label: 'p' }, 'project');
     expect(refused.ok).toBe(false);
-    expect(refused.issues[0]).toMatchObject({ code: 'unsupported', scope: 'project' });
+    expect(refused.issues[0]).toMatchObject({
+      code: 'unsupported',
+      scope: 'project',
+      file: projectPath,
+    });
     expect(store.list().items).toEqual([{ name: 'g', label: 'g' }]);
   });
 });

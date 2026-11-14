@@ -28,7 +28,9 @@ export abstract class ConfigSection<T> {
 }
 
 /** A section that owns a `{ name: entry }` block inside a larger document. */
-export abstract class NamedConfigSection<T> extends ConfigSection<Record<string, T>> {
+export abstract class NamedConfigSection<T extends { name: string }> extends ConfigSection<
+  Record<string, T>
+> {
   abstract decodeEntry(name: string, raw: unknown, context: SectionContext): T | undefined;
   abstract encodeEntry(item: T, kept: unknown): unknown;
 
@@ -68,7 +70,7 @@ export abstract class NamedConfigSection<T> extends ConfigSection<Record<string,
       );
       return {};
     }
-    const entries: Record<string, T> = {};
+    const entries: Record<string, T> = Object.create(null) as Record<string, T>;
     for (const [name, entryRaw] of Object.entries(block)) {
       const entry = this.decodeEntry(name, entryRaw, context);
       if (entry === undefined) {
@@ -89,7 +91,7 @@ export abstract class NamedConfigSection<T> extends ConfigSection<Record<string,
   /** Encode a name-to-entry record, keeping each entry's unknown fields. */
   encode(value: Record<string, T>, existing: unknown): Record<string, unknown> {
     const kept = isPlainObject(existing) ? existing : {};
-    const encoded: Record<string, unknown> = {};
+    const encoded: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [name, item] of Object.entries(value)) {
       encoded[name] = this.encodeEntry(item, kept[name]);
     }
