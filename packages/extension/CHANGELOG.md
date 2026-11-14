@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.28.0 — 15 November 2026
+
+## 🚀 New Features
+
+- **Bot mode (beta)** — give each bot its own engine, model, keys and folder
+- Chat with one bot or a group, and call members in with @
+- Bots take images and files, and say what they are doing while they work
+- Each bot carries its own MCP servers, edited in the wizard
+- Files open in a built-in editor — pin lines and attach notes
+- A git log tab graphs history; commit, amend and push in place
+- Find in Files becomes a modal with a live preview
+- The prompt editor opens full page
+
+## 🐛 Bug Fixes
+
+- Sent bot messages no longer render twice
+- A damaged bot list no longer takes the host down
+- Bots start cleanly when a model rejects an unsupported setting
+- The wizard catches invalid bot and subagent names early
+- The sidebar keeps your project selection across a browser refresh
+- Git graph rows stay connected and stay readable in long lists
+- The editor keeps its line numbers and leaves the chat room to breathe
+- Probe failures no longer masquerade as config issues
+
+## 🔧 Improvements
+
+- A calmer shell: left activity rail, file-type icons and tidier panes
+- Session folds are remembered and one project opens on a cold start
+- MCP config is read as JSONC and unreadable files are reported, not skipped
+- Toggle MCP servers on and off and edit their env and headers in place
+- Deleting a bot group removes its members' sessions with it
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.27.2...v0.28.0`](https://github.com/supanadit/morse/compare/v0.27.2...v0.28.0)
+
 ## 0.27.2 — 1 November 2026
 
 ## 🔧 Improvements
