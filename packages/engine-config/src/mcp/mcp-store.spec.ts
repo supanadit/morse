@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ConfigMutation, ConfigScope, McpExposure, McpServer } from '@morse/protocol';
@@ -29,6 +29,11 @@ type Raw = Record<string, unknown>;
 function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function writeText(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text, 'utf8');
 }
 
 function readJson(path: string): { mcpServers?: Record<string, Raw>; [key: string]: unknown } {
@@ -172,6 +177,7 @@ describe('MCP names', () => {
           "good": { "type": "stdio", "command": "ok" },
           "bad": 3,
           "a/b": { "type": "stdio", "command": "slash" },
+          "x/y": 4,
           "__proto__": { "type": "stdio", "command": "proto" }
         }
       }\n`,
@@ -207,6 +213,14 @@ describe('MCP names', () => {
         scope: 'global',
       }),
     );
+
+    // An invalid name is refused before decoding, even when its value is not
+    // an object: that entry reports `name`, not only `shape`.
+    const invalidNameIssues = listed.issues.filter(
+      (issue) => issue.pointer === '/mcpServers/x~1y',
+    );
+    expect(invalidNameIssues).toHaveLength(1);
+    expect(invalidNameIssues[0]!.code).toBe('name');
 
     // A save validates the name before it touches the file.
     const refusedSave = store.upsert(
@@ -298,6 +312,40 @@ describe('McpStore', () => {
     expect(next.old).toBeUndefined();
   });
 
+  it('refuses an invalid name in a managed replacement before writing', () => {
+    const globalFile = join(root(), 'mcp.json');
+    const original = { mcpServers: { keep: { type: 'stdio', command: 'keep' } } };
+    writeJson(globalFile, original);
+    const store = new FakeMcpStore(new FakeLocator(globalFile, join(root(), '.pi', 'mcp.json')));
+
+    const refused = store.replaceManaged(
+      [
+        { name: 'keep', type: 'stdio', command: 'keep' },
+        { name: 'bad/name', type: 'stdio', command: 'x' },
+        { name: '__proto__', type: 'stdio', command: 'p' },
+      ],
+      'global',
+    );
+
+    expect(refused.ok).toBe(false);
+    expect(refused.issues).toHaveLength(2);
+    expect(refused.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'name',
+        pointer: '/mcpServers/bad~1name',
+        file: globalFile,
+      }),
+    );
+    expect(refused.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'name',
+        pointer: '/mcpServers/__proto__',
+        file: globalFile,
+      }),
+    );
+    expect(readJson(globalFile)).toEqual(original);
+  });
+
   it('deletes the block when the last entry is removed', () => {
     const globalFile = join(root(), 'mcp.json');
     writeJson(globalFile, {
@@ -314,7 +362,7 @@ describe('McpStore', () => {
     expect(next).not.toHaveProperty('mcpServers');
   });
 
-  it('writes a project override only when the engine supports it', () => {
+  it('writes a project override only for a user-level server the engine can pin', () => {
     const projectDir = root();
     const cwd = projectDir;
     const projectFile = join(projectDir, '.pi', 'mcp.json');
@@ -322,18 +370,38 @@ describe('McpStore', () => {
     writeJson(globalFile, {
       mcpServers: { x: { type: 'stdio', command: 'npx' } },
     });
+    writeJson(projectFile, {
+      mcpServers: { docs: { type: 'stdio', command: 'project-serve' } },
+    });
 
+    // A project-defined server is edited in place, even with a hook available.
     const hooked = new OverrideMcpStore(new FakeLocator(globalFile, projectFile));
-    const overridden = hooked.setEnabled('x', false, 'project', cwd);
+    const inPlace = hooked.setEnabled('docs', false, 'project', cwd);
 
+    expect(inPlace).toMatchObject({ ok: true, scope: 'project', path: projectFile });
+    expect(hooked.calls).toEqual([]);
+    expect(readJson(projectFile).mcpServers!.docs).toEqual({
+      type: 'stdio',
+      command: 'project-serve',
+      enabled: false,
+    });
+
+    // An unknown name is refused before the hook can claim it.
+    const unknown = hooked.setEnabled('ghost', false, 'project', cwd);
+    expect(unknown.ok).toBe(false);
+    expect(unknown.message).toContain('No server named "ghost"');
+    expect(hooked.calls).toEqual([]);
+
+    // A user-level server is pinned through the hook.
+    const overridden = hooked.setEnabled('x', false, 'project', cwd);
     expect(overridden).toMatchObject({ ok: true, scope: 'project', path: projectFile });
     expect(hooked.calls).toEqual([{ name: 'x', enabled: false, cwd }]);
 
+    // Without a hook the same edit is refused, and nothing is written.
     const plain = new FakeMcpStore(new FakeLocator(globalFile, projectFile));
     const refused = plain.setEnabled('x', false, 'project', cwd);
     expect(refused.ok).toBe(false);
     expect(refused.message).toContain('project override');
-    expect(refused.issues.map((issue) => issue.code)).toContain('unsupported');
     expect(refused.issues).toContainEqual(
       expect.objectContaining({
         code: 'unsupported',
@@ -342,31 +410,124 @@ describe('McpStore', () => {
         scope: 'project',
       }),
     );
-    // The store without the hook did not touch the defining file.
     expect(readJson(globalFile).mcpServers!.x).toEqual({ type: 'stdio', command: 'npx' });
+  });
 
-    // The global scope edits the defining entry in place.
-    const global = plain.setEnabled('x', false, 'global', cwd);
-    expect(global).toMatchObject({ ok: true, scope: 'global', path: globalFile });
-    expect(readJson(globalFile).mcpServers!.x).toEqual({
-      type: 'stdio',
-      command: 'npx',
-      enabled: false,
+  it('targets the global file for an explicit global edit and refuses a project-only server', () => {
+    const projectDir = root();
+    const cwd = projectDir;
+    const projectFile = join(projectDir, '.pi', 'mcp.json');
+    const globalFile = join(root(), 'agent', 'mcp.json');
+    writeJson(globalFile, {
+      mcpServers: { docs: { type: 'stdio', command: 'global-docs' } },
+    });
+    writeJson(projectFile, {
+      mcpServers: { docs: { type: 'stdio', command: 'project-docs' } },
     });
 
-    // A project-defined server is edited in place, without an override.
-    writeJson(projectFile, { mcpServers: { y: { type: 'stdio', command: 'serve' } } });
-    const inPlace = plain.setEnabled('y', false, 'project', cwd);
-    expect(inPlace).toMatchObject({ ok: true, scope: 'project', path: projectFile });
-    expect(readJson(projectFile).mcpServers!.y).toEqual({
+    const store = new FakeMcpStore(new FakeLocator(globalFile, projectFile));
+    const edited = store.setEnabled('docs', false, 'global', cwd);
+
+    expect(edited).toMatchObject({ ok: true, scope: 'global', path: globalFile });
+    expect(readJson(globalFile).mcpServers!.docs).toEqual({
+      type: 'stdio',
+      command: 'global-docs',
+      enabled: false,
+    });
+    // The nearer project definition was not touched.
+    expect(readJson(projectFile).mcpServers!.docs).toEqual({
+      type: 'stdio',
+      command: 'project-docs',
+    });
+
+    // A project-only server is not a global definition: refuse without writing.
+    const projectOnlyFile = join(root(), '.pi', 'mcp.json');
+    writeJson(projectOnlyFile, {
+      mcpServers: { only: { type: 'stdio', command: 'serve' } },
+    });
+    const emptyGlobal = join(root(), 'agent', 'mcp.json');
+    const alone = new FakeMcpStore(new FakeLocator(emptyGlobal, projectOnlyFile));
+    const refused = alone.setEnabled('only', false, 'global', cwd);
+
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toContain('No server named "only"');
+    expect(existsSync(emptyGlobal)).toBe(false);
+    expect(readJson(projectOnlyFile).mcpServers!.only).toEqual({
       type: 'stdio',
       command: 'serve',
+    });
+  });
+
+  it('edits the nearest definition when no scope is named', () => {
+    const projectDir = root();
+    const cwd = projectDir;
+    const projectFile = join(projectDir, '.pi', 'mcp.json');
+    const globalFile = join(root(), 'agent', 'mcp.json');
+    writeJson(globalFile, {
+      mcpServers: {
+        shared: { type: 'stdio', command: 'global-shared' },
+        onlyGlobal: { type: 'stdio', command: 'global-only' },
+      },
+    });
+    writeJson(projectFile, {
+      mcpServers: { shared: { type: 'stdio', command: 'project-shared' } },
+    });
+    const store = new FakeMcpStore(new FakeLocator(globalFile, projectFile));
+
+    const projectEdit = store.setEnabled('shared', false, undefined, cwd);
+    expect(projectEdit).toMatchObject({ ok: true, scope: 'project', path: projectFile });
+    expect(readJson(projectFile).mcpServers!.shared).toEqual({
+      type: 'stdio',
+      command: 'project-shared',
+      enabled: false,
+    });
+    expect(readJson(globalFile).mcpServers!.shared).toEqual({
+      type: 'stdio',
+      command: 'global-shared',
+    });
+
+    const globalEdit = store.setEnabled('onlyGlobal', false, undefined, cwd);
+    expect(globalEdit).toMatchObject({ ok: true, scope: 'global', path: globalFile });
+    expect(readJson(globalFile).mcpServers!.onlyGlobal).toEqual({
+      type: 'stdio',
+      command: 'global-only',
       enabled: false,
     });
 
-    // An unknown server is refused with the usual message.
-    const missing = plain.setEnabled('missing', false, 'global', cwd);
+    const missing = store.setEnabled('ghost', false, undefined, cwd);
     expect(missing.ok).toBe(false);
-    expect(missing.message).toContain('No server named "missing"');
+    expect(missing.message).toContain('No server named "ghost"');
+
+    // An unnamed scope never asks for an override, even with a hook.
+    const hooked = new OverrideMcpStore(new FakeLocator(globalFile, projectFile));
+    const enabled = hooked.setEnabled('shared', true, undefined, cwd);
+    expect(enabled).toMatchObject({ ok: true, scope: 'project' });
+    expect(hooked.calls).toEqual([]);
+  });
+
+  it('surfaces parse and shape issues instead of reporting an unknown server', () => {
+    const projectDir = root();
+    const cwd = projectDir;
+    const projectFile = join(projectDir, '.pi', 'mcp.json');
+    const globalFile = join(root(), 'agent', 'mcp.json');
+    writeText(globalFile, '{ "mcpServers": { "x": ');
+    const store = new FakeMcpStore(new FakeLocator(globalFile, projectFile));
+
+    const corrupt = store.setEnabled('x', false, 'global', cwd);
+    expect(corrupt.ok).toBe(false);
+    expect(corrupt.message).not.toContain('No server named');
+    expect(corrupt.issues.map((issue) => issue.code)).toContain('parse');
+
+    writeJson(globalFile, { mcpServers: { x: 4 } });
+    const malformed = store.setEnabled('x', false, 'global', cwd);
+    expect(malformed.ok).toBe(false);
+    expect(malformed.message).not.toContain('No server named');
+    expect(malformed.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'shape',
+        pointer: '/mcpServers/x',
+        file: globalFile,
+      }),
+    );
   });
 });

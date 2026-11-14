@@ -4,11 +4,16 @@
  * merges an override onto the server it modifies, and keeps every operation's
  * failures as issues.
  */
-import type { ConfigIssue, ConfigMutation, ConfigScope, McpServer } from '@morse/protocol';
+import type {
+  ConfigIssue,
+  ConfigIssueCode,
+  ConfigMutation,
+  ConfigScope,
+  McpServer,
+} from '@morse/protocol';
 
 import { ConfigResourceStore, type ConfigDocumentSource } from '../core/config-store.js';
 import { configPointer, isPlainObject } from '../core/section.js';
-import type { SectionContext } from '../core/types.js';
 import { UnsupportedScopeError, type ConfigLocator } from '../engine/locator.js';
 import type { ResourceList } from '../resource/resource-store.js';
 import type { McpSection } from './mcp-section.js';
@@ -24,10 +29,23 @@ export interface McpServerEntry {
 }
 
 /** A file in the read chain that defines a server rather than overriding one. */
-interface McpDefinition {
+export interface McpDefinition {
   server: McpServer;
   source: string;
   scope: ConfigScope;
+}
+
+/** The nearest definition in each scope, plus the issues met while looking. */
+export interface McpDefinitions {
+  project?: McpDefinition;
+  global?: McpDefinition;
+  issues: ConfigIssue[];
+}
+
+/** The nearest definition overall (project first, then global), with its lookup issues. */
+export interface McpDefinitionLookup {
+  definition?: McpDefinition;
+  issues: ConfigIssue[];
 }
 
 /** An override-only entry waiting for the server definition it modifies. */
@@ -66,19 +84,30 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
 
     sources.forEach((source, index) => {
       issues.push(...source.document.issues);
-      const entries = this.section.decode(source.document.value, {
+      const root = source.document.value;
+      const block = blockOf(root, this.section.key);
+      // Validate names before decoding so an invalid name with a non-object
+      // value is a `name` issue, not only the section's `shape` complaint.
+      let decoded = root;
+      if (isPlainObject(root) && isPlainObject(root[this.section.key])) {
+        const valid: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+        for (const [name, raw] of Object.entries(block)) {
+          if (isValidMcpServerName(name)) {
+            valid[name] = raw;
+          } else {
+            issues.push(this.nameIssue(name, source));
+          }
+        }
+        decoded = { ...root, [this.section.key]: valid };
+      }
+      const entries = this.section.decode(decoded, {
         file: source.path,
         fileId: this.fileId,
         scope: source.scope,
         issues,
         pointer: configPointer,
       });
-      const block = blockOf(source.document.value, this.section.key);
       for (const [name, server] of Object.entries(entries)) {
-        if (!isValidMcpServerName(name)) {
-          issues.push(this.nameIssue(name, source));
-          continue;
-        }
         if (this.section.isOverride(block[name])) {
           if (!overrides.has(name)) {
             overrides.set(name, { server, source, index });
@@ -131,48 +160,99 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
   }
 
   /**
-   * Enable or disable one server. In the project scope an engine with an
-   * override mechanism (pi) writes an override so a user-level server changes
-   * for this project only. Otherwise the defining entry is edited in place —
-   * and a project change to a user-level server is refused when the engine has
-   * no way to express it.
+   * Replace the managed set, refusing the whole write when a name is unusable.
+   * The wizard passes names straight from its form, so one bad row must not
+   * produce a file the engine cannot read back.
    */
-  setEnabled(name: string, enabled: boolean, scope: ConfigScope, cwd?: string): ConfigMutation {
-    if (!isValidMcpServerName(name)) {
-      return this.refusal(scope, cwd, 'name', invalidMcpServerNameMessage(name), name);
+  override replaceManaged(
+    items: readonly McpServer[],
+    scope: ConfigScope,
+    cwd?: string,
+  ): ConfigMutation {
+    const invalid = items.filter((item) => !isValidMcpServerName(item.name));
+    if (invalid.length === 0) {
+      return super.replaceManaged(items, scope, cwd);
     }
-
-    if (scope === 'project' && cwd !== undefined) {
-      const overridden = this.writeProjectOverride(name, enabled, cwd);
-      if (overridden !== undefined) {
-        return overridden;
-      }
-    }
-
-    const definition = this.findDefinition(name, cwd);
-    if (definition === undefined) {
-      const message = `No server named "${name}" is configured.`;
-      return this.refusal(scope, cwd, 'name', message, name);
-    }
-
-    if (scope === 'project' && definition.scope !== 'project') {
-      const message = `"${name}" is defined in ${definition.source}; this engine cannot write a project override.`;
-      return {
-        ok: false,
-        path: definition.source,
+    const path = this.writePath(scope, cwd);
+    const issues = invalid.map((item) =>
+      this.issue(
+        path ?? this.fileId,
         scope,
-        message,
-        issues: [this.issue(definition.source, scope, 'unsupported', message, name)],
-      };
-    }
-
-    return this.upsert(name, withEnabled(definition.server, enabled), definition.scope, cwd);
+        'name',
+        invalidMcpServerNameMessage(item.name),
+        item.name,
+      ),
+    );
+    return {
+      ok: false,
+      ...(path === undefined ? {} : { path }),
+      scope,
+      message: issues[0]?.message,
+      issues,
+    };
   }
 
   /**
-   * The engine's project-override writer. `undefined` means the engine has no
-   * override concept (or cannot write one here), so the store edits the
-   * defining entry instead. pi overrides this.
+   * Enable or disable one server. The scope chooses the target:
+   * - `undefined` edits the nearest definition (project first, then global);
+   * - `'global'` edits only the global file;
+   * - `'project'` edits a project definition in place, asks an engine with an
+   *   override mechanism (pi) to pin a user-level server for this project, and
+   *   refuses when the engine cannot express that edit.
+   */
+  setEnabled(
+    name: string,
+    enabled: boolean,
+    scope: ConfigScope | undefined,
+    cwd?: string,
+  ): ConfigMutation {
+    const issueScope = scope ?? this.defaultScope();
+    if (!isValidMcpServerName(name)) {
+      return this.refusal(issueScope, cwd, 'name', invalidMcpServerNameMessage(name), name);
+    }
+
+    const found = this.findDefinitions(name, cwd);
+    const definition =
+      scope === 'global'
+        ? found.global
+        : scope === 'project'
+          ? found.project
+          : (found.project ?? found.global);
+
+    if (scope === 'project' && found.project === undefined && found.global !== undefined) {
+      if (cwd !== undefined) {
+        const overridden = this.writeProjectOverride(name, enabled, cwd);
+        if (overridden !== undefined) {
+          return this.withIssues(overridden, found.issues);
+        }
+      }
+      const message = `"${name}" is defined in ${found.global.source}; this engine cannot write a project override.`;
+      return {
+        ok: false,
+        path: found.global.source,
+        scope,
+        message,
+        issues: [
+          ...found.issues,
+          this.issue(found.global.source, scope, 'unsupported', message, name),
+        ],
+      };
+    }
+
+    if (definition === undefined) {
+      return this.missing(name, scope, issueScope, cwd, found.issues);
+    }
+
+    const written = this.writeEntry(definition, name, withEnabled(definition.server, enabled));
+    return this.withIssues(written, found.issues);
+  }
+
+  /**
+   * The engine's project-override writer. It is only consulted when the server
+   * is user-level (defined globally, not in the project) and the caller asked
+   * for the project scope. `undefined` means the engine has no override concept
+   * (or cannot write one here), so a project edit is refused. pi overrides
+   * this; it can call `findDefinitions`/`findDefinition` rather than re-read.
    */
   protected writeProjectOverride(
     _name: string,
@@ -197,16 +277,48 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     return merged;
   }
 
-  /** The nearest file that defines `name` (not merely overrides it). */
-  private findDefinition(name: string, cwd?: string): McpDefinition | undefined {
+  /**
+   * The nearest definition in each scope, with every parse/shape issue met on
+   * the way. Never answers "not found" when a file or entry could not be read.
+   */
+  protected findDefinitions(name: string, cwd?: string): McpDefinitions {
     let sources: ConfigDocumentSource[];
     try {
       sources = this.documents(cwd);
-    } catch {
-      return undefined;
+    } catch (error) {
+      return { issues: [this.readIssue(error)] };
     }
+
+    const issues: ConfigIssue[] = [];
+    let project: McpDefinition | undefined;
+    let global: McpDefinition | undefined;
+
     for (const source of sources) {
-      const block = blockOf(source.document.value, this.section.key);
+      issues.push(...source.document.issues);
+      const root = source.document.value;
+      if (root === undefined) {
+        continue;
+      }
+      if (!isPlainObject(root)) {
+        issues.push(this.issue(source.path, source.scope, 'shape', `${source.path}: expected a JSON object.`));
+        continue;
+      }
+      const block = root[this.section.key];
+      if (block === undefined || block === null) {
+        continue;
+      }
+      if (!isPlainObject(block)) {
+        issues.push(
+          this.issue(
+            source.path,
+            source.scope,
+            'shape',
+            `${source.path}: "${this.section.key}" must be an object.`,
+            this.section.key,
+          ),
+        );
+        continue;
+      }
       if (!Object.hasOwn(block, name)) {
         continue;
       }
@@ -214,19 +326,123 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
       if (this.section.isOverride(raw)) {
         continue;
       }
-      const context: SectionContext = {
-        file: source.path,
-        fileId: this.fileId,
-        scope: source.scope,
-        issues: [],
-        pointer: configPointer,
-      };
-      const server = this.section.decodeEntry(name, raw, context);
-      if (server !== undefined) {
-        return { server, source: source.path, scope: source.scope };
+      // Decode only the entry being looked up, so an unrelated malformed
+      // sibling does not hide a usable definition.
+      const own: ConfigIssue[] = [];
+      const entries = this.section.decode(
+        { ...root, [this.section.key]: { [name]: raw } },
+        {
+          file: source.path,
+          fileId: this.fileId,
+          scope: source.scope,
+          issues: own,
+          pointer: configPointer,
+        },
+      );
+      issues.push(...own);
+      const server = entries[name];
+      if (server === undefined) {
+        continue;
+      }
+      const definition: McpDefinition = { server, source: source.path, scope: source.scope };
+      if (source.scope === 'project') {
+        project ??= definition;
+      } else {
+        global ??= definition;
+      }
+      if (project !== undefined && global !== undefined) {
+        break;
       }
     }
-    return undefined;
+
+    return { project, global, issues };
+  }
+
+  /** The nearest definition overall (project first, then global). */
+  protected findDefinition(name: string, cwd?: string): McpDefinitionLookup {
+    const found = this.findDefinitions(name, cwd);
+    return { definition: found.project ?? found.global, issues: found.issues };
+  }
+
+  /**
+   * Edit one entry in the file that defines it. Unlike `upsert`, this does not
+   * write `paths(scope).write`: a definition may live in a read fallback (an
+   * ancestor or a `.jsonc` sibling), and the edit must land there.
+   */
+  private writeEntry(
+    definition: McpDefinition,
+    name: string,
+    server: McpServer,
+  ): ConfigMutation {
+    const file = this.locator.fileAt(this.fileId, definition.source, definition.scope);
+    const document = file.read();
+    if (document.value !== undefined && !isPlainObject(document.value)) {
+      return {
+        ok: false,
+        path: file.path,
+        scope: definition.scope,
+        issues: [
+          this.issue(
+            file.path,
+            definition.scope,
+            'shape',
+            `${file.path}: expected a JSON object at the document root.`,
+          ),
+        ],
+      };
+    }
+    const root = isPlainObject(document.value) ? document.value : {};
+    const existing = root[this.section.key];
+    const block = isPlainObject(existing) ? existing : {};
+    let encoded: unknown;
+    try {
+      encoded = this.section.encodeEntry(server, block[name]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        path: file.path,
+        scope: definition.scope,
+        issues: [
+          this.issue(
+            file.path,
+            definition.scope,
+            'shape',
+            `${file.path}: ${message}`,
+            name,
+          ),
+        ],
+      };
+    }
+    return file.write({ ...root, [this.section.key]: { ...block, [name]: encoded } });
+  }
+
+  private missing(
+    name: string,
+    scope: ConfigScope | undefined,
+    issueScope: ConfigScope,
+    cwd: string | undefined,
+    issues: ConfigIssue[],
+  ): ConfigMutation {
+    const first = issues[0];
+    if (first !== undefined) {
+      return {
+        ok: false,
+        path: first.file,
+        scope: issueScope,
+        message: first.message,
+        issues,
+      };
+    }
+    const message =
+      scope === 'global'
+        ? `No server named "${name}" is configured in the global file.`
+        : `No server named "${name}" is configured.`;
+    return this.refusal(issueScope, cwd, 'name', message, name);
+  }
+
+  private withIssues(mutation: ConfigMutation, issues: ConfigIssue[]): ConfigMutation {
+    return issues.length === 0 ? mutation : { ...mutation, issues: [...issues, ...mutation.issues] };
   }
 
   private refusal(
@@ -254,6 +470,10 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     }
   }
 
+  private defaultScope(): ConfigScope {
+    return this.locator.ownership === 'isolated' ? 'global' : 'project';
+  }
+
   private nameIssue(name: string, source: ConfigDocumentSource): ConfigIssue {
     return this.issue(
       source.path,
@@ -267,7 +487,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
   private issue(
     file: string,
     scope: ConfigScope,
-    code: 'name' | 'unsupported' | 'read',
+    code: ConfigIssueCode,
     message: string,
     pointerName?: string,
   ): ConfigIssue {
@@ -285,7 +505,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
 
   /** A chain the locator refused to resolve: `unsupported` or a real read failure. */
   private readIssue(error: unknown): ConfigIssue {
-    const scope = this.locator.ownership === 'isolated' ? 'global' : 'project';
+    const scope = this.defaultScope();
     if (error instanceof UnsupportedScopeError) {
       return {
         file: error.path ?? this.fileId,
