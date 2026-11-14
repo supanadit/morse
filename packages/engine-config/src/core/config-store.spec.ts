@@ -11,6 +11,9 @@ import { ConfigSection, NamedConfigSection } from './section.js';
 import type { ConfigPaths, SectionContext } from './types.js';
 
 const roots: string[] = [];
+/** Any non-empty directory: the fake locator resolves the same project file for every cwd. */
+const CWD = '/work/app';
+
 function root(): string {
   const dir = mkdtempSync(join(tmpdir(), 'morse-store-'));
   roots.push(dir);
@@ -31,7 +34,7 @@ class FakeSection extends NamedConfigSection<Label> {
   encodeEntry(item: Label, kept: unknown): unknown {
     return { ...(kept as object), name: item.name, label: item.label };
   }
-  keepsOnReplace(raw: unknown): boolean {
+  override keepsOnReplace(raw: unknown): boolean {
     return (raw as { keep?: boolean })?.keep === true;
   }
 }
@@ -175,13 +178,28 @@ function setup(
 }
 
 describe('ConfigResourceStore', () => {
+  it('lists only the global file when there is no session directory', () => {
+    const { store } = setup(
+      { items: { g: { label: 'global' } } },
+      { items: { p: { label: 'project' } } },
+    );
+
+    expect(store.list()).toEqual({ items: [{ name: 'g', label: 'global' }], issues: [] });
+    // An empty directory is the same empty-session view.
+    expect(store.list('')).toEqual({ items: [{ name: 'g', label: 'global' }], issues: [] });
+    expect(store.list(CWD).items).toEqual([
+      { name: 'p', label: 'project' },
+      { name: 'g', label: 'global' },
+    ]);
+  });
+
   it('merges project over global by name and keeps a malformed sibling', () => {
     const { store, projectPath } = setup(
       { items: { a: { label: 'global-a' }, b: { label: 'global-b' } } },
       { items: { a: { label: 'project-a' }, bad: 3 } },
     );
 
-    const listed = store.list();
+    const listed = store.list(CWD);
 
     expect(listed.items).toEqual([
       { name: 'a', label: 'project-a' },
@@ -234,7 +252,7 @@ describe('ConfigResourceStore', () => {
     const { store, projectPath } = setup({}, { items: { old: { label: 'old' } } });
     const before = readFileSync(projectPath, 'utf8');
 
-    const result = store.apply(store.file().read(), [{ name: 'new', label: 'new' }]);
+    const result = store.apply(store.file('project').read(), [{ name: 'new', label: 'new' }]);
 
     expect(result.value).toMatchObject({ items: { new: { label: 'new' } } });
     expect(readFileSync(projectPath, 'utf8')).toBe(before);
@@ -260,7 +278,7 @@ describe('ConfigResourceStore', () => {
     const { store, projectPath } = setup({ items: { g: { label: 'global' } } }, {});
     writeText(projectPath, '{ not json');
 
-    const listed = store.list();
+    const listed = store.list(CWD);
 
     expect(listed.items).toEqual([{ name: 'g', label: 'global' }]);
     expect(listed.issues).toHaveLength(1);
@@ -283,11 +301,11 @@ describe('ConfigResourceStore', () => {
       new ChainLocator([projectPath, middlePath, globalPath], projectPath),
     );
 
-    expect(store.list().items).toEqual([
+    expect(store.list(CWD).items).toEqual([
       { name: 'mid', label: 'middle', source: middlePath },
       { name: 'g', label: 'global', source: globalPath },
     ]);
-    expect(store.signature().split(',')).toHaveLength(3);
+    expect(store.signature(CWD).split(',')).toHaveLength(3);
   });
 
   it('keeps listing the middle file when the first chain file is corrupt', () => {
@@ -302,7 +320,7 @@ describe('ConfigResourceStore', () => {
       new ChainLocator([projectPath, middlePath, globalPath], projectPath),
     );
 
-    const listed = store.list();
+    const listed = store.list(CWD);
 
     expect(listed.items.map((item) => item.name)).toEqual(['mid', 'g']);
     expect(listed.issues).toHaveLength(1);
@@ -326,7 +344,7 @@ describe('ConfigResourceStore', () => {
       scope: 'project',
     });
     expect(readFileSync(globalPath, 'utf8')).toBe(before);
-    expect(store.list().items).toEqual([{ name: 'g', label: 'global' }]);
+    expect(store.list(CWD).items).toEqual([{ name: 'g', label: 'global' }]);
   });
 
   it('keeps unknown top-level keys through upsert, remove and replaceManaged', () => {
@@ -367,7 +385,7 @@ describe('ConfigResourceStore', () => {
     expect(Object.hasOwn(items, '__proto__')).toBe(true);
     expect(items['__proto__']).toEqual({ name: '__proto__', label: 'data' });
     expect(Object.getPrototypeOf(items)).toBe(Object.prototype);
-    expect(store.list().items).toEqual([{ name: '__proto__', label: 'data' }]);
+    expect(store.list(CWD).items).toEqual([{ name: '__proto__', label: 'data' }]);
 
     expect(store.replaceManaged([{ name: '__proto__', label: 'replaced' }], 'project').ok).toBe(
       true,
@@ -384,12 +402,12 @@ describe('ConfigResourceStore', () => {
   it('apply reports a shape issue and no value for a non-object document root', () => {
     const { store } = setup({}, []);
 
-    const result = store.apply(store.file().read(), []);
+    const result = store.apply(store.file('project').read(), []);
 
     expect(result.value).toBeUndefined();
     expect(result.issues[0]).toMatchObject({
       code: 'shape',
-      file: store.file().path,
+      file: store.file('project').path,
       fixable: false,
     });
   });
@@ -413,6 +431,20 @@ class BrokenLocator extends FakeLocator {
 }
 
 describe('ConfigStore', () => {
+  it('reads the global document when there is no session directory', () => {
+    const { locator, globalPath, projectPath } = setup(
+      { settings: { theme: 'dark' } },
+      { settings: { theme: 'light' } },
+    );
+    const store = new FakeConfigStore(locator);
+
+    expect(store.read()).toMatchObject({ path: globalPath, value: { theme: 'dark' }, issues: [] });
+    expect(store.read(undefined, CWD)).toMatchObject({
+      path: projectPath,
+      value: { theme: 'light' },
+    });
+  });
+
   it('reads and saves the whole document section', () => {
     const { locator, globalPath } = setup({ settings: { theme: 'dark' }, other: 1 }, {});
     const store = new FakeConfigStore(locator);

@@ -126,7 +126,7 @@ describe('ConfigResourceStore precedence and paths', () => {
     const { locator } = fixture();
     const store = new LabelStore(locator);
 
-    expect(store.list().items).toEqual([
+    expect(store.list('/work/app').items).toEqual([
       { name: 'a', label: 'project-a' },
       { name: 'b', label: 'global-b' },
     ]);
@@ -160,7 +160,10 @@ describe('ConfigResourceStore precedence and paths', () => {
       scopeOf: (_fileId, path) => (path === projectPath ? 'project' : 'global'),
     };
 
-    expect(new LabelStore(locator).list().items.map((item) => item.name)).toEqual(['a', 'b']);
+    expect(new LabelStore(locator).list('/work/app').items.map((item) => item.name)).toEqual([
+      'a',
+      'b',
+    ]);
   });
 
   it('turns a rejected isolated project scope into an unsupported issue', () => {

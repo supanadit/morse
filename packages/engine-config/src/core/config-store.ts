@@ -63,8 +63,8 @@ export abstract class ConfigStore<T> {
     return this.locator.paths(this.fileId, scope, cwd);
   }
 
-  file(scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigFile {
-    return this.locator.file(this.fileId, scope, cwd);
+  file(scope?: ConfigScope, cwd?: string): ConfigFile {
+    return this.locator.file(this.fileId, scope ?? defaultConfigScope(this.locator, cwd), cwd);
   }
 
   /**
@@ -72,12 +72,17 @@ export abstract class ConfigStore<T> {
    * or empty higher-precedence file falls through to its fallback; issues from
    * every document consulted are reported.
    */
-  read(scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigStoreRead<T> {
+  read(scope?: ConfigScope, cwd?: string): ConfigStoreRead<T> {
+    const targetScope = scope ?? defaultConfigScope(this.locator, cwd);
     let found: ConfigTarget[];
     try {
-      found = chain(this.locator, this.fileId, scope, cwd);
+      found = chain(this.locator, this.fileId, targetScope, cwd);
     } catch (error) {
-      return { path: '', scope, issues: [rejection(error, this.fileId, scope, 'read')] };
+      return {
+        path: '',
+        scope: targetScope,
+        issues: [rejection(error, this.fileId, targetScope, 'read')],
+      };
     }
     const issues: ConfigIssue[] = [];
     for (const target of found) {
@@ -97,14 +102,15 @@ export abstract class ConfigStore<T> {
       issues.push(...own);
       return { path: target.path, scope: target.scope, value, document, issues };
     }
-    return { path: found[0]?.path ?? '', scope, issues };
+    return { path: found[0]?.path ?? '', scope: targetScope, issues };
   }
 
   /** Encode the section into the scope's write target, preserving its other keys. */
-  save(item: T, scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigMutation {
-    const resolved = writeTarget(this.locator, this.fileId, scope, cwd);
+  save(item: T, scope?: ConfigScope, cwd?: string): ConfigMutation {
+    const targetScope = scope ?? defaultConfigScope(this.locator, cwd);
+    const resolved = writeTarget(this.locator, this.fileId, targetScope, cwd);
     if ('issue' in resolved) {
-      return { ok: false, scope, issues: [resolved.issue] };
+      return { ok: false, scope: targetScope, issues: [resolved.issue] };
     }
     const file = resolved.target.file;
     const document = file.read();
@@ -112,8 +118,8 @@ export abstract class ConfigStore<T> {
       return {
         ok: false,
         path: file.path,
-        scope,
-        issues: [rootIssue(file.path, this.fileId, scope)],
+        scope: targetScope,
+        issues: [rootIssue(file.path, this.fileId, targetScope)],
       };
     }
     let value: unknown;
@@ -123,27 +129,34 @@ export abstract class ConfigStore<T> {
       return {
         ok: false,
         path: file.path,
-        scope,
-        issues: [issue(file.path, this.fileId, scope, 'shape', messageOf(error))],
+        scope: targetScope,
+        issues: [issue(file.path, this.fileId, targetScope, 'shape', messageOf(error))],
       };
     }
     return file.write(value);
   }
 
   /** Fix every existing, non-strict file in the scope's chain. */
-  normalize(scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigMutation {
+  normalize(scope?: ConfigScope, cwd?: string): ConfigMutation {
+    const targetScope = scope ?? defaultConfigScope(this.locator, cwd);
     let found: ConfigTarget[];
     try {
-      found = chain(this.locator, this.fileId, scope, cwd);
+      found = chain(this.locator, this.fileId, targetScope, cwd);
     } catch (error) {
-      return { ok: false, scope, issues: [rejection(error, this.fileId, scope, 'read')] };
+      return {
+        ok: false,
+        scope: targetScope,
+        issues: [rejection(error, this.fileId, targetScope, 'read')],
+      };
     }
-    return normalizeTargets(found, scope);
+    return normalizeTargets(found, targetScope);
   }
 
   signature(cwd?: string): string {
     try {
-      return chainSignature(chain(this.locator, this.fileId, defaultScope(this.locator), cwd));
+      return chainSignature(
+        chain(this.locator, this.fileId, defaultConfigScope(this.locator, cwd), cwd),
+      );
     } catch {
       return '';
     }
@@ -168,8 +181,8 @@ export abstract class ConfigResourceStore<
     return this.locator.paths(this.fileId, scope, cwd);
   }
 
-  file(scope: ConfigScope = defaultScope(this.locator), cwd?: string): ConfigFile {
-    return this.locator.file(this.fileId, scope, cwd);
+  file(scope?: ConfigScope, cwd?: string): ConfigFile {
+    return this.locator.file(this.fileId, scope ?? defaultConfigScope(this.locator, cwd), cwd);
   }
 
   /**
@@ -178,11 +191,13 @@ export abstract class ConfigResourceStore<
    * resolve the chain, which the concrete operations catch.
    */
   protected documents(cwd?: string): ConfigDocumentSource[] {
-    return chain(this.locator, this.fileId, defaultScope(this.locator), cwd).map((target) => ({
-      path: target.path,
-      scope: target.scope,
-      document: target.file.read(),
-    }));
+    return chain(this.locator, this.fileId, defaultConfigScope(this.locator, cwd), cwd).map(
+      (target) => ({
+        path: target.path,
+        scope: target.scope,
+        document: target.file.read(),
+      }),
+    );
   }
 
   /**
@@ -191,7 +206,7 @@ export abstract class ConfigResourceStore<
    * is skipped with its pointer.
    */
   list(cwd?: string): ResourceList<TItem> {
-    const scope = defaultScope(this.locator);
+    const scope = defaultConfigScope(this.locator, cwd);
     let sources: ConfigDocumentSource[];
     try {
       sources = this.documents(cwd);
@@ -426,7 +441,9 @@ export abstract class ConfigResourceStore<
 
   signature(cwd?: string): string {
     try {
-      return chainSignature(chain(this.locator, this.fileId, defaultScope(this.locator), cwd));
+      return chainSignature(
+        chain(this.locator, this.fileId, defaultConfigScope(this.locator, cwd), cwd),
+      );
     } catch {
       return '';
     }
@@ -462,9 +479,17 @@ export abstract class ConfigResourceStore<
   }
 }
 
-/** `project` for a user tree; an isolated tree has only its own global root. */
-function defaultScope(locator: ConfigLocator): ConfigScope {
-  return locator.ownership === 'isolated' ? 'global' : 'project';
+/**
+ * The scope an unnamed read or write uses. An isolated tree has only its own
+ * global root, and a call without a session directory has no project to read,
+ * so both fall back to the engine's global files. A caller that names a session
+ * directory gets the project chain (project first, then global).
+ */
+export function defaultConfigScope(locator: ConfigLocator, cwd?: string): ConfigScope {
+  if (locator.ownership === 'isolated') {
+    return 'global';
+  }
+  return cwd === undefined || cwd.length === 0 ? 'global' : 'project';
 }
 
 /**

@@ -78,9 +78,15 @@ export class PiMcpSection extends McpSection {
         command,
         enabled: raw.enabled !== false,
       };
+      if (raw.args !== undefined && !isStringArrayValue(raw.args)) {
+        context.issues.push(this.fieldIssue(context, name, 'args', 'an array of strings'));
+      }
       const args = stringArray(raw.args);
       if (args !== undefined && args.length > 0) {
         server.args = args;
+      }
+      if (raw.env !== undefined && !isStringRecordValue(raw.env)) {
+        context.issues.push(this.fieldIssue(context, name, 'env', 'an object of strings'));
       }
       const env = stringRecord(raw.env);
       if (env !== undefined) {
@@ -100,6 +106,9 @@ export class PiMcpSection extends McpSection {
       return undefined;
     }
     const server: McpServer = { name, type: 'http', url, enabled: raw.enabled !== false };
+    if (raw.headers !== undefined && !isStringRecordValue(raw.headers)) {
+      context.issues.push(this.fieldIssue(context, name, 'headers', 'an object of strings'));
+    }
     const headers = stringRecord(raw.headers);
     if (headers !== undefined) {
       server.headers = headers;
@@ -109,7 +118,8 @@ export class PiMcpSection extends McpSection {
   }
 
   override encodeEntry(item: McpServer, kept: unknown): unknown {
-    const encoded: Record<string, unknown> = isPlainObject(kept) ? { ...kept } : {};
+    const keptEntry = isPlainObject(kept) ? kept : {};
+    const encoded: Record<string, unknown> = { ...keptEntry };
     for (const key of MANAGED_KEYS) {
       delete encoded[key];
     }
@@ -121,9 +131,15 @@ export class PiMcpSection extends McpSection {
       encoded.command = item.command;
       if (item.args !== undefined && item.args.length > 0) {
         encoded.args = [...item.args];
+      } else if (Array.isArray(keptEntry.args) && !isStringArrayValue(keptEntry.args)) {
+        // A partially malformed list is the reader's data; keep it rather than
+        // deleting it because the neutral shape cannot represent it.
+        encoded.args = keptEntry.args;
       }
       if (item.env !== undefined && Object.keys(item.env).length > 0) {
         encoded.env = { ...item.env };
+      } else if (isPlainObject(keptEntry.env) && !isStringRecordValue(keptEntry.env)) {
+        encoded.env = { ...keptEntry.env };
       }
       if (item.cwd !== undefined && item.cwd.length > 0) {
         encoded.cwd = item.cwd;
@@ -135,6 +151,8 @@ export class PiMcpSection extends McpSection {
       encoded.url = item.url;
       if (item.headers !== undefined && Object.keys(item.headers).length > 0) {
         encoded.headers = { ...item.headers };
+      } else if (isPlainObject(keptEntry.headers) && !isStringRecordValue(keptEntry.headers)) {
+        encoded.headers = { ...keptEntry.headers };
       }
     }
     // `enabled: true` is pi's default, so only a pin is ever stored.
@@ -167,9 +185,33 @@ export class PiMcpSection extends McpSection {
       fixable: false,
     };
   }
+
+  /** A field the neutral shape cannot represent; it is reported, then kept on write. */
+  private fieldIssue(
+    context: SectionContext,
+    name: string,
+    field: 'args' | 'env' | 'headers',
+    expected: string,
+  ): ConfigIssue {
+    return {
+      file: context.file,
+      fileId: context.fileId,
+      scope: context.scope,
+      pointer: context.pointer(this.key, name, field),
+      code: 'shape',
+      message: `${context.file}: "${this.key}.${name}.${field}" must be ${expected}.`,
+      fixable: false,
+    };
+  }
 }
 
-/** pi infers the transport: `http` when the entry names a URL and no command. */
+/**
+ * pi infers the transport: `http` when the entry names a URL and no command.
+ * An explicit `type` always wins — including `type: 'stdio'` over a bare `url`,
+ * which the bot layout used to read as http. That is deliberate parity with pi:
+ * the written type is the reader's statement, and an entry with both transports
+ * cannot be guessed.
+ */
 function inferType(raw: Record<string, unknown>): 'stdio' | 'http' {
   if (raw.type === 'http' || raw.type === 'stdio') {
     return raw.type;
@@ -191,19 +233,21 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function isStringArrayValue(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isStringRecordValue(value: unknown): value is Record<string, string> {
+  return isPlainObject(value) && Object.values(value).every((item) => typeof item === 'string');
+}
+
 function stringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string')
-    ? ([...value] as string[])
-    : undefined;
+  return isStringArrayValue(value) ? [...value] : undefined;
 }
 
 function stringRecord(value: unknown): Record<string, string> | undefined {
-  if (!isPlainObject(value)) {
+  if (!isStringRecordValue(value)) {
     return undefined;
   }
-  const entries = Object.entries(value);
-  if (!entries.every(([, item]) => typeof item === 'string')) {
-    return undefined;
-  }
-  return Object.fromEntries(entries) as Record<string, string>;
+  return Object.fromEntries(Object.entries(value)) as Record<string, string>;
 }

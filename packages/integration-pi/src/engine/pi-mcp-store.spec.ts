@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { resolveEngineContext, type McpServerEntry } from '@morse/engine-config';
@@ -69,7 +77,7 @@ function byName(items: readonly McpServerEntry[]): Map<string, McpServerEntry> {
 
 describe('PiMcpSection', () => {
   it('round-trips a stdio server and never stores enabled: true', () => {
-    const { mcp, globalPath } = fixture();
+    const { mcp, cwd, globalPath } = fixture();
     const entry = {
       type: 'stdio',
       command: 'npx',
@@ -82,7 +90,7 @@ describe('PiMcpSection', () => {
     };
     writeJson(globalPath, { mcpServers: { files: entry } });
 
-    const listed = mcp.list();
+    const listed = mcp.list(cwd);
     expect(listed.issues).toEqual([]);
     expect(listed.items).toHaveLength(1);
     const server = listed.items[0]!.server;
@@ -116,7 +124,7 @@ describe('PiMcpSection', () => {
   });
 
   it('round-trips an http server', () => {
-    const { mcp, globalPath } = fixture();
+    const { mcp, cwd, globalPath } = fixture();
     const entry = {
       type: 'http',
       url: 'https://mcp.example.com/mcp',
@@ -124,7 +132,7 @@ describe('PiMcpSection', () => {
     };
     writeJson(globalPath, { mcpServers: { remote: entry } });
 
-    const listed = mcp.list();
+    const listed = mcp.list(cwd);
     expect(listed.issues).toEqual([]);
     expect(listed.items[0]!.server).toEqual({
       name: 'remote',
@@ -139,7 +147,7 @@ describe('PiMcpSection', () => {
   });
 
   it('infers the transport when type is absent', () => {
-    const { mcp, globalPath } = fixture();
+    const { mcp, cwd, globalPath } = fixture();
     writeJson(globalPath, {
       mcpServers: {
         guessedHttp: { url: 'https://mcp.example.com/mcp' },
@@ -147,7 +155,7 @@ describe('PiMcpSection', () => {
       },
     });
 
-    const items = byName(mcp.list().items);
+    const items = byName(mcp.list(cwd).items);
     expect(items.get('guessedHttp')!.server).toMatchObject({ type: 'http' });
     expect(items.get('guessedStdio')!.server).toMatchObject({ type: 'stdio', command: 'node' });
     // The inferred type is written back explicitly.
@@ -160,7 +168,7 @@ describe('PiMcpSection', () => {
   });
 
   it('keeps enabled: false and drops enabled: true', () => {
-    const { mcp, globalPath } = fixture();
+    const { mcp, cwd, globalPath } = fixture();
     writeJson(globalPath, {
       mcpServers: {
         off: { command: 'off', enabled: false },
@@ -168,13 +176,92 @@ describe('PiMcpSection', () => {
       },
     });
 
-    expect(byName(mcp.list().items).get('off')!.server.enabled).toBe(false);
-    expect(byName(mcp.list().items).get('on')!.server.enabled).toBe(true);
+    expect(byName(mcp.list(cwd).items).get('off')!.server.enabled).toBe(false);
+    expect(byName(mcp.list(cwd).items).get('on')!.server.enabled).toBe(true);
 
     expect(mcp.setEnabled('on', false, 'global').ok).toBe(true);
     expect(readServers(globalPath).on).toEqual({ type: 'stdio', command: 'on', enabled: false });
     expect(mcp.setEnabled('off', true, 'global').ok).toBe(true);
     expect(readServers(globalPath).off).toEqual({ type: 'stdio', command: 'off' });
+  });
+
+  it('lists the global file when no session directory is open', () => {
+    const { mcp, globalPath, projectPath } = fixture();
+    writeJson(globalPath, { mcpServers: { globalOnly: { command: 'node' } } });
+    writeJson(projectPath, { mcpServers: { projectOnly: { command: 'node' } } });
+
+    expect(mcp.list()).toEqual({
+      items: [
+        {
+          server: { name: 'globalOnly', type: 'stdio', command: 'node', enabled: true },
+          scope: 'global',
+          source: globalPath,
+        },
+      ],
+      issues: [],
+    });
+    // An empty directory is the same empty-session view.
+    expect(mcp.list('').items.map((item) => item.server.name)).toEqual(['globalOnly']);
+  });
+
+  it('reports exactly one shape issue for a malformed entry', () => {
+    const { mcp, cwd, globalPath } = fixture();
+    writeJson(globalPath, { mcpServers: { bad: { type: 'stdio' } } });
+
+    const listed = mcp.list(cwd);
+    const message =
+      `${globalPath}: "mcpServers.bad" is a stdio server ` + 'and needs a non-empty "command".';
+
+    expect(listed.items).toEqual([]);
+    expect(listed.issues).toEqual([
+      {
+        file: globalPath,
+        fileId: 'mcp',
+        scope: 'global',
+        pointer: '/mcpServers/bad',
+        code: 'shape',
+        message,
+        fixable: false,
+      },
+    ]);
+  });
+
+  it('keeps a partially malformed args, env and headers on a rewrite', () => {
+    const { mcp, cwd, globalPath } = fixture();
+    writeJson(globalPath, {
+      mcpServers: {
+        broken: { command: 'npx', args: ['ok', 4], env: { GOOD: 'yes', BAD: 3 } },
+        remote: { type: 'http', url: 'https://mcp.example.com/mcp', headers: { A: 'b', B: 2 } },
+      },
+    });
+
+    const listed = mcp.list(cwd);
+    expect(listed.issues).toContainEqual(
+      expect.objectContaining({ code: 'shape', pointer: '/mcpServers/broken/args' }),
+    );
+    expect(listed.issues).toContainEqual(
+      expect.objectContaining({ code: 'shape', pointer: '/mcpServers/broken/env' }),
+    );
+    expect(listed.issues).toContainEqual(
+      expect.objectContaining({ code: 'shape', pointer: '/mcpServers/remote/headers' }),
+    );
+
+    expect(mcp.setEnabled('broken', false, 'global').ok).toBe(true);
+    expect(mcp.setEnabled('remote', false, 'global').ok).toBe(true);
+    // The neutral shape cannot hold the bad values, but a toggle must not erase them.
+    expect(readServers(globalPath).broken).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['ok', 4],
+      env: { GOOD: 'yes', BAD: 3 },
+      enabled: false,
+    });
+    expect(readServers(globalPath).remote).toEqual({
+      type: 'http',
+      url: 'https://mcp.example.com/mcp',
+      headers: { A: 'b', B: 2 },
+      enabled: false,
+    });
   });
 
   it('preserves unknown fields through a rewrite', () => {
@@ -193,7 +280,7 @@ describe('PiMcpSection', () => {
   });
 
   it('skips a malformed entry with an issue and still lists its siblings', () => {
-    const { mcp, globalPath } = fixture();
+    const { mcp, cwd, globalPath } = fixture();
     writeJson(globalPath, {
       mcpServers: {
         good: { command: 'node' },
@@ -203,7 +290,7 @@ describe('PiMcpSection', () => {
       },
     });
 
-    const listed = mcp.list();
+    const listed = mcp.list(cwd);
     expect(listed.items.map((item) => item.server.name)).toEqual(['good']);
     expect(listed.issues).toContainEqual(
       expect.objectContaining({
@@ -239,7 +326,7 @@ describe('PiMcpSection', () => {
 
 describe('PiMcpStore', () => {
   it('lets a project definition shadow a global one without hiding the global command', () => {
-    const { mcp, globalPath, projectPath } = fixture();
+    const { mcp, cwd, globalPath, projectPath } = fixture();
     writeJson(globalPath, {
       mcpServers: {
         shadowed: { command: 'global-cmd' },
@@ -253,7 +340,7 @@ describe('PiMcpStore', () => {
       },
     });
 
-    const items = byName(mcp.list().items);
+    const items = byName(mcp.list(cwd).items);
 
     expect(items.get('shadowed')).toEqual({
       server: { name: 'shadowed', type: 'stdio', command: 'project-cmd', enabled: true },
@@ -274,8 +361,27 @@ describe('PiMcpStore', () => {
     });
   });
 
+  it('applies a project exposure pin without re-enabling a disabled global server', () => {
+    const { mcp, cwd, globalPath, projectPath } = fixture();
+    writeJson(globalPath, { mcpServers: { x: { command: 'npx', enabled: false } } });
+    writeJson(projectPath, { mcpServers: { x: { exposure: 'direct' } } });
+
+    expect(byName(mcp.list(cwd).items).get('x')).toEqual({
+      server: {
+        name: 'x',
+        type: 'stdio',
+        command: 'npx',
+        enabled: false,
+        exposure: 'direct',
+      },
+      scope: 'global',
+      source: globalPath,
+      override: projectPath,
+    });
+  });
+
   it('keeps override-only entries on a managed replacement', () => {
-    const { mcp, globalPath, projectPath } = fixture();
+    const { mcp, cwd, globalPath, projectPath } = fixture();
     writeJson(globalPath, { mcpServers: { pinned: { command: 'pinned-cmd' } } });
     writeJson(projectPath, {
       mcpServers: {
@@ -297,17 +403,17 @@ describe('PiMcpStore', () => {
       fresh: { type: 'stdio', command: 'node' },
     });
     // The kept pin still merges onto the global server.
-    expect(byName(mcp.list().items).get('pinned')!.server).toMatchObject({
+    expect(byName(mcp.list(cwd).items).get('pinned')!.server).toMatchObject({
       command: 'pinned-cmd',
       enabled: false,
     });
   });
 
   it('does not list an override that has no server to modify', () => {
-    const { mcp, projectPath } = fixture();
+    const { mcp, cwd, projectPath } = fixture();
     writeJson(projectPath, { mcpServers: { orphan: { enabled: false } } });
 
-    const listed = mcp.list();
+    const listed = mcp.list(cwd);
     expect(listed.issues).toEqual([]);
     expect(listed.items).toEqual([]);
   });
@@ -459,7 +565,13 @@ describe('PiMcpStore', () => {
       scope: 'global',
     });
     expect(mcp.list()).toEqual({
-      items: [{ server: { name: 'x', type: 'stdio', command: 'node', enabled: true }, scope: 'global', source: mcpPath }],
+      items: [
+        {
+          server: { name: 'x', type: 'stdio', command: 'node', enabled: true },
+          scope: 'global',
+          source: mcpPath,
+        },
+      ],
       issues: [],
     });
     // A bot's own tree is private from the moment it exists.

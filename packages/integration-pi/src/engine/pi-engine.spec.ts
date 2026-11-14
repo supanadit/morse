@@ -7,7 +7,10 @@ import { PiMcpStore } from './pi-mcp-store.js';
 const engine = new PiEngineDefinition();
 
 /** A user instance over fixed, fake roots: nothing here touches the real home. */
-function user(cwd: string | undefined = '/work/app', env: NodeJS.ProcessEnv = {}): PiEngineInstance {
+function user(
+  cwd: string | undefined = '/work/app',
+  env: NodeJS.ProcessEnv = {},
+): PiEngineInstance {
   return engine.create(resolveEngineContext({ ownership: 'user', home: '/home/me', cwd, env }));
 }
 

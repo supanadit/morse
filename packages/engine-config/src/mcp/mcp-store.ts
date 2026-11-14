@@ -12,7 +12,11 @@ import type {
   McpServer,
 } from '@morse/protocol';
 
-import { ConfigResourceStore, type ConfigDocumentSource } from '../core/config-store.js';
+import {
+  ConfigResourceStore,
+  defaultConfigScope,
+  type ConfigDocumentSource,
+} from '../core/config-store.js';
 import { configPointer, isPlainObject } from '../core/section.js';
 import { UnsupportedScopeError, type ConfigLocator } from '../engine/locator.js';
 import type { ResourceList } from '../resource/resource-store.js';
@@ -74,7 +78,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     try {
       sources = this.documents(cwd);
     } catch (error) {
-      return { items: [], issues: [this.readIssue(error)] };
+      return { items: [], issues: [this.readIssue(error, cwd)] };
     }
 
     const issues: ConfigIssue[] = [];
@@ -206,7 +210,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     scope: ConfigScope | undefined,
     cwd?: string,
   ): ConfigMutation {
-    const issueScope = scope ?? this.defaultScope();
+    const issueScope = scope ?? this.defaultScope(cwd);
     if (!isValidMcpServerName(name)) {
       return this.refusal(issueScope, cwd, 'name', invalidMcpServerNameMessage(name), name);
     }
@@ -286,7 +290,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     try {
       sources = this.documents(cwd);
     } catch (error) {
-      return { issues: [this.readIssue(error)] };
+      return { issues: [this.readIssue(error, cwd)] };
     }
 
     const issues: ConfigIssue[] = [];
@@ -470,8 +474,8 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     }
   }
 
-  private defaultScope(): ConfigScope {
-    return this.locator.ownership === 'isolated' ? 'global' : 'project';
+  private defaultScope(cwd?: string): ConfigScope {
+    return defaultConfigScope(this.locator, cwd);
   }
 
   private nameIssue(name: string, source: ConfigDocumentSource): ConfigIssue {
@@ -504,8 +508,8 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
   }
 
   /** A chain the locator refused to resolve: `unsupported` or a real read failure. */
-  private readIssue(error: unknown): ConfigIssue {
-    const scope = this.defaultScope();
+  private readIssue(error: unknown, cwd?: string): ConfigIssue {
+    const scope = this.defaultScope(cwd);
     if (error instanceof UnsupportedScopeError) {
       return {
         file: error.path ?? this.fileId,

@@ -72,15 +72,24 @@ export abstract class NamedConfigSection<T extends { name: string }> extends Con
     }
     const entries: Record<string, T> = Object.create(null) as Record<string, T>;
     for (const [name, entryRaw] of Object.entries(block)) {
+      const pointer = context.pointer(this.key, name);
+      const before = context.issues.length;
       const entry = this.decodeEntry(name, entryRaw, context);
       if (entry === undefined) {
-        context.issues.push(
-          this.shapeIssue(
-            context,
-            `${context.file}: "${this.key}.${name}" is not a valid entry.`,
-            context.pointer(this.key, name),
-          ),
-        );
+        // A decoder that already explained this entry (a missing field, say)
+        // owns the message; only an unexplained skip gets the generic one.
+        const explained = context.issues
+          .slice(before)
+          .some((issue) => issue.pointer === pointer);
+        if (!explained) {
+          context.issues.push(
+            this.shapeIssue(
+              context,
+              `${context.file}: "${this.key}.${name}" is not a valid entry.`,
+              pointer,
+            ),
+          );
+        }
         continue;
       }
       entries[name] = entry;

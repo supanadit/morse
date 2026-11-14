@@ -13,6 +13,8 @@ import { McpStore } from './mcp-store.js';
 import { assertMcpServerName, isValidMcpServerName } from './names.js';
 
 const roots: string[] = [];
+/** Any non-empty directory: the fake locator resolves the same project file for every cwd. */
+const CWD = '/work/app';
 
 function root(): string {
   const dir = mkdtempSync(join(tmpdir(), 'morse-mcp-store-'));
@@ -184,7 +186,7 @@ describe('MCP names', () => {
     );
 
     const store = new FakeMcpStore(new FakeLocator(globalFile, join(root(), '.pi', 'mcp.json')));
-    const listed = store.list();
+    const listed = store.list(CWD);
 
     expect(listed.items).toEqual([
       { server: { name: 'good', type: 'stdio', command: 'ok' }, scope: 'global', source: globalFile },
@@ -256,7 +258,7 @@ describe('McpStore', () => {
       },
     });
 
-    const listed = new FakeMcpStore(new FakeLocator(globalFile, projectFile)).list();
+    const listed = new FakeMcpStore(new FakeLocator(globalFile, projectFile)).list(CWD);
 
     expect(listed.issues).toEqual([]);
     expect(listed.items).toEqual([
