@@ -6,7 +6,6 @@ import {
   type ConfigIssue,
   type ConfigMutation,
   type ConfigScope,
-  type McpExposure as EngineMcpExposure,
   type McpServer,
   type McpServerEntry,
 } from '@morse/engine-config';
@@ -20,68 +19,26 @@ import {
   type McpServerSpec,
 } from './internal/mcp-client.js';
 import { readProjectTrust, writeProjectTrust, type TrustResult } from './internal/project-trust.js';
+import type {
+  McpConfigScope,
+  McpExposure,
+  McpServerScope,
+  McpServerState,
+  McpServerStatus,
+  McpStatus,
+} from '@morse/protocol';
 
-/** How a server reaches the model (pi's `McpExposure`). */
-export type McpExposure = EngineMcpExposure;
-
-/** pi's connection lifecycle, plus the entry that is configured but turned off. */
-export type McpServerState =
-  | 'connecting'
-  | 'connected'
-  | 'disconnected'
-  | 'needs-auth'
-  | 'failed'
-  | 'closed'
-  | 'disabled';
-
-export type McpServerScope = 'global' | 'project' | 'extension';
-
-/** Where a mutation edits: the user file or this project's `.pi/mcp.json`. */
-export type McpConfigScope = ConfigScope;
-
-/** One server, as pi's config files describe it and a probe finds it. */
-export interface McpServerStatus {
-  name: string;
-  scope: McpServerScope;
-  /** The `mcp.json` that defines it (or the extension path). */
-  source: string;
-  enabled: boolean;
-  exposure: McpExposure;
-  /** A one-line summary of how it connects: `stdio: command args` or `http: url`. */
-  transport: string;
-  state: McpServerState;
-  /** The tool names the server offers once connected. */
-  tools: string[];
-  /**
-   * The project `.pi/mcp.json` that overrides a user-level server's
-   * `enabled`/`exposure` for this directory. Present only when there is one.
-   */
-  override?: string;
-  /** Per-tool exposure overrides, when they differ from the server's. */
-  toolExposure?: Record<string, McpExposure>;
-  resources?: number;
-  resourceTemplates?: number;
-  /** Why it is not connected: the probe's error, kept on the row it belongs to. */
-  error?: string;
-}
-
-/** What `mcpStatus` answers. `errors` are config-file complaints, never probe failures. */
-export interface McpStatus {
-  servers: McpServerStatus[];
-  errors: string[];
-  note?: string;
-  /**
-   * Whether pi would load this project's `.pi` resources. False means the
-   * project files (including `.pi/mcp.json`) are ignored until it is trusted.
-   */
-  trusted?: boolean;
-  /**
-   * Config-file complaints. A server that will not connect is not one of these:
-   * its failure lives on its row (`state`/`error`), because the file that
-   * configures it is fine and Fix cannot resolve a refused connection.
-   */
-  issues?: ConfigIssue[];
-}
+// pi's rows are the wire vocabulary, not a second copy of it: one definition
+// means a field the manager reports cannot be missing from the shape the panel
+// reads back. Re-exported so callers of this module keep their imports.
+export type {
+  McpConfigScope,
+  McpExposure,
+  McpServerScope,
+  McpServerState,
+  McpServerStatus,
+  McpStatus,
+};
 
 /** Options for `status`: leave `probe` off to answer from the files alone. */
 export interface McpStatusOptions {

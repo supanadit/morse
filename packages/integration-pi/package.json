@@ -25,6 +25,7 @@
   "dependencies": {
     "@morse/agent": "*",
     "@morse/engine-config": "*",
+    "@morse/protocol": "*",
     "@morse/system": "*",
     "yaml": "^2.9.1"
   },
