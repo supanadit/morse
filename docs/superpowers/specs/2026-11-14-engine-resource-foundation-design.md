@@ -295,9 +295,13 @@ are `FileResourceStore`s.
 
 `ConfigScope = 'global' | 'project'`. A store asks the engine instance for
 `ConfigPaths { write: string; read: string[] }`; `read` is precedence-ordered,
-highest first. The store merges by name and reports the defining source. Mutations
-write the scope's target (the project file for `project`; the engine's own file
-for `global`), never a read fallback. Isolated instances expose only `global`.
+highest first. The store merges by name and reports the defining source. Where a
+scope resolves to a chain of files (OpenCode's ancestor and `.opencode` configs),
+an edit targets the file that defines the entry, even when that file is a read
+fallback: writing a duplicate into a nearer file would change the effective
+server rather than edit it. An explicit `global`/`project` still restricts the
+edit to that scope's files; an unnamed scope edits the nearest definition.
+Isolated instances expose only `global`.
 
 `ConfigPaths` and `ResourceDirs` are the only place an engine's filesystem
 layout lives. `EngineInstance.paths` is the single resolver used by stores,
