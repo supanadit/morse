@@ -22,7 +22,7 @@ import type {
   ThinkingLevel,
   WorkspaceRef,
 } from '@morse/agent';
-import type { BotCreateInput, BotRoutingState } from '@morse/protocol';
+import type { BotCreateInput, BotRoutingState, PromptImage } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
@@ -80,6 +80,8 @@ interface FactoryOptions {
 class FakeGateway implements AgentGateway {
   readonly kind = 'fake';
   readonly prompts: string[] = [];
+  /** The images each prompt carried, in the same order as `prompts`. */
+  readonly imagesSent: (PromptImage[] | undefined)[] = [];
   readonly responses: AgentInteractionResponse[] = [];
   readonly modelsApplied: ModelRef[] = [];
   readonly levelsApplied: ThinkingLevel[] = [];
@@ -125,8 +127,9 @@ class FakeGateway implements AgentGateway {
     return Promise.resolve({ entries: [], hasOlder: false });
   }
 
-  prompt(text: string): Promise<PromptDisposition> {
+  prompt(text: string, _mode?: unknown, images?: PromptImage[]): Promise<PromptDisposition> {
     this.prompts.push(text);
+    this.imagesSent.push(images);
     this.markPrompted();
     const turn = this.factory.script({
       bot: this.factory.botName,
@@ -1122,6 +1125,63 @@ describe('BotService rounds', () => {
       'plan the launch',
       'Brief read, plan written.',
     ]);
+  });
+
+  it('gives the addressed bot the images, and its workspace the files', async () => {
+    const { root, adapter, service } = harness({ script: () => ({ text: 'Read it.' }) });
+    await service.createBot(botInput());
+    const image: PromptImage = {
+      data: Buffer.from('png').toString('base64'),
+      mimeType: 'image/png',
+    };
+
+    await service.send('dm-forge', 'what do you make of this?', {
+      images: [image],
+      files: [
+        {
+          name: 'cv.pdf',
+          mimeType: 'application/pdf',
+          data: Buffer.from('%PDF').toString('base64'),
+        },
+      ],
+    });
+
+    const gateway = gatewayFor(adapter, 'forge');
+    // Images are prompt content, exactly as a code session sends them.
+    expect(gateway.imagesSent[0]).toEqual([image]);
+    // The file is named as a path in the bot's own cwd, never inlined.
+    expect(gateway.prompts[0]).toContain('File from the reader: uploads/cv.pdf');
+    expect(readFileSync(join(root, 'forge', 'workspace', 'uploads', 'cv.pdf'), 'utf8')).toBe(
+      '%PDF',
+    );
+    // The reader's own line keeps what they sent, so the bubble can show it.
+    expect(service.transcript('dm-forge')[0]).toMatchObject({
+      author: { role: 'user' },
+      text: 'what do you make of this?',
+      images: [image],
+      files: ['cv.pdf'],
+    });
+  });
+
+  it('tells a chained teammate what was attached, since it only sees relay text', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot }) => ({ text: bot === 'forge' ? '@sable over to you' : 'got it' }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const image: PromptImage = { data: 'aGk=', mimeType: 'image/png' };
+
+    await service.send(group.id, '@forge look at this', {
+      images: [image],
+      files: [{ name: 'brief.md', mimeType: 'text/markdown', data: 'aGk=' }],
+    });
+
+    const sable = gatewayFor(adapter, 'sable');
+    // The relay text says what came with the message, so a teammate that was not
+    // addressed is not answering a message whose picture it was never told about.
+    expect(sable.prompts[0]).toContain('[attached: 1 image, 1 file]');
+    // The image is part of the human message, so it reaches every prompt in the round.
+    expect(sable.imagesSent[0]).toEqual([image]);
   });
 
   it('group explicit mentions answer in order, each seeing prior replies', async () => {

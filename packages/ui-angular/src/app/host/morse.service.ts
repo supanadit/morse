@@ -2,6 +2,7 @@ import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core'
 import {
   createInitialView,
   type BotCreateInput,
+  type BotFileInput,
   type BotGroupCreateInput,
   type BotProviderCredentialInput,
   type BotUpdateInput,
@@ -599,12 +600,24 @@ export class MorseService {
    * send leaves no phantom line behind. Nothing is sent with no conversation
    * open.
    */
-  sendBotMessage(text: string): void {
+  sendBotMessage(
+    text: string,
+    images?: readonly PromptImage[],
+    files?: readonly BotFileInput[],
+  ): void {
     const conversationId = this.bot.activeId();
     if (conversationId === null) {
       return;
     }
-    this.transport.send({ type: 'bot/send', payload: { conversationId, text } });
+    this.transport.send({
+      type: 'bot/send',
+      payload: {
+        conversationId,
+        text,
+        ...(images === undefined || images.length === 0 ? {} : { images: [...images] }),
+        ...(files === undefined || files.length === 0 ? {} : { files: [...files] }),
+      },
+    });
   }
 
   /** Stops the round in flight on the open conversation, dropping its queued relays. */

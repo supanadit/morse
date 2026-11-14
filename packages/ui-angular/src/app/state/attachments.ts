@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import type { ChatPin, PromptImage } from '@morse/protocol';
+import type { BotFileInput, ChatPin, PromptImage } from '@morse/protocol';
 
 /** One file the user attached but has not sent yet. */
 export interface PendingImage {
@@ -7,6 +7,23 @@ export interface PendingImage {
   name: string;
   mimeType: string;
   /** Base64, without the `data:` prefix. */
+  data: string;
+  bytes: number;
+}
+
+/**
+ * One non-image file waiting to be sent to a bot.
+ *
+ * A code session hands a file over as a path (an `@mention`) because it has a
+ * workspace the host can read. A bot conversation has neither a picker nor a
+ * workspace tree, so the bytes wait here and travel with the message; the host
+ * writes them into the bot's own `workspace/uploads/`.
+ */
+export interface PendingFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  /** Base64, without a `data:` prefix. */
   data: string;
   bytes: number;
 }
@@ -38,11 +55,12 @@ export interface AcceptReport {
 /** The pending pieces of one composer draft: images, pins and mentions. */
 export interface PendingSet {
   images: PendingImage[];
+  files: PendingFile[];
   pins: PendingPin[];
   mentions: string[];
 }
 
-const EMPTY_SET: PendingSet = { images: [], pins: [], mentions: [] };
+const EMPTY_SET: PendingSet = { images: [], files: [], pins: [], mentions: [] };
 
 /**
  * Attachments for the next prompt, owned outside the composer: a file can be
@@ -73,6 +91,8 @@ export class AttachmentStore {
   private counter = 0;
 
   readonly images = computed(() => this.current().images);
+  /** Non-image files waiting for a bot to receive them (see `PendingFile`). */
+  readonly files = computed(() => this.current().files);
   /** Selection chips pinned to the next message (`+` picker / host command). */
   readonly pins = computed(() => this.current().pins);
   /**
@@ -84,7 +104,7 @@ export class AttachmentStore {
   readonly mentions = computed(() => this.current().mentions);
   readonly notice = this.message.asReadonly();
   readonly count = computed(
-    () => this.images().length + this.pins().length + this.mentions().length,
+    () => this.images().length + this.files().length + this.pins().length + this.mentions().length,
   );
 
   /** Points the store at `key` (the composer draft in front). */
@@ -139,6 +159,7 @@ export class AttachmentStore {
     for (const [key, set] of Object.entries(this.sets())) {
       result[key] = {
         images: set.images.map((image) => ({ ...image })),
+        files: set.files.map((file) => ({ ...file })),
         pins: set.pins.map((pin) => ({ ...pin })),
         mentions: [...set.mentions],
       };
@@ -231,6 +252,39 @@ export class AttachmentStore {
     const { images, skipped } = await this.read(files);
     this.add(images);
     return { attached: images.length, skipped };
+  }
+
+  /**
+   * The bot variant's counterpart to `accept`: an image becomes a prompt image,
+   * everything else waits as bytes for the host to write into the bot's
+   * workspace. Nothing is skipped for being the wrong kind, because a bot can
+   * open any file it is given once the host has put it on its disk.
+   */
+  async acceptFiles(files: readonly File[]): Promise<AcceptReport> {
+    const { images, skipped } = await this.read(files);
+    const pending: PendingFile[] = [];
+    const failed: string[] = [...skipped];
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        continue;
+      }
+      const data = await readBase64(file);
+      if (!data) {
+        failed.push(file.name);
+        continue;
+      }
+      this.counter += 1;
+      pending.push({
+        id: `file-${this.counter}`,
+        name: file.name || `file-${this.counter}`,
+        mimeType: file.type,
+        data,
+        bytes: file.size,
+      });
+    }
+    this.add(images);
+    this.patch({ files: [...this.current().files, ...pending] });
+    return { attached: images.length + pending.length, skipped: failed };
   }
 
   addMentions(paths: readonly string[]): void {
@@ -604,11 +658,27 @@ export class AttachmentStore {
     this.patch({ images: this.current().images.filter((item) => item.id !== id) });
   }
 
+  /** Forgets a pending file, so a chip's × removes only that one. */
+  removeFile(id: string): void {
+    this.patch({ files: this.current().files.filter((item) => item.id !== id) });
+  }
+
   /** The images to send, cleared so the next prompt starts empty. */
   takeImages(): PromptImage[] {
     const images = this.current().images.map(({ data, mimeType }) => ({ data, mimeType }));
     this.patch({ images: [] });
     return images;
+  }
+
+  /** The files to send, cleared like the images: one message, one attachment set. */
+  takeFiles(): BotFileInput[] {
+    const files = this.current().files.map(({ name, mimeType, data }) => ({
+      name,
+      mimeType,
+      data,
+    }));
+    this.patch({ files: [] });
+    return files;
   }
 
   /** The pins to send as the message's attachments, then cleared. */
@@ -715,14 +785,42 @@ function asPendingSet(value: unknown): PendingSet | undefined {
   }
   const candidate = value as Record<string, unknown>;
   const rawImages = candidate['images'];
+  const rawFiles = candidate['files'];
   const rawPins = candidate['pins'];
   const rawMentions = candidate['mentions'];
   const images = Array.isArray(rawImages) ? rawImages.flatMap(asPendingImage) : [];
+  // A draft saved by an older Morse has no `files`; an absent list is empty.
+  const files = Array.isArray(rawFiles) ? rawFiles.flatMap(asPendingFile) : [];
   const pins = Array.isArray(rawPins) ? rawPins.flatMap(asPendingPin) : [];
   const mentions = Array.isArray(rawMentions)
     ? rawMentions.filter((mention): mention is string => typeof mention === 'string')
     : [];
-  return { images, pins, mentions };
+  return { images, files, pins, mentions };
+}
+
+function asPendingFile(value: unknown): PendingFile[] {
+  if (typeof value !== 'object' || value === null) {
+    return [];
+  }
+  const candidate = value as Record<string, unknown>;
+  const { id, name, mimeType, data, bytes } = candidate;
+  if (
+    typeof id !== 'string' ||
+    typeof name !== 'string' ||
+    typeof mimeType !== 'string' ||
+    typeof data !== 'string'
+  ) {
+    return [];
+  }
+  return [
+    {
+      id,
+      name,
+      mimeType,
+      data,
+      bytes: typeof bytes === 'number' && Number.isFinite(bytes) ? bytes : data.length,
+    },
+  ];
 }
 
 function asPendingImage(value: unknown): PendingImage[] {

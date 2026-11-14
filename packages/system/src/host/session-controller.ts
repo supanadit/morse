@@ -701,11 +701,20 @@ export class HostSessionController {
         });
         return;
       }
-      case 'bot/send':
+      case 'bot/send': {
+        // Attachments travel with the line rather than through an upload round
+        // trip: the host writes files into the bot's own workspace on the way in.
+        const images = message.payload.images;
+        const files = message.payload.files;
+        const attachments = {
+          ...(images === undefined || images.length === 0 ? {} : { images }),
+          ...(files === undefined || files.length === 0 ? {} : { files }),
+        };
         void bot
-          .send(message.payload.conversationId, message.payload.text)
+          .send(message.payload.conversationId, message.payload.text, attachments)
           .catch((error: unknown) => this.emitBotFailure(error));
         return;
+      }
       case 'bot/stop':
         bot.stop(message.payload.conversationId);
         this.emitBotRoster(bot);

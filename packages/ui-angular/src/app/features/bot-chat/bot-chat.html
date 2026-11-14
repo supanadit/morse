@@ -49,9 +49,29 @@
       @for (entry of entries(); track entry.id) {
         @switch (entry.author.role) {
           @case ('user') {
-            <!-- The reader's own line, on the reading side, as they typed it. -->
+            <!-- The reader's own line, on the reading side, as they typed it,
+                 with whatever they attached: thumbnails for images, a chip for
+                 each file the host wrote into the bot's workspace. -->
             <div class="entry user" [attr.data-entry-id]="entry.id">
               <div class="bubble">
+                @if (entry.images?.length) {
+                  <div class="sent-images">
+                    @for (image of entry.images ?? []; track $index) {
+                      <img
+                        class="sent-image"
+                        [src]="preview(image)"
+                        alt="Image attached to this message"
+                      />
+                    }
+                  </div>
+                }
+                @if (entry.files?.length) {
+                  <div class="sent-files">
+                    @for (file of entry.files ?? []; track file) {
+                      <span class="sent-file" [title]="file">{{ file }}</span>
+                    }
+                  </div>
+                }
                 <morse-markdown [text]="entry.text" variant="user" />
               </div>
             </div>
@@ -103,7 +123,7 @@
       <morse-chat-composer
         [variant]="'bot'"
         [placeholder]="'Message ' + conversation.title + '…'"
-        (botSend)="morse.sendBotMessage($event)"
+        (botSend)="send($event)"
       />
     </div>
   </section>

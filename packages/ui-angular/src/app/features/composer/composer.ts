@@ -13,7 +13,14 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { CommandOption, ModelOption, PromptMode, ThinkingLevel } from '@morse/protocol';
+import type {
+  BotFileInput,
+  CommandOption,
+  ModelOption,
+  PromptImage,
+  PromptMode,
+  ThinkingLevel,
+} from '@morse/protocol';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import {
   parseCommandArgs,
@@ -68,6 +75,13 @@ import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pi
 import type { PopoverAnchor } from '@morse/ui-runtime';
 import { ThinkingPicker } from '../thinking-picker/thinking-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
+
+/** What a bot line carries: the words, the images, and any other files. */
+export interface BotComposerSend {
+  text: string;
+  images: PromptImage[];
+  files: BotFileInput[];
+}
 
 @Component({
   selector: 'morse-chat-composer',
@@ -125,8 +139,12 @@ export class ChatComposer {
   @Input() variant: 'session' | 'bot' = 'session';
   /** The placeholder in the bot variant; a session keeps its own contextual hint. */
   @Input() placeholder?: string;
-  /** The reader's line for a bot conversation, trimmed and never empty. */
-  @Output() readonly botSend = new EventEmitter<string>();
+  /**
+   * The reader's line for a bot conversation, trimmed and never empty, with what
+   * they attached to it: a bot takes images as prompt content and any other file
+   * as bytes the host writes into its own workspace.
+   */
+  @Output() readonly botSend = new EventEmitter<BotComposerSend>();
   protected readonly connected = computed(() => this.morse.connection() === 'ready');
   protected readonly agentReady = this.morse.agentReady;
   protected readonly agentStarting = this.morse.agentStarting;
@@ -173,6 +191,60 @@ export class ChatComposer {
   protected readonly canAttachSelection = computed(
     () => this.morse.capabilities()?.editorContext === true,
   );
+  /**
+   * What a bot conversation in front can take as an image.
+   *
+   * `'yes'` when a member's model advertises the `image` modality, `'no'` when
+   * every member's model declares its modalities and none of them includes it,
+   * and `'unknown'` when the engines did not say — a model whose modalities are
+   * not reported is given the benefit of the doubt, exactly like the model
+   * picker showing no badge rather than claiming text-only. Only a definite `no`
+   * refuses a paste, and it says why.
+   */
+  protected readonly botImages = computed<'yes' | 'no' | 'unknown'>(() => {
+    const roster = this.morse.bot.roster();
+    const conversationId = this.morse.bot.activeId();
+    if (roster === null || conversationId === null) {
+      return 'unknown';
+    }
+    const conversation = roster.conversations.find((one) => one.id === conversationId);
+    if (conversation === undefined) {
+      return 'unknown';
+    }
+    const members = roster.bots.filter((bot) => conversation.members.includes(bot.username));
+    if (members.length === 0) {
+      return 'unknown';
+    }
+    let declared = 0;
+    for (const member of members) {
+      const input = member.model?.input;
+      if (input === undefined) {
+        continue;
+      }
+      declared += 1;
+      if (input.includes('image')) {
+        return 'yes';
+      }
+    }
+    return declared === members.length ? 'no' : 'unknown';
+  });
+  /**
+   * Whether an image may join a bot line: allowed unless every member's model
+   * said, in its own words, that it takes no images. Refusing here — with the
+   * reason — beats letting the engine fail the whole turn.
+   */
+  private botAcceptsImages(): boolean {
+    const support = this.botImages();
+    if (support === 'no') {
+      this.attachments.say(
+        'warn',
+        'This bot’s model takes text only, so the image was not attached.',
+      );
+      return false;
+    }
+    return true;
+  }
+
   protected readonly thinkingLevel = computed(() => this.morse.state().thinkingLevel);
   protected readonly models = this.morse.availableModels;
   protected readonly levels = this.morse.availableThinkingLevels;
@@ -253,6 +325,8 @@ export class ChatComposer {
   /** Live run indicator: "Working * 3s". */
   /** Files waiting to ride with the next prompt. */
   protected readonly images = this.attachments.images;
+  /** Non-image files waiting to be sent to a bot (a session uploads them instead). */
+  protected readonly files = this.attachments.files;
   /** Selections/files pinned to the next prompt; they are already locked. */
   protected readonly pins = this.attachments.pins;
   /**
@@ -805,13 +879,15 @@ export class ChatComposer {
   /** A bot line: trimmed, emitted once, and the box emptied. Blank is a no-op. */
   private sendBotLine(): void {
     const text = this.drafts.text().trim();
-    if (text.length === 0) {
+    const images = this.attachments.takeImages();
+    const files = this.attachments.takeFiles();
+    if (text.length === 0 && images.length === 0 && files.length === 0) {
       this.promptInput()?.nativeElement.focus();
       return;
     }
     this.drafts.setText('');
     this.syncInputValue();
-    this.botSend.emit(text);
+    this.botSend.emit({ text, images, files });
   }
 
   protected sendWith(mode: PromptMode): void {
@@ -948,15 +1024,17 @@ export class ChatComposer {
 
   /** Pasted screenshots are the fastest way in, so treat them like a drop. */
   protected onPaste(event: ClipboardEvent): void {
-    // A bot conversation has no attachment channel: a pasted image must not be
-    // swallowed into chips the bot variant never shows nor sends.
-    if (this.variant === 'bot') {
-      return;
-    }
     const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
       file.type.startsWith('image/'),
     );
     if (files.length === 0) {
+      return;
+    }
+    // A bot's model is the gate, not the variant: a vision model takes a pasted
+    // screenshot the same way a code session does, and one that reported itself
+    // text-only is told so instead of failing later in the engine.
+    if (this.variant === 'bot' && !this.botAcceptsImages()) {
+      event.preventDefault();
       return;
     }
     event.preventDefault();
@@ -1038,6 +1116,13 @@ export class ChatComposer {
    * host with neither falls back to pinning the editor selection.
    */
   protected onAddFiles(): void {
+    // A bot conversation has no workspace to name files from, so `+` is the file
+    // dialog itself: images become prompt content, the rest becomes bytes the
+    // host writes into the bot's own workspace.
+    if (this.variant === 'bot') {
+      this.fileInput()?.nativeElement.click();
+      return;
+    }
     if (this.canPickFiles()) {
       this.openMentionPicker();
       return;
@@ -1088,10 +1173,49 @@ export class ChatComposer {
     if (files.length === 0) {
       return;
     }
+    if (this.variant === 'bot') {
+      void this.importBotFiles(files);
+      return;
+    }
     void this.importFiles(
       files.filter((file) => file.type.startsWith('image/')),
       files.filter((file) => !file.type.startsWith('image/')),
     );
+  }
+
+  /**
+   * Attaches what the reader chose for a bot: images become prompt images, and
+   * everything else waits as bytes — unless the model takes no images at all, in
+   * which case only the non-images are kept and the refusal is said out loud.
+   */
+  private async importBotFiles(files: readonly File[]): Promise<void> {
+    const images = files.filter((file) => file.type.startsWith('image/'));
+    const others = files.filter((file) => !file.type.startsWith('image/'));
+    const accepted = images.length > 0 && !this.botAcceptsImages() ? others : files;
+    if (accepted.length === 0) {
+      return;
+    }
+    const report = await this.attachments.acceptFiles(accepted);
+    const parts: string[] = [];
+    const attachedImages = accepted.filter((file) => file.type.startsWith('image/')).length;
+    const attachedFiles = report.attached - attachedImages;
+    if (attachedImages > 0) {
+      parts.push(`${attachedImages} image${attachedImages === 1 ? '' : 's'} attached`);
+    }
+    if (attachedFiles > 0) {
+      parts.push(`${attachedFiles} file${attachedFiles === 1 ? '' : 's'} attached`);
+    }
+    if (report.skipped.length > 0) {
+      parts.push(`could not attach ${report.skipped.join(', ')}`);
+    }
+    if (parts.length > 0) {
+      this.attachments.say(report.skipped.length > 0 ? 'warn' : 'info', parts.join(' · '));
+    }
+  }
+
+  /** Drops a pending file chip. */
+  protected removeFile(id: string): void {
+    this.attachments.removeFile(id);
   }
 
   private async importFiles(images: File[], others: File[]): Promise<void> {

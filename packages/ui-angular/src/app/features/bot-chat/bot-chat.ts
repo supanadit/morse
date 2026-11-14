@@ -9,10 +9,16 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import type { BotAuthor, BotConversationSummary, BotTranscriptEntry } from '@morse/protocol';
+import type {
+  BotAuthor,
+  BotConversationSummary,
+  BotTranscriptEntry,
+  PromptImage,
+} from '@morse/protocol';
 import { MorseService } from '../../host/morse.service';
+import { ComposerDrafts } from '../../state/composer-drafts';
 import { Markdown } from '../../ui/markdown/markdown';
-import { ChatComposer } from '../composer/composer';
+import { ChatComposer, type BotComposerSend } from '../composer/composer';
 
 /**
  * Bot mode's conversation: the lines of the DM or group in front, who said
@@ -34,6 +40,7 @@ import { ChatComposer } from '../composer/composer';
 })
 export class BotChat {
   protected readonly morse = inject(MorseService);
+  private readonly drafts = inject(ComposerDrafts);
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scroll');
   private readonly dockElement = viewChild<ElementRef<HTMLElement>>('dock');
   /** The floating composer's measured height, exposed as `--morse-dock-height`. */
@@ -112,6 +119,25 @@ export class BotChat {
   });
 
   constructor() {
+    /*
+     * A bot conversation's draft — its words and its attachments — is its own.
+     * The composer's draft store is keyed by the tab in front, which in bot mode is
+     * still whatever code session is open behind it; without this, half a bot
+     * message and the screenshot attached to it would turn up in that session's
+     * composer and ride along with a prompt it has nothing to do with.
+     *
+     * The conversation id is read before the guard so this effect has something to
+     * watch: it is the tracked dependency, and the key is rebuilt whenever the
+     * reader opens another room.
+     */
+    effect((onCleanup) => {
+      const conversationId = this.morse.bot.activeId();
+      if (conversationId === null) {
+        return;
+      }
+      const release = untracked(() => this.drafts.pinDraft(`bot:${conversationId}`));
+      onCleanup(release);
+    });
     /*
      * The transcript reserves the floating composer's height at its end, so the
      * last line is never behind the glass. Measured rather than a constant: the
@@ -206,6 +232,16 @@ export class BotChat {
     }
     this.loadingOlder.set(true);
     this.morse.loadOlderBotHistory(id, oldest.id);
+  }
+
+  /** The reader's line, with whatever they attached, on its way to the host. */
+  protected send(line: BotComposerSend): void {
+    this.morse.sendBotMessage(line.text, line.images, line.files);
+  }
+
+  /** A sent image's `data:` URL, for the thumbnail in the reader's own bubble. */
+  protected preview(image: PromptImage): string {
+    return `data:${image.mimeType};base64,${image.data}`;
   }
 
   /** The round's Stop: aborts the turn in flight and drops the queued relays. */ protected stop(): void {

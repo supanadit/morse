@@ -14,6 +14,27 @@ function setup() {
 describe('ComposerDrafts', () => {
   afterEach(() => TestBed.resetTestingModule());
 
+  it('pins a view that is not a tab, so the tab strip cannot take its draft back', () => {
+    const { drafts, attachments } = setup();
+    drafts.use('session-code');
+    drafts.setText('for the code session');
+
+    // Bot mode is in front: it owns a draft that is not one of the tabs.
+    const release = drafts.pinDraft('bot:dm-forge');
+    drafts.setText('for the bot');
+    // A tab pushing its own key is ignored while the claim is held.
+    drafts.use('session-code');
+    expect(drafts.text()).toBe('for the bot');
+    attachments.add([{ id: 'a', name: 'shot.png', mimeType: 'image/png', data: 'aW1n', bytes: 3 }]);
+    expect(attachments.isEmpty('bot:dm-forge')).toBe(false);
+    expect(attachments.isEmpty('session-code')).toBe(true);
+
+    // Leaving bot mode gives the tabs their composer back, untouched.
+    release();
+    drafts.use('session-code');
+    expect(drafts.text()).toBe('for the code session');
+  });
+
   it('keeps a separate message for every tab', () => {
     const { drafts } = setup();
 

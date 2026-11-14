@@ -2,8 +2,16 @@ import { TestBed } from '@angular/core/testing';
 import type { ClientToHostMessage } from '@morse/protocol';
 import { MemoryHostTransport, cacheHitRate, formatTokens, formatUsage } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MorseService } from '../../host/morse.service';
+import { AttachmentStore } from '../../state/attachments';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
-import { ChatComposer, outputChars, builtinName, compactInstructions } from './composer';
+import {
+  ChatComposer,
+  type BotComposerSend,
+  outputChars,
+  builtinName,
+  compactInstructions,
+} from './composer';
 
 describe('formatTokens', () => {
   it('compacts like pi: 1.2k, 56k, 2.8M', () => {
@@ -187,6 +195,82 @@ function pressSend(host: HTMLElement): void {
   botPrompt(host).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 }
 
+/** A browser File whose bytes are a known, short base64 payload. */
+function fakeFile(name: string, mimeType: string, body: 'img' | 'file' = 'img'): File {
+  return new File([body], name, { type: mimeType });
+}
+
+/**
+ * The bot conversation in front, with one member whose model declares `input`.
+ * `openConversation` is what makes the composer's image gate decide anything:
+ * with no roster it answers `'unknown'` and lets everything through.
+ */
+function openConversation(
+  fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>,
+  input: ('text' | 'image')[],
+): void {
+  const morse = TestBed.inject(MorseService);
+  morse.bot.onRoster({
+    bots: [
+      {
+        username: 'forge',
+        name: 'Forge',
+        description: 'Builds things',
+        engineKind: 'pi',
+        model: { provider: 'p', id: 'm', name: 'Model', input },
+        warm: false,
+      },
+    ],
+    conversations: [
+      { id: 'dm-forge', kind: 'dm', title: 'Forge', members: ['forge'], chainCap: 8, updatedAt: 1 },
+    ],
+  });
+  morse.bot.activeId.set('dm-forge');
+  fixture.detectChanges();
+}
+
+/** A clipboard paste of one image, the way a browser delivers a screenshot. */
+function pasteImage(host: HTMLElement, name: string): void {
+  const box = botPrompt(host);
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
+  Object.defineProperty(event, 'clipboardData', {
+    value: { files: [fakeFile(name, 'image/png')], items: [], types: ['Files'] },
+  });
+  box.dispatchEvent(event);
+}
+
+/** The file dialog's result, since a test cannot open one. */
+function chooseFile(
+  host: HTMLElement,
+  name: string,
+  mimeType: string,
+  body: 'img' | 'file' = 'img',
+): void {
+  const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+  const file = fakeFile(name, mimeType, body);
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/**
+ * Waits for an attachment to land. Reading a browser File is asynchronous (a
+ * `FileReader` per file) and the count differs under load, so this polls for the
+ * effect instead of guessing a number of ticks — a fixed wait passed alone and
+ * failed inside the full suite.
+ */
+async function waitFor(
+  fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>,
+  check: () => void,
+): Promise<void> {
+  await vi.waitFor(
+    () => {
+      fixture.detectChanges();
+      check();
+    },
+    { timeout: 2000, interval: 5 },
+  );
+}
+
 describe('ChatComposer bot variant', () => {
   afterEach(() => TestBed.resetTestingModule());
 
@@ -203,7 +287,13 @@ describe('ChatComposer bot variant', () => {
     expect(host.querySelector('.model-button')).toBeNull();
     expect(host.querySelector('morse-thinking-picker')).toBeNull();
     expect(host.querySelector('morse-option-picker')).toBeNull();
-    expect(host.querySelector('.toolbar')).toBeNull();
+    // Only the attach control is left: a bot has no workspace to mention from
+    // and no slash commands, but it does take an image or a file.
+    const toolbar = host.querySelector('.toolbar') as HTMLElement;
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.querySelectorAll('button')).toHaveLength(1);
+    expect(toolbar.textContent).toContain('attach an image or a file');
+    // Nothing is attached yet, so no chip row either.
     expect(host.querySelector('.attachments')).toBeNull();
     // The editor itself stays: this is the one thing a bot message is typed in.
     expect(botPrompt(host)).not.toBeNull();
@@ -212,7 +302,7 @@ describe('ChatComposer bot variant', () => {
   it('emits botSend on Enter instead of the session prompt path', async () => {
     const { fixture, host, transport } = await mountComposer();
     const emitted: string[] = [];
-    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentInstance.botSend.subscribe((line) => emitted.push(line.text));
     fixture.componentRef.setInput('variant', 'bot');
     fixture.detectChanges();
 
@@ -230,7 +320,7 @@ describe('ChatComposer bot variant', () => {
   it('treats an empty or whitespace-only line as a no-op', async () => {
     const { fixture, host } = await mountComposer();
     const emitted: string[] = [];
-    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentInstance.botSend.subscribe((line) => emitted.push(line.text));
     fixture.componentRef.setInput('variant', 'bot');
     fixture.detectChanges();
 
@@ -246,7 +336,7 @@ describe('ChatComposer bot variant', () => {
   it('sends the bot line from the Send button too', async () => {
     const { fixture, host } = await mountComposer();
     const emitted: string[] = [];
-    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentInstance.botSend.subscribe((line) => emitted.push(line.text));
     fixture.componentRef.setInput('variant', 'bot');
     fixture.detectChanges();
 
@@ -267,6 +357,79 @@ describe('ChatComposer bot variant', () => {
     fixture.componentRef.setInput('variant', 'bot');
     fixture.detectChanges();
     expect(botPrompt(host).placeholder).toBe('Message Forge…');
+  });
+
+  it('carries a pasted image to the bot when its model takes images', async () => {
+    const { fixture, host } = await mountComposer();
+    const lines: BotComposerSend[] = [];
+    fixture.componentInstance.botSend.subscribe((line) => lines.push(line));
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+    openConversation(fixture, ['image']);
+
+    pasteImage(host, 'shot.png');
+    // The image is a chip on the message, exactly like a code session's.
+    await waitFor(fixture, () =>
+      expect(host.querySelector('.attachments .chip img')).not.toBeNull(),
+    );
+
+    typeInto(host, 'what is wrong here?');
+    fixture.detectChanges();
+    pressSend(host);
+    fixture.detectChanges();
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.text).toBe('what is wrong here?');
+    expect(lines[0]?.images).toEqual([{ data: 'aW1n', mimeType: 'image/png' }]);
+    expect(lines[0]?.files).toEqual([]);
+    // The chip row is emptied with the message, not left behind.
+    expect(host.querySelector('.attachments')).toBeNull();
+  });
+
+  it('refuses a pasted image for a model that reported text only, and says why', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+    openConversation(fixture, ['text']);
+
+    pasteImage(host, 'shot.png');
+    await waitFor(fixture, () =>
+      expect(TestBed.inject(AttachmentStore).notice()?.text).toContain('takes text only'),
+    );
+
+    expect(host.querySelector('.attachments')).toBeNull();
+    // The refusal is said where every other attachment notice goes, not hidden.
+    expect(TestBed.inject(AttachmentStore).notice()?.text).toContain(
+      'This bot’s model takes text only',
+    );
+    // A file is still welcome: the refusal is about images, not attachments.
+    expect(host.querySelector('.toolbar')?.textContent).toContain(
+      'this bot’s model takes text only',
+    );
+  });
+
+  it('carries a chosen file to the bot, whose host writes it into its workspace', async () => {
+    const { fixture, host } = await mountComposer();
+    const lines: BotComposerSend[] = [];
+    fixture.componentInstance.botSend.subscribe((line) => lines.push(line));
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+    openConversation(fixture, ['text']);
+
+    chooseFile(host, 'cv.pdf', 'application/pdf', 'file');
+    await waitFor(fixture, () =>
+      expect(host.querySelector('.attachments .chip-name')?.textContent).toContain('cv.pdf'),
+    );
+
+    typeInto(host, 'read my cv');
+    fixture.detectChanges();
+    pressSend(host);
+    fixture.detectChanges();
+
+    expect(lines[0]?.files).toEqual([
+      { name: 'cv.pdf', mimeType: 'application/pdf', data: 'ZmlsZQ==' },
+    ]);
+    expect(lines[0]?.images).toEqual([]);
   });
 
   it('keeps the session run controls out of the bot composer', async () => {
@@ -293,7 +456,7 @@ describe('ChatComposer bot variant', () => {
   it('keeps the default variant sending through the session prompt path', async () => {
     const { fixture, host, transport } = await mountComposer();
     const emitted: string[] = [];
-    fixture.componentInstance.botSend.subscribe((text) => emitted.push(text));
+    fixture.componentInstance.botSend.subscribe((line) => emitted.push(line.text));
 
     typeInto(host, 'hello');
     fixture.detectChanges();

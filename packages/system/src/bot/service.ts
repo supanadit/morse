@@ -17,18 +17,22 @@ import type {
   BotActivity,
   BotAuthor,
   BotConfig,
+  BotFileInput,
   BotConversationSummary,
   BotCreateInput,
   BotGroupCreateInput,
+  BotOutgoingAttachments,
   BotProviderCredentialInput,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
   BotUpdateInput,
+  PromptImage,
 } from '@morse/protocol';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { activityForEvent, startingActivity } from './activity.js';
+import { writeBotAttachments } from './attachments.js';
 import { mentionTokens, parseMentions } from './mentions.js';
 import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
 import { discoverOpenAiCompatibleModels } from './providers.js';
@@ -193,6 +197,12 @@ interface Round {
   target: QueuedTarget | undefined;
   /** What that target is doing, or undefined when it has said its piece. */
   activity: BotActivity | undefined;
+  /**
+   * What the reader attached to the line that started this round. Every bot the
+   * round asks gets them: the attachments are part of the human message, not of
+   * one relay, so a chained teammate sees the same picture the first one did.
+   */
+  attachments: BotOutgoingAttachments;
   /** The gateway answering right now, so `stop` can abort it. */
   current: WarmGateway | undefined;
   /** Relays delivered in this round: the user's line first, then each reply. */
@@ -621,7 +631,7 @@ export class BotService {
    * before the caller's next await, so two clicks cannot fork one conversation
    * into two interleaved rounds.
    */
-  send(conversationId: string, text: string): Promise<void> {
+  send(conversationId: string, text: string, attachments?: BotOutgoingAttachments): Promise<void> {
     const conversation = this.registry.conversations.find(
       (candidate) => candidate.id === conversationId,
     );
@@ -636,7 +646,7 @@ export class BotService {
       this.note(conversationId, ROUND_IN_FLIGHT);
       return Promise.reject(new Error(ROUND_IN_FLIGHT));
     }
-    return this.runConversationRound(conversation, text);
+    return this.runConversationRound(conversation, text, attachments ?? {});
   }
 
   /** Aborts the answer in flight and drops every relay queued behind it. */
@@ -744,20 +754,31 @@ export class BotService {
   private async runConversationRound(
     conversation: ConversationRecord,
     text: string,
+    attachments: BotOutgoingAttachments,
   ): Promise<void> {
+    const images = attachments.images ?? [];
+    const files = attachments.files ?? [];
+    const summary = attachmentSummary(images.length, files.length);
     const round: Round = {
       conversation,
       stopped: false,
       queue: this.resolveTargets(conversation, text),
       target: undefined,
       activity: undefined,
+      attachments: { images, files },
       current: undefined,
-      relays: [relayLine(conversation.title, 'You', text)],
+      // Other bots only ever see the relay text, so what was attached is said
+      // here — otherwise a teammate would answer a message whose picture or
+      // file it was never told about.
+      relays: [relayLine(conversation.title, 'You', summary === '' ? text : `${text}\n${summary}`)],
       seen: new Map(),
       announced: false,
     };
     this.rounds.set(conversation.id, round);
-    this.append(conversation.id, { role: 'user' }, text);
+    this.append(conversation.id, { role: 'user' }, text, {
+      ...(images.length === 0 ? {} : { images }),
+      ...(files.length === 0 ? {} : { files: files.map((file) => file.name) }),
+    });
     this.touched(conversation);
     try {
       while (!round.stopped && round.queue.length > 0) {
@@ -814,6 +835,12 @@ export class BotService {
         ? `${leadBrief(conversation.title)}\n\n${unseen.join('\n\n')}`
         : unseen.join('\n\n');
 
+    // The reader's attachments go to the bot being asked, in its own workspace:
+    // engines take images as prompt content, and a file is written where this
+    // bot's cwd already points, so it opens it with the tools it already has.
+    const attached = this.attachTo(bot, conversation, round.attachments);
+    const promptText = attached === '' ? broadcast : `${broadcast}\n\n${attached}`;
+
     let warm: WarmGateway;
     try {
       warm = await this.ensureGateway(bot, conversation);
@@ -830,7 +857,7 @@ export class BotService {
       // agent-dir AGENTS.md, OpenCode's `instructions`), written once by the
       // layout, so the engine applies it exactly as it would for a hand-built
       // agent. Morse sends only what the reader typed.
-      const outcome = await this.promptAndWait(warm, broadcast);
+      const outcome = await this.promptAndWait(warm, promptText, round.attachments.images);
       if (round.stopped) {
         return undefined;
       }
@@ -1025,7 +1052,11 @@ export class BotService {
   }
 
   /** Prompts one gateway and resolves on its run-end, with the last thing it said. */
-  private async promptAndWait(warm: WarmGateway, text: string): Promise<PromptOutcome> {
+  private async promptAndWait(
+    warm: WarmGateway,
+    text: string,
+    images?: PromptImage[],
+  ): Promise<PromptOutcome> {
     warm.reply = '';
     let deadline: NodeJS.Timeout | undefined;
     const settled = new Promise<PromptOutcome>((resolve) => {
@@ -1047,7 +1078,11 @@ export class BotService {
     this.touch(warm);
     let disposition: PromptDisposition;
     try {
-      disposition = await warm.gateway.prompt(text, 'new');
+      disposition = await warm.gateway.prompt(
+        text,
+        'new',
+        images === undefined || images.length === 0 ? undefined : images,
+      );
     } catch (error) {
       // A prompt the engine refused leaves nothing to wait for; clearing the slot
       // keeps the gateway evictable instead of looking busy forever.
@@ -1222,12 +1257,23 @@ export class BotService {
     }
   }
 
-  private append(conversationId: string, author: BotAuthor, text: string): BotTranscriptEntry {
+  private append(
+    conversationId: string,
+    author: BotAuthor,
+    text: string,
+    attachments?: { images?: PromptImage[]; files?: string[] },
+  ): BotTranscriptEntry {
     const entry = this.transcripts.append(conversationId, {
       id: randomUUID(),
       author,
       text,
       at: this.clock(),
+      ...(attachments?.images === undefined || attachments.images.length === 0
+        ? {}
+        : { images: attachments.images }),
+      ...(attachments?.files === undefined || attachments.files.length === 0
+        ? {}
+        : { files: attachments.files }),
     });
     this.emit({ type: 'transcript', conversationId, entries: [entry], replace: false });
     return entry;
@@ -1346,6 +1392,32 @@ export class BotService {
    * and session directories at the bot's root. The declared names are copied
    * explicitly so a future host that scopes its base cannot silently drop them.
    */
+  /**
+   * Puts the reader's files where this bot can open them and says so in the
+   * prompt, as a path the bot resolves from its own cwd. A file that could not be
+   * written is named in the transcript instead of vanishing: the reader's words
+   * still go out, and they hear which attachment did not.
+   */
+  private attachTo(
+    bot: BotRecord,
+    conversation: ConversationRecord,
+    attachments: BotOutgoingAttachments,
+  ): string {
+    const files: readonly BotFileInput[] = attachments.files ?? [];
+    if (files.length === 0) {
+      return '';
+    }
+    const written = writeBotAttachments(this.workspaceOf(bot.username).cwd, files);
+    if (written.failed.length > 0) {
+      this.note(conversation.id, `${bot.name} could not be given ${written.failed.join(', ')}.`);
+    }
+    if (written.paths.length === 0) {
+      return '';
+    }
+    const lines = written.paths.map((path) => `File from the reader: ${path}`);
+    return `${lines.join('\n')}\n(open them from your workspace; they are not pasted here)`;
+  }
+
   private engineEnv(envVars: readonly string[]): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const name of envVars) {
@@ -1467,6 +1539,22 @@ export class BotService {
 /** The transcript line a relay arrives as: who, in which conversation, said what. */
 function relayLine(title: string, author: string, text: string): string {
   return `[${title}] ${author}: ${text}`;
+}
+
+/**
+ * What was attached, said in one clause for the bots that only get the relay
+ * text: an engine handed real images sees them itself, but a teammate reading a
+ * relay must be told the picture was there.
+ */
+function attachmentSummary(images: number, files: number): string {
+  const parts: string[] = [];
+  if (images > 0) {
+    parts.push(`${images} image${images === 1 ? '' : 's'}`);
+  }
+  if (files > 0) {
+    parts.push(`${files} file${files === 1 ? '' : 's'}`);
+  }
+  return parts.length === 0 ? '' : `[attached: ${parts.join(', ')}]`;
 }
 
 /** The brief an unaddressed group message prefixes onto its lead's prompt. */

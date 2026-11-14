@@ -8,6 +8,7 @@ import type {
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
+import { AttachmentStore } from '../../state/attachments';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotChat } from './bot-chat';
 
@@ -130,6 +131,48 @@ describe('BotChat', () => {
 
     expect(host.querySelector('.transcript')?.textContent).toContain('Forge, are you there?');
     expect(host.querySelector('.transcript')?.textContent).not.toContain('Workshop line');
+  });
+
+  it('shows what the reader attached, and sends it on with the line', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, [
+      {
+        id: '1',
+        author: { role: 'user' },
+        text: 'what is wrong with this?',
+        at: 1,
+        images: [{ data: 'aW1n', mimeType: 'image/png' }],
+        files: ['cv.pdf'],
+      },
+    ]);
+    fixture.detectChanges();
+
+    // The reader's own bubble keeps what they sent: a thumbnail and a file chip.
+    const bubble = host.querySelector('.entry.user .bubble') as HTMLElement;
+    expect(bubble.querySelector('.sent-image')?.getAttribute('src')).toBe(
+      'data:image/png;base64,aW1n',
+    );
+    expect(bubble.querySelector('.sent-file')?.textContent?.trim()).toBe('cv.pdf');
+    expect(bubble.textContent).toContain('what is wrong with this?');
+  });
+
+  it('keeps the bot draft and its attachments out of the code session behind it', async () => {
+    const { fixture, morse } = await render();
+    const attachments = TestBed.inject(AttachmentStore);
+    // The code session in front is editing its own draft while bot mode is open.
+    attachments.use('session-code');
+    open(morse, dm, []);
+    fixture.detectChanges();
+
+    await attachments.acceptFiles([
+      new File(['img'], 'shot.png', { type: 'image/png' }),
+      new File(['file'], 'cv.pdf', { type: 'application/pdf' }),
+    ]);
+    fixture.detectChanges();
+
+    // The bot message owns them: the code session's composer stays empty.
+    expect(attachments.isEmpty('session-code')).toBe(true);
+    expect(attachments.isEmpty('bot:dm-forge')).toBe(false);
   });
 
   it('draws the round where the answer will land, and takes it away again', async () => {

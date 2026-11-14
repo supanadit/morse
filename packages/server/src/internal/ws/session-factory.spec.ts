@@ -147,6 +147,26 @@ describe('MorseSessionFactory bot wiring', () => {
     expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: bot.roster });
   });
 
+  it('carries the reader’s attachments with the line', async () => {
+    const bot = fakeBot();
+    const { controller } = connect(factoryWith(bot.service));
+
+    await controller.handleClientMessage({
+      type: 'bot/send',
+      payload: {
+        conversationId: 'dm-x',
+        text: 'what do you make of this?',
+        images: [{ data: 'aGk=', mimeType: 'image/png' }],
+        files: [{ name: 'cv.pdf', mimeType: 'application/pdf', data: 'aGk=' }],
+      },
+    });
+
+    expect(bot.calls.send).toHaveBeenCalledWith('dm-x', 'what do you make of this?', {
+      images: [{ data: 'aGk=', mimeType: 'image/png' }],
+      files: [{ name: 'cv.pdf', mimeType: 'application/pdf', data: 'aGk=' }],
+    });
+  });
+
   it('runs bot/send without awaiting it and forwards the transcript events', async () => {
     const bot = fakeBot();
     const { controller, messages } = connect(factoryWith(bot.service));
@@ -155,7 +175,8 @@ describe('MorseSessionFactory bot wiring', () => {
       type: 'bot/send',
       payload: { conversationId: 'dm-x', text: 'hi' },
     });
-    expect(bot.calls.send).toHaveBeenCalledWith('dm-x', 'hi');
+    // A line with nothing attached sends an empty attachment set, never a hole.
+    expect(bot.calls.send).toHaveBeenCalledWith('dm-x', 'hi', {});
 
     bot.emit({
       type: 'transcript',

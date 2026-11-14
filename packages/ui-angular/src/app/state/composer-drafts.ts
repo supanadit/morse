@@ -32,9 +32,38 @@ export class ComposerDrafts {
   /** The draft of the tab in front. */
   readonly text = computed(() => this.texts()[this.key()] ?? '');
 
+  /**
+   * A view that owns its own draft while it is mounted — bot mode, whose
+   * conversation is not a tab of the code workspace. While a scope is pinned,
+   * `use` from the tab strip is ignored, so the reader's bot message and the
+   * screenshot attached to it cannot drift into whichever code session happens to
+   * be open behind the bot view.
+   */
+  private pinned: string | undefined;
+
   /** Points the draft — and its attachments — at `key`; `''` when none is in front. */
   use(key: string | undefined): void {
-    const next = key ?? '';
+    if (this.pinned !== undefined) {
+      return;
+    }
+    this.apply(key ?? '');
+  }
+
+  /**
+   * Claims the draft scope for a view that is not a workspace tab, and answers the
+   * release to run when it goes away. Pinning twice replaces the claim.
+   */
+  pinDraft(key: string): () => void {
+    this.pinned = key;
+    this.apply(key);
+    return () => {
+      if (this.pinned === key) {
+        this.pinned = undefined;
+      }
+    };
+  }
+
+  private apply(next: string): void {
     if (next === this.key()) {
       return;
     }

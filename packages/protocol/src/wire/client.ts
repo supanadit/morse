@@ -5,6 +5,7 @@
 import type {
   BotCreateInput,
   BotCredentialInput,
+  BotFileInput,
   BotGroupCreateInput,
   BotProviderCredentialInput,
   BotUpdateInput,
@@ -334,10 +335,19 @@ export interface BotHistoryMessage extends ClientMessageBase {
   payload: { conversationId: string; before?: string; limit?: number };
 }
 
-/** Sends the reader's line to a conversation and starts a routing round. */
+/**
+ * Sends the reader's line to a conversation and starts a routing round. Images
+ * and files ride with it: a bot conversation has no separate upload channel, and
+ * a multi-megabyte file is one message either way.
+ */
 export interface BotSendMessage extends ClientMessageBase {
   type: 'bot/send';
-  payload: { conversationId: string; text: string };
+  payload: {
+    conversationId: string;
+    text: string;
+    images?: PromptImage[];
+    files?: BotFileInput[];
+  };
 }
 
 /** Stops the round in flight, cancelling its queued relays. */

@@ -282,6 +282,21 @@ nothing else. Two rules follow from that, and both are easy to break by accident
 The round is announced before its engine is warm (`starting`, "Getting started…"), because starting one takes
 seconds and a silent chat in those seconds reads as a dropped message.
 
+### What a bot message can carry
+
+A bot conversation has no workspace picker and no upload route, so a message carries its attachments: `bot/send`
+takes `images` (base64, the same `PromptImage` a code session sends) and `files`. Images become prompt content for
+the engine; files are decoded by `packages/system/src/bot/attachments.ts` into that bot's own
+`workspace/uploads/`, and the prompt names the relative path — each bot's cwd is its own workspace, so the bot
+opens it with the tools it already has and no bot ever sees another's attachments. Attachments ride along with
+every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
+relay text, is told what came with it (`[attached: 1 image, 1 file]`).
+
+Pasting an image is gated by the model, not by the mode: a bot whose model reports an `image` modality takes a
+screenshot exactly as a code session does, a model that reported itself text-only is refused with the reason, and
+one whose engine never said gets the benefit of the doubt — the same rule as the model picker showing no badge
+rather than claiming text-only.
+
 ## NestJS host specifics
 
 Two things about the NestJS host are easy to get wrong:

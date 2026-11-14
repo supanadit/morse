@@ -237,6 +237,47 @@
   background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
   overflow-wrap: anywhere;
 }
+/* What the reader attached, above their words: thumbnails, then file chips. */
+.sent-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.sent-image {
+  max-width: 180px;
+  max-height: 140px;
+  border-radius: var(--morse-radius-md);
+  border: 1px solid var(--morse-border);
+  object-fit: cover;
+}
+.sent-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.sent-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sent-file::before {
+  content: '⧉';
+  flex: none;
+  opacity: 0.75;
+}
+
 /* A bot's line: its mark, its name, then the answer as markdown. */
 .entry.bot {
   align-items: flex-start;

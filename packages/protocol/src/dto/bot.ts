@@ -5,6 +5,7 @@
  */
 import type { ModelOption } from './model.js';
 import type { ThinkingLevel } from './primitives.js';
+import type { PromptImage } from './transcript.js';
 
 /** One bot in the roster, as the sidebar lists it. */
 export interface BotSummary {
@@ -55,6 +56,20 @@ export type BotAuthor =
   | { role: 'discussion' };
 
 /**
+ * One file the reader attached to a line. A bot has no upload channel of its own,
+ * so the bytes travel with the send and the host writes them into the bot's own
+ * workspace: the bot then opens the path with its ordinary tools, exactly as it
+ * would open any other file there.
+ */
+export interface BotFileInput {
+  /** The file's own name; the host keeps it, made safe for a path. */
+  name: string;
+  mimeType: string;
+  /** Base64, without a `data:` prefix. */
+  data: string;
+}
+
+/**
  * One line of a bot conversation. Tool activity stays out of the transcript; a
  * routing notice or a chain-cap note is a `system` line, not chat.
  */
@@ -63,6 +78,10 @@ export interface BotTranscriptEntry {
   author: BotAuthor;
   text: string;
   at: number;
+  /** Images the reader sent with this line, kept so the bubble can show them. */
+  images?: PromptImage[];
+  /** Names of the files sent with this line, as the reader attached them. */
+  files?: string[];
 }
 
 /**
@@ -98,6 +117,12 @@ export interface BotRoutingState {
   queued: string[];
   /** What the target is doing right now; absent until it reports, and after it says. */
   activity?: BotActivity;
+}
+
+/** What the reader attached to one line, when anything was. */
+export interface BotOutgoingAttachments {
+  images?: PromptImage[];
+  files?: BotFileInput[];
 }
 
 /** One provider credential the wizard collected, written into the bot's own config. */

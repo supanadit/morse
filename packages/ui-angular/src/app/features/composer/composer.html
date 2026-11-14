@@ -74,9 +74,31 @@
   <div class="resize" title="Drag to resize the prompt" (pointerdown)="onResizeStart($event)"></div>
   <!--
        The session's toolbar — attach, mention and command hints, throughput,
-       folding and maximizing. None of it belongs to a bot conversation, so the
-       bot variant is the box and its editor alone.
+       folding and maximizing. A bot conversation keeps only the attach button:
+       it has no workspace to mention from and no slash commands, but it does take
+       an image or a file.
   -->
+  @if (variant === 'bot') {
+    <div class="toolbar">
+      <button
+        type="button"
+        class="icon"
+        title="Attach an image or a file to this message"
+        aria-label="Attach an image or a file to this message"
+        (click)="onAddFiles()"
+      >
+        +
+      </button>
+      <input #fileInput type="file" multiple hidden (change)="onFilesChosen($event)" />
+      <span class="hint muted">
+        @if (botImages() === 'no') {
+          attach a file · this bot’s model takes text only
+        } @else {
+          attach an image or a file
+        }
+      </span>
+    </div>
+  }
   @if (variant !== 'bot') {
   <div class="toolbar">
     <button
@@ -179,7 +201,10 @@
     />
   }
 
-  @if ((images().length || pins().length || livePreview() !== null) && variant !== 'bot') {
+  @if (
+    (images().length || files().length || pins().length || livePreview() !== null) &&
+    (variant !== 'bot' || images().length > 0 || files().length > 0)
+  ) {
     <ul class="attachments">
       @if (livePreview(); as live) {
         <li class="chip live" [morseEnter]="0" [morseEnterY]="6" [morseEnterScale]="0.55" [morseEnterDuration]="320">
@@ -224,6 +249,26 @@
             class="chip-remove"
             [attr.aria-label]="'Remove ' + image.name"
             (click)="removeImage(image.id)"
+          >
+            ×
+          </button>
+        </li>
+      }
+      @for (file of files(); track file.id; let index = $index) {
+        <li
+          class="chip"
+          [morseEnter]="chipOffset() + images().length + index"
+          [morseEnterY]="6"
+          [morseEnterScale]="0.55"
+          [morseEnterDuration]="320"
+        >
+          <span class="pin-icon" aria-hidden="true">⧉</span>
+          <span class="chip-name" [title]="file.name">{{ file.name }}</span>
+          <button
+            type="button"
+            class="chip-remove"
+            [attr.aria-label]="'Remove ' + file.name"
+            (click)="removeFile(file.id)"
           >
             ×
           </button>
