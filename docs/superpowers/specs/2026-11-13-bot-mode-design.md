@@ -187,7 +187,7 @@ hand-editing `~/.config/opencode/opencode.json[c]` or `~/.pi/agent/models.json`,
 - **Provider record** (Morse's abstraction): `{ id, label, api, baseUrl?, credential, models }`
   where `api` is one of `openai-completions | openai-responses | anthropic-messages |
   google-generative-ai` and `credential` is a stored key or an `$ENV` reference.
-- **Engine mapping**: OpenCode bots get a `providers.<id>` block in the bot's `opencode.json`
+- **Engine mapping**: OpenCode bots get a `providers.<id>` block in the bot's `opencode.json[c]`
   (`package` chosen by `api`: openai-completions → `@opencode/ai/providers/openai-compatible`,
   anthropic-messages → `@opencode/ai/providers/anthropic-compatible`, google-generative-ai →
   `@opencode/ai/providers/google`; `settings.baseURL`; key via `settings.apiKey` or `env`), with

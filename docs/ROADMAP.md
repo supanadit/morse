@@ -23,8 +23,9 @@ same session, sidebar and transcript.
 - **Two engines** — `@morse/integration-opencode` implements `SessionEngine` against OpenCode's v2 HTTP API
   (attach or spawn, one SSE stream, event/message/model mapping, forms and permissions); pi remains the
   subprocess engine.
-- **Capability ports** — `AgentExtras` (`mcp`, `prompts`, `version`, `cli`) on `AgentIntegration`; hosts read
-  them from the default engine, so OpenCode shows no MCP editor, prompt editor or pi update notice.
+- **Capability ports** — `AgentExtras` (`mcp`, `prompts`, `version`, `cli`) on `AgentIntegration`; the browser
+  host resolves them per engine, while the VS Code window reads one fixed administration from its default
+  engine. OpenCode supplies MCP and prompt administration but no version notice.
 - **Forms** — `AgentFormRequest` through the harness contract, the wire protocol and the interaction panel; a
   native-dialog host still sends forms to the frontend, which is the only surface that can render them.
 
@@ -35,8 +36,6 @@ Each is a coherent next change, not a gap in the foundation:
 - **Session rename** — a command that writes the engine's own title through the adapter.
 - **An OpenCode agent picker** — selecting `build`/`plan` is intentionally absent until the engine's agent
   catalog has a place in `AgentSessionState`.
-- **MCP/prompt editors for OpenCode** — OpenCode has its own config surface; a Morse editor for it is a
-  separate feature, not a capability port.
 - **Restarting a crashed owned server** — the stream reports `agent/fatal`; restart is a policy decision.
 
 ## Not doing

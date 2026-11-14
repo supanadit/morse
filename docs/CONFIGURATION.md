@@ -94,11 +94,15 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
   run as a bare `/name`, and OpenCode expands them itself (including its shell-injection and `@file` features,
   which Morse does not substitute). Commands Morse cannot find a file for — plugin-provided ones, nested
   `a/b` names — run the same way.
-- OpenCode's MCP servers and prompt templates are managed by the same panels as pi's: the MCP manager reads
-  the `mcp` key of `opencode.json[c]` and reports configured state — OpenCode connects a server when a session
-  starts — and the prompt editor lists its command files and the config's `command` entries. Only the version
-  notice is absent: OpenCode reports no installed version to Morse, so the "newer release" row never appears
-  for it. A compaction asked for with custom instructions runs without OpenCode-specific extras and says so.
+- **In the browser host**, OpenCode's MCP servers and prompt templates are managed by the same panels as pi's:
+  the MCP manager reads the `mcp` key of `opencode.json[c]` and reports configured state — OpenCode connects a
+  server when a session starts — and the prompt editor lists its command files and the config's `command`
+  entries. The VS Code window wires one fixed MCP/prompt administration from its default engine instead: with
+  pi as the default those panels edit pi's files even from an OpenCode session, and with OpenCode as the
+  default its MCP manager is not offered at all (VS Code gates MCP on an engine CLI, which OpenCode has none
+  of) — its prompt editor does work there. OpenCode's version notice is absent in both hosts: it reports no
+  installed version to Morse, so the "newer release" row never appears for it. A compaction asked for with
+  custom instructions runs without OpenCode-specific extras and says so.
 
 Morse's session index lives under `<MORSE_HOME>/sessions/` (the VS Code extension uses its global storage).
 It is what the sidebar lists; each engine's own storage still holds the conversations.
@@ -143,13 +147,14 @@ runs for this.
 | OpenCode | `<xdg config>/opencode/opencode.json`, or `opencode.jsonc` beside it (the `jsonc` wins) | `<project>/.opencode/opencode.json[c]`, then `<project>/opencode.json[c]`, and the same pair in every ancestor |
 
 Every `.opencode` config outranks every direct one, and a nearer directory outranks a further one — OpenCode's
-own precedence. An OpenCode save lands in the first existing file of that order (in the project, or the user's
-file when there is no project), and a tree with no config at all gets a new `opencode.json`. A pi project file
-is read only while pi would load it, so the panel shows pi's **Trust this project** until it is.
+own precedence. An OpenCode save lands in the first existing file of that order — in the project, or the user's
+file when there is no project — and a project with no config of its own gets a new `<project>/opencode.json`
+(a user tree with none gets `<config>/opencode.json`). A pi project file is read only while pi would load it, so
+the panel shows pi's **Trust this project** until it is.
 
-Both managers read **JSON or JSONC**: comments and trailing commas in a user's file are read, not rejected.
-They share one foundation (`@morse/engine-config`), so the read, preserve and Fix rules below hold for either
-engine; what differs is each engine's own file spelling.
+Both MCP managers read **JSON or JSONC**: comments and trailing commas in a user's file are read, not
+rejected. They share one foundation (`@morse/engine-config`), so the read, preserve and Fix rules below hold
+for either engine; what differs is each engine's own file spelling.
 A project entry shadows the user-level server of the same name. pi's project entry with none of `command`,
 `url` or `type` is an *override* that only pins `enabled`/`exposure` for that directory (the same thing pi's
 own `/mcp` writes); OpenCode's entry replaces a same-named one outright.
@@ -171,7 +176,8 @@ does not manage, and the `mcpServers`/`mcp` block is deleted once its last entry
 **Fix** rewrites one of those files as strict JSON at the same path, dropping comments and trailing commas, so
 the next edit can land. It only touches a path the selected engine resolved for that file id and scope — the
 write target or a read fallback, including a `.jsonc` or ancestor file — never an arbitrary path. The browser
-host offers it beside a fixable issue; a file with a real syntax error is reported as needing a hand edit,
+host offers it beside a fixable issue; VS Code does not implement the fix request, so a file it cannot write has
+to be repaired by hand there. A file with a real syntax error is reported as needing a hand edit in either host,
 because Fix does not guess at missing braces or unquoted keys. Morse never silently strips a user's comments:
 a write to a JSONC user file is refused until Fix is used.
 

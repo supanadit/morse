@@ -5,9 +5,9 @@ import { existsSync, readFileSync } from 'node:fs';
  *
  * OpenCode keeps everything — agents, providers, models *and* MCP servers — in
  * one file, so the writers that only own part of it hand a whole document
- * through this pair instead of reaching for `JSON.parse` each time. The layout
- * and the MCP store go through the engine instead; this is what is left for the
- * bot writers whose sections no store owns yet.
+ * through this reader instead of reaching for `JSON.parse` each time. The
+ * layout and the MCP store go through the engine instead; this is what is left
+ * for the bot writers whose sections no store owns yet.
  */
 
 /** A parsed document. Keys Morse does not know are carried through as read. */

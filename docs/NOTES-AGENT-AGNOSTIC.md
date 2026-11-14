@@ -32,8 +32,9 @@ is never duplicated.
    currently running is protected from a report that omits it (the engine may still be writing its file): the
    first live implementation lost its own new session to exactly that race.
 5. **Engine-only features are optional ports.** `AgentExtras` (`mcp`, `prompts`, `version`, `cli`) lives on
-   `AgentIntegration`; the hosts read the default engine's extras. OpenCode supplies none, so the MCP editor,
-   prompt editor and pi version notice are absent instead of dead UI.
+   `AgentIntegration`; the browser host resolves them per engine, and the VS Code window reads one fixed
+   administration from its default engine. OpenCode supplies MCP and prompt administration but no version
+   notice, so an affordance appears only where the host actually has the port.
 6. **A form is its own interaction kind.** Several typed fields do not fit a select; `AgentFormRequest` travels
    the same contract/wire/panel path, and a host with native dialogs still sends it to the frontend.
 7. **Modes are optional harness vocabulary.** A harness that offers named ways of working reports them on the

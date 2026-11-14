@@ -39,6 +39,7 @@ conversation. See [`FRONTENDS.md`](FRONTENDS.md) for swapping Angular for React,
 | `packages/agent` | The harness contract | Pure TypeScript with **no dependencies**: what any agent engine must expose. Must never import `@morse/system` |
 | `packages/system` | Morse's domain, session index, use cases **and host glue** | Pure TypeScript: no `vscode`, no NestJS, no `child_process`. Hosts mount `HostSessionController` from here |
 | `packages/protocol` | Wire contract between hosts and frontends | Versioned, framework-free, includes the view reducer |
+| `packages/engine-config` | Engine-generic configuration foundation | Files, sections and resource stores every engine integration extends: JSON/JSONC, atomic writes, issues and Fix. Imports `@morse/protocol` only |
 | `packages/integration-pi` | Driven adapter for pi | Spawns `pi --mode rpc`, JSONL client, event mapping, session catalog |
 | `packages/integration-opencode` | Driven adapter for OpenCode | HTTP client (no SDK), one SSE stream per engine, event/message mapping. Attaches to a server or spawns a private one |
 | `packages/ui-runtime` | Frontend core (framework-free) | VS Code / WebSocket / mock transports + the Morse client |
@@ -52,9 +53,10 @@ conversation. See [`FRONTENDS.md`](FRONTENDS.md) for swapping Angular for React,
 ```
 packages/agent            the harness contract                (imports nothing, no dependencies)
 packages/protocol         wire contract + view reducer        (imports nothing)
+packages/engine-config    engine config files, stores, Fix    (imports protocol)
 packages/system           domain, index, use cases, host glue (imports agent, protocol)
-packages/integration-pi   driven adapter for pi               (imports agent, system)
-packages/integration-opencode driven adapter for OpenCode     (imports agent, system)
+packages/integration-pi   driven adapter for pi               (imports agent, system, engine-config)
+packages/integration-opencode driven adapter for OpenCode     (imports agent, system, engine-config)
 packages/ui-runtime       frontend core                       (imports protocol)
 packages/ui-angular       frontend presentation               (imports protocol, ui-runtime)
 packages/extension        composition root #1 + VS Code delivery
@@ -71,6 +73,8 @@ extension / server ──> integration-pi ─────┐
                                 │
                                 └──> protocol <── ui-runtime <── ui-angular
 ```
+
+The integrations also extend `@morse/engine-config`, which imports `@morse/protocol` only.
 
 ## Inside a frontend
 
@@ -213,9 +217,12 @@ The registry is handed an **`AgentRouter`** (`system/src/session/agent-router.ts
 last report marker, so a reconcile skips an unchanged session without reading its transcript.
 
 `HostCapabilities` still describes the host, but the engine-specific affordances (MCP administration, prompt
-templates, version) now come from the **default engine's** optional `AgentExtras`; an engine that has none —
-OpenCode — leaves the host showing no MCP editor, no prompt editor and no update notice. `capabilities.engines`
-carries the pickable engines; `SessionViewState.draft` marks the empty panel, where the engine may still change.
+templates, version) come from an engine's optional `AgentExtras`. The browser/NestJS host resolves them **per
+engine** — the management commands name the engine they act on — so OpenCode supplies MCP and prompt
+administration and no version notice. The VS Code window wires one fixed administration from its **default
+engine's** extras and gates MCP on `extras.cli`: an OpenCode-default window shows no MCP manager, while a
+pi-default window's MCP panel edits pi from either engine's sessions. `capabilities.engines` carries the
+pickable engines; `SessionViewState.draft` marks the empty panel, where the engine may still change.
 
 A harness that offers named ways of working reports `mode` and `availableModes` on its session state. The shared
 controller can create a session in a named mode, switch a running one (`mode/set`), and re-read the catalog
@@ -400,5 +407,6 @@ The extension test needs a graphical session (or `xvfb-run`); it downloads VS Co
 Session listing is Morse's index, fed by each engine's optional `scan()`; pi's catalog still reads its JSONL
 files (`~/.pi/agent/sessions/--<cwd>--/*.jsonl`) because the RPC surface has no "list sessions" command, but the
 id Morse exposes is the derived one. Session rename lives with the engine (neither adapter exposes one yet), and
-a diff/review surface remains the next natural addition. OpenCode supplies no MCP or prompt-template
-administration, so those host editors are absent when it is the default engine.
+a diff/review surface remains the next natural addition. OpenCode supplies MCP and prompt-template
+administration to the browser host (configured state only, and no version notice); the remaining gap is the VS
+Code window's fixed default-engine extras wiring, not OpenCode's integrations.

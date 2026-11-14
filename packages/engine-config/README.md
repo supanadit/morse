@@ -34,8 +34,10 @@ Everything is exported from `src/index.ts`; there is no second entry point.
 resolveEngineContext(input) ──> EngineContext { ownership, home, cwd?, env, xdgConfigHome, xdgDataHome, root? }
 
 EngineDefinition                     kind, create(context), isolated(root, options?)
-  └─ EngineInstance                  definition, context, ownership, paths, file, fileAt, scopeOf, mcp?, prompts?
-       implements ConfigLocator      (ownership, paths, file, fileAt, scopeOf)
+      │ creates
+      ▼
+EngineInstance                       definition, context, ownership, paths, file, fileAt, scopeOf, mcp?, prompts?
+      implements ConfigLocator       (ownership, paths, file, fileAt, scopeOf)
 
 ConfigFormat                         kind ('json' | 'jsonc'), parse, serialize
   └─ JsonFormat                      strict JSON out; strict JSON first, then JSONC in
@@ -47,8 +49,10 @@ ConfigSection<T>                     key, decode(raw, context), encode(value, ex
   └─ NamedConfigSection<T>           a `{ name: entry }` block; decodeEntry/encodeEntry, isOverride,
                                      keepsOnReplace
 
+Document store (not a ResourceStore: no list/remove)
+└─ ConfigStore<T>                    read/save/normalize/signature over the whole document
+
 ResourceStore<T, TSave>              list, save, remove, signature
-├─ ConfigStore<T>                    the whole document is the resource
 ├─ ConfigResourceStore<T, TItem>     named entries of one block; upsert/remove/replaceManaged/apply/normalize
 │    └─ McpStore                     names validated, overrides merged, project override hook, enable/disable
 ├─ FileResourceStore<T, TSave>       one file per item in a global and a project directory
@@ -58,8 +62,10 @@ ResourceStore<T, TSave>              list, save, remove, signature
 
 A store is written against `ConfigLocator` (`paths`, `file`, `fileAt`, `scopeOf`, `ownership`), not
 against a concrete engine. `EngineInstance` implements that interface, so a manager hands the engine
-itself to its stores while the foundation keeps the surface narrow: a store can only open the paths its
-locator resolved.
+itself to its stores. The base algorithms only open the paths in the chain they resolved; `file` and
+`fileAt` trust their caller with a path, so a Fix handler validates the issue's absolute `file`
+against the resolved chain before it calls `fileAt(...)` — which is exactly what the pi and OpenCode
+managers do.
 
 `EngineDefinition.isolated(root)` is the bot/Code-Mode form: `ownership: 'isolated'`, that root as the
 engine's own global home, no project discovery (`scope: 'project'` is refused with an `unsupported`
@@ -224,9 +230,9 @@ administration port: `AgentExtras.fix` and the host commands that route through 
 
 ## Rules this package enforces for you
 
-- Every mutation opens its target through the locator — `write` for an upsert/remove/managed
-  replacement, the path that defined an entry for a `setEnabled` — so the engine's resolver decides
-  every path a store can touch.
+- Every mutation takes its target from the locator — `write` for an upsert/remove/managed
+  replacement, the path that defined an entry for a `setEnabled` — so the engine's resolver chooses the
+  file; a path handed to `fileAt` directly is trusted, which is why Fix validates it first (above).
 - MCP server names (`^[A-Za-z0-9_-]+$`, not `__proto__`/`prototype`/`constructor`) are validated before
   becoming object keys, on read and on write.
 - `McpStore.setEnabled` with no scope edits the nearest definition, and a project edit of a user-level

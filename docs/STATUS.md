@@ -160,8 +160,10 @@ turns them on so the panel stands on its own:
 ### MCP servers
 
 pi already connects MCP servers from `~/.pi/agent/mcp.json` and a project's `.pi/mcp.json`, and OpenCode from
-the `mcp` key of `opencode.json[c]`. Morse adds a manager for both (`Ctrl+Alt+S`, or the indicator dot in the
-chat toolbar, gated on `capabilities.mcp`):
+the `mcp` key of `opencode.json[c]`. The browser host adds a manager for both (`Ctrl+Alt+S`, or the indicator
+dot in the chat toolbar, gated on `capabilities.mcp`); the VS Code window wires the MCP administration from its
+default engine only, and gates it on an engine CLI — which OpenCode has none of, so an OpenCode-default window
+shows no MCP manager:
 
 - **Indicator**: a dot whose colour is the active directory's MCP health — green when every enabled server
   connected, amber while one is connecting or needs sign-in, red when one failed or the config is malformed.
@@ -170,10 +172,11 @@ chat toolbar, gated on `capabilities.mcp`):
   cached for a minute per directory. Servers a pi extension registers have no file entry, so they are not
   listed — the panel says the list is configured files only.
 - **Manage**: remove a server and enable or disable it. One scope control — **This project** (default) or
-  **Global** — decides which file every action writes. "This project" writes `.pi/mcp.json`; disabling a
-  user-level server there writes a **project override** (like pi's "Disable in this project"), so other
-  projects are unaffected. Enable/disable edits the same `mcp.json` pi reads; every other key and entry is
-  preserved. The manager is the list; adding a server is a separate editor view.
+  **Global** — decides which file every action writes. "This project" writes pi's `.pi/mcp.json` or
+  OpenCode's project `opencode.json[c]`; disabling a pi user-level server there writes a **project override**
+  (like pi's "Disable in this project"), so other projects are unaffected. Enable/disable edits the same file
+  that defines the server; every other key and entry is preserved. The manager is the list; adding a server is
+  a separate editor view.
 - **Read JSONC, fix it explicitly**: both engines' files are read as JSON or JSONC, so a file with comments
   or trailing commas still lists. A write to a user's JSONC file is refused instead of silently dropping the
   comments; a malformed file or entry is shown with its file, JSON pointer and a bounded snippet, and
@@ -183,7 +186,7 @@ chat toolbar, gated on `capabilities.mcp`):
   The editor builds the entry and **Test connection** probes it with Morse's own MCP client (no Inspector
   package): `initialize` + `tools/list` / `resources/list` / `prompts/list` over stdio or Streamable HTTP, so
   the tools (or the exact failure: `auth`, `unreachable`, `timeout`, `protocol`, `spawn`) are visible before
-  anything is written to `mcp.json`. A half-filled entry survives a reload: the form is kept in the host's
+  anything is written to the engine's config. A half-filled entry survives a reload: the form is kept in the host's
   own store (VS Code's webview state, restored by a panel serializer; `localStorage` in the browser), and the
   browser host also restores the MCP tab itself.
 - Project config is trust-gated by pi. When the project is not trusted the panel shows pi's note and a
@@ -200,9 +203,10 @@ chat toolbar, gated on `capabilities.mcp`):
 - Prompt templates run from a generated form with a live preview; a template file added or edited shows up
   without restarting pi (`commands/refresh`). A template pi refuses — bad YAML frontmatter, its own "Prompt
   conflicts" — is dropped from the palette and shown as one warning row above the conversation (never inside
-  it), with the files and pi's message behind a **Details** click. The same editor edits OpenCode's
-  `commands/*.md` files and the user config's `command` entries, and lists a config file it cannot write yet
-  as an issue with its **Fix**.
+  it), with the files and pi's message behind a **Details** click. In the browser host the same editor edits
+  OpenCode's `commands/*.md` files and the user config's `command` entries, and lists a config file it cannot
+  write yet as an issue with its **Fix**; the VS Code window's editor is wired to its default engine's
+  templates only.
 - A model added to `models.json` shows up without restarting the host or the session: opening the model
   picker asks for a fresh catalog (`models/refresh`), and a reload re-reads the warm session's catalog.
   On a draft the session-less probe is re-run; on a warm session it is a plain RPC re-read.
@@ -249,8 +253,8 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   that title and derives one from the first prompt before the engine names it, but has no rename command.
 - **OpenCode-only gaps, by design** — no Morse-side mode editor (modes are OpenCode's own agents), no custom
   compaction instructions, no version notice, and no automatic restart of a crashed owned server. Each is
-  reported rather than simulated: a compaction with instructions warns and compacts without them; OpenCode's
-  MCP manager reports configured state rather than a live probe.
+  reported rather than simulated: a compaction with instructions warns and compacts without them; the browser
+  host's OpenCode MCP manager reports configured state rather than a live probe.
 - **Editing files in the browser** — the file tab is a read-only editor by design. It reads, folds, searches,
   quotes and diffs, but nothing writes: there is no save path, no dirty state and no language server.
 - **Staging, approving or rejecting changes as a set** — diffs are shown (tool-call diffs in the transcript,
