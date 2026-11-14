@@ -136,15 +136,23 @@ export interface EngineContext {
   root?: string;
 }
 
+/** The path/file resolver a store needs; `EngineInstance` is its full form. */
+export interface ConfigLocator {
+  readonly ownership: 'user' | 'isolated';
+  paths(fileId: string, scope: ConfigScope, cwd?: string): ConfigPaths;
+  file(fileId: string, scope: ConfigScope, cwd?: string): ConfigFile;
+}
+
 export abstract class EngineDefinition {
   abstract readonly kind: string;
   abstract create(context: EngineContext): EngineInstance;
   isolated(root: string, options?: { env?: NodeJS.ProcessEnv; home?: string }): EngineInstance;
 }
 
-export abstract class EngineInstance {
+export abstract class EngineInstance implements ConfigLocator {
   abstract readonly definition: EngineDefinition;
   abstract readonly context: EngineContext;
+  abstract readonly ownership: 'user' | 'isolated';
   abstract paths(fileId: string, scope: ConfigScope, cwd?: string): ConfigPaths;
   abstract file(fileId: string, scope: ConfigScope, cwd?: string): ConfigFile;
   abstract readonly mcp: McpStore | undefined;
@@ -173,7 +181,7 @@ export abstract class ResourceStore<TItem, TSave = TItem> {
 
 export abstract class ConfigResourceStore<T, TItem = T>
   extends ResourceStore<TItem, T> {
-  protected constructor(engine: EngineInstance, fileId: string);
+  protected constructor(locator: ConfigLocator, fileId: string);
   abstract readonly section: NamedConfigSection<T>;
   /** Apply a managed set to an already-read document. Pure: never writes. */
   abstract apply(document: ConfigDocument, items: readonly T[]): {
@@ -509,15 +517,15 @@ git commit -m "feat(engine): read JSONC and write config files atomically"
 - Create: `packages/engine-config/src/core/section.ts`
 - Create: `packages/engine-config/src/core/config-store.ts`
 - Create: `packages/engine-config/src/engine/context.ts`
-- Create: `packages/engine-config/src/engine/definition.ts`
-- Create: `packages/engine-config/src/engine/instance.ts`
+- Create: `packages/engine-config/src/engine/locator.ts`
 - Test: `packages/engine-config/src/core/config-store.spec.ts`
-- Test: `packages/engine-config/src/engine/instance.spec.ts`
+- Test: `packages/engine-config/src/engine/context.spec.ts`
 - Modify: `packages/engine-config/src/index.ts`
 
 **Interfaces:**
 - Consumes: `JsonConfigFile`, `ConfigFormat` from Task 2.
-- Produces: `ConfigSection`, `NamedConfigSection`, `ConfigStore`, `ConfigResourceStore`, `EngineContext`, `resolveEngineContext`, `EngineDefinition`, `EngineInstance`, `ConfigPaths`.
+- Produces: `ConfigSection`, `NamedConfigSection`, `ConfigStore`, `ConfigResourceStore`, `EngineContext`, `resolveEngineContext`, `ConfigLocator`, `ConfigPaths`.
+- Does not produce `EngineDefinition`/`EngineInstance`; those arrive in Task 6 once `McpStore` (Task 5) and `PromptStore` (Task 4) exist. `ConfigLocator` is the interface stores accept.
 
 - [ ] **Step 1: Write the failing store test**
 
@@ -568,18 +576,19 @@ it('apply is pure and returns the next document value', () => {
 });
 ```
 
-- [ ] **Step 2: Write the failing engine test**
+- [ ] **Step 2: Write the failing context/locator test**
 
-Use a fake `EngineDefinition` whose instance resolves one global file and one project file. Assert:
+Use a fake `ConfigLocator` that returns one global file and one project file. Assert:
 
-- `paths('mcp', 'project', cwd).read` is project then global; `.write` is the project file.
-- `paths('mcp', 'global', cwd).read` is global only.
-- `definition.isolated(root)` creates an instance with `ownership:'isolated'`, `root`, and a single global file; `paths('mcp','project')` returns an unsupported issue/throws the typed error.
-- `resolveEngineContext` resolves `xdgConfigHome`/`xdgDataHome` from env with the documented defaults.
+- `store.list()` reads project then global and merges by name.
+- `paths('project', cwd).read` is project then global; `.write` is the project file.
+- `paths('global', cwd).read` is global only.
+- `resolveEngineContext` resolves `xdgConfigHome`/`xdgDataHome` from env with the documented defaults, and an isolated context carries `root` and `ownership:'isolated'`.
+- `ConfigResourceStore` receives the locator, not an engine instance.
 
 - [ ] **Step 3: Run them and watch them fail**
 
-Run: `npm test -w @morse/engine-config -- src/core/config-store.spec.ts src/engine/instance.spec.ts`
+Run: `npm test -w @morse/engine-config -- src/core/config-store.spec.ts src/engine/context.spec.ts`
 Expected: FAIL — modules not found.
 
 - [ ] **Step 4: Implement the section and store**
@@ -587,7 +596,7 @@ Expected: FAIL — modules not found.
 `NamedConfigSection.decode`: read the block (`raw`), require a non-array object; for each entry call `decodeEntry`; skip `undefined` and record a `shape` issue with `pointer(key, name)`. `encode`: map items to `encodeEntry(item, existing[name])`.
 
 `ConfigResourceStore`:
-- `paths(scope, cwd)` delegates to `engine.paths(fileId, scope, cwd)`.
+- `paths(scope, cwd)` delegates to `locator.paths(fileId, scope, cwd)`.
 - `readDocuments(cwd)`: read every read path; tag each issue with the path's scope (the project path is the first one when present; derive scope from the path list).
 - `list(cwd)`: iterate documents highest-precedence first, decode entries, first name wins; call `toItem` (default `(item) => item`); collect issues.
 - `save(input, scope, cwd)`: `upsert` semantics.
@@ -595,13 +604,13 @@ Expected: FAIL — modules not found.
 - `remove(name, scope, cwd)`: read the target/defining file; remove; delete the block when empty; write.
 - `replaceManaged(items, scope, cwd)`: read target; remove entries that define a value and are not in the set and are not `keepsOnReplace`; encode items; delete block when empty; write.
 - `apply(document, items)`: pure — compute the next whole document value; used by `replaceManaged` and by the OpenCode bot layout.
-- `normalize(scope, cwd)`: `file.normalize()` for the write target and each read fallback that exists; aggregate issues.
+- `normalize(scope, cwd)`: `file.normalize()` only for files that exist and are not already strict-and-clean (Task 2's no-op guard), for the write target and each read fallback; aggregate issues.
 
-`EngineDefinition.isolated(root, options)`: build `resolveEngineContext({ ownership:'isolated', root, env: options?.env, home: options?.home })` and call `create`. `resolveEngineContext` defaults `home` to `os.homedir()`, `xdgConfigHome` to `env.XDG_CONFIG_HOME ?? join(home,'.config')`, `xdgDataHome` to `env.XDG_DATA_HOME ?? join(home,'.local','share')`, and carries `root`.
+`resolveEngineContext` defaults `home` to `os.homedir()`, `xdgConfigHome` to `env.XDG_CONFIG_HOME ?? join(home,'.config')`, `xdgDataHome` to `env.XDG_DATA_HOME ?? join(home,'.local','share')`, and carries `root`. `ConfigLocator` is the interface in the contracts; no engine class yet.
 
 - [ ] **Step 5: Run the tests and the package check**
 
-Run: `npm test -w @morse/engine-config -- src/core/config-store.spec.ts src/engine/instance.spec.ts`
+Run: `npm test -w @morse/engine-config -- src/core/config-store.spec.ts src/engine/context.spec.ts`
 Expected: PASS (7 tests).
 
 Run: `npm run check-types -w @morse/engine-config`
@@ -611,7 +620,7 @@ Expected: exit 0.
 
 ```bash
 git add packages/engine-config
-git commit -m "feat(engine): add sections, config stores and engine instances"
+git commit -m "feat(engine): add sections, config stores and engine context"
 ```
 
 ---
@@ -773,6 +782,8 @@ git commit -m "feat(engine): add the shared MCP store base"
 ### Task 6: pi engine definition and MCP store
 
 **Files:**
+- Create: `packages/engine-config/src/engine/definition.ts`
+- Create: `packages/engine-config/src/engine/instance.ts`
 - Create: `packages/integration-pi/src/engine/pi-engine.ts`
 - Create: `packages/integration-pi/src/engine/pi-mcp-section.ts`
 - Create: `packages/integration-pi/src/engine/pi-mcp-store.ts`
@@ -782,8 +793,8 @@ git commit -m "feat(engine): add the shared MCP store base"
 - Modify: `packages/integration-pi/package.json` (add `@morse/engine-config`)
 
 **Interfaces:**
-- Consumes: `EngineDefinition`, `EngineInstance`, `McpStore`, `McpSection`, `McpServer`, `ConfigPaths`.
-- Produces: `PiEngineDefinition`, `PiEngineInstance`, `PiMcpStore`, `PiMcpSection`. It does not export `piAgentDir`/`piMcpPath`; `bot-layout.ts` keeps those public names.
+- Consumes: `EngineContext`, `ConfigLocator`, `McpStore`, `McpSection`, `McpServer`, `ConfigPaths`.
+- Produces: `EngineDefinition`, `EngineInstance` (the generic base; now that `McpStore` exists), `PiEngineDefinition`, `PiEngineInstance`, `PiMcpStore`, `PiMcpSection`. It does not export `piAgentDir`/`piMcpPath`; `bot-layout.ts` keeps those public names.
 
 - [ ] **Step 1: Write the failing engine-path test**
 
@@ -819,6 +830,8 @@ Run: `npm test -w @morse/integration-pi -- src/engine`
 Expected: FAIL — modules not found.
 
 - [ ] **Step 4: Implement**
+
+`engine-config/src/engine/definition.ts`: `EngineDefinition.isolated(root, options)` builds `resolveEngineContext({ ownership:'isolated', root, env: options?.env, home: options?.home })` and calls `create`. `engine-config/src/engine/instance.ts`: `abstract class EngineInstance implements ConfigLocator` with `definition`, `context`, `ownership`, abstract `paths`/`file`, and abstract `mcp: McpStore | undefined` / `prompts: PromptStore | undefined`. Both are exported from `@morse/engine-config`.
 
 `PiEngineDefinition`:
 - `kind = 'pi'`.
