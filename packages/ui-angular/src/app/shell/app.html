@@ -140,8 +140,12 @@
       ></div>
       @if (mode() === 'bot') {
         <!-- Bot mode owns the column whole: the session list and the Explorer
-             stand down rather than hiding behind the roster. -->
-        <morse-bot-nav class="left-view" />
+             stand down rather than hiding behind the roster. Deferred, because a
+             code-mode reader should not download the roster, the wizard and the
+             bot chat to type into a session. -->
+        @defer (on immediate) {
+          <morse-bot-nav class="left-view" />
+        }
       } @else {
         <morse-session-nav class="left-view" [hidden]="leftPane() !== 'sessions'" />
         @if (filesMounted()) {
@@ -173,7 +177,9 @@
        with it. The wizard is a full page in the main column (above), not here.
   -->
   @if (botGroupOpen()) {
-    <morse-bot-group-dialog />
+    @defer (on immediate) {
+      <morse-bot-group-dialog />
+    }
   }
 
   @if (mcpOpen() && mode() === 'code') {
@@ -225,11 +231,14 @@
     @if (mode() === 'bot') {
       <!-- Bot mode's own column: the wizard takes the page while it is open
            (full page, never a modal), then the conversation in front, then the
-           empty state that says which gesture opens one. -->
-      @if (botWizardOpen()) {
-        <morse-bot-wizard class="main-view" />
-      } @else {
-        <morse-bot-chat />
+           empty state that says which gesture opens one. All of it is deferred:
+           it is a whole other view, and most windows never open it. -->
+      @defer (on immediate) {
+        @if (botWizardOpen()) {
+          <morse-bot-wizard class="main-view" />
+        } @else {
+          <morse-bot-chat />
+        }
       }
     } @else {
       <!-- Code mode: the conversation column the product has always had. -->

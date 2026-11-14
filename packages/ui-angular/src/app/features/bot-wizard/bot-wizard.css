@@ -605,6 +605,7 @@
  * One model row: its id on the left, then the capability fields a listing often
  * cannot answer — context window, output cap, images — so a wrong or missing
  * discovery result is correctable here instead of in the engine's file by hand.
+ * The two controls share their box, so the shared declarations are written once.
  */
 .model-id {
   flex: 1;
@@ -628,15 +629,20 @@
   color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
   font-size: 10.5px;
 }
-.cap input {
-  width: 76px;
+.cap input,
+.cap-toggle {
   height: 22px;
-  padding: 0 5px;
   border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-sm);
+  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
+  font: inherit;
+  font-size: 10.5px;
+}
+.cap input {
+  width: 76px;
+  padding: 0 5px;
   background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
   color: var(--morse-fg);
-  font: inherit;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
@@ -649,14 +655,8 @@
 }
 /* Three states in one control: on = takes images, off = says text only. */
 .cap-toggle {
-  height: 22px;
   padding: 0 8px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-sm);
   background: transparent;
-  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
-  font: inherit;
-  font-size: 10.5px;
   cursor: pointer;
   transition:
     background 120ms ease,

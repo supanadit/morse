@@ -188,7 +188,7 @@ describe('App', () => {
     expect(shell.classList.contains('collapsed')).toBe(false);
   });
 
-  it('swaps the sidebar for the bot roster in bot mode', () => {
+  it('swaps the sidebar for the bot roster in bot mode', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
@@ -198,6 +198,10 @@ describe('App', () => {
     // The shell owns the mode (the toolbar only reports the click), so setting
     // it here is the same thing the toolbar's button does.
     fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+    // Bot mode is a deferred view — a code-mode window never downloads it — so
+    // the first switch resolves its chunk before the pane exists.
+    await fixture.whenStable();
     fixture.detectChanges();
 
     expect(host.querySelector('morse-bot-nav')).not.toBeNull();
@@ -212,7 +216,7 @@ describe('App', () => {
     expect(host.querySelector('morse-bot-nav')).toBeNull();
   });
 
-  it('mounts the bot conversation in the main column', () => {
+  it('mounts the bot conversation in the main column', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
@@ -241,6 +245,8 @@ describe('App', () => {
     morse.openBotConversation('dm-Forge');
 
     fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
 
     // The conversation itself replaces Task 8's placeholder: its title, its
