@@ -17,6 +17,7 @@ import {
   defaultConfigScope,
   type ConfigDocumentSource,
 } from '../core/config-store.js';
+import type { ConfigFile } from '../core/config-file.js';
 import { configPointer, isPlainObject } from '../core/section.js';
 import { UnsupportedScopeError, type ConfigLocator } from '../engine/locator.js';
 import type { ResourceList } from '../resource/resource-store.js';
@@ -156,11 +157,68 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     return this.upsert(input.name, input, scope, cwd);
   }
 
+  /**
+   * Add or replace one server. An entry this scope already defines is edited in
+   * the file that defines it, exactly like `setEnabled`: a project chain may
+   * keep its definition in an ancestor or a `.opencode` file, while the write
+   * target is a different (nearer, existing) file. A name this scope does not
+   * define is added to the scope's write target, which is how pi's project
+   * override entry becomes a project definition.
+   */
   override upsert(name: string, item: McpServer, scope: ConfigScope, cwd?: string): ConfigMutation {
     if (!isValidMcpServerName(name)) {
       return this.refusal(scope, cwd, 'name', invalidMcpServerNameMessage(name), name);
     }
+    const found = this.definitionIn(name, scope, cwd);
+    if (found.definition !== undefined) {
+      return this.withIssues(this.writeEntry(found.definition, name, item), found.issues);
+    }
     return super.upsert(name, item, scope, cwd);
+  }
+
+  /**
+   * Remove one server from the file in the requested scope that holds it. The
+   * scope's write target is checked first — it may hold an override-only entry
+   * (pi's project pin) that the definition lookup skips — then the nearest
+   * definition in that scope's chain, which may live in an ancestor or a
+   * `.opencode` project file rather than the write target. Only a name that no
+   * file in the scope defines is refused.
+   */
+  override remove(
+    name: string,
+    scope: ConfigScope,
+    cwd?: string,
+    source?: string,
+  ): ConfigMutation {
+    const found = this.definitionIn(name, scope, cwd);
+    const target = this.writeTargetFile(scope, cwd);
+    if (target !== undefined && definesEntry(target, this.section.key, name)) {
+      return this.withIssues(this.removeEntry(target, name), found.issues);
+    }
+    if (found.definition !== undefined) {
+      const file = this.locator.fileAt(
+        this.fileId,
+        found.definition.source,
+        found.definition.scope,
+      );
+      return this.withIssues(this.removeEntry(file, name), found.issues);
+    }
+    return this.withIssues(super.remove(name, scope, cwd, source), found.issues);
+  }
+
+  /**
+   * The nearest definition of `name` in exactly one scope's chain, plus the
+   * issues met while reading it. Engines that word their own refusal (OpenCode
+   * says "not defined in this project's opencode.json") read this instead of
+   * trusting the write target, which need not be the file that defines it.
+   */
+  definitionIn(name: string, scope: ConfigScope, cwd?: string): McpDefinitionLookup {
+    const found = this.findDefinitions(name, cwd);
+    const definition = scope === 'project' ? found.project : found.global;
+    return {
+      ...(definition === undefined ? {} : { definition }),
+      issues: found.issues,
+    };
   }
 
   /**
@@ -180,7 +238,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     const path = this.writePath(scope, cwd);
     const issues = invalid.map((item) =>
       this.issue(
-        path ?? this.fileId,
+        path ?? '',
         scope,
         'name',
         invalidMcpServerNameMessage(item.name),
@@ -421,6 +479,52 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     return file.write({ ...root, [this.section.key]: { ...block, [name]: encoded } });
   }
 
+  /** Remove one entry from a named file, deleting the block once it empties. */
+  private removeEntry(file: ConfigFile, name: string): ConfigMutation {
+    const document = file.read();
+    const root = isPlainObject(document.value) ? document.value : undefined;
+    if (document.value !== undefined && root === undefined) {
+      return {
+        ok: false,
+        path: file.path,
+        scope: file.scope,
+        issues: [
+          this.issue(
+            file.path,
+            file.scope,
+            'shape',
+            `${file.path}: expected a JSON object at the document root.`,
+          ),
+        ],
+      };
+    }
+    const base = root ?? {};
+    const current = base[this.section.key];
+    const existing = isPlainObject(current) ? current : {};
+    const block: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    for (const [entryName, raw] of Object.entries(existing)) {
+      if (entryName !== name) {
+        block[entryName] = raw;
+      }
+    }
+    const next: Record<string, unknown> = { ...base };
+    if (Object.keys(block).length === 0) {
+      delete next[this.section.key];
+    } else {
+      next[this.section.key] = block;
+    }
+    return file.write(next);
+  }
+
+  /** The scope's write target, or `undefined` when the scope cannot be resolved. */
+  private writeTargetFile(scope: ConfigScope, cwd?: string): ConfigFile | undefined {
+    try {
+      return this.locator.file(this.fileId, scope, cwd);
+    } catch {
+      return undefined;
+    }
+  }
+
   private missing(
     name: string,
     scope: ConfigScope | undefined,
@@ -462,7 +566,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
       ...(path === undefined ? {} : { path }),
       scope,
       message,
-      issues: [this.issue(path ?? this.fileId, scope, code, message, name)],
+      issues: [this.issue(path ?? '', scope, code, message, name)],
     };
   }
 
@@ -512,7 +616,9 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
     const scope = this.defaultScope(cwd);
     if (error instanceof UnsupportedScopeError) {
       return {
-        file: error.path ?? this.fileId,
+        // The engine puts the would-be path on the refusal; a bare file id is
+        // not a path, so an unknown one is left empty rather than printed.
+        file: error.path ?? '',
         fileId: this.fileId,
         scope,
         code: 'unsupported',
@@ -521,7 +627,7 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
       };
     }
     return {
-      file: this.fileId,
+      file: '',
       fileId: this.fileId,
       scope,
       code: 'read',
@@ -529,6 +635,16 @@ export abstract class McpStore extends ConfigResourceStore<McpServer, McpServerE
       fixable: false,
     };
   }
+}
+
+/** Whether a file's block already holds `name`; an override-only entry counts. */
+function definesEntry(file: ConfigFile, key: string, name: string): boolean {
+  const root = file.read().value;
+  if (!isPlainObject(root)) {
+    return false;
+  }
+  const block = root[key];
+  return isPlainObject(block) && Object.hasOwn(block, name);
 }
 
 /** The section block as a name-to-raw map; a malformed block reads as empty. */

@@ -84,6 +84,8 @@ export class PromptEditor {
    * one open template, so they render above it.
    */
   protected readonly issues = computed(() => this.store.info()?.issues ?? []);
+  /** Whether the host answers `configFix`; without it the row asks for a hand edit. */
+  protected readonly canFix = this.store.canFix;
 
   protected readonly name = signal('');
   protected readonly description = signal('');

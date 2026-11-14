@@ -26,7 +26,7 @@ const PROJECT_DIR = '.opencode';
 const FILE_NAMES = ['opencode.jsonc', 'opencode.json'] as const;
 
 /** The plain-JSON name: what a tree with no config gets on its first write. */
-const JSON_FILE = 'opencode.json';
+export const OPEN_CODE_PROJECT_FILE = 'opencode.json';
 
 /**
  * The app-level config directory: an isolated tree's own `<root>/opencode`, the
@@ -93,7 +93,7 @@ export function discoverOpenCodeGlobalPaths(
 ): ConfigPaths {
   const existing = globalConfigCandidates(context, configDir).filter((path) => existsSync(path));
   if (existing.length === 0) {
-    const write = join(openCodeConfigDir(context, configDir), JSON_FILE);
+    const write = join(openCodeConfigDir(context, configDir), OPEN_CODE_PROJECT_FILE);
     return { read: [write], write };
   }
   return { read: existing, write: existing[0]! };
@@ -125,6 +125,6 @@ export function discoverOpenCodeConfigPaths(
   const existing = projectConfigCandidates(dir).filter((path) => existsSync(path));
   return {
     read: [...existing, ...global.read],
-    write: existing[0] ?? join(dir, JSON_FILE),
+    write: existing[0] ?? join(dir, OPEN_CODE_PROJECT_FILE),
   };
 }

@@ -1,6 +1,5 @@
 import { homedir } from 'node:os';
 import {
-  isPlainObject,
   resolveEngineContext,
   type ConfigFile,
   type ConfigMutation,
@@ -98,11 +97,13 @@ export class OpenCodeMcp {
     const project = normalizeCwd(cwd);
     const target = scope ?? 'global';
     const store = this.store(project);
-    // The panel has always named the file it looked in; the store words a
-    // missing entry as a read-fallback refusal, which OpenCode has no concept of.
-    const file = scopeFile(store, target, project);
-    if (file !== undefined && definesIn(file, name, store.section.key) === false) {
-      return notDefined(name, target, file.path);
+    // The scope's chain decides, not its write target alone: a project server
+    // may be defined in an ancestor or `.opencode` file, and removing it must
+    // edit that file instead of claiming it is not defined.
+    const found = store.definitionIn(name, target, project);
+    if (found.definition === undefined && found.issues.length === 0) {
+      const file = scopeFile(store, target, project);
+      return notDefined(name, target, file?.path ?? '');
     }
     return withMessage(store.remove(name, target, project));
   }
@@ -256,21 +257,6 @@ function scopeFile(
   } catch {
     return undefined;
   }
-}
-
-/**
- * Whether this file defines `name`. `undefined` when it could not be read or
- * parsed: the mutation then carries the real complaint, and a "not defined"
- * sentence would hide it.
- */
-function definesIn(file: ConfigFile, name: string, key: string): boolean | undefined {
-  const document = file.read();
-  if (document.issues.length > 0) {
-    return undefined;
-  }
-  const root = document.value;
-  const block = isPlainObject(root) ? root[key] : undefined;
-  return isPlainObject(block) && Object.hasOwn(block, name);
 }
 
 /** The refusal the panel has always shown for a name a file does not define. */

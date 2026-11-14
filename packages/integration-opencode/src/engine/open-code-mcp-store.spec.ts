@@ -438,6 +438,48 @@ describe('OpenCodeMcpSection', () => {
     expect(readServers(globalPath)).toEqual({});
   });
 
+  it('removes a project server from the file that defines it, not the write target', () => {
+    const { mcp, cwd } = fixture();
+    const shared = join(cwd, '.opencode', 'opencode.json');
+    const direct = join(cwd, 'opencode.json');
+    writeJson(shared, { mcp: { other: { type: 'local', command: ['o'] } } });
+    writeJson(direct, { mcp: { one: { type: 'local', command: ['x'] } } });
+
+    // The `.opencode` file outranks the direct one, and exists, so it is where a
+    // write lands; the definition lives in the direct file the panel lists.
+    expect(mcp.paths('project', cwd).write).toBe(shared);
+    expect(byName(mcp.list(cwd).items).get('one')).toMatchObject({ source: direct });
+
+    expect(mcp.remove('one', 'project', cwd)).toMatchObject({ ok: true, path: direct });
+    expect(readServers(direct)).toEqual({});
+    expect(readServers(shared)).toEqual({ other: { type: 'local', command: ['o'] } });
+  });
+
+  it('edits the file that defines an existing project server, and adds new names to the target', () => {
+    const { mcp, cwd } = fixture();
+    const shared = join(cwd, '.opencode', 'opencode.json');
+    const direct = join(cwd, 'opencode.json');
+    writeJson(shared, { mcp: {} });
+    writeJson(direct, { mcp: { one: { type: 'local', command: ['x'], timeout: 5 } } });
+    const listed = byName(mcp.list(cwd).items).get('one')!;
+
+    const saved = mcp.save({ ...listed.server, command: 'changed' }, 'project', cwd);
+    expect(saved).toMatchObject({ ok: true, path: direct });
+    expect(readServers(direct).one).toEqual({
+      type: 'local',
+      command: ['changed'],
+      timeout: 5,
+    });
+    expect(readServers(shared)).toEqual({});
+
+    // A name the scope does not define is a new entry in the scope's target.
+    expect(mcp.upsert('two', { name: 'two', type: 'stdio', command: 'y' }, 'project', cwd)).toMatchObject({
+      ok: true,
+      path: shared,
+    });
+    expect(readServers(shared).two).toEqual({ type: 'local', command: ['y'] });
+  });
+
   it('upsert adds an entry and preserves every other key', () => {
     const { mcp, globalPath } = fixture();
     writeJson(globalPath, {

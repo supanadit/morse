@@ -417,6 +417,36 @@ describe('PiMcp status', () => {
     }
   });
 
+  it('caps the whole probe so many servers cannot exceed the status timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const agentDir = await tempRoot();
+      const cwd = await tempRoot();
+      const mcpServers = Object.fromEntries(
+        Array.from({ length: 9 }, (_, index) => [`s${index}`, { command: 'node' }]),
+      );
+      writeJson(join(agentDir, 'mcp.json'), { mcpServers });
+      const inspector = fakeInspector(() => new Promise<McpInspection>(() => {}));
+
+      const mcp = new PiMcp({ agentDir, inspector, probeBudgetMs: 20 });
+      const pending = mcp.status(cwd, { probe: true });
+      await vi.advanceTimersByTimeAsync(20);
+      const status = await pending;
+
+      // Every row answers: the three in flight and the six the budget never
+      // reached. None is left `connecting`, and the file is not blamed.
+      expect(status.servers).toHaveLength(9);
+      expect(
+        status.servers.every(
+          (server) => server.state === 'disconnected' && (server.error ?? '').length > 0,
+        ),
+      ).toBe(true);
+      expect(status.issues).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the list intact when one probe hangs and another settles', async () => {
     vi.useFakeTimers();
     try {

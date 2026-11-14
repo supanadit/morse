@@ -107,7 +107,7 @@ function factoryWith(
   } as unknown as SessionRegistry;
   const router = {
     defaultExtras: () => extras,
-    engineOptions: () => [],
+    engineOptions: () => (extras === undefined ? [] : [{ kind: 'pi', label: 'pi' }]),
     extrasFor: () => extras,
     agentFor: () => undefined,
     dispose: async () => undefined,
@@ -148,6 +148,16 @@ describe('MorseSessionFactory bot wiring', () => {
   it('reports the bot capability only when the service resolved', () => {
     expect(factoryWith(fakeBot().service).capabilities().bot).toBe(true);
     expect(factoryWith(undefined).capabilities().bot).toBeUndefined();
+  });
+
+  it('advertises configFix only when an engine exposes a fix', () => {
+    const fix = () => Promise.resolve({ ok: true, issues: [] });
+    expect(factoryWith(undefined, { fix } as unknown as AgentExtras).capabilities().configFix).toBe(
+      true,
+    );
+    // No engine, no fix command: the frontend hides the button instead of
+    // offering one this host would refuse.
+    expect(factoryWith(undefined).capabilities().configFix).toBe(false);
   });
 
   it('answers bot/list with the roster', async () => {

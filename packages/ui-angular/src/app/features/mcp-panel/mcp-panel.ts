@@ -48,6 +48,8 @@ export class McpPanel {
   protected readonly errors = computed(() => this.status()?.errors ?? []);
   /** Config-file complaints the engine could not attach to a server. */
   protected readonly issues = computed(() => this.status()?.issues ?? []);
+  /** Whether the host answers `configFix`; a host without it hides Fix. */
+  protected readonly canFix = this.mcp.canFix;
   protected readonly note = computed(() => this.status()?.note);
   /** pi is ignoring this project's `.pi` resources until it is trusted. */
   protected readonly untrusted = computed(() => this.status()?.trusted === false);

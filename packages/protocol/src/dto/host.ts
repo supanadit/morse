@@ -146,6 +146,14 @@ export interface HostCapabilities {
    */
   mcp?: boolean;
   /**
+   * Host implements `configFix`, which rewrites an engine's config file so a
+   * later write can land (a JSONC file normalized to strict JSON). Only a host
+   * whose engines expose a fix answers it: the browser host does, the VS Code
+   * extension does not, so the frontend hides Fix there instead of offering a
+   * button that can only fail.
+   */
+  configFix?: boolean;
+  /**
    * Host can search the project's files for text (`searchWorkspace`), so the
    * frontend can offer a search panel: matches grouped by file, each line a
    * click from the preview. The browser host turns it on (ripgrep when it is

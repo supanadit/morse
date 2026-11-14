@@ -33,7 +33,10 @@ export class JsonFormat extends ConfigFormat {
    * the issue quotes the first (native) parser message with a bounded snippet
    * of the original text.
    */
-  parse(text: string, path: string, fileId: string, scope: ConfigScope): ConfigParseResult {
+  parse(raw: string, path: string, fileId: string, scope: ConfigScope): ConfigParseResult {
+    // A byte-order mark is not part of the JSON value but `JSON.parse` rejects
+    // it; an editor on Windows may save one, and such a file must still read.
+    const text = raw.startsWith('\uFEFF') ? raw.slice(1) : raw;
     if (text.trim().length === 0) {
       return { value: undefined, strict: true, issues: [] };
     }

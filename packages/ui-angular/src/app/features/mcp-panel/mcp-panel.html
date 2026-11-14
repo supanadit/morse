@@ -71,7 +71,7 @@
           <div class="issue">
             <div class="issue-head">
               <span class="issue-message">{{ issue.message }}</span>
-              @if (issue.fixable) {
+              @if (issue.fixable && canFix()) {
                 <button
                   type="button"
                   class="fix"
@@ -97,6 +97,10 @@
             }
             @if (!issue.fixable) {
               <div class="issue-manual">This needs a hand edit — Fix cannot resolve it.</div>
+            } @else if (!canFix()) {
+              <div class="issue-manual">
+                Fix is not available in this host — edit the file by hand.
+              </div>
             }
           </div>
         }

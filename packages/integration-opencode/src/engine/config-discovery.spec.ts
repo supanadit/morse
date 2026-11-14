@@ -21,6 +21,16 @@ function root(): string {
   return dir;
 }
 
+/** The would-be path a typed scope refusal carries, when it carries one. */
+function refusalPath(run: () => unknown): string | undefined {
+  try {
+    run();
+  } catch (error) {
+    return error instanceof UnsupportedScopeError ? error.path : undefined;
+  }
+  return undefined;
+}
+
 afterEach(() => {
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -299,6 +309,11 @@ describe('OpenCodeEngineInstance', () => {
     expect(() => bot.paths('config', 'project')).toThrow(UnsupportedScopeError);
     expect(() => bot.paths('config', 'project', join(base, 'repo'))).toThrow(UnsupportedScopeError);
     expect(() => bot.file('config', 'project')).toThrow(UnsupportedScopeError);
+    // The refusal names the would-be project file, so an issue's `file` stays a
+    // real path instead of the bare file id.
+    expect(refusalPath(() => bot.paths('config', 'project', join(base, 'repo')))).toBe(
+      join(base, 'repo', 'opencode.json'),
+    );
   });
 
   it('exposes the MCP and prompt stores', () => {

@@ -169,6 +169,12 @@ export interface PiMcpOptions {
   agentDir?: string;
   /** Retained for compatibility; probes use `PROBE_TIMEOUT_MS`. */
   timeoutMs?: number;
+  /**
+   * The whole probe's budget across every enabled server, so a panel with many
+   * servers still answers inside the frontend's status timeout. Defaults to
+   * `PROBE_BUDGET_MS`; `0` disables the cap.
+   */
+  probeBudgetMs?: number;
   /** The prober; defaults to a real `McpInspector`. Tests inject a fake. */
   inspector?: McpProbe;
 }
@@ -177,6 +183,12 @@ export interface PiMcpOptions {
 const PROBE_TIMEOUT_MS = 10_000;
 /** A panel with many servers still opens promptly when probes run three at a time. */
 const PROBE_CONCURRENCY = 3;
+/**
+ * The whole probe is capped too: the frontend gives `mcpStatus` 30 s, and a
+ * dozen servers at 10 s each would exceed it even three at a time. Rows the
+ * budget does not reach stay `disconnected` with the reason on the row.
+ */
+const PROBE_BUDGET_MS = 25_000;
 
 /**
  * Driven adapter for pi's MCP configuration: list the servers pi's own files
@@ -218,13 +230,23 @@ export class PiMcp {
 
     if (options.probe === true) {
       const enabled = servers.filter((server) => server.enabled);
-      await eachLimited(enabled, PROBE_CONCURRENCY, async (server) => {
+      const settled = new Set<string>();
+      // Flipped by the budget timer itself, before the awaiting code resumes, so
+      // a probe that lands afterwards cannot overwrite the expiry it lost to.
+      let expired = false;
+      const work = eachLimited(enabled, PROBE_CONCURRENCY, async (server) => {
+        if (expired) {
+          return;
+        }
         const entry = byName.get(server.name);
         if (entry === undefined) {
           return;
         }
         try {
           const outcome = await this.probe(entry, project);
+          if (expired) {
+            return;
+          }
           server.state = outcome.state;
           if (outcome.tools !== undefined) {
             server.tools = outcome.tools;
@@ -240,12 +262,31 @@ export class PiMcp {
             // so it must not reach `issues` where the panel offers Fix.
             server.error = outcome.error;
           }
+          settled.add(server.name);
         } catch (error: unknown) {
+          if (expired) {
+            return;
+          }
           // A worker must never reject the whole list; this row carries it.
           server.state = 'failed';
           server.error = describe(error);
+          settled.add(server.name);
         }
       });
+      const timedOut = await withBudget(work, this.probeBudgetMs(), () => {
+        expired = true;
+      });
+      if (timedOut) {
+        for (const server of enabled) {
+          if (settled.has(server.name)) {
+            continue;
+          }
+          // Not reached, or still dialing when the budget ran out: an honest
+          // "we could not check this one" instead of a spinner that never ends.
+          server.state = 'disconnected';
+          server.error = `The probe budget expired before this server was checked.`;
+        }
+      }
     }
 
     // Only the files' own complaints: a probe failure is the row's problem.
@@ -476,6 +517,11 @@ export class PiMcp {
     return this.options.env ?? process.env;
   }
 
+  /** The whole probe's budget; `0` (or less) means "no cap". */
+  private probeBudgetMs(): number {
+    return this.options.probeBudgetMs ?? PROBE_BUDGET_MS;
+  }
+
   /** The stored entry, or an error message when the input is incomplete. */
   private toConfig(input: McpServerInput, isHttp: boolean): McpServer | string {
     const server: McpServer = { name: input.name, type: isHttp ? 'http' : 'stdio' };
@@ -612,6 +658,41 @@ async function eachLimited<T>(
   });
   // All settled: one worker's mistake is that row's problem, never the list's.
   await Promise.allSettled(runners);
+}
+
+/**
+ * Await `work`, but stop waiting once the whole-probe budget passes. Returns
+ * `true` when the budget won and called `onExpire` (so in-flight work can see it
+ * and stop writing rows); a `budgetMs` of zero or less means no cap at all.
+ */
+async function withBudget(
+  work: Promise<void>,
+  budgetMs: number,
+  onExpire: () => void,
+): Promise<boolean> {
+  if (budgetMs <= 0) {
+    await work;
+    return false;
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const budget = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      onExpire();
+      resolve(true);
+    }, budgetMs);
+  });
+  // `work` already settles every worker; this only makes the type explicit.
+  const settled = work.then(
+    () => false,
+    () => false,
+  );
+  try {
+    return await Promise.race([settled, budget]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /** Reject once the budget passes, even when the promise never settles. */

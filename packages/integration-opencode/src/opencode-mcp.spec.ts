@@ -148,6 +148,45 @@ describe('OpenCodeMcp', () => {
       expect(mcp.remove('one', cwd, 'global')).toMatchObject({ ok: true, path: globalPath() });
     });
 
+    it('remove follows the project file that defines the server', () => {
+      // The `.opencode` file exists, so it is the write target, but the server
+      // is defined in the direct project file. The removal must edit the file
+      // that holds it instead of claiming it is not defined.
+      const shared = join(cwd, '.opencode', 'opencode.json');
+      mkdirSync(join(cwd, '.opencode'), { recursive: true });
+      writeFileSync(shared, `${JSON.stringify({ mcp: { other: { type: 'local', command: ['o'] } } }, null, 2)}\n`);
+      writeFileSync(
+        projectPath(),
+        `${JSON.stringify({ mcp: { one: { type: 'local', command: ['x'] } } }, null, 2)}\n`,
+      );
+
+      expect(mcp.remove('one', cwd, 'project')).toMatchObject({ ok: true, path: projectPath() });
+      expect(JSON.parse(readFileSync(projectPath(), 'utf8'))).toEqual({});
+      // The write target is untouched.
+      expect(JSON.parse(readFileSync(shared, 'utf8'))).toMatchObject({
+        mcp: { other: { type: 'local', command: ['o'] } },
+      });
+    });
+
+    it('add edits the project file that defines an existing server', () => {
+      const shared = join(cwd, '.opencode', 'opencode.json');
+      mkdirSync(join(cwd, '.opencode'), { recursive: true });
+      writeFileSync(shared, `${JSON.stringify({ mcp: {} }, null, 2)}\n`);
+      writeFileSync(
+        projectPath(),
+        `${JSON.stringify({ mcp: { one: { type: 'local', command: ['x'] } } }, null, 2)}\n`,
+      );
+
+      expect(mcp.add({ name: 'one', scope: 'project', command: 'changed' }, cwd)).toMatchObject({
+        ok: true,
+        path: projectPath(),
+      });
+      expect(JSON.parse(readFileSync(projectPath(), 'utf8'))).toMatchObject({
+        mcp: { one: { type: 'local', command: ['changed'] } },
+      });
+      expect(JSON.parse(readFileSync(shared, 'utf8'))).toEqual({ mcp: {} });
+    });
+
     it('setEnabled without a scope edits the defining file', () => {
       writeGlobal({ mcp: { one: { type: 'local', command: ['x'] } } });
       writeFileSync(projectPath(), `${JSON.stringify({ mcp: { two: { type: 'local', command: ['y'] } } }, null, 2)}\n`);

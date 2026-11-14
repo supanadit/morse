@@ -4,6 +4,7 @@
  * in one `opencode.json` (or its `opencode.jsonc` spelling), so the MCP store
  * shares the file id `config` with the rest of the document.
  */
+import { join } from 'node:path';
 import {
   EngineDefinition,
   EngineInstance,
@@ -17,6 +18,7 @@ import {
 
 import {
   OPEN_CODE_CONFIG_FILE_ID,
+  OPEN_CODE_PROJECT_FILE,
   discoverOpenCodeConfigPaths,
   discoverOpenCodeGlobalPaths,
   globalConfigCandidates,
@@ -126,10 +128,16 @@ export class OpenCodeEngineInstance extends EngineInstance {
 
   /** The directory a project chain starts from, or the typed refusal. */
   private projectDirectory(fileId: string, cwd?: string): string {
-    if (this.ownership === 'isolated') {
-      throw new UnsupportedScopeError(fileId, 'project');
-    }
     const dir = cwd ?? this.context.cwd;
+    if (this.ownership === 'isolated') {
+      // A bot tree has no project file; the would-be path keeps the issue's
+      // `file` a real path rather than the bare file id.
+      const wouldBe =
+        dir === undefined || dir.trim().length === 0
+          ? undefined
+          : join(dir, OPEN_CODE_PROJECT_FILE);
+      throw new UnsupportedScopeError(fileId, 'project', wouldBe);
+    }
     if (dir === undefined || dir.trim().length === 0) {
       throw new Error(`opencode needs a project directory to resolve its "${fileId}" file.`);
     }

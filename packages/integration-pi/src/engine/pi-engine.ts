@@ -101,16 +101,19 @@ export class PiEngineInstance extends EngineInstance {
    * caller resolved the chain for a directory other than the instance's own.
    */
   private projectPath(fileId: string, cwd?: string): string {
-    if (this.ownership === 'isolated') {
-      throw new UnsupportedScopeError(fileId, 'project');
-    }
     const dir = cwd ?? this.context.cwd;
-    if (dir === undefined) {
+    const wouldBe =
+      dir === undefined || dir.trim().length === 0 ? undefined : join(dir, '.pi', fileName(fileId));
+    if (this.ownership === 'isolated') {
+      // A bot has no project file; naming where one would be keeps the issue's
+      // `file` a real path instead of the bare file id.
+      throw new UnsupportedScopeError(fileId, 'project', wouldBe);
+    }
+    if (wouldBe === undefined) {
       throw new Error(`pi needs a project directory to resolve its "${fileId}" file.`);
     }
-    const path = join(dir, '.pi', fileName(fileId));
-    this.projectPaths.add(path);
-    return path;
+    this.projectPaths.add(wouldBe);
+    return wouldBe;
   }
 }
 

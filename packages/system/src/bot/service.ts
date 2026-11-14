@@ -249,6 +249,21 @@ function toMcpConfig(server: BotMcpServer): BotMcpServerInput {
 
 const RESERVED_MCP_NAMES = new Set(['__proto__', 'prototype', 'constructor']);
 
+/**
+ * The wizard validates these names, the wire does not — it checks message
+ * types, not payloads — so this is the boundary that keeps every name usable as
+ * a config key in whichever engine ends up storing it.
+ */
+function assertSubagentNames(subagents: readonly { name: string }[] | undefined): void {
+  for (const subagent of subagents ?? []) {
+    if (!isSafeSubagentName(subagent.name)) {
+      throw new Error(
+        `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
+      );
+    }
+  }
+}
+
 function assertMcpServers(servers: readonly BotMcpServerInput[]): void {
   const seen = new Set<string>();
   for (const server of servers) {
@@ -432,6 +447,11 @@ export class BotService {
       engineKind: input.engineKind,
       credentialEnv: [...input.envVars],
     };
+    // Everything the engine files will key by name is checked before the first
+    // byte is written: a stdio server with no command (or an http one with no
+    // url) is refused here, not after identity and settings already landed.
+    assertSubagentNames(input.subagents);
+    assertMcpServers(input.mcpServers ?? []);
     const botRoot = this.botRoot(record.username);
     let factory: BotGatewayFactory | undefined;
     try {
@@ -440,17 +460,6 @@ export class BotService {
       mkdirSync(join(botRoot, 'workspace'), { recursive: true, mode: 0o700 });
       factory = adapter.createFactory(botRoot, this.engineEnv(record.credentialEnv));
       writeBotIdentity(botRoot, record);
-      // The wizard validates these names, the wire does not — it checks message
-      // types, not payloads — so this is the boundary that keeps every name usable
-      // as a config key in whichever engine ends up storing it.
-      for (const subagent of input.subagents ?? []) {
-        if (!isSafeSubagentName(subagent.name)) {
-          throw new Error(
-            `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
-          );
-        }
-      }
-      assertMcpServers(input.mcpServers ?? []);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
       // The probe runs as the bot itself — its root, its credentials — so a bad
       // key fails here instead of on the reader's first message.
@@ -636,14 +645,8 @@ export class BotService {
       throw new Error(`The host has no bot engine "${bot.engineKind}".`);
     }
     // Subagent names become config keys in the engine's own file, so the same
-    // boundary create enforces applies here.
-    for (const subagent of input.subagents ?? []) {
-      if (!isSafeSubagentName(subagent.name)) {
-        throw new Error(
-          `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
-        );
-      }
-    }
+    // boundary create enforces applies here — before identity or settings change.
+    assertSubagentNames(input.subagents);
     assertMcpServers(input.mcpServers ?? []);
     const updated: BotRecord = {
       username: bot.username,

@@ -3,6 +3,7 @@ import type {
   McpConfigScope,
   McpExposure,
   McpInspectionResult,
+  McpMutation,
   McpServerInput,
 } from '@morse/protocol';
 import { McpState } from '../../state/mcp-state';
@@ -200,8 +201,24 @@ export class McpEditor {
       this.added.set(true);
       this.formError.set(null);
     } else {
-      this.formError.set(result.message ?? 'The host did not add the server.');
+      this.formError.set(this.refusalMessage(result));
     }
+  }
+
+  /**
+   * A refused save always says why. A `normalize` refusal (a JSONC file the host
+   * will not rewrite behind the reader's back) names the one action that clears
+   * it: Fix in the MCP manager, or a hand edit where this host has no Fix.
+   */
+  private refusalMessage(result: McpMutation): string {
+    const normalize = result.issues?.find((issue) => issue.code === 'normalize');
+    if (normalize === undefined) {
+      return result.message ?? 'The host did not add the server.';
+    }
+    const file = normalize.file.length > 0 ? normalize.file : 'The config file';
+    return this.mcp.canFix()
+      ? `${file} must be rewritten before it can change: press Fix on it in the MCP manager, then save again.`
+      : `${file} must be edited by hand (rewrite it as strict JSON), then save again.`;
   }
 
   protected errorTitle(result: McpInspectionResult): string {

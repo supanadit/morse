@@ -7,6 +7,16 @@ import { PiPromptStore } from './pi-prompt-store.js';
 
 const engine = new PiEngineDefinition();
 
+/** The would-be path a typed scope refusal carries, when it carries one. */
+function refusalPath(run: () => unknown): string | undefined {
+  try {
+    run();
+  } catch (error) {
+    return error instanceof UnsupportedScopeError ? error.path : undefined;
+  }
+  return undefined;
+}
+
 /** A user instance over fixed, fake roots: nothing here touches the real home. */
 function user(
   cwd: string | undefined = '/work/app',
@@ -63,6 +73,11 @@ describe('PiEngineDefinition', () => {
     expect(() => bot.paths('mcp', 'project')).toThrow(UnsupportedScopeError);
     expect(() => bot.paths('mcp', 'project', '/work/app')).toThrow(UnsupportedScopeError);
     expect(() => bot.file('mcp', 'project')).toThrow(UnsupportedScopeError);
+    // The refusal still names where the file *would* be, so a store's issue has
+    // an absolute path instead of the bare file id.
+    expect(refusalPath(() => bot.paths('mcp', 'project', '/work/app'))).toBe(
+      '/work/app/.pi/mcp.json',
+    );
   });
 
   it('names the project file as project and every other path as global', () => {

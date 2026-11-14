@@ -5,7 +5,7 @@ import { MorseService } from '../host/morse.service';
 import { PromptTemplatesState } from './prompt-templates-state';
 
 /** The editor's host double: one engine, one viewing session, no real files. */
-function setup() {
+function setup(capabilities: Record<string, unknown> = { promptEditor: true, scope: 'workspace' }) {
   const requestHostCommand = vi.fn(
     async (command: unknown): Promise<unknown> =>
       command === 'configFix'
@@ -19,7 +19,7 @@ function setup() {
           },
   );
   const fake = {
-    capabilities: signal({ promptEditor: true, scope: 'workspace' }),
+    capabilities: signal(capabilities),
     engine: signal<string | undefined>('pi'),
     state: signal({ sessionId: undefined }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
@@ -33,6 +33,14 @@ function setup() {
 afterEach(() => TestBed.resetTestingModule());
 
 describe('PromptTemplatesState issues and Fix', () => {
+  it('reports Fix available only when the host advertises configFix', () => {
+    expect(setup({ promptEditor: true, configFix: true }).state.canFix()).toBe(true);
+  });
+
+  it('reports Fix unavailable when the host does not advertise configFix', () => {
+    expect(setup({ promptEditor: true }).state.canFix()).toBe(false);
+  });
+
   it('parses the config issues the host attached to the list', async () => {
     const { requestHostCommand, state } = setup();
     requestHostCommand.mockResolvedValue({

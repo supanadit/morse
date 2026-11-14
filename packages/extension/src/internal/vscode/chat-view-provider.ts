@@ -162,6 +162,8 @@ function buildCapabilities(deps: ChatViewProviderDeps): HostCapabilities {
     // Editing prompt templates needs an engine that loads them from files; this
     // host can reach those directories whether or not the CLI is on PATH.
     promptEditor: prompts !== undefined,
+    // `configFix` stays unset: this host does not implement it, so the frontend
+    // hides Fix and asks for a hand edit instead of offering a refused action.
     // A whole conversation can be shown as its own editor tab, pinned to that
     // session, and revealed again instead of opened twice.
     sessionTabs: true,

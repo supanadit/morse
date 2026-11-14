@@ -917,13 +917,48 @@ describe('BotService MCP servers', () => {
   });
 
   it('refuses a server missing its command or url', async () => {
-    const { service } = harness();
+    const { root, service } = harness();
     await expect(
       service.createBot(botInput({ mcpServers: [{ name: 'fs', type: 'stdio' }] })),
     ).rejects.toThrow('needs a command');
     await expect(
       service.createBot(botInput({ mcpServers: [{ name: 'web', type: 'http' }] })),
     ).rejects.toThrow('needs a url');
+    // Refused before anything was written: no half-built tree to clean up.
+    expect(existsSync(join(root, 'forge'))).toBe(false);
+  });
+
+  it('refuses an incomplete MCP server on an edit before the identity is rewritten', async () => {
+    const { root, service } = harness();
+    await service.createBot(botInput());
+    const identityPath = join(root, 'forge', 'engine.json');
+    const before = readFileSync(identityPath, 'utf8');
+
+    await expect(
+      service.updateBot({
+        username: 'forge',
+        name: 'Renamed',
+        description: 'Changed',
+        persona: 'You are Forge.',
+        envVars: [],
+        mcpServers: [{ name: 'fs', type: 'stdio' }],
+      }),
+    ).rejects.toThrow('needs a command');
+    await expect(
+      service.updateBot({
+        username: 'forge',
+        name: 'Renamed',
+        description: 'Changed',
+        persona: 'You are Forge.',
+        envVars: [],
+        mcpServers: [{ name: 'web', type: 'http' }],
+      }),
+    ).rejects.toThrow('needs a url');
+
+    // The edit was refused before identity/settings were touched, so the bot is
+    // exactly as it was: no half-applied update the reader has to guess at.
+    expect(readFileSync(identityPath, 'utf8')).toBe(before);
+    expect(service.inspectBot('forge').name).toBe('Forge');
   });
 
   it('refuses an unknown MCP server type', async () => {

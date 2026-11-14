@@ -1,4 +1,15 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConfigScope } from '@morse/protocol';
@@ -127,6 +138,29 @@ describe('FileResourceStore', () => {
     expect(emptyRefusal.ok).toBe(false);
     expect(emptyRefusal.issues[0]?.code).toBe('unsupported');
     expect(existsSync(join(globalDir, 'x.md'))).toBe(false);
+  });
+
+  it('writes through a symlinked prompt file instead of replacing the link', () => {
+    const globalDir = temp();
+    const dotfiles = temp();
+    const target = join(dotfiles, 'x.md');
+    writeFileSync(target, 'old prompt');
+    chmodSync(target, 0o640);
+    const link = join(globalDir, 'x.md');
+    symlinkSync(target, link);
+    const store = new FakeFileStore({ global: globalDir });
+
+    const saved = store.save(
+      { name: 'x', originalName: 'x', originalScope: 'global', body: 'new prompt' },
+      'global',
+    );
+
+    expect(saved).toMatchObject({ ok: true });
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe('new prompt');
+    expect(statSync(target).mode & 0o777).toBe(0o640);
+    expect(readdirSync(globalDir).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+    expect(readdirSync(dotfiles).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
   it('turns a throwing decoder into a list issue instead of a failure', () => {

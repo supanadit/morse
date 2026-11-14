@@ -5,6 +5,7 @@ import type { ConfigScope } from '@morse/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ConfigLocator } from '../engine/locator.js';
+import { UnsupportedScopeError } from '../engine/locator.js';
 import { JsonConfigFile } from './config-file.js';
 import { ConfigResourceStore, ConfigStore } from './config-store.js';
 import { ConfigSection, NamedConfigSection } from './section.js';
@@ -109,6 +110,29 @@ class FakeLocator implements ConfigLocator {
 
   scopeOf(_fileId: string, path: string): ConfigScope {
     return path === this.projectPath ? 'project' : 'global';
+  }
+}
+
+/** A locator that refuses the project scope, with or without a would-be path. */
+class RejectingLocator implements ConfigLocator {
+  readonly ownership = 'user' as const;
+
+  constructor(readonly wouldBe?: string) {}
+
+  paths(): ConfigPaths {
+    throw new UnsupportedScopeError('fake', 'project', this.wouldBe);
+  }
+
+  file(fileId: string, scope: ConfigScope): JsonConfigFile {
+    throw new UnsupportedScopeError(fileId, scope, this.wouldBe);
+  }
+
+  fileAt(fileId: string, path: string, scope: ConfigScope): JsonConfigFile {
+    throw new UnsupportedScopeError(fileId, scope, path);
+  }
+
+  scopeOf(): ConfigScope {
+    throw new UnsupportedScopeError('fake', 'project', this.wouldBe);
   }
 }
 
@@ -345,6 +369,27 @@ describe('ConfigResourceStore', () => {
     });
     expect(readFileSync(globalPath, 'utf8')).toBe(before);
     expect(store.list(CWD).items).toEqual([{ name: 'g', label: 'global' }]);
+  });
+
+  it('names the would-be path on a rejected scope, never a bare file id', () => {
+    const wouldBe = '/work/app/.pi/fake.json';
+    const store = new FakeStore(new RejectingLocator(wouldBe));
+
+    const listed = store.list(CWD);
+    expect(listed.issues[0]).toMatchObject({
+      code: 'unsupported',
+      file: wouldBe,
+      fileId: 'fake',
+    });
+
+    const saved = store.save({ name: 'x', label: 'x' }, 'project', CWD);
+    expect(saved.issues[0]).toMatchObject({ code: 'unsupported', file: wouldBe });
+
+    // A refusal without a path cannot invent one: the file id is a name, not a
+    // path, so it is left empty instead of being rendered as one.
+    const unknown = new FakeStore(new RejectingLocator());
+    expect(unknown.save({ name: 'x', label: 'x' }, 'project', CWD).issues[0]?.file).toBe('');
+    expect(unknown.list(CWD).issues[0]?.file).toBe('');
   });
 
   it('keeps unknown top-level keys through upsert, remove and replaceManaged', () => {

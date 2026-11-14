@@ -44,6 +44,7 @@ function render(status: McpStatus | undefined): HTMLElement {
     cwd: signal(''),
     status: signal(status),
     isLoading: signal(false),
+    canFix: signal(true),
     refresh: vi.fn(),
   };
   TestBed.resetTestingModule();
@@ -104,6 +105,7 @@ const PARSE_ISSUE: ConfigIssue = {
 function renderWithState(
   status: McpStatus,
   fixResult: unknown = { ok: true, issues: [] },
+  capabilities: { configFix?: boolean } = {},
 ): {
   element: HTMLElement;
   fixture: ComponentFixture<McpPanel>;
@@ -119,7 +121,7 @@ function renderWithState(
     return Promise.resolve(fixed ? { ...status, issues: [] } : status);
   });
   const fake = {
-    capabilities: signal({ mcp: false }),
+    capabilities: signal({ mcp: false, configFix: capabilities.configFix ?? true }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
     engine: signal('opencode'),
     requestHostCommand,
@@ -322,6 +324,22 @@ describe('McpPanel config issues', () => {
     );
     expect(buttonNamed(element, 'Fix')).toBeUndefined();
     expect(text).toMatch(/hand edit/i);
+  });
+
+  it('hides Fix and asks for a hand edit when the host cannot fix', async () => {
+    const { element, fixture } = renderWithState(
+      { servers: [], errors: [], issues: [PARSE_ISSUE] },
+      { ok: true, issues: [] },
+      { configFix: false },
+    );
+    await settle(fixture);
+
+    expect(buttonNamed(element, 'Fix')).toBeUndefined();
+    expect(element.textContent ?? '').toMatch(
+      /Fix is not available in this host — edit the file by hand/,
+    );
+    // The complaint is still fully rendered: only the action is gone.
+    expect(element.textContent ?? '').toContain('uses comments');
   });
 
   it('shows the host’s refusal when a fix fails', async () => {

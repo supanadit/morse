@@ -550,6 +550,40 @@ describe('PiMcpStore', () => {
     });
   });
 
+  it('saves an existing project definition in place and still adds a new one to the target', () => {
+    const { mcp, cwd, projectPath, globalPath } = fixture();
+    writeJson(projectPath, {
+      mcpServers: { shared: { command: 'project-cmd', args: ['a'], oauth: 'kept' } },
+    });
+    writeJson(globalPath, { mcpServers: { shared: { command: 'global-cmd' } } });
+
+    expect(
+      mcp.save({ name: 'shared', type: 'stdio', command: 'changed' }, 'project', cwd),
+    ).toMatchObject({ ok: true, path: projectPath, scope: 'project' });
+    // The project entry stays the definition; only its edited field moved.
+    expect(readServers(projectPath).shared).toMatchObject({ command: 'changed', oauth: 'kept' });
+    expect(readServers(globalPath).shared).toEqual({ command: 'global-cmd' });
+
+    expect(
+      mcp.upsert('other', { name: 'other', type: 'stdio', command: 'new' }, 'project', cwd),
+    ).toMatchObject({ ok: true, path: projectPath });
+    expect(readServers(projectPath).other).toBeDefined();
+  });
+
+  it('keeps a project override write for a user-level server through upsert', () => {
+    const { mcp, cwd, projectPath, globalPath } = fixture();
+    writeJson(globalPath, { mcpServers: { shared: { command: 'global-cmd' } } });
+    // An override-only entry is not a definition: an add in project scope still
+    // replaces it with a real project entry, exactly as before.
+    writeJson(projectPath, { mcpServers: { shared: { enabled: false } } });
+
+    expect(
+      mcp.upsert('shared', { name: 'shared', type: 'stdio', command: 'project-cmd' }, 'project', cwd),
+    ).toMatchObject({ ok: true, path: projectPath });
+    expect(readServers(projectPath).shared).toMatchObject({ command: 'project-cmd' });
+    expect(readServers(globalPath).shared).toEqual({ command: 'global-cmd' });
+  });
+
   it('writes into an isolated root and refuses its project scope', () => {
     const botRoot = join(root(), 'config');
     const bot = engine.isolated(botRoot, { home: root(), env: {} });
@@ -580,5 +614,18 @@ describe('PiMcpStore', () => {
     const refused = mcp.upsert('y', { name: 'y', type: 'stdio', command: 'node' }, 'project');
     expect(refused.ok).toBe(false);
     expect(refused.issues).toContainEqual(expect.objectContaining({ code: 'unsupported' }));
+    // Without a directory there is no would-be path, so the issue does not fake
+    // one; with one, it names the project file that was refused.
+    expect(refused.issues[0]?.file).toBe('');
+    const withCwd = mcp.upsert(
+      'y',
+      { name: 'y', type: 'stdio', command: 'node' },
+      'project',
+      join(botRoot, 'workspace'),
+    );
+    expect(withCwd.issues[0]).toMatchObject({
+      code: 'unsupported',
+      file: join(botRoot, 'workspace', '.pi', 'mcp.json'),
+    });
   });
 });

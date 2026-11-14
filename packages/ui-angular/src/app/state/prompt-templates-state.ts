@@ -45,6 +45,12 @@ export class PromptTemplatesState {
    * Only a host that can read and write an engine's templates advertises this.
    */
   readonly enabled = computed(() => this.morse.capabilities()?.promptEditor === true);
+  /**
+   * Whether this host answers `configFix`. A host without it (VS Code) refuses
+   * the command, so the editor hides Fix and asks for a hand edit instead of
+   * offering an action that can only fail.
+   */
+  readonly canFix = computed(() => this.morse.capabilities()?.configFix === true);
   /** The engine kind the templates belong to, so commands are scoped per engine. */
   readonly engine = computed(() => this.morse.engine());
   /** OpenCode's commands carry `source: 'file' | 'config'` and no `argumentHint`. */

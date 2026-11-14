@@ -14,6 +14,8 @@ interface RenderOptions {
   fixResult?: unknown;
   /** What the first `promptTemplates` read answers after a fix (the cleared list). */
   templatesAfterFix?: unknown;
+  /** Whether the host advertises `configFix`; the default is yes. */
+  configFix?: boolean;
 }
 
 /**
@@ -57,6 +59,7 @@ function render(options: RenderOptions = {}): {
       insertIntoEditor: false,
       revealFile: false,
       promptEditor: true,
+      configFix: options.configFix ?? true,
     }),
     workspace: signal({ cwd: '/repo', name: 'repo' }),
     state: signal({ sessionId: 's1' }),
@@ -291,6 +294,30 @@ describe('PromptEditor config issues', () => {
       },
       expect.any(Number),
     );
+  });
+
+  it('hides Fix and asks for a hand edit when the host cannot fix', async () => {
+    const { element, fixture } = render({
+      configFix: false,
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [BROKEN_TEMPLATE_ISSUE],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    const text = element.textContent ?? '';
+    expect(text).toContain('the frontmatter is not valid YAML');
+    expect(text).toMatch(/Fix is not available in this host — edit the file by hand/);
+    expect(
+      [...element.querySelectorAll('button')].some(
+        (button) => button.textContent?.trim() === 'Fix',
+      ),
+    ).toBe(false);
   });
 
   it('shows the host’s refusal in the status row when a fix fails', async () => {

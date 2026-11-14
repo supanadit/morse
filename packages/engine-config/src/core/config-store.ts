@@ -606,7 +606,8 @@ function chainSignature(found: ConfigTarget[]): string {
 /**
  * A locator's typed scope refusal becomes `unsupported`; any other thrown error
  * is a real read/write failure. The issue names the would-be path when one is
- * known, falling back to the file id so `file` is never empty.
+ * known — the engines put it on the refusal — and otherwise leaves `file`
+ * empty: a bare file id is not a path, and the panel would print it as one.
  */
 function rejection(
   error: unknown,
@@ -615,7 +616,7 @@ function rejection(
   intent: 'read' | 'write',
   path?: string,
 ): ConfigIssue {
-  const known = path ?? (error instanceof UnsupportedScopeError ? error.path : undefined) ?? fileId;
+  const known = path ?? (error instanceof UnsupportedScopeError ? error.path : undefined) ?? '';
   if (error instanceof UnsupportedScopeError) {
     return {
       file: known,

@@ -205,6 +205,12 @@ export class MorseSessionFactory {
       promptEditor: this.router
         .engineOptions()
         .some((option) => this.router.extrasFor(option.kind)?.prompts !== undefined),
+      // Fix rewrites an engine's config file so a later edit can land. Only a
+      // host whose engines expose it answers `configFix`; the frontend hides the
+      // button elsewhere (VS Code refuses it) instead of offering a dead action.
+      configFix: this.router
+        .engineOptions()
+        .some((option) => this.router.extrasFor(option.kind)?.fix !== undefined),
       // One-click self-update: only when the operator opted in
       // (`MORSE_SELF_UPDATE=1`). The frontend turns the footer's update notice into
       // a button when this is set; the command itself re-checks the install and

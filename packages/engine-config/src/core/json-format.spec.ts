@@ -32,6 +32,13 @@ describe('JsonFormat', () => {
     expect(result.issues[0].snippet).toContain('"a":');
   });
 
+  it('strips a leading byte-order mark and reads the file as strict JSON', () => {
+    const result = format.parse('\uFEFF{"a": 1}\n', '/x.json', 'config', 'global');
+    expect(result.value).toEqual({ a: 1 });
+    expect(result.strict).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
   it('serializes with two spaces and a trailing newline', () => {
     expect(format.serialize({ a: 1 })).toBe('{\n  "a": 1\n}\n');
   });

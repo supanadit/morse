@@ -1,9 +1,13 @@
 import {
+  chmodSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -48,6 +52,43 @@ describe('JsonConfigFile', () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(statSync(join(dir, 'config')).mode & 0o777).toBe(0o700);
     expect(readFileSync(path, 'utf8').endsWith('\n')).toBe(true);
+  });
+
+  it('writes through a symlinked config instead of replacing the link', () => {
+    const dir = root();
+    const dotfiles = join(dir, 'dotfiles');
+    const config = join(dir, 'config');
+    mkdirSync(dotfiles, { recursive: true });
+    mkdirSync(config, { recursive: true });
+    const target = join(dotfiles, 'mcp.json');
+    writeFileSync(target, '{\n  "mcpServers": {}\n}\n');
+    chmodSync(target, 0o640);
+    const link = join(config, 'mcp.json');
+    symlinkSync(target, link);
+
+    const file = new JsonConfigFile(link, 'mcp', 'global', { ownership: 'user' });
+    expect(file.write({ mcpServers: { one: { command: 'node' } } }).ok).toBe(true);
+
+    // The dotfiles link survives; only the file it points at changed.
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({
+      mcpServers: { one: { command: 'node' } },
+    });
+    // The target's mode is preserved across the rename.
+    expect(statSync(target).mode & 0o777).toBe(0o640);
+    // No temp file left behind in either directory.
+    expect(readdirSync(dotfiles).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+    expect(readdirSync(config).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('keeps an existing user file mode across an atomic write', () => {
+    const path = join(root(), 'opencode.json');
+    writeFileSync(path, '{}\n');
+    chmodSync(path, 0o640);
+    const file = new JsonConfigFile(path, 'config', 'global', { ownership: 'user' });
+
+    expect(file.write({ a: 1 }).ok).toBe(true);
+    expect(statSync(path).mode & 0o777).toBe(0o640);
   });
 
   it('reports a missing file as a read without issues', () => {

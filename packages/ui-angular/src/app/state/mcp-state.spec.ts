@@ -11,7 +11,7 @@ import { WorkspaceTabs } from './workspace-tabs';
  * (`capabilities.mcp` is off on purpose, so the background probe's timer never
  * races them).
  */
-function setup(workspaceCwd = '/repo') {
+function setup(workspaceCwd = '/repo', capabilities: Record<string, unknown> = { mcp: false }) {
   let push: ((event: { cwd: string }) => void) | undefined;
   const requestHostCommand = vi.fn(
     async (..._args: unknown[]): Promise<unknown> => ({
@@ -27,7 +27,7 @@ function setup(workspaceCwd = '/repo') {
     };
   };
   const fake = {
-    capabilities: signal({ mcp: false }),
+    capabilities: signal(capabilities),
     workspace: signal({ cwd: workspaceCwd, name: 'repo' }),
     // The draft's/session's engine choice; absent means the host's default.
     engine: signal<string | undefined>(undefined),
@@ -110,6 +110,16 @@ describe('McpState', () => {
 
 /** The config issues a status carries, and the two actions they enable. */
 describe('McpState issues, probing and Fix', () => {
+  it('reports Fix available only when the host advertises configFix', () => {
+    const { state } = setup('/repo', { mcp: true, configFix: true });
+    expect(state.canFix()).toBe(true);
+  });
+
+  it('hides Fix when the host does not advertise configFix', () => {
+    const { state } = setup('/repo', { mcp: true });
+    expect(state.canFix()).toBe(false);
+  });
+
   it('parses the config issues the host attached to a status', async () => {
     const { requestHostCommand, state } = setup('/repo');
     requestHostCommand.mockResolvedValue({
@@ -283,6 +293,40 @@ describe('McpState issues, probing and Fix', () => {
     await staleProbe;
 
     expect(state.status('/repo')?.servers.map((server) => server.name)).toEqual(['new']);
+  });
+
+  it('clears the probe TTL when an external change arrives', async () => {
+    const { requestHostCommand, state, push } = setup('/repo');
+
+    await state.refresh('/repo', true);
+    await state.probe('/repo');
+    expect(probeCalls(requestHostCommand)).toHaveLength(1);
+
+    // The host saw the file move; the cached live state is as stale as the list.
+    push()?.({ cwd: '/repo' });
+    await vi.waitFor(() => {
+      expect(probeCalls(requestHostCommand)).toHaveLength(2);
+    });
+  });
+
+  it('clears the probe TTL after a successful mutation', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    requestHostCommand.mockImplementation((command) =>
+      command === 'mcpSetEnabled'
+        ? Promise.resolve({ ok: true, scope: 'global' })
+        : Promise.resolve({ servers: [], errors: [] }),
+    );
+
+    await state.refresh('/repo', true);
+    await state.probe('/repo');
+    expect(probeCalls(requestHostCommand)).toHaveLength(1);
+
+    const result = await state.setEnabled('docs', false, '/repo', 'global');
+    expect(result.ok).toBe(true);
+    // The write changed what connects; the next refresh must dial again.
+    await vi.waitFor(() => {
+      expect(probeCalls(requestHostCommand)).toHaveLength(2);
+    });
   });
 
   it('fixes an issue through the host, then refreshes the directory', async () => {

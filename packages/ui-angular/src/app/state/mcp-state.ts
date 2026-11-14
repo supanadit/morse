@@ -82,6 +82,13 @@ export class McpState {
   readonly enabled = computed(() => this.morse.capabilities()?.mcp === true);
 
   /**
+   * Whether this host answers `configFix`. A host without it (VS Code) refuses
+   * the command, so the panel hides Fix and says a hand edit is needed instead
+   * of offering an action that can only fail.
+   */
+  readonly canFix = computed(() => this.morse.capabilities()?.configFix === true);
+
+  /**
    * The engine the MCP modal is about: the draft's choice, or the session's
    * owner. Engines keep separate configs (`mcp.json` vs `opencode.json`), so it
    * rides every command and the cache is keyed by it — a pi session and an
@@ -226,8 +233,16 @@ export class McpState {
           this.fetchedAt.delete(key);
         }
       }
+      // A live probe is as stale as the list it came with: whoever edited the
+      // file may have changed what connects, so the next refresh must probe.
+      for (const key of [...this.probedAt.keys()]) {
+        if (key.startsWith(prefix)) {
+          this.probedAt.delete(key);
+        }
+      }
     } else {
       this.fetchedAt.delete(this.keyOf(cwd));
+      this.probedAt.delete(this.keyOf(cwd));
     }
     const current = this.cwd();
     if (cwd.length === 0 || cwd === current) {
@@ -450,6 +465,9 @@ export class McpState {
     );
     const result = asMcpMutation(data);
     if (result.ok) {
+      // The files just moved, so the live state a probe reported is stale: the
+      // next refresh must dial again instead of waiting out the probe TTL.
+      this.probedAt.delete(this.keyOf(cwd));
       await this.refresh(cwd, true);
     }
     return result;
@@ -511,18 +529,24 @@ function isServerStatus(value: unknown): value is McpServerStatus {
 
 function asMcpMutation(value: unknown): McpMutation {
   if (typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === true) {
-    const row = value as { path?: unknown; scope?: unknown; override?: unknown };
+    const row = value as { path?: unknown; scope?: unknown; override?: unknown; issues?: unknown };
+    const issues = asConfigIssues(row.issues);
     return {
       ok: true,
       ...(typeof row.path === 'string' ? { path: row.path } : {}),
       ...(row.scope === 'global' || row.scope === 'project' ? { scope: row.scope } : {}),
       ...(row.override === true ? { override: true } : {}),
+      ...(issues.length > 0 ? { issues } : {}),
     };
   }
-  const message = typeof (value as { message?: unknown } | null)?.message === 'string'
-    ? (value as { message: string }).message
-    : 'The host did not apply the change.';
-  return { ok: false, message };
+  const row = (typeof value === 'object' && value !== null ? value : undefined) as
+    | { message?: unknown; issues?: unknown }
+    | undefined;
+  const message =
+    typeof row?.message === 'string' ? row.message : 'The host did not apply the change.';
+  // A refusal keeps its config complaints: the MCP editor names the one Fix
+  // action that clears a `normalize` refusal, so dropping them loses the cure.
+  return { ok: false, message, issues: asConfigIssues(row?.issues) };
 }
 
 function isString(value: unknown): value is string {
