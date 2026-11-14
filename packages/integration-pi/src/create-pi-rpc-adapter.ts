@@ -1,14 +1,6 @@
-import { homedir } from 'node:os';
 import { SessionEngine, type AgentGatewayFactory, type AgentSessionInfo } from '@morse/agent';
 import type { AgentExtras, AgentIntegration, MorseLogger, SessionCatalog } from '@morse/system';
-import {
-  resolveEngineContext,
-  type ConfigIssue,
-  type ConfigMutation,
-  type ConfigScope,
-} from '@morse/engine-config';
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
-import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
 import { PiMcp, type McpConfigScope, type McpServerInput } from './pi-mcp.js';
 import { PiPrompts, type PromptScope, type PromptTemplateInput } from './pi-prompts.js';
 import { McpInspector } from './internal/mcp-client.js';
@@ -88,8 +80,6 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
   private readonly scanCatalog: PiRpcSessionCatalog;
   /** pi's host-side administration, behind the optional capability ports. */
   readonly extras: AgentExtras;
-  /** Builds the instance `fix` resolves a config path from. */
-  private readonly definition = new PiEngineDefinition();
   private cachedVersion: string | null | undefined;
 
   constructor(
@@ -144,67 +134,12 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
         delete: (name, scope, cwd) =>
           Promise.resolve(this.prompts.delete(name, scope as PromptScope, cwd)),
       },
-      fix: (request) => Promise.resolve(this.fix(request)),
+      // The manager owns the files (agent dir, isolated root, project `.pi`),
+      // so it is also the one that decides which paths a fix may rewrite.
+      fix: (request) => Promise.resolve(this.mcp.fix(request)),
       version: () => this.version(),
       cli: this.describeCli(),
     };
-  }
-
-  /**
-   * Rewrite one config file as strict JSON, so a later write can land.
-   *
-   * The panel names the file its `ConfigIssue` reported, and only a path the
-   * engine itself resolves for that `fileId`/`scope`/`cwd` may be touched: a fix
-   * is a repair of pi's own config, never a general file rewrite. pi has one
-   * fixable file id today (`mcp`); anything else is refused as unsupported.
-   */
-  private fix(request: {
-    fileId: string;
-    path: string;
-    scope: ConfigScope;
-    cwd?: string;
-  }): ConfigMutation {
-    const cwd = request.cwd !== undefined && request.cwd.length > 0 ? request.cwd : undefined;
-    if (request.fileId !== 'mcp') {
-      return fixRefusal(request, `pi has no fixable config file "${request.fileId}".`);
-    }
-    try {
-      const instance = this.instance(cwd);
-      const paths = instance.paths(request.fileId, request.scope, cwd);
-      if (request.path !== paths.write && !paths.read.includes(request.path)) {
-        return fixRefusal(
-          request,
-          `"${request.path}" is not one of pi's ${request.scope} config paths.`,
-        );
-      }
-      return instance.fileAt(request.fileId, request.path, request.scope).normalize();
-    } catch (error: unknown) {
-      return fixRefusal(request, describeFixError(error));
-    }
-  }
-
-  /**
-   * The instance one call resolves through. A configured agent directory is a
-   * bot's isolated root when there is no project, and pi's user tree (named
-   * through `PI_CODING_AGENT_DIR`) when a project's `.pi` files take precedence.
-   */
-  private instance(cwd: string | undefined): PiEngineInstance {
-    const env = this.config.env ?? process.env;
-    const agentDir = env.PI_CODING_AGENT_DIR;
-    if (agentDir !== undefined && agentDir.length > 0 && cwd === undefined) {
-      return this.definition.isolated(agentDir, { env, home: homedir() }) as PiEngineInstance;
-    }
-    return this.definition.create(
-      resolveEngineContext({
-        ownership: 'user',
-        home: homedir(),
-        ...(cwd === undefined ? {} : { cwd }),
-        env:
-          agentDir === undefined || agentDir.length === 0
-            ? env
-            : { ...env, PI_CODING_AGENT_DIR: agentDir },
-      }),
-    );
   }
 
   /**
@@ -274,36 +209,4 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
       return undefined;
     }
   }
-}
-
-/** A fix refused before any write: the panel shows the sentence beside the file. */
-function fixRefusal(
-  request: { fileId: string; path: string; scope: ConfigScope },
-  message: string,
-): ConfigMutation {
-  return {
-    ok: false,
-    message,
-    path: request.path,
-    scope: request.scope,
-    issues: [fixIssue(request, message)],
-  };
-}
-
-function fixIssue(
-  request: { fileId: string; path: string; scope: ConfigScope },
-  message: string,
-): ConfigIssue {
-  return {
-    file: request.path,
-    fileId: request.fileId,
-    scope: request.scope,
-    code: 'unsupported',
-    message,
-    fixable: false,
-  };
-}
-
-function describeFixError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

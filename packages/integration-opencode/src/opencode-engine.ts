@@ -1,4 +1,3 @@
-import { homedir } from 'node:os';
 import {
   SessionEngine,
   type AgentEventListener,
@@ -16,18 +15,7 @@ import {
   type AgentIntegration,
   type MorseLogger,
 } from '@morse/system';
-import {
-  resolveEngineContext,
-  type ConfigIssue,
-  type ConfigMutation,
-  type ConfigScope,
-} from '@morse/engine-config';
 import type { McpConfigScope, McpServerInput } from '@morse/protocol';
-import { OPEN_CODE_CONFIG_FILE_ID } from './engine/config-discovery.js';
-import {
-  OpenCodeEngineDefinition,
-  type OpenCodeEngineInstance,
-} from './engine/open-code-engine.js';
 import { OpenCodeMcp, type OpenCodeMcpStatusOptions } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
 import {
@@ -85,23 +73,20 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
   readonly catalog: OpenCodeSessionCatalog;
   /** OpenCode's own administration: its MCP servers, from `opencode.json`. */
   readonly extras: AgentExtras;
-  /** Builds the instance `fix` resolves a config path from. */
-  private readonly definition: OpenCodeEngineDefinition;
 
   constructor(private readonly deps: OpenCodeEngineDeps) {
     super();
-    const mcp = deps.mcp ?? new OpenCodeMcp();
+    const mcp =
+      deps.mcp ??
+      new OpenCodeMcp(deps.configDir === undefined ? {} : { configDir: deps.configDir });
     const prompts = deps.prompts ?? new OpenCodePrompts();
-    this.definition = new OpenCodeEngineDefinition(
-      deps.configDir === undefined ? {} : { configDir: deps.configDir },
-    );
     // Small wrappers rather than the class itself: the ports speak in
     // `Record<string, unknown>` and `string` scopes, because `@morse/system`
     // must not know OpenCode's payload types. The casts live at this edge.
     const extras: AgentExtras = {
-      // The host's Fix action: rewrite a comment-bearing config file as strict
-      // JSON, named by the `ConfigIssue` the panel shows.
-      fix: (request) => Promise.resolve(this.fix(request)),
+      // The manager owns the tree (config dir, ownership, a bot's root), so it
+      // is also the one that decides which paths a fix may rewrite.
+      fix: (request) => Promise.resolve(mcp.fix(request)),
       mcp: {
         configSignature: (cwd) => mcp.configSignature(cwd),
         status: (cwd, options) =>
@@ -184,79 +169,6 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
     await this.deps.stream.close();
     await this.deps.connection.close();
   }
-
-  /**
-   * Rewrite one config file as strict JSON, so a later write can land.
-   *
-   * The panel names the file its `ConfigIssue` reported, and only a path this
-   * engine resolves for that `fileId`/`scope`/`cwd` may be touched: a fix is a
-   * repair of OpenCode's own config, never a general file rewrite. OpenCode
-   * keeps everything in one `config` file id; anything else is refused.
-   */
-  private fix(request: {
-    fileId: string;
-    path: string;
-    scope: ConfigScope;
-    cwd?: string;
-  }): ConfigMutation {
-    const cwd = request.cwd !== undefined && request.cwd.length > 0 ? request.cwd : undefined;
-    if (request.fileId !== OPEN_CODE_CONFIG_FILE_ID) {
-      return fixRefusal(request, `opencode has no fixable config file "${request.fileId}".`);
-    }
-    try {
-      const instance = this.instance(cwd);
-      const paths = instance.paths(request.fileId, request.scope, cwd);
-      if (request.path !== paths.write && !paths.read.includes(request.path)) {
-        return fixRefusal(
-          request,
-          `"${request.path}" is not one of opencode's ${request.scope} config paths.`,
-        );
-      }
-      return instance.fileAt(request.fileId, request.path, request.scope).normalize();
-    } catch (error: unknown) {
-      return fixRefusal(request, error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  /** The user tree instance one fix resolves its config paths through. */
-  private instance(cwd: string | undefined): OpenCodeEngineInstance {
-    return this.definition.create(
-      resolveEngineContext({
-        ownership: 'user',
-        home: homedir(),
-        ...(cwd === undefined ? {} : { cwd }),
-        env: process.env,
-      }),
-    );
-  }
-}
-
-/** A fix refused before any write: the panel shows the sentence beside the file. */
-function fixRefusal(
-  request: { fileId: string; path: string; scope: ConfigScope },
-  message: string,
-): ConfigMutation {
-  return {
-    ok: false,
-    message,
-    path: request.path,
-    scope: request.scope,
-    issues: [fixIssue(request, message)],
-  };
-}
-
-function fixIssue(
-  request: { fileId: string; path: string; scope: ConfigScope },
-  message: string,
-): ConfigIssue {
-  return {
-    file: request.path,
-    fileId: request.fileId,
-    scope: request.scope,
-    code: 'unsupported',
-    message,
-    fixable: false,
-  };
 }
 
 /** Creates the engine for a host: attach to `url`, or spawn a private server. */

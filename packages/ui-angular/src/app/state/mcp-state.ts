@@ -24,6 +24,12 @@ export type McpOverall = 'unknown' | 'loading' | 'ok' | 'warn' | 'error' | 'off'
  */
 const STATUS_TTL_MS = 60_000;
 /**
+ * A probe dials every enabled server, so it is neither instant nor free: a
+ * directory is probed at most once a minute even when a refresh is forced. The
+ * fast list moves when the files move; a connection does not.
+ */
+const PROBE_TTL_MS = 60_000;
+/**
  * A window regaining focus forces a fresh list, but not a `pi mcp list` per
  * alt-tab: a fetch this recent is close enough that the reader has not edited
  * `mcp.json` in between.
@@ -49,6 +55,12 @@ export class McpState {
 
   private readonly byCwd = signal<Record<string, McpStatus>>({});
   private readonly loadingByCwd = signal<Record<string, boolean>>({});
+  /**
+   * Probing is its own state: it is a slow, optional second read, and the panel's
+   * Refresh must not be disabled for the whole time servers dial. Keyed like the
+   * status, so a hint can follow the directory and the engine.
+   */
+  private readonly probing = signal<Record<string, boolean>>({});
   private readonly fetchedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<McpStatus | undefined>>();
   /**
@@ -57,6 +69,14 @@ export class McpState {
    * other, and a refresh must never swallow the live state the panel asked for.
    */
   private readonly probeInFlight = new Map<string, Promise<McpStatus | undefined>>();
+  /** When a directory's probe last answered, so the TTL can skip the next one. */
+  private readonly probedAt = new Map<string, number>();
+  /**
+   * How many fast reads a key has started. A probe captures this number and
+   * drops its answer if a newer fast read began in the meantime: an older probe
+   * must never overwrite a fresher read.
+   */
+  private readonly generations = new Map<string, number>();
 
   /** Only a host that can manage some engine's MCP servers advertises this. */
   readonly enabled = computed(() => this.morse.capabilities()?.mcp === true);
@@ -222,25 +242,37 @@ export class McpState {
    * The fast read answers from the config files alone so the panel draws at
    * once; a probe then asks the engine to connect each enabled server and
    * replaces the answer when it arrives. The probe is not awaited: a panel that
-   * waited for a dial would look broken on a slow server.
+   * waited for a dial would look broken on a slow server. Only a read that
+   * actually reached the host probes — a cache hit would otherwise turn every
+   * tab switch, focus and file-watch push into a full dial.
    */
   async refresh(cwd: string, force = false): Promise<McpStatus | undefined> {
-    const status = await this.load(cwd, force);
-    if (status !== undefined) {
+    const { status, fetched } = await this.load(cwd, force);
+    if (fetched && status !== undefined) {
       void this.probe(cwd);
     }
     return status;
   }
 
   /**
-   * Ask the engine to connect every enabled server and report live state. Shares
-   * one round trip per directory with other probes, and never with the fast
-   * read, so a refresh in flight cannot stand in for it.
+   * Ask the engine to connect every enabled server and report live state.
+   *
+   * A probe is expensive, so it is skipped when this directory answered one
+   * within `PROBE_TTL_MS`, while one is already in flight, and on an engine that
+   * ignores `probe` (OpenCode reports configured state only, so the fast read
+   * already is the whole answer).
    */
   probe(cwd: string): Promise<McpStatus | undefined> {
     const existing = this.probeInFlight.get(cwd);
     if (existing) {
       return existing;
+    }
+    if (this.engine() === 'opencode') {
+      return Promise.resolve(undefined);
+    }
+    const key = this.keyOf(cwd);
+    if (Date.now() - (this.probedAt.get(key) ?? 0) < PROBE_TTL_MS) {
+      return Promise.resolve(undefined);
     }
     const promise = this.fetch(cwd, true);
     this.probeInFlight.set(cwd, promise);
@@ -249,26 +281,50 @@ export class McpState {
     });
   }
 
-  /** The fast (or cached) read: one round trip per directory at a time. */
-  private async load(cwd: string, force: boolean): Promise<McpStatus | undefined> {
+  /** Whether a live probe is in flight for this directory (the hint, not the spinner). */
+  isProbing(cwd: string): boolean {
+    return this.probing()[this.keyOf(cwd)] === true;
+  }
+
+  /**
+   * The fast (or cached) read: one round trip per directory at a time, and
+   * `fetched` says whether the host was actually asked (not a TTL cache hit).
+   */
+  private async load(
+    cwd: string,
+    force: boolean,
+  ): Promise<{ status: McpStatus | undefined; fetched: boolean }> {
     const existing = this.inFlight.get(cwd);
     if (existing) {
-      return existing;
+      return { status: await existing, fetched: true };
     }
-    const last = this.fetchedAt.get(cwd) ?? 0;
-    if (!force && this.byCwd()[cwd] && Date.now() - last < STATUS_TTL_MS) {
-      return this.byCwd()[cwd];
+    // The signals and timestamps are keyed by engine too; reading them by bare
+    // `cwd` made every refresh look like a cache miss and re-asked the host.
+    const key = this.keyOf(cwd);
+    const last = this.fetchedAt.get(key) ?? 0;
+    if (!force && this.byCwd()[key] && Date.now() - last < STATUS_TTL_MS) {
+      return { status: this.byCwd()[key], fetched: false };
     }
     const promise = this.fetch(cwd);
     this.inFlight.set(cwd, promise);
-    return promise.finally(() => {
-      this.inFlight.delete(cwd);
-    });
+    return {
+      status: await promise.finally(() => {
+        this.inFlight.delete(cwd);
+      }),
+      fetched: true,
+    };
   }
 
   private async fetch(cwd: string, probe = false): Promise<McpStatus | undefined> {
     const key = this.keyOf(cwd);
-    this.setLoading(cwd, true);
+    // A fast read moves the key's generation; a probe only remembers it, so a
+    // probe that started before a newer read cannot claim to be newer than it.
+    const generation = probe ? (this.generations.get(key) ?? 0) : this.nextGeneration(key);
+    if (probe) {
+      this.setProbing(key, true);
+    } else {
+      this.setLoading(cwd, true);
+    }
     try {
       const data = await this.morse.requestHostCommand(
         'mcpStatus',
@@ -280,13 +336,20 @@ export class McpState {
         STATUS_TIMEOUT_MS,
       );
       const status = asMcpStatus(data);
-      if (status) {
+      if (status && (!probe || (this.generations.get(key) ?? 0) === generation)) {
         this.byCwd.update((map) => ({ ...map, [key]: status }));
         this.fetchedAt.set(key, Date.now());
+        if (probe) {
+          this.probedAt.set(key, Date.now());
+        }
       }
       return status;
     } finally {
-      this.setLoading(cwd, false);
+      if (probe) {
+        this.setProbing(key, false);
+      } else {
+        this.setLoading(cwd, false);
+      }
     }
   }
 
@@ -400,13 +463,30 @@ export class McpState {
   private setLoading(cwd: string, loading: boolean): void {
     this.loadingByCwd.update((map) => ({ ...map, [this.keyOf(cwd)]: loading }));
   }
+
+  private setProbing(key: string, probing: boolean): void {
+    this.probing.update((map) => ({ ...map, [key]: probing }));
+  }
+
+  /** The key's next fast-read generation; every started fast read moves it. */
+  private nextGeneration(key: string): number {
+    const next = (this.generations.get(key) ?? 0) + 1;
+    this.generations.set(key, next);
+    return next;
+  }
 }
 
 function asMcpStatus(value: unknown): McpStatus | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
-  const row = value as { servers?: unknown; errors?: unknown; note?: unknown; trusted?: unknown; issues?: unknown };
+  const row = value as {
+    servers?: unknown;
+    errors?: unknown;
+    note?: unknown;
+    trusted?: unknown;
+    issues?: unknown;
+  };
   if (!Array.isArray(row.servers)) {
     return undefined;
   }

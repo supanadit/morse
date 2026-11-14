@@ -4,6 +4,7 @@ import {
   isValidMcpServerName,
   resolveEngineContext,
   type ConfigIssue,
+  type ConfigMutation,
   type ConfigScope,
   type McpExposure as EngineMcpExposure,
   type McpServer,
@@ -264,6 +265,39 @@ export class PiMcp {
     return writeProjectTrust(cwd, this.agentDir());
   }
 
+  /**
+   * Rewrite one of pi's config files as strict JSON, so a later write can land.
+   *
+   * The file is named by the `ConfigIssue` the panel shows, and only a path this
+   * manager resolves for `fileId`/`scope`/`cwd` is touched: a fix repairs pi's
+   * own config, it never normalises an arbitrary file. pi has one fixable file
+   * id today (`mcp`); anything else is refused as unsupported.
+   */
+  fix(request: {
+    fileId: string;
+    path: string;
+    scope: ConfigScope;
+    cwd?: string;
+  }): ConfigMutation {
+    const project = normalizeCwd(request.cwd);
+    if (request.fileId !== 'mcp') {
+      return fixRefusal(request, `pi has no fixable config file "${request.fileId}".`);
+    }
+    try {
+      const instance = this.instance(project);
+      const paths = instance.paths(request.fileId, request.scope, project);
+      if (request.path !== paths.write && !paths.read.includes(request.path)) {
+        return fixRefusal(
+          request,
+          `"${request.path}" is not one of pi's ${request.scope} config paths.`,
+        );
+      }
+      return instance.fileAt(request.fileId, request.path, request.scope).normalize();
+    } catch (error: unknown) {
+      return fixRefusal(request, describe(error));
+    }
+  }
+
   async add(input: McpServerInput, cwd?: string): Promise<McpMutation> {
     if (!isValidMcpServerName(input.name)) {
       return {
@@ -485,6 +519,29 @@ class ProbeTimeoutError extends Error {
     super(message);
     this.name = 'ProbeTimeoutError';
   }
+}
+
+/** A fix refused before any write: the panel shows the sentence beside the file. */
+function fixRefusal(
+  request: { fileId: string; path: string; scope: ConfigScope },
+  message: string,
+): ConfigMutation {
+  return {
+    ok: false,
+    message,
+    path: request.path,
+    scope: request.scope,
+    issues: [
+      {
+        file: request.path,
+        fileId: request.fileId,
+        scope: request.scope,
+        code: 'unsupported',
+        message,
+        fixable: false,
+      },
+    ],
+  };
 }
 
 /** A probe failure as a config issue, so the panel can show it beside the file. */

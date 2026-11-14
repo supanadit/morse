@@ -43,7 +43,7 @@ describe('PromptTemplatesState issues and Fix', () => {
       issues: [
         {
           file: '/repo/.pi/prompts/plan.md',
-          fileId: 'mcp',
+          fileId: 'config',
           scope: 'project',
           code: 'frontmatter',
           message: 'the frontmatter is not valid YAML',
@@ -56,7 +56,7 @@ describe('PromptTemplatesState issues and Fix', () => {
     expect(result?.issues).toEqual([
       {
         file: '/repo/.pi/prompts/plan.md',
-        fileId: 'mcp',
+        fileId: 'config',
         scope: 'project',
         code: 'frontmatter',
         message: 'the frontmatter is not valid YAML',
@@ -71,7 +71,7 @@ describe('PromptTemplatesState issues and Fix', () => {
 
     const result = await state.fix({
       file: '/repo/.pi/prompts/plan.md',
-      fileId: 'mcp',
+      fileId: 'config',
       scope: 'project',
       code: 'normalize',
       message: 'rewrite this file',
@@ -82,7 +82,7 @@ describe('PromptTemplatesState issues and Fix', () => {
     expect(requestHostCommand).toHaveBeenCalledWith(
       'configFix',
       {
-        fileId: 'mcp',
+        fileId: 'config',
         path: '/repo/.pi/prompts/plan.md',
         scope: 'project',
         cwd: '/repo',
@@ -90,7 +90,9 @@ describe('PromptTemplatesState issues and Fix', () => {
       },
       expect.any(Number),
     );
-    const reads = requestHostCommand.mock.calls.filter(([command]) => command === 'promptTemplates');
+    const reads = requestHostCommand.mock.calls.filter(
+      ([command]) => command === 'promptTemplates',
+    );
     // The initial read plus the one Fix forces.
     expect(reads.length).toBeGreaterThanOrEqual(2);
   });
@@ -101,7 +103,7 @@ describe('PromptTemplatesState issues and Fix', () => {
 
     const result = await state.fix({
       file: '/repo/.pi/prompts/plan.md',
-      fileId: 'mcp',
+      fileId: 'config',
       scope: 'project',
       code: 'normalize',
       message: 'rewrite this file',

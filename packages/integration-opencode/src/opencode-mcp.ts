@@ -15,6 +15,7 @@ import type {
   McpStatus,
 } from '@morse/protocol';
 
+import { OPEN_CODE_CONFIG_FILE_ID } from './engine/config-discovery.js';
 import {
   OpenCodeEngineDefinition,
   type OpenCodeEngineInstance,
@@ -118,12 +119,36 @@ export class OpenCodeMcp {
   }
 
   /**
-   * Rewrite a comment-bearing config as strict JSON, so the next mutation can
-   * land. The host offers this as the Fix action beside a `normalize` issue.
+   * Rewrite one of OpenCode's config files as strict JSON, so the next mutation
+   * can land. The file is named by the `ConfigIssue` the panel shows, and only a
+   * path this manager resolves for `fileId`/`scope`/`cwd` is touched: a fix
+   * repairs OpenCode's config, never an arbitrary file. Every mutation builds
+   * its instance from this manager's own config dir/ownership/root, so a bot's
+   * private tree is fixed as itself instead of the reader's.
    */
-  fix(scope: McpConfigScope, cwd?: string): McpMutation {
-    const project = normalizeCwd(cwd);
-    return withMessage(this.store(project).normalize(scope, project));
+  fix(request: {
+    fileId: string;
+    path: string;
+    scope: McpConfigScope;
+    cwd?: string;
+  }): McpMutation {
+    const project = normalizeCwd(request.cwd);
+    if (request.fileId !== OPEN_CODE_CONFIG_FILE_ID) {
+      return fixRefusal(request, `opencode has no fixable config file "${request.fileId}".`);
+    }
+    try {
+      const instance = this.instance(project);
+      const paths = instance.paths(request.fileId, request.scope, project);
+      if (request.path !== paths.write && !paths.read.includes(request.path)) {
+        return fixRefusal(
+          request,
+          `"${request.path}" is not one of opencode's ${request.scope} config paths.`,
+        );
+      }
+      return instance.fileAt(request.fileId, request.path, request.scope).normalize();
+    } catch (error: unknown) {
+      return fixRefusal(request, error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** OpenCode reads project configs untrusted, so there is nothing to write. */
@@ -276,4 +301,27 @@ function withMessage(mutation: ConfigMutation): McpMutation {
 
 function normalizeCwd(cwd?: string): string | undefined {
   return cwd !== undefined && cwd.length > 0 ? cwd : undefined;
+}
+
+/** A fix refused before any write: the panel shows the sentence beside the file. */
+function fixRefusal(
+  request: { fileId: string; path: string; scope: McpConfigScope },
+  message: string,
+): McpMutation {
+  return {
+    ok: false,
+    message,
+    path: request.path,
+    scope: request.scope,
+    issues: [
+      {
+        file: request.path,
+        fileId: request.fileId,
+        scope: request.scope,
+        code: 'unsupported',
+        message,
+        fixable: false,
+      },
+    ],
+  };
 }

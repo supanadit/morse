@@ -10,6 +10,7 @@
     "build": "ng build && node scripts/write-manifest.mjs",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "check-types": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.spec.json",
     "manifest": "node scripts/write-manifest.mjs"
   },
   "dependencies": {

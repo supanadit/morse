@@ -64,21 +64,22 @@ describe('McpState', () => {
   it('names the chosen engine on every command and refetches when it changes', async () => {
     const { requestHostCommand, engine } = setup('/repo');
 
-    engine.set('pi');
+    engine.set('opencode');
     await TestBed.inject(McpState).refresh('/repo', true);
-    expect(requestHostCommand).toHaveBeenCalledWith(
+    // OpenCode ignores `probe`, so its fast read is the whole round trip.
+    expect(requestHostCommand).toHaveBeenLastCalledWith(
       'mcpStatus',
-      { cwd: '/repo', engine: 'pi' },
+      { cwd: '/repo', engine: 'opencode' },
       expect.any(Number),
     );
 
     // Switching the draft's engine is a different config: a fresh read with the
-    // new kind, never the previous engine's cached answer.
-    engine.set('opencode');
+    // new kind, and the background probe that follows names it too.
+    engine.set('pi');
     await TestBed.inject(McpState).refresh('/repo', true);
-    expect(requestHostCommand).toHaveBeenCalledWith(
+    expect(requestHostCommand).toHaveBeenLastCalledWith(
       'mcpStatus',
-      { cwd: '/repo', engine: 'opencode' },
+      { cwd: '/repo', engine: 'pi', probe: true },
       expect.any(Number),
     );
   });
@@ -154,7 +155,11 @@ describe('McpState issues, probing and Fix', () => {
     );
 
     await state.refresh('/repo', true);
-    expect(requestHostCommand).toHaveBeenCalledWith('mcpStatus', { cwd: '/repo' }, expect.any(Number));
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpStatus',
+      { cwd: '/repo' },
+      expect.any(Number),
+    );
 
     // The probe's live answer replaces the fast one, so the dot settles without
     // the panel having waited for a server to connect.
@@ -192,6 +197,92 @@ describe('McpState issues, probing and Fix', () => {
       errors: [],
     });
     await expect(probing).resolves.toMatchObject({ servers: [{ state: 'connected' }] });
+  });
+
+  /** The `mcpStatus` calls that asked for a live probe. */
+  function probeCalls(requestHostCommand: ReturnType<typeof vi.fn>): unknown[][] {
+    return requestHostCommand.mock.calls.filter(
+      ([, args]) => (args as { probe?: boolean } | undefined)?.probe === true,
+    );
+  }
+
+  it('probes once inside the probe TTL, however many refreshes arrive', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+
+    await state.refresh('/repo', true);
+    // Join the probe the refresh started, so the TTL — not the in-flight share —
+    // is what the next refresh meets.
+    await state.probe('/repo');
+    expect(probeCalls(requestHostCommand)).toHaveLength(1);
+
+    await state.refresh('/repo', true);
+    await state.probe('/repo');
+    expect(probeCalls(requestHostCommand)).toHaveLength(1);
+  });
+
+  it('does not probe when the fast read came from the cache', async () => {
+    const { state } = setup('/repo');
+
+    await state.refresh('/repo', true);
+    await state.probe('/repo');
+    // A cache hit must not even consider a dial.
+    const probe = vi.spyOn(state, 'probe');
+
+    await state.refresh('/repo');
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('leaves the loading state to the fast read, not the probe', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    let answerProbe: ((value: unknown) => void) | undefined;
+    requestHostCommand.mockImplementation((_command, args) =>
+      (args as { probe?: boolean } | undefined)?.probe === true
+        ? new Promise((resolve) => {
+            answerProbe = resolve;
+          })
+        : Promise.resolve({ servers: [], errors: [] }),
+    );
+
+    const refreshed = await state.refresh('/repo', true);
+    expect(refreshed).toMatchObject({ servers: [] });
+    // The panel's Refresh must work while servers are still dialing.
+    expect(state.isLoading('/repo')).toBe(false);
+    expect(state.isProbing('/repo')).toBe(true);
+
+    answerProbe?.({
+      servers: [{ name: 'docs', state: 'connected', enabled: true }],
+      errors: [],
+    });
+    await vi.waitFor(() => {
+      expect(state.isProbing('/repo')).toBe(false);
+    });
+  });
+
+  it('drops a probe that lands after a newer fast read', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    let answerProbe: ((value: unknown) => void) | undefined;
+    requestHostCommand.mockImplementation((_command, args) =>
+      (args as { probe?: boolean } | undefined)?.probe === true
+        ? new Promise((resolve) => {
+            answerProbe = resolve;
+          })
+        : Promise.resolve({
+            servers: [{ name: 'new', state: 'connected', enabled: true }],
+            errors: [],
+          }),
+    );
+
+    const staleProbe = state.probe('/repo');
+    // The read started after the probe is authoritative even though the probe
+    // answers last; its stale rows must not replace the newer list.
+    await state.refresh('/repo', true);
+    answerProbe?.({
+      servers: [{ name: 'old', state: 'failed', enabled: true }],
+      errors: [],
+    });
+    await staleProbe;
+
+    expect(state.status('/repo')?.servers.map((server) => server.name)).toEqual(['new']);
   });
 
   it('fixes an issue through the host, then refreshes the directory', async () => {

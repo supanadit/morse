@@ -88,6 +88,7 @@ function fakeBot() {
 function factoryWith(
   bot: BotService | undefined,
   extras?: AgentExtras,
+  options: { canOpen?: (cwd: string) => boolean; defaultCwd?: string } = {},
 ): MorseSessionFactory {
   const registry = {
     subscribe: () => () => undefined,
@@ -95,7 +96,8 @@ function factoryWith(
     activeKeyOf: () => undefined,
     hotKeys: () => [],
     stateOf: () => undefined,
-    defaultWorkspace: WORKSPACE,
+    defaultWorkspace:
+      options.defaultCwd === undefined ? WORKSPACE : { ...WORKSPACE, cwd: options.defaultCwd },
     draftDefaults: async () => undefined,
     listSessions: async () => [],
     sessionCounts: async () => [] as [string, number][],
@@ -113,7 +115,7 @@ function factoryWith(
   return new MorseSessionFactory(
     registry,
     new SessionTranscriptStore(),
-    { canOpen: () => true } as unknown as FactoryArgs[2],
+    { canOpen: options.canOpen ?? (() => true) } as unknown as FactoryArgs[2],
     silentLogger,
     CONFIG,
     {} as FactoryArgs[5],
@@ -505,7 +507,10 @@ describe('configFix', () => {
   async function fix(
     extras: AgentExtras | undefined,
     args: Record<string, unknown>,
-  ): Promise<{ controller: ReturnType<MorseSessionFactory['createFor']>; messages: HostToClientMessage[] }> {
+  ): Promise<{
+    controller: ReturnType<MorseSessionFactory['createFor']>;
+    messages: HostToClientMessage[];
+  }> {
     const host = connect(factoryWith(undefined, extras));
     await host.controller.handleClientMessage({
       type: 'host/command',
@@ -572,6 +577,52 @@ describe('configFix', () => {
     });
 
     expect(lastResult(result.messages)).toMatchObject({ ok: false });
+  });
+
+  it('refuses a project fix whose directory the policy does not allow', async () => {
+    const engineFix = vi.fn(async () => ({ ok: true, issues: [] }));
+    const { controller, messages } = connect(
+      factoryWith(undefined, { fix: engineFix }, { canOpen: (cwd) => cwd !== '/forbidden' }),
+    );
+
+    await controller.handleClientMessage({
+      type: 'host/command',
+      payload: {
+        command: 'configFix',
+        args: {
+          fileId: 'mcp',
+          path: '/forbidden/.pi/mcp.json',
+          scope: 'project',
+          cwd: '/forbidden',
+        },
+        requestId: 'fix-policy',
+      },
+    });
+
+    expect(lastResult(messages)).toMatchObject({ ok: false });
+    expect(engineFix).not.toHaveBeenCalled();
+  });
+
+  it('fixes the user-level file with no session in front', async () => {
+    const path = '/home/me/.config/opencode/opencode.json';
+    const engineFix = vi.fn(async () => ({ ok: true, path, scope: 'global', issues: [] }));
+    // No active session and no project in front: the global file is the whole
+    // subject, so the host must not invent a directory for the request.
+    const { controller, messages } = connect(
+      factoryWith(undefined, { fix: engineFix }, { defaultCwd: '' }),
+    );
+
+    await controller.handleClientMessage({
+      type: 'host/command',
+      payload: {
+        command: 'configFix',
+        args: { engine: 'opencode', fileId: 'config', path, scope: 'global' },
+        requestId: 'fix-global',
+      },
+    });
+
+    expect(engineFix).toHaveBeenCalledWith({ fileId: 'config', path, scope: 'global' });
+    expect(lastResult(messages)).toMatchObject({ ok: true, data: { ok: true } });
   });
 });
 

@@ -167,7 +167,10 @@ describe('OpenCodeMcp', () => {
       // The file is untouched: a refused write never drops the reader's comments.
       expect(readFileSync(globalPath(), 'utf8')).toContain('// a hand-written note');
 
-      expect(mcp.fix('global', cwd)).toMatchObject({ ok: true, path: globalPath() });
+      expect(mcp.fix({ fileId: 'config', path: globalPath(), scope: 'global', cwd })).toMatchObject({
+        ok: true,
+        path: globalPath(),
+      });
       expect(() => JSON.parse(readFileSync(globalPath(), 'utf8'))).not.toThrow();
       expect(mcp.add({ name: 'two', command: 'npx', args: ['two'] }, cwd)).toMatchObject({
         ok: true,
@@ -182,7 +185,9 @@ describe('OpenCodeMcp', () => {
       expect(refused).toMatchObject({ ok: false, path: projectJsoncPath() });
       expect(refused.issues?.[0]).toMatchObject({ code: 'normalize', fixable: true });
 
-      expect(mcp.fix('project', cwd)).toMatchObject({ ok: true, path: projectJsoncPath() });
+      expect(
+        mcp.fix({ fileId: 'config', path: projectJsoncPath(), scope: 'project', cwd }),
+      ).toMatchObject({ ok: true, path: projectJsoncPath() });
       expect(() => JSON.parse(readFileSync(projectJsoncPath(), 'utf8'))).not.toThrow();
       expect(mcp.add({ name: 'one', scope: 'project', command: 'npx' }, cwd)).toMatchObject({
         ok: true,
