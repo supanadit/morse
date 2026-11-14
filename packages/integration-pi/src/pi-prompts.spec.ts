@@ -211,8 +211,9 @@ describe('PiPrompts.delete', () => {
     const result = prompts.delete('missing', 'project', cwd);
 
     expect(result.ok).toBe(false);
-    expect(result.message).toContain('missing');
-    expect(result.message).toContain(join(cwd, '.pi', 'prompts'));
+    expect(result.message).toBe(
+      `No prompt named "missing" is defined in ${join(cwd, '.pi', 'prompts')}.`,
+    );
   });
 });
 

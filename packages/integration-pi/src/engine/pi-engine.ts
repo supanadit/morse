@@ -16,6 +16,7 @@ import {
   type EngineContext,
 } from '@morse/engine-config';
 
+import { readProjectTrust } from '../internal/project-trust.js';
 import { PiMcpStore } from './pi-mcp-store.js';
 import { PiPromptStore } from './pi-prompt-store.js';
 
@@ -81,6 +82,18 @@ export class PiEngineInstance extends EngineInstance {
 
   scopeOf(_fileId: string, path: string): ConfigScope {
     return this.projectPaths.has(path) ? 'project' : 'global';
+  }
+
+  /**
+   * Whether pi would load `cwd`'s `.pi` resources. The decision belongs to the
+   * project root — pi walks up from there — so a symlinked `.pi/prompts` or a
+   * nearer `.pi` entry cannot change it. An isolated tree has no project.
+   */
+  trusted(cwd: string): boolean {
+    const project = cwd.trim();
+    return this.ownership === 'user' && project.length > 0
+      ? readProjectTrust(project, this.agentDir)
+      : false;
   }
 
   /**

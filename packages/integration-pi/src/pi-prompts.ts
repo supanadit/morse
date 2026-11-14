@@ -1,25 +1,22 @@
 import { homedir } from 'node:os';
-import { resolveEngineContext, type ConfigIssue } from '@morse/engine-config';
+import {
+  resolveEngineContext,
+  type ConfigIssue,
+  type PromptScope,
+  type PromptTemplateInput,
+} from '@morse/engine-config';
 import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
-import type { PiPromptStore } from './engine/pi-prompt-store.js';
+import {
+  isValidTemplateName,
+  type PiPromptStore,
+  type PiPromptTemplate,
+} from './engine/pi-prompt-store.js';
 import { resolveAgentDir } from './internal/project-trust.js';
 
-/** Where a template lives: the user's prompts, or this project's `.pi/prompts`. */
-export type PromptScope = 'global' | 'project';
+export type { PromptScope, PromptTemplateInput };
 
-/** One template on disk, as the editor reads it. */
-export interface PromptTemplateInfo {
-  name: string;
-  scope: PromptScope;
-  source?: 'file' | 'config';
-  path: string;
-  description?: string;
-  argumentHint?: string;
-  body: string;
-  raw: string;
-  /** Set when pi would refuse the frontmatter; the file is still listed so it can be fixed. */
-  error?: string;
-}
+/** One template on disk: the neutral row plus the file fields pi always fills. */
+export type PromptTemplateInfo = PiPromptTemplate;
 
 /** Every template, plus where a new one would be written. */
 export interface PromptTemplatesResult {
@@ -30,29 +27,6 @@ export interface PromptTemplatesResult {
   trusted: boolean;
   /** Read failures the list met; a broken template is a row `error` instead. */
   issues?: ConfigIssue[];
-}
-
-/** What a save takes. `raw` is the whole file (frontmatter and body). */
-export interface PromptTemplateInput {
-  /** The file name when editing; absent when creating. */
-  originalName?: string;
-  /** The scope it came from, so a move can delete the old file. */
-  originalScope?: PromptScope;
-  /** Engine-specific surfaces (OpenCode's file/config rows); pi ignores these. */
-  originalSource?: 'file' | 'config';
-  source?: 'file' | 'config';
-  name: string;
-  scope: PromptScope;
-  raw: string;
-  /** The structured entry of a config-sourced command; pi never reads it. */
-  entry?: {
-    template: string;
-    description?: string;
-    agent?: string;
-    model?: string;
-    subtask?: boolean;
-    [key: string]: unknown;
-  };
 }
 
 /** What a mutation answers. */
@@ -70,8 +44,7 @@ export interface PiPromptsOptions {
   agentDir?: string;
 }
 
-/** A command name is a file name: letters, digits, `_`, `-`, `.`. No path is ever taken from it. */
-const VALID_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export { isValidTemplateName };
 
 /**
  * Driven adapter for pi's prompt templates: list the `.md` files pi would load,
@@ -147,11 +120,6 @@ export class PiPrompts {
       }),
     );
   }
-}
-
-/** Whether a name is a safe file name (and therefore a valid `/command`). */
-export function isValidTemplateName(name: string): boolean {
-  return VALID_NAME.test(name) && name !== '.' && name !== '..';
 }
 
 /**

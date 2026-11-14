@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { resolveEngineContext } from '@morse/engine-config';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -55,6 +64,14 @@ function seed(dir: string, name: string, raw: string): string {
   const path = join(dir, `${name}.md`);
   writeFileSync(path, raw, 'utf8');
   return path;
+}
+
+/** Record a "do not load" decision for one directory in pi's trust file. */
+function denyTrust(dir: string, agentDir: string): void {
+  const path = join(agentDir, 'trust.json');
+  const decisions = JSON.parse(readFileSync(path, 'utf8')) as Record<string, boolean | null>;
+  decisions[realpathSync(dir)] = false;
+  writeFileSync(path, `${JSON.stringify(decisions, null, 2)}\n`, 'utf8');
 }
 
 describe('PiPromptStore.dirs', () => {
@@ -143,6 +160,26 @@ describe('PiPromptStore.list', () => {
 
     expect(prompts.list(cwd).trusted).toBe(true);
     expect(prompts.list().trusted).toBe(false);
+  });
+
+  it('reads trust at the project root even when .pi/prompts is a symlink outside it', () => {
+    const { prompts, cwd, home, projectDir } = fixture();
+    const outside = root();
+    writeProjectTrust(cwd, join(home, '.pi', 'agent'));
+    mkdirSync(dirname(projectDir), { recursive: true });
+    symlinkSync(outside, projectDir, 'dir');
+
+    expect(prompts.list(cwd).trusted).toBe(true);
+  });
+
+  it('ignores a false entry on .pi when the project root is trusted', () => {
+    const { prompts, cwd, home, projectDir } = fixture();
+    const agentDir = join(home, '.pi', 'agent');
+    mkdirSync(projectDir, { recursive: true });
+    writeProjectTrust(cwd, agentDir);
+    denyTrust(join(cwd, '.pi'), agentDir);
+
+    expect(prompts.list(cwd).trusted).toBe(true);
   });
 });
 
@@ -233,14 +270,13 @@ describe('PiPromptStore.remove', () => {
     expect(existsSync(join(globalDir, 'two.md'))).toBe(true);
   });
 
-  it('refuses a name that is not there', () => {
+  it('refuses a name that is not there, naming its directory', () => {
     const { prompts, cwd, projectDir } = fixture();
 
     const result = prompts.remove('missing', 'project', cwd);
 
     expect(result.ok).toBe(false);
-    expect(result.message).toContain('missing');
-    expect(result.message).toContain(projectDir);
+    expect(result.message).toBe(`No prompt named "missing" is defined in ${projectDir}.`);
   });
 
   it('never touches a project directory from an isolated tree', () => {

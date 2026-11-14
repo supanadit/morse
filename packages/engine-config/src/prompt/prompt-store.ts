@@ -7,6 +7,13 @@ import type { PromptTemplate, PromptTemplateInput } from '@morse/protocol';
 
 import { ResourceStore, type ResourceList } from '../resource/resource-store.js';
 
+/**
+ * The neutral prompt vocabulary is part of the foundation's public surface, the
+ * same way the MCP section re-exports its server types: an engine integration
+ * depends on `@morse/engine-config`, never on `@morse/protocol` directly.
+ */
+export type { PromptScope, PromptTemplate, PromptTemplateInput } from '@morse/protocol';
+
 /** What listing prompts answered: the rows plus where a new one would be written. */
 export interface PromptList extends ResourceList<PromptTemplate> {
   /** The engine's global template directory. */
