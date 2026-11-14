@@ -203,11 +203,18 @@ export abstract class FileResourceStore<
   TSave extends { name: string; originalName?: string; originalScope?: ConfigScope },
 > extends ResourceStore<TItem, TSave> {
   abstract dirs(cwd?: string): { global: string; project?: string };
+  /** Extension without the leading dot, e.g. `'md'`. */
   abstract readonly extension: string;
   /** `shadow`: project entries replace same-named global ones; `all`: keep both. */
   abstract readonly merge: 'shadow' | 'all';
-  abstract decode(name: string, raw: string, path: string, scope: ConfigScope): TItem;
-  abstract encode(input: TSave, context: { previousRaw?: string }): string;
+  abstract decode(
+    name: string,
+    raw: string,
+    path: string,
+    scope: ConfigScope,
+    issues: ConfigIssue[],
+  ): TItem;
+  abstract encode(input: TSave): string;
 }
 
 export abstract class CompositeResourceStore<TItem, TSave>
@@ -999,9 +1006,9 @@ Expected: FAIL — modules not found / manager not delegating.
 
 `PiPromptStore extends FileResourceStore<PromptTemplate, PromptTemplateInput>`:
 - `dirs(cwd)` → `{ global: join(agentDir,'prompts'), project: cwd ? join(cwd,'.pi','prompts') : undefined }`;
-- `extension = '.md'`; `merge = 'shadow'`;
-- `decode` uses `parsePromptTemplate` and returns `{ name, scope, path, raw, body, description, argumentHint, error? }`;
-- `encode` validates with `parsePromptTemplate` and returns the raw composed by the editor (prompt templates are already composed by the frontend);
+- `extension = 'md'` (no dot); `merge: 'shadow'` via the store's constructor options;
+- `decode(name, raw, path, scope, issues)` uses `parsePromptTemplate` and returns `{ name, scope, path, raw, body, description, argumentHint, error? }`;
+- `encode(input)` validates with `parsePromptTemplate` and returns the raw composed by the editor (prompt templates are already composed by the frontend);
 - `trusted` for the list comes from the engine instance's trust reader; `PiPromptStore.list` adds `globalDir`, `projectDir`, `trusted`.
 
 `PiPrompts` keeps its constructor and API (`list`, `save`, `delete`, `configSignature`) but delegates to the store created from `PiEngineDefinition` with the injected `agentDir`. `PiEngineInstance.prompts = new PiPromptStore(this)`.
@@ -1246,7 +1253,7 @@ Expected: FAIL — modules not found / manager not delegating.
 
 - [ ] **Step 3: Implement**
 
-`OpenCodeFilePromptStore extends FileResourceStore<PromptTemplate, PromptTemplateInput>` with `merge:'all'`, `.md`, dirs above, decode via the existing frontmatter parser, encode from `raw`.
+`OpenCodeFilePromptStore extends FileResourceStore<PromptTemplate, PromptTemplateInput>` with `merge:'all'` via constructor options, `extension = 'md'`, dirs above, decode via the existing frontmatter parser, encode from `raw`.
 
 `OpenCodeCommandSection extends NamedConfigSection<PromptTemplate>` key `command`; decode returns `{name, scope:'global', source:'config', entry, description}`; encode writes the `entry`; validate `template`.
 
