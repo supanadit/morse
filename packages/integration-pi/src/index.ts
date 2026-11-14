@@ -85,6 +85,7 @@ export {
   piBotLayout,
   writePiBotConfig,
   piAgentDir,
+  piMcpPath,
   piSystemPromptPath,
   piWorkspacePath,
 } from './bot-layout.js';

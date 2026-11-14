@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   piAgentDir,
   piBotLayout,
+  piMcpPath,
   piSystemPromptPath,
   piWorkspacePath,
   writePiBotConfig,
@@ -326,5 +327,118 @@ describe('piBotLayout', () => {
         },
       ],
     });
+  });
+
+  it('writes MCP servers into config/mcp.json in pi own shape and reads them back', () => {
+    const mcpServers = [
+      {
+        name: 'filesystem',
+        type: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+        env: { ALLOWED_DIR: '/tmp' },
+        cwd: '/tmp',
+        enabled: false,
+        exposure: 'deferred' as const,
+      },
+      {
+        name: 'web',
+        type: 'http' as const,
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer x' },
+      },
+    ];
+
+    writePiBotConfig(botRoot, { ...config, mcpServers });
+
+    expect(read(piMcpPath(botRoot))).toEqual({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '.'],
+          env: { ALLOWED_DIR: '/tmp' },
+          cwd: '/tmp',
+          enabled: false,
+          exposure: 'deferred',
+        },
+        web: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+          headers: { Authorization: 'Bearer x' },
+        },
+      },
+    });
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([
+      mcpServers[0],
+      { ...mcpServers[1], enabled: true },
+    ]);
+  });
+
+  it('infers the transport of a hand-written entry without a type', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({
+        mcpServers: {
+          fs: { command: 'npx', args: ['server'] },
+          web: { url: 'https://example.com/mcp' },
+        },
+      }),
+    );
+
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([
+      { name: 'fs', type: 'stdio', command: 'npx', args: ['server'], enabled: true },
+      { name: 'web', type: 'http', url: 'https://example.com/mcp', enabled: true },
+    ]);
+  });
+
+  it('keeps unknown fields and project overrides when rewriting servers', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({
+        mcpServers: {
+          fs: { command: 'npx', args: ['old'], auth: { token: 'kept' } },
+          fsOverride: { enabled: false, exposure: 'hidden' },
+        },
+      }),
+    );
+
+    writePiBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx', args: ['new'] }],
+    });
+
+    const file = read(piMcpPath(botRoot)) as { mcpServers: Record<string, unknown> };
+    expect(file.mcpServers['fs']).toEqual({
+      command: 'npx', args: ['new'], auth: { token: 'kept' }, type: 'stdio',
+    });
+    expect(file.mcpServers['fsOverride']).toEqual({ enabled: false, exposure: 'hidden' });
+  });
+
+  it('removes a server the form dropped and the key when the list empties', () => {
+    writePiBotConfig(botRoot, { ...config, mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }] });
+    writePiBotConfig(botRoot, { ...config, mcpServers: [] });
+
+    expect(read(piMcpPath(botRoot))).toEqual({});
+  });
+
+  it('leaves mcp.json alone when the caller does not mention MCP', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(piMcpPath(botRoot), JSON.stringify({ mcpServers: { fs: { command: 'npx' } } }));
+
+    writePiBotConfig(botRoot, config);
+
+    expect(read(piMcpPath(botRoot))).toEqual({ mcpServers: { fs: { command: 'npx' } } });
+  });
+
+  it('a corrupt mcp.json does not hide the rest of the configuration', () => {
+    writePiBotConfig(botRoot, config);
+    writeFileSync(piMcpPath(botRoot), '{ not json');
+
+    const state = piBotLayout.read(botRoot);
+    expect(state.model).toEqual({ provider: 'zai', id: 'glm-5.3', name: 'glm-5.3' });
+    expect(state.mcpServers).toBeUndefined();
   });
 });

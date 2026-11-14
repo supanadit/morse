@@ -12,10 +12,13 @@ import type {
   BotEngineConfig,
   BotEngineLayout,
   BotEngineState,
+  BotMcpServer,
   BotProviderApi,
   BotProviderRecord,
 } from '@morse/system';
 import type { ModelInput } from '@morse/agent';
+import { readMcpFile, definesMcpServer } from './internal/mcp-config.js';
+import type { McpFileServer } from './internal/mcp-config.js';
 
 /**
  * pi's configuration, as pi itself expects it.
@@ -48,6 +51,7 @@ import type { ModelInput } from '@morse/agent';
 const AUTH_FILE = 'auth.json';
 const MODELS_FILE = 'models.json';
 const SETTINGS_FILE = 'settings.json';
+const MCP_FILE = 'mcp.json';
 /** pi's system-prompt file: it *replaces* the default prompt. */
 const SYSTEM_FILE = 'SYSTEM.md';
 /**
@@ -60,6 +64,11 @@ const LEGACY_PERSONA_FILE = 'AGENTS.md';
 /** pi's agent dir for a bot: the directory `PI_CODING_AGENT_DIR` names. */
 export function piAgentDir(botRoot: string): string {
   return join(botRoot, 'config');
+}
+
+/** pi's `mcp.json` path for a bot. */
+export function piMcpPath(botRoot: string): string {
+  return join(piAgentDir(botRoot), MCP_FILE);
 }
 
 /**
@@ -96,6 +105,121 @@ export function piProviderEntry(provider: BotProviderRecord, kept: unknown): unk
       ...(model.input === undefined ? {} : { input: [...model.input] }),
     })),
   };
+}
+
+/** Reads `mcp.json` and returns the bot's own MCP servers, or undefined on error. */
+function readPiMcpServers(path: string): BotMcpServer[] | undefined {
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  let file: ReturnType<typeof readMcpFile>;
+  try {
+    file = readMcpFile(path);
+  } catch {
+    return undefined;
+  }
+  return Object.entries(file.mcpServers).flatMap(([name, entry]) => {
+    if (!definesMcpServer(entry)) {
+      return [];
+    }
+    const type: BotMcpServer['type'] =
+      entry.type === 'http' || (typeof entry.url === 'string' && entry.command === undefined)
+        ? 'http'
+        : 'stdio';
+    if (type === 'stdio' && (typeof entry.command !== 'string' || entry.command.length === 0)) {
+      return [];
+    }
+    if (type === 'http' && (typeof entry.url !== 'string' || entry.url.length === 0)) {
+      return [];
+    }
+    const server: BotMcpServer = {
+      name,
+      type,
+      enabled: entry.enabled !== false,
+    };
+    if (typeof entry.command === 'string' && entry.command.length > 0) {
+      server.command = entry.command;
+    }
+    if (Array.isArray(entry.args) && entry.args.length > 0) {
+      server.args = entry.args as string[];
+    }
+    if (typeof entry.cwd === 'string' && entry.cwd.length > 0) {
+      server.cwd = entry.cwd;
+    }
+    if (isStringRecord(entry.env)) {
+      server.env = entry.env;
+    }
+    if (typeof entry.url === 'string' && entry.url.length > 0) {
+      server.url = entry.url;
+    }
+    if (isStringRecord(entry.headers)) {
+      server.headers = entry.headers;
+    }
+    if (typeof entry.exposure === 'string') {
+      server.exposure = entry.exposure as BotMcpServer['exposure'];
+    }
+    return [server];
+  });
+}
+
+/** Replaces the managed MCP servers in `mcp.json`, keeping project overrides. */
+function writePiMcpServers(path: string, servers: readonly BotMcpServer[]): void {
+  const file = readMcpFile(path);
+  const next: Record<string, unknown> = { ...file };
+  const nextServers: Record<string, unknown> = { ...file.mcpServers };
+  const serverNames = new Set(servers.map((server) => server.name));
+
+  for (const [name, entry] of Object.entries(file.mcpServers)) {
+    if (definesMcpServer(entry as McpFileServer) && !serverNames.has(name)) {
+      delete nextServers[name];
+    }
+  }
+
+  for (const server of servers) {
+    nextServers[server.name] = piMcpEntry(server, file.mcpServers[server.name]);
+  }
+
+  if (Object.keys(nextServers).length === 0) {
+    delete next.mcpServers;
+  } else {
+    next.mcpServers = nextServers;
+  }
+
+  writePrivateJson(path, next);
+}
+
+/** Turns one `BotMcpServer` into pi's `mcpServers` entry, preserving unknown keys. */
+function piMcpEntry(server: BotMcpServer, kept: unknown): Record<string, unknown> {
+  const existing = asRecord(kept) ?? {};
+  for (const key of ['type', 'command', 'args', 'env', 'cwd', 'url', 'headers', 'enabled', 'exposure']) {
+    delete existing[key];
+  }
+  if (server.type === 'stdio') {
+    existing.type = 'stdio';
+    existing.command = server.command;
+    if (server.args !== undefined && server.args.length > 0) {
+      existing.args = server.args;
+    }
+    if (server.env !== undefined && Object.keys(server.env).length > 0) {
+      existing.env = server.env;
+    }
+    if (server.cwd !== undefined && server.cwd.length > 0) {
+      existing.cwd = server.cwd;
+    }
+  } else {
+    existing.type = 'http';
+    existing.url = server.url;
+    if (server.headers !== undefined && Object.keys(server.headers).length > 0) {
+      existing.headers = server.headers;
+    }
+  }
+  if (server.enabled === false) {
+    existing.enabled = false;
+  }
+  if (server.exposure !== undefined) {
+    existing.exposure = server.exposure;
+  }
+  return existing;
 }
 
 /**
@@ -214,6 +338,10 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
   if ((config.agentsMd ?? '').trim().length > 0) {
     writePrivateText(piWorkspacePath(botRoot), config.agentsMd as string);
   }
+
+  if (config.mcpServers !== undefined) {
+    writePiMcpServers(piMcpPath(botRoot), config.mcpServers);
+  }
 }
 
 /**
@@ -236,6 +364,7 @@ export const piBotLayout: BotEngineLayout = {
     const persona = readText(join(agentDir, SYSTEM_FILE));
     const agentsMd = readText(piWorkspacePath(botRoot));
     const providers = readProviders(join(agentDir, MODELS_FILE));
+    const mcpServers = readPiMcpServers(piMcpPath(botRoot));
     return {
       ...(providers.length === 0 ? {} : { providers }),
       ...(typeof provider === 'string' && typeof model === 'string'
@@ -247,6 +376,7 @@ export const piBotLayout: BotEngineLayout = {
       ...(tools === undefined ? {} : { tools }),
       ...(persona === undefined ? {} : { persona }),
       ...(agentsMd === undefined ? {} : { agentsMd }),
+      ...(mcpServers === undefined ? {} : { mcpServers }),
     };
   },
   /**
@@ -300,6 +430,13 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every((one) => typeof one === 'string');
 }
 
 function writePrivateText(path: string, text: string): void {
