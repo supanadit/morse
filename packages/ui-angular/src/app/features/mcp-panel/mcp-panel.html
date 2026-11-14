@@ -65,19 +65,48 @@
       <div class="note">{{ text }}</div>
     }
 
-    @if (errors(); as list) {
-      @if (list.length > 0) {
-        <div class="errors">
-          @for (problem of list; track problem) {
-            <div>{{ problem }}</div>
-          }
-        </div>
-      }
+    @if (issues().length > 0) {
+      <div class="errors issues">
+        @for (issue of issues(); track issueKey(issue)) {
+          <div class="issue">
+            <div class="issue-head">
+              <span class="issue-message">{{ issue.message }}</span>
+              @if (issue.fixable) {
+                <button
+                  type="button"
+                  class="fix"
+                  [disabled]="fixing() !== null"
+                  [attr.aria-busy]="fixing() === issueKey(issue) ? 'true' : null"
+                  (click)="fix(issue)"
+                >
+                  {{ fixing() === issueKey(issue) ? 'Fixing…' : 'Fix' }}
+                </button>
+              }
+            </div>
+            <div class="issue-file">{{ issue.file }}</div>
+            @if (issue.pointer; as pointer) {
+              <div class="issue-pointer">at <code>{{ pointer }}</code></div>
+            }
+            @if (issue.snippet; as snippet) {
+              <pre class="snippet">{{ snippet }}</pre>
+            }
+            @if (!issue.fixable) {
+              <div class="issue-manual">This needs a hand edit — Fix cannot resolve it.</div>
+            }
+          </div>
+        }
+      </div>
+    } @else if (errors().length > 0) {
+      <div class="errors">
+        @for (problem of errors(); track problem) {
+          <div>{{ problem }}</div>
+        }
+      </div>
     }
 
     @if (loading() && servers().length === 0) {
       <p class="hint">Checking the servers… this can take a few seconds.</p>
-    } @else if (servers().length === 0 && errors().length === 0) {
+    } @else if (servers().length === 0 && errors().length === 0 && issues().length === 0) {
       <p class="hint">
         No MCP servers are configured for this directory. <strong>Add server</strong> builds one,
         tests it, and writes it to the chosen <code>mcp.json</code>; pi picks it up on the next

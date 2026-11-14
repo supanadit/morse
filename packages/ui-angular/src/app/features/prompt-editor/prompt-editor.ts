@@ -10,7 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { PromptScope, PromptTemplateInfo } from '@morse/protocol';
+import type { ConfigIssue, PromptScope, PromptTemplateInfo } from '@morse/protocol';
 import {
   parseCommandArgs,
   promptTemplateArgumentFields,
@@ -78,6 +78,12 @@ export class PromptEditor {
   protected readonly loading = this.store.isLoading;
   /** A session is in front, so a project template has a directory to live in. */
   protected readonly hasProject = this.store.hasProject;
+  /**
+   * The config complaints behind the list: a template file the store could not
+   * read, or a config entry it could not decode. They belong to the list, not to
+   * one open template, so they render above it.
+   */
+  protected readonly issues = computed(() => this.store.info()?.issues ?? []);
 
   protected readonly name = signal('');
   protected readonly description = signal('');
@@ -112,6 +118,12 @@ export class PromptEditor {
   protected readonly saving = signal(false);
   protected readonly deleting = signal(false);
   protected readonly confirmingDelete = signal(false);
+  /**
+   * The issue whose Fix is running, keyed by {@link issueKey}. Every Fix is
+   * disabled meanwhile — two rewrites of one file must not race — and only the
+   * running row reads “Fixing…”.
+   */
+  protected readonly fixing = signal<string | null>(null);
   /** The text as it was loaded or last saved, so `dirty` ignores file formatting. */
   private readonly savedRaw = signal<string | undefined>(undefined);
   protected readonly status = signal<{ kind: 'ok' | 'error' | 'muted'; text: string } | undefined>(
@@ -339,6 +351,37 @@ export class PromptEditor {
   /** A brand-new template: project scope when a project is in front, else user. */
   protected newTemplateHere(): void {
     this.newTemplate(this.hasProject() ? 'project' : 'global');
+  }
+
+  /**
+   * A stable identity for one issue, so the running Fix keeps its label while
+   * the list re-renders and two complaints about one file stay distinct.
+   */
+  protected issueKey(issue: ConfigIssue): string {
+    return `${issue.file}\u0000${issue.code}\u0000${issue.pointer ?? ''}`;
+  }
+
+  /**
+   * The host's Fix for one complaint: it rewrites the file in a form the store
+   * can read (JSONC → strict JSON, for instance). The store re-reads on success,
+   * so the issue leaves the list on its own; a refusal is stated in the status
+   * row, where every other refusal already lands.
+   */
+  protected async fixIssue(issue: ConfigIssue): Promise<void> {
+    if (this.fixing() !== null || !issue.fixable) {
+      return;
+    }
+    this.fixing.set(this.issueKey(issue));
+    const result = await this.store.fix(issue);
+    this.fixing.set(null);
+    this.status.set(
+      result.ok
+        ? { kind: 'ok', text: `Rewrote ${issue.file}.` }
+        : {
+            kind: 'error',
+            text: result.message ?? 'The host could not fix this file.',
+          },
+    );
   }
 
   protected setFilter(value: string): void {

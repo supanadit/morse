@@ -6,7 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import type { McpConfigScope, McpServerStatus } from '@morse/protocol';
+import type { ConfigIssue, McpConfigScope, McpServerStatus } from '@morse/protocol';
 import { McpState } from '../../state/mcp-state';
 import { MorseService } from '../../host/morse.service';
 import { ShellState } from '../../state/shell-state';
@@ -46,6 +46,8 @@ export class McpPanel {
   protected readonly loading = computed(() => this.mcp.isLoading(this.cwd()));
   protected readonly servers = computed(() => this.status()?.servers ?? []);
   protected readonly errors = computed(() => this.status()?.errors ?? []);
+  /** Config-file complaints the engine could not attach to a server. */
+  protected readonly issues = computed(() => this.status()?.issues ?? []);
   protected readonly note = computed(() => this.status()?.note);
   /** pi is ignoring this project's `.pi` resources until it is trusted. */
   protected readonly untrusted = computed(() => this.status()?.trusted === false);
@@ -59,6 +61,12 @@ export class McpPanel {
   protected readonly busy = signal(false);
   /** A refused enable/disable/remove, shown above the list. */
   protected readonly actionError = signal<string | null>(null);
+  /**
+   * The issue whose Fix is running, keyed by {@link issueKey}. Every Fix is
+   * disabled meanwhile — two rewrites of the same file must not race — and only
+   * the running row reads “Fixing…”.
+   */
+  protected readonly fixing = signal<string | null>(null);
 
   /**
    * Where Enable/Disable and Remove write. `project` is the default: the panel
@@ -110,6 +118,29 @@ export class McpPanel {
     } else {
       this.actionError.set(null);
     }
+  }
+
+  /**
+   * A stable identity for one issue, so the running Fix keeps its label while
+   * the panel re-renders and a duplicate message in the same file stays distinct.
+   */
+  protected issueKey(issue: ConfigIssue): string {
+    return `${issue.file}\u0000${issue.code}\u0000${issue.pointer ?? ''}`;
+  }
+
+  /**
+   * The host's Fix for one complaint: it rewrites the file in a form the engine
+   * can read (JSONC → strict JSON, for instance). The state re-reads on success,
+   * so the issue disappears on its own; a refusal keeps it and names the reason.
+   */
+  protected async fix(issue: ConfigIssue): Promise<void> {
+    if (this.fixing() !== null || !issue.fixable) {
+      return;
+    }
+    this.fixing.set(this.issueKey(issue));
+    const result = await this.mcp.fix(this.cwd(), issue);
+    this.fixing.set(null);
+    this.report(result.ok, result.message);
   }
 
   protected stateLabel(server: McpServerStatus): string {

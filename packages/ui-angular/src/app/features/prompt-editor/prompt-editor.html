@@ -26,6 +26,38 @@
           (input)="setFilter($any($event.target).value)"
         />
       </div>
+      @if (issues().length > 0) {
+        <div class="issues">
+          @for (issue of issues(); track issueKey(issue)) {
+            <div class="issue">
+              <div class="issue-head">
+                <span class="issue-message">{{ issue.message }}</span>
+                @if (issue.fixable) {
+                  <button
+                    type="button"
+                    class="fix"
+                    [disabled]="fixing() !== null"
+                    [attr.aria-busy]="fixing() === issueKey(issue) ? 'true' : null"
+                    (click)="fixIssue(issue)"
+                  >
+                    {{ fixing() === issueKey(issue) ? 'Fixing…' : 'Fix' }}
+                  </button>
+                }
+              </div>
+              <div class="issue-file">{{ issue.file }}</div>
+              @if (issue.pointer; as pointer) {
+                <div class="issue-pointer">at <code>{{ pointer }}</code></div>
+              }
+              @if (issue.snippet; as snippet) {
+                <pre class="snippet">{{ snippet }}</pre>
+              }
+              @if (!issue.fixable) {
+                <div class="issue-manual">This needs a hand edit — Fix cannot resolve it.</div>
+              }
+            </div>
+          }
+        </div>
+      }
       <ul class="list">
         @for (template of visibleTemplates(); track (template.source ?? 'file') + ':' + template.scope + ':' + template.name) {
           <li>

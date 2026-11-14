@@ -127,6 +127,72 @@ h2 {
   font-size: 11.5px;
   line-height: 1.5;
 }
+/* One config complaint: what is wrong, where, and what it saw. */
+.errors .issue + .issue {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--morse-error) 35%, transparent);
+}
+.issue-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.issue-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.errors .fix {
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--morse-error) 55%, var(--morse-border));
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-error);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.errors .fix:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-error) 12%, transparent);
+}
+.errors .fix:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.issue-file,
+.issue-pointer {
+  margin-top: 2px;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+.issue-file code,
+.issue-pointer code {
+  font-family: var(--morse-font-mono);
+}
+.issue-manual {
+  margin-top: 4px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+/* The offending region is bounded: a broken file can be long, the card is not. */
+.snippet {
+  margin: 6px 0 0;
+  max-height: 96px;
+  overflow: auto;
+  padding: 5px 8px;
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-code-bg, rgb(0 0 0 / 18%));
+  color: var(--morse-fg);
+  font-family: var(--morse-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .row {
   display: flex;
   align-items: flex-start;

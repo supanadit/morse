@@ -10,6 +10,8 @@ interface RenderOptions {
   saved?: unknown;
   templates?: unknown;
   engine?: string;
+  /** What `configFix` answers; the default is a successful rewrite. */
+  fixResult?: unknown;
 }
 
 /**
@@ -21,8 +23,21 @@ function render(options: RenderOptions = {}): {
   element: HTMLElement;
   fixture: ComponentFixture<PromptEditor>;
   engine?: string;
+  requestHostCommand: ReturnType<typeof vi.fn>;
 } {
   const transport = new MemoryHostTransport();
+  const requestHostCommand = vi.fn((command: string) =>
+    Promise.resolve(
+      command === 'configFix'
+        ? (options.fixResult ?? { ok: true, issues: [] })
+        : (options.templates ?? {
+            templates: [],
+            globalDir: '/home/u/.pi/agent/prompts',
+            projectDir: '/repo/.pi/prompts',
+            trusted: true,
+          }),
+    ),
+  );
   const fake = {
     capabilities: signal({
       hostKind: 'server',
@@ -38,16 +53,7 @@ function render(options: RenderOptions = {}): {
     engine: signal(options.engine ?? 'pi'),
     hostCommand: vi.fn(),
     refreshCommands: vi.fn(),
-    requestHostCommand: vi.fn(() =>
-      Promise.resolve(
-        options.templates ?? {
-          templates: [],
-          globalDir: '/home/u/.pi/agent/prompts',
-          projectDir: '/repo/.pi/prompts',
-          trusted: true,
-        },
-      ),
-    ),
+    requestHostCommand,
   };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -62,7 +68,7 @@ function render(options: RenderOptions = {}): {
   }
   const fixture = TestBed.createComponent(PromptEditor);
   fixture.detectChanges();
-  return { element: fixture.nativeElement as HTMLElement, fixture };
+  return { element: fixture.nativeElement as HTMLElement, fixture, requestHostCommand };
 }
 
 afterEach(() => TestBed.resetTestingModule());
@@ -222,6 +228,107 @@ describe('PromptEditor', () => {
 
     expect(request).toHaveBeenCalledWith('promptTemplates', expect.anything(), expect.anything());
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('/review');
+  });
+});
+
+/** A `prompts` complaint: one unreadable template file beside the list. */
+const BROKEN_TEMPLATE_ISSUE = {
+  file: '/repo/.pi/prompts/broken.md',
+  fileId: 'prompts',
+  scope: 'project',
+  pointer: '/description',
+  code: 'frontmatter',
+  message: 'the frontmatter is not valid YAML',
+  snippet: 'description: [unclosed',
+  fixable: true,
+};
+
+describe('PromptEditor config issues', () => {
+  it('shows a list-level issue and fixes it', async () => {
+    const { element, fixture, requestHostCommand } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [BROKEN_TEMPLATE_ISSUE],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    const text = element.textContent ?? '';
+    expect(text).toContain('the frontmatter is not valid YAML');
+    expect(text).toContain('/description');
+    expect(element.querySelector('pre.snippet')?.textContent).toContain('[unclosed');
+
+    const fix = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Fix',
+    );
+    expect(fix).toBeDefined();
+    fix?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'configFix',
+      {
+        fileId: 'prompts',
+        path: '/repo/.pi/prompts/broken.md',
+        scope: 'project',
+        cwd: '/repo',
+        engine: 'pi',
+      },
+      expect.any(Number),
+    );
+  });
+
+  it('shows the host’s refusal in the status row when a fix fails', async () => {
+    const { element, fixture } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [BROKEN_TEMPLATE_ISSUE],
+      },
+      fixResult: { ok: false, message: 'The host refused to rewrite the file.' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    const fix = [...element.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Fix',
+    );
+    fix?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(element.querySelector('.status-row.error')?.textContent).toContain(
+      'The host refused to rewrite the file.',
+    );
+  });
+
+  it('shows an unfixable issue without a Fix button, and says it needs a hand edit', async () => {
+    const { element, fixture } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [{ ...BROKEN_TEMPLATE_ISSUE, fixable: false }],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(element.textContent ?? '').toContain('the frontmatter is not valid YAML');
+    expect(
+      [...element.querySelectorAll('button')].some(
+        (button) => button.textContent?.trim() === 'Fix',
+      ),
+    ).toBe(false);
+    expect(element.textContent ?? '').toMatch(/hand edit/i);
   });
 });
 
