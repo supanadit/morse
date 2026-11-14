@@ -1,143 +1,233 @@
+/*
+ * The bot wizard, in the app's own control language.
+ *
+ * Two rules keep it consistent with every other surface:
+ *
+ * 1. Colours come from tokens only. `--morse-accent` is near-white in the
+ *    browser host and VS Code blue inside the editor, so text on it must be
+ *    `--morse-accent-fg` — hardcoding #fff painted white on white here.
+ * 2. Controls share one scale with bot-nav and the dialogs: 30px tall actions,
+ *    12px/500 labels, 12.5px values, `--morse-radius-md`, muted-at-11px notes.
+ */
 :host {
   display: block;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--morse-bg, #0d0e11);
-  color: inherit;
+  background: var(--morse-bg);
+  color: var(--morse-fg);
 }
 
 .wizard {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
+/* Head: the title block, and one quiet close action. */
 .wizard-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 22px 32px 6px;
+  gap: 12px;
+  padding: 18px 24px 10px;
 }
 
 .wizard-titles h2 {
   margin: 0 0 4px;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .wizard-sub {
   margin: 0;
   max-width: 640px;
-  font-size: 13px;
-  opacity: 0.72;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .wizard-close {
-  border: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
   background: transparent;
-  color: inherit;
-  font-size: 22px;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 17px;
   line-height: 1;
-  padding: 6px 10px;
-  border-radius: var(--morse-radius-md, 8px);
   cursor: pointer;
-  opacity: 0.7;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .wizard-close:hover {
-  opacity: 1;
-  background: var(--morse-hover, rgba(255, 255, 255, 0.06));
+  background: var(--morse-hover);
+  color: var(--morse-fg);
 }
 
+/*
+ * Steps as tabs, matching the session strip and the panel bar: flush, no box,
+ * no pill. The active step is marked by the accent line under it, so the label
+ * stays readable in light and dark hosts alike. A step already answered gets a
+ * checkmark and is its own button, so the reader can jump straight back to it.
+ */
 .wizard-rail {
+  flex: none;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
+  gap: 2px;
+  height: 34px;
   margin: 0;
-  padding: 10px 32px 14px;
+  padding: 0 24px;
   list-style: none;
-  border-bottom: 1px solid var(--morse-border, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--morse-border);
 }
 
 .wizard-step {
-  font-size: 12px;
-  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: stretch;
+  color: color-mix(in srgb, var(--morse-fg-muted) 80%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 5px 12px;
-  border-radius: 999px;
-  opacity: 0.55;
+  white-space: nowrap;
 }
 
 .wizard-step.done {
-  opacity: 0.85;
+  color: var(--morse-fg-muted);
 }
 
 .wizard-step.on {
-  opacity: 1;
-  background: var(--morse-accent, #4c8dff);
-  color: #fff;
+  color: var(--morse-fg);
+  box-shadow: inset 0 -2px 0 var(--morse-accent);
 }
 
+.wizard-step-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: default;
+}
+
+/* A pass has a tick, drawn rather than typed so the label stays the whole name. */
+.wizard-step.done .wizard-step-button {
+  cursor: pointer;
+}
+
+.wizard-step.done .wizard-step-button::before {
+  content: '✓';
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.wizard-step-button:hover:not(:disabled),
+.wizard-step-button:not(:disabled) {
+  background: none;
+  color: var(--morse-fg);
+}
+
+/* The global button reset dims a disabled control; a locked step is not "off". */
+.wizard-step-button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.wizard-step-button:focus-visible {
+  outline: 1px solid var(--morse-focus);
+  outline-offset: -2px;
+}
+
+/* Body: content scrolls, the summary column stays put. */
 .wizard-body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 250px;
-  gap: 28px;
-  padding: 20px 32px;
+  grid-template-columns: minmax(0, 1fr) 232px;
+  gap: 24px;
+  padding: 16px 24px 20px;
+  overflow: hidden;
+}
+
+.wizard-content {
+  min-width: 0;
   overflow-y: auto;
+  padding-right: 4px;
 }
 
 .wizard-content h3 {
-  margin: 0 0 6px;
-  font-size: 16px;
+  margin: 0 0 12px;
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
-.wizard-content h4.group-title {
-  margin: 22px 0 8px;
-  font-size: 13px;
+.group-title {
+  margin: 18px 0 8px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.72;
 }
 
 .note {
-  margin: 4px 0 14px;
-  font-size: 13px;
-  opacity: 0.72;
+  margin: 0 0 12px;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.error,
+.ok {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 
 .error {
-  margin: 8px 0;
-  font-size: 13px;
-  color: var(--morse-danger, #ff6b6b);
+  color: var(--morse-error);
 }
 
 .ok {
-  margin: 8px 0;
-  font-size: 13px;
-  color: var(--morse-success, #6bcb84);
+  color: var(--morse-success);
 }
 
 .field {
   display: block;
-  margin: 12px 0;
-  font-size: 13px;
+  margin: 0 0 12px;
 }
 
-.field span {
+.field > span {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
+  color: var(--morse-fg);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .field small {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
   font-weight: 400;
-  opacity: 0.65;
 }
 
 .field input,
@@ -146,171 +236,316 @@
   width: 100%;
   max-width: 520px;
   box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
   font: inherit;
+  font-size: 12.5px;
+  transition: border-color 120ms ease;
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: var(--morse-fg-muted);
 }
 
 .field textarea {
   resize: vertical;
+  line-height: 1.5;
+}
+
+/* A field an edit cannot change (the bot's name): legible, visibly read-only. */
+.field input:disabled {
+  background: color-mix(in srgb, var(--morse-fg) 2%, transparent);
+  color: var(--morse-fg-muted);
+  cursor: default;
+}
+
+/* The tool checklist: what this bot may do on its own, in its engine's names. */
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 14px;
+  max-width: 520px;
+}
+
+.tools-label {
+  color: var(--morse-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tools-label small {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 10px;
+}
+
+.tool {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tool input[type='checkbox'] {
+  flex: none;
+  margin: 0;
+  align-self: center;
+}
+
+.tool-name {
+  font-family: var(--morse-font-mono);
+  font-size: 11.5px;
+}
+
+.tool-hint {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools-note {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .field-note {
   display: block;
   margin-top: 4px;
-  opacity: 0.6;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
+/* A field that blocks Next says why in the error colour, not just muted grey. */
+.field-note.error-note {
+  color: var(--morse-error);
+}
+
+/* Engine choices: cards of one size, so a short label never shrinks a target. */
 .choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 12px 0;
+  gap: 8px;
+  margin: 0 0 14px;
 }
 
 .choice {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
-  padding: 12px 16px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+  min-width: 148px;
+  padding: 8px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
   text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.choice:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--morse-fg) 28%, transparent);
+  background: color-mix(in srgb, var(--morse-fg) 6%, transparent);
 }
 
 .choice.on {
-  border-color: var(--morse-accent, #4c8dff);
-  background: color-mix(in srgb, var(--morse-accent, #4c8dff) 16%, transparent);
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
 }
 
 .choice-name {
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .choice-hint {
-  font-size: 12px;
-  opacity: 0.6;
-}
-
-.choice.small {
-  flex-direction: row;
-  padding: 6px 12px;
-  font-size: 13px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
 }
 
 .keykind {
   display: flex;
-  gap: 8px;
-  margin: 12px 0;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+/* The same card language, collapsed to one 30px row. */
+.choice.small {
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .presets {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   max-width: 520px;
+  margin-bottom: 8px;
 }
 
 .preset {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .preset-chip {
+  flex: none;
   min-width: 160px;
-  padding: 8px 14px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.preset-chip:hover {
+  border-color: var(--morse-fg-muted);
 }
 
 .preset.on .preset-chip {
-  border-color: var(--morse-accent, #4c8dff);
-  background: color-mix(in srgb, var(--morse-accent, #4c8dff) 16%, transparent);
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
 }
 
 .preset-key {
   flex: 1;
-  padding: 8px 10px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
   font: inherit;
+  font-size: 12.5px;
+}
+
+.preset-key:hover {
+  border-color: var(--morse-fg-muted);
 }
 
 .provider-card {
   max-width: 520px;
-  margin: 0 0 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  border-radius: var(--morse-radius-md, 8px);
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
 }
 
 .provider-line {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  font-size: 12.5px;
 }
 
 .provider-meta {
-  font-size: 12px;
-  opacity: 0.65;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-models {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .provider-remove,
 .model-remove {
-  border: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-sm);
   background: transparent;
-  color: inherit;
-  opacity: 0.6;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11.5px;
   cursor: pointer;
-  padding: 2px 8px;
-  border-radius: 6px;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .provider-remove:hover,
 .model-remove:hover {
-  opacity: 1;
-  background: var(--morse-hover, rgba(255, 255, 255, 0.06));
+  background: var(--morse-hover);
+  color: var(--morse-fg);
 }
 
-.provider-models {
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
-  opacity: 0.65;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Dashed, because it adds a row rather than submitting the form. */
 .ghost {
-  padding: 7px 12px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px dashed var(--morse-border, rgba(255, 255, 255, 0.2));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--morse-border);
+  border-radius: var(--morse-radius-md);
   background: transparent;
-  color: inherit;
-  cursor: pointer;
+  color: var(--morse-fg-muted);
   font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
-.ghost:hover {
-  border-color: var(--morse-accent, #4c8dff);
+.ghost:hover:not(:disabled) {
+  border-color: var(--morse-accent);
+  color: var(--morse-fg);
 }
 
 .ghost:disabled {
@@ -320,76 +555,125 @@
 
 .draft {
   max-width: 520px;
-  margin-top: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--morse-accent, #4c8dff);
-  border-radius: var(--morse-radius-md, 8px);
+  margin: 10px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--morse-accent);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-accent) 6%, transparent);
+}
+
+.draft .field:last-of-type {
+  margin-bottom: 0;
 }
 
 .draft-discover {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 10px 0;
+  margin: 4px 0 10px;
 }
 
 .manual-models {
   margin-top: 8px;
-  font-size: 13px;
 }
 
 .manual-models > span {
   display: block;
+  margin-bottom: 4px;
+  color: var(--morse-fg);
+  font-size: 12px;
   font-weight: 600;
-  margin-bottom: 6px;
+}
+
+.manual-models small {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .model-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 2px;
-  border-bottom: 1px solid var(--morse-border, rgba(255, 255, 255, 0.06));
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--morse-border);
+  font-size: 12px;
 }
 
 .model-add {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-top: 8px;
 }
 
 .model-add input {
   flex: 1;
-  padding: 7px 10px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
   font: inherit;
+  font-size: 12.5px;
+}
+
+.model-add input:hover {
+  border-color: var(--morse-fg-muted);
 }
 
 .draft-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--morse-border);
 }
 
+/*
+ * Actions: one 30px scale everywhere in the wizard — footer, draft, dialogs.
+ * Scoped class selectors beat the global `:where(button)` reset, so the
+ * padding and radius are set here rather than inherited by accident.
+ */
 .primary,
 .secondary {
-  padding: 8px 16px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+  color: var(--morse-fg);
   font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
 .primary {
-  background: var(--morse-accent, #4c8dff);
-  border-color: var(--morse-accent, #4c8dff);
-  color: #fff;
+  background: var(--morse-accent);
+  color: var(--morse-accent-fg);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--morse-accent-hover);
+}
+
+.secondary {
+  border-color: var(--morse-border);
+  background: transparent;
+}
+
+.secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
 }
 
 .primary:disabled,
@@ -402,90 +686,126 @@
   width: 100%;
   max-width: 520px;
   box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
   font: inherit;
+  font-size: 12.5px;
+}
+
+.model-search:hover {
+  border-color: var(--morse-fg-muted);
+}
+
+/* Search and its reload action: one row, the field taking the room. */
+.model-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  margin-bottom: 8px;
+}
+
+.model-tools .model-search {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+.model-tools .ghost {
+  flex: none;
 }
 
 .model-list {
   max-width: 520px;
-  max-height: 300px;
+  max-height: 260px;
   overflow-y: auto;
-  margin: 10px 0;
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  border-radius: var(--morse-radius-md, 8px);
+  margin: 8px 0 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
 }
 
 .model-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
-  border: none;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
+  color: var(--morse-fg);
   font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
 }
 
 .model-option:hover {
-  background: var(--morse-hover, rgba(255, 255, 255, 0.06));
+  background: var(--morse-hover);
 }
 
 .model-option.on {
-  background: color-mix(in srgb, var(--morse-accent, #4c8dff) 18%, transparent);
+  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
 }
 
 .model-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .model-provider {
-  font-size: 12px;
-  opacity: 0.6;
-  flex-shrink: 0;
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
 }
 
 .subagent {
   display: grid;
-  grid-template-columns: 180px 1fr auto;
-  gap: 8px;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
   align-items: start;
-  margin: 8px 0;
+  gap: 8px;
   max-width: 640px;
+  margin: 0 0 8px;
 }
 
 .subagent input,
 .subagent textarea {
-  padding: 7px 10px;
-  border-radius: var(--morse-radius-md, 8px);
-  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
-  background: transparent;
-  color: inherit;
-  font: inherit;
   box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.subagent textarea {
+  resize: vertical;
+  line-height: 1.5;
 }
 
 .review {
   display: grid;
-  grid-template-columns: 160px minmax(0, 1fr);
-  gap: 8px 16px;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 6px 14px;
   max-width: 640px;
-  margin: 12px 0;
-  font-size: 13px;
+  margin: 0 0 16px;
+  font-size: 12.5px;
 }
 
 .review dt {
-  font-weight: 600;
-  opacity: 0.72;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .review dd {
@@ -495,49 +815,76 @@
 
 .review dd.persona {
   white-space: pre-wrap;
-  opacity: 0.85;
 }
 
+/* Summary: a quiet rail of the values the reader has chosen so far. */
 .wizard-summary {
-  border-left: 1px solid var(--morse-border, rgba(255, 255, 255, 0.08));
-  padding-left: 20px;
-  font-size: 13px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--morse-border);
+  font-size: 12px;
 }
 
 .wizard-summary h4 {
-  margin: 0 0 10px;
-  font-size: 12px;
+  margin: 0 0 8px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.72;
 }
 
 .wizard-summary dl {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px 12px;
+  gap: 5px 10px;
   margin: 0;
 }
 
 .wizard-summary dt {
-  opacity: 0.6;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
 }
 
 .wizard-summary dd {
   margin: 0;
   overflow: hidden;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .wizard-foot {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 32px;
-  border-top: 1px solid var(--morse-border, rgba(255, 255, 255, 0.08));
+  gap: 8px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--morse-border);
 }
 
 .foot-spacer {
   flex: 1;
+}
+
+/* Narrow hosts (a split editor, a phone): the summary drops under the form. */
+@media (max-width: 860px) {
+  .wizard-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .wizard-summary {
+    position: static;
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--morse-border);
+  }
+
+  .wizard-summary dl {
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
 }

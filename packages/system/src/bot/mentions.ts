@@ -1,5 +1,6 @@
 /**
- * Who a message addresses. A bot's name is its handle (`@Forge`), and the two
+ * Who a message addresses. A bot's username is its handle (`@news-finder`) — the
+ * display name is free text and deliberately never parsed — and the two
  * broadcast words address every member.
  *
  * The parser is syntax-only on purpose: it knows the conversation's members and

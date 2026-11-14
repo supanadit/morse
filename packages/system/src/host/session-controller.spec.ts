@@ -2921,7 +2921,15 @@ describe('HostSessionController bot messages', () => {
           probes.push({ kind, envVars, credentials });
           return [{ provider: kind, id: 'm', name: 'M' }];
         },
-        open: () => [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+        // The port answers pages, so opening a conversation sends its newest one.
+        open: () => ({
+          entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+          hasMore: true,
+        }),
+        history: (_conversationId, before) => ({
+          entries: [{ id: 'line-0', author: { role: 'user' }, text: before ?? '', at: 1 }],
+          hasMore: false,
+        }),
         send: (conversationId, text) => {
           sent.push([conversationId, text]);
           return Promise.resolve();
@@ -2965,6 +2973,24 @@ describe('HostSessionController bot messages', () => {
         conversationId: 'dm-x',
         entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
         replace: true,
+        hasMore: true,
+      },
+    });
+
+    // Scrolling up asks for the page before the oldest line held, and the answer
+    // is prepended rather than replacing what the chat already shows.
+    await controller.handleClientMessage({
+      type: 'bot/history',
+      payload: { conversationId: 'dm-x', before: 'line-1' },
+    });
+    expect(messages.at(-1)).toEqual({
+      type: 'bot/transcript',
+      payload: {
+        conversationId: 'dm-x',
+        entries: [{ id: 'line-0', author: { role: 'user' }, text: 'line-1', at: 1 }],
+        replace: false,
+        prepend: true,
+        hasMore: false,
       },
     });
 

@@ -3,15 +3,12 @@ import {
   botPiEnv,
   createBotPiFactory,
   PI_BOT_CAPABILITIES,
-  writePiCredentials,
-  writePiProviders,
+  piBotLayout,
 } from '@morse/integration-pi';
 import {
   OPENCODE_BOT_CAPABILITIES,
+  openCodeBotLayout,
   opencodeBotAdapterFactory,
-  writeOpenCodeCredentials,
-  writeOpenCodeProviders,
-  writeOpenCodeSubagents,
 } from '@morse/integration-opencode';
 
 /**
@@ -32,8 +29,9 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // agent-dir override from `botPiEnv`, never the reader's real one.
       createFactory: (botRoot, env) =>
         createBotPiFactory({ botRoot, env: env ?? botPiEnv(botRoot), logger }),
-      writeCredentials: writePiCredentials,
-      writeProviders: writePiProviders,
+      // pi's agent dir (`config/`) *is* the bot's `~/.pi/agent`: auth.json,
+      // models.json, settings.json and AGENTS.md, in pi's own shapes.
+      layout: piBotLayout,
     },
     opencode: {
       kind: 'opencode',
@@ -41,11 +39,9 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // OpenCode's bot engine builds its own environment from the bot's config
       // directory, so the host env is applied inside the adapter, not here.
       createFactory: (botRoot) => opencodeBotAdapterFactory(botRoot, logger),
-      writeCredentials: writeOpenCodeCredentials,
-      writeProviders: writeOpenCodeProviders,
-      // Named subagents are OpenCode's own feature and live in the bot's config;
-      // pi has neither, which is why its adapter leaves the method off.
-      writeSubagents: writeOpenCodeSubagents,
+      // OpenCode's `opencode.json` follows opencode.ai/config.json: model,
+      // providers, agents and instructions, beside its own auth store.
+      layout: openCodeBotLayout,
     },
   };
 }

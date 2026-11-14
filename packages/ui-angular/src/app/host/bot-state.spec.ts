@@ -8,7 +8,14 @@ import { describe, expect, it } from 'vitest';
 import { BotState } from './bot-state';
 
 function bot(name: string, overrides: Partial<BotSummary> = {}): BotSummary {
-  return { name, description: `${name} keeps the forge hot`, engineKind: 'pi', warm: false, ...overrides };
+  return {
+    username: name.toLowerCase(),
+    name,
+    description: `${name} keeps the forge hot`,
+    engineKind: 'pi',
+    warm: false,
+    ...overrides,
+  };
 }
 
 function conversation(
@@ -99,6 +106,29 @@ describe('BotState', () => {
     expect(state.transcripts()['dm-forge']).toEqual([line('a', 'hello'), line('b', 'hi')]);
   });
 
+  it('prepends a page fetched by scrolling up, and tracks whether more exist', () => {
+    const state = new BotState();
+    state.onTranscript({
+      conversationId: 'dm-forge',
+      entries: [line('b', 'newer')],
+      replace: true,
+      hasMore: true,
+    });
+    expect(state.hasOlder()['dm-forge']).toBe(true);
+
+    // A page from scrolling up goes in front; nothing already held moves.
+    state.onTranscript({
+      conversationId: 'dm-forge',
+      entries: [line('a', 'older')],
+      replace: false,
+      prepend: true,
+      hasMore: false,
+    });
+
+    expect(state.transcripts()['dm-forge']?.map((one) => one.text)).toEqual(['older', 'newer']);
+    expect(state.hasOlder()['dm-forge']).toBe(false);
+  });
+
   it('keeps each conversation transcript separate', () => {
     const state = new BotState();
     state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'forge')], replace: true });
@@ -154,5 +184,23 @@ describe('BotState', () => {
 
     expect(state.models()['probe-1']).toEqual([model]);
     expect(state.models()['probe-2']).toEqual([]);
+  });
+
+  it('keeps one bot record per inspected name', () => {
+    const state = new BotState();
+
+    state.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      engineKind: 'pi',
+      persona: 'You are Forge.',
+      envVars: [],
+    });
+
+    expect(state.configs()['forge']).toMatchObject({
+      description: 'Builds things',
+      persona: 'You are Forge.',
+    });
   });
 });

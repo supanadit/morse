@@ -158,7 +158,13 @@ describe('MorseService bot mode', () => {
     return transport.sent[transport.sent.length - 1];
   }
 
-  const summary = { name: 'forge', description: 'keeps the forge hot', engineKind: 'pi', warm: true };
+  const summary = {
+    username: 'forge',
+    name: 'Forge',
+    description: 'keeps the forge hot',
+    engineKind: 'pi',
+    warm: true,
+  };
   const dm = {
     id: 'dm-forge',
     kind: 'dm' as const,
@@ -339,7 +345,8 @@ describe('MorseService bot mode', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
     const input = {
-      name: 'forge',
+      username: 'forge',
+      name: 'Forge',
       description: 'keeps the forge hot',
       engineKind: 'pi',
       credentials: [{ provider: 'anthropic', apiKey: 'sk-test' }],

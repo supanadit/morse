@@ -154,7 +154,7 @@ select {
 }
 .actions .create {
   background: var(--morse-accent);
-  color: var(--morse-bg);
+  color: var(--morse-accent-fg);
 }
 .actions .create:hover:not(:disabled) {
   background: color-mix(in srgb, var(--morse-accent) 88%, var(--morse-fg));

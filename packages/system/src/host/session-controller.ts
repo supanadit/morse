@@ -617,6 +617,18 @@ export class HostSessionController {
       case 'bot/delete':
         await this.runBotAction(() => bot.deleteBot(message.payload.name));
         return;
+      case 'bot/inspect': {
+        // A read, so the answer is the config itself rather than a roster: the
+        // wizard only needs the one bot the reader asked to edit.
+        const result = await this.guardBot(() => bot.inspectBot(message.payload.name));
+        if (result.ok) {
+          this.options.emit({ type: 'bot/config', payload: result.value });
+        }
+        return;
+      }
+      case 'bot/update':
+        await this.runBotAction(() => bot.updateBot(message.payload));
+        return;
       case 'bot/groupCreate':
         await this.runBotAction(() => bot.createGroup(message.payload));
         return;
@@ -656,18 +668,39 @@ export class HostSessionController {
         }
         return;
       }
-      case 'bot/open':
+      case 'bot/open': {
+        const { conversationId, limit } = message.payload;
+        // The newest page of the transcript, replacing whatever the client held:
+        // a conversation is reopened at its end, not at its beginning.
+        const page = bot.open(conversationId, limit);
         this.options.emit({
           type: 'bot/transcript',
           payload: {
-            conversationId: message.payload.conversationId,
-            // The full transcript, so opening a conversation replaces whatever
-            // lines the client kept from before.
-            entries: bot.open(message.payload.conversationId),
+            conversationId,
+            entries: page.entries,
             replace: true,
+            hasMore: page.hasMore,
           },
         });
         return;
+      }
+      case 'bot/history': {
+        const { conversationId, before, limit } = message.payload;
+        // Scrolling up: the page before the oldest line the client holds, put in
+        // front of it rather than replacing anything.
+        const page = bot.history(conversationId, before, limit);
+        this.options.emit({
+          type: 'bot/transcript',
+          payload: {
+            conversationId,
+            entries: page.entries,
+            replace: false,
+            prepend: true,
+            hasMore: page.hasMore,
+          },
+        });
+        return;
+      }
       case 'bot/send':
         void bot
           .send(message.payload.conversationId, message.payload.text)

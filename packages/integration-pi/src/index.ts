@@ -80,3 +80,11 @@ export {
 } from './event-mapping.js';
 export type { MappedRecord } from './event-mapping.js';
 export * from './internal/rpc-types.js';
+
+export {
+  piBotLayout,
+  writePiBotConfig,
+  piAgentDir,
+  piSystemPromptPath,
+  piWorkspacePath,
+} from './bot-layout.js';

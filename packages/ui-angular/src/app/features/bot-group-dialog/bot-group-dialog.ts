@@ -34,6 +34,11 @@ export class BotGroupDialog {
     this.name.set((event.target as HTMLInputElement).value);
   }
 
+  /** A member's display name: the lead picker names readers, not handles. */
+  protected label(username: string): string {
+    return this.bots().find((bot) => bot.username === username)?.name ?? username;
+  }
+
   /** Adding or removing a member; a lead that leaves stops being the lead. */
   protected toggleMember(name: string): void {
     this.members.update((members) =>

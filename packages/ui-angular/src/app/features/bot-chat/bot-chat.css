@@ -140,7 +140,12 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 16px 8px;
+  /*
+   * The dock floats over the last lines (see `.composer-host`), so its measured
+   * height is reserved here: without it the bottom of an answer would sit behind
+   * the glass. Measured, not a constant — the slab grows with a long draft.
+   */
+  padding: 16px 16px calc(10px + var(--morse-dock-height, 0px));
 }
 .empty-note {
   margin: auto;
@@ -210,10 +215,65 @@
   text-align: center;
 }
 
+/*
+ * A discussion boundary: a rule across the transcript, because it separates two
+ * engine sessions inside one conversation. Reading back through them is the
+ * point, so it stays quiet enough not to look like a message.
+ */
+.entry.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  margin: 10px 0;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.entry.divider::before,
+.entry.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--morse-border);
+}
+
+.entry.divider time {
+  flex: none;
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.7;
+}
+
+/* The lazy-load row: a quiet hint until the host answers it. */
+.older {
+  align-self: center;
+  margin: 0 0 8px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+
 /* The box stays under the lines, in the column's own flow. */
 .composer-host {
+  /*
+   * The composer floats over the conversation, exactly like code mode's dock: a
+   * negative top margin as tall as the dock pulls it up over the transcript, so
+   * the slab is glass with the last lines scrolling behind it rather than a solid
+   * footer that eats the column's height. Only the slab takes the pointer; the
+   * strip around it lets a scroll through.
+   */
   flex: none;
-  padding: 0;
+  position: relative;
+  z-index: 10;
+  margin-top: calc(-1 * var(--morse-dock-height, 0px));
+  pointer-events: none;
+}
+
+.composer-host > * {
+  pointer-events: auto;
 }
 
 /* No conversation: the column says what to do, not that it is broken. */

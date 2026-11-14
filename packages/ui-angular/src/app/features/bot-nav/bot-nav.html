@@ -1,17 +1,57 @@
 <!--
   One sidebar with two sections, the way the session list groups its projects:
   first the bots themselves (each row is its DM), then the groups they talk in.
-  The two creation actions sit above both, where the reader reaches before there
-  is anything to pick.
+
+  The head is a search box and one `+`: the roster scrolls away from the creation
+  actions once there are a few bots, and a search is what a long roster needs
+  first. Both creation entries live in the `+` menu — the two ways to add
+  something, and nowhere else to look for them.
 -->
 <div class="head">
-  <button type="button" class="create new-bot" (click)="newBot()">
-    <span class="plus" aria-hidden="true">+</span>
-    <span>New bot</span>
-  </button>
-  <button type="button" class="create new-group" (click)="newGroup()">
-    <span class="plus" aria-hidden="true">+</span>
-    <span>New group</span>
+  <label class="search">
+    <span class="search-glyph" aria-hidden="true">
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.1" fill="none" stroke="currentColor" stroke-width="1.6" />
+        <path
+          d="M10.2 10.2 13.4 13.4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
+      </svg>
+    </span>
+    <input
+      type="text"
+      class="search-input"
+      [value]="query()"
+      (input)="setQuery($event)"
+      placeholder="Search bots and groups…"
+      aria-label="Search bots and groups"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    @if (query().length > 0) {
+      <button
+        type="button"
+        class="search-clear"
+        (click)="clearQuery()"
+        aria-label="Clear the search"
+        title="Clear the search"
+      >
+        ×
+      </button>
+    }
+  </label>
+  <button
+    type="button"
+    class="create-toggle"
+    aria-haspopup="menu"
+    [attr.aria-expanded]="createOpen()"
+    (click)="toggleCreate($event)"
+    title="New bot or group"
+  >
+    <span aria-hidden="true">+</span>
   </button>
 </div>
 
@@ -19,24 +59,25 @@
   <section class="section">
     <div class="section-head">
       <span class="section-label">Bots</span>
-      <span class="count">{{ bots().length }}</span>
+      <span class="count">{{ botMatches().length }}</span>
     </div>
-    @if (bots().length > 0) {
+    @if (botMatches().length > 0) {
       <ul>
-        @for (bot of bots(); track bot.name) {
+        @for (bot of botMatches(); track bot.username) {
           <li class="bot-row">
             <button
               type="button"
               class="row bot"
-              [class.active]="activeId() === 'dm-' + bot.name"
-              [attr.aria-current]="activeId() === 'dm-' + bot.name ? 'true' : null"
-              [title]="bot.description"
+              [class.active]="activeId() === 'dm-' + bot.username"
+              [attr.aria-current]="activeId() === 'dm-' + bot.username ? 'true' : null"
+              [title]="'Open ' + bot.name + ' (@' + bot.username + ')'"
               (click)="openBot(bot)"
+              (contextmenu)="openRowMenu($event, bot)"
             >
-              <span class="avatar" aria-hidden="true">{{ mark(bot) }}</span>
+              <span class="tile" aria-hidden="true">{{ mark(bot) }}</span>
               <span class="body">
                 <span class="name">{{ bot.name }}</span>
-                <span class="description">{{ bot.description }}</span>
+                <span class="description">{{ botSubtitle(bot) }}</span>
               </span>
               <!-- Presence, the roster's one at-a-glance fact: a warm bot's
                    engine is already running, a cold one starts on its first
@@ -50,56 +91,161 @@
                 aria-hidden="true"
               ></span>
             </button>
-            <!-- Deleting takes the bot's config, sessions and workspace with
-                 it, so it is confirm-first and unavailable while the bot is
-                 answering. -->
-            @if (!routingFor(bot)) {
-              <button
-                type="button"
-                class="delete-bot"
-                [attr.aria-label]="'Delete ' + bot.name"
-                [title]="'Delete ' + bot.name"
-                (click)="deleteBot(bot)"
-              >
-                ×
-              </button>
-            }
+            <button
+              type="button"
+              class="row-more"
+              [attr.aria-label]="'Actions for ' + bot.name"
+              [title]="'Actions for ' + bot.name"
+              aria-haspopup="menu"
+              (click)="openMoreMenu($event, bot)"
+            >
+              ⋯
+            </button>
           </li>
         }
       </ul>
     } @else {
-      <p class="empty">{{ loaded() ? 'No bots yet.' : 'Loading bots…' }}</p>
+      <p class="empty">{{ botsEmpty() }}</p>
     }
   </section>
 
   <section class="section">
     <div class="section-head">
       <span class="section-label">Groups</span>
-      <span class="count">{{ groups().length }}</span>
+      <span class="count">{{ groupMatches().length }}</span>
     </div>
-    @if (groups().length > 0) {
+    @if (groupMatches().length > 0) {
       <ul>
-        @for (group of groups(); track group.id) {
-          <li>
+        @for (group of groupMatches(); track group.id) {
+          <li class="group-row">
             <button
               type="button"
               class="row group"
               [class.active]="activeId() === group.id"
               [attr.aria-current]="activeId() === group.id ? 'true' : null"
-              [title]="group.title"
+              [title]="'Open ' + group.title"
               (click)="openGroup(group)"
+              (contextmenu)="openRowMenu($event, group)"
             >
-              <span class="avatar group-mark" aria-hidden="true">{{ groupMark(group) }}</span>
+              <span class="tile group-mark" aria-hidden="true">{{ groupMark(group) }}</span>
               <span class="body">
                 <span class="name">{{ group.title }}</span>
-                <span class="description">{{ group.members.join(', ') }}</span>
+                <span class="description">{{ groupSubtitle(group) }}</span>
               </span>
+            </button>
+            <button
+              type="button"
+              class="row-more"
+              [attr.aria-label]="'Actions for ' + group.title"
+              [title]="'Actions for ' + group.title"
+              aria-haspopup="menu"
+              (click)="openMoreMenu($event, group)"
+            >
+              ⋯
             </button>
           </li>
         }
       </ul>
     } @else {
-      <p class="empty">{{ loaded() ? 'No groups yet.' : 'Loading groups…' }}</p>
+      <p class="empty">{{ groupsEmpty() }}</p>
     }
   </section>
 </nav>
+
+<!--
+  The sidebar's only menu: creation from the `+`, a row's actions from a
+  right-click or its `⋯`. A row is a button (open the conversation), so actions
+  live here rather than as a second target inside it. Deleting a bot takes its
+  config, sessions and workspace with it, so the menu asks before it happens.
+-->
+@if (menu(); as open) {
+  <div
+    class="context-menu-layer"
+    (click)="closeMenu()"
+    (contextmenu)="$event.preventDefault(); closeMenu()"
+  ></div>
+  <div class="context-menu" role="menu" [style.left.px]="open.x" [style.top.px]="open.y">
+    @switch (open.kind) {
+      @case ('create') {
+        <button type="button" class="context-menu-item new-bot"
+          role="menuitem" (click)="newBot()">
+          <span class="item-glyph" aria-hidden="true">+</span>
+          New bot
+        </button>
+        <button type="button" class="context-menu-item new-group"
+          role="menuitem" (click)="newGroup()">
+          <span class="item-glyph" aria-hidden="true">#</span>
+          New group
+        </button>
+      }
+      @case ('bot') {
+        @if (open.confirming) {
+          <p class="context-menu-question">Delete bot?</p>
+          <p class="context-menu-title">{{ open.bot.name }}</p>
+          <button type="button" class="context-menu-item"
+            role="menuitem"
+            (click)="closeMenu()">Cancel</button>
+          <button type="button" class="context-menu-item danger"
+            role="menuitem"
+            (click)="deleteNow(open.bot)">
+            Delete bot
+          </button>
+        } @else {
+          <button type="button" class="context-menu-item"
+            role="menuitem"
+            (click)="openBot(open.bot)">
+            Open
+          </button>
+          <button
+            type="button"
+            class="context-menu-item edit-bot"
+            role="menuitem"
+            [disabled]="routingFor(open.bot)"
+            [title]="
+              routingFor(open.bot)
+                ? 'This bot is answering — wait for the turn to end'
+                : 'Edit ' + open.bot.name
+            "
+            (click)="editBot(open.bot)"
+          >
+            Edit bot…
+          </button>
+          <button
+            type="button"
+            class="context-menu-item"
+            role="menuitem"
+            (click)="startDiscussion('dm-' + open.bot.username)"
+          >
+            New discussion
+          </button>
+          <button
+            type="button"
+            class="context-menu-item danger delete-bot"
+            role="menuitem"
+            [disabled]="routingFor(open.bot)"
+            [title]="
+              routingFor(open.bot)
+                ? 'This bot is answering — wait for the turn to end'
+                : 'Delete ' + open.bot.name
+            "
+            (click)="askDelete(open.bot)"
+          >
+            Delete bot…
+          </button>
+        }
+      }
+      @case ('group') {
+        <button type="button" class="context-menu-item"
+            role="menuitem"
+            (click)="openGroup(open.group)">
+          Open
+        </button>
+        <button type="button" class="context-menu-item"
+            role="menuitem"
+            (click)="startDiscussion(open.group.id)">
+          New discussion
+        </button>
+      }
+    }
+  </div>
+}

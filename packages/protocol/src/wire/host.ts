@@ -4,6 +4,7 @@
  */
 
 import type {
+  BotConfig,
   BotConversationSummary,
   BotRoutingState,
   BotSummary,
@@ -345,18 +346,38 @@ export interface BotRosterMessage extends HostMessageBase {
 }
 
 /**
- * A conversation's transcript, as the host now has it. `replace` resets what the
- * client holds (opening a conversation); `entries` alone appends the new lines.
+ * A conversation's transcript, as the host now has it.
+ *
+ * - `replace: true` resets what the client holds: opening a conversation sends
+ *   the newest page of it.
+ * - `prepend: true` puts the entries *before* what the client holds: the answer
+ *   to scrolling up.
+ * - neither appends the lines a round just produced.
+ *
+ * `hasMore` says whether older entries exist past what was sent, which is what
+ * the chat's own scroll decides to fetch next.
  */
 export interface BotTranscriptMessage extends HostMessageBase {
   type: 'bot/transcript';
-  payload: { conversationId: string; entries: BotTranscriptEntry[]; replace: boolean };
+  payload: {
+    conversationId: string;
+    entries: BotTranscriptEntry[];
+    replace: boolean;
+    prepend?: boolean;
+    hasMore?: boolean;
+  };
 }
 
 /** Who the host is asking right now; `null` once no round is in flight. */
 export interface BotRoutingMessage extends HostMessageBase {
   type: 'bot/routing';
   payload: { state: BotRoutingState | null };
+}
+
+/** Answer to `bot/inspect`: the bot's own record, for Edit bot to show. */
+export interface BotConfigMessage extends HostMessageBase {
+  type: 'bot/config';
+  payload: BotConfig;
 }
 
 /** Answer to `bot/probeModels`: the models that engine offers with those credentials. */
@@ -391,5 +412,5 @@ export type HostToClientMessage =
   | BotRosterMessage
   | BotTranscriptMessage
   | BotRoutingMessage
+  | BotConfigMessage
   | BotModelsMessage;
-

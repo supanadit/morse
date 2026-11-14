@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -31,6 +39,7 @@ describe('bot store', () => {
   });
 
   const bot: BotRecord = {
+    username: 'forge',
     name: 'Forge',
     description: 'Builds things',
     avatar: 'anvil.png',
@@ -48,33 +57,33 @@ describe('bot store', () => {
 
   function registry(): BotRegistryFile {
     return {
-      version: 1,
+      version: 2,
       bots: [bot],
       groups: [
         {
           id: 'grp-launch-a1b2',
           name: 'Launch',
-          members: ['Forge', 'Sable'],
-          lead: 'Forge',
+          members: ['forge', 'sable'],
+          lead: 'forge',
           chainCap: 8,
         },
       ],
       conversations: [
         {
-          id: 'dm-Forge',
+          id: 'dm-forge',
           kind: 'dm',
           title: 'Forge',
-          members: ['Forge'],
+          members: ['forge'],
           chainCap: 8,
-          sessions: { Forge: { engineSessionId: 'sess-1' } },
+          sessions: { forge: { engineSessionId: 'sess-1' } },
           updatedAt: 1_700_000_000_000,
         },
         {
           id: 'grp-launch-a1b2',
           kind: 'group',
           title: 'Launch',
-          members: ['Forge', 'Sable'],
-          lead: 'Forge',
+          members: ['forge', 'sable'],
+          lead: 'forge',
           chainCap: 8,
           sessions: {},
           updatedAt: 1_700_000_000_001,
@@ -94,8 +103,79 @@ describe('bot store', () => {
     expect(readFileSync(join(dir, 'registry.json'), 'utf8')).toBe(JSON.stringify(saved));
   });
 
-  it('reads a missing registry as an empty v1 registry', () => {
-    expect(loadBotRegistry(dir)).toEqual({ version: 1, bots: [], groups: [], conversations: [] });
+  it('migrates a version 1 registry: usernames, directories and DMs move with it', () => {
+    // Version 1 had one field doing three jobs: a bot's name was its label, its
+    // directory and its @mention. Version 2 keeps the label and derives the rest.
+    const v1 = {
+      version: 1,
+      bots: [
+        { name: 'Forge', description: 'Builds things', engineKind: 'pi', persona: '', credentialEnv: [] },
+        {
+          name: 'News Finder',
+          description: 'Finds news',
+          engineKind: 'pi',
+          persona: '',
+          credentialEnv: [],
+        },
+      ],
+      groups: [
+        {
+          id: 'grp-launch-a1b2',
+          name: 'Launch',
+          members: ['Forge', 'News Finder'],
+          lead: 'Forge',
+          chainCap: 8,
+        },
+      ],
+      conversations: [
+        {
+          id: 'dm-Forge',
+          kind: 'dm',
+          title: 'Forge',
+          members: ['Forge'],
+          chainCap: 8,
+          sessions: { Forge: { engineSessionId: 'sess-1' } },
+          updatedAt: 1,
+        },
+        {
+          id: 'grp-launch-a1b2',
+          kind: 'group',
+          title: 'Launch',
+          members: ['Forge', 'News Finder'],
+          lead: 'Forge',
+          chainCap: 8,
+          sessions: {},
+          updatedAt: 2,
+        },
+      ],
+    };
+    writeFileSync(join(dir, 'registry.json'), JSON.stringify(v1));
+    mkdirSync(join(dir, 'Forge', 'workspace'), { recursive: true });
+    mkdirSync(join(dir, 'News Finder', 'workspace'), { recursive: true });
+
+    const migrated = loadBotRegistry(dir);
+
+    expect(migrated.version).toBe(2);
+    // The free-text name survives as the label; the username is derived (sluggish,
+    // lowercase, spaces gone) and becomes the identity.
+    expect(migrated.bots.map((one) => one.name)).toEqual(['Forge', 'News Finder']);
+    expect(migrated.bots.map((one) => one.username)).toEqual(['forge', 'news-finder']);
+    expect(migrated.groups[0]?.members).toEqual(['forge', 'news-finder']);
+    expect(migrated.groups[0]?.lead).toBe('forge');
+    expect(migrated.conversations[0]?.id).toBe('dm-forge');
+    expect(migrated.conversations[0]?.title).toBe('Forge');
+    expect(migrated.conversations[0]?.sessions).toEqual({ forge: { engineSessionId: 'sess-1' } });
+    expect(migrated.conversations[1]?.members).toEqual(['forge', 'news-finder']);
+    // The directories moved with the usernames, and the file was saved back as v2.
+    expect(existsSync(join(dir, 'forge'))).toBe(true);
+    expect(existsSync(join(dir, 'news-finder'))).toBe(true);
+    expect(existsSync(join(dir, 'News Finder'))).toBe(false);
+    const saved = JSON.parse(readFileSync(join(dir, 'registry.json'), 'utf8')) as { version: number };
+    expect(saved.version).toBe(2);
+  });
+
+  it('reads a missing registry as an empty v2 registry', () => {
+    expect(loadBotRegistry(dir)).toEqual({ version: 2, bots: [], groups: [], conversations: [] });
   });
 
   it('reports an unreadable-but-present registry instead of treating it as missing', () => {
@@ -157,7 +237,7 @@ describe('bot store', () => {
     saveBotRegistry(dir, registry());
     saveBotRegistry(dir, { version: 1, bots: [], groups: [], conversations: [] });
 
-    expect(loadBotRegistry(dir)).toEqual({ version: 1, bots: [], groups: [], conversations: [] });
+    expect(loadBotRegistry(dir)).toEqual({ version: 2, bots: [], groups: [], conversations: [] });
     expect(readdirSync(dir)).toEqual(['registry.json']);
   });
 

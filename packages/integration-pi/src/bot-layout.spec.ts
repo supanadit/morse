@@ -1,0 +1,206 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { BotEngineConfig } from '@morse/system';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  piAgentDir,
+  piBotLayout,
+  piSystemPromptPath,
+  piWorkspacePath,
+  writePiBotConfig,
+} from './bot-layout.js';
+
+/**
+ * pi's own layout. `PI_CODING_AGENT_DIR` points at `<botRoot>/config`, so that
+ * directory must be a 1:1 `~/.pi/agent`: `auth.json`, `models.json`,
+ * `settings.json` and `AGENTS.md`, in the shapes pi itself writes.
+ */
+describe('piBotLayout', () => {
+  let botRoot: string;
+
+  beforeEach(() => {
+    botRoot = mkdtempSync(join(tmpdir(), 'morse-pi-layout-'));
+  });
+
+  afterEach(() => {
+    rmSync(botRoot, { recursive: true, force: true });
+  });
+
+  const config: BotEngineConfig = {
+    username: 'news-finder',
+    name: 'News Finder',
+    description: 'Finds the news',
+    persona: 'You are News Finder.',
+    agentsMd: '# workspace rules\n',
+    credentials: [{ provider: 'zai', apiKey: 'zai-key' }],
+    providers: [
+      {
+        id: 'acme',
+        label: 'Acme AI',
+        api: 'openai-completions',
+        baseUrl: 'https://llm.acme.example/v1',
+        credential: { kind: 'stored', apiKey: 'sk-acme' },
+        models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 128_000 }],
+      },
+    ],
+    model: { provider: 'zai', id: 'glm-5.3', name: 'GLM' },
+    thinkingLevel: 'high',
+  };
+
+  const read = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8')) as unknown;
+
+  it('writes the agent dir the bot runs with: config/, not a Morse shape', () => {
+    writePiBotConfig(botRoot, config);
+
+    expect(piAgentDir(botRoot)).toBe(join(botRoot, 'config'));
+    expect(read(join(botRoot, 'config', 'auth.json'))).toEqual({
+      zai: { type: 'api_key', key: 'zai-key' },
+    });
+    expect(read(join(botRoot, 'config', 'settings.json'))).toEqual({
+      defaultProvider: 'zai',
+      defaultModel: 'glm-5.3',
+      defaultThinkingLevel: 'high',
+    });
+  });
+
+  it('writes providers into models.json in pi own shape', () => {
+    writePiBotConfig(botRoot, config);
+
+    const models = read(join(botRoot, 'config', 'models.json')) as {
+      providers: Record<string, unknown>;
+    };
+    expect(models.providers['acme']).toEqual({
+      baseUrl: 'https://llm.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'sk-acme',
+      models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 128_000 }],
+    });
+  });
+
+  it('puts the persona in SYSTEM.md, where pi replaces its own system prompt', () => {
+    writePiBotConfig(botRoot, config);
+
+    // docs.pi.dev/latest/configuration: `<agent-dir>/SYSTEM.md` replaces Pi's
+    // default system prompt, `APPEND_SYSTEM.md` adds to it, and `AGENTS.md` is
+    // user instructions applied across working directories (appended context).
+    // A bot's character is the system prompt, so it goes to SYSTEM.md.
+    expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('You are News Finder.\n');
+    expect(existsSync(join(botRoot, 'config', 'AGENTS.md'))).toBe(false);
+    // The workspace document is a context file in the directory pi runs in.
+    expect(readFileSync(piWorkspacePath(botRoot), 'utf8')).toBe('# workspace rules\n');
+  });
+
+  it('moves a persona an earlier Morse wrote to AGENTS.md into SYSTEM.md', () => {
+    // What the previous layout left behind: the character in the appended-context
+    // file, and no system prompt at all.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(join(botRoot, 'config', 'AGENTS.md'), 'You are News Finder.\n');
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('You are News Finder.\n');
+    // Removed rather than copied: two copies would say the character twice.
+    expect(existsSync(join(botRoot, 'config', 'AGENTS.md'))).toBe(false);
+    expect(piBotLayout.read(botRoot).persona).toBe('You are News Finder.\n');
+  });
+
+  it('leaves a SYSTEM.md the reader wrote alone', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(join(botRoot, 'config', 'SYSTEM.md'), 'Hand-written.\n');
+    writeFileSync(join(botRoot, 'config', 'AGENTS.md'), 'Older.\n');
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('Hand-written.\n');
+  });
+
+  it('keeps the reader settings it does not own, and clears what the form cleared', () => {
+    const agentDir = join(botRoot, 'config');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(
+      join(agentDir, 'settings.json'),
+      JSON.stringify({ theme: 'dark', packages: [], defaultProvider: 'old', defaultModel: 'old' }),
+    );
+    writeFileSync(
+      join(agentDir, 'models.json'),
+      JSON.stringify({ providers: { hand: { api: 'openai-completions', models: [] } } }),
+    );
+
+    writePiBotConfig(botRoot, config);
+    const settings = read(join(agentDir, 'settings.json')) as Record<string, unknown>;
+    expect(settings['theme']).toBe('dark');
+    expect(settings['defaultProvider']).toBe('zai');
+    // The hand-added provider survives an edit that does not mention it.
+    const models = read(join(agentDir, 'models.json')) as { providers: Record<string, unknown> };
+    expect(models.providers['hand']).toBeDefined();
+
+    // `null` clears the model; `undefined` keeps it (a caller that does not know
+    // the choice must not reset the bot). The reader's theme survives both.
+    writePiBotConfig(botRoot, { ...config, model: null, thinkingLevel: undefined });
+    const cleared = read(join(agentDir, 'settings.json')) as Record<string, unknown>;
+    expect(cleared['defaultProvider']).toBeUndefined();
+    expect(cleared['defaultModel']).toBeUndefined();
+    expect(cleared['defaultThinkingLevel']).toBeUndefined();
+    expect(cleared['theme']).toBe('dark');
+  });
+
+  it('leaves the stored keys alone when the form collected none', () => {
+    writePiBotConfig(botRoot, config);
+
+    writePiBotConfig(botRoot, { ...config, credentials: [] });
+
+    expect(read(join(botRoot, 'config', 'auth.json'))).toEqual({
+      zai: { type: 'api_key', key: 'zai-key' },
+    });
+  });
+
+  it('writes exactly the tools the reader chose, in pi own names', () => {
+    writePiBotConfig(botRoot, { ...config, tools: ['read', 'bash'] });
+
+    const settings = read(join(botRoot, 'config', 'settings.json')) as Record<string, unknown>;
+    expect(settings['defaultTools']).toEqual(['read', 'bash']);
+    expect(piBotLayout.read(botRoot).tools).toEqual(['read', 'bash']);
+
+    // An empty list is "no tools", which is also what stops a provider that
+    // emulates tools by asking for JSON from printing tool calls as chat.
+    writePiBotConfig(botRoot, { ...config, tools: [] });
+    const none = read(join(botRoot, 'config', 'settings.json')) as Record<string, unknown>;
+    expect(none['defaultTools']).toEqual([]);
+  });
+
+  it('leaves the tool list alone when the caller does not mention it', () => {
+    writePiBotConfig(botRoot, { ...config, tools: ['read'] });
+
+    writePiBotConfig(botRoot, { ...config, tools: undefined });
+
+    const settings = read(join(botRoot, 'config', 'settings.json')) as Record<string, unknown>;
+    expect(settings['defaultTools']).toEqual(['read']);
+  });
+
+  it('keeps a stored model when the caller does not know it, and clears only on demand', () => {
+    writePiBotConfig(botRoot, config);
+
+    // A repair or a reconcile passes no model: it must not reset a working bot.
+    writePiBotConfig(botRoot, { ...config, model: undefined, persona: 'Updated.' });
+    let settings = read(join(botRoot, 'config', 'settings.json')) as Record<string, unknown>;
+    expect(settings['defaultProvider']).toBe('zai');
+    expect(settings['defaultModel']).toBe('glm-5.3');
+
+    // An explicit null is the reader clearing the choice.
+    writePiBotConfig(botRoot, { ...config, model: null });
+    settings = read(join(botRoot, 'config', 'settings.json')) as Record<string, unknown>;
+    expect(settings['defaultProvider']).toBeUndefined();
+  });
+
+  it('reads the configuration back for Edit bot', () => {
+    writePiBotConfig(botRoot, config);
+
+    expect(piBotLayout.read(botRoot)).toEqual({
+      model: { provider: 'zai', id: 'glm-5.3', name: 'glm-5.3' },
+      thinkingLevel: 'high',
+      persona: 'You are News Finder.\n',
+      agentsMd: '# workspace rules\n',
+    });
+  });
+});

@@ -4,6 +4,7 @@ import {
   type BotCreateInput,
   type BotGroupCreateInput,
   type BotProviderCredentialInput,
+  type BotUpdateInput,
   type ChatPin,
   type ComposerSeed,
   type HostCommand,
@@ -181,6 +182,12 @@ export class MorseService {
   readonly ui = {
     wizardOpen: signal(false),
     groupOpen: signal(false),
+    /**
+     * The bot the wizard is editing, or `null` for a new one. A name rather than
+     * a config: the wizard reads the record the host answers with, so opening the
+     * form twice always shows what the host has now.
+     */
+    wizardTarget: signal<string | null>(null),
   };
 
   constructor() {
@@ -223,6 +230,9 @@ export class MorseService {
         return;
       case 'bot/models':
         this.bot.onModels(message.payload);
+        return;
+      case 'bot/config':
+        this.bot.onConfig(message.payload);
         return;
       default:
         return;
@@ -534,6 +544,22 @@ export class MorseService {
     });
   }
 
+  /**
+   * Reads one bot's own record, for Edit bot to show back. The answer arrives as
+   * `bot/config`; credentials stay in the engine's store and are never sent.
+   */
+  inspectBot(name: string): void {
+    this.transport.send({ type: 'bot/inspect', payload: { name } });
+  }
+
+  /**
+   * Saves an edit to one bot. The host answers with a fresh `bot/roster`, like a
+   * create, and refuses while that bot is answering.
+   */
+  updateBot(input: BotUpdateInput): void {
+    this.transport.send({ type: 'bot/update', payload: input });
+  }
+
   /** Deletes a bot and its directory; conversations it belonged to keep the gap. */
   deleteBot(name: string): void {
     this.transport.send({ type: 'bot/delete', payload: { name } });
@@ -552,6 +578,18 @@ export class MorseService {
   openBotConversation(id: string): void {
     this.bot.open(id);
     this.transport.send({ type: 'bot/open', payload: { conversationId: id } });
+  }
+
+  /**
+   * One page further back in a conversation, for the chat's scroll-to-top.
+   * `before` is the oldest entry the client holds; the answer arrives as a
+   * `bot/transcript` with `prepend`.
+   */
+  loadOlderBotHistory(conversationId: string, before?: string): void {
+    this.transport.send({
+      type: 'bot/history',
+      payload: { conversationId, ...(before === undefined ? {} : { before }) },
+    });
   }
 
   /**
@@ -577,9 +615,11 @@ export class MorseService {
     }
   }
 
-  /** Starts a fresh engine session for every member, keeping the conversation's history. */
-  newBotDiscussion(): void {
-    const conversationId = this.bot.activeId();
+  /**
+   * Starts a fresh engine session for every member, keeping the conversation's
+   * history. Defaults to the conversation in front; a row's menu names its own.
+   */
+  newBotDiscussion(conversationId: string | null = this.bot.activeId()): void {
     if (conversationId !== null) {
       this.transport.send({ type: 'bot/newDiscussion', payload: { conversationId } });
     }

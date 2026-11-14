@@ -1,10 +1,15 @@
 <div class="wizard">
   <header class="wizard-head">
     <div class="wizard-titles">
-      <h2>New bot</h2>
+      <h2>{{ editing() ? 'Edit bot' : 'New bot' }}</h2>
       <p class="wizard-sub">
-        A bot is an agent of its own: its engine, its credentials, its providers, its workspace.
-        Nothing is copied from your own configuration.
+        @if (editing()) {
+          Change what this bot is and what it runs on. Its name and engine stay put — the name is
+          its directory and its @mention, and the engine owns the config already written there.
+        } @else {
+          A bot is an agent of its own: its engine, its credentials, its providers, its workspace.
+          Nothing is copied from your own configuration.
+        }
       </p>
     </div>
     <button type="button" class="wizard-close" (click)="cancel()" aria-label="Cancel the wizard">×</button>
@@ -15,10 +20,18 @@
       <li
         class="wizard-step"
         [class.on]="labels[entry] === labels[step()]"
-        [class.done]="steps().indexOf(entry) < steps().indexOf(step())"
+        [class.done]="isDone(entry)"
         [aria-current]="labels[entry] === labels[step()] ? 'step' : undefined"
       >
-        {{ labels[entry] }}
+        <button
+          type="button"
+          class="wizard-step-button"
+          [disabled]="!canGoTo(entry)"
+          [attr.title]="canGoTo(entry) ? 'Go to ' + labels[entry] : null"
+          (click)="goToStep(entry)"
+        >
+          {{ labels[entry] }}
+        </button>
       </li>
     }
   </ol>
@@ -30,7 +43,40 @@
           <h3>Identity</h3>
           <label class="field">
             <span>Name</span>
-            <input type="text" [value]="name()" (input)="setText('name', $event)" placeholder="Forge" autocomplete="off" />
+            <input
+              type="text"
+              [value]="name()"
+              (input)="setText('name', $event)"
+              placeholder="News Finder"
+              autocomplete="off"
+            />
+            <small class="field-note">
+              Anything you like: spaces, punctuation, emoji. This is only what you see.
+            </small>
+          </label>
+          <label class="field">
+            <span>Username</span>
+            <input
+              type="text"
+              [value]="username()"
+              (input)="setUsername($event)"
+              placeholder="news-finder"
+              autocomplete="off"
+              spellcheck="false"
+              [disabled]="editing()"
+            />
+            @if (usernameError(); as problem) {
+              <small class="field-note error-note">{{ problem }}</small>
+            } @else if (editing()) {
+              <small class="field-note">
+                A username is the bot's directory and its @mention, so it cannot change here.
+              </small>
+            } @else {
+              <small class="field-note">
+                Lowercase letters, digits, dashes and underscores — its directory and its @mention.
+                Follows the name until you edit it.
+              </small>
+            }
           </label>
           <label class="field">
             <span>Description</span>
@@ -44,16 +90,25 @@
         @case ('engine') {
           <h3>Engine</h3>
           <p class="note">The agent runtime this bot runs on. Its config, sessions and workspace live inside the bot's own directory.</p>
+          @if (editing()) {
+            <p class="note">
+              The engine owns the config already in this bot's directory, so switching it here would
+              half-migrate a bot. Create a new bot to run on another engine.
+            </p>
+          }
           <div class="choices" role="radiogroup" aria-label="Engine">
             @for (engine of engines(); track engine.kind) {
               <button
                 type="button"
                 class="choice"
                 [class.on]="engineKind() === engine.kind"
+                [disabled]="editing()"
                 (click)="chooseEngine(engine.kind)"
               >
                 <span class="choice-name">{{ engine.label }}</span>
-                <span class="choice-hint">{{ engine.kind }}</span>
+                @if (engine.kind.toLowerCase() !== engine.label.toLowerCase()) {
+                  <span class="choice-hint">{{ engine.kind }}</span>
+                }
               </button>
             }
           </div>
@@ -64,6 +119,12 @@
             Everything here is written into this bot's own config — never yours.
             You can skip a key entirely where the engine offers free models, and add a model by hand at any time.
           </p>
+          @if (editing()) {
+            <p class="note">
+              Stored keys are the engine's, and Morse never reads them back. Leave this alone to keep
+              them; paste a key to replace them.
+            </p>
+          }
 
           <h4 class="group-title">Catalog providers</h4>
           <div class="presets">
@@ -78,6 +139,7 @@
                     class="preset-key"
                     [value]="presetKey(preset.credential)"
                     (input)="setPresetKey(preset.credential, $event)"
+                    (change)="refreshCatalog()"
                     [placeholder]="preset.credential + ' API key'"
                     autocomplete="off"
                   />
@@ -86,6 +148,15 @@
             }
           </div>
 
+          @if (editing()) {
+            <!-- Providers are engine config written at creation; an edit cannot
+                 rewrite them yet, so the form does not pretend it can. -->
+            <h4 class="group-title">Custom providers</h4>
+            <p class="note">
+              This bot's own providers live in its engine config and are not rewritten here. Its
+              catalog keys are above.
+            </p>
+          } @else {
           <h4 class="group-title">Custom providers</h4>
           @for (provider of providers(); track provider.id) {
             <div class="provider-card">
@@ -171,19 +242,28 @@
             </div>
           }
 
-          <h4 class="group-title">Model</h4>
-          @if (!probeReady() && collectedCredentials().length > 0) {
-            <p class="note">Probing the engine's catalog with your keys…</p>
           }
+
+          <h4 class="group-title">Model</h4>
           @if (allModels().length > 0) {
-            <input
-              type="text"
-              class="model-search"
-              [value]="modelFilter()"
-              (input)="setText('modelFilter', $event)"
-              placeholder="Search {{ allModels().length }} models…"
-              autocomplete="off"
-            />
+            <div class="model-tools">
+              <input
+                type="text"
+                class="model-search"
+                [value]="modelFilter()"
+                (input)="setText('modelFilter', $event)"
+                placeholder="Search {{ allModels().length }} models…"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="ghost"
+                (click)="probeCatalog(true)"
+                [disabled]="!probeReady()"
+              >
+                {{ probeReady() ? 'Reload models' : 'Loading…' }}
+              </button>
+            </div>
             <div class="model-list" role="listbox" aria-label="Models">
               @for (option of visibleModels(); track modelOptionKey(option)) {
                 <button
@@ -199,12 +279,16 @@
                 </button>
               }
             </div>
-          } @else if (probeReady() && probedModels().length === 0) {
-            <p class="note">No models were offered. Add a custom provider above, or continue — the engine's own default applies.</p>
-          } @else {
-            <p class="note">No key needed to continue — the engine's own default model applies unless you pick one.</p>
           }
-          @if (model()) {
+          @if (catalogError(); as failure) {
+            <p class="error" role="alert">{{ failure }}</p>
+            <button type="button" class="ghost" (click)="probeCatalog(true)">Try again</button>
+          }
+          @if (modelBlocker(); as blocker) {
+            <p class="note">{{ blocker }}</p>
+          }
+          @if (model(); as chosen) {
+            <p class="note">Runs on {{ chosen.provider }}/{{ chosen.id }}.</p>
             <label class="field">
               <span>Thinking level</span>
               <select (change)="pickThinking($event)">
@@ -230,6 +314,33 @@
             <span>AGENTS.md <small>(optional — written into the bot's workspace)</small></span>
             <textarea rows="5" [value]="agentsMd()" (input)="setText('agentsMd', $event)" placeholder="# Forge workspace"></textarea>
           </label>
+          <div class="tools">
+            <span class="tools-label">Tools <small>(what this bot may do on its own)</small></span>
+            <div class="tools-grid">
+              @for (tool of engineTools(); track tool.name) {
+                <label class="tool">
+                  <input
+                    type="checkbox"
+                    [attr.data-tool]="tool.name"
+                    [checked]="hasTool(tool.name)"
+                    (change)="toggleTool(tool.name, $any($event.target).checked)"
+                  />
+                  <span class="tool-name">{{ tool.name }}</span>
+                  @if (tool.hint) {
+                    <span class="tool-hint">{{ tool.hint }}</span>
+                  }
+                </label>
+              }
+            </div>
+            <span class="tools-note">
+              These are the engine's own built-in tools. Turning them all off gives a bot that only
+              talks — which is also what stops a provider that emulates tools by asking for JSON from
+              printing tool calls as chat.
+              @if (engineKind() === 'pi') {
+                pi has no built-in web tool: for that, give the bot an MCP server.
+              }
+            </span>
+          </div>
           <label class="field">
             <span>Environment variables <small>(comma separated — inherited from this host)</small></span>
             <input type="text" [value]="envVars()" (input)="setText('envVars', $event)" placeholder="ANTHROPIC_API_KEY, OPENAI_API_KEY" autocomplete="off" />
@@ -258,6 +369,7 @@
           <h3>Review</h3>
           <dl class="review">
             <dt>Name</dt><dd>{{ name() }}</dd>
+            <dt>Username</dt><dd>&#64;{{ username() }}</dd>
             @if (description().trim()) { <dt>Description</dt><dd>{{ description() }}</dd> }
             @if (avatar().trim()) { <dt>Avatar</dt><dd>{{ avatar() }}</dd> }
             <dt>Engine</dt><dd>{{ engineKind() }}</dd>
@@ -266,7 +378,7 @@
               <dt>Custom providers</dt>
               <dd>{{ collectedProviders().map((p) => p.id + ' (' + p.models.length + ' models)').join(', ') }}</dd>
             }
-            <dt>Model</dt><dd>{{ model() ? model()!.provider + '/' + model()!.id : 'engine default' }}</dd>
+            <dt>Model</dt><dd>{{ model() ? model()!.provider + '/' + model()!.id : '—' }}</dd>
             <dt>Thinking</dt><dd>{{ thinking() === '' ? 'engine default' : thinking() }}</dd>
             <dt>Persona</dt><dd class="persona">{{ persona() }}</dd>
             @if (agentsMd().trim()) { <dt>AGENTS.md</dt><dd class="persona">{{ agentsMd() }}</dd> }
@@ -288,10 +400,11 @@
       <h4>Summary</h4>
       <dl>
         <dt>Bot</dt><dd>{{ name().trim() || '—' }}</dd>
+        <dt>Handle</dt><dd>{{ username() ? '@' + username() : '—' }}</dd>
         <dt>Engine</dt><dd>{{ engineKind() || '—' }}</dd>
         <dt>Keys</dt><dd>{{ collectedCredentials().length }}</dd>
         <dt>Providers</dt><dd>{{ collectedProviders().length }}</dd>
-        <dt>Model</dt><dd>{{ model() ? model()!.id : 'default' }}</dd>
+        <dt>Model</dt><dd>{{ model() ? model()!.id : '—' }}</dd>
         <dt>Thinking</dt><dd>{{ thinking() === '' ? 'default' : thinking() }}</dd>
       </dl>
     </aside>
@@ -305,7 +418,11 @@
       <button type="button" class="primary" (click)="next()" [disabled]="!canAdvance()">Next</button>
     } @else {
       <button type="button" class="primary" (click)="submit()" [disabled]="!canSubmit()">
-        @if (pending()) { Creating… } @else { Create bot }
+        @if (pending()) {
+          {{ editing() ? 'Saving…' : 'Creating…' }}
+        } @else {
+          {{ editing() ? 'Save bot' : 'Create bot' }}
+        }
       </button>
     }
   </footer>

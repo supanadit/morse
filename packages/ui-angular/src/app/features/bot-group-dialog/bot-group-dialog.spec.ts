@@ -7,18 +7,21 @@ import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotGroupDialog } from './bot-group-dialog';
 
 const forge: BotSummary = {
+  username: 'forge',
   name: 'Forge',
   description: 'Keeps the forge hot',
   engineKind: 'pi',
   warm: true,
 };
 const sable: BotSummary = {
+  username: 'sable',
   name: 'Sable',
   description: 'Reads the fine print',
   engineKind: 'opencode',
   warm: false,
 };
 const ember: BotSummary = {
+  username: 'ember',
   name: 'Ember',
   description: 'Tends the coals',
   engineKind: 'pi',
@@ -75,15 +78,19 @@ describe('BotGroupDialog', () => {
     morse.bot.onRoster({ bots: [forge, sable, ember], conversations: [] });
     fixture.detectChanges();
 
-    chooseMember(host, 'Forge');
+    chooseMember(host, 'forge');
     fixture.detectChanges();
-    chooseMember(host, 'Sable');
+    chooseMember(host, 'sable');
     fixture.detectChanges();
 
     const lead = field<HTMLSelectElement>(host, 'select[name="lead"]');
-    const options = [...lead.options].map((option) => option.value);
-    // The empty value is "no lead"; the rest are members only.
-    expect(options).toEqual(['', 'Forge', 'Sable']);
+    // The value is the identity (a username); the label is what the reader knows.
+    expect([...lead.options].map((option) => option.value)).toEqual(['', 'forge', 'sable']);
+    expect([...lead.options].map((option) => option.textContent?.trim())).toEqual([
+      'No lead — only @mentions answer',
+      'Forge',
+      'Sable',
+    ]);
     expect(lead.textContent).not.toContain('Ember');
   });
 
@@ -92,15 +99,15 @@ describe('BotGroupDialog', () => {
     morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
     fixture.detectChanges();
 
-    chooseMember(host, 'Forge');
+    chooseMember(host, 'forge');
     fixture.detectChanges();
     const lead = field<HTMLSelectElement>(host, 'select[name="lead"]');
-    lead.value = 'Forge';
+    lead.value = 'forge';
     lead.dispatchEvent(new Event('change'));
     fixture.detectChanges();
-    expect(lead.value).toBe('Forge');
+    expect(lead.value).toBe('forge');
 
-    chooseMember(host, 'Forge');
+    chooseMember(host, 'forge');
     fixture.detectChanges();
     // Forge is no longer a member, so it cannot answer for the group either.
     expect(field<HTMLSelectElement>(host, 'select[name="lead"]').value).toBe('');
@@ -117,21 +124,21 @@ describe('BotGroupDialog', () => {
     const name = field<HTMLInputElement>(host, 'input[name="name"]');
     name.value = 'The workshop';
     name.dispatchEvent(new Event('input'));
-    chooseMember(host, 'Forge');
+    chooseMember(host, 'forge');
     fixture.detectChanges();
-    chooseMember(host, 'Sable');
+    chooseMember(host, 'sable');
     fixture.detectChanges();
 
     const lead = field<HTMLSelectElement>(host, 'select[name="lead"]');
-    lead.value = 'Sable';
+    lead.value = 'sable';
     lead.dispatchEvent(new Event('change'));
     fixture.detectChanges();
     field<HTMLButtonElement>(host, '.create').click();
 
     expect(create).toHaveBeenCalledWith({
       name: 'The workshop',
-      members: ['Forge', 'Sable'],
-      lead: 'Sable',
+      members: ['forge', 'sable'],
+      lead: 'sable',
       chainCap: 8,
     });
   });
@@ -145,15 +152,15 @@ describe('BotGroupDialog', () => {
     const name = field<HTMLInputElement>(host, 'input[name="name"]');
     name.value = 'The workshop';
     name.dispatchEvent(new Event('input'));
-    chooseMember(host, 'Forge');
+    chooseMember(host, 'forge');
     fixture.detectChanges();
-    chooseMember(host, 'Sable');
+    chooseMember(host, 'sable');
     fixture.detectChanges();
     field<HTMLButtonElement>(host, '.create').click();
 
     expect(create).toHaveBeenCalledWith({
       name: 'The workshop',
-      members: ['Forge', 'Sable'],
+      members: ['forge', 'sable'],
       chainCap: 8,
     });
   });

@@ -35,3 +35,11 @@ export {
   type OpenCodeConnectionOptions,
 } from './internal/connection.js';
 export type { ApiModel } from './internal/model-mapping.js';
+
+export {
+  openCodeBotLayout,
+  writeOpenCodeBotConfig,
+  openCodeConfigPath,
+  openCodeLegacyPersonaPath,
+  OPENCODE_BOT_AGENT,
+} from './bot-layout.js';

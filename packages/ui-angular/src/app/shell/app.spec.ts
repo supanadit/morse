@@ -218,7 +218,15 @@ describe('App', () => {
     const host = fixture.nativeElement as HTMLElement;
     const morse = TestBed.inject(MorseService);
     morse.bot.onRoster({
-      bots: [{ name: 'Forge', description: 'Keeps the forge hot', engineKind: 'pi', warm: true }],
+      bots: [
+          {
+            username: 'forge',
+            name: 'Forge',
+            description: 'Keeps the forge hot',
+            engineKind: 'pi',
+            warm: true,
+          },
+        ],
       conversations: [
         {
           id: 'dm-Forge',

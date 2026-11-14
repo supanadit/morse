@@ -19,7 +19,15 @@ import {
   MORSE_TRANSCRIPT_STORE,
 } from '../app/tokens.js';
 import { clearWorkspaceIndex } from './workspace/workspace-index.js';
+import { createRequire } from 'node:module';
 import { createBotAdapters } from './bot/bot-adapters.js';
+import {
+  botDataMigrations,
+  maintainData,
+  reconcileBotData,
+  type BotDataContext,
+  type BotEngineAdapter,
+} from '@morse/system';
 
 /**
  * Composition root glue (R7): builds the one agent router this server owns, and
@@ -153,9 +161,15 @@ export function createBotService(
   logger: MorseLogger,
 ): BotService | undefined {
   try {
+    const adapters = createBotAdapters({ logger });
+    // Bring the data directory forward *before* anything reads it: an upgrade
+    // must not lose a bot, and the reconcile that follows repairs an engine tree
+    // whose config went missing. Both are additive from here on — a failure is
+    // logged and the host still starts, because bot mode is one capability.
+    runDataMaintenance(config, logger, adapters);
     return new BotService({
       root: join(config.dataDir, 'bot'),
-      adapters: createBotAdapters({ logger }),
+      adapters,
       // A bot's own workspace is under its root, but the host still supplies the
       // display name and the fallback directory a probe borrows.
       defaultWorkspace: config.workspace,
@@ -167,6 +181,53 @@ export function createBotService(
       error,
     );
     return undefined;
+  }
+}
+
+/** This build's version, stamped into `version.json` as the migrator's identity. */
+function morseVersion(): string | undefined {
+  try {
+    const pkg = createRequire(import.meta.url)('../../package.json') as { version?: string };
+    return pkg.version;
+  } catch {
+    // A bundled or repackaged host may not have the manifest: the version stamp
+    // is a convenience, never a precondition.
+    return undefined;
+  }
+}
+
+/**
+ * The upgrade contract: `morse start` brings `.morse/` to this build's data
+ * layout and then reconciles it. What cannot be repaired is reported, not fatal.
+ */
+function runDataMaintenance(
+  config: MorseServerConfig,
+  logger: MorseLogger,
+  adapters: Record<string, BotEngineAdapter>,
+): void {
+  try {
+    const result = maintainData({
+      root: config.dataDir,
+      logger,
+      migrations: botDataMigrations(),
+      reconciles: [
+        { name: 'bot data', run: (context) => reconcileBotData(context as BotDataContext) },
+      ],
+      extra: { adapters },
+      ...(morseVersion() === undefined ? {} : { morseVersion: morseVersion() }),
+    });
+    if (result.applied.length > 0) {
+      logger.info(
+        `Data layout ${result.from} → ${result.to}: ${result.applied.join(', ')}. Backups are in ${join(config.dataDir, 'backups')}.`,
+      );
+    }
+    for (const warning of result.warnings) {
+      logger.warn(warning);
+    }
+  } catch (error: unknown) {
+    // A directory from a newer Morse, or an unreadable version file: say exactly
+    // that and keep serving, rather than half-migrating in the dark.
+    logger.error('Morse could not prepare its data directory for this version.', error);
   }
 }
 

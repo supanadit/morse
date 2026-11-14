@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -145,8 +145,13 @@ describe('createBotService containment', () => {
     const logger = { ...silentLogger, error: (message: string) => errors.push(message) };
 
     expect(createBotService(cfg, logger)).toBeUndefined();
-    expect(errors[0]).toContain('Bot mode is unavailable');
-    expect(errors[0]).toContain('registry.json');
+    // Two reports, both true: the upgrade refused to touch a registry it cannot
+    // read, and the host then started without bot mode instead of dying.
+    expect(errors.some((one) => one.includes('could not prepare its data directory'))).toBe(true);
+    expect(errors.some((one) => one.includes('Bot mode is unavailable'))).toBe(true);
+    expect(errors.join(' ')).toContain('registry.json');
+    // Refusing to migrate must leave the file exactly as it was found.
+    expect(readFileSync(join(botDir, 'registry.json'), 'utf8')).toContain('"bots":[null]');
 
     // The composition root still builds its engines: code sessions do not need
     // the bot roster, and a corrupt one must not take the whole host down.

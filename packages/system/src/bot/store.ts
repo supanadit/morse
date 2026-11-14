@@ -18,13 +18,101 @@ export function loadBotRegistry(root: string): BotRegistryFile {
   const path = join(root, REGISTRY_FILE);
   const raw = readOptional(path);
   if (raw === undefined) {
-    return { version: 1, bots: [], groups: [], conversations: [] };
+    return { version: 2, bots: [], groups: [], conversations: [] };
   }
   const parsed = parseJson(path, raw);
+  // A version 1 file is migrated as it is read: its bots' names doubled as
+  // handles, which version 2 split into `username` (identity) and `name` (label).
+  if (isRegistryFileV1(parsed)) {
+    return migrateV1(root, parsed);
+  }
   if (!isRegistryFile(parsed)) {
-    throw new Error(`Cannot read ${path}: expected a version 1 bot registry.`);
+    throw new Error(`Cannot read ${path}: expected a bot registry (version 1 or 2).`);
   }
   return parsed;
+}
+
+/** A version 1 registry: bots had only a name, which was also their directory. */
+interface RegistryV1 {
+  version: 1;
+  bots: Array<BotRecord & { username?: string }>;
+  groups: Array<{ id: string; name: string; members: string[]; lead?: string; chainCap: number }>;
+  conversations: BotRegistryFile['conversations'];
+}
+
+/**
+ * A version 1 bot's name did double duty: display label, directory and mention.
+ * Version 2 splits that, so every old bot gets a username derived from its name
+ * — and its directory, its DM conversation and every conversation that named it
+ * move with it. The registry is written back once the move is done, so this runs
+ * exactly once per install.
+ */
+function migrateV1(root: string, old: RegistryV1): BotRegistryFile {
+  const taken = new Set<string>();
+  // Old display name (which was also the handle and the directory) → username.
+  const renames = new Map<string, string>();
+  const bots: BotRecord[] = old.bots.map((bot) => {
+    const username = uniqueUsername(slug(bot.name), taken);
+    taken.add(username);
+    renames.set(bot.name, username);
+    return { ...bot, username };
+  });
+  const rename = (handle: string): string => renames.get(handle) ?? handle;
+  const displayName = (username: string): string =>
+    bots.find((one) => one.username === username)?.name ?? username;
+  const migrated: BotRegistryFile = {
+    version: 2,
+    bots,
+    groups: old.groups.map((group) => ({
+      ...group,
+      members: group.members.map(rename),
+      ...(group.lead === undefined ? {} : { lead: rename(group.lead) }),
+    })),
+    conversations: old.conversations.map((conversation) => {
+      const members = conversation.members.map(rename);
+      const dm = conversation.kind === 'dm' ? members[0] : undefined;
+      return {
+        ...conversation,
+        // A DM's id is derived from its member's username, so it moves with it.
+        id: dm === undefined ? conversation.id : dmConversationId(dm),
+        title: dm === undefined ? conversation.title : displayName(dm),
+        members,
+        ...(conversation.lead === undefined ? {} : { lead: rename(conversation.lead) }),
+        sessions: Object.fromEntries(
+          Object.entries(conversation.sessions).map(([handle, ref]) => [rename(handle), ref]),
+        ),
+      };
+    }),
+  };
+  // The directory carried the old name; a username is the identity now. A failed
+  // rename (a locked directory) leaves the tree where it was rather than losing
+  // the bot: the next `updateBot` writes it in its new place.
+  for (const [before, after] of renames) {
+    if (before === after) {
+      continue;
+    }
+    try {
+      renameSync(join(root, before), join(root, after));
+      writeBotIdentity(join(root, after), bots.find((one) => one.username === after) as BotRecord);
+    } catch {
+      // Keep going: a bot whose directory stayed put is still listed and usable.
+    }
+  }
+  saveBotRegistry(root, migrated);
+  return migrated;
+}
+
+/** A username nobody holds yet, by suffixing `-2`, `-3`, … */
+function uniqueUsername(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) {
+    return base;
+  }
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
 }
 
 /**
@@ -64,11 +152,11 @@ export function writeBotIdentity(botRoot: string, record: BotRecord): void {
 }
 
 /**
- * The conversation id a DM with this bot always has. Bot names are unique and
- * directory-safe, so the DM id can be derived from the name instead of stored.
+ * The conversation id a DM with this bot always has. Usernames are unique and
+ * directory-safe, so the id is derived from the handle instead of stored.
  */
-export function dmConversationId(botName: string): string {
-  return `dm-${botName}`;
+export function dmConversationId(username: string): string {
+  return `dm-${username}`;
 }
 
 /**
@@ -119,7 +207,7 @@ function isRegistryFile(value: unknown): value is BotRegistryFile {
   }
   const candidate = value as Record<string, unknown>;
   return (
-    candidate['version'] === 1 &&
+    candidate['version'] === 2 &&
     Array.isArray(candidate['bots']) &&
     candidate['bots'].every(isRegistryBot) &&
     Array.isArray(candidate['groups']) &&
@@ -136,6 +224,19 @@ function isRegistryFile(value: unknown): value is BotRegistryFile {
  * is rejected at load with its path instead.
  */
 function isRegistryBot(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['username'] === 'string' &&
+    typeof candidate['name'] === 'string' &&
+    typeof candidate['engineKind'] === 'string'
+  );
+}
+
+/** A version 1 bot: no username yet, so a name and an engine are all it carried. */
+function isRegistryBotV1(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
@@ -169,7 +270,28 @@ function isBotRecord(value: unknown): value is BotRecord {
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  return typeof candidate['name'] === 'string' && typeof candidate['engineKind'] === 'string';
+  return (
+    typeof candidate['username'] === 'string' &&
+    typeof candidate['name'] === 'string' &&
+    typeof candidate['engineKind'] === 'string'
+  );
+}
+
+/** A version 1 registry as it is on disk: bots may still lack a username. */
+function isRegistryFileV1(value: unknown): value is RegistryV1 {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['version'] === 1 &&
+    Array.isArray(candidate['bots']) &&
+    candidate['bots'].every(isRegistryBotV1) &&
+    Array.isArray(candidate['groups']) &&
+    candidate['groups'].every(isRegistryGroup) &&
+    Array.isArray(candidate['conversations']) &&
+    candidate['conversations'].every(isRegistryConversation)
+  );
 }
 
 /**

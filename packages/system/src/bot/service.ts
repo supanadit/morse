@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   AgentEvent,
+  AgentFormRequest,
+  AgentFormValue,
   AgentGateway,
   AgentGatewayFactory,
   AgentInteractionRequest,
@@ -13,18 +15,20 @@ import type {
 } from '@morse/agent';
 import type {
   BotAuthor,
+  BotConfig,
   BotConversationSummary,
   BotCreateInput,
   BotGroupCreateInput,
   BotProviderCredentialInput,
-  BotProviderInput,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
+  BotUpdateInput,
 } from '@morse/protocol';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { mentionTokens, parseMentions } from './mentions.js';
+import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
 import { discoverOpenAiCompatibleModels } from './providers.js';
 import type { BotProviderModel } from './types.js';
 import {
@@ -36,6 +40,9 @@ import {
 } from './store.js';
 import type {
   BotEngineCapabilities,
+  BotEngineConfig,
+  BotEngineLayout,
+  BotEngineState,
   BotRecord,
   BotRegistryFile,
   ConversationRecord,
@@ -69,26 +76,13 @@ export interface BotEngineAdapter {
    * call would start a second server for the same bot.
    */
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): BotGatewayFactory;
-  /** Replaces the bot's whole engine-native credential store. */
-  writeCredentials(botRoot: string, entries: { provider: string; apiKey: string }[]): void;
   /**
-   * Writes the wizard's provider records into the engine's own provider config
-   * (OpenCode `providers.<id>` in opencode.json; pi `providers.<id>` in
-   * models.json). Optional only in type: both shipped engines implement it.
+   * Where this engine keeps its configuration, what each file is called and what
+   * goes in it. The whole engine-specific knowledge lives here: the service asks
+   * the layout to write a bot's configuration and to read it back, and never
+   * keeps a second copy of what the engine itself stores.
    */
-  writeProviders?(botRoot: string, providers: readonly BotProviderInput[]): void;
-  /**
-   * Stores the bot's named subagents in the engine's own config. Optional: an
-   * engine without named subagents leaves it off, and `capabilities` says so
-   * too — the service checks both, because a claim is not a method.
-   */
-  writeSubagents?(botRoot: string, subagents: { name: string; prompt: string }[]): void;
-  /**
-   * Writes the wizard's provider records into the engine's own provider config
-   * (OpenCode `providers.<id>` in opencode.json; pi `providers.<id>` in
-   * models.json). Optional in type, implemented by both shipped engines.
-   */
-  writeProviders?(botRoot: string, providers: readonly BotProviderInput[]): void;
+  layout: BotEngineLayout;
 }
 
 /** Everything a host can observe from the bot layer, for its own fan-out. */
@@ -130,10 +124,13 @@ export type BotControllerPort = Pick<
   | 'roster'
   | 'createBot'
   | 'deleteBot'
+  | 'inspectBot'
+  | 'updateBot'
   | 'createGroup'
   | 'probeModels'
   | 'discoverModels'
   | 'open'
+  | 'history'
   | 'send'
   | 'stop'
   | 'newDiscussion'
@@ -145,9 +142,6 @@ const DEFAULT_CHAIN_CAP = 8;
 
 /** The refusal a second concurrent send gets, in the transcript and the promise. */
 const ROUND_IN_FLIGHT = 'A round is already running in this conversation.';
-
-/** Says the reader left the conversation's engine sessions behind. */
-const NEW_DISCUSSION_NOTE = 'New discussion started.';
 
 /** A run is in flight: the answer it is waiting on and what it has said so far. */
 interface PromptOutcome {
@@ -161,7 +155,8 @@ interface PromptOutcome {
 /** One live engine session, keyed by (conversation, bot). */
 interface WarmGateway {
   readonly conversationId: string;
-  readonly botName: string;
+  /** The bot's username: the identity a gateway is keyed by. */
+  readonly username: string;
   readonly gateway: AgentGateway;
   /** True until this session's first prompt goes out: only that one carries the persona. */
   fresh: boolean;
@@ -175,7 +170,8 @@ interface WarmGateway {
 
 /** Who the round asks next, and how far down the chain they are. */
 interface QueuedTarget {
-  name: string;
+  /** The target's username: the identity a queue entry and its gateway use. */
+  username: string;
   /** Bot-to-bot deliveries taken to reach this target; the user's own message is 0. */
   hop: number;
   /** True when the target was chosen because the group crowned it lead. */
@@ -202,8 +198,8 @@ export class BotService {
   private readonly factories = new Map<string, BotGatewayFactory>();
   /** Live gateways, keyed by conversation and bot. */
   private readonly warm = new Map<string, WarmGateway>();
-  /** Transcripts are in memory only: a restart starts a fresh transcript (MVP). */
-  private readonly transcripts = new Map<string, BotTranscriptEntry[]>();
+  /** Transcripts live on disk, so a restart keeps every conversation's history. */
+  private readonly transcripts: BotTranscriptStore;
   private readonly rounds = new Map<string, Round>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
   private readonly idleMs: number;
@@ -212,7 +208,11 @@ export class BotService {
   private readonly clock: () => number;
 
   constructor(private readonly options: BotServiceOptions) {
+    // Reading the registry is tolerant by design (an older file is migrated as
+    // it loads), but the shape-changing work belongs to the data migrations the
+    // host runs before this service exists — see `bot/data.ts`.
     this.registry = loadBotRegistry(options.root);
+    this.transcripts = new BotTranscriptStore(options.root);
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
     this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.chainCap = options.defaultChainCap ?? DEFAULT_CHAIN_CAP;
@@ -222,15 +222,21 @@ export class BotService {
   /** True once the bot has a live gateway in any conversation. */
   roster(): BotRoster {
     return {
-      bots: this.registry.bots.map((bot) => ({
-        name: bot.name,
-        description: bot.description,
-        ...(bot.avatar === undefined ? {} : { avatar: bot.avatar }),
-        engineKind: bot.engineKind,
-        ...(bot.model === undefined ? {} : { model: bot.model }),
-        ...(bot.thinkingLevel === undefined ? {} : { thinkingLevel: bot.thinkingLevel }),
-        warm: this.isWarm(bot.name),
-      })),
+      bots: this.registry.bots.map((bot) => {
+        // The engine's own files are what the roster reports, so what the reader
+        // sees here is what the engine will actually run on.
+        const state = this.engineState(bot);
+        return {
+          username: bot.username,
+          name: bot.name,
+          description: bot.description,
+          ...(bot.avatar === undefined ? {} : { avatar: bot.avatar }),
+          engineKind: bot.engineKind,
+          ...(state.model === undefined ? {} : { model: state.model }),
+          ...(state.thinkingLevel === undefined ? {} : { thinkingLevel: state.thinkingLevel }),
+          warm: this.isWarm(bot.username),
+        };
+      }),
       conversations: this.registry.conversations.map((conversation) =>
         this.summarize(conversation),
       ),
@@ -255,33 +261,32 @@ export class BotService {
     if (adapter === undefined) {
       throw new Error(`The host has no bot engine "${input.engineKind}".`);
     }
-    if (!isSafeBotName(input.name)) {
+    if (!isSafeUsername(input.username)) {
       throw new Error(
-        `"${input.name}" is not a usable bot name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
+        `"${input.username}" is not a usable username: use lowercase letters, digits, dashes and underscores, and start with a letter or digit.`,
       );
     }
-    const existing = this.registry.bots.find(
-      (candidate) => candidate.name.toLowerCase() === input.name.toLowerCase(),
-    );
+    if (input.name.trim() === '') {
+      throw new Error('A bot needs a name.');
+    }
+    const existing = this.registry.bots.find((candidate) => candidate.username === input.username);
     if (existing !== undefined) {
       throw new Error(
-        `A bot named "${existing.name}" already exists: bot names are case-insensitive because they are @mentions.`,
+        `The username "${existing.username}" is taken: usernames name a bot's directory and its @mention, so they are unique.`,
       );
     }
+    // Morse's record is an index entry, not a second configuration: identity and
+    // which engine runs it. Everything a reader can change lives in the engine's
+    // own files, written below.
     const record: BotRecord = {
-      name: input.name,
+      username: input.username,
+      name: input.name.trim(),
       description: input.description,
       ...(input.avatar === undefined ? {} : { avatar: input.avatar }),
       engineKind: input.engineKind,
-      ...(input.model === undefined ? {} : { model: input.model }),
-      ...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
-      persona: input.persona,
       credentialEnv: [...input.envVars],
-      ...(input.subagents === undefined || input.subagents.length === 0
-        ? {}
-        : { subagents: input.subagents.map((subagent) => ({ ...subagent })) }),
     };
-    const botRoot = this.botRoot(record.name);
+    const botRoot = this.botRoot(record.username);
     let factory: BotGatewayFactory | undefined;
     try {
       mkdirSync(join(botRoot, 'config'), { recursive: true, mode: 0o700 });
@@ -289,45 +294,20 @@ export class BotService {
       mkdirSync(join(botRoot, 'workspace'), { recursive: true, mode: 0o700 });
       factory = adapter.createFactory(botRoot, this.engineEnv(record.credentialEnv));
       writeBotIdentity(botRoot, record);
-      // The adapter replaces the whole credential store: the wizard's list is
-      // the complete answer for this bot, never a merge with an older one.
-      adapter.writeCredentials(botRoot, input.credentials);
       // The wizard validates these names, the wire does not — it checks message
-      // types, not payloads — so this is the boundary that keeps every stored
-      // name usable as a config key, whichever engine ends up storing it.
+      // types, not payloads — so this is the boundary that keeps every name usable
+      // as a config key in whichever engine ends up storing it.
       for (const subagent of input.subagents ?? []) {
-        if (!isSafeBotName(subagent.name)) {
+        if (!isSafeSubagentName(subagent.name)) {
           throw new Error(
             `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
           );
         }
       }
-      // Subagents are engine config, so only an engine that has them is asked to
-      // store them; a pi bot is created with just the record's copy.
-      if (
-        input.subagents !== undefined &&
-        input.subagents.length > 0 &&
-        adapter.writeSubagents !== undefined &&
-        adapter.capabilities.supportsSubagents
-      ) {
-        adapter.writeSubagents(botRoot, input.subagents);
-      }
-      // Providers are engine config too — the UI equivalent of the reader hand-
-      // editing the bot's opencode.json or models.json. Both shipped engines
-      // implement the writer; an adapter without one simply ignores them.
-      if (
-        input.providers !== undefined &&
-        input.providers.length > 0 &&
-        adapter.writeProviders !== undefined
-      ) {
-        adapter.writeProviders(botRoot, input.providers);
-      }
-      if (input.agentsMd !== undefined) {
-        writeFileSync(join(botRoot, 'workspace', 'AGENTS.md'), input.agentsMd);
-      }
+      this.writeEngineConfig(botRoot, adapter, input, input.credentials);
       // The probe runs as the bot itself — its root, its credentials — so a bad
       // key fails here instead of on the reader's first message.
-      await this.readModels(factory, this.workspaceOf(record.name));
+      await this.readModels(factory, this.workspaceOf(record.username));
     } catch (error) {
       // A half-built bot must not survive: the retry after fixing the key would
       // otherwise look like a duplicate, and a dead directory would sit in the
@@ -341,7 +321,7 @@ export class BotService {
       throw error;
     }
 
-    this.factories.set(record.name, factory);
+    this.factories.set(record.username, factory);
     this.registry.bots.push(record);
     this.upsertDm(record);
     saveBotRegistry(this.options.root, this.registry);
@@ -353,16 +333,158 @@ export class BotService {
    * ids are the reader's history, and renumbering them would break every open
    * tab — so a deleted bot's DM simply has no bot to answer it anymore.
    */
-  async deleteBot(name: string): Promise<void> {
-    const bot = this.botOrThrow(name);
-    const gateways = [...this.warm.values()].filter((warm) => warm.botName === bot.name);
+  async deleteBot(username: string): Promise<void> {
+    const bot = this.botOrThrow(username);
+    const gateways = [...this.warm.values()].filter((warm) => warm.username === bot.username);
     await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
-    const factory = this.factories.get(bot.name);
-    this.factories.delete(bot.name);
+    const factory = this.factories.get(bot.username);
+    this.factories.delete(bot.username);
     await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
-    rmSync(this.botRoot(bot.name), { recursive: true, force: true });
-    this.registry.bots = this.registry.bots.filter((candidate) => candidate.name !== bot.name);
+    this.transcripts.forget(dmConversationId(bot.username));
+    rmSync(this.botRoot(bot.username), { recursive: true, force: true });
+    this.registry.bots = this.registry.bots.filter(
+      (candidate) => candidate.username !== bot.username,
+    );
     saveBotRegistry(this.options.root, this.registry);
+    this.emit({ type: 'roster' });
+  }
+
+  /**
+   * Hands the bot's whole configuration to its engine's layout, which writes the
+   * files that engine reads. Morse keeps no copy of what lands there.
+   */
+  private writeEngineConfig(
+    botRoot: string,
+    adapter: BotEngineAdapter,
+    input: BotCreateInput | BotUpdateInput,
+    credentials: { provider: string; apiKey: string }[],
+  ): void {
+    const config: BotEngineConfig = {
+      username: 'username' in input ? input.username : '',
+      name: input.name.trim(),
+      description: input.description,
+      persona: input.persona,
+      ...(input.agentsMd === undefined ? {} : { agentsMd: input.agentsMd }),
+      credentials,
+      providers: 'providers' in input ? (input.providers ?? []) : [],
+      ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
+      ...(input.tools === undefined ? {} : { tools: input.tools }),
+      ...(input.subagents === undefined ? {} : { subagents: input.subagents }),
+    };
+    adapter.layout.write(botRoot, config);
+  }
+
+  /**
+   * What Edit bot shows: Morse's index entry, plus everything read back out of
+   * the engine's own configuration files. Credentials are the exception — they
+   * are secrets in the engine's store, and a form that shows them back would be
+   * a form that leaks them; a blank field keeps what is there.
+   */
+  inspectBot(username: string): BotConfig {
+    const bot = this.botOrThrow(username);
+    const state = this.engineState(bot);
+    return {
+      username: bot.username,
+      name: bot.name,
+      description: bot.description,
+      ...(bot.avatar === undefined ? {} : { avatar: bot.avatar }),
+      engineKind: bot.engineKind,
+      ...(state.model === undefined ? {} : { model: state.model }),
+      ...(state.thinkingLevel === undefined ? {} : { thinkingLevel: state.thinkingLevel }),
+      persona: state.persona ?? '',
+      envVars: [...bot.credentialEnv],
+      ...(state.tools === undefined ? {} : { tools: state.tools }),
+      ...(state.agentsMd === undefined ? {} : { agentsMd: state.agentsMd }),
+      ...(state.subagents === undefined ? {} : { subagents: state.subagents }),
+    };
+  }
+
+  /**
+   * The editable parts of a bot as its engine holds them. A layout that cannot
+   * answer (a tree being created, a hand-broken file) yields nothing rather than
+   * failing a roster push: the row still lists, with what Morse knows.
+   */
+  private engineState(bot: BotRecord): BotEngineState {
+    const adapter = this.options.adapters[bot.engineKind];
+    if (adapter === undefined) {
+      return {};
+    }
+    try {
+      return adapter.layout.read(this.botRoot(bot.username));
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to read a bot engine configuration', error);
+      return {};
+    }
+  }
+
+  /**
+   * Saves an edit to one bot: its record, its workspace instructions and the
+   * subagents its engine stores. The name and the engine are fixed — a bot's
+   * directory is named after it, and its engine owns the config already in that
+   * tree — so this rewrites what the reader can change instead of rebuilding.
+   */
+  async updateBot(input: BotUpdateInput): Promise<void> {
+    const bot = this.botOrThrow(input.username);
+    if (this.roundFor(bot.username) !== undefined) {
+      throw new Error(`Bot "${bot.name}" is answering: edit it once the turn ends.`);
+    }
+    if (input.name.trim() === '') {
+      throw new Error('A bot needs a name.');
+    }
+    const adapter = this.options.adapters[bot.engineKind];
+    if (adapter === undefined) {
+      throw new Error(`The host has no bot engine "${bot.engineKind}".`);
+    }
+    // Subagent names become config keys in the engine's own file, so the same
+    // boundary create enforces applies here.
+    for (const subagent of input.subagents ?? []) {
+      if (!isSafeSubagentName(subagent.name)) {
+        throw new Error(
+          `"${subagent.name}" is not a usable subagent name: start with a letter, digit or underscore, and use only letters, digits, dashes and underscores.`,
+        );
+      }
+    }
+    const updated: BotRecord = {
+      username: bot.username,
+      name: input.name.trim(),
+      description: input.description,
+      ...(input.avatar === undefined || input.avatar.trim().length === 0
+        ? {}
+        : { avatar: input.avatar }),
+      engineKind: bot.engineKind,
+      credentialEnv: [...input.envVars],
+    };
+    const botRoot = this.botRoot(bot.username);
+    writeBotIdentity(botRoot, updated);
+    // The engine's own files carry the rest, rewritten from the form. Keys are
+    // taken from the form when it collected any, and from the engine's own store
+    // otherwise (`currentCredentials`) — a blank field means "keep what is
+    // there", not "delete my keys".
+    // No key collected in the form means "keep the engine's own": the layout
+    // leaves its credential store untouched for an empty list.
+    this.writeEngineConfig(botRoot, adapter, input, input.credentials ?? []);
+    this.registry.bots = this.registry.bots.map((candidate) =>
+      candidate.username === bot.username ? updated : candidate,
+    );
+    // A stored engine session would resume the old persona, model and env, and a
+    // live gateway still holds them; both go, so the next message opens a session
+    // with what was just saved — and the persona is delivered again, because that
+    // rides on a fresh session's first prompt.
+    for (const conversation of this.registry.conversations) {
+      if (conversation.sessions[bot.username] !== undefined) {
+        delete conversation.sessions[bot.username];
+        this.touched(conversation);
+      }
+    }
+    saveBotRegistry(this.options.root, this.registry);
+    const gateways = [...this.warm.values()].filter((warm) => warm.username === bot.username);
+    await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
+    const factory = this.factories.get(bot.username);
+    if (factory !== undefined) {
+      this.factories.delete(bot.username);
+      await this.disposeFactory(factory, "Failed to dispose an edited bot's factory");
+    }
     this.emit({ type: 'roster' });
   }
 
@@ -443,9 +565,16 @@ export class BotService {
     mkdirSync(workspace.cwd, { recursive: true, mode: 0o700 });
     let factory: BotGatewayFactory | undefined;
     try {
-      // Credentials first: the factory is built for a root that already knows
-      // the wizard's keys, and the probe gateway reads them from there.
-      adapter.writeCredentials(probeRoot, credentials);
+      // Credentials first: the probe gateway reads them from the root it runs
+      // in, so the layout writes them the way this engine expects.
+      adapter.layout.write(probeRoot, {
+        username: `.probe`,
+        name: 'probe',
+        description: '',
+        persona: '',
+        credentials,
+        providers: [],
+      });
       factory = adapter.createFactory(probeRoot, this.engineEnv(envVars));
       return await this.readModels(factory, workspace);
     } finally {
@@ -454,13 +583,26 @@ export class BotService {
     }
   }
 
-  /** The conversation's transcript. A read, so an unknown id is simply empty. */
+  /** The whole conversation, oldest first. A read: an unknown id is simply empty. */
   transcript(conversationId: string): BotTranscriptEntry[] {
-    return [...(this.transcripts.get(conversationId) ?? [])];
+    return this.transcripts.all(conversationId);
   }
 
-  open(conversationId: string): BotTranscriptEntry[] {
-    return this.transcript(conversationId);
+  /**
+   * The newest page, which is what opening a conversation shows. `hasMore` tells
+   * the chat whether scrolling up has anything to fetch.
+   */
+  open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptPage {
+    return this.transcripts.latest(conversationId, limit);
+  }
+
+  /** The page before `beforeId`, for the chat's scroll-to-top. */
+  history(
+    conversationId: string,
+    beforeId: string | undefined,
+    limit: number = TRANSCRIPT_PAGE_SIZE,
+  ): TranscriptPage {
+    return this.transcripts.before(conversationId, beforeId, limit);
   }
 
   /**
@@ -534,8 +676,11 @@ export class BotService {
       // target a gateway that is already being disposed.
       round.stopped = true;
       round.queue.length = 0;
-      this.note(conversationId, NEW_DISCUSSION_NOTE);
     }
+    // The boundary is a line in the same transcript, so one chat reads as the
+    // sequence of engine sessions it is — and it survives a restart with them.
+    const divider = this.transcripts.appendDivider(conversationId, this.clock());
+    this.emit({ type: 'transcript', conversationId, entries: [divider], replace: false });
     for (const member of conversation.members) {
       const warm = this.warm.get(warmKey(conversationId, member));
       if (warm !== undefined) {
@@ -584,7 +729,6 @@ export class BotService {
       ),
     );
     this.rounds.clear();
-    this.transcripts.clear();
     this.listeners.clear();
   }
 
@@ -613,16 +757,16 @@ export class BotService {
           type: 'routing',
           state: {
             conversationId: conversation.id,
-            target: target.name,
-            queued: round.queue.map((queued) => queued.name),
+            target: this.displayNameOf(target.username),
+            queued: round.queue.map((queued) => this.displayNameOf(queued.username)),
           },
         });
         const reply = await this.answer(round, target);
         if (reply === undefined || round.stopped) {
           continue;
         }
-        round.relays.push(relayLine(conversation.title, target.name, reply));
-        round.seen.set(target.name, round.relays.length);
+        round.relays.push(relayLine(conversation.title, this.displayNameOf(target.username), reply));
+        round.seen.set(target.username, round.relays.length);
         this.queueChains(round, target, reply);
       }
     } finally {
@@ -646,13 +790,16 @@ export class BotService {
       return undefined;
     }
     const conversation = round.conversation;
-    const bot = this.bot(target.name);
+    const bot = this.bot(target.username);
     if (bot === undefined) {
-      this.note(conversation.id, `No bot named "${target.name}" is left in this conversation.`);
+      this.note(
+        conversation.id,
+        `No bot with the username "${target.username}" is left in this conversation.`,
+      );
       return undefined;
     }
-    const unseen = round.relays.slice(round.seen.get(bot.name) ?? 0);
-    round.seen.set(bot.name, round.relays.length);
+    const unseen = round.relays.slice(round.seen.get(bot.username) ?? 0);
+    round.seen.set(bot.username, round.relays.length);
     const broadcast =
       target.lead && conversation.kind === 'group'
         ? `${leadBrief(conversation.title)}\n\n${unseen.join('\n\n')}`
@@ -668,16 +815,13 @@ export class BotService {
     if (round.stopped) {
       return undefined;
     }
-    // The persona is delivered once, engine-agnostically, on the first prompt of
-    // a session Morse opened from scratch. A resumed session already carries it.
-    const persona = warm.fresh && bot.persona.trim() !== '' ? `${bot.persona}\n\n---\n\n` : '';
-
     round.current = warm;
     try {
-      const outcome = await this.promptAndWait(warm, `${persona}${broadcast}`);
-      // The session now exists in the engine's eyes either way: the persona rides
-      // on its first prompt only.
-      warm.fresh = false;
+      // No prompt prefix: the persona is the engine's own instruction file (pi's
+      // agent-dir AGENTS.md, OpenCode's `instructions`), written once by the
+      // layout, so the engine applies it exactly as it would for a hand-built
+      // agent. Morse sends only what the reader typed.
+      const outcome = await this.promptAndWait(warm, broadcast);
       if (round.stopped) {
         return undefined;
       }
@@ -711,17 +855,17 @@ export class BotService {
     const byHandle = new Map(conversation.members.map((name) => [name.toLowerCase(), name]));
     const queued = new Set<string>();
     const reported = new Set<string>();
-    const enqueue = (name: string): void => {
-      if (name === from.name || queued.has(name)) {
+    const enqueue = (username: string): void => {
+      if (username === from.username || queued.has(username)) {
         return;
       }
-      queued.add(name);
+      queued.add(username);
       const hop = from.hop + 1;
       if (hop > conversation.chainCap) {
         this.note(conversation.id, `Chain capped after ${conversation.chainCap} hops`);
         return;
       }
-      round.queue.push({ name, hop, lead: false });
+      round.queue.push({ username, hop, lead: false });
     };
 
     for (const token of mentionTokens(reply)) {
@@ -743,7 +887,7 @@ export class BotService {
         }
         continue;
       }
-      if (member === from.name) {
+      if (member === from.username) {
         if (!reported.has(handle)) {
           reported.add(handle);
           this.note(
@@ -760,7 +904,7 @@ export class BotService {
   /** Whom one human message addresses, in the order they answer. */
   private resolveTargets(conversation: ConversationRecord, text: string): QueuedTarget[] {
     const { targets, all } = parseMentions(text, conversation.members);
-    const addressed = (name: string): QueuedTarget => ({ name, hop: 0, lead: false });
+    const addressed = (username: string): QueuedTarget => ({ username, hop: 0, lead: false });
     if (targets.length > 0) {
       return targets.map(addressed);
     }
@@ -773,7 +917,7 @@ export class BotService {
       return conversation.members.map(addressed);
     }
     if (conversation.lead !== undefined) {
-      return [{ name: conversation.lead, hop: 0, lead: true }];
+      return [{ username: conversation.lead, hop: 0, lead: true }];
     }
     return [];
   }
@@ -788,7 +932,7 @@ export class BotService {
     bot: BotRecord,
     conversation: ConversationRecord,
   ): Promise<WarmGateway> {
-    const key = warmKey(conversation.id, bot.name);
+    const key = warmKey(conversation.id, bot.username);
     const existing = this.warm.get(key);
     if (existing !== undefined) {
       return existing;
@@ -798,9 +942,9 @@ export class BotService {
       throw new Error(`The host has no bot engine "${bot.engineKind}".`);
     }
     const factory = this.factoryFor(bot, adapter);
-    const stored = conversation.sessions[bot.name]?.engineSessionId;
+    const stored = conversation.sessions[bot.username]?.engineSessionId;
     const creating = factory.create({
-      workspace: this.workspaceOf(bot.name),
+      workspace: this.workspaceOf(bot.username),
       ...(stored === undefined ? {} : { sessionId: stored }),
     });
     let gateway: AgentGateway;
@@ -819,16 +963,19 @@ export class BotService {
       // Model and thinking level are best-effort: engines declare per-model
       // capabilities, and a stored choice the current model does not offer must
       // not keep the bot from answering. The engine's default stands instead.
-      if (bot.model !== undefined) {
-        const model = bot.model;
+      // The engine's own config is where the choice lives; read it once per
+      // gateway start so a hand-edited opencode.json or settings.json applies.
+      const stored = this.engineState(bot);
+      if (stored.model !== undefined) {
+        const model = stored.model;
         await this.applyStartupSetting(
           () => this.withDeadline(gateway.setModel(model), 'gateway startup'),
           conversation.id,
           `Model "${model.provider}/${model.id}" is not available on this engine — using the engine default.`,
         );
       }
-      if (bot.thinkingLevel !== undefined) {
-        const level = bot.thinkingLevel;
+      if (stored.thinkingLevel !== undefined) {
+        const level = stored.thinkingLevel;
         await this.applyStartupSetting(
           () => this.withDeadline(gateway.setThinkingLevel(level), 'gateway startup'),
           conversation.id,
@@ -847,7 +994,7 @@ export class BotService {
 
     const warm: WarmGateway = {
       conversationId: conversation.id,
-      botName: bot.name,
+      username: bot.username,
       gateway,
       fresh: stored === undefined,
       detach: () => undefined,
@@ -860,7 +1007,7 @@ export class BotService {
     });
     this.warm.set(key, warm);
     if (sessionId !== undefined) {
-      conversation.sessions[bot.name] = { engineSessionId: sessionId };
+      conversation.sessions[bot.username] = { engineSessionId: sessionId };
       this.touched(conversation);
     }
     this.touch(warm);
@@ -1008,8 +1155,8 @@ export class BotService {
   }
 
   /**
-   * Answers an engine's question with the default a human would not have to
-   * approve in MVP, and says so in the transcript so nothing is hidden.
+   * Answers an engine's question on the bot's behalf — a bot conversation has no
+   * reader to ask — and says how in the transcript so nothing is hidden.
    */
   private async autoAnswer(warm: WarmGateway, request: AgentInteractionRequest): Promise<void> {
     this.note(warm.conversationId, `Auto-answered: ${autoAnswerSummary(request)}`);
@@ -1037,7 +1184,7 @@ export class BotService {
 
   /** Drops one gateway, resolving any prompt it was still answering. */
   private async dropWarm(warm: WarmGateway, force = false): Promise<void> {
-    const key = warmKey(warm.conversationId, warm.botName);
+    const key = warmKey(warm.conversationId, warm.username);
     if (this.warm.get(key) !== warm) {
       return;
     }
@@ -1066,13 +1213,12 @@ export class BotService {
   }
 
   private append(conversationId: string, author: BotAuthor, text: string): BotTranscriptEntry {
-    const entry: BotTranscriptEntry = { id: randomUUID(), author, text, at: this.clock() };
-    const entries = this.transcripts.get(conversationId);
-    if (entries === undefined) {
-      this.transcripts.set(conversationId, [entry]);
-    } else {
-      entries.push(entry);
-    }
+    const entry = this.transcripts.append(conversationId, {
+      id: randomUUID(),
+      author,
+      text,
+      at: this.clock(),
+    });
     this.emit({ type: 'transcript', conversationId, entries: [entry], replace: false });
     return entry;
   }
@@ -1112,11 +1258,12 @@ export class BotService {
 
   /** Creates the DM conversation for a bot, or repairs a kept one after a recreate. */
   private upsertDm(bot: BotRecord): void {
-    const id = dmConversationId(bot.name);
+    const id = dmConversationId(bot.username);
     const existing = this.registry.conversations.find((conversation) => conversation.id === id);
     if (existing !== undefined) {
+      // The title follows the display name, which an edit can change.
       existing.title = bot.name;
-      existing.members = [bot.name];
+      existing.members = [bot.username];
       delete existing.lead;
       existing.chainCap = this.chainCap;
       // A recreated bot starts fresh: the old engine sessions belonged to the
@@ -1129,7 +1276,7 @@ export class BotService {
       id,
       kind: 'dm',
       title: bot.name,
-      members: [bot.name],
+      members: [bot.username],
       chainCap: this.chainCap,
       sessions: {},
       updatedAt: this.clock(),
@@ -1159,15 +1306,15 @@ export class BotService {
 
   /** One factory per bot, created on demand and reused for every session it opens. */
   private factoryFor(bot: BotRecord, adapter: BotEngineAdapter): BotGatewayFactory {
-    const factory = this.factories.get(bot.name);
+    const factory = this.factories.get(bot.username);
     if (factory !== undefined) {
       return factory;
     }
     const created = adapter.createFactory(
-      this.botRoot(bot.name),
+      this.botRoot(bot.username),
       this.engineEnv(bot.credentialEnv),
     );
-    this.factories.set(bot.name, created);
+    this.factories.set(bot.username, created);
     return created;
   }
 
@@ -1209,25 +1356,40 @@ export class BotService {
     }
   }
 
-  private isWarm(botName: string): boolean {
+  private isWarm(username: string): boolean {
     for (const warm of this.warm.values()) {
-      if (warm.botName === botName) {
+      if (warm.username === username) {
         return true;
       }
     }
     return false;
   }
 
-  private bot(name: string): BotRecord | undefined {
-    return this.registry.bots.find((candidate) => candidate.name === name);
+  private bot(username: string): BotRecord | undefined {
+    return this.registry.bots.find((candidate) => candidate.username === username);
   }
 
-  private botOrThrow(name: string): BotRecord {
-    const bot = this.bot(name);
+  private botOrThrow(username: string): BotRecord {
+    const bot = this.bot(username);
     if (bot === undefined) {
-      throw new Error(`No bot named "${name}".`);
+      throw new Error(`No bot with the username "${username}".`);
     }
     return bot;
+  }
+
+  /** The display name for a username, for a line a reader reads. */
+  private displayNameOf(username: string): string {
+    return this.bot(username)?.name ?? username;
+  }
+
+  /** The round this bot is answering in right now, if any. */
+  private roundFor(username: string): Round | undefined {
+    for (const round of this.rounds.values()) {
+      if (round.conversation.members.includes(username)) {
+        return round;
+      }
+    }
+    return undefined;
   }
 
   private conversationOrThrow(conversationId: string): ConversationRecord {
@@ -1240,12 +1402,12 @@ export class BotService {
     return conversation;
   }
 
-  private botRoot(name: string): string {
-    return join(this.options.root, name);
+  private botRoot(username: string): string {
+    return join(this.options.root, username);
   }
 
-  private workspaceOf(name: string): WorkspaceRef {
-    return { cwd: join(this.botRoot(name), 'workspace'), name };
+  private workspaceOf(username: string): WorkspaceRef {
+    return { cwd: join(this.botRoot(username), 'workspace'), name: username };
   }
 }
 
@@ -1267,12 +1429,53 @@ function autoAnswerFor(request: AgentInteractionRequest): AgentInteractionRespon
     case 'select':
       return { requestId: request.requestId, value: request.options[0]?.value ?? '' };
     case 'input':
-      return { requestId: request.requestId, value: '' };
-    default:
-      // Editor and form answers cannot be guessed safely, so they are cancelled —
-      // deliberately not the same as submitting empty values.
-      return { requestId: request.requestId, cancelled: true };
+      return { requestId: request.requestId, value: request.value ?? '' };
+    case 'editor':
+      // The engine's own draft is the answer. A bot has no reader to type one,
+      // and cancelling loses the whole tool call — a web search opened as an
+      // editor prompt never runs when the prompt is dismissed instead.
+      return { requestId: request.requestId, value: request.value ?? '' };
+    case 'form':
+      return { requestId: request.requestId, values: formDefaults(request) };
   }
+}
+
+/**
+ * A form's answer, filled the way a silent reader would: the seed a field
+ * carries, the first choice a list offers, and the empty value its type implies.
+ * Nothing is invented beyond that — a bot cannot reason about a form it cannot
+ * see, so the safest complete answer is its own defaults.
+ */
+function formDefaults(request: AgentFormRequest): Record<string, AgentFormValue> {
+  const values: Record<string, AgentFormValue> = {};
+  for (const field of request.fields) {
+    if (field.defaultValue !== undefined) {
+      values[field.key] = field.defaultValue;
+      continue;
+    }
+    switch (field.type) {
+      case 'boolean':
+        values[field.key] = false;
+        break;
+      case 'number':
+      case 'integer':
+        values[field.key] = 0;
+        break;
+      case 'multiselect':
+        values[field.key] = [];
+        break;
+      case 'select': {
+        const first = field.options?.[0]?.value;
+        if (first !== undefined) {
+          values[field.key] = first;
+        }
+        break;
+      }
+      default:
+        values[field.key] = '';
+    }
+  }
+  return values;
 }
 
 /** How the transcript describes an auto-answer, stable per request kind. */
@@ -1283,9 +1486,12 @@ function autoAnswerSummary(request: AgentInteractionRequest): string {
     case 'select':
       return `selected the first option of "${request.title}"`;
     case 'input':
-      return `left "${request.title}" blank`;
-    default:
-      return `cancelled "${request.title}"`;
+    case 'editor':
+      return request.value === undefined || request.value.length === 0
+        ? `left "${request.title}" blank`
+        : `filled "${request.title}" from its draft`;
+    case 'form':
+      return `filled "${request.title}" with its defaults`;
   }
 }
 
@@ -1293,19 +1499,29 @@ function botAuthor(bot: BotRecord): BotAuthor {
   return {
     role: 'bot',
     name: bot.name,
+    username: bot.username,
     ...(bot.avatar === undefined ? {} : { avatar: bot.avatar }),
   };
 }
 
-/** A bot name that stays inside `<root>/<name>/`, and is also a usable `@handle`. */
-function isSafeBotName(name: string): boolean {
-  // The name is the bot's mention handle, so it must parse as one: no spaces, no
-  // dots, and a leading character that keeps it clear of the `.probe-*` roots.
+/**
+ * A username that stays inside `<root>/<username>/` and parses as a `@handle`:
+ * lowercase letters, digits, dashes and underscores, starting with a letter or
+ * digit, at most 32 characters. Keeping it lowercase is what makes a mention
+ * unambiguous, and keeping it slash-free is what keeps it a directory name that
+ * cannot escape the data dir.
+ */
+function isSafeUsername(username: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(username);
+}
+
+/** A subagent name that is usable as a config key in either engine's own file. */
+function isSafeSubagentName(name: string): boolean {
   return /^[\p{L}\p{N}_][\p{L}\p{N}_-]*$/u.test(name);
 }
 
-function warmKey(conversationId: string, botName: string): string {
-  return `${conversationId}\u0000${botName}`;
+function warmKey(conversationId: string, username: string): string {
+  return `${conversationId}\u0000${username}`;
 }
 
 function errorMessage(error: unknown): string {

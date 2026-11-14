@@ -4,14 +4,18 @@
   than showing an empty chat nobody can type into.
 -->
 @if (conversation(); as conversation) {
-  <section class="chat" [attr.aria-label]="'Conversation with ' + conversation.title">
+  <section
+    class="chat"
+    [attr.aria-label]="'Conversation with ' + conversation.title"
+    [style.--morse-dock-height]="dockHeight() + 'px'"
+  >
     <header class="head">
       <div class="titles">
         <span class="eyebrow">
           {{ conversation.kind === 'group' ? 'Group' : 'Direct message' }}
         </span>
         <h2 class="title">{{ conversation.title }}</h2>
-        <span class="members">{{ conversation.members.join(', ') }}</span>
+        <span class="members">{{ memberNames(conversation) }}</span>
       </div>
       <button
         type="button"
@@ -39,7 +43,22 @@
       </div>
     }
 
-    <div class="transcript" role="log" #scroll>
+    <!--
+      The transcript scrolls one conversation across every engine session it has
+      had. Scrolling to the top asks the host for the page before what is held, so
+      history is lazy: the chat opens at the end and grows backwards.
+    -->
+    <div
+      class="transcript"
+      role="log"
+      #scroll
+      (scroll)="onScroll($event)"
+    >
+      @if (hasOlder()) {
+        <p class="older" data-loading-older>
+          {{ loadingOlder() ? 'Loading earlier messages…' : 'Scroll up for earlier messages' }}
+        </p>
+      }
       @if (entries().length === 0) {
         <p class="empty-note">No messages yet. Say hello to {{ conversation.title }}.</p>
       }
@@ -66,11 +85,21 @@
             <!-- Morse's own note (a dropped relay, a stop): a quiet line, not chat. -->
             <p class="entry system" [attr.data-entry-id]="entry.id">{{ entry.text }}</p>
           }
+          @case ('discussion') {
+            <!-- A discussion boundary: a new engine session in the same chat, so
+                 the reader can scroll from today's session back into older ones. -->
+            <p class="entry divider" [attr.data-entry-id]="entry.id" role="separator">
+              <span>{{ entry.text }}</span>
+              <time [attr.datetime]="stamp(entry.at)">{{ when(entry.at) }}</time>
+            </p>
+          }
         }
       }
     </div>
 
-    <div class="composer-host">
+    <!-- The slab floats over the transcript, measured into `--morse-dock-height`
+         so the last line is never behind the glass (same mechanism as code mode). -->
+    <div class="composer-host" #dock>
       <morse-chat-composer
         [variant]="'bot'"
         [placeholder]="'Message ' + conversation.title + '…'"

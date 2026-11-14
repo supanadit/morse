@@ -1,9 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type {
-  BotConversationSummary,
-  BotSummary,
-  ClientToHostMessage,
-} from '@morse/protocol';
+import type { BotConversationSummary, BotSummary, ClientToHostMessage } from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
@@ -11,12 +7,14 @@ import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotNav } from './bot-nav';
 
 const forge: BotSummary = {
+  username: 'forge',
   name: 'Forge',
   description: 'Keeps the forge hot',
   engineKind: 'pi',
   warm: true,
 };
 const sable: BotSummary = {
+  username: 'sable',
   name: 'Sable',
   description: 'Reads the fine print',
   engineKind: 'opencode',
@@ -26,9 +24,17 @@ const workshop: BotConversationSummary = {
   id: 'group-workshop',
   kind: 'group',
   title: 'The workshop',
-  members: ['Forge', 'Sable'],
+  members: ['forge', 'sable'],
   chainCap: 8,
   updatedAt: 1,
+};
+const research: BotConversationSummary = {
+  id: 'group-research',
+  kind: 'group',
+  title: 'Research desk',
+  members: ['sable'],
+  chainCap: 8,
+  updatedAt: 2,
 };
 
 /** The mock host, plus everything the frontend asked it to do. */
@@ -67,6 +73,34 @@ function rows(host: HTMLElement, kind: 'bot' | 'group'): HTMLButtonElement[] {
   return [...host.querySelectorAll(`.row.${kind}`)] as HTMLButtonElement[];
 }
 
+/** The names a section is showing, in order. */
+function names(host: HTMLElement, kind: 'bot' | 'group'): (string | undefined)[] {
+  return [...host.querySelectorAll(`.row.${kind} .name`)].map(
+    (one) => one.textContent?.trim() ?? '',
+  );
+}
+
+/** Right-clicks a row, the way a reader reaches its actions. */
+function rightClick(row: HTMLElement): void {
+  row.dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+  );
+}
+
+function menuItem(host: HTMLElement, selector: string): HTMLButtonElement {
+  const found = host.querySelector(`.context-menu .${selector}`) as HTMLButtonElement | null;
+  if (found === null) {
+    throw new Error(`no menu item matches ${selector}`);
+  }
+  return found;
+}
+
+function type(host: HTMLElement, value: string): void {
+  const input = host.querySelector('.search-input') as HTMLInputElement;
+  input.value = value;
+  input.dispatchEvent(new Event('input'));
+}
+
 describe('BotNav', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -88,6 +122,7 @@ describe('BotNav', () => {
     const groups = rows(host, 'group');
     expect(groups).toHaveLength(1);
     expect(groups[0]?.textContent).toContain('The workshop');
+    expect(groups[0]?.textContent).toContain('Forge, Sable');
   });
 
   it('opens a bot under the name the host gives its DM', async () => {
@@ -98,7 +133,7 @@ describe('BotNav', () => {
 
     rows(host, 'bot')[0]?.click();
 
-    expect(open).toHaveBeenCalledWith('dm-Forge');
+    expect(open).toHaveBeenCalledWith('dm-forge');
   });
 
   it('opens a group by its own conversation id', async () => {
@@ -112,49 +147,184 @@ describe('BotNav', () => {
     expect(open).toHaveBeenCalledWith('group-workshop');
   });
 
-  it('deletes a bot after the confirm names exactly what is removed', async () => {
+  it('filters bots and groups as the reader types, and restores on clear', async () => {
     const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop, research] });
     fixture.detectChanges();
-    const remove = vi.spyOn(morse, 'deleteBot');
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    (host.querySelector('.delete-bot') as HTMLButtonElement).click();
+    type(host, 'sab');
+    fixture.detectChanges();
+    expect(names(host, 'bot')).toEqual(['Sable']);
+    // Sable is in both groups, so both stay — membership is searchable too.
+    expect(names(host, 'group')).toEqual(['The workshop', 'Research desk']);
 
-    expect(confirm).toHaveBeenCalledWith(
-      'Delete bot Forge? Its config, sessions and workspace are removed.',
-    );
-    expect(remove).toHaveBeenCalledWith('Forge');
+    type(host, 'workshop');
+    fixture.detectChanges();
+    expect(rows(host, 'bot')).toHaveLength(0);
+    expect(names(host, 'group')).toEqual(['The workshop']);
+
+    type(host, 'nothing-matches-this');
+    fixture.detectChanges();
+    expect(host.querySelectorAll('.empty')).toHaveLength(2);
+    expect(host.querySelector('.empty')?.textContent).toContain('No bots match');
+
+    (host.querySelector('.search-clear') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(rows(host, 'bot')).toHaveLength(2);
+    expect(rows(host, 'group')).toHaveLength(2);
   });
 
-  it('does not delete when the confirm is declined', async () => {
+  it('opens a row menu from a right-click and from its action button', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+    expect(host.querySelector('.context-menu')).not.toBeNull();
+    expect(menuItem(host, 'delete-bot')).not.toBeNull();
+
+    // The overlay behind the menu dismisses it.
+    (host.querySelector('.context-menu-layer') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.context-menu')).toBeNull();
+
+    // The `⋯` opens the same menu for a group.
+    (host.querySelectorAll('.row-more')[2] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.context-menu')?.textContent).toContain('New discussion');
+  });
+
+  it('starts a new discussion on the row the menu belongs to', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+    const reset = vi.spyOn(morse, 'newBotDiscussion');
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+    [...host.querySelectorAll('.context-menu-item')]
+      .find((one) => one.textContent?.includes('New discussion'))
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(reset).toHaveBeenCalledWith('group-workshop');
+    expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('deletes a bot through the menu, naming it in the confirmation', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge], conversations: [] });
     fixture.detectChanges();
     const remove = vi.spyOn(morse, 'deleteBot');
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
 
-    (host.querySelector('.delete-bot') as HTMLButtonElement).click();
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'delete-bot').click();
+    fixture.detectChanges();
+
+    // The confirmation lives in the menu; nothing is deleted until it is taken.
+    expect(host.querySelector('.context-menu-title')?.textContent).toContain('Forge');
+    expect(remove).not.toHaveBeenCalled();
+
+    [...host.querySelectorAll('.context-menu-item')]
+      .find((one) => one.textContent?.trim() === 'Delete bot')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(remove).toHaveBeenCalledWith('forge');
+  });
+
+  it('cancels the delete from the confirmation', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    fixture.detectChanges();
+    const remove = vi.spyOn(morse, 'deleteBot');
+
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'delete-bot').click();
+    fixture.detectChanges();
+    [...host.querySelectorAll('.context-menu-item')]
+      .find((one) => one.textContent?.trim() === 'Cancel')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
 
     expect(remove).not.toHaveBeenCalled();
+    expect(host.querySelector('.context-menu')).toBeNull();
   });
 
-  it('hides the delete affordance while that bot is answering', async () => {
+  it('opens the wizard for the bot its menu asked to edit', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
-    morse.bot.onRouting({ conversationId: 'dm-Forge', target: 'Forge', queued: [] });
+    fixture.detectChanges();
+    const inspect = vi.spyOn(morse, 'inspectBot');
+
+    rightClick(rows(host, 'bot')[1] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'edit-bot').click();
     fixture.detectChanges();
 
-    const buttons = [...host.querySelectorAll('.delete-bot')];
-    // Forge's row is mid-round; Sable's is not.
-    expect(buttons).toHaveLength(1);
-    expect(host.querySelectorAll('.bot-row')[0]?.querySelector('.delete-bot')).toBeNull();
+    // The wizard is opened on that bot, and the host is asked for its record.
+    expect(inspect).toHaveBeenCalledWith('sable');
+    expect(morse.ui.wizardTarget()).toBe('sable');
+    expect(morse.ui.wizardOpen()).toBe(true);
+    expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('refuses to edit a bot that is answering', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.bot.onRouting({ conversationId: 'dm-forge', target: 'Forge', queued: [] });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+
+    expect(menuItem(host, 'edit-bot').disabled).toBe(true);
+  });
+
+  it('opens a new bot with no edit target after editing one', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'edit-bot').click();
+    fixture.detectChanges();
+    expect(morse.ui.wizardTarget()).toBe('forge');
+
+    (host.querySelector('.create-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    menuItem(host, 'new-bot').click();
+
+    // A new bot must not inherit the bot that was being edited.
+    expect(morse.ui.wizardTarget()).toBeNull();
+    expect(morse.ui.wizardOpen()).toBe(true);
+  });
+
+  it('refuses to delete a bot that is answering', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
+    morse.bot.onRouting({ conversationId: 'dm-forge', target: 'Forge', queued: [] });
+    fixture.detectChanges();
+
+    // Forge's row is mid-round, Sable's is not.
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+    expect(menuItem(host, 'delete-bot').disabled).toBe(true);
+
+    (host.querySelector('.context-menu-layer') as HTMLElement).click();
+    fixture.detectChanges();
+    rightClick(rows(host, 'bot')[1] as HTMLElement);
+    fixture.detectChanges();
+    expect(menuItem(host, 'delete-bot').disabled).toBe(false);
   });
 
   it('highlights the conversation in front', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
-    morse.bot.open('dm-Forge');
+    morse.bot.open('dm-forge');
     fixture.detectChanges();
 
     const bots = rows(host, 'bot');
@@ -171,22 +341,24 @@ describe('BotNav', () => {
     expect(sent.filter((message) => message.type === 'bot/list')).toHaveLength(1);
   });
 
-  it('opens the New bot dialog from its button', async () => {
-    const { host, morse } = await render();
+  it('opens both creation dialogs from the + menu', async () => {
+    const { fixture, host, morse } = await render();
 
-    (host.querySelector('.new-bot') as HTMLButtonElement).click();
-
+    (host.querySelector('.create-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    menuItem(host, 'new-bot').click();
     expect(morse.ui.wizardOpen()).toBe(true);
     expect(morse.ui.groupOpen()).toBe(false);
-  });
 
-  it('opens the New group dialog from its button', async () => {
-    const { host, morse } = await render();
-
-    (host.querySelector('.new-group') as HTMLButtonElement).click();
-
+    morse.ui.wizardOpen.set(false);
+    (host.querySelector('.create-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    menuItem(host, 'new-group').click();
+    fixture.detectChanges();
     expect(morse.ui.groupOpen()).toBe(true);
     expect(morse.ui.wizardOpen()).toBe(false);
+    // Choosing an entry closes the menu behind it.
+    expect(host.querySelector('.context-menu')).toBeNull();
   });
 
   it('says so quietly while the roster is empty', async () => {

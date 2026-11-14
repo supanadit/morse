@@ -27,8 +27,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
+import type { BotEngineConfig, BotEngineLayout, BotEngineState } from './types.js';
 import { BotService } from './service.js';
-import { loadBotRegistry, readBotIdentity } from './store.js';
+import { loadBotRegistry, readBotIdentity, saveBotRegistry } from './store.js';
 import type { BotEngineCapabilities, BotRecord } from './types.js';
 
 /**
@@ -302,30 +303,79 @@ class FakeFactory implements AgentGatewayFactory {
   }
 }
 
-class FakeAdapter implements BotEngineAdapter {
-  readonly kind = 'fake';
-  readonly capabilities: BotEngineCapabilities;
-  readonly factories: FakeFactory[] = [];
+/**
+ * A fake engine layout: it records what the service asked an engine to write and
+ * hands the same state back on read, which is what a real layout does with real
+ * files. `capabilities.supportsSubagents` is honoured here, the way a pi layout
+ * drops the list instead of writing it.
+ */
+class FakeLayout implements BotEngineLayout {
+  readonly writes: { botRoot: string; config: BotEngineConfig }[] = [];
   readonly credentialWrites: {
     botRoot: string;
     entries: { provider: string; apiKey: string }[];
   }[] = [];
+  readonly providerWrites: { botRoot: string; providers: readonly unknown[] }[] = [];
   readonly subagentWrites: {
     botRoot: string;
     subagents: { name: string; prompt: string }[];
   }[] = [];
-  readonly providerWrites: {
-    botRoot: string;
-    providers: unknown[];
-  }[] = [];
+  /** Set to make the engine's provider writer fail, like a full disk. */
+  failProviders = false;
+  private readonly states = new Map<string, BotEngineState>();
+
+  constructor(
+    private readonly capabilities: BotEngineCapabilities,
+    private readonly omitSubagents = false,
+  ) {}
+
+  write(botRoot: string, config: BotEngineConfig): void {
+    this.writes.push({ botRoot, config });
+    // An empty list means "keep the engine's own keys": the real layouts skip the
+    // credential store in that case, so the record does too.
+    if (config.credentials.length > 0) {
+      this.credentialWrites.push({ botRoot, entries: config.credentials });
+      mkdirSync(join(botRoot, 'config'), { recursive: true });
+      writeFileSync(
+        join(botRoot, 'config', 'credentials.json'),
+        JSON.stringify(config.credentials),
+      );
+    }
+    if (config.providers.length > 0) {
+      if (this.failProviders) {
+        throw new Error('disk full');
+      }
+      this.providerWrites.push({ botRoot, providers: config.providers });
+    }
+    // Subagents are engine config: an engine without them drops the list, the
+    // same rule the real adapters follow, and a defined-but-empty list clears it.
+    if (
+      config.subagents !== undefined &&
+      !this.omitSubagents &&
+      this.capabilities.supportsSubagents
+    ) {
+      this.subagentWrites.push({ botRoot, subagents: config.subagents });
+    }
+    this.states.set(botRoot, {
+      persona: config.persona,
+      ...(config.model === undefined ? {} : { model: config.model }),
+      ...(config.thinkingLevel === undefined ? {} : { thinkingLevel: config.thinkingLevel }),
+      ...(config.agentsMd === undefined ? {} : { agentsMd: config.agentsMd }),
+      ...(config.subagents === undefined ? {} : { subagents: config.subagents }),
+    });
+  }
+
+  read(botRoot: string): BotEngineState {
+    return this.states.get(botRoot) ?? {};
+  }
+}
+
+class FakeAdapter implements BotEngineAdapter {
+  readonly kind = 'fake';
+  readonly capabilities: BotEngineCapabilities;
+  readonly factories: FakeFactory[] = [];
+  readonly layout: FakeLayout;
   readonly envs: NodeJS.ProcessEnv[] = [];
-  /** Present unless the harness says the engine has no subagent writer. */
-  writeSubagents:
-    ((botRoot: string, subagents: { name: string; prompt: string }[]) => void) | undefined;
-  /** Present unless the harness says the engine has no provider writer. */
-  writeProviders:
-    | ((botRoot: string, providers: readonly unknown[]) => void)
-    | undefined;
 
   constructor(
     private readonly script: Script = () => ({}),
@@ -336,14 +386,24 @@ class FakeAdapter implements BotEngineAdapter {
       supportsThinkingLevels: true,
       credentials: 'stored',
     };
-    if (options.omitSubagentWriter !== true) {
-      this.writeSubagents = (botRoot, subagents) => {
-        this.subagentWrites.push({ botRoot, subagents });
-      };
-    }
-    this.writeProviders = (botRoot, providers) => {
-      this.providerWrites.push({ botRoot, providers: [...providers] });
-    };
+    this.layout = new FakeLayout(this.capabilities, options.omitSubagentWriter === true);
+  }
+
+  get credentialWrites(): FakeLayout['credentialWrites'] {
+    return this.layout.credentialWrites;
+  }
+
+  get providerWrites(): FakeLayout['providerWrites'] {
+    return this.layout.providerWrites;
+  }
+
+  get subagentWrites(): FakeLayout['subagentWrites'] {
+    return this.layout.subagentWrites;
+  }
+
+  /** One switch the older tests flipped: make the provider write fail. */
+  set writeProviders(_: unknown) {
+    this.layout.failProviders = true;
   }
 
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): FakeFactory {
@@ -351,14 +411,6 @@ class FakeAdapter implements BotEngineAdapter {
     const factory = new FakeFactory(botRoot, this.script, this.options.models ?? [], this.options);
     this.factories.push(factory);
     return factory;
-  }
-
-  writeCredentials(botRoot: string, entries: { provider: string; apiKey: string }[]): void {
-    this.credentialWrites.push({ botRoot, entries });
-    // A real adapter writes its engine's auth file; the fake writes one too, so
-    // "the credentials were on disk before the factory was built" is testable.
-    mkdirSync(join(botRoot, 'config'), { recursive: true });
-    writeFileSync(join(botRoot, 'config', 'credentials.json'), JSON.stringify(entries));
   }
 }
 
@@ -464,6 +516,7 @@ afterEach(async () => {
 
 function botInput(overrides: Partial<BotCreateInput> = {}): BotCreateInput {
   return {
+    username: 'forge',
     name: 'Forge',
     description: 'Builds things',
     engineKind: 'fake',
@@ -476,7 +529,9 @@ function botInput(overrides: Partial<BotCreateInput> = {}): BotCreateInput {
 
 async function twoBots(service: BotService): Promise<void> {
   await service.createBot(botInput());
-  await service.createBot(botInput({ name: 'Sable', description: 'Reviews things' }));
+  await service.createBot(
+    botInput({ username: 'sable', name: 'Sable', description: 'Reviews things' }),
+  );
 }
 
 describe('BotService creation', () => {
@@ -492,7 +547,7 @@ describe('BotService creation', () => {
 
     await service.createBot(input);
 
-    const botRoot = join(root, 'Forge');
+    const botRoot = join(root, 'forge');
     for (const dir of ['config', 'sessions', 'workspace']) {
       expect(existsSync(join(botRoot, dir))).toBe(true);
       // The bot tree holds credentials and engine sessions; on POSIX it is
@@ -501,23 +556,34 @@ describe('BotService creation', () => {
         expect(statSync(join(botRoot, dir)).mode & 0o777).toBe(0o700);
       }
     }
+    // Morse's record is an index entry: identity and the engine, nothing the
+    // engine itself already stores.
     const identity: BotRecord = {
+      username: 'forge',
       name: 'Forge',
       description: 'Builds things',
       avatar: 'anvil.png',
       engineKind: 'fake',
-      model: MODEL,
-      thinkingLevel: 'medium',
-      persona: 'You are Forge, the builder.',
       credentialEnv: ['ANTHROPIC_API_KEY'],
     };
     expect(readBotIdentity(botRoot)).toEqual(identity);
-    expect(readFileSync(join(botRoot, 'workspace', 'AGENTS.md'), 'utf8')).toBe(
-      '# Forge workspace\n',
-    );
+    // The configuration the reader filled went to the engine's own layout, whole.
+    expect(adapter.layout.writes).toHaveLength(1);
+    expect(adapter.layout.writes[0]).toMatchObject({
+      botRoot,
+      config: {
+        username: 'forge',
+        name: 'Forge',
+        persona: 'You are Forge, the builder.',
+        agentsMd: '# Forge workspace\n',
+        model: MODEL,
+        thinkingLevel: 'medium',
+        credentials: input.credentials,
+      },
+    });
     expect(adapter.credentialWrites).toEqual([{ botRoot, entries: input.credentials }]);
 
-    const factory = factoryFor(adapter, 'Forge');
+    const factory = factoryFor(adapter, 'forge');
     expect(factory.probeCalls).toBe(1);
     expect(factory.probed[0]?.disposed).toBe(true);
     expect(factory.gateways).toHaveLength(0);
@@ -525,6 +591,7 @@ describe('BotService creation', () => {
     expect(service.roster()).toEqual({
       bots: [
         {
+          username: 'forge',
           name: 'Forge',
           description: 'Builds things',
           avatar: 'anvil.png',
@@ -536,10 +603,10 @@ describe('BotService creation', () => {
       ],
       conversations: [
         {
-          id: 'dm-Forge',
+          id: 'dm-forge',
           kind: 'dm',
           title: 'Forge',
-          members: ['Forge'],
+          members: ['forge'],
           chainCap: 8,
           updatedAt: expect.any(Number) as number,
         },
@@ -552,35 +619,53 @@ describe('BotService creation', () => {
 
     await expect(service.createBot(botInput())).rejects.toThrow('probe failed');
 
-    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    expect(existsSync(join(root, 'forge'))).toBe(false);
     expect(service.roster()).toEqual({ bots: [], conversations: [] });
   });
 
-  it('createBot refuses a name that would escape the bot root', async () => {
+  it('createBot refuses a username that would escape the bot root', async () => {
     const { service } = harness();
 
-    await expect(service.createBot(botInput({ name: '../escape' }))).rejects.toThrow(
-      'not a usable bot name',
+    await expect(
+      service.createBot(botInput({ username: '../escape', name: '../escape' })),
+    ).rejects.toThrow('not a usable username');
+
+    expect(service.roster().bots).toHaveLength(0);
+  });
+
+  it('createBot refuses an uppercase username', async () => {
+    const { service } = harness();
+
+    // Usernames are lowercase so a mention is unambiguous and the directory is
+    // portable; an uppercase one is a typo, not a variant.
+    await expect(service.createBot(botInput({ username: 'NewsFinder' }))).rejects.toThrow(
+      'not a usable username',
     );
 
     expect(service.roster().bots).toHaveLength(0);
   });
 
-  it('createBot refuses a name that differs only in case', async () => {
-    const mixed = harness();
-    await mixed.service.createBot(botInput({ name: 'Forge' }));
+  it('createBot refuses a username that is taken', async () => {
+    const first = harness();
+    await first.service.createBot(botInput({ username: 'forge', name: 'Forge' }));
 
-    await expect(mixed.service.createBot(botInput({ name: 'forge' }))).rejects.toThrow(
-      /case-insensitive/,
-    );
+    await expect(
+      first.service.createBot(botInput({ username: 'forge', name: 'The Forge' })),
+    ).rejects.toThrow(/username "forge" is taken/);
 
-    expect(mixed.service.roster().bots.map((bot) => bot.name)).toEqual(['Forge']);
-    expect(existsSync(join(mixed.root, 'forge'))).toBe(false);
+    expect(first.service.roster().bots.map((bot) => bot.username)).toEqual(['forge']);
+    expect(existsSync(join(first.root, 'forge'))).toBe(true);
+  });
 
-    // The lowercase name on its own is still a fine bot name.
-    const lower = harness();
-    await lower.service.createBot(botInput({ name: 'forge' }));
-    expect(lower.service.roster().bots.map((bot) => bot.name)).toEqual(['forge']);
+  it('keeps two bots apart when their display names collide', async () => {
+    const { service } = harness();
+
+    // The namespace is usernames: two bots may share a free-text name.
+    await service.createBot(botInput({ username: 'forge', name: 'News Finder' }));
+    await service.createBot(botInput({ username: 'news-finder', name: 'News Finder' }));
+
+    expect(service.roster().bots.map((bot) => bot.username)).toEqual(['forge', 'news-finder']);
+    expect(service.roster().bots.map((bot) => bot.name)).toEqual(['News Finder', 'News Finder']);
   });
 
   it('createGroup lists the group with its members, lead and chain cap', async () => {
@@ -589,8 +674,8 @@ describe('BotService creation', () => {
 
     const group = service.createGroup({
       name: 'Launch',
-      members: ['Forge', 'Sable'],
-      lead: 'Forge',
+      members: ['forge', 'sable'],
+      lead: 'forge',
       chainCap: 3,
     });
 
@@ -598,8 +683,8 @@ describe('BotService creation', () => {
       id: expect.stringMatching(/^grp-launch-[0-9a-f]{4}$/) as string,
       kind: 'group',
       title: 'Launch',
-      members: ['Forge', 'Sable'],
-      lead: 'Forge',
+      members: ['forge', 'sable'],
+      lead: 'forge',
       chainCap: 3,
       updatedAt: expect.any(Number) as number,
     });
@@ -624,14 +709,16 @@ describe('BotService providers', () => {
 
     await service.createBot(botInput({ providers: PROVIDERS }));
 
-    expect(adapter.providerWrites).toEqual([{ botRoot: join(root, 'Forge'), providers: PROVIDERS }]);
+    expect(adapter.providerWrites).toEqual([
+      { botRoot: join(root, 'forge'), providers: PROVIDERS },
+    ]);
   });
 
   it('skips the writer when the wizard sent no providers', async () => {
     const { adapter, service } = harness();
 
     await service.createBot(botInput());
-    await service.createBot(botInput({ name: 'Sable', providers: [] }));
+    await service.createBot(botInput({ username: 'sable', name: 'Sable', providers: [] }));
 
     expect(adapter.providerWrites).toEqual([]);
   });
@@ -642,8 +729,10 @@ describe('BotService providers', () => {
       throw new Error('disk full');
     };
 
-    await expect(service.createBot(botInput({ providers: PROVIDERS }))).rejects.toThrow('disk full');
-    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    await expect(service.createBot(botInput({ providers: PROVIDERS }))).rejects.toThrow(
+      'disk full',
+    );
+    expect(existsSync(join(root, 'forge'))).toBe(false);
     expect(service.roster().bots).toHaveLength(0);
   });
 });
@@ -656,14 +745,11 @@ describe('BotService subagents', () => {
 
     await service.createBot(botInput({ subagents: SUBAGENTS, agentsMd: '# Forge workspace\n' }));
 
-    const botRoot = join(root, 'Forge');
+    const botRoot = join(root, 'forge');
     expect(adapter.subagentWrites).toEqual([{ botRoot, subagents: SUBAGENTS }]);
-    // The rows travel with the bot's identity, so a copied directory keeps them.
-    expect(readBotIdentity(botRoot)?.subagents).toEqual(SUBAGENTS);
-    // They are engine config now, not prose folded into the workspace document.
-    expect(readFileSync(join(botRoot, 'workspace', 'AGENTS.md'), 'utf8')).toBe(
-      '# Forge workspace\n',
-    );
+    // They are engine config: the layout gets them, and the record keeps none.
+    expect(readBotIdentity(botRoot)?.subagents).toBeUndefined();
+    expect(adapter.layout.writes[0]?.config.subagents).toEqual(SUBAGENTS);
   });
 
   it('never asks an engine without subagents to store them', async () => {
@@ -685,13 +771,18 @@ describe('BotService subagents', () => {
     expect(adapter.subagentWrites).toEqual([]);
   });
 
-  it('skips the writer when the wizard sent no rows', async () => {
+  it('writes subagents only when the wizard said something about them', async () => {
     const { adapter, service } = harness({ supportsSubagents: true });
 
+    // Absent means "Morse was never asked": the engine's own agents stay.
     await service.createBot(botInput());
-    await service.createBot(botInput({ name: 'Sable', subagents: [] }));
-
     expect(adapter.subagentWrites).toEqual([]);
+
+    // An explicit empty list is an answer — the form cleared them — so it is
+    // written, which is what removes them from the engine's config.
+    await service.createBot(botInput({ username: 'sable', name: 'Sable', subagents: [] }));
+    expect(adapter.subagentWrites).toHaveLength(1);
+    expect(adapter.subagentWrites[0]?.subagents).toEqual([]);
   });
 
   it('rolls the whole bot back when a subagent name is not usable', async () => {
@@ -701,12 +792,13 @@ describe('BotService subagents', () => {
       service.createBot(botInput({ subagents: [{ name: '../escape', prompt: 'Anything.' }] })),
     ).rejects.toThrow('not a usable subagent name');
 
-    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    expect(existsSync(join(root, 'forge'))).toBe(false);
     expect(adapter.subagentWrites).toEqual([]);
     expect(service.roster().bots).toHaveLength(0);
   });
 
-  it('refuses an unusable subagent name even for an engine that stores none', async () => {    // The service is the only validator — the wire checks message types, not
+  it('refuses an unusable subagent name even for an engine that stores none', async () => {
+    // The service is the only validator — the wire checks message types, not
     // names — so a pi bot must not keep an unvalidated name on its record just
     // because pi has nowhere to write it.
     const { root, adapter, service } = harness();
@@ -715,9 +807,231 @@ describe('BotService subagents', () => {
       service.createBot(botInput({ subagents: [{ name: 'has space', prompt: 'Anything.' }] })),
     ).rejects.toThrow('not a usable subagent name');
 
-    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    expect(existsSync(join(root, 'forge'))).toBe(false);
     expect(adapter.subagentWrites).toEqual([]);
     expect(service.roster().bots).toHaveLength(0);
+  });
+});
+
+describe('BotService edits', () => {
+  const SUBAGENTS = [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }];
+
+  it('inspects a bot back exactly as the wizard filled it', async () => {
+    const { service } = harness({ supportsSubagents: true, models: [MODEL] });
+
+    await service.createBot(
+      botInput({
+        avatar: '🔧',
+        persona: 'You are Forge.',
+        model: MODEL,
+        thinkingLevel: 'high',
+        agentsMd: '# Forge workspace\n',
+        subagents: SUBAGENTS,
+      }),
+    );
+
+    expect(service.inspectBot('forge')).toEqual({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      avatar: '🔧',
+      engineKind: 'fake',
+      model: MODEL,
+      thinkingLevel: 'high',
+      persona: 'You are Forge.',
+      envVars: ['ANTHROPIC_API_KEY'],
+      agentsMd: '# Forge workspace\n',
+      subagents: SUBAGENTS,
+    });
+  });
+
+  it('never sends credentials back with an inspect', async () => {
+    const { service } = harness();
+    await service.createBot(botInput());
+
+    // The keys live in the engine's own store; Morse must not claim to know them.
+    expect(service.inspectBot('forge')).not.toHaveProperty('credentials');
+  });
+
+  it('refuses to inspect a bot that does not exist', async () => {
+    const { service } = harness();
+
+    expect(() => service.inspectBot('nobody')).toThrow('No bot with the username "nobody"');
+  });
+
+  it('updateBot rewrites the record, the engine config and the roster', async () => {
+    const { root, adapter, service } = harness({ supportsSubagents: true });
+    await service.createBot(botInput({ agentsMd: '# old\n', subagents: SUBAGENTS }));
+    const events: string[] = [];
+    service.subscribe((event) => events.push(event.type));
+
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forged again',
+      description: 'Forged again',
+      avatar: '🔨',
+      persona: 'You are Forge, the builder.',
+      model: MODEL,
+      thinkingLevel: 'low',
+      envVars: ['OPENAI_API_KEY'],
+      agentsMd: '# new\n',
+      subagents: [{ name: 'auditor', prompt: 'Check it.' }],
+    });
+
+    const botRoot = join(root, 'forge');
+    // The index entry keeps identity; everything else went to the engine layout.
+    expect(readBotIdentity(botRoot)).toMatchObject({
+      username: 'forge',
+      name: 'Forged again',
+      description: 'Forged again',
+      avatar: '🔨',
+      engineKind: 'fake',
+      credentialEnv: ['OPENAI_API_KEY'],
+    });
+    expect(readBotIdentity(botRoot)).not.toHaveProperty('model');
+    expect(adapter.layout.writes.at(-1)?.config).toMatchObject({
+      persona: 'You are Forge, the builder.',
+      agentsMd: '# new\n',
+      model: MODEL,
+      thinkingLevel: 'low',
+      subagents: [{ name: 'auditor', prompt: 'Check it.' }],
+    });
+    // The roster reports what the engine holds, read back from the layout.
+    expect(service.roster().bots[0]).toMatchObject({
+      username: 'forge',
+      name: 'Forged again',
+      description: 'Forged again',
+      avatar: '🔨',
+      model: MODEL,
+      thinkingLevel: 'low',
+    });
+    expect(events).toContain('roster');
+  });
+
+  it('rewrites engine-side subagents, including an emptied list', async () => {
+    const { root, adapter, service } = harness({ supportsSubagents: true });
+    await service.createBot(botInput({ subagents: SUBAGENTS }));
+    const botRoot = join(root, 'forge');
+
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      persona: '',
+      envVars: [],
+      subagents: [{ name: 'auditor', prompt: 'Check it.' }],
+    });
+    expect(adapter.subagentWrites.at(-1)).toEqual({
+      botRoot,
+      subagents: [{ name: 'auditor', prompt: 'Check it.' }],
+    });
+
+    // Clearing them in the form must clear them where the engine reads them too.
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      persona: '',
+      envVars: [],
+      subagents: [],
+    });
+    expect(adapter.subagentWrites.at(-1)).toEqual({ botRoot, subagents: [] });
+    expect(readBotIdentity(botRoot)?.subagents).toBeUndefined();
+  });
+
+  it('leaves the stored credentials alone unless a key is pasted', async () => {
+    const { root, adapter, service } = harness();
+    await service.createBot(botInput());
+    const writes = adapter.credentialWrites.length;
+    const botRoot = join(root, 'forge');
+
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      persona: 'You are Forge.',
+      envVars: [],
+    });
+    expect(adapter.credentialWrites).toHaveLength(writes);
+
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      persona: 'You are Forge.',
+      envVars: [],
+      credentials: [{ provider: 'openai', apiKey: 'sk-new' }],
+    });
+    expect(adapter.credentialWrites.at(-1)).toEqual({
+      botRoot,
+      entries: [{ provider: 'openai', apiKey: 'sk-new' }],
+    });
+  });
+
+  it('drops the stored engine session so a saved persona takes effect', async () => {
+    const { root, adapter, service } = harness({ script: () => ({ text: 'ok' }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    expect(gatewayFor(adapter, 'forge').prompts[0]).not.toContain('You are Forge');
+
+    await service.updateBot({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Builds things',
+      persona: 'You are Forge.',
+      envVars: [],
+    });
+
+    // The stored session id is what would have resumed the old engine session.
+    expect(loadBotRegistry(root).conversations[0]?.sessions).toEqual({});
+    await service.send('dm-forge', 'again');
+    // The edited bot gets a fresh gateway (the old one went with its factory), and
+    // the persona it now runs under is the one written into the engine's files.
+    const gateways = adapter.factories
+      .filter((candidate) => basename(candidate.botRoot) === 'forge')
+      .flatMap((factory) => factory.gateways);
+    expect(gateways.length).toBeGreaterThan(1);
+    expect(adapter.layout.read(join(root, 'forge')).persona).toBe('You are Forge.');
+    expect(gateways.at(-1)?.prompts.at(-1)).toBe('[Forge] You: again');
+  });
+
+  it('refuses to edit a bot that is answering', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'late', hold: true }) });
+    await service.createBot(botInput());
+    const round = service.send('dm-forge', 'hi');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+
+    await expect(
+      service.updateBot({
+        username: 'forge',
+        name: 'Forge',
+        description: 'Builds things',
+        persona: 'You are Forge.',
+        envVars: [],
+      }),
+    ).rejects.toThrow('is answering: edit it once the turn ends.');
+
+    gateway.release();
+    await round;
+  });
+
+  it('refuses an unusable subagent name and keeps the old record', async () => {
+    const { root, service } = harness({ supportsSubagents: true });
+    await service.createBot(botInput({ subagents: SUBAGENTS }));
+
+    await expect(
+      service.updateBot({
+        username: 'forge',
+        name: 'Changed',
+        description: 'Changed',
+        persona: '',
+        envVars: [],
+        subagents: [{ name: 'has space', prompt: 'Anything.' }],
+      }),
+    ).rejects.toThrow('not a usable subagent name');
+
+    expect(readBotIdentity(join(root, 'forge'))?.description).toBe('Builds things');
   });
 });
 
@@ -728,23 +1042,24 @@ describe('BotService rounds', () => {
     const events: BotEvent[] = [];
     service.subscribe((event) => events.push(event));
 
-    await service.send('dm-Forge', 'hi');
+    await service.send('dm-forge', 'hi');
 
-    expect(gatewayFor(adapter, 'Forge').prompts).toEqual(['[Forge] You: hi']);
-    const entries = service.transcript('dm-Forge');
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Forge] You: hi']);
+    const entries = service.transcript('dm-forge');
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({ author: { role: 'user' }, text: 'hi' });
     expect(entries[1]).toMatchObject({ author: { role: 'bot', name: 'Forge' }, text: 'Done.' });
-    expect(service.open('dm-Forge')).toEqual(entries);
+    // Opening a conversation answers with its newest page, not the whole file.
+    expect(service.open('dm-forge')).toEqual({ entries, hasMore: false });
     expect(events).toContainEqual({
       type: 'transcript',
-      conversationId: 'dm-Forge',
+      conversationId: 'dm-forge',
       entries: [expect.objectContaining({ text: 'hi' })],
       replace: false,
     });
     expect(events).toContainEqual({
       type: 'routing',
-      state: { conversationId: 'dm-Forge', target: 'Forge', queued: [] },
+      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
     });
     expect(events.at(-1)).toEqual({ type: 'routing', state: null });
   });
@@ -754,19 +1069,19 @@ describe('BotService rounds', () => {
       script: ({ bot }) => ({ text: `${bot} here` }),
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
 
-    await service.send(group.id, '@Sable @Forge go');
+    await service.send(group.id, '@sable @forge go');
 
-    expect(gatewayFor(adapter, 'Sable').prompts).toEqual(['[Launch] You: @Sable @Forge go']);
-    expect(gatewayFor(adapter, 'Forge').prompts).toEqual([
-      '[Launch] You: @Sable @Forge go\n\n[Launch] Sable: Sable here',
+    expect(gatewayFor(adapter, 'sable').prompts).toEqual(['[Launch] You: @sable @forge go']);
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([
+      '[Launch] You: @sable @forge go\n\n[Launch] Sable: sable here',
     ]);
     const entries = service.transcript(group.id);
     expect(entries.map((entry) => entry.author)).toEqual([
       { role: 'user' },
-      { role: 'bot', name: 'Sable' },
-      { role: 'bot', name: 'Forge' },
+      { role: 'bot', name: 'Sable', username: 'sable' },
+      { role: 'bot', name: 'Forge', username: 'forge' },
     ]);
   });
 
@@ -775,13 +1090,13 @@ describe('BotService rounds', () => {
       script: ({ bot }) => ({ text: `${bot} here` }),
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
 
     await service.send(group.id, '@all standup');
 
-    expect(gatewayFor(adapter, 'Forge').prompts).toEqual(['[Launch] You: @all standup']);
-    expect(gatewayFor(adapter, 'Sable').prompts).toEqual([
-      '[Launch] You: @all standup\n\n[Launch] Forge: Forge here',
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Launch] You: @all standup']);
+    expect(gatewayFor(adapter, 'sable').prompts).toEqual([
+      '[Launch] You: @all standup\n\n[Launch] Forge: forge here',
     ]);
     expect(
       service
@@ -789,8 +1104,8 @@ describe('BotService rounds', () => {
         .filter((entry) => entry.author.role === 'bot')
         .map((entry) => entry.author),
     ).toEqual([
-      { role: 'bot', name: 'Forge' },
-      { role: 'bot', name: 'Sable' },
+      { role: 'bot', name: 'Forge', username: 'forge' },
+      { role: 'bot', name: 'Sable', username: 'sable' },
     ]);
   });
 
@@ -799,23 +1114,23 @@ describe('BotService rounds', () => {
     await twoBots(service);
     const group = service.createGroup({
       name: 'Launch',
-      members: ['Forge', 'Sable'],
-      lead: 'Forge',
+      members: ['forge', 'sable'],
+      lead: 'forge',
     });
 
     await service.send(group.id, 'what next');
 
-    expect(gatewayFor(adapter, 'Forge').prompts).toEqual([
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([
       'You are the lead of the group "Launch". Answer or @mention the teammate who should answer.\n\n' +
         '[Launch] You: what next',
     ]);
-    expect(factoryFor(adapter, 'Sable').gateways).toHaveLength(0);
+    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });
 
   it('no lead means silence', async () => {
     const { adapter, service } = harness();
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     const events: BotEvent[] = [];
     service.subscribe((event) => events.push(event));
 
@@ -823,18 +1138,18 @@ describe('BotService rounds', () => {
 
     expect(service.transcript(group.id).map((entry) => entry.author)).toEqual([{ role: 'user' }]);
     expect(events.filter((event) => event.type === 'routing')).toEqual([]);
-    expect(factoryFor(adapter, 'Forge').gateways).toHaveLength(0);
-    expect(factoryFor(adapter, 'Sable').gateways).toHaveLength(0);
+    expect(factoryFor(adapter, 'forge').gateways).toHaveLength(0);
+    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });
 
   it('chain stops at the cap and records a capped note', async () => {
     const { adapter, service } = harness({
-      script: ({ bot }) => ({ text: bot === 'Forge' ? '@Sable ping' : '@Forge pong' }),
+      script: ({ bot }) => ({ text: bot === 'forge' ? '@sable ping' : '@forge pong' }),
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'], chainCap: 2 });
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'], chainCap: 2 });
 
-    await service.send(group.id, '@Forge go');
+    await service.send(group.id, '@forge go');
 
     const entries = service.transcript(group.id);
     expect(entries.filter((entry) => entry.author.role === 'bot')).toHaveLength(3);
@@ -843,47 +1158,47 @@ describe('BotService rounds', () => {
       .map((entry) => entry.text);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toBe('Chain capped after 2 hops');
-    expect(gatewayFor(adapter, 'Forge').prompts).toHaveLength(2);
-    expect(gatewayFor(adapter, 'Sable').prompts).toHaveLength(1);
+    expect(gatewayFor(adapter, 'forge').prompts).toHaveLength(2);
+    expect(gatewayFor(adapter, 'sable').prompts).toHaveLength(1);
   });
 
   it('unknown and self mentions are ignored with a note', async () => {
     const { adapter, service } = harness({
-      script: () => ({ text: '@Forge @nobody hello' }),
+      script: () => ({ text: '@forge @nobody hello' }),
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
 
-    await service.send(group.id, '@Forge go');
+    await service.send(group.id, '@forge go');
 
     const notes = service
       .transcript(group.id)
       .filter((entry) => entry.author.role === 'system')
       .map((entry) => entry.text);
     expect(notes).toEqual([
-      'Ignored mention of @Forge: a bot does not relay to itself.',
+      'Ignored mention of @forge: a bot does not relay to itself.',
       'Ignored mention of @nobody: not a member of this conversation.',
     ]);
-    expect(factoryFor(adapter, 'Sable').gateways).toHaveLength(0);
+    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });
 
   it('send during a round is refused with a system note', async () => {
     const { adapter, service } = harness({ script: () => ({ text: 'late', hold: true }) });
     await service.createBot(botInput());
-    const first = service.send('dm-Forge', 'hi');
-    const gateway = gatewayFor(adapter, 'Forge');
+    const first = service.send('dm-forge', 'hi');
+    const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
 
-    const second = service.send('dm-Forge', 'again');
+    const second = service.send('dm-forge', 'again');
 
     await expect(second).rejects.toThrow('A round is already running in this conversation.');
-    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'system' },
       text: 'A round is already running in this conversation.',
     });
     gateway.release();
     await first;
-    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'late',
     });
@@ -891,21 +1206,21 @@ describe('BotService rounds', () => {
 
   it('stop aborts and clears the queue', async () => {
     const { adapter, service } = harness({
-      script: () => ({ text: '@Sable take over', hold: true }),
+      script: () => ({ text: '@sable take over', hold: true }),
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     const events: BotEvent[] = [];
     service.subscribe((event) => events.push(event));
-    const first = service.send(group.id, '@Forge go');
-    const gateway = gatewayFor(adapter, 'Forge');
+    const first = service.send(group.id, '@forge go');
+    const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
 
     service.stop(group.id);
     await first;
 
     expect(gateway.aborted).toBe(true);
-    expect(factoryFor(adapter, 'Sable').gateways).toHaveLength(0);
+    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
     expect(service.transcript(group.id).map((entry) => entry.author)).toEqual([
       { role: 'user' },
       { role: 'system' },
@@ -922,23 +1237,23 @@ describe('BotService rounds', () => {
       script: ({ call }) => (call === 1 ? { hold: true, abortSilently: true } : { text: 'ok' }),
     });
     await service.createBot(botInput());
-    const first = service.send('dm-Forge', 'hi');
-    const gateway = gatewayFor(adapter, 'Forge');
+    const first = service.send('dm-forge', 'hi');
+    const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
 
-    service.stop('dm-Forge');
+    service.stop('dm-forge');
 
     // The abort resolved without a run-end; the round still has to settle,
     // otherwise every later send is refused forever.
     await expect(first).resolves.toBeUndefined();
     expect(gateway.aborted).toBe(true);
-    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'system' },
       text: 'Stopped.',
     });
 
-    await service.send('dm-Forge', 'again');
-    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+    await service.send('dm-forge', 'again');
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'ok',
     });
@@ -949,9 +1264,9 @@ describe('BotService sessions', () => {
   it('resume reuses stored engine session ids', async () => {
     const { root, service } = harness({ script: () => ({ text: 'ok' }) });
     await service.createBot(botInput());
-    await service.send('dm-Forge', 'hi');
-    const stored = loadBotRegistry(root).conversations[0]?.sessions['Forge']?.engineSessionId;
-    expect(stored).toBe('Forge-session-1');
+    await service.send('dm-forge', 'hi');
+    const stored = loadBotRegistry(root).conversations[0]?.sessions['forge']?.engineSessionId;
+    expect(stored).toBe('forge-session-1');
 
     await service.dispose();
 
@@ -960,9 +1275,9 @@ describe('BotService sessions', () => {
     });
     const restarted = serviceOn(root, restartedAdapter);
     registerService(restarted);
-    await restarted.send('dm-Forge', 'again');
+    await restarted.send('dm-forge', 'again');
 
-    const resumed = factoryFor(restartedAdapter, 'Forge');
+    const resumed = factoryFor(restartedAdapter, 'forge');
     expect(resumed.createCalls).toHaveLength(1);
     expect(resumed.createCalls[0]?.sessionId).toBe(stored);
   });
@@ -971,30 +1286,31 @@ describe('BotService sessions', () => {
     const { root, adapter, service } = harness();
     await twoBots(service);
 
-    await service.send('dm-Forge', 'hi');
-    await service.send('dm-Sable', 'hi');
+    await service.send('dm-forge', 'hi');
+    await service.send('dm-sable', 'hi');
 
-    const forge = factoryFor(adapter, 'Forge');
-    const sable = factoryFor(adapter, 'Sable');
+    const forge = factoryFor(adapter, 'forge');
+    const sable = factoryFor(adapter, 'sable');
     expect(forge).not.toBe(sable);
-    expect(forge.botRoot).toBe(join(root, 'Forge'));
-    expect(sable.botRoot).toBe(join(root, 'Sable'));
+    expect(forge.botRoot).toBe(join(root, 'forge'));
+    expect(sable.botRoot).toBe(join(root, 'sable'));
     expect(forge.gateways[0]).not.toBe(sable.gateways[0]);
     expect(forge.gateways[0]?.prompts).toEqual(['[Forge] You: hi']);
     expect(sable.gateways[0]?.prompts).toEqual(['[Sable] You: hi']);
   });
 
-  it("fresh session's first prompt carries the persona prefix", async () => {
+  it('sends only what the reader typed: the persona is the engine own file', async () => {
     const { adapter, service } = harness();
     await service.createBot(botInput({ persona: 'You are Forge, the builder.' }));
 
-    await service.send('dm-Forge', 'hi');
-    await service.send('dm-Forge', 'again');
+    await service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'again');
 
-    expect(gatewayFor(adapter, 'Forge').prompts).toEqual([
-      'You are Forge, the builder.\n\n---\n\n[Forge] You: hi',
-      '[Forge] You: again',
-    ]);
+    // The persona is not prefixed onto a prompt: it goes into the engine's own
+    // instruction file (pi's agent-dir AGENTS.md, OpenCode's `instructions`), so
+    // the engine applies it exactly as it would for a hand-built agent.
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Forge] You: hi', '[Forge] You: again']);
+    expect(adapter.layout.writes[0]?.config.persona).toBe('You are Forge, the builder.');
   });
 
   it('a thinking level the model lacks is noted, not fatal', async () => {
@@ -1004,11 +1320,11 @@ describe('BotService sessions', () => {
     });
     await service.createBot(botInput({ thinkingLevel: 'medium' }));
 
-    await service.send('dm-Forge', 'hi');
+    await service.send('dm-forge', 'hi');
 
-    const gateway = gatewayFor(adapter, 'Forge');
+    const gateway = gatewayFor(adapter, 'forge');
     expect(gateway.levelsApplied).toEqual([]);
-    const entries = service.transcript('dm-Forge');
+    const entries = service.transcript('dm-forge');
     expect(entries.map((entry) => entry.text)).toContain(
       'Thinking level "medium" is not available on this model — using the engine default.',
     );
@@ -1021,43 +1337,82 @@ describe('BotService sessions', () => {
   it('newDiscussion starts fresh sessions', async () => {
     const { root, adapter, service } = harness();
     await service.createBot(botInput());
-    await service.send('dm-Forge', 'hi');
-    const before = loadBotRegistry(root).conversations[0]?.sessions['Forge']?.engineSessionId;
+    await service.send('dm-forge', 'hi');
+    const before = loadBotRegistry(root).conversations[0]?.sessions['forge']?.engineSessionId;
 
-    service.newDiscussion('dm-Forge');
-    await service.send('dm-Forge', 'again');
+    service.newDiscussion('dm-forge');
+    await service.send('dm-forge', 'again');
 
-    const factory = factoryFor(adapter, 'Forge');
+    const factory = factoryFor(adapter, 'forge');
     expect(factory.createCalls).toHaveLength(2);
     expect(factory.createCalls[1]?.sessionId).toBeUndefined();
     expect(factory.gateways[0]?.disposed).toBe(true);
-    const after = loadBotRegistry(root).conversations[0]?.sessions['Forge']?.engineSessionId;
+    const after = loadBotRegistry(root).conversations[0]?.sessions['forge']?.engineSessionId;
     expect(after).not.toBe(before);
-    expect(after).toBe('Forge-session-2');
+    expect(after).toBe('forge-session-2');
   });
 
   it('newDiscussion during a queued round stops the round', async () => {
     const { adapter, service } = harness({
       script: ({ bot }) =>
-        bot === 'Forge' ? { text: '@Sable take over', hold: true } : { text: 'Sable here' },
+        bot === 'forge' ? { text: '@sable take over', hold: true } : { text: 'Sable here' },
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['Forge', 'Sable'] });
-    const first = service.send(group.id, '@Forge go');
-    const forge = gatewayFor(adapter, 'Forge');
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const first = service.send(group.id, '@forge go');
+    const forge = gatewayFor(adapter, 'forge');
     await forge.prompted;
 
     service.newDiscussion(group.id);
     await first;
 
     // The queued relay must not be delivered on the sessions just abandoned.
-    expect(factoryFor(adapter, 'Sable').gateways).toHaveLength(0);
+    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
     expect(forge.prompts).toHaveLength(1);
     expect(forge.disposed).toBe(true);
-    expect(service.transcript(group.id).map((entry) => entry.text)).toEqual([
-      '@Forge go',
-      'New discussion started.',
+    // The boundary is a divider in the same transcript, so one chat reads as the
+    // sequence of engine sessions it is.
+    expect(service.transcript(group.id).map((entry) => entry.author)).toEqual([
+      { role: 'user' },
+      { role: 'discussion' },
     ]);
+    expect(service.transcript(group.id).map((entry) => entry.text)).toEqual([
+      '@forge go',
+      'New discussion',
+    ]);
+  });
+
+  it('keeps a conversation across a restart, and marks a new discussion', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'morse-bot-restart-'));
+    const first = serviceOn(dir, new FakeAdapter(() => ({ text: 'Done.' })));
+    registerService(first);
+    await first.createBot(botInput());
+    await first.send('dm-forge', 'hi');
+    first.newDiscussion('dm-forge');
+    await first.dispose();
+
+    // A new service over the same directory: the transcript is a file, not a map.
+    const second = serviceOn(dir, new FakeAdapter(() => ({ text: 'Again.' })));
+    registerService(second);
+
+    const roles = second.transcript('dm-forge').map((entry) => entry.author.role);
+    expect(roles).toEqual(['user', 'bot', 'discussion']);
+    expect(second.transcript('dm-forge').map((entry) => entry.text)).toEqual([
+      'hi',
+      'Done.',
+      'New discussion',
+    ]);
+
+    // Opening it shows the newest page; scrolling up asks for the one before it.
+    const opened = second.open('dm-forge', 2);
+    expect(opened.entries.map((entry) => entry.text)).toEqual(['Done.', 'New discussion']);
+    expect(opened.hasMore).toBe(true);
+    const older = second.history('dm-forge', opened.entries[0]?.id, 2);
+    expect(older.entries.map((entry) => entry.text)).toEqual(['hi']);
+    expect(older.hasMore).toBe(false);
+
+    await second.dispose();
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('idle gateway is disposed after idleMs', async () => {
@@ -1065,14 +1420,14 @@ describe('BotService sessions', () => {
     const { adapter, service } = harness({ idleMs: 1_000 });
     await service.createBot(botInput());
 
-    await service.send('dm-Forge', 'hi');
-    const gateway = gatewayFor(adapter, 'Forge');
+    await service.send('dm-forge', 'hi');
+    const gateway = gatewayFor(adapter, 'forge');
     expect(service.roster().bots[0]?.warm).toBe(true);
 
     await vi.advanceTimersByTimeAsync(500);
     expect(gateway.disposed).toBe(false);
 
-    await service.send('dm-Forge', 'again');
+    await service.send('dm-forge', 'again');
     await vi.advanceTimersByTimeAsync(999);
     expect(gateway.disposed).toBe(false);
 
@@ -1094,8 +1449,8 @@ describe('BotService liveness', () => {
       },
     });
     await service.createBot(botInput());
-    const pending = service.send('dm-Forge', 'hi');
-    const gateway = gatewayFor(adapter, 'Forge');
+    const pending = service.send('dm-forge', 'hi');
+    const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
 
     await vi.advanceTimersByTimeAsync(1_000);
@@ -1103,15 +1458,15 @@ describe('BotService liveness', () => {
 
     expect(
       service
-        .transcript('dm-Forge')
+        .transcript('dm-forge')
         .filter((entry) => entry.author.role === 'system')
         .map((entry) => entry.text),
     ).toEqual(['Turn timed out after 1s']);
     expect(gateway.disposed).toBe(true);
     expect(service.roster().bots[0]?.warm).toBe(false);
 
-    await service.send('dm-Forge', 'again');
-    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+    await service.send('dm-forge', 'again');
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'ok',
     });
@@ -1122,21 +1477,21 @@ describe('BotService liveness', () => {
     const { adapter, service } = harness({ turnTimeoutMs: 1_000, hangFirstCreate: true });
     await service.createBot(botInput());
 
-    const pending = service.send('dm-Forge', 'hi');
+    const pending = service.send('dm-forge', 'hi');
     await flush();
     await vi.advanceTimersByTimeAsync(1_000);
     await pending;
 
     expect(
       service
-        .transcript('dm-Forge')
+        .transcript('dm-forge')
         .filter((entry) => entry.author.role === 'system')
         .map((entry) => entry.text),
     ).toEqual(['Forge could not start: gateway creation timed out after 1s']);
-    expect(factoryFor(adapter, 'Forge').createCalls).toHaveLength(1);
+    expect(factoryFor(adapter, 'forge').createCalls).toHaveLength(1);
 
-    await service.send('dm-Forge', 'again');
-    expect(factoryFor(adapter, 'Forge').createCalls).toHaveLength(2);
+    await service.send('dm-forge', 'again');
+    expect(factoryFor(adapter, 'forge').createCalls).toHaveLength(2);
   });
 });
 
@@ -1154,37 +1509,74 @@ describe('BotService interactions', () => {
         ],
       },
       { requestId: 'r3', kind: 'input', title: 'Name the release' },
-      { requestId: 'r4', kind: 'editor', title: 'Edit the notes' },
-      { requestId: 'r5', kind: 'form', title: 'Settings', fields: [] },
+      {
+        requestId: 'r4',
+        kind: 'editor',
+        title: 'Web Search',
+        value: 'senior platform engineer jakarta',
+      },
+      { requestId: 'r5', kind: 'editor', title: 'Edit the notes' },
+      {
+        requestId: 'r6',
+        kind: 'form',
+        title: 'Settings',
+        fields: [
+          { key: 'name', label: 'Name', type: 'text' },
+          { key: 'seeded', label: 'Seeded', type: 'text', defaultValue: 'from-the-engine' },
+          {
+            key: 'level',
+            label: 'Level',
+            type: 'select',
+            options: [{ value: 'high', label: 'High' }],
+          },
+          { key: 'strict', label: 'Strict', type: 'boolean' },
+          { key: 'count', label: 'Count', type: 'integer' },
+          { key: 'tags', label: 'Tags', type: 'multiselect' },
+        ],
+      },
     ];
     const { adapter, service } = harness({
       script: () => ({ interactions: requests, text: 'All done.' }),
     });
     await service.createBot(botInput());
 
-    await service.send('dm-Forge', 'go');
+    await service.send('dm-forge', 'go');
 
-    const gateway = gatewayFor(adapter, 'Forge');
+    const gateway = gatewayFor(adapter, 'forge');
     expect(gateway.responses).toEqual([
       { requestId: 'r1', confirmed: true },
       { requestId: 'r2', value: 'fast' },
       { requestId: 'r3', value: '' },
-      { requestId: 'r4', cancelled: true },
-      { requestId: 'r5', cancelled: true },
+      // An editor prompt is answered with the engine's own draft, not dismissed:
+      // a dismissed one loses the tool call (a web search never runs).
+      { requestId: 'r4', value: 'senior platform engineer jakarta' },
+      { requestId: 'r5', value: '' },
+      {
+        requestId: 'r6',
+        values: {
+          name: '',
+          seeded: 'from-the-engine',
+          level: 'high',
+          strict: false,
+          count: 0,
+          tags: [],
+        },
+      },
     ]);
     expect(
       service
-        .transcript('dm-Forge')
+        .transcript('dm-forge')
         .filter((entry) => entry.author.role === 'system')
         .map((entry) => entry.text),
     ).toEqual([
       'Auto-answered: confirmed "Allow the tool?"',
       'Auto-answered: selected the first option of "Pick a model"',
       'Auto-answered: left "Name the release" blank',
-      'Auto-answered: cancelled "Edit the notes"',
-      'Auto-answered: cancelled "Settings"',
+      'Auto-answered: filled "Web Search" from its draft',
+      'Auto-answered: left "Edit the notes" blank',
+      'Auto-answered: filled "Settings" with its defaults',
     ]);
-    expect(service.transcript('dm-Forge').at(-1)).toMatchObject({
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'All done.',
     });
@@ -1247,10 +1639,10 @@ describe('BotService engine teardown', () => {
     const factory = adapter.factories[0];
     expect(factory?.disposes).toBe(0);
 
-    await service.deleteBot('Forge');
+    await service.deleteBot('forge');
 
     expect(factory?.disposes).toBe(1);
-    await service.deleteBot('Forge').catch(() => undefined);
+    await service.deleteBot('forge').catch(() => undefined);
     expect(factory?.disposes).toBe(1);
   });
 

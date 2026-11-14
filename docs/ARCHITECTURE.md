@@ -255,6 +255,16 @@ it.
 talk to a mismatched build instead of failing mysteriously. The wire messages are validated by
 `parseClientMessage` / `parseHostMessage`, so malformed frames are ignored rather than crashing a host.
 
+## Data compatibility and upgrades
+
+`.morse/` carries a layout version, and `morse start` brings it forward before any service reads it:
+versioned migrations once per step (stamped per step, so an interrupted upgrade resumes), then an additive
+reconcile on every start that repairs drift without overwriting what the reader owns. A directory written by
+a newer Morse is refused rather than downgraded, and every step backs up the JSON it rewrites first. The
+contract, the failure rules and how to add a step are in [DATA-COMPATIBILITY.md](DATA-COMPATIBILITY.md);
+the runner is `packages/system/src/data/layout.ts`, and bot mode's steps and repair pass are
+`packages/system/src/bot/data.ts`.
+
 ## NestJS host specifics
 
 Two things about the NestJS host are easy to get wrong:

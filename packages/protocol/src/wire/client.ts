@@ -7,6 +7,7 @@ import type {
   BotCredentialInput,
   BotGroupCreateInput,
   BotProviderCredentialInput,
+  BotUpdateInput,
   ChatPin,
   FrontendIdentity,
   InteractionResponse,
@@ -265,6 +266,26 @@ export interface BotDeleteMessage extends ClientMessageBase {
 }
 
 /**
+ * Reads one bot's own record, so Edit bot can show what is already configured.
+ * The answer is `bot/config`; credentials stay in the engine's auth store and are
+ * never sent back.
+ */
+export interface BotInspectMessage extends ClientMessageBase {
+  type: 'bot/inspect';
+  payload: { name: string };
+}
+
+/**
+ * Saves an edit to one bot. The host rewrites its record, its AGENTS.md and its
+ * engine-side subagents, then answers with a fresh `bot/roster`. A name or engine
+ * change is not an edit — that is a new bot.
+ */
+export interface BotUpdateMessage extends ClientMessageBase {
+  type: 'bot/update';
+  payload: BotUpdateInput;
+}
+
+/**
  * Lists the models an engine offers with the wizard's credentials, before any
  * bot exists: the probe runs in a throwaway root, writes the collected
  * credentials there, and answers with `bot/models`. Credentials travel because
@@ -294,10 +315,23 @@ export interface BotDiscoverModelsMessage extends ClientMessageBase {
   };
 }
 
-/** Switches the bot workspace to one conversation and asks for its transcript. */
+/**
+ * Switches the bot workspace to one conversation and asks for the newest page of
+ * its transcript. `limit` is a page size; the host clamps it.
+ */
 export interface BotOpenMessage extends ClientMessageBase {
   type: 'bot/open';
-  payload: { conversationId: string };
+  payload: { conversationId: string; limit?: number };
+}
+
+/**
+ * One page further back in a conversation: what the chat asks for when the
+ * reader scrolls to the top. `before` is the id of the oldest entry the client
+ * holds, so the host can answer with exactly what precedes it.
+ */
+export interface BotHistoryMessage extends ClientMessageBase {
+  type: 'bot/history';
+  payload: { conversationId: string; before?: string; limit?: number };
 }
 
 /** Sends the reader's line to a conversation and starts a routing round. */
@@ -358,9 +392,12 @@ export type ClientToHostMessage =
   | BotListRequestMessage
   | BotCreateMessage
   | BotDeleteMessage
+  | BotInspectMessage
+  | BotUpdateMessage
   | BotProbeModelsMessage
   | BotDiscoverModelsMessage
   | BotOpenMessage
+  | BotHistoryMessage
   | BotSendMessage
   | BotStopMessage
   | BotNewDiscussionMessage

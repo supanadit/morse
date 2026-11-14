@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  signal,
   untracked,
   viewChild,
 } from '@angular/core';
@@ -34,6 +35,9 @@ import { ChatComposer } from '../composer/composer';
 export class BotChat {
   protected readonly morse = inject(MorseService);
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scroll');
+  private readonly dockElement = viewChild<ElementRef<HTMLElement>>('dock');
+  /** The floating composer's measured height, exposed as `--morse-dock-height`. */
+  protected readonly dockHeight = signal(0);
 
   /** The conversation in front, named from the roster; `undefined` before one opens. */
   protected readonly conversation = computed<BotConversationSummary | undefined>(() => {
@@ -48,6 +52,14 @@ export class BotChat {
     const id = this.morse.bot.activeId();
     return id === null ? [] : (this.morse.bot.transcripts()[id] ?? []);
   });
+  /** Whether the host said older entries exist before the ones held. */
+  protected readonly hasOlder = computed(() => {
+    const id = this.morse.bot.activeId();
+    return id === null ? false : this.morse.bot.hasOlder()[id] === true;
+  });
+  /** True while a page of older entries is in flight, so the row says so. */
+  protected readonly loadingOlder = signal(false);
+
   /**
    * The round in flight, and only when it belongs to the conversation in front:
    * a bot still answering in another room must not put "Asking …" over this one.
@@ -60,11 +72,38 @@ export class BotChat {
   });
 
   constructor() {
+    /*
+     * The transcript reserves the floating composer's height at its end, so the
+     * last line is never behind the glass. Measured rather than a constant: the
+     * slab grows with a long draft or an attachments row, and a fixed pad would be
+     * wrong by exactly the amount that matters. Same mechanism as code mode's dock.
+     */
+    effect((onCleanup) => {
+      const dock = this.dockElement()?.nativeElement;
+      if (!dock || typeof ResizeObserver === 'undefined') {
+        this.dockHeight.set(0);
+        return;
+      }
+      const observer = new ResizeObserver(() => {
+        this.dockHeight.set(Math.round(dock.getBoundingClientRect().height));
+      });
+      observer.observe(dock);
+      onCleanup(() => observer.disconnect());
+    });
     // Follow the newest line, the way a chat does. Corrected after render: the
     // new entry has to be in the DOM before there is a bottom to reach.
     effect(() => {
-      this.entries();
+      const count = this.entries().length;
+      const last = this.entries().at(-1)?.id;
       untracked(() => {
+        // A page prepended by scrolling up must not yank the reader back down.
+        if (this.loadingOlder()) {
+          this.loadingOlder.set(false);
+          return;
+        }
+        if (count === 0 || last === undefined) {
+          return;
+        }
         setTimeout(() => {
           const host = this.scrollHost()?.nativeElement;
           if (host) {
@@ -75,9 +114,43 @@ export class BotChat {
     });
   }
 
+  /** The divider's wall-clock time, so a boundary is placeable in the day. */
+  protected when(at: number): string {
+    return new Date(at).toLocaleString();
+  }
+
+  protected stamp(at: number): string {
+    return new Date(at).toISOString();
+  }
+
   /** A bot's mark: its own avatar when it has one, else the letter it starts with. */
   protected mark(author: BotAuthor & { role: 'bot' }): string {
     return author.avatar ?? author.name.slice(0, 1).toUpperCase();
+  }
+
+  /** A group's members by display name: the row is for the reader, not for keys. */
+  protected memberNames(conversation: BotConversationSummary): string {
+    const names = new Map(this.morse.bot.roster()?.bots.map((bot) => [bot.username, bot.name]));
+    return conversation.members.map((member) => names.get(member) ?? member).join(', ');
+  }
+
+  /**
+   * Scroll-to-top paging: near the top, ask for the page before the oldest entry
+   * held. `loadingOlder` keeps one request in flight, so a scroll gesture cannot
+   * ask twice; the host's answer clears it.
+   */
+  protected onScroll(event: Event): void {
+    const host = event.target as HTMLElement;
+    if (host.scrollTop > 48 || !this.hasOlder() || this.loadingOlder()) {
+      return;
+    }
+    const id = this.morse.bot.activeId();
+    const oldest = this.entries()[0];
+    if (id === null || oldest === undefined) {
+      return;
+    }
+    this.loadingOlder.set(true);
+    this.morse.loadOlderBotHistory(id, oldest.id);
   }
 
   /** The round's Stop: aborts the turn in flight and drops the queued relays. */ protected stop(): void {

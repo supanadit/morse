@@ -20,16 +20,17 @@
     <fieldset class="members">
       <legend class="field-label">Members <span class="required">at least one</span></legend>
       @if (bots().length > 0) {
-        @for (bot of bots(); track bot.name) {
+        @for (bot of bots(); track bot.username) {
           <label class="member">
             <input
               type="checkbox"
-              [attr.data-bot]="bot.name"
-              [checked]="members().includes(bot.name)"
-              (change)="toggleMember(bot.name)"
+              [attr.data-bot]="bot.username"
+              [checked]="members().includes(bot.username)"
+              (change)="toggleMember(bot.username)"
             />
             <span class="member-body">
               <span class="member-name">{{ bot.name }}</span>
+              <span class="member-handle">&#64;{{ bot.username }}</span>
               <span class="member-description">{{ bot.description }}</span>
             </span>
           </label>
@@ -44,7 +45,7 @@
       <select name="lead" [disabled]="members().length === 0" (change)="setLead($event)">
         <option value="" [selected]="lead() === ''">No lead — only @mentions answer</option>
         @for (member of members(); track member) {
-          <option [value]="member" [selected]="lead() === member">{{ member }}</option>
+          <option [value]="member" [selected]="lead() === member">{{ label(member) }}</option>
         }
       </select>
       <span class="field-note">

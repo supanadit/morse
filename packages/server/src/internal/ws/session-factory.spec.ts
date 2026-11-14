@@ -51,7 +51,11 @@ function fakeBot() {
     deleteBot: vi.fn(async () => undefined),
     createGroup: vi.fn(() => group),
     probeModels: vi.fn(async () => [{ provider: 'pi', id: 'm', name: 'M' }]),
-    open: vi.fn(() => [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }]),
+    open: vi.fn(() => ({
+      entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+      hasMore: false,
+    })),
+    history: vi.fn(() => ({ entries: [], hasMore: false })),
     send: vi.fn(() => Promise.resolve()),
     stop: vi.fn(),
     newDiscussion: vi.fn(),
@@ -255,6 +259,7 @@ describe('MorseSessionFactory bot wiring', () => {
         conversationId: 'dm-x',
         entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
         replace: true,
+        hasMore: false,
       },
     });
   });

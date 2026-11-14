@@ -8,131 +8,225 @@
 }
 
 /*
- * The two ways to add something, above both lists: a reader reaches for them
- * before there is a row to pick, and they read as actions rather than rows.
+ * The head: a search field and one `+`. The field takes the width the two old
+ * side-by-side creation buttons did; the entries they held live in the `+` menu.
  */
 .head {
   flex: none;
   display: flex;
+  align-items: center;
   gap: 6px;
   padding: 9px 10px 6px;
 }
-.create {
+
+.search {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
+}
+
+.search-glyph {
+  position: absolute;
+  left: 8px;
+  display: inline-flex;
+  color: var(--morse-fg-muted);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.search-glyph svg {
+  display: block;
+}
+
+.search-input {
+  width: 100%;
   height: 30px;
-  padding: 0 8px;
+  box-sizing: border-box;
+  padding: 0 26px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.search-input::placeholder {
+  color: var(--morse-fg-muted);
+}
+
+.search-input:hover {
+  border-color: var(--morse-fg-muted);
+}
+
+/* The host's own clear glyph differs per platform; one button keeps it ours. */
+.search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-clear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.create-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--morse-radius-md);
   background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
   color: var(--morse-fg);
   font: inherit;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
   transition: background 120ms ease;
 }
-.create:hover {
-  background: color-mix(in srgb, var(--morse-fg) 8%, transparent);
-}
-.plus {
-  color: var(--morse-fg-muted);
-  font-size: 14px;
-  line-height: 1;
+
+.create-toggle:hover {
+  background: color-mix(in srgb, var(--morse-fg) 9%, transparent);
 }
 
-/* The roster scrolls under the actions; the sections keep their own heading. */
+.create-toggle[aria-expanded='true'] {
+  background: var(--morse-active);
+}
+
+/* The roster scrolls under the head; the sections keep their own heading. */
 .roster {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 6px 8px;
+  padding: 0 10px 12px;
 }
+
 .section + .section {
-  margin-top: 10px;
+  margin-top: 12px;
 }
+
 .section-head {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 2px;
+  padding: 0 2px 3px;
 }
+
 .section-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 3px 6px;
   color: var(--morse-fg-muted);
   font-size: 10.5px;
   font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
+
 .section-head .count {
   flex: none;
+  color: var(--morse-fg-muted);
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
-  color: var(--morse-fg-muted);
 }
+
 ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-/* A row is one conversation: avatar, name over description, presence. */
-.bot-row {
+/* A row is one conversation: tile, name over description, and its actions. */
+.bot-row,
+.group-row {
   display: flex;
   align-items: center;
   gap: 2px;
+  border-radius: var(--morse-radius-md);
 }
-.bot-row .row {
+
+.bot-row:hover,
+.group-row:hover {
+  background: var(--morse-hover);
+}
+
+.bot-row:has(.row.active),
+.group-row:has(.row.active) {
+  background: var(--morse-active);
+}
+
+.row {
   flex: 1;
   min-width: 0;
-  width: auto;
-}
-.row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
+  gap: 9px;
+  padding: 6px 8px;
   border: 0;
   border-radius: var(--morse-radius-md);
   background: transparent;
   color: var(--morse-fg);
+  font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease;
 }
-.row:hover {
-  background: var(--morse-hover);
+
+.row:hover,
+.row:hover:not(:disabled) {
+  background: transparent;
 }
-.row.active {
-  background: var(--morse-active);
-}
-.avatar {
+
+/*
+ * The tile: a bot's emoji or initial, a group's letter, in one fixed square so
+ * every row lines up whatever the mark is. `1em` glyphs of different widths
+ * (an emoji is wider than a letter) would otherwise shift the names.
+ */
+.tile {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 6%, transparent);
   color: var(--morse-fg);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1;
 }
-/* A group is a room, not a bot: its mark stays quiet behind the title. */
-.avatar.group-mark {
-  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+
+.group-mark {
+  color: var(--morse-fg-muted);
 }
+
 .body {
   flex: 1;
   min-width: 0;
@@ -140,65 +234,171 @@ ul {
   flex-direction: column;
   gap: 1px;
 }
-.name {
-  min-width: 0;
+
+.name,
+.description {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.name {
   font-size: 12.5px;
   font-weight: 500;
 }
+
+.row.active .name {
+  font-weight: 600;
+}
+
 .description {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--morse-fg-muted);
   font-size: 11px;
 }
-/*
- * Presence: a warm bot's engine is running, so the dot is lit; a cold one waits
- * for its first message and stays a quiet ring.
- */
+
+/* Warm means the engine is running; cold starts on the first message. */
 .presence {
   flex: none;
   width: 7px;
   height: 7px;
+  margin-left: 2px;
   border: 1px solid color-mix(in srgb, var(--morse-fg) 25%, transparent);
   border-radius: 50%;
 }
+
 .presence.warm {
   border-color: transparent;
   background: var(--morse-accent);
 }
+
 /*
- * The delete affordance sits beside the row (a button cannot nest in a button)
- * and stays quiet until hovered: it is destructive, so it never competes with
- * opening the conversation.
+ * The row's own actions: quiet until the row is hovered or focused, so the list
+ * reads as names rather than a wall of glyphs. It sits beside the row (a button
+ * cannot nest in a button) and never competes with opening the conversation.
  */
-.delete-bot {
+.row-more {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 22px;
   height: 22px;
+  /* Its own margin on both sides, so the hover never paints against the row's
+     text or the panel's edge. */
+  margin: 0 4px;
   padding: 0;
   border: 0;
-  border-radius: var(--morse-radius-md);
+  border-radius: var(--morse-radius-sm);
   background: transparent;
   color: var(--morse-fg-muted);
   font: inherit;
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-.delete-bot:hover {
+
+.bot-row:hover .row-more,
+.group-row:hover .row-more,
+.row.active ~ .row-more,
+.row-more:focus-visible {
+  opacity: 1;
+}
+
+.row-more:hover {
   background: var(--morse-hover);
   color: var(--morse-fg);
 }
 
-/* Nothing to list yet: a sentence, not a box that looks like an error. */
+/* A panel narrow enough for touch screens never hovers: keep the action shown. */
+@media (hover: none) {
+  .row-more {
+    opacity: 0.7;
+  }
+}
+
 .empty {
-  margin: 2px 0 0;
-  padding: 2px 8px 6px;
+  margin: 0;
+  padding: 2px 6px 4px;
   color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
   font-size: 11.5px;
+}
+
+/*
+ * The menu. Named context-menu, not menu: the shell already ships a .menu for
+ * the navigation toggle, and a shared name makes every query ambiguous.
+ */
+.context-menu-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 41;
+  width: 208px;
+  max-width: min(280px, 90vw);
+  padding: 5px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+}
+
+.context-menu-question {
+  margin: 3px 7px 0;
+  color: var(--morse-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.context-menu-title {
+  margin: 2px 7px 6px;
+  overflow: hidden;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu-item:hover:not(:disabled),
+.context-menu-item:focus-visible:not(:disabled) {
+  background: var(--morse-hover);
+}
+
+.context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.context-menu-item.danger {
+  color: var(--morse-error);
+}
+
+.item-glyph {
+  width: 12px;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.context-menu-item.danger .item-glyph {
+  color: inherit;
 }

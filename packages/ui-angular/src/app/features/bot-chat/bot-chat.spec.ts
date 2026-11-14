@@ -12,6 +12,7 @@ import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotChat } from './bot-chat';
 
 const forge: BotSummary = {
+  username: 'forge',
   name: 'Forge',
   description: 'Keeps the forge hot',
   avatar: 'F',
@@ -19,16 +20,17 @@ const forge: BotSummary = {
   warm: true,
 };
 const sable: BotSummary = {
+  username: 'sable',
   name: 'Sable',
   description: 'Reads the fine print',
   engineKind: 'opencode',
   warm: false,
 };
 const dm: BotConversationSummary = {
-  id: 'dm-Forge',
+  id: 'dm-forge',
   kind: 'dm',
   title: 'Forge',
-  members: ['Forge'],
+  members: ['forge'],
   chainCap: 8,
   updatedAt: 1,
 };
@@ -36,7 +38,7 @@ const workshop: BotConversationSummary = {
   id: 'group-workshop',
   kind: 'group',
   title: 'The workshop',
-  members: ['Forge', 'Sable'],
+  members: ['forge', 'sable'],
   chainCap: 8,
   updatedAt: 2,
 };
@@ -219,6 +221,74 @@ describe('BotChat', () => {
     expect(sent.filter((message) => message.type === 'bot/send')).toEqual([
       { type: 'bot/send', payload: { conversationId: workshop.id, text: '@all stand-up' } },
     ]);
+  });
+
+  it('draws a discussion boundary as a divider, so sessions stay readable', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [
+        entry('u1', { role: 'user' }, 'hi'),
+        entry('d1', { role: 'discussion' }, 'New discussion'),
+        entry('u2', { role: 'user' }, 'again'),
+      ],
+      replace: true,
+      hasMore: false,
+    });
+    fixture.detectChanges();
+
+    const divider = host.querySelector('.entry.divider');
+    expect(divider).not.toBeNull();
+    expect(divider?.textContent).toContain('New discussion');
+    // One chat, two engine sessions: the divider sits between the lines.
+    const order = [...host.querySelectorAll('.transcript [data-entry-id]')].map((one) =>
+      one.getAttribute('data-entry-id'),
+    );
+    expect(order).toEqual(['u1', 'd1', 'u2']);
+  });
+
+  it('asks for older entries when the reader scrolls to the top', async () => {
+    const { fixture, host, morse, sent } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [entry('u2', { role: 'user' }, 'newest')],
+      replace: true,
+      hasMore: true,
+    });
+    fixture.detectChanges();
+    expect(host.querySelector('[data-loading-older]')).not.toBeNull();
+
+    const log = host.querySelector('.transcript') as HTMLElement;
+    log.scrollTop = 0;
+    log.dispatchEvent(new Event('scroll'));
+
+    // The oldest line held is the cursor: the host answers with what precedes it.
+    expect(sent.filter((one) => one.type === 'bot/history')).toEqual([
+      { type: 'bot/history', payload: { conversationId: dm.id, before: 'u2' } },
+    ]);
+  });
+
+  it('reserves the floating composer height, so no line hides behind the glass', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [entry('u1', { role: 'user' }, 'hi')],
+      replace: true,
+    });
+    fixture.detectChanges();
+
+    // The dock is measured into a custom property the transcript and the dock
+    // itself read — the same mechanism code mode uses, so the slab floats over the
+    // conversation instead of taking a row of it.
+    const chat = host.querySelector('.chat') as HTMLElement;
+    expect(chat.style.getPropertyValue('--morse-dock-height')).toMatch(/^\d+px$/);
+    expect(host.querySelector('.composer-host')).not.toBeNull();
   });
 
   it('says so when no conversation is open', async () => {
