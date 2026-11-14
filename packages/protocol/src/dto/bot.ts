@@ -4,7 +4,7 @@
  * shapes name those choices per bot instead of borrowing a session's view state.
  */
 import type { ModelOption } from './model.js';
-import type { McpExposure } from './mcp.js';
+import type { McpServer } from './mcp.js';
 import type { ModelInput, ThinkingLevel } from './primitives.js';
 import type { PromptImage } from './transcript.js';
 
@@ -195,21 +195,8 @@ export interface BotProviderConfig {
   models: BotProviderModelInput[];
 }
 
-/** One MCP server the wizard collected for a bot. */
-export interface BotMcpServerInput {
-  name: string;
-  type: 'stdio' | 'http';
-  command?: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-  /** Absent means enabled. */
-  enabled?: boolean;
-  /** pi only. */
-  exposure?: McpExposure;
-}
+/** One MCP server the wizard collected for a bot: the same neutral shape a panel reads. */
+export type BotMcpServerInput = McpServer;
 
 /** What the New bot wizard sends to create one isolated bot. */
 export interface BotCreateInput {

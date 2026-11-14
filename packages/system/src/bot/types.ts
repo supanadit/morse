@@ -1,4 +1,5 @@
 import type { ModelInput, ModelRef, ThinkingLevel } from '@morse/agent';
+import type { McpServer } from '@morse/protocol';
 
 /**
  * A bot's portable identity, written to `<botRoot>/engine.json`.
@@ -172,20 +173,8 @@ export interface BotProviderRecord {
 /** How pi exposes an MCP server's tools. OpenCode has no equivalent. */
 export type BotMcpExposure = 'codemode' | 'deferred' | 'direct' | 'hidden';
 
-/** One MCP server in the wizard's engine-neutral vocabulary. */
-export interface BotMcpServer {
-  name: string;
-  type: 'stdio' | 'http';
-  command?: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-  /** Absent means enabled, as both engine formats do. */
-  enabled?: boolean;
-  exposure?: BotMcpExposure;
-}
+/** One MCP server in the wizard's engine-neutral vocabulary: protocol's neutral shape. */
+export type BotMcpServer = McpServer;
 
 /**
  * Everything a bot's engine needs, in engine-agnostic terms.

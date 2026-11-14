@@ -1,14 +1,15 @@
 /** The prompt-template editor: one template, and the result of listing or saving them. */
+import type { ConfigIssue } from './config.js';
 
 export type PromptScope = 'global' | 'project';
 
 /**
- * One prompt template, as the editor reads it. pi keeps templates as files, so
- * `raw` is the whole file; OpenCode also defines commands in `opencode.json`'s
- * `command` key, so its rows carry `source: 'config'` and a structured `entry`
- * instead. `argumentHint` is pi-only (OpenCode has no such field).
+ * One prompt template, in Morse's engine-neutral vocabulary. pi keeps templates
+ * as files, so `raw` is the whole file; OpenCode also defines commands in
+ * `opencode.json`'s `command` key, so its rows carry `source: 'config'` and a
+ * structured `entry` instead. `argumentHint` is pi-only (OpenCode has no such field).
  */
-export interface PromptTemplateInfo {
+export interface PromptTemplate {
   /** Command name without the leading slash (the file name without `.md`). */
   name: string;
   scope: PromptScope;
@@ -36,15 +37,20 @@ export interface PromptTemplateInfo {
   error?: string;
 }
 
+/** The editor's historical name for `PromptTemplate`; new code says `PromptTemplate`. */
+export type PromptTemplateInfo = PromptTemplate;
+
 /** What `promptTemplates` answers: every template, plus where a new one would go. */
 export interface PromptTemplatesResult {
-  templates: PromptTemplateInfo[];
+  templates: PromptTemplate[];
   /** The engine's global template directory. */
   globalDir: string;
   /** This project's template directory, when the workspace has one. */
   projectDir?: string;
   /** Whether the engine would load the project templates (pi's `.pi` trust gate). */
   trusted: boolean;
+  /** Config-file complaints collected while listing. */
+  issues?: ConfigIssue[];
 }
 
 /**
@@ -83,4 +89,6 @@ export interface PromptTemplateMutation {
   path?: string;
   scope?: PromptScope;
   source?: 'file' | 'config';
+  /** Config-file complaints the mutation collected while reading or writing. */
+  issues?: ConfigIssue[];
 }

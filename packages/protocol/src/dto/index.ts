@@ -1,6 +1,7 @@
 /**
  * The wire DTOs, split by subject. Re-exported whole by `../dto.js`.
  */
+export * from './config.js';
 export * from './primitives.js';
 export * from './model.js';
 export * from './prompt.js';

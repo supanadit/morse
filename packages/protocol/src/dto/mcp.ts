@@ -1,6 +1,31 @@
 /** The MCP panel and editor: server status, what a server offers, and mutations. */
+import type { ConfigIssue, ConfigScope } from './config.js';
 
+/** How pi exposes an MCP server's tools. OpenCode has no equivalent. */
 export type McpExposure = 'codemode' | 'deferred' | 'direct' | 'hidden';
+
+/**
+ * One MCP server in Morse's engine-neutral vocabulary: what a config file
+ * declares, read back without the engine's own spelling. `enabled` absent means
+ * enabled, as both engine formats do.
+ */
+export interface McpServer {
+  name: string;
+  type: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+  /** pi only. */
+  exposure?: McpExposure;
+  description?: string;
+}
+
+/** Where an MCP edit lands: the user file (every project) or this project's file. */
+export type McpConfigScope = ConfigScope;
 
 /** pi's connection lifecycle, plus the entry that is configured but turned off. */
 export type McpServerState =
@@ -13,9 +38,6 @@ export type McpServerState =
   | 'disabled';
 
 export type McpServerScope = 'global' | 'project' | 'extension';
-
-/** Where an MCP edit lands: the user file (every project) or this project's `.pi/mcp.json`. */
-export type McpConfigScope = 'global' | 'project';
 
 /** One MCP server, as the host's `mcpStatus` command reports it. */
 export interface McpServerStatus {
@@ -56,11 +78,12 @@ export interface McpStatus {
    * which the panel offers to change (`trustProject`).
    */
   trusted?: boolean;
+  /** Config-file complaints the engine could not attach to a server. */
+  issues?: ConfigIssue[];
 }
 
 /** What the `mcpAdd` host command takes. */
-export interface McpServerInput {
-  name: string;
+export interface McpServerInput extends Omit<McpServer, 'type'> {
   /**
    * Which engine's MCP config the command addresses (`'pi'`, `'opencode'`).
    * Absent means the host's default engine, so older clients keep working.
@@ -69,17 +92,8 @@ export interface McpServerInput {
    */
   engine?: string;
   /** `project` writes `<cwd>/.pi/mcp.json`; default `global` (`~/.pi/agent/mcp.json`). */
-  scope?: 'global' | 'project';
+  scope?: McpConfigScope;
   type?: 'stdio' | 'http';
-  command?: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-  enabled?: boolean;
-  exposure?: McpExposure;
-  description?: string;
 }
 
 /** What an MCP mutation answers. `message` carries the reason when it refused. */
@@ -92,6 +106,8 @@ export interface McpMutation {
   scope?: McpConfigScope;
   /** True when a user-level server got a project override instead of a rewrite. */
   override?: boolean;
+  /** Config-file complaints the mutation collected while reading or writing. */
+  issues?: ConfigIssue[];
 }
 
 /** What the `trustProject` host command answers. */
