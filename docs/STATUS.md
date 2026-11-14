@@ -213,6 +213,11 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
 - **Talking.** Direct messages and groups, with `@mentions`, a lead that answers an unaddressed message, and a
   capped relay chain between members. A round can be stopped; a send during a round is refused with a line in the
   transcript rather than queued invisibly.
+- **Editable rooms.** A group can be renamed, re-membered, re-led and re-capped. Removing a
+  member clears only that bot's pointer to the room's session, so adding it back starts fresh;
+  deleting a group removes its transcript and each member's session for it. Deleting a bot
+  removes everything of its own and leaves every group it shared otherwise intact — a group is
+  deleted only when that bot was its last member.
 - **Presence, not a trace.** While a bot works, one line says what it is doing (`Wait, let me think…`,
   `Reading launch-brief.md…`, `Running npm test…`) where its answer will land, and the answer replaces it.
   Tool activity never enters the transcript.
