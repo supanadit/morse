@@ -72,7 +72,15 @@ import type {
  * long-lived server (OpenCode's is one per bot), so a factory that has a
  * `dispose` must be torn down wherever the service is done with it.
  */
-export type BotGatewayFactory = AgentGatewayFactory & { dispose?(): Promise<void> };
+export type BotGatewayFactory = AgentGatewayFactory & {
+  dispose?(): Promise<void>;
+  /**
+   * Removes one engine session that belongs to this bot. Optional because an
+   * engine that cannot delete a stored session still lets Morse clean its own
+   * pointers; the caller logs the fallback instead of failing a group delete.
+   */
+  removeSession?(engineSessionId: string): Promise<void>;
+};
 
 export interface BotEngineAdapter {
   /** Stable engine kind, the value `BotRecord.engineKind` carries. */

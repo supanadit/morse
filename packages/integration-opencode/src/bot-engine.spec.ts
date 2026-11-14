@@ -206,6 +206,12 @@ async function startFakeServer(): Promise<{
       send(response, { data: [...sessions.values()] });
       return;
     }
+    if (request.method === 'DELETE' && path.startsWith('/api/session/')) {
+      sessions.delete(decodeURIComponent(path.slice('/api/session/'.length)));
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     const attach = /^\/api\/session\/([^/]+)(?:\/(form|permission))?$/.exec(path);
     if (attach !== null) {
       const id = decodeURIComponent(attach[1]!);
@@ -703,4 +709,23 @@ describe('opencodeBotAdapterFactory', () => {
       await fake.close();
     }
   }, 20_000);
+
+  it('removes a session through the bot engine', async () => {
+    const botRoot = tempRoot();
+    const fake = await startFakeServer();
+    process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
+    process.env['FAKE_OC_URL'] = fake.url;
+    process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
+    process.env['FAKE_OC_STOP_FILE'] = join(botRoot, 'stopped');
+    process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
+    const factory = opencodeBotAdapterFactory(botRoot, silentLogger);
+    try {
+      await factory.removeSession('ses_remove');
+      expect(fake.requests).toContain('DELETE /api/session/ses_remove');
+    } finally {
+      await factory.dispose();
+      await fake.close();
+    }
+  });
 });

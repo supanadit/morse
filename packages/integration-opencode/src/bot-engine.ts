@@ -354,7 +354,10 @@ function writeConfigJson(path: string, value: unknown): void {
 export function opencodeBotAdapterFactory(
   botRoot: string,
   logger: MorseLogger,
-): AgentGatewayFactory & { dispose(): Promise<void> } {
+): AgentGatewayFactory & {
+  dispose(): Promise<void>;
+  removeSession(sessionId: string): Promise<void>;
+} {
   let pending: Promise<OpenCodeEngine> | undefined;
   let engine: OpenCodeEngine | undefined;
   let disposed = false;
@@ -399,6 +402,17 @@ export function opencodeBotAdapterFactory(
       // Bot sessions and engine sessions share ids, so reattachment is a
       // straight hand-off; no session means the engine creates one.
       return target.factory.create(input);
+    },
+
+    async removeSession(sessionId: string): Promise<void> {
+      if (disposed) {
+        throw disposedError();
+      }
+      const target = await ensureEngine();
+      if (disposed) {
+        throw disposedError();
+      }
+      await target.catalog.remove(sessionId);
     },
 
     async dispose() {

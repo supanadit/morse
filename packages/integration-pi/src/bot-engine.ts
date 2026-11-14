@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { BotEngineCapabilities, BotProviderRecord, MorseLogger } from '@morse/system';
 import { piProviderEntry } from './bot-layout.js';
 import { PiRpcAgentFactory } from './pi-rpc-agent-factory.js';
+import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 import { PI_INSTALL_COMMAND } from './internal/resolve-pi.js';
 
 /** pi's auth file, inside the agent dir pi reads from `PI_CODING_AGENT_DIR`. */
@@ -55,9 +56,11 @@ export function botPiEnv(botRoot: string, base: NodeJS.ProcessEnv = process.env)
  * speed stats under `sessions/`. Built per bot because that isolation is fixed
  * at construction, unlike code mode's shared factory.
  */
-export function createBotPiFactory(options: BotPiFactoryOptions): PiRpcAgentFactory {
+export function createBotPiFactory(
+  options: BotPiFactoryOptions,
+): PiRpcAgentFactory & { removeSession(sessionId: string): Promise<void> } {
   const sessionsDir = join(options.botRoot, 'sessions');
-  return new PiRpcAgentFactory(
+  const factory = new PiRpcAgentFactory(
     {
       piPath: options.piPath,
       sessionDir: sessionsDir,
@@ -68,6 +71,12 @@ export function createBotPiFactory(options: BotPiFactoryOptions): PiRpcAgentFact
     },
     options.logger,
   );
+  // Bound to the same directory the factory spawns into: the catalog's own
+  // guard is what keeps a stored id from deleting a file outside this bot.
+  const catalog = new PiRpcSessionCatalog({ sessionDir: sessionsDir });
+  return Object.assign(factory, {
+    removeSession: (sessionId: string) => catalog.remove(sessionId),
+  });
 }
 
 /**

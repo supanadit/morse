@@ -1,4 +1,13 @@
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -111,6 +120,23 @@ describe('createBotPiFactory', () => {
 
     expect(factory).toBeInstanceOf(PiRpcAgentFactory);
     expect(typeof factory.create).toBe('function');
+  });
+
+  it('removes one session file by its stored id', async () => {
+    const botRoot = tempRoot();
+    const sessionPath = join(botRoot, 'sessions', '--work--', 'session-1.jsonl');
+    mkdirSync(join(botRoot, 'sessions', '--work--'), { recursive: true });
+    writeFileSync(sessionPath, '{}\n');
+    const factory = createBotPiFactory({
+      botRoot,
+      env: { PATH: '/usr/bin' },
+      piPath: '/opt/pi',
+      logger: silentLogger,
+    });
+
+    await factory.removeSession(sessionPath);
+
+    expect(existsSync(sessionPath)).toBe(false);
   });
 });
 
