@@ -379,6 +379,34 @@ describe('MorseService bot mode', () => {
     expect(lastFrame(transport)).toEqual({ type: 'bot/groupCreate', payload: input });
   });
 
+  it('updates a group with the dialog input', () => {
+    const transport = new ScriptedTransport();
+    const morse = mount(transport);
+    const input = {
+      id: 'grp-launch-ab12',
+      name: 'builders',
+      members: ['forge', 'sable'],
+      lead: 'sable',
+      chainCap: 3,
+    };
+
+    morse.updateGroup(input);
+
+    expect(lastFrame(transport)).toEqual({ type: 'bot/groupUpdate', payload: input });
+  });
+
+  it('deletes a group by id', () => {
+    const transport = new ScriptedTransport();
+    const morse = mount(transport);
+
+    morse.deleteGroup('grp-launch-ab12');
+
+    expect(lastFrame(transport)).toEqual({
+      type: 'bot/groupDelete',
+      payload: { id: 'grp-launch-ab12' },
+    });
+  });
+
   it('stops the round in flight on the open conversation', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);

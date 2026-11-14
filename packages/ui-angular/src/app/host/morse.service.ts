@@ -4,6 +4,7 @@ import {
   type BotCreateInput,
   type BotFileInput,
   type BotGroupCreateInput,
+  type BotGroupUpdateInput,
   type BotProviderCredentialInput,
   type BotUpdateInput,
   type ChatPin,
@@ -183,6 +184,8 @@ export class MorseService {
   readonly ui = {
     wizardOpen: signal(false),
     groupOpen: signal(false),
+    /** The group the dialog is editing, or `null` for a new group. */
+    groupTarget: signal<string | null>(null),
     /**
      * The bot the wizard is editing, or `null` for a new one. A name rather than
      * a config: the wizard reads the record the host answers with, so opening the
@@ -561,7 +564,7 @@ export class MorseService {
     this.transport.send({ type: 'bot/update', payload: input });
   }
 
-  /** Deletes a bot and its directory; conversations it belonged to keep the gap. */
+  /** Deletes a bot, its DM and its group memberships; a group dies only with its last member. */
   deleteBot(name: string): void {
     this.transport.send({ type: 'bot/delete', payload: { name } });
   }
@@ -569,6 +572,16 @@ export class MorseService {
   /** Creates a group conversation from the New group dialog's answers. */
   createGroup(input: BotGroupCreateInput): void {
     this.transport.send({ type: 'bot/groupCreate', payload: input });
+  }
+
+  /** Saves an edit to a group; membership changes invalidate removed members' sessions. */
+  updateGroup(input: BotGroupUpdateInput): void {
+    this.transport.send({ type: 'bot/groupUpdate', payload: input });
+  }
+
+  /** Deletes a group, its transcript and its members' sessions for it. */
+  deleteGroup(id: string): void {
+    this.transport.send({ type: 'bot/groupDelete', payload: { id } });
   }
 
   /**
