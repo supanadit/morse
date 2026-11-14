@@ -38,7 +38,8 @@ to each other — not a full-fledged product.
 - **Wizard bot creation**: identity → engine (pi/OpenCode) → credentials (paste keys, stored
   engine-natively in the bot's config; advanced alternative: name env vars to pass through) →
   model + thinking level from that engine's live catalog → explicit persona system prompt →
-  optional `AGENTS.md` → (OpenCode) named subagents with per-subagent system prompts. Advanced
+  optional MCP servers in the bot's own engine config → optional `AGENTS.md` → (OpenCode) named
+  subagents with per-subagent system prompts. Advanced
   escape hatch in the same dialog: point at an existing config dir. **No cloning** of `~/.pi` /
   `~/.config/opencode`; nothing is copied silently.
 - **Bots run autonomously with a minimal-UI transcript** (owner decision): tool activity stays
@@ -239,6 +240,14 @@ manager is the general mechanism and the probe becomes one of its discovery stra
   bot-identity writer that persists the persona prompt into the bot's `config/` using that engine's
   own mechanism; if an engine has no native slot, its integration prepends it on the session's
   first turn. The user-authored `AGENTS.md` in `workspace/` is never merged with the persona.
+- **Each bot carries its own MCP servers, written engine-natively.** The wizard's optional MCP step
+  collects one engine-neutral list; the integration writes it where that engine keeps servers —
+  pi's `mcpServers` in `<bot>/config/mcp.json` (its `PI_CODING_AGENT_DIR`), OpenCode's `mcp` block
+  in `<bot>/config/opencode/opencode.json` — and reads it back from the same file, so the form shows
+  what the engine really holds and the bot inherits nothing from the user's global config. No
+  `pi`/`opencode` CLI runs for this. A malformed entry is skipped on read — and one that declares a
+  transport without its command/url is dropped on the next save — while a pi entry that only
+  overrides a user-level server is preserved.
 - **Round state lives host-side, shared across connections** (the `SessionRegistry` pattern, not
   the per-connection controller): a browser reload or second tab observes the round instead of
   losing or forking it. MVP assumes one active client; the broadcast path is the transcript/routing
@@ -251,9 +260,9 @@ manager is the general mechanism and the probe becomes one of its discovery stra
 - **The wizard asks each engine what it supports.** Integrations export a small capability
   descriptor (supports subagents, thinking levels, credential style, catalog probe) so neither the
   system layer nor the UI branches on engine kind.
-- **Wizard order: identity → engine → credentials → model → thinking → persona → AGENTS.md →
-  (OpenCode) subagents.** Credentials come before the model step because the catalog is probed
-  *with the bot's own env/config*, so the bot's credential story must exist before it can list
+- **Wizard order: identity → engine → credentials → model → thinking → persona → MCP servers →
+  AGENTS.md → (OpenCode) subagents.** Credentials come before the model step because the catalog is
+  probed *with the bot's own env/config*, so the bot's credential story must exist before it can list
   models.
 
 ### Routing rules

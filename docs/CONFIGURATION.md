@@ -130,6 +130,41 @@ survives a host restart too. `MORSE_TERMINAL_IDLE_MS` is the dial for how long a
 running before it is reclaimed — the scrollback stays either way. A shell only ends sooner when its pane is
 closed.
 
+## Bots
+
+A bot keeps its MCP servers in its **own** tree — never in your global `~/.pi/agent` or
+`~/.config/opencode` — because its engine runs with that tree as its config directory:
+
+- **pi** — `PI_CODING_AGENT_DIR` is `<bot>/config`, so the servers are the `mcpServers` entries of
+  `<MORSE_HOME>/bot/<agent-name>/config/mcp.json`, in pi's own shape: `type` (`stdio` or `http`),
+  `command`/`args`/`env`/`cwd` or `url`/`headers`, `enabled`, and pi's `exposure`.
+- **OpenCode** — the bot's own server loads `<bot>/config/opencode/opencode.json` (its
+  `XDG_CONFIG_HOME` is `<bot>/config`), and the servers are that file's `mcp` key as OpenCode writes
+  it: `local` with a `command` array plus `environment`/`cwd`, or `remote` with `url` and `headers`;
+  `enabled: false` switches one off.
+
+The bot wizard writes them for you: the optional **MCP** step sits between **Persona** and
+**Advanced**, and the list it shows is what the next edit reads back out of the engine's file. Morse
+writes the files directly — no `pi` or `opencode` CLI runs for this — and a bot inherits no MCP
+servers from your own configuration.
+
+pi's `settings.json` in a bot's agent dir carries
+`"$schema": "https://pi.dev/schemas/settings.schema.json"` as its first key. Morse writes that
+reference — `repair` seeds it into a bot's existing `settings.json` — but never validates the file
+against the schema; pi does, and an editor gets completion from it. OpenCode's `opencode.json`
+names its own (`https://opencode.ai/config.json`).
+
+Entries are read leniently and written authoritatively. An entry that is null, is not an object, or
+names a transport without its `command` (stdio) or `url` (http) is skipped when the wizard reads the
+file, and the rest still show. A server the wizard shows is rewritten on save. One it no longer
+shows is removed when pi declares it a server (it has a `command`, `url` or `type`), so a malformed
+stdio/http entry is gone after the next save; OpenCode's whole `mcp` block is replaced by the list on
+screen. What Morse does not show it does not delete: a pi entry with none of `command`, `url` or
+`type` is a project *override* that only switches a user-level server's `enabled`/`exposure`, and a
+`null` or non-object entry is left where it is. Unknown keys inside a managed server survive an edit
+too — `auth`, for instance, stays. A file that is not valid JSON is not read at all, so the bot's
+other settings still appear and the MCP step simply shows no servers.
+
 ## Interface preferences
 
 Some display choices belong to whoever is reading, not to the host, so they live in the panel
