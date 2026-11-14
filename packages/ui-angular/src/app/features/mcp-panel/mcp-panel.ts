@@ -176,9 +176,10 @@ export class McpPanel {
       return;
     }
     const scope = this.editScope();
-    // In project scope a user-level server is turned off here; enabling removes
-    // the override so the global value applies again.
-    const enabled = scope === 'project' && server.scope !== 'project' ? false : !server.enabled;
+    // A flip, so the switch's next state is the one it shows. In project scope a
+    // user-level server is turned off here with a project override, and turning
+    // it back on clears that override so the global value applies again.
+    const enabled = !server.enabled;
     this.busy.set(true);
     const result = await this.mcp.setEnabled(server.name, enabled, this.cwd(), scope);
     this.busy.set(false);
@@ -218,12 +219,15 @@ export class McpPanel {
     return this.editScope() === 'project' ? true : server.scope === 'global';
   }
 
-  /** What the row's toggle does in the current scope, so the button never lies. */
+  /**
+   * The switch's accessible name: what flipping it does, in the chosen scope.
+   * A user-level server is described as "for this project" because that scope
+   * writes an override rather than touching the user's own file.
+   */
   protected toggleLabel(server: McpServerStatus): string {
-    if (this.editScope() === 'project' && server.scope !== 'project') {
-      return server.override ? 'Enable here' : 'Disable here';
-    }
-    return server.enabled ? 'Disable' : 'Enable';
+    const action = server.enabled ? 'Disable' : 'Enable';
+    const here = this.editScope() === 'project' && server.scope !== 'project';
+    return here ? `${action} ${server.name} for this project` : `${action} ${server.name}`;
   }
 
   protected editHint(server: McpServerStatus): string {

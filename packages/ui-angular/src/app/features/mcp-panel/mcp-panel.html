@@ -156,22 +156,34 @@
               Cancel
             </button>
           } @else {
+            <!-- On/off is a switch: the row's state is the switch's state, and
+                 the scope only changes what a flip writes. The label and title
+                 carry the action for screen readers and tooltips. -->
             <button
               type="button"
+              class="switch"
+              role="switch"
+              [attr.aria-checked]="server.enabled ? 'true' : 'false'"
+              [attr.aria-label]="toggleLabel(server)"
+              [title]="editHint(server) || toggleLabel(server)"
               [disabled]="busy() || !canEdit(server)"
-              [title]="editHint(server)"
               (click)="toggleEnabled(server)"
-            >
-              {{ toggleLabel(server) }}
-            </button>
+            ></button>
             @if (canRemove(server)) {
               <button
                 type="button"
-                class="danger"
+                class="icon-button remove"
+                [attr.aria-label]="'Remove ' + server.name"
+                [title]="'Remove ' + server.name"
                 [disabled]="busy()"
                 (click)="remove(server)"
               >
-                Remove
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2.5 4.5h11" />
+                  <path d="M6.5 4.5V3.2a.7.7 0 0 1 .7-.7h1.6a.7.7 0 0 1 .7.7v1.3" />
+                  <path d="M4 4.5l.6 8.1a.9.9 0 0 0 .9.9h5a.9.9 0 0 0 .9-.9L12 4.5" />
+                  <path d="M6.6 7v4M9.4 7v4" />
+                </svg>
               </button>
             }
           }

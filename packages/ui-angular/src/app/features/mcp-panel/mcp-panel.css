@@ -283,6 +283,73 @@ h2 {
 .danger {
   color: var(--morse-error);
 }
+/* On/off: a switch whose position is the row's real state. */
+.actions .switch {
+  flex: none;
+  width: 30px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  background: var(--morse-hover);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.actions .switch::after {
+  content: '';
+  display: block;
+  width: 11px;
+  height: 11px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--morse-fg-muted);
+  transition:
+    transform 120ms ease,
+    background 120ms ease;
+}
+.actions .switch[aria-checked='true'] {
+  border-color: var(--morse-accent);
+  background: var(--morse-accent);
+}
+.actions .switch[aria-checked='true']::after {
+  background: var(--morse-accent-fg);
+  transform: translateX(13px);
+}
+.actions .switch:hover:not(:disabled) {
+  border-color: var(--morse-accent);
+}
+.actions .switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Remove: an icon-only action, quiet until the row is hovered. */
+.actions .icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+}
+.actions .icon-button:hover:not(:disabled) {
+  background: var(--morse-hover);
+}
+.actions .icon-button.remove:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--morse-error) 45%, transparent);
+  color: var(--morse-error);
+}
+.actions .icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .add {
   margin: 4px 6px 0;
   padding: 10px;
@@ -335,6 +402,12 @@ footer {
 .spinner {
   color: var(--morse-fg-muted);
   font-size: 11px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .actions .switch,
+  .actions .switch::after {
+    transition: none;
+  }
 }
 @media (max-width: 520px) {
   .field {

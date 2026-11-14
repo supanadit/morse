@@ -117,6 +117,9 @@ function renderWithState(
       fixed = true;
       return Promise.resolve(fixResult);
     }
+    if (command === 'mcpSetEnabled' || command === 'mcpRemove') {
+      return Promise.resolve({ ok: true, issues: [] });
+    }
     // A successful fix rewrites the file, so the next read is issue-free.
     return Promise.resolve(fixed ? { ...status, issues: [] } : status);
   });
@@ -372,5 +375,115 @@ describe('McpPanel config issues', () => {
 
     expect(element.textContent ?? '').toContain('mcp.json could not be read.');
     expect(element.querySelector('pre.snippet')).toBeNull();
+  });
+});
+
+/**
+ * The row's controls: on/off is a switch that mirrors the server's real state,
+ * and removal is an icon that still asks before it deletes anything.
+ */
+describe('McpPanel row controls', () => {
+  /** The panel defaults to project scope; a global row's tests switch first. */
+  function useGlobalScope(element: HTMLElement): void {
+    buttonNamed(element, 'Global')?.click();
+  }
+
+  function switches(element: HTMLElement): HTMLButtonElement[] {
+    return [...element.querySelectorAll('[role="switch"]')] as HTMLButtonElement[];
+  }
+
+  it('renders a switch per server that mirrors its enabled state', async () => {
+    const { element, fixture } = renderWithState(OPENCODE_STATUS);
+    await settle(fixture);
+
+    const toggles = switches(element);
+    expect(toggles.map((toggle) => toggle.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    // Project scope on a user-level row says what the flip writes: an override.
+    expect(toggles[0]?.getAttribute('aria-label')).toBe('Disable context7 for this project');
+    expect(toggles[1]?.getAttribute('aria-label')).toBe('Enable tavily for this project');
+    // The action is no longer a text button beside the row.
+    expect(
+      [...element.querySelectorAll('button')].some(
+        (button) => button.textContent?.trim() === 'Disable here',
+      ),
+    ).toBe(false);
+  });
+
+  it('flips the switch’s own server: on turns it off, off turns it on', async () => {
+    const { element, fixture, requestHostCommand } = renderWithState(OPENCODE_STATUS);
+    await settle(fixture);
+    useGlobalScope(element);
+    fixture.detectChanges();
+
+    const [first, second] = switches(element);
+    expect(first?.getAttribute('aria-label')).toBe('Disable context7');
+
+    first?.click();
+    await settle(fixture);
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpSetEnabled',
+      { name: 'context7', enabled: false, scope: 'global', cwd: '/repo', engine: 'opencode' },
+      expect.any(Number),
+    );
+
+    second?.click();
+    await settle(fixture);
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpSetEnabled',
+      { name: 'tavily', enabled: true, scope: 'global', cwd: '/repo', engine: 'opencode' },
+      expect.any(Number),
+    );
+  });
+
+  it('removes a server through the trash button, after a confirmation', async () => {
+    const { element, fixture, requestHostCommand } = renderWithState(OPENCODE_STATUS);
+    await settle(fixture);
+    useGlobalScope(element);
+    fixture.detectChanges();
+
+    const trash = element.querySelector<HTMLButtonElement>('button[aria-label="Remove context7"]');
+    expect(trash).not.toBeNull();
+    // Icon only: its accessible name carries the action.
+    expect(trash?.textContent?.trim()).toBe('');
+
+    trash?.click();
+    fixture.detectChanges();
+    expect(requestHostCommand).not.toHaveBeenCalledWith(
+      'mcpRemove',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(buttonNamed(element, 'Remove?')).toBeDefined();
+
+    buttonNamed(element, 'Remove?')?.click();
+    await settle(fixture);
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpRemove',
+      { name: 'context7', scope: 'global', cwd: '/repo', engine: 'opencode' },
+      expect.any(Number),
+    );
+  });
+
+  it('disables the switch for a server the chosen scope cannot edit', async () => {
+    const { element, fixture } = renderWithState({
+      servers: [
+        {
+          name: 'from-extension',
+          scope: 'extension',
+          source: 'extension',
+          enabled: true,
+          transport: 'stdio: extension',
+          state: 'connected',
+          tools: [],
+        },
+      ],
+      errors: [],
+      trusted: true,
+    });
+    await settle(fixture);
+
+    const toggle = switches(element)[0];
+    expect(toggle?.disabled).toBe(true);
+    expect(toggle?.getAttribute('title')).toMatch(/extension/i);
   });
 });
