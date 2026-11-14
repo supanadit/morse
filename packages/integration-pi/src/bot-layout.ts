@@ -28,15 +28,24 @@ import type { McpFileServer } from './internal/mcp-config.js';
  *
  * - `auth.json` — provider keys, pi's own `{ "<provider>": { type, key } }`.
  * - `models.json` — custom providers and their models (`providers.<id>`).
- * - `settings.json` — `defaultProvider`, `defaultModel`, `defaultThinkingLevel`,
- *   which is how pi remembers the model a session starts on.
+ * - `settings.json` — `$schema` pointing at pi's published settings schema, plus
+ *   `defaultProvider`, `defaultModel`, `defaultThinkingLevel` and `defaultTools`:
+ *   how pi remembers the model, thinking level and tool allowlist a session
+ *   starts with. Morse writes the schema reference but never validates the file
+ *   against it — pi does.
+ * - `mcp.json` — the bot's own MCP servers, under pi's `mcpServers.<name>` keys.
+ *   Morse writes them from the wizard's list, so a bot carries the servers it was
+ *   given and inherits none from the user's own configuration; entries that only
+ *   override a user-level server are left in place, and a malformed entry is
+ *   skipped on read.
  * - `SYSTEM.md` — **replaces** pi's own system prompt: the bot's persona, in the
  *   one file pi reserves for it.
  * - `<botRoot>/workspace/AGENTS.md` — the workspace document, which pi reads as a
  *   context file from the directory it runs in.
  *
- * `mcp.json`, `keybindings.json`, `extensions/`, `skills/` and `prompts/` are
- * pi's too; Morse writes none of them yet, and a bot inherits no MCP servers.
+ * `keybindings.json`, `extensions/`, `skills/` and `prompts/` are pi's too; Morse
+ * writes none of them yet, and a bot inherits no keybindings, extensions, skills
+ * or prompts from the user's own configuration.
  *
  * The distinction matters (docs.pi.dev/latest/configuration): `AGENTS.md` in the
  * agent dir is *user instructions applied across working directories* — appended
