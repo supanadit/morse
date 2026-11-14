@@ -106,7 +106,7 @@
   cursor: default;
 }
 /* The one thing Bot says for now: it is not a room with nothing in it. */
-.soon {
+.beta {
   padding: 1px 4px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
@@ -179,7 +179,7 @@
 @container (max-width: 1020px) {
   .wordmark,
   .mode-label,
-  .soon {
+  .beta {
     display: none;
   }
   .mode {

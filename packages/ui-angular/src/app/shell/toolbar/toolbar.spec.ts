@@ -135,12 +135,12 @@ describe('Toolbar', () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  it('shows Code as the mode in use, and Bot as a mode that is not here yet', () => {
+  it('shows Code as the mode in use, and Bot as a beta this host cannot run', () => {
     const fixture = TestBed.createComponent(Toolbar);
     fixture.detectChanges();
 
     // The mode row is drawn from the first release: one tab that is the product,
-    // one that says it is coming — never a live control that opens nothing.
+    // one that is shipped and unfinished — never a live control that opens nothing.
     const modes = [...fixture.nativeElement.querySelectorAll('.mode')] as HTMLButtonElement[];
     const code = modes.find((one) => one.textContent?.includes('Code'));
     const bot = modes.find((one) => one.textContent?.includes('Bot'));
@@ -148,11 +148,12 @@ describe('Toolbar', () => {
     expect(code?.classList.contains('on')).toBe(true);
     expect(code?.getAttribute('aria-current')).toBe('page');
     expect(bot?.disabled).toBe(true);
-    expect(bot?.textContent).toContain('Soon');
-    expect(bot?.getAttribute('title')).toBe('Bot — coming soon');
+    // The badge is about the feature's maturity, not about this host's support.
+    expect(bot?.querySelector('.beta')?.textContent).toBe('Beta');
+    expect(bot?.getAttribute('title')).toBe('Bot (beta) — this host cannot run bot mode yet');
   });
 
-  it('enables Bot, and drops its Soon chip, where the host runs bots', async () => {
+  it('enables Bot where the host runs bots, and keeps the beta badge', async () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
       imports: [Toolbar],
@@ -166,8 +167,9 @@ describe('Toolbar', () => {
     ) as HTMLButtonElement;
 
     expect(bot.disabled).toBe(false);
-    expect(bot.querySelector('.soon')).toBeNull();
-    expect(bot.getAttribute('title')).toBe('Bot — chat with isolated agents');
+    // Enabling the mode does not finish it: the badge stays.
+    expect(bot.querySelector('.beta')?.textContent).toBe('Beta');
+    expect(bot.getAttribute('title')).toBe('Bot (beta) — chat with isolated agents');
   });
 
   it('switches the mode from the row, and back from Code', async () => {

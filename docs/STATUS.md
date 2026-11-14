@@ -199,6 +199,29 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 - The `@supanadit/morse-web` npm package ships the browser host as a daemon CLI
   (`morse start|status|logs|stop|restart`).
 
+### Bot mode (beta)
+
+Bot mode is shipped and **still beta**: it works, and its edges are still being cut. A host that advertises
+`capabilities.bot` (the browser host does; the VS Code window does not yet) draws a `Bot` tab next to `Code`.
+
+- **Bots of their own.** Each bot is an agent with its own directory, engine (`pi` or OpenCode), model, keys,
+  persona, tools and subagents — written into that engine's own config files, not into a Morse copy of them.
+  `engine.json` is an index entry: handle, name, description, engine, env names.
+- **Talking.** Direct messages and groups, with `@mentions`, a lead that answers an unaddressed message, and a
+  capped relay chain between members. A round can be stopped; a send during a round is refused with a line in the
+  transcript rather than queued invisibly.
+- **Presence, not a trace.** While a bot works, one line says what it is doing (`Wait, let me think…`,
+  `Reading launch-brief.md…`, `Running npm test…`) where its answer will land, and the answer replaces it.
+  Tool activity never enters the transcript.
+- **Attachments.** Images go to the model as prompt content (gated by the model's own modality); other files are
+  written into that bot's `workspace/uploads/` and named as a path it opens with its own tools.
+- **Model limits by hand.** Context window, output cap and image support are editable per model on create and
+  edit, because discovery cannot always know them — absent means the engine's default.
+- **Transcripts that survive.** One append-only JSONL per conversation, paged from the end, with "new
+  discussion" as a divider rather than a lost history.
+- **Data upgrades.** `.morse/` carries a layout version; migrations and an additive reconcile run on `morse start`
+  (see [DATA-COMPATIBILITY.md](DATA-COMPATIBILITY.md)).
+
 ## Not built yet
 
 - **Session rename** — a session is named by its engine (pi's session name, OpenCode's title). Morse displays

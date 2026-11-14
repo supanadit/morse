@@ -43,10 +43,10 @@
   </span>
 
   <!--
-       The modes this window can be in. Code is the whole product; Bot is drawn
-       from the first release and becomes live only where the host advertises it
-       (`capabilities.bot`). Everywhere else it keeps its `Soon` chip — never a
-       promise that opens an empty room.
+       The modes this window can be in. Code is the whole product; Bot is shipped
+       and still beta, so its tab always carries that word — and it only becomes
+       live where the host advertises it (`capabilities.bot`), never opening an
+       empty room.
   -->
   @if (webHost()) {
     <nav class="modes" aria-label="Modes">
@@ -77,9 +77,9 @@
           <path d="M8 2.4v3M5.8 8.6h.01M10.2 8.6h.01M6.6 10.8h2.8" />
         </svg>
         <span class="mode-label">Bot</span>
-        @if (!botEnabled()) {
-          <span class="soon">Soon</span>
-        }
+        <!-- The mode is implemented, and unfinished: the badge says which, not
+             whether the tab works. -->
+        <span class="beta">Beta</span>
       </button>
     </nav>
   }

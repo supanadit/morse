@@ -60,13 +60,16 @@ export class Toolbar {
   readonly mode = input<'code' | 'bot'>('code');
   readonly modeChange = output<'code' | 'bot'>();
   /**
-   * Bot mode is live only where the host advertises it. A VS Code host never
-   * does, and its window draws the modes anyway — so there the tab keeps its
-   * `Soon` chip rather than opening a room with nothing behind it.
+   * Bot mode is live only where the host advertises it. Its tab is drawn either
+   * way — that is what the `Beta` badge is for: the mode exists, it is simply not
+   * finished, and a host that cannot run it says so in the title instead of
+   * pretending the feature is still to come.
    */
   protected readonly botEnabled = computed(() => this.morse.capabilities()?.bot === true);
   protected readonly botTitle = computed(() =>
-    this.botEnabled() ? 'Bot — chat with isolated agents' : 'Bot — coming soon',
+    this.botEnabled()
+      ? 'Bot (beta) — chat with isolated agents'
+      : 'Bot (beta) — this host cannot run bot mode yet',
   );
 
   /**
