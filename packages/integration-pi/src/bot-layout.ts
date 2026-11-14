@@ -287,6 +287,19 @@ export function piSystemPromptPath(botRoot: string): string {
   return join(piAgentDir(botRoot), SYSTEM_FILE);
 }
 
+/**
+ * A `settings.json` object whose `$schema` is pi's, keeping every other key.
+ *
+ * The literal comes first so the key is written first; the spread would then win
+ * the *value*, so it is forced back — a file pointed at another schema is
+ * corrected instead of rewritten with the same wrong URL on every pass.
+ */
+function withPiSettingsSchema(settings: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { $schema: PI_SETTINGS_SCHEMA, ...settings };
+  next['$schema'] = PI_SETTINGS_SCHEMA;
+  return next;
+}
+
 /** Writes a bot's whole pi configuration, in pi's own layout. */
 export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void {
   const agentDir = piAgentDir(botRoot);
@@ -318,7 +331,7 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
   // `$schema` goes first so the file opens with the pointer to pi's schema.
   const settingsPath = join(agentDir, SETTINGS_FILE);
   const settings = readJsonObject(settingsPath) ?? {};
-  const next: Record<string, unknown> = { $schema: PI_SETTINGS_SCHEMA, ...settings };
+  const next = withPiSettingsSchema(settings);
   if (config.model === null) {
     // An explicit clear: back to the engine's own default.
     delete next['defaultProvider'];
@@ -405,7 +418,7 @@ export const piBotLayout: BotEngineLayout = {
     if (existsSync(settingsPath)) {
       const settings = readJsonObject(settingsPath) ?? {};
       if (settings['$schema'] !== PI_SETTINGS_SCHEMA) {
-        writePrivateJson(settingsPath, { $schema: PI_SETTINGS_SCHEMA, ...settings });
+        writePrivateJson(settingsPath, withPiSettingsSchema(settings));
       }
     }
     const legacy = join(agentDir, LEGACY_PERSONA_FILE);

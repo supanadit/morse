@@ -260,6 +260,41 @@ describe('piBotLayout', () => {
     expect(existsSync(join(agentDir, 'settings.json'))).toBe(false);
   });
 
+  it('replaces a settings schema that is not pi, and keeps the rest', () => {
+    const agentDir = join(botRoot, 'config');
+    mkdirSync(agentDir, { recursive: true });
+    // A file pointed at some other schema: the spread must not let that value
+    // survive, or `repair` would rewrite the same wrong URL on every pass.
+    writeFileSync(
+      join(agentDir, 'settings.json'),
+      JSON.stringify({ $schema: 'https://old.example/schema.json', theme: 'dark' }),
+    );
+
+    piBotLayout.repair?.(botRoot);
+
+    const settings = read(join(agentDir, 'settings.json')) as Record<string, unknown>;
+    expect(settings['$schema']).toBe('https://pi.dev/schemas/settings.schema.json');
+    expect(Object.keys(settings)[0]).toBe('$schema');
+    expect(settings['theme']).toBe('dark');
+  });
+
+  it('replaces a settings schema that is not pi when the wizard writes', () => {
+    const agentDir = join(botRoot, 'config');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(
+      join(agentDir, 'settings.json'),
+      JSON.stringify({ $schema: 'https://old.example/schema.json', theme: 'dark' }),
+    );
+
+    writePiBotConfig(botRoot, config);
+
+    const settings = read(join(agentDir, 'settings.json')) as Record<string, unknown>;
+    expect(settings['$schema']).toBe('https://pi.dev/schemas/settings.schema.json');
+    expect(Object.keys(settings)[0]).toBe('$schema');
+    expect(settings['theme']).toBe('dark');
+    expect(settings['defaultProvider']).toBe('zai');
+  });
+
   it('keeps the reader settings it does not own, and clears what the form cleared', () => {
     const agentDir = join(botRoot, 'config');
     mkdirSync(agentDir, { recursive: true });
