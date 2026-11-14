@@ -1,5 +1,7 @@
 import { computed, DestroyRef, effect, inject, Injectable, signal } from '@angular/core';
 import type {
+  ConfigIssue,
+  ConfigMutation,
   McpConfigScope,
   McpInspectionResult,
   McpServerInput,
@@ -9,6 +11,7 @@ import type {
   ProjectTrustResult,
 } from '@morse/protocol';
 import { MorseService } from '../host/morse.service';
+import { asConfigIssues, asConfigMutation } from './config-issue';
 import { WorkspaceTabs } from './workspace-tabs';
 
 /** A one-glance read of a directory's MCP health, for the header's dot. */
@@ -48,6 +51,12 @@ export class McpState {
   private readonly loadingByCwd = signal<Record<string, boolean>>({});
   private readonly fetchedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<McpStatus | undefined>>();
+  /**
+   * The probe's own track. A probe is a second, slower read of the same
+   * directory: sharing the fast read's slot would let either answer for the
+   * other, and a refresh must never swallow the live state the panel asked for.
+   */
+  private readonly probeInFlight = new Map<string, Promise<McpStatus | undefined>>();
 
   /** Only a host that can manage some engine's MCP servers advertises this. */
   readonly enabled = computed(() => this.morse.capabilities()?.mcp === true);
@@ -209,8 +218,39 @@ export class McpState {
   /**
    * Fetch a directory's status, reusing a recent answer unless `force` is set.
    * Resolves `undefined` when the host did not answer (an older host, a timeout).
+   *
+   * The fast read answers from the config files alone so the panel draws at
+   * once; a probe then asks the engine to connect each enabled server and
+   * replaces the answer when it arrives. The probe is not awaited: a panel that
+   * waited for a dial would look broken on a slow server.
    */
   async refresh(cwd: string, force = false): Promise<McpStatus | undefined> {
+    const status = await this.load(cwd, force);
+    if (status !== undefined) {
+      void this.probe(cwd);
+    }
+    return status;
+  }
+
+  /**
+   * Ask the engine to connect every enabled server and report live state. Shares
+   * one round trip per directory with other probes, and never with the fast
+   * read, so a refresh in flight cannot stand in for it.
+   */
+  probe(cwd: string): Promise<McpStatus | undefined> {
+    const existing = this.probeInFlight.get(cwd);
+    if (existing) {
+      return existing;
+    }
+    const promise = this.fetch(cwd, true);
+    this.probeInFlight.set(cwd, promise);
+    return promise.finally(() => {
+      this.probeInFlight.delete(cwd);
+    });
+  }
+
+  /** The fast (or cached) read: one round trip per directory at a time. */
+  private async load(cwd: string, force: boolean): Promise<McpStatus | undefined> {
     const existing = this.inFlight.get(cwd);
     if (existing) {
       return existing;
@@ -226,7 +266,7 @@ export class McpState {
     });
   }
 
-  private async fetch(cwd: string): Promise<McpStatus | undefined> {
+  private async fetch(cwd: string, probe = false): Promise<McpStatus | undefined> {
     const key = this.keyOf(cwd);
     this.setLoading(cwd, true);
     try {
@@ -235,6 +275,7 @@ export class McpState {
         {
           ...(cwd.length > 0 ? { cwd } : { scope: 'global' }),
           ...(this.engine() === undefined ? {} : { engine: this.engine() }),
+          ...(probe ? { probe: true } : {}),
         },
         STATUS_TIMEOUT_MS,
       );
@@ -305,6 +346,31 @@ export class McpState {
     return result;
   }
 
+  /**
+   * Rewrite the file one config issue names, so a later write can land. The host
+   * resolves the engine from `engine` and validates the path against that
+   * engine's own config paths; an older host answers `undefined`, which this
+   * reads as a refusal instead of a success it cannot prove.
+   */
+  async fix(cwd: string, issue: ConfigIssue): Promise<ConfigMutation> {
+    const data = await this.morse.requestHostCommand(
+      'configFix',
+      {
+        fileId: issue.fileId,
+        path: issue.file,
+        scope: issue.scope,
+        ...(cwd.length > 0 ? { cwd } : {}),
+        ...(this.engine() === undefined ? {} : { engine: this.engine() }),
+      },
+      MUTATION_TIMEOUT_MS,
+    );
+    const result = asConfigMutation(data);
+    if (result.ok) {
+      await this.refresh(cwd, true);
+    }
+    return result;
+  }
+
   private async mutate(
     command: 'mcpAdd' | 'mcpRemove' | 'mcpSetEnabled',
     args: Record<string, unknown>,
@@ -340,18 +406,21 @@ function asMcpStatus(value: unknown): McpStatus | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
-  const row = value as { servers?: unknown; errors?: unknown; note?: unknown; trusted?: unknown };
+  const row = value as { servers?: unknown; errors?: unknown; note?: unknown; trusted?: unknown; issues?: unknown };
   if (!Array.isArray(row.servers)) {
     return undefined;
   }
+  const issues = asConfigIssues(row.issues);
   return {
     servers: row.servers.filter(isServerStatus),
     errors: Array.isArray(row.errors) ? row.errors.filter(isString) : [],
     ...(typeof row.note === 'string' ? { note: row.note } : {}),
     ...(row.trusted === true ? { trusted: true } : row.trusted === false ? { trusted: false } : {}),
+    ...(issues.length > 0 ? { issues } : {}),
   };
 }
 
+/** A row the panel can draw: a name and a state are the two things it renders. */
 function isServerStatus(value: unknown): value is McpServerStatus {
   if (typeof value !== 'object' || value === null) {
     return false;

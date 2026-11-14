@@ -13,21 +13,26 @@ import { WorkspaceTabs } from './workspace-tabs';
  */
 function setup(workspaceCwd = '/repo') {
   let push: ((event: { cwd: string }) => void) | undefined;
-  const requestHostCommand = vi.fn(() =>
-    Promise.resolve({ servers: [], errors: [], trusted: true }),
+  const requestHostCommand = vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({
+      servers: [],
+      errors: [],
+      trusted: true,
+    }),
   );
+  const onMcpChanged = (listener: (event: { cwd: string }) => void): (() => void) => {
+    push = listener;
+    return () => {
+      push = undefined;
+    };
+  };
   const fake = {
     capabilities: signal({ mcp: false }),
     workspace: signal({ cwd: workspaceCwd, name: 'repo' }),
     // The draft's/session's engine choice; absent means the host's default.
     engine: signal<string | undefined>(undefined),
     requestHostCommand,
-    onMcpChanged: (listener: (event: { cwd: string }) => void) => {
-      push = listener;
-      return () => {
-        push = undefined;
-      };
-    },
+    onMcpChanged,
   };
   TestBed.configureTestingModule({
     providers: [
@@ -35,8 +40,8 @@ function setup(workspaceCwd = '/repo') {
       { provide: WorkspaceTabs, useValue: { noSessionInFront: signal(false) } },
     ],
   });
-  TestBed.inject(McpState);
-  return { requestHostCommand, push: () => push, engine: fake.engine };
+  const state = TestBed.inject(McpState);
+  return { requestHostCommand, push: () => push, engine: fake.engine, state };
 }
 
 afterEach(() => TestBed.resetTestingModule());
@@ -71,7 +76,7 @@ describe('McpState', () => {
     // new kind, never the previous engine's cached answer.
     engine.set('opencode');
     await TestBed.inject(McpState).refresh('/repo', true);
-    expect(requestHostCommand).toHaveBeenLastCalledWith(
+    expect(requestHostCommand).toHaveBeenCalledWith(
       'mcpStatus',
       { cwd: '/repo', engine: 'opencode' },
       expect.any(Number),
@@ -99,5 +104,151 @@ describe('McpState', () => {
         expect.any(Number),
       );
     });
+  });
+});
+
+/** The config issues a status carries, and the two actions they enable. */
+describe('McpState issues, probing and Fix', () => {
+  it('parses the config issues the host attached to a status', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    requestHostCommand.mockResolvedValue({
+      servers: [],
+      errors: [],
+      trusted: true,
+      issues: [
+        {
+          file: '/repo/opencode.json',
+          fileId: 'config',
+          scope: 'project',
+          code: 'normalize',
+          message: '/repo/opencode.json: rewrite this file without comments.',
+          fixable: true,
+        },
+      ],
+    });
+
+    const status = await state.refresh('/repo', true);
+    expect(status?.issues).toEqual([
+      {
+        file: '/repo/opencode.json',
+        fileId: 'config',
+        scope: 'project',
+        code: 'normalize',
+        message: '/repo/opencode.json: rewrite this file without comments.',
+        fixable: true,
+      },
+    ]);
+  });
+
+  it('reads the fast status first, then probes in the background', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    requestHostCommand.mockImplementation((_command, args) =>
+      Promise.resolve(
+        (args as { probe?: boolean } | undefined)?.probe === true
+          ? {
+              servers: [{ name: 'docs', state: 'connected', enabled: true }],
+              errors: [],
+            }
+          : { servers: [{ name: 'docs', state: 'connecting', enabled: true }], errors: [] },
+      ),
+    );
+
+    await state.refresh('/repo', true);
+    expect(requestHostCommand).toHaveBeenCalledWith('mcpStatus', { cwd: '/repo' }, expect.any(Number));
+
+    // The probe's live answer replaces the fast one, so the dot settles without
+    // the panel having waited for a server to connect.
+    await vi.waitFor(() => {
+      expect(state.status('/repo')?.servers[0]?.state).toBe('connected');
+    });
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpStatus',
+      { cwd: '/repo', probe: true },
+      expect.any(Number),
+    );
+  });
+
+  it('probes on its own in-flight track, so a refresh cannot swallow it', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    let answerProbe: ((value: unknown) => void) | undefined;
+    requestHostCommand.mockImplementation((_command, args) =>
+      (args as { probe?: boolean } | undefined)?.probe === true
+        ? new Promise((resolve) => {
+            answerProbe = resolve;
+          })
+        : Promise.resolve({ servers: [], errors: [] }),
+    );
+
+    const probing = state.probe('/repo');
+    // The same directory's refresh must still ask the host for the fast list.
+    await state.refresh('/repo', true);
+    const fastReads = requestHostCommand.mock.calls.filter(
+      ([, args]) => (args as { probe?: boolean } | undefined)?.probe !== true,
+    );
+    expect(fastReads).toHaveLength(1);
+
+    answerProbe?.({
+      servers: [{ name: 'docs', state: 'connected', enabled: true }],
+      errors: [],
+    });
+    await expect(probing).resolves.toMatchObject({ servers: [{ state: 'connected' }] });
+  });
+
+  it('fixes an issue through the host, then refreshes the directory', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    requestHostCommand.mockImplementation((command) =>
+      command === 'configFix'
+        ? Promise.resolve({
+            ok: true,
+            path: '/repo/opencode.json',
+            scope: 'project',
+            issues: [],
+          })
+        : Promise.resolve({ servers: [], errors: [] }),
+    );
+
+    const result = await state.fix('/repo', {
+      file: '/repo/opencode.json',
+      fileId: 'config',
+      scope: 'project',
+      code: 'normalize',
+      message: 'rewrite this file',
+      fixable: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'configFix',
+      {
+        fileId: 'config',
+        path: '/repo/opencode.json',
+        scope: 'project',
+        cwd: '/repo',
+      },
+      expect.any(Number),
+    );
+    expect(requestHostCommand).toHaveBeenCalledWith(
+      'mcpStatus',
+      { cwd: '/repo' },
+      expect.any(Number),
+    );
+  });
+
+  it('reports a host without the Fix command instead of claiming success', async () => {
+    const { requestHostCommand, state } = setup('/repo');
+    // An older host answers `undefined` (the command is not implemented).
+    requestHostCommand.mockResolvedValue(undefined);
+
+    const result = await state.fix('/repo', {
+      file: '/repo/mcp.json',
+      fileId: 'mcp',
+      scope: 'global',
+      code: 'normalize',
+      message: 'rewrite this file',
+      fixable: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
   });
 });

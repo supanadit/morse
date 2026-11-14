@@ -1,4 +1,5 @@
 import type { AgentGatewayFactory, SessionEngine } from '@morse/agent';
+import type { ConfigScope } from '@morse/protocol';
 import type { SessionCatalog } from './ports.js';
 
 /**
@@ -49,6 +50,20 @@ export interface AgentExtras {
   mcp?: AgentMcpExtras;
   /** Editing prompt templates, when the engine loads them from files. */
   prompts?: AgentPromptExtras;
+  /**
+   * Rewriting one config file so a later write can land — the panel's Fix action
+   * beside a fixable `ConfigIssue`. The file is named by the issue, and the
+   * engine refuses any `path` outside the config paths it resolves for
+   * `fileId`/`scope`/`cwd`; a request for an arbitrary file is not a repair.
+   * Answers a `ConfigMutation` the panel can render.
+   */
+  fix?(request: {
+    fileId: string;
+    /** Absolute path of the file, exactly as the issue reported it. */
+    path: string;
+    scope: ConfigScope;
+    cwd?: string;
+  }): Promise<unknown>;
   /** The installed engine version, for the "a newer one is out" notice. */
   version?(): string | undefined;
   /** The engine's CLI, when host commands shell out to it. Presence = available. */

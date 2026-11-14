@@ -11,7 +11,12 @@ import {
 import type { HostToClientMessage } from '@morse/protocol';
 import type { WebSocket } from 'ws';
 import { MorseSessionFactory } from './session-factory.service.js';
-import { isLoopback, resolveMcpExtras, resolvePromptExtras } from './session-factory.service.js';
+import {
+  isLoopback,
+  resolveFixExtras,
+  resolveMcpExtras,
+  resolvePromptExtras,
+} from './session-factory.service.js';
 import { MorseGateway } from './morse.gateway.js';
 import type { MorseServerConfig } from '../../app/config.js';
 
@@ -80,7 +85,10 @@ function fakeBot() {
 }
 
 /** The factory over inert doubles: only the bot wiring is under test here. */
-function factoryWith(bot: BotService | undefined): MorseSessionFactory {
+function factoryWith(
+  bot: BotService | undefined,
+  extras?: AgentExtras,
+): MorseSessionFactory {
   const registry = {
     subscribe: () => () => undefined,
     onRemoval: () => () => undefined,
@@ -96,16 +104,16 @@ function factoryWith(bot: BotService | undefined): MorseSessionFactory {
     dispose: async () => undefined,
   } as unknown as SessionRegistry;
   const router = {
-    defaultExtras: () => undefined,
+    defaultExtras: () => extras,
     engineOptions: () => [],
-    extrasFor: () => undefined,
+    extrasFor: () => extras,
     agentFor: () => undefined,
     dispose: async () => undefined,
   } as unknown as FactoryArgs[6];
   return new MorseSessionFactory(
     registry,
     new SessionTranscriptStore(),
-    {} as FactoryArgs[2],
+    { canOpen: () => true } as unknown as FactoryArgs[2],
     silentLogger,
     CONFIG,
     {} as FactoryArgs[5],
@@ -437,5 +445,167 @@ describe('resolvePromptExtras', () => {
     };
     await resolvePromptExtras(router2, 'opencode').delete('n', 'global', '/w', 'config');
     expect(seen).toEqual(['n', 'global', '/w', 'config']);
+  });
+});
+
+/** An engine's MCP port whose `status` is a spy, plus no Fix action. */
+function mcpOnlyExtras(status: (...args: unknown[]) => Promise<unknown>): AgentExtras {
+  return {
+    mcp: {
+      configSignature: async () => '',
+      status: status as NonNullable<AgentExtras['mcp']>['status'],
+      add: async () => undefined,
+      remove: async () => undefined,
+      setEnabled: async () => undefined,
+      trustProject: async () => undefined,
+    },
+  };
+}
+
+/**
+ * Probing and the config Fix action. `probe` turns the fast list into live
+ * connection state; `configFix` rewrites a file the reader cannot otherwise
+ * write, so its arguments are checked before any engine sees them.
+ */
+describe('mcpStatus probing', () => {
+  /** Sends one `host/command` and returns the answer the host emitted. */
+  async function answer(
+    controller: ReturnType<MorseSessionFactory['createFor']>,
+    messages: HostToClientMessage[],
+    args: Record<string, unknown>,
+  ): Promise<{ ok: boolean; data?: unknown; error?: string } | undefined> {
+    await controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'mcpStatus', args, requestId: 'mcp-1' },
+    });
+    const last = messages.at(-1);
+    return last?.type === 'host/command/result' ? last.payload : undefined;
+  }
+
+  it('forwards probe:true to the engine, and a fast read otherwise', async () => {
+    const status = vi.fn(async () => ({ servers: [], errors: [] }));
+    const { controller, messages } = connect(factoryWith(undefined, mcpOnlyExtras(status)));
+
+    expect(await answer(controller, messages, { scope: 'global', probe: true })).toMatchObject({
+      ok: true,
+    });
+    expect(status).toHaveBeenLastCalledWith(undefined, { probe: true });
+
+    await answer(controller, messages, { scope: 'global' });
+    expect(status).toHaveBeenLastCalledWith(undefined, { probe: false });
+  });
+});
+
+/**
+ * The Fix command's argument gate: the engine owns the path rule (it is the one
+ * that knows its config files), so the host only refuses what it cannot even
+ * describe — a missing fileId, path or scope — and forwards the rest intact.
+ */
+describe('configFix', () => {
+  async function fix(
+    extras: AgentExtras | undefined,
+    args: Record<string, unknown>,
+  ): Promise<{ controller: ReturnType<MorseSessionFactory['createFor']>; messages: HostToClientMessage[] }> {
+    const host = connect(factoryWith(undefined, extras));
+    await host.controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'configFix', args, requestId: 'fix-1' },
+    });
+    return host;
+  }
+
+  const lastResult = (
+    messages: HostToClientMessage[],
+  ): { ok: boolean; data?: unknown; error?: string } | undefined => {
+    const last = messages.at(-1);
+    return last?.type === 'host/command/result' ? last.payload : undefined;
+  };
+
+  it('forwards a valid request with every field the engine needs', async () => {
+    const engineFix = vi.fn(async () => ({
+      ok: true,
+      path: '/repo/.pi/mcp.json',
+      scope: 'project',
+      issues: [],
+    }));
+    const result = await fix(
+      { fix: engineFix },
+      { engine: 'pi', fileId: 'mcp', path: '/repo/.pi/mcp.json', scope: 'project', cwd: '/repo' },
+    );
+
+    expect(engineFix).toHaveBeenCalledWith({
+      fileId: 'mcp',
+      path: '/repo/.pi/mcp.json',
+      scope: 'project',
+      cwd: '/repo',
+    });
+    expect(lastResult(result.messages)).toMatchObject({
+      ok: true,
+      data: { ok: true, path: '/repo/.pi/mcp.json', scope: 'project' },
+    });
+  });
+
+  it('refuses a request without a usable fileId, path or scope', async () => {
+    const engineFix = vi.fn(async () => ({ ok: true, issues: [] }));
+
+    const noFileId = await fix({ fix: engineFix }, { path: '/repo/mcp.json', scope: 'global' });
+    expect(lastResult(noFileId.messages)?.ok).toBe(false);
+
+    const noPath = await fix({ fix: engineFix }, { fileId: 'mcp', scope: 'global' });
+    expect(lastResult(noPath.messages)?.ok).toBe(false);
+
+    const noScope = await fix(
+      { fix: engineFix },
+      { fileId: 'mcp', path: '/repo/mcp.json', scope: 'local' },
+    );
+    expect(lastResult(noScope.messages)?.ok).toBe(false);
+
+    expect(engineFix).not.toHaveBeenCalled();
+  });
+
+  it('refuses an engine with no Fix action instead of pretending', async () => {
+    const result = await fix(mcpOnlyExtras(async () => ({ servers: [], errors: [] })), {
+      engine: 'pi',
+      fileId: 'mcp',
+      path: '/repo/mcp.json',
+      scope: 'global',
+    });
+
+    expect(lastResult(result.messages)).toMatchObject({ ok: false });
+  });
+});
+
+/** The Fix port resolved by the same rule as the MCP and prompt ports. */
+describe('resolveFixExtras', () => {
+  const fixOf = (label: string) => ({ fix: async () => label });
+  const routerFor = (engines: Record<string, AgentExtras | undefined>, fallback = 'pi') => ({
+    extrasFor: (kind: string) => (engines[kind]?.fix === undefined ? undefined : engines[kind]),
+    defaultExtras: () => engines[fallback],
+  });
+  const pi = fixOf('pi') as unknown as AgentExtras;
+  const openCode = fixOf('opencode') as unknown as AgentExtras;
+
+  it('resolves the engine a command names, and the default when none is', async () => {
+    const router = routerFor({ pi, opencode: openCode });
+    await expect(
+      resolveFixExtras(router, 'opencode')({
+        fileId: 'config',
+        path: '/w/opencode.json',
+        scope: 'global',
+      }),
+    ).resolves.toBe('opencode');
+    await expect(
+      resolveFixExtras(router, undefined)({
+        fileId: 'mcp',
+        path: '/w/mcp.json',
+        scope: 'global',
+      }),
+    ).resolves.toBe('pi');
+  });
+
+  it('refuses an engine without the port, never another engine’s fix', () => {
+    const router = routerFor({ pi, opencode: mcpOnlyExtras(async () => undefined) });
+    expect(() => resolveFixExtras(router, 'opencode')).toThrow(UnsupportedByHostError);
+    expect(() => resolveFixExtras(router, 'opencode')).toThrow(/opencode engine has no config Fix/);
   });
 });

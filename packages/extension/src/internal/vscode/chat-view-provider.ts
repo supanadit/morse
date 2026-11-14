@@ -907,15 +907,20 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       case 'mcpStatus': {
-        // The session directory is the window's workspace folder; the CLI is the
-        // source of truth for connection state.
+        // The session directory is the window's workspace folder; a probe asks
+        // pi to connect each enabled server, the fast read answers from the files.
         const mcp = this.requireMcp();
         try {
-          return await mcp.status(this.mcpCwd(context));
+          return await mcp.status(this.mcpCwd(context), { probe: args?.probe === true });
         } catch (error: unknown) {
           return { servers: [], errors: [describeError(error)] };
         }
       }
+      case 'configFix':
+        // VS Code resolves only the default engine's administration (never a
+        // per-engine port), so it cannot answer a fix that names its own engine.
+        // The panel hides Fix here; a client that asks anyway is refused.
+        throw new UnsupportedByHostError('VS Code does not implement "configFix".');
       case 'mcpAdd':
         return this.requireMcp().add(parseMcpServerInput(args), this.mcpCwd(context));
       case 'mcpInspect': {

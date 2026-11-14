@@ -1,11 +1,14 @@
 import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import type {
+  ConfigIssue,
+  ConfigMutation,
   PromptScope,
   PromptTemplateInput,
   PromptTemplateMutation,
   PromptTemplatesResult,
 } from '@morse/protocol';
 import { MorseService } from '../host/morse.service';
+import { asConfigIssues, asConfigMutation } from './config-issue';
 
 /** A round trip to read or write a small `.md` file; the host answers immediately. */
 const TIMEOUT_MS = 10_000;
@@ -135,6 +138,32 @@ export class PromptTemplatesState {
     }
     return result;
   }
+
+  /**
+   * Rewrite the file one config issue names, so a later edit can land. The host
+   * validates the path against the engine's own config paths; an older host
+   * answers `undefined`, which this reads as a refusal instead of a success.
+   */
+  async fix(issue: ConfigIssue): Promise<ConfigMutation> {
+    const data = await this.morse.requestHostCommand(
+      'configFix',
+      {
+        fileId: issue.fileId,
+        path: issue.file,
+        scope: issue.scope,
+        cwd: this.projectCwd(),
+        engine: this.engine(),
+      },
+      TIMEOUT_MS,
+    );
+    const result = asConfigMutation(data);
+    if (result.ok) {
+      // A normalized file is one the palette can read again.
+      this.morse.refreshCommands();
+      await this.refresh(true);
+    }
+    return result;
+  }
 }
 
 function asPromptTemplates(value: unknown): PromptTemplatesResult | undefined {
@@ -145,11 +174,13 @@ function asPromptTemplates(value: unknown): PromptTemplatesResult | undefined {
   if (!Array.isArray(row['templates'])) {
     return undefined;
   }
+  const issues = asConfigIssues(row['issues']);
   return {
     templates: row['templates'].filter(isTemplateInfo),
     globalDir: typeof row['globalDir'] === 'string' ? row['globalDir'] : '',
     projectDir: typeof row['projectDir'] === 'string' ? row['projectDir'] : '',
     trusted: row['trusted'] === true,
+    ...(issues.length > 0 ? { issues } : {}),
   };
 }
 

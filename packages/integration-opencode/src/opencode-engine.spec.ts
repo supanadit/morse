@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSessionState, ModelRef } from '@morse/agent';
+import type { ConfigMutation } from '@morse/engine-config';
 import { UnsupportedByHostError, silentLogger } from '@morse/system';
 import type { OpenCodeApi, OpenCodePage } from './internal/client.js';
 import type { OpenCodeEventStream } from './internal/event-stream.js';
@@ -292,5 +293,41 @@ describe('OpenCodeEngine', () => {
     // An owned connection stops the server; an attached one is a no-op (the
     // connection itself enforces that, covered where it is created).
     expect(engine.owned).toBe(true);
+  });
+
+  it('fixes only the config path the engine resolves, never an arbitrary file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'oc-engine-fix-'));
+    try {
+      const configDir = join(root, 'opencode');
+      mkdirSync(configDir, { recursive: true });
+      const file = join(configDir, 'opencode.json');
+      writeFileSync(file, '{\n  // dropped by a fix\n  "mcp": {}\n}\n', 'utf8');
+      const { engine } = engineWith({ sessions: [], configDir });
+
+      const fixed = (await engine.extras.fix?.({
+        fileId: 'config',
+        path: file,
+        scope: 'global',
+      })) as ConfigMutation;
+      expect(fixed).toMatchObject({ ok: true, path: file, scope: 'global' });
+      const text = readFileSync(file, 'utf8');
+      expect(text).not.toContain('//');
+      expect(JSON.parse(text)).toEqual({ mcp: {} });
+
+      // A file beside it is not one of OpenCode's config paths, so Fix refuses
+      // it instead of normalising a file the reader never asked about.
+      const other = join(configDir, 'settings.json');
+      writeFileSync(other, '{\n  // untouched\n}\n', 'utf8');
+      const refused = (await engine.extras.fix?.({
+        fileId: 'config',
+        path: other,
+        scope: 'global',
+      })) as ConfigMutation;
+      expect(refused.ok).toBe(false);
+      expect(refused.message).toMatch(/not one of opencode's global config paths/);
+      expect(readFileSync(other, 'utf8')).toContain('//');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

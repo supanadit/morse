@@ -494,7 +494,7 @@ export class MorseSessionFactory {
         const cwd = args?.scope === 'global' ? undefined : this.requireWritableCwd(context);
         const mcp = this.mcpFor(args);
         try {
-          return await mcp.status(cwd);
+          return await mcp.status(cwd, { probe: args?.probe === true });
         } catch (error: unknown) {
           return { servers: [], errors: [describeError(error)] };
         }
@@ -559,6 +559,32 @@ export class MorseSessionFactory {
           this.optionalCwd(context, args),
           typeof args?.['source'] === 'string' ? args['source'] : undefined,
         );
+      }
+      case 'configFix': {
+        // A config issue names its own file; the engine is the one that knows
+        // whether that path is one of its configs, so the host checks only that
+        // the request is complete and that the directory is allowed, then hands
+        // the issue's `file` over as-is (never re-derived or normalised here).
+        const fileId = stringArg(args, 'fileId');
+        if (fileId.length === 0) {
+          throw new UnsupportedByHostError('configFix needs a "fileId" argument.');
+        }
+        const path = stringArg(args, 'path');
+        if (path.length === 0) {
+          throw new UnsupportedByHostError('configFix needs a "path" argument.');
+        }
+        const scope =
+          args?.scope === 'project' ? 'project' : args?.scope === 'global' ? 'global' : undefined;
+        if (scope === undefined) {
+          throw new UnsupportedByHostError('configFix needs a "scope" of "global" or "project".');
+        }
+        const cwd = this.fixCwd(context, args, scope);
+        return this.fixFor(args)({
+          fileId,
+          path,
+          scope,
+          ...(cwd === undefined ? {} : { cwd }),
+        });
       }
       case 'updateHost': {
         return this.updateHost(remoteAddress);
@@ -632,6 +658,38 @@ export class MorseSessionFactory {
   /** The prompt port of the engine the command names, or the default engine's. */
   private promptsFor(args?: Record<string, unknown>): NonNullable<AgentExtras['prompts']> {
     return resolvePromptExtras(this.router, args?.['engine']);
+  }
+
+  /** The config-Fix port of the engine the command names, or the default engine's. */
+  private fixFor(args?: Record<string, unknown>): NonNullable<AgentExtras['fix']> {
+    return resolveFixExtras(this.router, args?.['engine']);
+  }
+
+  /**
+   * The directory a config fix resolves against. A project file is only
+   * meaningful inside an allowed project, so that names one exactly as a session
+   * would; a global file may be fixed with no project in front (the empty-session
+   * view), and an explicit directory is policy-checked like every file command.
+   */
+  private fixCwd(
+    context: HostCommandContext | undefined,
+    args: Record<string, unknown> | undefined,
+    scope: 'global' | 'project',
+  ): string | undefined {
+    if (scope === 'project') {
+      return this.commandCwd(context, args);
+    }
+    const requested = args?.['cwd'];
+    if (typeof requested === 'string' && requested.length > 0) {
+      if (!this.policy.canOpen(requested)) {
+        throw new UnsupportedByHostError(`Morse is not allowed to work in ${requested}.`);
+      }
+      return requested;
+    }
+    const active = context?.cwd ?? this.activeCwd();
+    return active !== undefined && active.length > 0 && this.policy.canOpen(active)
+      ? active
+      : undefined;
   }
 
   private requireWritableCwd(context?: HostCommandContext): string {
@@ -710,11 +768,23 @@ export function resolvePromptExtras(
 }
 
 /**
+ * The config-Fix port of the engine a command names, or the default engine's.
+ * Same rule as the MCP and prompt ports: an engine that cannot fix its own
+ * config is a refusal, never another engine's repair.
+ */
+export function resolveFixExtras(
+  router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
+  engine: unknown,
+): NonNullable<AgentExtras['fix']> {
+  return resolveEngineExtras(router, engine, 'fix', 'config Fix action');
+}
+
+/**
  * The extras port named by `key`, of the engine the command names, or the
  * default engine's when it names none. A named engine without that port is a
  * refusal naming the engine — the one rule that keeps the engines from mixing.
  */
-function resolveEngineExtras<K extends 'mcp' | 'prompts'>(
+function resolveEngineExtras<K extends 'mcp' | 'prompts' | 'fix'>(
   router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
   engine: unknown,
   key: K,

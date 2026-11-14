@@ -68,6 +68,13 @@ export type HostCommand =
   | 'mcpRemove'
   /** Turn an MCP server on or off in the `mcp.json` that defines it. */
   | 'mcpSetEnabled'
+  /**
+   * Rewrite one engine config file so a later write can land (a JSONC file
+   * rewritten as strict JSON). Named by the `ConfigIssue` the panel shows:
+   * `{ engine?, fileId, path, scope, cwd? }`. The engine validates `path`
+   * against its own resolved config paths, never an arbitrary file.
+   */
+  | 'configFix'
   /** Open the host's prompt-template editor (VS Code's editor panel). */
   | 'openPromptEditor'
   /** Mark the viewing project trusted, so pi loads its `.pi` resources. */
