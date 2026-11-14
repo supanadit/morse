@@ -43,3 +43,12 @@ export {
   openCodeLegacyPersonaPath,
   OPENCODE_BOT_AGENT,
 } from './bot-layout.js';
+
+export {
+  OpenCodeEngineDefinition,
+  OpenCodeEngineInstance,
+  type OpenCodeEngineOptions,
+} from './engine/open-code-engine.js';
+export { OpenCodeMcpSection } from './engine/open-code-mcp-section.js';
+export { OpenCodeMcpStore } from './engine/open-code-mcp-store.js';
+export { discoverOpenCodeConfigPaths } from './engine/config-discovery.js';
