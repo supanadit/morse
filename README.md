@@ -4,6 +4,8 @@
 [![CI](https://github.com/supanadit/morse/actions/workflows/ci.yml/badge.svg)](https://github.com/supanadit/morse/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](package.json)
 
+![Morse in VS Code](docs/assets/redesign-v1.png)
+
 **An agent-agnostic GUI for coding agents** — a chat panel inside VS Code, or a browser UI served by a small
 NestJS host. It works with **[Pi](https://github.com/earendil-works/pi)** and **[OpenCode](https://github.com/sst/opencode)**, and stays engine-neutral: one session list, one transcript, one set of shortcuts, regardless of which agent is driving.
 
@@ -19,7 +21,7 @@ its models, tools and sessions — a real interface without reimplementing any o
 an agent**; it talks to each one through its own RPC/API, which is why you install the agent you want to use
 yourself.
 
-## Demo
+## Demo ( Old Version )
 
 VS Code extension:
 
@@ -29,7 +31,9 @@ Browser host:
 
 ![Morse in the browser](docs/assets/demo-web.gif)
 
-Both clips run the same agent, transcript and protocol; only the host differs.
+Both clips run the same agent, transcript, and protocol; only the host differs.
+
+I will update the new demo once everything is settled.
 
 ## How this is built
 
