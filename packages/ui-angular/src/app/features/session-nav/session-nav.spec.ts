@@ -41,6 +41,8 @@ class ScopedHostTransport extends BaseHostTransport {
     }[],
     /** Projects the host reports as holding more sessions than it sent. */
     private readonly hasMoreByProject: Record<string, boolean> = {},
+    /** The session a reload came back to, the way a host restores the open one. */
+    private readonly activeSession?: { id: string; cwd: string },
   ) {
     super();
   }
@@ -71,7 +73,8 @@ class ScopedHostTransport extends BaseHostTransport {
           sessionTabs: this.sessionTabs,
         },
         state: {
-          workspace: { cwd: '/work/morse', name: 'morse' },
+          ...(this.activeSession === undefined ? {} : { sessionId: this.activeSession.id }),
+          workspace: { cwd: this.activeSession?.cwd ?? '/work/morse', name: 'morse' },
           thinkingLevel: 'off',
           availableModels: [],
           availableThinkingLevels: [],
@@ -182,6 +185,8 @@ interface RenderOptions {
   }[];
   /** Projects the host reports as holding more sessions than it sent. */
   hasMoreByProject?: Record<string, boolean>;
+  /** The session the host came back to, when a test needs the open project to be the second one. */
+  activeSession?: { id: string; cwd: string };
 }
 
 async function render(
@@ -197,6 +202,7 @@ async function render(
     options.sessionTabs === true,
     options.sessions,
     options.hasMoreByProject,
+    options.activeSession,
   );
   await TestBed.configureTestingModule({
     imports: [SessionNav],
@@ -252,7 +258,7 @@ describe('SessionNav', () => {
   });
 
   it('groups sessions by project for a global host', async () => {
-    const { host } = await render('global');
+    const { host, fixture } = await render('global');
     const text = host.textContent ?? '';
 
     // Every project is a group row in the shared tree, drawn the way the Explorer draws
@@ -261,10 +267,85 @@ describe('SessionNav', () => {
     expect(text).toContain('morse');
     expect(text).toContain('other');
     expect(text).toContain('Morse work');
-    expect(text).toContain('Other work');
     // The per-project action lives on the project's own row as a "+" icon.
     expect(host.querySelectorAll('.row-action')).toHaveLength(2);
     expect(host.querySelector('.row-action')?.getAttribute('aria-label')).toContain('morse');
+
+    // The other project is only a header until it is opened — the sessions are
+    // still there, one click away (see the fold tests below).
+    (host.querySelectorAll('button.chevron')[1] as HTMLElement).click();
+    fixture.detectChanges();
+    expect(host.textContent).toContain('Other work');
+  });
+
+  it('opens the project the open session is in, and leaves the rest folded', async () => {
+    const { host } = await render('global');
+
+    // A reader with no folds on record meets a list they can scan: the project they
+    // are already in is unfolded, every other one waits behind its header.
+    const [first, second] = [...host.querySelectorAll('.row.group')];
+    expect(first?.getAttribute('aria-expanded')).toBe('true');
+    expect(second?.getAttribute('aria-expanded')).toBe('false');
+    expect(host.textContent).toContain('Morse work');
+    expect(host.textContent).not.toContain('Other work');
+
+    // The default follows the reader, not the order the host sent: a session
+    // restored in the *second* project is what stays unfolded.
+    localStorage.clear();
+    TestBed.resetTestingModule();
+    const { host: elsewhere } = await render('global', false, {
+      activeSession: { id: 'restored', cwd: '/work/other' },
+    });
+    const [firstElsewhere, secondElsewhere] = [...elsewhere.querySelectorAll('.row.group')];
+    expect(firstElsewhere?.getAttribute('aria-expanded')).toBe('false');
+    expect(secondElsewhere?.getAttribute('aria-expanded')).toBe('true');
+    // Only that project's rows are open; the streaming session above is the
+    // separate In progress section, not a project row.
+    const rows = [...elsewhere.querySelectorAll('.row:not(.group) .label')].map(
+      (node) => node.textContent,
+    );
+    expect(rows).toEqual(['Other work']);
+  });
+
+  it('remembers a fold across a reload', async () => {
+    const { host, fixture } = await render('global');
+    // Fold the one project that the default opened. Its own session row goes; the
+    // In progress copy above is a separate section and stays.
+    (host.querySelector('button.chevron') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(host.querySelectorAll('.row:not(.group)')).toHaveLength(0);
+
+    // A reload is a new component reading the same record: the fold is still there.
+    const { host: reloaded } = await render('global');
+    const [first] = [...reloaded.querySelectorAll('.row.group')];
+    expect(first?.getAttribute('aria-expanded')).toBe('false');
+    expect(reloaded.querySelectorAll('.row:not(.group)')).toHaveLength(0);
+  });
+
+  it('remembers an unfold across a reload, even of a project the default folded', async () => {
+    const { host, fixture } = await render('global');
+    // The default shut the second project; opening it is a decision to keep.
+    (host.querySelectorAll('button.chevron')[1] as HTMLElement).click();
+    fixture.detectChanges();
+    expect(host.textContent).toContain('Other work');
+
+    const { host: reloaded } = await render('global');
+    const [, second] = [...reloaded.querySelectorAll('.row.group')];
+    expect(second?.getAttribute('aria-expanded')).toBe('true');
+    expect(reloaded.textContent).toContain('Other work');
+  });
+
+  it('remembers the whole list being folded to its title bar', async () => {
+    const { host, fixture } = await render('global');
+    const fold = host.querySelector('.pane-fold') as HTMLButtonElement;
+    fold.click();
+    fixture.detectChanges();
+    expect(host.querySelectorAll('.row')).toHaveLength(0);
+
+    // A reload comes back folded: the reader left the list out of the way on purpose.
+    const { host: reloaded } = await render('global');
+    expect(reloaded.querySelector('.pane-fold')?.getAttribute('aria-expanded')).toBe('false');
+    expect(reloaded.querySelectorAll('.row')).toHaveLength(0);
   });
 
   it('tails a project with a "Load more" row when the host holds more, and pages it on click', async () => {
@@ -399,7 +480,7 @@ describe('SessionNav', () => {
   });
 
   it('lifts a running session into In progress, and only that one', async () => {
-    const { host: global } = await render('global');
+    const { host: global, fixture: globalFixture } = await render('global');
     // `s1` streams, so it is pinned to the top section under a spinning mark…
     expect(global.querySelector('.group-label')?.textContent).toContain('In progress');
     const live = [...global.querySelectorAll('.session.live')];
@@ -408,6 +489,10 @@ describe('SessionNav', () => {
     expect(live[0]?.querySelector('.title')?.textContent).toContain('Morse work');
     // …and it also stays in its project list, while the idle-but-live `s2` stays.
     // The tree's session rows are the leaves; the group rows are the projects.
+    // The second project starts folded, so open it before counting its rows.
+    const secondChevron = [...global.querySelectorAll('button.chevron')][1] as HTMLElement;
+    secondChevron.click();
+    globalFixture.detectChanges();
     const listed = [...global.querySelectorAll('.row:not(.group) .label')].map(
       (node) => node.textContent,
     );

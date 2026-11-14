@@ -90,6 +90,9 @@ Morse **v0.27.2**. This page is the honest inventory of what ships. Everything e
   session is a view onto the shared server. The cap is the number to size a box by.
 - An **In progress** section lifts the sessions working right now, so several active sessions are visible at
   once instead of only the selected one (`session/activity`).
+- The session list **remembers what was folded**: a project's header and the list itself survive a reload, and
+  a reader with no folds on record meets one project unfolded — the one they are in, or else the last one they
+  used — so a catalog of hundreds of projects arrives as a list to scan (`state/session-nav-prefs.ts`).
 - Project browser with a searchable filter, session search, activate, close (retire the process) and delete
   (remove the session file, behind the host's own confirmation).
 - The browser host allows any directory; the VS Code host advertises `capabilities.scope: 'workspace'` and

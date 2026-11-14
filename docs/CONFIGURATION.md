@@ -139,10 +139,19 @@ Some display choices belong to whoever is reading, not to the host, so they live
 |---|---|---|
 | `morse.navigation.collapsed` | `1` / `0` | Wide layouts only: the sidebar column folded away |
 | `morse.chat.toolDisplay` | `compact` / `timeline` | `compact` (default): one summary line per turn, a tree of steps with their files; `timeline`: the legacy always-open cards |
+| `morse.view.sessionNav.folds` | JSON `{ "<path>": true }` | Projects folded in the session list, by path; a path absent from it is unfolded |
+| `morse.view.sessionNav.listFolded` | `true` / `false` | The whole session list folded to its title bar |
 
 The tool-call toggle sits in the chat header, next to the conversation compactor; the compact tree is the
 default, and `timeline` is the opt-in legacy view. Storage is a nicety: with `localStorage` unavailable the
 choice still holds for the session.
+
+The session list's folds are remembered the same way, and by the host: per project (the header chevron) and
+as a whole (the pane's fold), so a reload — or a `morse stop` — comes back the way it was left. Until a
+reader has folds on record, one project is unfolded — the one the open session is in, or else the one they
+used last — and every other project waits behind its header, so a catalog of hundreds of projects arrives
+as a list to scan rather than a wall of sessions. From then on the record is the reader's own: what they
+fold stays folded, and what they unfold stays open.
 
 ### Explorer and tabs (browser host)
 

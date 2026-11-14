@@ -19,6 +19,7 @@ import { ShortcutService } from '../../services/shortcut.service';
 import { toolFileName, toolGerund, toolKind, toolTitle } from '@morse/ui-runtime';
 import type { TreeNode } from '@morse/ui-runtime';
 import { UpdateCheck } from '../../services/update';
+import { SessionNavPrefs } from '../../state/session-nav-prefs';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { TreeList } from '../../ui/tree-list/tree-list';
@@ -63,13 +64,18 @@ export class SessionNav {
   private readonly shortcuts = inject(ShortcutService);
   private readonly update = inject(UpdateCheck);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly prefs = inject(SessionNavPrefs);
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
 
   protected readonly query = signal('');
-  /** The whole session section folds to its title bar, the way the Explorer does. */
-  protected readonly sessionsFolded = signal(false);
-  protected readonly collapsed = signal<Record<string, boolean>>({});
+  /**
+   * The whole session section folds to its title bar, the way the Explorer does —
+   * and the fold is the reader's, so it is remembered (`SessionNavPrefs`).
+   */
+  protected readonly sessionsFolded = this.prefs.listFolded;
+  /** Projects the reader shut, by path; a path absent from the map is open. */
+  protected readonly collapsed = this.prefs.folds;
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
   /**
    * True while the sidebar is fetching a project's next page, keyed by cwd. The
@@ -493,6 +499,29 @@ export class SessionNav {
   });
 
   constructor() {
+    // A reader with no folds on record meets a list they can scan rather than the
+    // whole catalog: one project stays unfolded — the one the open session lives in,
+    // or else the project they used last, which is the first one the host lists — and
+    // every other project waits behind its header. The default is written once as
+    // their own, so unfolding one of those projects is not undone by the next visit
+    // (see `SessionNavPrefs.seedFolds`).
+    effect(() => {
+      const groups = this.groups();
+      const current = this.morse.state().workspace.cwd;
+      const restored = this.activeSessionId() !== undefined;
+      if (
+        this.scope() !== 'global' ||
+        this.prefs.remembered() ||
+        groups.length === 0
+      ) {
+        return;
+      }
+      // A draft's cwd is where a *new* chat would go, not what the reader was
+      // reading — only a session makes the host's workspace say where they are.
+      const here = restored ? groups.find((group) => group.path === current) : undefined;
+      const open = here ?? groups[0];
+      untracked(() => this.prefs.seedFolds(groups.map((group) => group.path), open?.path));
+    });
     // A page reply arrives as a `session/list`, which changes the sessions and
     // the per-project `hasMore` map. Clear only the projects whose session count
     // moved past what it was when their request went out, so an unrelated push
@@ -537,7 +566,7 @@ export class SessionNav {
 
   /** Folds the whole session list down to its title bar, or brings it back. */
   protected toggleSessions(): void {
-    this.sessionsFolded.update((value) => !value);
+    this.prefs.setListFolded(!this.prefs.listFolded());
   }
 
   protected toggleGroup(path: string): void {
@@ -545,7 +574,7 @@ export class SessionNav {
     if (this.projectFilter() === path) {
       return;
     }
-    this.collapsed.update((state) => ({ ...state, [path]: state[path] !== true }));
+    this.prefs.toggleProject(path);
   }
 
   protected activate(session: SessionSummary): void {
