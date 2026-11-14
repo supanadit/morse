@@ -340,7 +340,7 @@ function agentsBlock(config: BotEngineConfig): Record<string, unknown> {
  */
 function readOpenCodeMcp(value: unknown): BotMcpServer[] {
   const entries = asRecord(value) ?? {};
-  return Object.entries(entries).flatMap(([name, raw]) => {
+  return Object.entries(entries).flatMap(([name, raw]): BotMcpServer[] => {
     const entry = asRecord(raw);
     if (entry === undefined || !definesMcpServer(entry as OpenCodeMcpServer)) {
       return [];
@@ -456,7 +456,7 @@ export const openCodeBotLayout: BotEngineLayout = {
       ...(persona === undefined ? {} : { persona }),
       ...(agentsMd === undefined ? {} : { agentsMd }),
       ...(subagents.length === 0 ? {} : { subagents }),
-      ...(mcpServers.length === 0 ? {} : { mcpServers }),
+      mcpServers,
     };
   },
   /**

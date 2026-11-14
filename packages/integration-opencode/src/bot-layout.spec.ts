@@ -379,6 +379,8 @@ describe('openCodeBotLayout', () => {
       persona: 'You are News Finder.',
       agentsMd: '# workspace rules\n',
       subagents: [{ name: 'reviewer', prompt: 'Read the diff.\nSecond line.' }],
+      // No `mcp` key still reads as an empty list, not as "unknown".
+      mcpServers: [],
       // The bot's own provider, so its model limits can be corrected on an edit.
       providers: [
         {
@@ -474,13 +476,35 @@ describe('openCodeBotLayout', () => {
   it('removes a server the form dropped and the mcp key when the list empties', () => {
     writeOpenCodeBotConfig(botRoot, {
       ...config,
+      mcpServers: [
+        { name: 'fs', type: 'stdio', command: 'npx' },
+        { name: 'web', type: 'http', url: 'https://example.com/mcp' },
+      ],
+    });
+
+    const first = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      mcp: Record<string, unknown>;
+    };
+    expect(first.mcp).toEqual({
+      fs: { type: 'local', command: ['npx'] },
+      web: { type: 'remote', url: 'https://example.com/mcp' },
+    });
+
+    // A server the form dropped goes; the surviving one stays.
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
       mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
     });
-    writeOpenCodeBotConfig(botRoot, { ...config, mcpServers: [] });
+    const second = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      mcp: Record<string, unknown>;
+    };
+    expect(second.mcp).toEqual({ fs: { type: 'local', command: ['npx'] } });
 
-    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as Record<string, unknown>;
-    expect(file['mcp']).toBeUndefined();
-    expect(file['$schema']).toBe('https://opencode.ai/config.json');
+    // An empty list clears the block entirely, leaving the rest of the file.
+    writeOpenCodeBotConfig(botRoot, { ...config, mcpServers: [] });
+    const third = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as Record<string, unknown>;
+    expect(third['mcp']).toBeUndefined();
+    expect(third['$schema']).toBe('https://opencode.ai/config.json');
   });
 
   it('leaves the mcp block alone when the caller does not mention MCP', () => {
