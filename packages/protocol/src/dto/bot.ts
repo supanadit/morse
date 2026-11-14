@@ -308,3 +308,13 @@ export interface BotGroupCreateInput {
   lead?: string;
   chainCap?: number;
 }
+
+/** What Edit group sends: the same room, with what the reader changed. */
+export interface BotGroupUpdateInput {
+  /** The group being edited; its id never changes. */
+  id: string;
+  name: string;
+  members: string[];
+  lead?: string;
+  chainCap?: number;
+}

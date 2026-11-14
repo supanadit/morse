@@ -51,6 +51,17 @@ const CLIENT_BOT_MESSAGES = [
     type: 'bot/groupCreate',
     payload: { name: 'Launch', members: ['forge', 'scout'], lead: 'forge' },
   },
+  {
+    type: 'bot/groupUpdate',
+    payload: {
+      id: 'grp-launch-ab12',
+      name: 'Launch, revised',
+      members: ['forge', 'scout'],
+      lead: 'scout',
+      chainCap: 4,
+    },
+  },
+  { type: 'bot/groupDelete', payload: { id: 'grp-launch-ab12' } },
 ] as const;
 
 /** Every bot message the host pushes, with the payload it pushes. */

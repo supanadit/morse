@@ -7,6 +7,7 @@ import type {
   BotCredentialInput,
   BotFileInput,
   BotGroupCreateInput,
+  BotGroupUpdateInput,
   BotProviderCredentialInput,
   BotUpdateInput,
   ChatPin,
@@ -368,6 +369,18 @@ export interface BotGroupCreateMessage extends ClientMessageBase {
   payload: BotGroupCreateInput;
 }
 
+/** Changes an existing group from the Edit group dialog. */
+export interface BotGroupUpdateMessage extends ClientMessageBase {
+  type: 'bot/groupUpdate';
+  payload: BotGroupUpdateInput;
+}
+
+/** Deletes one group, its transcript and every member's session for it. */
+export interface BotGroupDeleteMessage extends ClientMessageBase {
+  type: 'bot/groupDelete';
+  payload: { id: string };
+}
+
 /** Frontend -> host. */
 export type ClientToHostMessage =
   | ClientReadyMessage
@@ -411,4 +424,6 @@ export type ClientToHostMessage =
   | BotSendMessage
   | BotStopMessage
   | BotNewDiscussionMessage
-  | BotGroupCreateMessage;
+  | BotGroupCreateMessage
+  | BotGroupUpdateMessage
+  | BotGroupDeleteMessage;
