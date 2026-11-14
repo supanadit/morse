@@ -23,8 +23,10 @@ import {
   createBotOpenCodeEngine,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
+  writeOpenCodeProviders,
   writeOpenCodeSubagents,
 } from './bot-engine.js';
+import type { BotProviderRecord } from '@morse/system';
 
 /**
  * The bot engine's isolation is the point: every path OpenCode would resolve
@@ -345,6 +347,69 @@ describe('writeOpenCodeCredentials', () => {
     writeOpenCodeCredentials(botRoot, [{ provider: 'anthropic', apiKey: 'sk' }]);
 
     expect(readdirSync(join(botRoot, 'sessions'))).toEqual(['opencode']);
+  });
+});
+
+describe('writeOpenCodeProviders', () => {
+  const configPath = (botRoot: string): string =>
+    join(botRoot, 'config', 'opencode', 'opencode.json');
+
+  function provider(overrides: Partial<BotProviderRecord> = {}): BotProviderRecord {
+    return {
+      id: 'acme',
+      label: 'Acme',
+      api: 'openai-completions',
+      baseUrl: 'https://llm.acme.example/v1',
+      credential: { kind: 'stored', apiKey: 'sk-acme' },
+      models: [{ id: 'qwen3-coder', name: 'Qwen 3 Coder' }],
+      ...overrides,
+    };
+  }
+
+  it('writes the runtime package, baseURL, key and models map into the bot config', () => {
+    const botRoot = tempRoot();
+    writeOpenCodeProviders(botRoot, [provider()]);
+    const config = JSON.parse(readFileSync(configPath(botRoot), 'utf8'));
+    expect(config.providers.acme).toEqual({
+      name: 'Acme',
+      package: '@opencode/ai/providers/openai-compatible',
+      settings: { baseURL: 'https://llm.acme.example/v1', apiKey: 'sk-acme' },
+      models: { 'qwen3-coder': { name: 'Qwen 3 Coder' } },
+    });
+  });
+
+  it('maps each wire protocol to its runtime package and env credentials to env', () => {
+    const botRoot = tempRoot();
+    writeOpenCodeProviders(botRoot, [
+      provider({ id: 'a', api: 'openai-responses', models: [{ id: 'x' }] }),
+      provider({ id: 'b', api: 'anthropic-messages', models: [{ id: 'x' }] }),
+      provider({ id: 'c', api: 'google-generative-ai', models: [{ id: 'x' }] }),
+      provider({ id: 'd', credential: { kind: 'env', name: 'ACME_API_KEY' }, models: [{ id: 'x' }] }),
+    ]);
+    const config = JSON.parse(readFileSync(configPath(botRoot), 'utf8'));
+    expect(config.providers.a.package).toBe('@opencode/ai/providers/openai-compatible/responses');
+    expect(config.providers.b.package).toBe('@opencode/ai/providers/anthropic-compatible');
+    expect(config.providers.c.package).toBe('@opencode/ai/providers/google');
+    expect(config.providers.d.env).toEqual(['ACME_API_KEY']);
+    expect(config.providers.d.settings.apiKey).toBeUndefined();
+  });
+
+  it('merges with existing config (MCP, other providers) and skips catalog providers', () => {
+    const botRoot = tempRoot();
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(
+      configPath(botRoot),
+      JSON.stringify({ mcp: { filesystem: {} }, providers: { kept: { name: 'Kept' } } }),
+    );
+    writeOpenCodeProviders(botRoot, [
+      provider(),
+      provider({ id: 'catalog', baseUrl: undefined, models: [{ id: 'x' }] }),
+    ]);
+    const config = JSON.parse(readFileSync(configPath(botRoot), 'utf8'));
+    expect(config.mcp).toEqual({ filesystem: {} });
+    expect(config.providers.kept).toEqual({ name: 'Kept' });
+    expect(config.providers.catalog).toBeUndefined();
+    expect(config.providers.acme.models).toEqual({ 'qwen3-coder': { name: 'Qwen 3 Coder' } });
   });
 });
 

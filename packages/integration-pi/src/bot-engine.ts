@@ -1,11 +1,13 @@
-import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { BotEngineCapabilities, MorseLogger } from '@morse/system';
+import type { BotEngineCapabilities, BotProviderRecord, MorseLogger } from '@morse/system';
 import { PiRpcAgentFactory } from './pi-rpc-agent-factory.js';
 import { PI_INSTALL_COMMAND } from './internal/resolve-pi.js';
 
 /** pi's auth file, inside the agent dir pi reads from `PI_CODING_AGENT_DIR`. */
 const AUTH_FILE = 'auth.json';
+/** pi's custom provider/model config, inside the same agent dir. */
+const MODELS_FILE = 'models.json';
 /** A file holding API keys is readable by its owner only. */
 const PRIVATE_FILE_MODE = 0o600;
 
@@ -85,6 +87,65 @@ export function writePiCredentials(
     auth[entry.provider] = { type: 'api', key: entry.apiKey };
   }
   writePrivateJson(join(botRoot, 'config', AUTH_FILE), auth);
+}
+
+/**
+ * Writes the wizard's provider records into the bot's `models.json` — the UI
+ * equivalent of the reader hand-adding a `providers.<id>` block there.
+ *
+ * pi resolves this file under its agent dir, which for a bot is
+ * `<botRoot>/config/`. A stored key lands as the literal `apiKey`; an env
+ * reference as pi's `$NAME` convention. Each model carries the fields pi's
+ * `models[]` schema names (`id`, `name`, `contextWindow`, `maxTokens`). The
+ * write merges — other providers and unknown top-level keys survive — and is
+ * private-from-creation, the same discipline as `writePiCredentials`.
+ */
+export function writePiProviders(
+  botRoot: string,
+  providers: readonly BotProviderRecord[],
+): void {
+  const path = join(botRoot, 'config', MODELS_FILE);
+  const file = readJsonObject(path) ?? {};
+  const existing = file['providers'];
+  if (
+    existing !== undefined &&
+    (typeof existing !== 'object' || existing === null || Array.isArray(existing))
+  ) {
+    throw new Error(`${path}: "providers" must be an object.`);
+  }
+  const written: Record<string, unknown> = Object.assign(
+    Object.create(null) as Record<string, unknown>,
+    existing as Record<string, unknown> | undefined,
+  );
+  for (const provider of providers) {
+    written[provider.id] = {
+      ...(typeof provider.baseUrl === 'string' && provider.baseUrl.length > 0
+        ? { baseUrl: provider.baseUrl }
+        : {}),
+      api: provider.api,
+      apiKey:
+        provider.credential.kind === 'stored'
+          ? provider.credential.apiKey
+          : `$${provider.credential.name}`,
+      models: provider.models.map((model) => ({
+        id: model.id,
+        ...(model.name === undefined ? {} : { name: model.name }),
+        ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+        ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+      })),
+    };
+  }
+  writePrivateJson(path, { ...file, providers: written });
+}
+
+function readJsonObject(path: string): Record<string, unknown> | undefined {
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
 }
 
 /** Temp file beside the target, then rename: private from the moment it exists. */

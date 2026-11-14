@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,7 +11,9 @@ import {
   botPiEnv,
   createBotPiFactory,
   writePiCredentials,
+  writePiProviders,
 } from './bot-engine.js';
+import type { BotProviderRecord } from '@morse/system';
 
 const roots: string[] = [];
 
@@ -115,6 +117,55 @@ describe('createBotPiFactory', () => {
 describe('PI_INSTALL_HINT', () => {
   it('re-exports the install command the wizard offers', () => {
     expect(PI_INSTALL_HINT).toBe(PI_INSTALL_COMMAND);
+  });
+});
+
+describe('writePiProviders', () => {
+  function provider(overrides: Partial<BotProviderRecord> = {}): BotProviderRecord {
+    return {
+      id: 'acme',
+      label: 'Acme',
+      api: 'openai-completions',
+      baseUrl: 'https://llm.acme.example/v1',
+      credential: { kind: 'stored', apiKey: 'sk-acme' },
+      models: [{ id: 'qwen3-coder', name: 'Qwen 3 Coder', contextWindow: 128000 }],
+      ...overrides,
+    };
+  }
+
+  it('writes baseUrl, api, key and a models array into the bot config models.json', () => {
+    const botRoot = tempRoot();
+    writePiProviders(botRoot, [provider()]);
+    const config = JSON.parse(readFileSync(join(botRoot, 'config', 'models.json'), 'utf8'));
+    expect(config.providers.acme).toEqual({
+      baseUrl: 'https://llm.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'sk-acme',
+      models: [{ id: 'qwen3-coder', name: 'Qwen 3 Coder', contextWindow: 128000 }],
+    });
+  });
+
+  it('references env credentials with pi’s $NAME convention', () => {
+    const botRoot = tempRoot();
+    writePiProviders(botRoot, [provider({ credential: { kind: 'env', name: 'ACME_API_KEY' } })]);
+    const config = JSON.parse(readFileSync(join(botRoot, 'config', 'models.json'), 'utf8'));
+    expect(config.providers.acme.apiKey).toBe('$ACME_API_KEY');
+  });
+
+  it('merges with existing providers and unknown keys, private as auth.json', () => {
+    const botRoot = tempRoot();
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      join(botRoot, 'config', 'models.json'),
+      JSON.stringify({ providers: { anthropic: { baseUrl: 'https://api.anthropic.com' } }, version: 1 }),
+    );
+    writePiProviders(botRoot, [provider()]);
+    const path = join(botRoot, 'config', 'models.json');
+    const config = JSON.parse(readFileSync(path, 'utf8'));
+    expect(config.version).toBe(1);
+    expect(config.providers.anthropic.baseUrl).toBe('https://api.anthropic.com');
+    expect(config.providers.acme.models).toHaveLength(1);
+    expectPrivateFile(path);
   });
 });
 

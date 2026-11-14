@@ -4,11 +4,13 @@ import {
   createBotPiFactory,
   PI_BOT_CAPABILITIES,
   writePiCredentials,
+  writePiProviders,
 } from '@morse/integration-pi';
 import {
   OPENCODE_BOT_CAPABILITIES,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
+  writeOpenCodeProviders,
   writeOpenCodeSubagents,
 } from '@morse/integration-opencode';
 
@@ -31,6 +33,7 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       createFactory: (botRoot, env) =>
         createBotPiFactory({ botRoot, env: env ?? botPiEnv(botRoot), logger }),
       writeCredentials: writePiCredentials,
+      writeProviders: writePiProviders,
     },
     opencode: {
       kind: 'opencode',
@@ -39,6 +42,7 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // directory, so the host env is applied inside the adapter, not here.
       createFactory: (botRoot) => opencodeBotAdapterFactory(botRoot, logger),
       writeCredentials: writeOpenCodeCredentials,
+      writeProviders: writeOpenCodeProviders,
       // Named subagents are OpenCode's own feature and live in the bot's config;
       // pi has neither, which is why its adapter leaves the method off.
       writeSubagents: writeOpenCodeSubagents,

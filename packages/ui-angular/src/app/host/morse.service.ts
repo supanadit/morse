@@ -3,6 +3,7 @@ import {
   createInitialView,
   type BotCreateInput,
   type BotGroupCreateInput,
+  type BotProviderCredentialInput,
   type ChatPin,
   type ComposerSeed,
   type HostCommand,
@@ -514,6 +515,22 @@ export class MorseService {
     this.transport.send({
       type: 'bot/probeModels',
       payload: { kind, envVars, credentials, requestId },
+    });
+  }
+
+  /**
+   * Asks an OpenAI-compatible endpoint what models it serves, for the wizard's
+   * custom-provider path. The answer arrives as `bot/models` (kind
+   * `'discover'`) under the same `requestId`.
+   */
+  discoverModels(
+    baseUrl: string,
+    credential: BotProviderCredentialInput,
+    requestId: string,
+  ): void {
+    this.transport.send({
+      type: 'bot/discoverModels',
+      payload: { baseUrl, credential, requestId },
     });
   }
 

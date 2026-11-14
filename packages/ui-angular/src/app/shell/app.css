@@ -286,6 +286,13 @@ morse-bottom-panel {
   position: relative;
 }
 
+/* A full-page feature mounted in the main column (the bot wizard) fills it. */
+.main-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 /*
  * The floating composer (and anything docked with it) rides over the conversation.
  * It stays a flex item — so the bottom panel keeps its place under it — and pulls

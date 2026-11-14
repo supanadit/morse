@@ -174,6 +174,35 @@ user-controlled version of the fresh-session instinct, without losing continuity
 2. Clone from the user's global config — rejected by the owner outright.
 3. Bring-your-own config dir — kept as an advanced toggle inside the wizard, not a separate path.
 
+### Provider management (added 2026-11-14, owner-directed)
+
+The wizard is a **full-page view** (never a modal): step rail at top, live summary panel right,
+large content area. It replaces the modal entirely for bot creation.
+
+The Connect step is a **provider manager over the bot's isolated config** — the UI equivalent of
+hand-editing `~/.config/opencode/opencode.json` or `~/.pi/agent/models.json`, scoped to
+`~/.morse/bot/<name>/`:
+
+- **Provider record** (Morse's abstraction): `{ id, label, api, baseUrl?, credential, models }`
+  where `api` is one of `openai-completions | openai-responses | anthropic-messages |
+  google-generative-ai` and `credential` is a stored key or an `$ENV` reference.
+- **Engine mapping**: OpenCode bots get a `providers.<id>` block in the bot's `opencode.json`
+  (`package` chosen by `api`: openai-completions → `@opencode/ai/providers/openai-compatible`,
+  anthropic-messages → `@opencode/ai/providers/anthropic-compatible`, google-generative-ai →
+  `@opencode/ai/providers/google`; `settings.baseURL`; key via `settings.apiKey` or `env`), with
+  `models` written as a map. pi bots get a `providers.<id>` block in the bot's `models.json`
+  (`baseUrl`, `apiKey` (or `$ENV`), `api`, `models` array with `id`/`contextWindow`/`maxTokens`).
+- **Discovery**: OpenAI-compatible providers — Morse calls `GET {baseUrl}/models` with the key and
+  fills the list (covers proxies, Ollama/vLLM/LM Studio, OpenRouter-style gateways). Known catalog
+  providers — key only; the engine probe discovers. anthropic-messages / google-generative-ai /
+  openai-responses — inline manual model-id rows (no standard listing endpoint), with presets for
+  well-known families. The user can always add model ids manually.
+- **Add-model rows** are always available regardless of discovery, so a provider whose API cannot be
+  listed still works.
+
+The engine model probe (existing `bot/probeModels`) remains for catalog providers; the provider
+manager is the general mechanism and the probe becomes one of its discovery strategies.
+
 ## The decided design
 
 ### On-disk layout

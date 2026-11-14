@@ -168,14 +168,10 @@
   }
 
   <!--
-       Bot mode's two creation dialogs. They render from the shell, not from the
-       roster, so a drawer closing behind them cannot take an unfinished wizard
-       with it.
+       Bot mode's New group dialog. It renders from the shell, not from the
+       roster, so a drawer closing behind it cannot take an unfinished dialog
+       with it. The wizard is a full page in the main column (above), not here.
   -->
-  @if (botWizardOpen()) {
-    <morse-bot-wizard />
-  }
-
   @if (botGroupOpen()) {
     <morse-bot-group-dialog />
   }
@@ -227,9 +223,14 @@
     (drop)="onDrop($event)"
   >
     @if (mode() === 'bot') {
-      <!-- Bot mode's own column: the conversation in front, or the empty state
-           that says which gesture opens one. -->
-      <morse-bot-chat />
+      <!-- Bot mode's own column: the wizard takes the page while it is open
+           (full page, never a modal), then the conversation in front, then the
+           empty state that says which gesture opens one. -->
+      @if (botWizardOpen()) {
+        <morse-bot-wizard class="main-view" />
+      } @else {
+        <morse-bot-chat />
+      }
     } @else {
       <!-- Code mode: the conversation column the product has always had. -->
       @if (dragging()) {

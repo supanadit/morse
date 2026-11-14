@@ -16,6 +16,8 @@ import type {
   BotConversationSummary,
   BotCreateInput,
   BotGroupCreateInput,
+  BotProviderCredentialInput,
+  BotProviderInput,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
@@ -23,6 +25,8 @@ import type {
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { mentionTokens, parseMentions } from './mentions.js';
+import { discoverOpenAiCompatibleModels } from './providers.js';
+import type { BotProviderModel } from './types.js';
 import {
   dmConversationId,
   loadBotRegistry,
@@ -68,11 +72,23 @@ export interface BotEngineAdapter {
   /** Replaces the bot's whole engine-native credential store. */
   writeCredentials(botRoot: string, entries: { provider: string; apiKey: string }[]): void;
   /**
+   * Writes the wizard's provider records into the engine's own provider config
+   * (OpenCode `providers.<id>` in opencode.json; pi `providers.<id>` in
+   * models.json). Optional only in type: both shipped engines implement it.
+   */
+  writeProviders?(botRoot: string, providers: readonly BotProviderInput[]): void;
+  /**
    * Stores the bot's named subagents in the engine's own config. Optional: an
    * engine without named subagents leaves it off, and `capabilities` says so
    * too — the service checks both, because a claim is not a method.
    */
   writeSubagents?(botRoot: string, subagents: { name: string; prompt: string }[]): void;
+  /**
+   * Writes the wizard's provider records into the engine's own provider config
+   * (OpenCode `providers.<id>` in opencode.json; pi `providers.<id>` in
+   * models.json). Optional in type, implemented by both shipped engines.
+   */
+  writeProviders?(botRoot: string, providers: readonly BotProviderInput[]): void;
 }
 
 /** Everything a host can observe from the bot layer, for its own fan-out. */
@@ -116,6 +132,7 @@ export type BotControllerPort = Pick<
   | 'deleteBot'
   | 'createGroup'
   | 'probeModels'
+  | 'discoverModels'
   | 'open'
   | 'send'
   | 'stop'
@@ -295,6 +312,16 @@ export class BotService {
       ) {
         adapter.writeSubagents(botRoot, input.subagents);
       }
+      // Providers are engine config too — the UI equivalent of the reader hand-
+      // editing the bot's opencode.json or models.json. Both shipped engines
+      // implement the writer; an adapter without one simply ignores them.
+      if (
+        input.providers !== undefined &&
+        input.providers.length > 0 &&
+        adapter.writeProviders !== undefined
+      ) {
+        adapter.writeProviders(botRoot, input.providers);
+      }
       if (input.agentsMd !== undefined) {
         writeFileSync(join(botRoot, 'workspace', 'AGENTS.md'), input.agentsMd);
       }
@@ -385,6 +412,18 @@ export class BotService {
    * and the credentials are the ones it collected — written into the same
    * throwaway tree, because an engine cannot list models for a key it cannot see.
    */
+  /**
+   * Asks an OpenAI-compatible endpoint what models it serves, with the wizard's
+   * credential. Engine-agnostic by definition: listing is the provider API's
+   * job, and the answer becomes whatever the engine's config format wants.
+   */
+  async discoverModels(
+    baseUrl: string,
+    credential: BotProviderCredentialInput,
+  ): Promise<BotProviderModel[]> {
+    return await discoverOpenAiCompatibleModels(baseUrl, credential);
+  }
+
   async probeModels(
     kind: string,
     envVars: string[],

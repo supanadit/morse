@@ -6,6 +6,7 @@ import type {
   BotCreateInput,
   BotCredentialInput,
   BotGroupCreateInput,
+  BotProviderCredentialInput,
   ChatPin,
   FrontendIdentity,
   InteractionResponse,
@@ -279,6 +280,20 @@ export interface BotProbeModelsMessage extends ClientMessageBase {
   };
 }
 
+/**
+ * Asks an OpenAI-compatible endpoint what models it serves (`GET {base}/models`),
+ * so the wizard can fill the picker from the provider itself. The reply is the
+ * shared `bot/models` message, with `kind: 'discover'`.
+ */
+export interface BotDiscoverModelsMessage extends ClientMessageBase {
+  type: 'bot/discoverModels';
+  payload: {
+    baseUrl: string;
+    credential: BotProviderCredentialInput;
+    requestId: string;
+  };
+}
+
 /** Switches the bot workspace to one conversation and asks for its transcript. */
 export interface BotOpenMessage extends ClientMessageBase {
   type: 'bot/open';
@@ -344,6 +359,7 @@ export type ClientToHostMessage =
   | BotCreateMessage
   | BotDeleteMessage
   | BotProbeModelsMessage
+  | BotDiscoverModelsMessage
   | BotOpenMessage
   | BotSendMessage
   | BotStopMessage

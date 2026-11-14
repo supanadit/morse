@@ -33,6 +33,33 @@ describe('createBotAdapters', () => {
     // pi has no named subagents, so the service must never reach a writer for it.
     expect(adapters['pi']?.capabilities.supportsSubagents).toBe(false);
     expect(adapters['pi']?.writeSubagents).toBeUndefined();
+    // Both engines take provider records — each writes its own native shape.
+    expect(typeof adapters['pi']?.writeProviders).toBe('function');
+    expect(typeof adapters['opencode']?.writeProviders).toBe('function');
+  });
+
+  it('writes a provider into each engine config at the path the bot engine reads', () => {
+    const adapters = createBotAdapters({ logger: silentLogger });
+    const piRoot = tempBotRoot();
+    const ocRoot = tempBotRoot();
+    const provider = {
+      id: 'acme',
+      label: 'Acme',
+      api: 'openai-completions' as const,
+      baseUrl: 'https://llm.acme.example/v1',
+      credential: { kind: 'stored' as const, apiKey: 'sk-acme' },
+      models: [{ id: 'qwen3-coder', name: 'Qwen 3 Coder' }],
+    };
+
+    adapters['pi']?.writeProviders?.(piRoot, [provider]);
+    adapters['opencode']?.writeProviders?.(ocRoot, [provider]);
+
+    const piConfig = JSON.parse(readFileSync(join(piRoot, 'config', 'models.json'), 'utf8'));
+    expect(piConfig.providers.acme.api).toBe('openai-completions');
+    expect(piConfig.providers.acme.models).toEqual([{ id: 'qwen3-coder', name: 'Qwen 3 Coder' }]);
+    const ocConfig = JSON.parse(readFileSync(join(ocRoot, 'config', 'opencode', 'opencode.json'), 'utf8'));
+    expect(ocConfig.providers.acme.package).toBe('@opencode/ai/providers/openai-compatible');
+    expect(ocConfig.providers.acme.models).toEqual({ 'qwen3-coder': { name: 'Qwen 3 Coder' } });
   });
 
   it('writes a subagent at the config path the bot engine reads', () => {

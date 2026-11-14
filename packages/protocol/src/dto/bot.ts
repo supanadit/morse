@@ -66,6 +66,43 @@ export interface BotCredentialInput {
   apiKey: string;
 }
 
+/** The wire protocols Morse can translate into either engine's provider config. */
+export type BotProviderApi =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'anthropic-messages'
+  | 'google-generative-ai';
+
+/** How a provider authenticates: a key stored in the bot's config, or an env ref. */
+export type BotProviderCredentialInput =
+  | { kind: 'stored'; apiKey: string }
+  | { kind: 'env'; name: string };
+
+/** One discovered or hand-entered model of a provider. */
+export interface BotProviderModelInput {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+/**
+ * One provider the wizard collected — the UI equivalent of a `providers.<id>`
+ * block the reader would hand-edit into the engine's own config. The host
+ * translates it into the bot engine's native shape (OpenCode `providers.<id>`
+ * with a runtime `package`; pi's `models.json` `providers.<id>` with `api`).
+ */
+export interface BotProviderInput {
+  /** The engine config key: model references become `<id>/<model>`. */
+  id: string;
+  label: string;
+  api: BotProviderApi;
+  /** Absent for catalog providers the engine discovers from its own catalog. */
+  baseUrl?: string;
+  credential: BotProviderCredentialInput;
+  models: BotProviderModelInput[];
+}
+
 /** What the New bot wizard sends to create one isolated bot. */
 export interface BotCreateInput {
   name: string;
@@ -90,6 +127,8 @@ export interface BotCreateInput {
    * keeps the record alone.
    */
   subagents?: Array<{ name: string; prompt: string }>;
+  /** Providers written into the bot's own engine config (spec: Provider management). */
+  providers?: BotProviderInput[];
 }
 
 /** What the New group dialog sends; `chainCap` defaults to the service's cap. */

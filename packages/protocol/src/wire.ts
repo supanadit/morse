@@ -76,6 +76,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'bot/create',
   'bot/delete',
   'bot/probeModels',
+  'bot/discoverModels',
   'bot/open',
   'bot/send',
   'bot/stop',

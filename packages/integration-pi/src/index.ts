@@ -10,6 +10,7 @@ export {
   botPiEnv,
   createBotPiFactory,
   writePiCredentials,
+  writePiProviders,
 } from './bot-engine.js';
 export type { BotPiFactoryOptions } from './bot-engine.js';
 export { PiMcp, parseMcpServerInput } from './pi-mcp.js';

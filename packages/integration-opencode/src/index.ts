@@ -22,6 +22,7 @@ export {
   createBotOpenCodeEngine,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
+  writeOpenCodeProviders,
   writeOpenCodeSubagents,
   type BotOpenCodeEngineOptions,
 } from './bot-engine.js';

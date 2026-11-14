@@ -99,3 +99,40 @@ export interface BotEngineCapabilities {
   supportsThinkingLevels: boolean;
   credentials: 'stored' | 'env';
 }
+
+/** The wire protocols Morse can translate into either engine's provider config. */
+export type BotProviderApi =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'anthropic-messages'
+  | 'google-generative-ai';
+
+/** How a provider authenticates: a key stored in the bot's config, or an env ref. */
+export type BotProviderCredential =
+  | { kind: 'stored'; apiKey: string }
+  | { kind: 'env'; name: string };
+
+/** One discovered or hand-entered model of a provider. */
+export interface BotProviderModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+/**
+ * One provider the wizard collected — the UI equivalent of a `providers.<id>`
+ * block the reader would hand-edit into the engine's own config. Each
+ * integration translates it into its native shape (OpenCode `providers.<id>`
+ * with a runtime `package`; pi's `models.json` `providers.<id>` with `api`).
+ */
+export interface BotProviderRecord {
+  /** The engine config key: model references become `<id>/<model>`. */
+  id: string;
+  label: string;
+  api: BotProviderApi;
+  /** Absent for catalog providers discovered by the engine itself. */
+  baseUrl?: string;
+  credential: BotProviderCredential;
+  models: BotProviderModel[];
+}

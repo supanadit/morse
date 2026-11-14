@@ -1,7 +1,12 @@
 import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentGatewayFactory } from '@morse/agent';
-import { AgentUnavailableError, type BotEngineCapabilities, type MorseLogger } from '@morse/system';
+import {
+  AgentUnavailableError,
+  type BotEngineCapabilities,
+  type BotProviderRecord,
+  type MorseLogger,
+} from '@morse/system';
 import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
@@ -251,6 +256,71 @@ export function writeOpenCodeSubagents(
   file.agent = agents;
   writeConfigJson(path, file);
 }
+
+/**
+ * Writes the wizard's provider records into the bot's `opencode.json` — the UI
+ * equivalent of the reader hand-adding a `providers.<id>` block.
+ *
+ * The runtime `package` follows the wire protocol
+ * (opencode.ai/docs/providers#packages); a stored key lands in
+ * `settings.apiKey`, an env reference in the provider's `env` list. Models are
+ * written as the map OpenCode expects, keyed by the OpenCode model ID. The
+ * write merges (MCP servers, other providers and unknown keys survive) and is
+ * atomic, the same discipline as `writeOpenCodeSubagents`.
+ *
+ * Catalog providers without a `baseUrl` are skipped: OpenCode discovers those
+ * from its own models.dev catalog once the credential exists.
+ */
+export function writeOpenCodeProviders(
+  botRoot: string,
+  providers: readonly BotProviderRecord[],
+): void {
+  const path = join(botRoot, 'config', 'opencode', 'opencode.json');
+  const file = readOpenCodeFile(path);
+  const existing = file.providers;
+  if (
+    existing !== undefined &&
+    (typeof existing !== 'object' || existing === null || Array.isArray(existing))
+  ) {
+    throw new Error(`${path}: "providers" must be an object.`);
+  }
+  const written: Record<string, unknown> = Object.assign(
+    Object.create(null) as Record<string, unknown>,
+    existing as Record<string, unknown> | undefined,
+  );
+  for (const provider of providers) {
+    if (typeof provider.baseUrl !== 'string' || provider.baseUrl.length === 0) {
+      continue;
+    }
+    written[provider.id] = {
+      name: provider.label,
+      package: OPENCODE_PACKAGE[provider.api],
+      ...(provider.credential.kind === 'stored'
+        ? {}
+        : { env: [provider.credential.name] }),
+      settings: {
+        baseURL: provider.baseUrl,
+        ...(provider.credential.kind === 'stored' ? { apiKey: provider.credential.apiKey } : {}),
+      },
+      models: Object.fromEntries(
+        provider.models.map((model) => [
+          model.id,
+          { ...(model.name === undefined ? {} : { name: model.name }) },
+        ]),
+      ),
+    };
+  }
+  file.providers = written;
+  writeConfigJson(path, file);
+}
+
+/** OpenCode runtime package per Morse wire protocol. */
+const OPENCODE_PACKAGE: Record<BotProviderRecord['api'], string> = {
+  'openai-completions': '@opencode/ai/providers/openai-compatible',
+  'openai-responses': '@opencode/ai/providers/openai-compatible/responses',
+  'anthropic-messages': '@opencode/ai/providers/anthropic-compatible',
+  'google-generative-ai': '@opencode/ai/providers/google',
+};
 
 /**
  * Temp file beside the target, then rename: the config is either the previous

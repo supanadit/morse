@@ -314,10 +314,18 @@ class FakeAdapter implements BotEngineAdapter {
     botRoot: string;
     subagents: { name: string; prompt: string }[];
   }[] = [];
+  readonly providerWrites: {
+    botRoot: string;
+    providers: unknown[];
+  }[] = [];
   readonly envs: NodeJS.ProcessEnv[] = [];
   /** Present unless the harness says the engine has no subagent writer. */
   writeSubagents:
     ((botRoot: string, subagents: { name: string; prompt: string }[]) => void) | undefined;
+  /** Present unless the harness says the engine has no provider writer. */
+  writeProviders:
+    | ((botRoot: string, providers: readonly unknown[]) => void)
+    | undefined;
 
   constructor(
     private readonly script: Script = () => ({}),
@@ -333,6 +341,9 @@ class FakeAdapter implements BotEngineAdapter {
         this.subagentWrites.push({ botRoot, subagents });
       };
     }
+    this.writeProviders = (botRoot, providers) => {
+      this.providerWrites.push({ botRoot, providers: [...providers] });
+    };
   }
 
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): FakeFactory {
@@ -596,6 +607,47 @@ describe('BotService creation', () => {
   });
 });
 
+describe('BotService providers', () => {
+  const PROVIDERS = [
+    {
+      id: 'acme',
+      label: 'Acme',
+      api: 'openai-completions' as const,
+      baseUrl: 'https://llm.acme.example/v1',
+      credential: { kind: 'stored' as const, apiKey: 'sk-acme' },
+      models: [{ id: 'qwen3-coder', name: 'Qwen 3 Coder' }],
+    },
+  ];
+
+  it('hands a provider-capable adapter the wizard records', async () => {
+    const { root, adapter, service } = harness();
+
+    await service.createBot(botInput({ providers: PROVIDERS }));
+
+    expect(adapter.providerWrites).toEqual([{ botRoot: join(root, 'Forge'), providers: PROVIDERS }]);
+  });
+
+  it('skips the writer when the wizard sent no providers', async () => {
+    const { adapter, service } = harness();
+
+    await service.createBot(botInput());
+    await service.createBot(botInput({ name: 'Sable', providers: [] }));
+
+    expect(adapter.providerWrites).toEqual([]);
+  });
+
+  it('rolls the bot back when the provider writer throws', async () => {
+    const { root, adapter, service } = harness();
+    adapter.writeProviders = () => {
+      throw new Error('disk full');
+    };
+
+    await expect(service.createBot(botInput({ providers: PROVIDERS }))).rejects.toThrow('disk full');
+    expect(existsSync(join(root, 'Forge'))).toBe(false);
+    expect(service.roster().bots).toHaveLength(0);
+  });
+});
+
 describe('BotService subagents', () => {
   const SUBAGENTS = [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }];
 
@@ -654,8 +706,7 @@ describe('BotService subagents', () => {
     expect(service.roster().bots).toHaveLength(0);
   });
 
-  it('refuses an unusable subagent name even for an engine that stores none', async () => {
-    // The service is the only validator — the wire checks message types, not
+  it('refuses an unusable subagent name even for an engine that stores none', async () => {    // The service is the only validator — the wire checks message types, not
     // names — so a pi bot must not keep an unvalidated name on its record just
     // because pi has nowhere to write it.
     const { root, adapter, service } = harness();

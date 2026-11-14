@@ -1,322 +1,543 @@
-/*
- * A wizard, not a form: the steps are shown the whole time so the reader knows
- * how far the credentials step is from the model one, and the body scrolls
- * between the fixed head and the actions.
- */
 :host {
-  display: contents;
-}
-
-/*
- * What this dialog measures differently from the shared shell in `ui/dialog`:
- * a form wide enough for two fields a row, scrolling as one card.
- */
-morse-dialog {
-  --morse-card-width: min(600px, 94vw);
-  --morse-card-max-height: min(84vh, 780px);
-  --morse-card-padding: 16px 18px;
-  --morse-card-gap: 10px;
-  --morse-card-overflow: auto;
+  display: block;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--morse-bg, #0d0e11);
+  color: inherit;
 }
 
 .wizard {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 0;
+  height: 100%;
 }
 
-.head {
-  flex: none;
+.wizard-head {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 32px 6px;
 }
-.head h2 {
+
+.wizard-titles h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.wizard-sub {
   margin: 0;
-  color: var(--morse-fg);
+  max-width: 640px;
+  font-size: 13px;
+  opacity: 0.72;
+}
+
+.wizard-close {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: var(--morse-radius-md, 8px);
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.wizard-close:hover {
+  opacity: 1;
+  background: var(--morse-hover, rgba(255, 255, 255, 0.06));
+}
+
+.wizard-rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 32px 14px;
+  list-style: none;
+  border-bottom: 1px solid var(--morse-border, rgba(255, 255, 255, 0.08));
+}
+
+.wizard-step {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 999px;
+  opacity: 0.55;
+}
+
+.wizard-step.done {
+  opacity: 0.85;
+}
+
+.wizard-step.on {
+  opacity: 1;
+  background: var(--morse-accent, #4c8dff);
+  color: #fff;
+}
+
+.wizard-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 28px;
+  padding: 20px 32px;
+  overflow-y: auto;
+}
+
+.wizard-content h3 {
+  margin: 0 0 6px;
   font-size: 16px;
   font-weight: 600;
 }
-.lede {
-  margin: 0;
-  color: var(--morse-fg-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
 
-/* The pinned order, always visible: identity … review. */
-.steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.step {
-  color: color-mix(in srgb, var(--morse-fg) 40%, transparent);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+.wizard-content h4.group-title {
+  margin: 22px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
   text-transform: uppercase;
-}
-.step.done {
-  color: color-mix(in srgb, var(--morse-fg) 65%, transparent);
-}
-.step.current {
-  color: var(--morse-accent);
+  letter-spacing: 0.04em;
+  opacity: 0.72;
 }
 
-/* The body is what scrolls within the head and actions it keeps in reach. */
-.body {
-  flex: 1;
-  min-height: 0;
-  padding: 2px;
+.note {
+  margin: 4px 0 14px;
+  font-size: 13px;
+  opacity: 0.72;
 }
-.fields {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+
+.error {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--morse-danger, #ff6b6b);
 }
+
+.ok {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--morse-success, #6bcb84);
+}
+
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: block;
+  margin: 12px 0;
+  font-size: 13px;
 }
-.field-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--morse-fg);
-  font-size: 12px;
+
+.field span {
+  display: block;
+  margin-bottom: 5px;
   font-weight: 600;
 }
-.required {
-  color: var(--morse-fg-muted);
-  font-size: 10px;
+
+.field small {
   font-weight: 400;
-}
-.optional {
-  color: var(--morse-fg-muted);
-  font-size: 10px;
-  font-weight: 400;
-}
-.field-note {
-  margin: 0;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.field-note code {
-  font-size: 10.5px;
-}
-/* A probe that answered with nothing: a warning, not a quiet hint. */
-.models-empty {
-  color: var(--morse-warn);
+  opacity: 0.65;
 }
 
-input[type='text'],
-input[type='password'],
-textarea,
-select {
+.field input,
+.field select,
+.field textarea {
   width: 100%;
+  max-width: 520px;
   box-sizing: border-box;
-  padding: 6px 8px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: var(--morse-input-bg, color-mix(in srgb, var(--morse-fg) 3%, transparent));
-  color: var(--morse-fg);
+  padding: 8px 10px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
   font: inherit;
-  font-size: 12.5px;
-}
-textarea {
-  resize: vertical;
-  line-height: 1.5;
-}
-select:disabled {
-  opacity: 0.6;
-  cursor: progress;
 }
 
-/* The engine step: a choice of what can run here, with the host's labels. */
-.engines {
+.field textarea {
+  resize: vertical;
+}
+
+.field-note {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.6;
+}
+
+.choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-}
-.engine-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: transparent;
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.engine-option:hover {
-  background: var(--morse-hover);
-}
-.engine-option.on {
-  border-color: var(--morse-accent);
-  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
-}
-.badge {
-  color: var(--morse-fg-muted);
-  font-size: 10px;
+  gap: 10px;
+  margin: 12px 0;
 }
 
-/* Credentials: one provider/key pair per row, plus inherited env names. */
-.credential-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
-  gap: 6px;
-  align-items: center;
-}
-.remove-credential,
-.remove-subagent {
-  width: 26px;
-  height: 26px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: transparent;
-  color: var(--morse-fg-muted);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-.remove-credential:hover,
-.remove-subagent:hover {
-  background: var(--morse-hover);
-  color: var(--morse-fg);
-}
-.add-credential,
-.add-subagent {
-  align-self: flex-start;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px dashed var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: transparent;
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.add-credential:hover,
-.add-subagent:hover {
-  background: var(--morse-hover);
-}
-
-/* A subagent is a name over its own prompt: a small card, not a table row. */
-.subagent-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-}
-.subagent-row input {
-  grid-column: 1;
-}
-.subagent-row textarea {
-  grid-column: 1 / -1;
-}
-.subagent-row .remove-subagent {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-/* The review: what will be written, in the order the host reads it. */
-.review dl {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 4px 12px;
-  margin: 0;
-  font-size: 12px;
-}
-.review dt {
-  color: var(--morse-fg-muted);
-}
-.review dd {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.agents-preview,
-.subagents-preview {
-  white-space: pre-wrap;
-  font-family: var(--morse-font-mono, monospace);
-  font-size: 11px;
-  max-height: 180px;
-  overflow-y: auto;
-}
-.pending {
-  margin: 12px 0 0;
-  padding: 6px 8px;
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
-  color: var(--morse-fg);
-  font-size: 11.5px;
-}
-.create-error {
-  margin: 8px 0 0;
-  padding: 6px 8px;
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-danger, #d9534f) 12%, transparent);
-  font-size: 11.5px;
-}
-.empty {
-  margin: 0;
-  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
-  font-size: 11.5px;
-}
-
-.actions {
-  flex: none;
+.choice {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--morse-border);
-}
-.actions button {
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
   cursor: pointer;
+  text-align: left;
 }
-.actions button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--morse-fg) 9%, transparent);
+
+.choice.on {
+  border-color: var(--morse-accent, #4c8dff);
+  background: color-mix(in srgb, var(--morse-accent, #4c8dff) 16%, transparent);
 }
-.actions button:disabled {
+
+.choice-name {
+  font-weight: 600;
+}
+
+.choice-hint {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.choice.small {
+  flex-direction: row;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.keykind {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.preset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preset-chip {
+  min-width: 160px;
+  padding: 8px 14px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.preset.on .preset-chip {
+  border-color: var(--morse-accent, #4c8dff);
+  background: color-mix(in srgb, var(--morse-accent, #4c8dff) 16%, transparent);
+}
+
+.preset-key {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.provider-card {
+  max-width: 520px;
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--morse-radius-md, 8px);
+}
+
+.provider-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-meta {
+  font-size: 12px;
+  opacity: 0.65;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-remove,
+.model-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.provider-remove:hover,
+.model-remove:hover {
+  opacity: 1;
+  background: var(--morse-hover, rgba(255, 255, 255, 0.06));
+}
+
+.provider-models {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ghost {
+  padding: 7px 12px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px dashed var(--morse-border, rgba(255, 255, 255, 0.2));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ghost:hover {
+  border-color: var(--morse-accent, #4c8dff);
+}
+
+.ghost:disabled {
   opacity: 0.5;
   cursor: default;
 }
-.actions .back,
-.actions .cancel {
+
+.draft {
+  max-width: 520px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--morse-accent, #4c8dff);
+  border-radius: var(--morse-radius-md, 8px);
+}
+
+.draft-discover {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.manual-models {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.manual-models > span {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--morse-border, rgba(255, 255, 255, 0.06));
+}
+
+.model-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.model-add input {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
   background: transparent;
-  border-color: var(--morse-border);
+  color: inherit;
+  font: inherit;
 }
-.actions .next,
-.actions .create {
-  background: var(--morse-accent);
-  color: var(--morse-bg);
+
+.draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }
-.actions .next:hover:not(:disabled),
-.actions .create:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--morse-accent) 88%, var(--morse-fg));
+
+.primary,
+.secondary {
+  padding: 8px 16px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.primary {
+  background: var(--morse-accent, #4c8dff);
+  border-color: var(--morse-accent, #4c8dff);
+  color: #fff;
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.model-search {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.model-list {
+  max-width: 520px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 10px 0;
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--morse-radius-md, 8px);
+}
+
+.model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.model-option:hover {
+  background: var(--morse-hover, rgba(255, 255, 255, 0.06));
+}
+
+.model-option.on {
+  background: color-mix(in srgb, var(--morse-accent, #4c8dff) 18%, transparent);
+}
+
+.model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-provider {
+  font-size: 12px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.subagent {
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  gap: 8px;
+  align-items: start;
+  margin: 8px 0;
+  max-width: 640px;
+}
+
+.subagent input,
+.subagent textarea {
+  padding: 7px 10px;
+  border-radius: var(--morse-radius-md, 8px);
+  border: 1px solid var(--morse-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.review {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 8px 16px;
+  max-width: 640px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.review dt {
+  font-weight: 600;
+  opacity: 0.72;
+}
+
+.review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.review dd.persona {
+  white-space: pre-wrap;
+  opacity: 0.85;
+}
+
+.wizard-summary {
+  border-left: 1px solid var(--morse-border, rgba(255, 255, 255, 0.08));
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.wizard-summary h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+}
+
+.wizard-summary dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.wizard-summary dt {
+  opacity: 0.6;
+}
+
+.wizard-summary dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wizard-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 32px;
+  border-top: 1px solid var(--morse-border, rgba(255, 255, 255, 0.08));
+}
+
+.foot-spacer {
+  flex: 1;
 }

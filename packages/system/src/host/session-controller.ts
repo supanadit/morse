@@ -633,6 +633,29 @@ export class HostSessionController {
         }
         return;
       }
+      case 'bot/discoverModels': {
+        const { requestId, baseUrl, credential } = message.payload;
+        const result = await this.guardBot(() => bot.discoverModels(baseUrl, credential));
+        if (result.ok) {
+          this.options.emit({
+            type: 'bot/models',
+            payload: {
+              requestId,
+              kind: 'discover',
+              // Discovered entries carry no engine provider: the wizard knows the
+              // record id it asked about and binds the choice to that provider.
+              models: result.value.map((model) => ({
+                provider: 'discover',
+                id: model.id,
+                name: model.name ?? model.id,
+                ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+                ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+              })),
+            },
+          });
+        }
+        return;
+      }
       case 'bot/open':
         this.options.emit({
           type: 'bot/transcript',
