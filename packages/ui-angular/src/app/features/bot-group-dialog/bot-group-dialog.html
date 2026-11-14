@@ -1,6 +1,6 @@
 <morse-dialog labelledBy="bot-group-title" (dismiss)="cancel()">
   <div class="group-dialog">
-    <h2 id="bot-group-title">New group</h2>
+    <h2 id="bot-group-title">{{ editing ? 'Edit group' : 'New group' }}</h2>
     <p class="lede">
       A room of bots. Everyone addresses the others by @name; a lead answers when no one is named.
     </p>
@@ -72,7 +72,7 @@
     <div class="actions">
       <button type="button" class="cancel" (click)="cancel()">Cancel</button>
       <button type="button" class="create" [disabled]="!ready()" (click)="submit()">
-        Create group
+        {{ editing ? 'Save changes' : 'Create group' }}
       </button>
     </div>
   </div>

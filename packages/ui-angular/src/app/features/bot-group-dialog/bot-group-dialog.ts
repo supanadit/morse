@@ -1,14 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import type { BotConversationSummary } from '@morse/protocol';
 import { MorseService } from '../../host/morse.service';
 import { Dialog } from '../../ui/dialog/dialog';
 
 /**
- * The New group dialog: one room over the bots this host runs.
+ * The New/Edit group dialog: one room over the bots this host runs.
  *
  * Members come from the roster — there is nothing else to pick from — and the
  * lead is deliberately limited to the members chosen here: a bot that is not in
  * the room cannot answer for it. No lead is a real choice: a message that
  * mentions nobody then gets silence rather than an invented speaker.
+ *
+ * The same form edits an existing group: the shell names it in
+ * `ui.groupTarget`, and the roster already carries its summary, so the fields
+ * open on what the group is now.
  */
 @Component({
   selector: 'morse-bot-group-dialog',
@@ -20,15 +25,29 @@ import { Dialog } from '../../ui/dialog/dialog';
 export class BotGroupDialog {
   private readonly morse = inject(MorseService);
 
+  /** The group this dialog edits, read once on open; absent for a new group. */
+  private readonly initial = this.initialGroup();
+
+  protected readonly editing = this.initial !== undefined;
   protected readonly bots = computed(() => this.morse.bot.roster()?.bots ?? []);
-  protected readonly name = signal('');
-  protected readonly members = signal<string[]>([]);
-  protected readonly lead = signal('');
+  protected readonly name = signal(this.initial?.title ?? '');
+  protected readonly members = signal<string[]>([...(this.initial?.members ?? [])]);
+  protected readonly lead = signal(this.initial?.lead ?? '');
   /** Bot-to-bot relays one human message may set off; the service's own default. */
-  protected readonly chainCap = signal(8);
+  protected readonly chainCap = signal(this.initial?.chainCap ?? 8);
   protected readonly ready = computed(
     () => this.name().trim().length > 0 && this.members().length > 0,
   );
+
+  private initialGroup(): BotConversationSummary | undefined {
+    const id = this.morse.ui.groupTarget();
+    if (id === null) {
+      return undefined;
+    }
+    return (this.morse.bot.roster()?.conversations ?? []).find(
+      (conversation) => conversation.id === id && conversation.kind === 'group',
+    );
+  }
 
   protected setName(event: Event): void {
     this.name.set((event.target as HTMLInputElement).value);
@@ -63,16 +82,26 @@ export class BotGroupDialog {
       return;
     }
     const lead = this.lead();
-    this.morse.createGroup({
+    const input = {
       name: this.name().trim(),
       members: [...this.members()],
       ...(lead.length > 0 ? { lead } : {}),
       chainCap: this.chainCap(),
-    });
-    this.morse.ui.groupOpen.set(false);
+    };
+    if (this.initial === undefined) {
+      this.morse.createGroup(input);
+    } else {
+      this.morse.updateGroup({ id: this.initial.id, ...input });
+    }
+    this.close();
   }
 
   protected cancel(): void {
+    this.close();
+  }
+
+  private close(): void {
     this.morse.ui.groupOpen.set(false);
+    this.morse.ui.groupTarget.set(null);
   }
 }

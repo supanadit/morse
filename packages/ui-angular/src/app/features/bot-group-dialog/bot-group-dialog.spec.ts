@@ -1,5 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type { BotSummary } from '@morse/protocol';
+import type { BotConversationSummary, BotSummary } from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
@@ -28,7 +28,17 @@ const ember: BotSummary = {
   warm: false,
 };
 
-async function render(): Promise<{
+const launch: BotConversationSummary = {
+  id: 'grp-launch-ab12',
+  kind: 'group',
+  title: 'Launch',
+  members: ['forge', 'sable'],
+  lead: 'forge',
+  chainCap: 4,
+  updatedAt: 1,
+};
+
+async function render(setup?: (morse: MorseService) => void): Promise<{
   fixture: ComponentFixture<BotGroupDialog>;
   host: HTMLElement;
   morse: MorseService;
@@ -38,13 +48,11 @@ async function render(): Promise<{
     imports: [BotGroupDialog],
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() }],
   }).compileComponents();
+  const morse = TestBed.inject(MorseService);
+  setup?.(morse);
   const fixture = TestBed.createComponent(BotGroupDialog);
   fixture.detectChanges();
-  return {
-    fixture,
-    host: fixture.nativeElement as HTMLElement,
-    morse: TestBed.inject(MorseService),
-  };
+  return { fixture, host: fixture.nativeElement as HTMLElement, morse };
 }
 
 function field<T extends HTMLElement>(host: HTMLElement, selector: string): T {
@@ -163,5 +171,36 @@ describe('BotGroupDialog', () => {
       members: ['forge', 'sable'],
       chainCap: 8,
     });
+  });
+
+  it('prefills and submits an edit for the group it was opened on', async () => {
+    const { fixture, host, morse } = await render((service) => {
+      service.bot.onRoster({ bots: [forge, sable, ember], conversations: [launch] });
+      service.ui.groupTarget.set(launch.id);
+    });
+    const update = vi.spyOn(morse, 'updateGroup');
+
+    expect(host.querySelector('h2')?.textContent).toContain('Edit group');
+    expect(field<HTMLInputElement>(host, 'input[name="name"]').value).toBe('Launch');
+    expect(
+      (host.querySelector('.member input[data-bot="forge"]') as HTMLInputElement).checked,
+    ).toBe(true);
+    expect((host.querySelector('select[name="lead"]') as HTMLSelectElement).value).toBe('forge');
+    expect(field<HTMLButtonElement>(host, '.actions button.create').textContent).toContain(
+      'Save changes',
+    );
+
+    field<HTMLButtonElement>(host, '.actions button.create').click();
+    fixture.detectChanges();
+
+    expect(update).toHaveBeenCalledWith({
+      id: launch.id,
+      name: 'Launch',
+      members: ['forge', 'sable'],
+      lead: 'forge',
+      chainCap: 4,
+    });
+    expect(morse.ui.groupOpen()).toBe(false);
+    expect(morse.ui.groupTarget()).toBeNull();
   });
 });
