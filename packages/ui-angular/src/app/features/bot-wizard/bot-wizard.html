@@ -406,6 +406,18 @@
             <textarea rows="7" [value]="persona()" (input)="setText('persona', $event)" placeholder="You are Forge. You build things and keep your diffs small."></textarea>
           </label>
         }
+        @case ('mcp') {
+          <h3>MCP servers</h3>
+          <p class="note">
+            Optional. Each server is written into this bot's own config — never yours — and
+            the next edit reads it back.
+          </p>
+          <morse-bot-mcp-step
+            [servers]="mcpServers()"
+            [engineKind]="engineKind()"
+            (serversChange)="mcpServers.set($event)"
+          />
+        }
         @case ('advanced') {
           <h3>Advanced</h3>
           <label class="field">
@@ -480,6 +492,10 @@
             <dt>Thinking</dt><dd>{{ thinking() === '' ? 'engine default' : thinking() }}</dd>
             <dt>Persona</dt><dd class="persona">{{ persona() }}</dd>
             @if (agentsMd().trim()) { <dt>AGENTS.md</dt><dd class="persona">{{ agentsMd() }}</dd> }
+            @if (mcpServers().length > 0) {
+              <dt>MCP</dt>
+              <dd>{{ mcpServers().map((server) => server.name).join(', ') }}</dd>
+            }
             @if (engineKind() === 'opencode' && namedSubagents().length > 0) {
               <dt>Subagents</dt><dd>{{ subagentNames() }}</dd>
             }

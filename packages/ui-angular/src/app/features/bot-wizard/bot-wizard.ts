@@ -10,6 +10,7 @@ import {
 import type {
   BotConfig,
   BotCreateInput,
+  BotMcpServerInput,
   BotProviderApi,
   BotProviderConfig,
   BotProviderCredentialInput,
@@ -20,9 +21,10 @@ import type {
 } from '@morse/protocol';
 import type { BotProviderModel } from '@morse/system';
 import { MorseService } from '../../host/morse.service';
+import { BotMcpStep } from './bot-mcp-step';
 
 /** The wizard's steps, in the order the spec pins them. */
-type Step = 'identity' | 'engine' | 'connect' | 'persona' | 'advanced' | 'review';
+type Step = 'identity' | 'engine' | 'connect' | 'persona' | 'mcp' | 'advanced' | 'review';
 
 /** One OpenCode subagent the reader defined: a name and its own system prompt. */
 interface SubagentRow {
@@ -94,6 +96,7 @@ const STEP_LABELS: Record<Step, string> = {
   engine: 'Engine',
   connect: 'Connect',
   persona: 'Persona',
+  mcp: 'MCP',
   advanced: 'Advanced',
   review: 'Review',
 };
@@ -174,12 +177,14 @@ function parseEnvVars(value: string): string[] {
  * key for catalog providers, an "Add provider" form (wire protocol, base URL,
  * key) for everything else, with models discovered from the endpoint where it
  * can list them. The model picker searches everything Connect found. The
- * persona and Advanced steps follow; Review shows exactly what will be sent.
+ * persona, the optional MCP servers, and Advanced follow; Review shows exactly
+ * what will be sent.
  */
 @Component({
   selector: 'morse-bot-wizard',
   templateUrl: './bot-wizard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [BotMcpStep],
   styleUrl: './bot-wizard.css',
 })
 export class BotWizard {
@@ -242,6 +247,14 @@ export class BotWizard {
   protected readonly persona = signal('');
   protected readonly agentsMd = signal('');
   protected readonly subagents = signal<SubagentRow[]>([]);
+  /** The MCP servers this bot carries; written into its own engine config. */
+  protected readonly mcpServers = signal<BotMcpServerInput[]>([]);
+  /**
+   * Whether the edited config carried an MCP list at all. A config that never
+   * mentioned servers must not write one back — that is what keeps an edit from
+   * touching the engine's own file.
+   */
+  private readonly mcpLoaded = signal(false);
   /** The model pick, keyed `provider/id`; empty until the reader chooses. */
   protected readonly modelKey = signal('');
   /** The thinking level picked; empty means "Engine default" — stores nothing. */
@@ -300,6 +313,7 @@ export class BotWizard {
     'engine',
     'connect',
     'persona',
+    'mcp',
     'advanced',
     'review',
   ]);
@@ -359,6 +373,10 @@ export class BotWizard {
         return this.model() !== undefined;
       case 'persona':
         return this.persona().trim().length > 0;
+      case 'mcp':
+        // Optional: a bot with no servers is the normal case, so this never
+        // blocks Next or a jump to a later step.
+        return true;
       case 'advanced':
         return true;
       case 'review':
@@ -697,6 +715,10 @@ export class BotWizard {
       this.credentials.set([]);
       this.providers.set([]);
       this.modelKey.set('');
+      // Servers are engine-specific config (`mcp.json` vs `opencode.json`), so a
+      // list collected for another engine would be written in the wrong shape.
+      this.mcpServers.set([]);
+      this.mcpLoaded.set(false);
       // A new engine offers different tools: start from its own defaults rather
       // than carrying names it does not have.
       this.tools.set([...(DEFAULT_TOOLS[kind] ?? [])]);
@@ -1061,6 +1083,10 @@ export class BotWizard {
     this.persona.set(config.persona);
     this.agentsMd.set(config.agentsMd ?? '');
     this.subagents.set((config.subagents ?? []).map((row) => ({ ...row })));
+    // A server list is read back whole, and `mcpLoaded` remembers whether the
+    // config had one: an absent list is "do not touch the engine's file".
+    this.mcpServers.set((config.mcpServers ?? []).map((server) => ({ ...server })));
+    this.mcpLoaded.set(config.mcpServers !== undefined);
     this.engineProviders.set(
       (config.providers ?? []).map((provider) => ({
         ...provider,
@@ -1110,6 +1136,11 @@ export class BotWizard {
         // Model capabilities the reader corrected, written back into the engine's
         // own provider config around the credential already there.
         ...(this.engineProviders().length === 0 ? {} : { providers: this.engineProviders() }),
+        // A config that named servers is written back whole (even emptied); one
+        // that named none leaves the engine's file alone.
+        ...(this.mcpLoaded() || this.mcpServers().length > 0
+          ? { mcpServers: this.mcpServers() }
+          : {}),
       });
       this.pending.set(target);
       return;
@@ -1136,6 +1167,9 @@ export class BotWizard {
       ...(agentsMd.length > 0 ? { agentsMd } : {}),
       ...(subagents.length > 0 ? { subagents } : {}),
       ...(providers.length > 0 ? { providers } : {}),
+      ...(this.mcpLoaded() || this.mcpServers().length > 0
+        ? { mcpServers: this.mcpServers() }
+        : {}),
       requestId,
     };
     this.knownBotsAtSubmit.set(

@@ -1,5 +1,11 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type { BotCreateInput, BotSummary, HostToClientMessage, ModelOption } from '@morse/protocol';
+import type {
+  BotCreateInput,
+  BotMcpServerInput,
+  BotSummary,
+  HostToClientMessage,
+  ModelOption,
+} from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
@@ -18,6 +24,15 @@ const claude: ModelOption = {
   provider: 'anthropic',
   id: 'claude-sonnet-4',
   name: 'Claude Sonnet 4',
+};
+
+/** One stdio server, as both a create sends it and an edit reads it back. */
+const filesystemServer: BotMcpServerInput = {
+  name: 'filesystem',
+  type: 'stdio',
+  command: 'npx',
+  args: ['-y', 'server', '.'],
+  enabled: true,
 };
 
 /** The mock host, able to push a message (a notice) by hand. */
@@ -135,11 +150,14 @@ function pickCatalogModel(
   tick(fixture);
 }
 
-/** Connect → Persona → Advanced → Review, when the test already left Connect. */
+/**
+ * Connect → Persona → MCP → Advanced → Review, when the test already left
+ * Connect. The MCP step is optional: only a walk that asks adds a server there.
+ */
 function finishFromConnect(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
-  options: { persona?: string; agentsMd?: string; subagent?: boolean } = {},
+  options: { persona?: string; mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
 ): void {
   button(host, '.wizard-foot .primary').click();
   tick(fixture);
@@ -147,6 +165,17 @@ function finishFromConnect(
   tick(fixture);
   button(host, '.wizard-foot .primary').click();
   tick(fixture);
+  expect(currentStep(host)).toBe('MCP');
+  if (options.mcp === true) {
+    fill(host, 'input[placeholder="filesystem"]', 'filesystem');
+    fill(host, 'input[placeholder="npx"]', 'npx');
+    fill(host, 'input[placeholder="-y @modelcontextprotocol/server-filesystem ."]', '-y server .');
+    button(host, '.mcp-add').click();
+    tick(fixture);
+  }
+  button(host, '.wizard-foot .primary').click();
+  tick(fixture);
+  expect(currentStep(host)).toBe('Advanced');
   if (options.agentsMd !== undefined) {
     fill(host, 'textarea[placeholder="# Forge workspace"]', options.agentsMd);
     tick(fixture);
@@ -163,6 +192,21 @@ function finishFromConnect(
   expect(currentStep(host)).toBe('Review');
 }
 
+/** Connect → Persona, stopping on the MCP step so a test can build its list. */
+function walkToMcp(
+  fixture: ComponentFixture<BotWizard>,
+  host: HTMLElement,
+  options: { persona?: string } = {},
+): void {
+  button(host, '.wizard-foot .primary').click();
+  tick(fixture);
+  fill(host, 'textarea[placeholder^="You are Forge"]', options.persona ?? 'You are Forge.');
+  tick(fixture);
+  button(host, '.wizard-foot .primary').click();
+  tick(fixture);
+  expect(currentStep(host)).toBe('MCP');
+}
+
 /** Fill a field the way a browser does on blur: input, then change. */
 function fillAndCommit(host: HTMLElement, selector: string, value: string): void {
   const field = host.querySelector(selector) as HTMLInputElement;
@@ -177,7 +221,7 @@ function walkToReview(
   host: HTMLElement,
   morse: MorseService,
   kind: string,
-  options: { persona?: string; agentsMd?: string; subagent?: boolean } = {},
+  options: { persona?: string; mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
 ): void {
   const { probe } = walkToConnect(fixture, host, morse, kind);
   pickCatalogModel(fixture, host, morse, probe);
@@ -476,12 +520,12 @@ describe('BotWizard', () => {
       [...host.querySelectorAll('.wizard-step')].map((one) => one.classList.contains('done'));
 
     // Nothing filled, nothing ticked.
-    expect(ticked()).toEqual([false, false, false, false, false, false]);
+    expect(ticked()).toEqual([false, false, false, false, false, false, false]);
 
     // Typing the name ticks Identity while the cursor is still on it.
     fill(host, 'input[placeholder="News Finder"]', 'Forge');
     tick(fixture);
-    expect(ticked()).toEqual([true, false, false, false, false, false]);
+    expect(ticked()).toEqual([true, false, false, false, false, false, false]);
 
     // Choosing an engine ticks Engine straight away — no Next involved.
     button(host, '.wizard-foot .primary').click();
@@ -504,12 +548,12 @@ describe('BotWizard', () => {
     expect(currentStep(host)).toBe('Identity');
     fill(host, 'input[placeholder="News Finder"]', '   ');
     tick(fixture);
-    expect(ticked()).toEqual([false, true, false, false, false, false]);
+    expect(ticked()).toEqual([false, true, false, false, false, false, false]);
 
     // Restoring it brings the tick back with no navigation at all.
     fill(host, 'input[placeholder="News Finder"]', 'Forge');
     tick(fixture);
-    expect(ticked()).toEqual([true, true, false, false, false, false]);
+    expect(ticked()).toEqual([true, true, false, false, false, false, false]);
   });
 
   it('keeps a satisfied step ticked and reachable as the cursor moves', async () => {
@@ -521,7 +565,7 @@ describe('BotWizard', () => {
     const stepButton = (at: number): HTMLButtonElement =>
       host.querySelectorAll('.wizard-step')[at]?.querySelector('button') as HTMLButtonElement;
 
-    expect(ticked()).toEqual([true, true, true, true, true, false]);
+    expect(ticked()).toEqual([true, true, true, true, true, true, false]);
 
     // Jumping back to Identity keeps every other tick: their forms still hold.
     stepButton(0).click();
@@ -530,7 +574,7 @@ describe('BotWizard', () => {
     expect((host.querySelector('input[placeholder="News Finder"]') as HTMLInputElement).value).toBe(
       'Forge',
     );
-    expect(ticked()).toEqual([true, true, true, true, true, false]);
+    expect(ticked()).toEqual([true, true, true, true, true, true, false]);
 
     // And a satisfied step is reachable forward again, in one click.
     stepButton(2).click();
@@ -549,7 +593,9 @@ describe('BotWizard', () => {
       true,
       true,
       true,
+      true,
     ]);
+    // Even MCP — satisfied on its own — is refused while earlier steps are not.
     (rail[4]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
     expect(currentStep(host)).toBe('Identity');
@@ -623,6 +669,47 @@ describe('BotWizard', () => {
     expect(list).toHaveBeenCalledTimes(1);
     expect(host.querySelector('.note')?.textContent).toContain('Creating Forge');
     expect(host.textContent).not.toContain('## Subagents');
+  });
+
+  it('adds an MCP server and sends it on create', async () => {
+    const { fixture, host, morse } = await render();
+    const { probe } = walkToConnect(fixture, host, morse, 'pi');
+    pickCatalogModel(fixture, host, morse, probe);
+    walkToMcp(fixture, host);
+
+    // Optional from the first moment: an empty list never holds Next back.
+    expect(host.querySelector('.mcp-empty')?.textContent).toContain('No servers yet');
+    expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
+
+    fill(host, 'input[placeholder="filesystem"]', 'filesystem');
+    fill(host, 'input[placeholder="npx"]', 'npx');
+    fill(host, 'input[placeholder="-y @modelcontextprotocol/server-filesystem ."]', '-y server .');
+    tick(fixture);
+    button(host, '.mcp-add').click();
+    tick(fixture);
+    expect(host.querySelector('.mcp-server')?.textContent).toContain('filesystem');
+
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+    expect(currentStep(host)).toBe('Advanced');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+    expect(currentStep(host)).toBe('Review');
+    // Review names the servers, not just their count.
+    expect(host.querySelector('.review')?.textContent).toContain('filesystem');
+
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+    expect(create.mock.calls[0]?.[0]?.mcpServers).toEqual([
+      {
+        name: 'filesystem',
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', 'server', '.'],
+        enabled: true,
+      },
+    ]);
   });
 
   it('closes once the roster names the bot it created', async () => {
@@ -731,11 +818,11 @@ describe('BotWizard', () => {
     expect(handle.value).toBe('forge');
     expect(handle.disabled).toBe(true);
     // Every step is already satisfied, so the rail is a checklist.
-    expect(host.querySelectorAll('.wizard-step.done').length).toBe(5);
+    expect(host.querySelectorAll('.wizard-step.done').length).toBe(6);
 
     // Jump straight to Review: nothing has to be re-answered.
     const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
+    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
     expect(currentStep(host)).toBe('Review');
     expect(host.querySelector('.review')?.textContent).toContain('anthropic/claude-sonnet-4');
@@ -757,7 +844,81 @@ describe('BotWizard', () => {
       agentsMd: '# Forge workspace',
       subagents: [{ name: 'reviewer', prompt: 'Read the diff.' }],
     });
+    // Its config named no MCP servers, so the engine's file stays untouched.
+    expect(update.mock.calls[0]?.[0]).not.toHaveProperty('mcpServers');
     expect(host.textContent).toContain('Saving…');
+  });
+
+  it('seeds MCP servers from the edited config and sends them back', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.ui.wizardTarget.set('forge');
+    morse.ui.wizardOpen.set(true);
+    fixture.detectChanges();
+    morse.bot.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Keeps the forge hot',
+      engineKind: 'pi',
+      model: claude,
+      persona: 'You are Forge.',
+      envVars: [],
+      mcpServers: [filesystemServer],
+    });
+    fixture.detectChanges();
+
+    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
+    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+    expect(currentStep(host)).toBe('MCP');
+    expect(host.querySelector('.mcp-server')?.textContent).toContain('filesystem');
+
+    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+    expect(currentStep(host)).toBe('Review');
+    expect(host.querySelector('.review')?.textContent).toContain('filesystem');
+
+    const update = vi.spyOn(morse, 'updateBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+    // Read back and sent unchanged: an edit rewrites the same list.
+    expect(update.mock.calls[0]?.[0]?.mcpServers).toEqual([filesystemServer]);
+  });
+
+  it('sends an empty list when the last server is removed on an edit', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.ui.wizardTarget.set('forge');
+    morse.ui.wizardOpen.set(true);
+    fixture.detectChanges();
+    morse.bot.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Keeps the forge hot',
+      engineKind: 'pi',
+      model: claude,
+      persona: 'You are Forge.',
+      envVars: [],
+      mcpServers: [filesystemServer],
+    });
+    fixture.detectChanges();
+
+    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
+    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+    expect(host.querySelectorAll('.mcp-server').length).toBe(1);
+
+    button(host, '.mcp-remove').click();
+    tick(fixture);
+    expect(host.querySelectorAll('.mcp-server').length).toBe(0);
+
+    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+    const update = vi.spyOn(morse, 'updateBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+    // A list the reader emptied is a decision, so it goes as an empty array.
+    expect(update.mock.calls[0]?.[0]?.mcpServers).toEqual([]);
   });
 
   it('reads a bot’s own providers back and writes a corrected limit on an edit', async () => {
@@ -805,7 +966,7 @@ describe('BotWizard', () => {
     tick(fixture);
 
     const update = vi.spyOn(morse, 'updateBot');
-    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
+    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
     button(host, '.wizard-foot .primary').click();
     tick(fixture);
@@ -919,7 +1080,7 @@ describe('BotWizard', () => {
 
     // The checklist lives on Advanced, which the walk already passed: go back.
     const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
+    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
 
     const boxes = [...host.querySelectorAll('.tool input[type="checkbox"]')] as HTMLInputElement[];
@@ -938,7 +1099,7 @@ describe('BotWizard', () => {
     bash.dispatchEvent(new Event('change'));
     tick(fixture);
 
-    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
+    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
     const create = vi.spyOn(morse, 'createBot');
     button(host, '.wizard-foot .primary').click();
@@ -969,7 +1130,7 @@ describe('BotWizard', () => {
     walkToReview(fixture, host, morse, 'opencode');
     // Advanced is behind the walk: the checklist lives there.
     const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
+    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
 
     const names = [...host.querySelectorAll('.tool input[type="checkbox"]')].map((box) =>
