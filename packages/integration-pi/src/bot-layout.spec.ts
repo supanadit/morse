@@ -498,6 +498,37 @@ describe('piBotLayout', () => {
     expect(read(piMcpPath(botRoot))).toEqual({ mcpServers: { fs: { command: 'npx' } } });
   });
 
+  it('fails before writing anything when mcp.json cannot be parsed', () => {
+    // A bot someone already configured: every file here is a sentinel, and a
+    // save that cannot finish must leave all of them exactly as they were.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    mkdirSync(join(botRoot, 'workspace'), { recursive: true });
+    const sentinels = new Map([
+      [join(botRoot, 'config', 'auth.json'), '{"zai":{"type":"api_key","key":"old"}}\n'],
+      [join(botRoot, 'config', 'models.json'), '{"providers":{"old":{"models":[]}}}\n'],
+      [join(botRoot, 'config', 'settings.json'), '{"defaultModel":"old"}\n'],
+      [piSystemPromptPath(botRoot), 'Old persona.\n'],
+      [piWorkspacePath(botRoot), 'Old workspace rules.\n'],
+    ]);
+    for (const [path, text] of sentinels) {
+      writeFileSync(path, text);
+    }
+    writeFileSync(piMcpPath(botRoot), '{ not json');
+
+    expect(() =>
+      writePiBotConfig(botRoot, {
+        ...config,
+        mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+      }),
+    ).toThrow();
+
+    // Not one write happened: no half-applied identity or config.
+    for (const [path, text] of sentinels) {
+      expect(readFileSync(path, 'utf8')).toBe(text);
+    }
+    expect(readFileSync(piMcpPath(botRoot), 'utf8')).toBe('{ not json');
+  });
+
   it('a corrupt mcp.json does not hide the rest of the configuration', () => {
     writePiBotConfig(botRoot, config);
     writeFileSync(piMcpPath(botRoot), '{ not json');

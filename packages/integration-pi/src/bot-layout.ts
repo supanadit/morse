@@ -179,9 +179,18 @@ function readPiMcpServers(path: string): BotMcpServer[] | undefined {
   });
 }
 
-/** Replaces the managed MCP servers in `mcp.json`, keeping project overrides. */
-function writePiMcpServers(path: string, servers: readonly BotMcpServer[]): void {
-  const file = readMcpFile(path);
+/**
+ * Replaces the managed MCP servers in `mcp.json`, keeping project overrides.
+ *
+ * The parsed file is passed in rather than read here: the caller parses it before
+ * it writes anything else, so a corrupt file fails the whole update instead of
+ * letting the identity and most of the config be applied first.
+ */
+function writePiMcpServers(
+  path: string,
+  servers: readonly BotMcpServer[],
+  file: ReturnType<typeof readMcpFile>,
+): void {
   const next: Record<string, unknown> = { ...file };
   const nextServers: Record<string, unknown> = { ...file.mcpServers };
   const serverNames = new Set(servers.map((server) => server.name));
@@ -313,6 +322,15 @@ function withPiSettingsSchema(settings: Record<string, unknown>): Record<string,
 /** Writes a bot's whole pi configuration, in pi's own layout. */
 export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void {
   const agentDir = piAgentDir(botRoot);
+  // Parse `mcp.json` before the first write. The file is the reader's, and a
+  // malformed one is an error: discovering it after auth, models, settings and
+  // the persona were rewritten would leave the bot half-updated, with no clear
+  // way to tell which half the form managed to apply.
+  const mcpPath = piMcpPath(botRoot);
+  const mcp =
+    config.mcpServers === undefined
+      ? undefined
+      : { servers: config.mcpServers, file: readMcpFile(mcpPath) };
 
   // auth.json — pi's own credential store, rewritten whole when the form
   // collected keys: the wizard owns this bot's keys then, so a provider it no
@@ -371,8 +389,8 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
     writePrivateText(piWorkspacePath(botRoot), config.agentsMd as string);
   }
 
-  if (config.mcpServers !== undefined) {
-    writePiMcpServers(piMcpPath(botRoot), config.mcpServers);
+  if (mcp !== undefined) {
+    writePiMcpServers(mcpPath, mcp.servers, mcp.file);
   }
 }
 

@@ -208,6 +208,66 @@ describe('BotMcpStep', () => {
     ]);
   });
 
+  it('keeps an argument that contains a space when an edit only renames the server', async () => {
+    const servers: BotMcpServerInput[] = [
+      {
+        name: 'rooted',
+        type: 'stdio',
+        command: 'npx',
+        args: ['--root', '/home/me/my dir'],
+        enabled: true,
+      },
+    ];
+    const { fixture, host, changes } = await render('pi', servers);
+
+    button(host, '.mcp-edit').click();
+    tick(fixture);
+    // Only the name changes: the args textarea is not touched, so its text is a
+    // lossy rendering and must not be re-split into three arguments.
+    fill(host, 'input[placeholder="filesystem"]', 'rooted-renamed');
+    tick(fixture);
+    button(host, '.mcp-add').click();
+
+    expect(changes).toHaveBeenCalledWith([
+      {
+        name: 'rooted-renamed',
+        type: 'stdio',
+        command: 'npx',
+        args: ['--root', '/home/me/my dir'],
+        enabled: true,
+      },
+    ]);
+  });
+
+  it('splits the args text once the reader edits it', async () => {
+    const servers: BotMcpServerInput[] = [
+      {
+        name: 'rooted',
+        type: 'stdio',
+        command: 'npx',
+        args: ['--root', '/home/me/my dir'],
+        enabled: true,
+      },
+    ];
+    const { fixture, host, changes } = await render('pi', servers);
+
+    button(host, '.mcp-edit').click();
+    tick(fixture);
+    fill(host, 'input[placeholder="-y @modelcontextprotocol/server-filesystem ."]', '--root /tmp --flag');
+    tick(fixture);
+    button(host, '.mcp-add').click();
+
+    expect(changes).toHaveBeenCalledWith([
+      {
+        name: 'rooted',
+        type: 'stdio',
+        command: 'npx',
+        args: ['--root', '/tmp', '--flag'],
+        enabled: true,
+      },
+    ]);
+  });
+
   it('removes a server', async () => {
     const web: BotMcpServerInput = {
       name: 'web',

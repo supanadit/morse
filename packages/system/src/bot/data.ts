@@ -328,9 +328,18 @@ export function reconcileBotData(context: BotDataContext): void {
   }
 }
 
-/** Whether a read state says the engine tree already carries a configuration. */
+/**
+ * Whether a read state says the engine tree already carries a configuration.
+ *
+ * An empty `mcpServers` is not configuration: pi's reader omits the key when
+ * there is no `mcp.json`, but OpenCode's always answers with the array it found,
+ * so counting it would make every bot look configured and skip both the legacy
+ * migration and the "no engine configuration" repair.
+ */
 function hasNativeConfig(state: ReturnType<BotEngineAdapter['layout']['read']>): boolean {
-  return Object.keys(state).length > 0;
+  return Object.keys(state).some(
+    (key) => key !== 'mcpServers' || (state.mcpServers?.length ?? 0) > 0,
+  );
 }
 
 /** A layout's read, keeping "nothing there" and "could not read it" apart. */

@@ -118,6 +118,57 @@ describe('bot data maintenance', () => {
     expect(loadBotRegistry(botDir).bots[0]).not.toHaveProperty('persona');
   });
 
+  it('still migrates a legacy record when the read only reports an empty mcpServers', () => {
+    seedLegacy();
+    // OpenCode's reader always answers with an array, even when opencode.json is
+    // missing, so an empty one must not look like an existing configuration.
+    const adapter = fakeAdapter({ mcpServers: [] });
+
+    const result = maintainData({
+      root,
+      logger: silentLogger,
+      migrations: botDataMigrations(),
+      extra: { adapters: { fake: adapter } },
+    });
+
+    expect(result.applied).toContain('write each bot configuration into its engine own files');
+    expect(adapter.writes).toHaveLength(1);
+    expect(adapter.writes[0]).toMatchObject({
+      persona: 'You are Forge.',
+      model: legacyBot.model,
+    });
+  });
+
+  it('still warns about a bot with no engine configuration when the read is an empty mcpServers', () => {
+    saveBotRegistry(botDir, {
+      version: 2,
+      bots: [
+        {
+          username: 'forge',
+          name: 'Forge',
+          description: 'Builds things',
+          engineKind: 'fake',
+          credentialEnv: [],
+        },
+      ],
+      groups: [],
+      conversations: [],
+    });
+    const adapter = fakeAdapter({ mcpServers: [] });
+    const warn = vi.fn();
+
+    reconcileBotData({
+      root,
+      logger: { ...silentLogger, warn },
+      now: () => new Date(),
+      backup: () => undefined,
+      adapters: { fake: adapter },
+    });
+
+    expect(adapter.writes).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('set it up from Edit bot'));
+  });
+
   it('asks each engine layout to move files an earlier Morse put in the wrong place', () => {
     seedLegacy();
     const repaired: string[] = [];

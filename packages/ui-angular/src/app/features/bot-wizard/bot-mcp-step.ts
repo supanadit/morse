@@ -16,6 +16,12 @@ interface Draft {
   type: DraftType;
   command: string;
   argsText: string;
+  /**
+   * The args an edit started from, verbatim. The textarea joins them with a
+   * space, which loses an element that contains one, so they are kept here and
+   * reused while the textarea is untouched.
+   */
+  argsSource: string[];
   envText: string;
   url: string;
   headersText: string;
@@ -39,6 +45,7 @@ function emptyDraft(): Draft {
     type: 'stdio',
     command: '',
     argsText: '',
+    argsSource: [],
     envText: '',
     url: '',
     headersText: '',
@@ -46,6 +53,18 @@ function emptyDraft(): Draft {
     enabled: true,
     exposure: '',
   };
+}
+
+/**
+ * The args a draft stands for. The textarea is a lossy rendering — it joins the
+ * elements with a space — so while it is untouched the original elements are
+ * reused verbatim, and an argument like `/home/me/my dir` survives an edit that
+ * only renamed the server or toggled it. Only edited text is split again.
+ */
+function draftArgs(draft: Draft): string[] {
+  return draft.argsText === draft.argsSource.join(' ')
+    ? [...draft.argsSource]
+    : splitMcpArgs(draft.argsText);
 }
 
 /**
@@ -190,6 +209,7 @@ export class BotMcpStep {
       type: server.type,
       command: server.command ?? '',
       argsText: (server.args ?? []).join(' '),
+      argsSource: [...(server.args ?? [])],
       envText: toLineText(server.env, '='),
       url: server.url ?? '',
       headersText: toLineText(server.headers, ': '),
@@ -301,7 +321,7 @@ export class BotMcpStep {
     if (transport === undefined) {
       return undefined;
     }
-    const args = splitMcpArgs(draft.argsText);
+    const args = draftArgs(draft);
     return {
       name,
       type: draft.type,
@@ -331,7 +351,7 @@ export class BotMcpStep {
     if (transport === undefined) {
       return undefined;
     }
-    const args = splitMcpArgs(draft.argsText);
+    const args = draftArgs(draft);
     return {
       name: draft.name.trim() || 'probe',
       type: draft.type,
