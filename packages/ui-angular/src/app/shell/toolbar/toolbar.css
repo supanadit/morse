@@ -105,15 +105,20 @@
   opacity: 0.55;
   cursor: default;
 }
-/* The one thing Bot says for now: it is not a room with nothing in it. */
+/*
+ * What the Bot tab says about itself: shipped, unfinished. Blue is the app's
+ * information accent (`--morse-info`), so it reads as a note rather than a
+ * warning — and it is a token, so both themes and both hosts keep it legible.
+ */
 .beta {
-  padding: 1px 4px;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--morse-info) 38%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--morse-fg) 7%, transparent);
-  color: var(--morse-fg-muted);
+  background: color-mix(in srgb, var(--morse-info) 16%, transparent);
+  color: var(--morse-info);
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 /* Row one, right: the buttons, never shrunk or split. */
