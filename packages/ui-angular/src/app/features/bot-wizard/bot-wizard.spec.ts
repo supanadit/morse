@@ -72,6 +72,12 @@ function fill(host: HTMLElement, selector: string, value: string): void {
   field.dispatchEvent(new Event('input'));
 }
 
+/** The same, for a field the test already holds (a cell in a table of rows). */
+function type(field: HTMLInputElement, value: string): void {
+  field.value = value;
+  field.dispatchEvent(new Event('input'));
+}
+
 function choose(host: HTMLElement, selector: string, value: string): void {
   const field = host.querySelector(selector) as HTMLSelectElement;
   field.value = value;
@@ -335,6 +341,132 @@ describe('BotWizard', () => {
           { id: 'acme-chat' },
         ],
       },
+    ]);
+  });
+
+  it('takes a model’s limits and modalities from discovery, and lets the reader correct them', async () => {
+    const { fixture, host, morse } = await render();
+    walkToConnect(fixture, host, morse, 'pi');
+
+    button(host, '.ghost').click();
+    tick(fixture);
+    fill(host, 'input[placeholder="acme"]', 'acme');
+    fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
+    tick(fixture);
+
+    const discover = vi.spyOn(morse, 'discoverModels');
+    button(host, '.draft-discover .ghost').click();
+    tick(fixture);
+    const requestId = discover.mock.calls[0]?.[2] ?? '';
+    morse.bot.onModels({
+      requestId,
+      kind: 'discover',
+      models: [
+        // The listing knew nothing about this one: nothing is invented for it.
+        { provider: 'discover', id: 'acme-chat', name: 'Acme Chat' },
+        // One it did answer for, and got the window wrong for the reader's purpose.
+        {
+          provider: 'discover',
+          id: 'acme-vision',
+          name: 'Acme Vision',
+          contextWindow: 32_000,
+          maxTokens: 4_096,
+          input: ['text', 'image'],
+        },
+      ],
+    });
+    tick(fixture);
+
+    const rows = [...host.querySelectorAll('.model-row')];
+    const [chatRow, visionRow] = rows as HTMLElement[];
+    // Discovery's numbers arrive in the boxes, ready to be corrected.
+    expect((visionRow?.querySelectorAll('input')[0] as HTMLInputElement).value).toBe('32000');
+    expect((visionRow?.querySelectorAll('input')[1] as HTMLInputElement).value).toBe('4096');
+    expect(visionRow?.querySelector('.cap-toggle')?.classList.contains('on')).toBe(true);
+    // Nothing was found for the other one, so its boxes say "default", not a guess.
+    expect((chatRow?.querySelectorAll('input')[0] as HTMLInputElement).value).toBe('');
+    expect(chatRow?.querySelector('.cap-toggle')?.classList.contains('on')).toBe(false);
+
+    // The reader fixes the window and gives the other model images too.
+    type(chatRow?.querySelectorAll('input')[0] as HTMLInputElement, '200000');
+    type(chatRow?.querySelectorAll('input')[1] as HTMLInputElement, '8192');
+    (chatRow?.querySelector('.cap-toggle') as HTMLButtonElement).click();
+    tick(fixture);
+
+    button(host, '.draft-actions .primary').click();
+    tick(fixture);
+    button(host, '.model-option').click();
+    tick(fixture);
+    finishFromConnect(fixture, host);
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+
+    const submitted = create.mock.calls[0]?.[0] as BotCreateInput;
+    // Written into the engine's own model entries: pi's `contextWindow`,
+    // `maxTokens` and `input` — a text-only default is not assumed for a model
+    // the reader said takes images.
+    expect(submitted.providers?.[0]?.models).toEqual([
+      {
+        id: 'acme-chat',
+        name: 'Acme Chat',
+        contextWindow: 200_000,
+        maxTokens: 8_192,
+        input: ['text', 'image'],
+      },
+      {
+        id: 'acme-vision',
+        name: 'Acme Vision',
+        contextWindow: 32_000,
+        maxTokens: 4_096,
+        input: ['text', 'image'],
+      },
+    ]);
+  });
+
+  it('clears a limit back to the engine default when the box is emptied', async () => {
+    const { fixture, host, morse } = await render();
+    walkToConnect(fixture, host, morse, 'pi');
+
+    button(host, '.ghost').click();
+    tick(fixture);
+    fill(host, 'input[placeholder="acme"]', 'acme');
+    fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
+    tick(fixture);
+    const discover = vi.spyOn(morse, 'discoverModels');
+    button(host, '.draft-discover .ghost').click();
+    tick(fixture);
+    morse.bot.onModels({
+      requestId: discover.mock.calls[0]?.[2] ?? '',
+      kind: 'discover',
+      models: [
+        {
+          provider: 'discover',
+          id: 'acme-chat',
+          name: 'Acme Chat',
+          contextWindow: 32_000,
+          maxTokens: 4096,
+        },
+      ],
+    });
+    tick(fixture);
+
+    const row = host.querySelector('.model-row') as HTMLElement;
+    // Empty means "nobody knows": the field is dropped, not written as 0.
+    type(row.querySelectorAll('input')[0] as HTMLInputElement, '');
+
+    button(host, '.draft-actions .primary').click();
+    tick(fixture);
+    button(host, '.model-option').click();
+    tick(fixture);
+    finishFromConnect(fixture, host);
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+
+    const submitted = create.mock.calls[0]?.[0] as BotCreateInput;
+    expect(submitted.providers?.[0]?.models).toEqual([
+      { id: 'acme-chat', name: 'Acme Chat', maxTokens: 4096 },
     ]);
   });
 
@@ -626,6 +758,79 @@ describe('BotWizard', () => {
       subagents: [{ name: 'reviewer', prompt: 'Read the diff.' }],
     });
     expect(host.textContent).toContain('Saving…');
+  });
+
+  it('reads a bot’s own providers back and writes a corrected limit on an edit', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.ui.wizardTarget.set('forge');
+    morse.ui.wizardOpen.set(true);
+    fixture.detectChanges();
+
+    morse.bot.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Keeps the forge hot',
+      engineKind: 'pi',
+      model: claude,
+      persona: 'You are Forge.',
+      envVars: [],
+      // What the host read out of pi's models.json: no credential, ever.
+      providers: [
+        {
+          id: 'llm-eigen',
+          label: 'Eigen',
+          api: 'openai-completions',
+          baseUrl: 'https://llm.example/v1',
+          models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek flash' }],
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    // Straight to Connect, where the bot's own providers are shown with their
+    // limits — the fields discovery could not know for this endpoint.
+    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
+    (rail[2]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+
+    const card = [...host.querySelectorAll('.provider-card')].at(-1) as HTMLElement;
+    expect(card.textContent).toContain('llm-eigen');
+    expect(card.querySelector('.model-id')?.textContent?.trim()).toBe('deepseek-v4-flash');
+
+    const [context, maxOut] = [...card.querySelectorAll('input')] as HTMLInputElement[];
+    type(context as HTMLInputElement, '65536');
+    type(maxOut as HTMLInputElement, '8192');
+    (card.querySelector('.cap-toggle') as HTMLButtonElement).click();
+    tick(fixture);
+
+    const update = vi.spyOn(morse, 'updateBot');
+    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+
+    const sent = update.mock.calls[0]?.[0] as { providers?: unknown; credentials?: unknown };
+    // The correction goes into the engine's own provider entry, with no
+    // credential: the key stays where pi put it.
+    expect(sent.providers).toEqual([
+      {
+        id: 'llm-eigen',
+        label: 'Eigen',
+        api: 'openai-completions',
+        baseUrl: 'https://llm.example/v1',
+        models: [
+          {
+            id: 'deepseek-v4-flash',
+            name: 'DeepSeek flash',
+            contextWindow: 65_536,
+            maxTokens: 8_192,
+            input: ['text', 'image'],
+          },
+        ],
+      },
+    ]);
+    expect(sent).not.toHaveProperty('credentials');
   });
 
   it('keeps the saved model selectable when the catalog cannot list it', async () => {

@@ -11,8 +11,10 @@ import type {
   BotConfig,
   BotCreateInput,
   BotProviderApi,
+  BotProviderConfig,
   BotProviderCredentialInput,
   BotProviderInput,
+  ModelInput,
   ModelOption,
   ThinkingLevel,
 } from '@morse/protocol';
@@ -210,6 +212,13 @@ export class BotWizard {
   protected readonly draftEnvName = signal('');
   /** Manual model rows for the custom provider being added. */
   protected readonly draftModels = signal<BotProviderModel[]>([]);
+  /**
+   * The providers Edit bot read out of the engine's own config, with the model
+   * fields a reader can correct. Kept apart from `providers` (the create flow's
+   * drafts) because these carry no credential: an edit rewrites the fields around
+   * the key the engine already stores.
+   */
+  protected readonly engineProviders = signal<BotProviderConfig[]>([]);
   protected readonly draftModelId = signal('');
   /** True while a discovery request for the draft is in flight. */
   protected readonly draftProbing = signal(false);
@@ -556,6 +565,12 @@ export class BotWizard {
           answer.map((model) => ({
             id: model.id,
             ...(model.name === undefined ? {} : { name: model.name }),
+            // Discovery's answer is a starting point, not a verdict: whatever it
+            // found is filled in, and every field stays editable below because a
+            // listing often says nothing (or the wrong thing) about a model.
+            ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+            ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+            ...(model.input === undefined ? {} : { input: model.input }),
           })),
         );
         if (answer.length === 0) {
@@ -813,6 +828,101 @@ export class BotWizard {
     this.draftModels.update((rows) => rows.filter((_, at) => at !== index));
   }
 
+  /**
+   * One model field the reader corrected: its context window or its output cap.
+   * An empty box clears the field, which writes nothing and lets the engine apply
+   * its own default — the honest answer when nobody knows the number.
+   */
+  protected setModelField(index: number, field: 'contextWindow' | 'maxTokens', event: Event): void {
+    const raw = (event.target as HTMLInputElement).value.trim();
+    const value = raw === '' ? undefined : Number(raw);
+    const next = value === undefined || !Number.isFinite(value) || value <= 0 ? undefined : Math.floor(value);
+    this.draftModels.update((rows) =>
+      rows.map((row, at) => {
+        if (at !== index) {
+          return row;
+        }
+        const { [field]: _dropped, ...rest } = row;
+        return next === undefined ? rest : { ...rest, [field]: next };
+      }),
+    );
+  }
+
+  /**
+   * Whether this model takes images. A three-state toggle on purpose: unknown
+   * (absent) means "the engine decides", which is different from a model that says
+   * it takes text only — and a vision model behind a custom provider has to say
+   * `image` explicitly, because pi's own default is text-only.
+   */
+  protected toggleModelImage(index: number): void {
+    this.draftModels.update((rows) =>
+      rows.map((row, at) => {
+        if (at !== index) {
+          return row;
+        }
+        const input = row.input ?? [];
+        if (input.includes('image')) {
+          return { ...row, input: input.filter((one) => one !== 'image') };
+        }
+        return { ...row, input: [...new Set<ModelInput>([...input, 'text', 'image'])] };
+      }),
+    );
+  }
+
+  /** A model row's image capability as the toggle shows it. */
+  protected modelTakesImages(model: BotProviderModel): boolean {
+    return model.input?.includes('image') === true;
+  }
+
+  /** The same field handlers for a provider read back from the engine's config. */
+  protected setKnownModelField(
+    providerId: string,
+    modelId: string,
+    field: 'contextWindow' | 'maxTokens',
+    event: Event,
+  ): void {
+    const raw = (event.target as HTMLInputElement).value.trim();
+    const parsed = raw === '' ? undefined : Number(raw);
+    const next = parsed === undefined || !Number.isFinite(parsed) || parsed <= 0 ? undefined : Math.floor(parsed);
+    this.engineProviders.update((rows) =>
+      rows.map((provider) =>
+        provider.id === providerId
+          ? {
+              ...provider,
+              models: provider.models.map((model) => {
+                if (model.id !== modelId) {
+                  return model;
+                }
+                const { [field]: _dropped, ...rest } = model;
+                return next === undefined ? rest : { ...rest, [field]: next };
+              }),
+            }
+          : provider,
+      ),
+    );
+  }
+
+  protected toggleKnownModelImage(providerId: string, modelId: string): void {
+    this.engineProviders.update((rows) =>
+      rows.map((provider) =>
+        provider.id === providerId
+          ? {
+              ...provider,
+              models: provider.models.map((model) => {
+                if (model.id !== modelId) {
+                  return model;
+                }
+                const input = model.input ?? [];
+                return input.includes('image')
+                  ? { ...model, input: input.filter((one) => one !== 'image') }
+                  : { ...model, input: [...new Set<ModelInput>([...input, 'text', 'image'])] };
+              }),
+            }
+          : provider,
+      ),
+    );
+  }
+
   protected saveDraft(): void {
     const id = this.draftId().trim();
     if (id.length === 0) {
@@ -951,6 +1061,12 @@ export class BotWizard {
     this.persona.set(config.persona);
     this.agentsMd.set(config.agentsMd ?? '');
     this.subagents.set((config.subagents ?? []).map((row) => ({ ...row })));
+    this.engineProviders.set(
+      (config.providers ?? []).map((provider) => ({
+        ...provider,
+        models: provider.models.map((model) => ({ ...model })),
+      })),
+    );
     this.thinking.set(config.thinkingLevel ?? '');
     this.tools.set([...(config.tools ?? DEFAULT_TOOLS[config.engineKind] ?? [])]);
     this.toolsEdited.set(config.tools !== undefined);
@@ -991,6 +1107,9 @@ export class BotWizard {
         subagents,
         // Only a pasted key replaces the stored ones; an untouched form keeps them.
         ...(credentials.length === 0 ? {} : { credentials }),
+        // Model capabilities the reader corrected, written back into the engine's
+        // own provider config around the credential already there.
+        ...(this.engineProviders().length === 0 ? {} : { providers: this.engineProviders() }),
       });
       this.pending.set(target);
       return;

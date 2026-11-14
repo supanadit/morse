@@ -71,11 +71,125 @@ describe('piBotLayout', () => {
       providers: Record<string, unknown>;
     };
     expect(models.providers['acme']).toEqual({
+      name: 'Acme AI',
       baseUrl: 'https://llm.acme.example/v1',
       api: 'openai-completions',
       apiKey: 'sk-acme',
       models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 128_000 }],
     });
+  });
+
+  it('writes the model limits and modalities a reader corrected', () => {
+    writePiBotConfig(botRoot, {
+      ...config,
+      providers: [
+        {
+          ...config.providers[0]!,
+          models: [
+            {
+              id: 'vision-1',
+              name: 'Vision One',
+              contextWindow: 200_000,
+              maxTokens: 8192,
+              input: ['text', 'image'],
+            },
+          ],
+        },
+      ],
+    });
+
+    const models = read(join(botRoot, 'config', 'models.json')) as {
+      providers: Record<string, { models: unknown[] }>;
+    };
+    // pi's own fields: a custom model's `input` defaults to ["text"], so a vision
+    // model has to say `image` here or pi never sends one to it.
+    expect(models.providers['acme']?.models).toEqual([
+      {
+        id: 'vision-1',
+        name: 'Vision One',
+        contextWindow: 200_000,
+        maxTokens: 8192,
+        input: ['text', 'image'],
+      },
+    ]);
+  });
+
+  it('corrects a model without costing the reader the key it never shows', () => {
+    writePiBotConfig(botRoot, config);
+
+    // What Edit bot sends: the provider read back from models.json, so no
+    // credential and no api — the fields it corrected are the models.
+    writePiBotConfig(botRoot, {
+      ...config,
+      credentials: [],
+      providers: [
+        {
+          id: 'acme',
+          label: 'Acme AI',
+          models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 64_000 }],
+        },
+      ],
+    });
+
+    const models = read(join(botRoot, 'config', 'models.json')) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    expect(models.providers['acme']).toEqual({
+      name: 'Acme AI',
+      baseUrl: 'https://llm.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'sk-acme',
+      models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 64_000 }],
+    });
+  });
+
+  it('reads the providers back, with the limits and modalities pi really has', () => {
+    writePiBotConfig(botRoot, {
+      ...config,
+      providers: [
+        {
+          ...config.providers[0]!,
+          models: [
+            {
+              id: 'vision-1',
+              name: 'Vision One',
+              contextWindow: 200_000,
+              maxTokens: 8192,
+              input: ['text', 'image'],
+            },
+            { id: 'plain', maxTokens: 4096 },
+          ],
+        },
+      ],
+    });
+
+    const state = piBotLayout.read(botRoot);
+
+    // The key is pi's, and is never read back: Edit bot shows the fields only.
+    expect(state.providers).toEqual([
+      {
+        id: 'acme',
+        label: 'Acme AI',
+        api: 'openai-completions',
+        baseUrl: 'https://llm.acme.example/v1',
+        models: [
+          {
+            id: 'vision-1',
+            name: 'Vision One',
+            contextWindow: 200_000,
+            maxTokens: 8192,
+            input: ['text', 'image'],
+          },
+          { id: 'plain', maxTokens: 4096 },
+        ],
+      },
+    ]);
+  });
+
+  it('says nothing about providers when the bot config declares none', () => {
+    writePiBotConfig(botRoot, { ...config, providers: [] });
+
+    expect(piBotLayout.read(botRoot).providers).toBeUndefined();
   });
 
   it('puts the persona in SYSTEM.md, where pi replaces its own system prompt', () => {
@@ -201,6 +315,16 @@ describe('piBotLayout', () => {
       thinkingLevel: 'high',
       persona: 'You are News Finder.\n',
       agentsMd: '# workspace rules\n',
+      // The bot's own provider, so its model limits can be corrected on an edit.
+      providers: [
+        {
+          id: 'acme',
+          label: 'Acme AI',
+          api: 'openai-completions',
+          baseUrl: 'https://llm.acme.example/v1',
+          models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 128_000 }],
+        },
+      ],
     });
   });
 });

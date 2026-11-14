@@ -292,6 +292,26 @@ opens it with the tools it already has and no bot ever sees another's attachment
 every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
 relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
+### Model limits are the reader's to state
+
+Auto-discovery is a convenience, never an authority. `GET {baseUrl}/models` is not a spec: a listing often says
+nothing about a model's context window, its response cap or its modalities, and when it does say something it can
+be wrong. A too-small window makes an engine compact early, a too-large one overflows the model, and a
+custom-provider model is text-only in pi unless `input` says otherwise (`ModelDefinitionSchema` in pi's
+`model-config.js` defaults it) — so every one of those fields is editable in the wizard, on **create** and on
+**edit**.
+
+- Discovery fills in what it can find (`context_length`, `max_context_length`, `max_model_len`,
+  `top_provider.context_length`, `max_output_tokens`/`max_completion_tokens`/`max_tokens`,
+  `architecture.input_modalities`, `capabilities.vision`) and leaves everything else absent. Absent is a
+  decision: nothing is written, and the engine applies its own default.
+- The wizard shows a context box, a max-output box and an `image` toggle per model. An emptied box drops the
+  field rather than writing `0`.
+- Edit bot reads the bot's own providers back out of the engine's config (`BotEngineState.providers`) — without
+  any credential, which is why a corrected window never asks for the key again: each layout merges the models
+  into the entry the file already has. pi gets `contextWindow`/`maxTokens`/`input`, OpenCode gets
+  `limit.context`/`limit.output`/`capabilities.input`.
+
 Pasting an image is gated by the model, not by the mode: a bot whose model reports an `image` modality takes a
 screenshot exactly as a code session does, a model that reported itself text-only is refused with the reason, and
 one whose engine never said gets the benefit of the doubt — the same rule as the model picker showing no badge

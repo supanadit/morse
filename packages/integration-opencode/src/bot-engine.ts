@@ -7,6 +7,7 @@ import {
   type BotProviderRecord,
   type MorseLogger,
 } from '@morse/system';
+import { openCodeProviderEntry } from './bot-layout.js';
 import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
@@ -289,33 +290,25 @@ export function writeOpenCodeProviders(
     existing as Record<string, unknown> | undefined,
   );
   for (const provider of providers) {
-    if (typeof provider.baseUrl !== 'string' || provider.baseUrl.length === 0) {
+    // A provider with no endpoint of its own is a catalog one the engine already
+    // knows: its key belongs in the auth store, not in a `providers` block. The
+    // exception is a correction of model fields for an entry the file already has,
+    // which arrives without an endpoint and must land.
+    if (provider.baseUrl === undefined && written[provider.id] === undefined) {
       continue;
     }
-    written[provider.id] = {
-      name: provider.label,
-      package: OPENCODE_PACKAGE[provider.api],
-      ...(provider.credential.kind === 'stored'
-        ? {}
-        : { env: [provider.credential.name] }),
-      settings: {
-        baseURL: provider.baseUrl,
-        ...(provider.credential.kind === 'stored' ? { apiKey: provider.credential.apiKey } : {}),
-      },
-      models: Object.fromEntries(
-        provider.models.map((model) => [
-          model.id,
-          { ...(model.name === undefined ? {} : { name: model.name }) },
-        ]),
-      ),
-    };
+    written[provider.id] = openCodeProviderEntry(
+      provider,
+      written[provider.id],
+      OPENCODE_PACKAGE,
+    );
   }
   file.providers = written;
   writeConfigJson(path, file);
 }
 
 /** OpenCode runtime package per Morse wire protocol. */
-const OPENCODE_PACKAGE: Record<BotProviderRecord['api'], string> = {
+export const OPENCODE_PACKAGE: Record<NonNullable<BotProviderRecord['api']>, string> = {
   'openai-completions': '@opencode/ai/providers/openai-compatible',
   'openai-responses': '@opencode/ai/providers/openai-compatible/responses',
   'anthropic-messages': '@opencode/ai/providers/anthropic-compatible',

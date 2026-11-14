@@ -22,6 +22,7 @@ import type {
   BotCreateInput,
   BotGroupCreateInput,
   BotOutgoingAttachments,
+  BotProviderConfig,
   BotProviderCredentialInput,
   BotRoutingState,
   BotSummary,
@@ -49,6 +50,7 @@ import type {
   BotEngineConfig,
   BotEngineLayout,
   BotEngineState,
+  BotProviderRecord,
   BotRecord,
   BotRegistryFile,
   ConversationRecord,
@@ -148,6 +150,42 @@ const DEFAULT_CHAIN_CAP = 8;
 
 /** The refusal a second concurrent send gets, in the transcript and the promise. */
 const ROUND_IN_FLIGHT = 'A round is already running in this conversation.';
+
+/** A provider from a layout, in the shape Edit bot reads back. */
+function toProviderConfig(provider: BotProviderRecord): BotProviderConfig {
+  return {
+    id: provider.id,
+    label: provider.label,
+    ...(provider.api === undefined ? {} : { api: provider.api }),
+    ...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
+    ...(provider.credential === undefined ? {} : { credential: provider.credential }),
+    models: provider.models.map((model) => ({
+      id: model.id,
+      ...(model.name === undefined ? {} : { name: model.name }),
+      ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+      ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+      ...(model.input === undefined ? {} : { input: model.input }),
+    })),
+  };
+}
+
+/** A provider from the wire, in the shape a layout writes. */
+function toProviderRecord(provider: BotProviderConfig): BotProviderRecord {
+  return {
+    id: provider.id,
+    label: provider.label,
+    ...(provider.api === undefined ? {} : { api: provider.api }),
+    ...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
+    ...(provider.credential === undefined ? {} : { credential: provider.credential }),
+    models: provider.models.map((model) => ({
+      id: model.id,
+      ...(model.name === undefined ? {} : { name: model.name }),
+      ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+      ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+      ...(model.input === undefined ? {} : { input: model.input }),
+    })),
+  };
+}
 
 /** Whether two activities would draw the same row, so no update is sent for them. */
 function sameActivity(a: BotActivity | undefined, b: BotActivity): boolean {
@@ -384,7 +422,10 @@ export class BotService {
       persona: input.persona,
       ...(input.agentsMd === undefined ? {} : { agentsMd: input.agentsMd }),
       credentials,
-      providers: 'providers' in input ? (input.providers ?? []) : [],
+      // An edit may correct model fields without holding the credential, so a
+      // provider arrives with `api`/`credential` possibly absent and the layout
+      // keeps whatever the engine file already says.
+      providers: 'providers' in input ? (input.providers ?? []).map(toProviderRecord) : [],
       ...(input.model === undefined ? {} : { model: input.model }),
       ...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
       ...(input.tools === undefined ? {} : { tools: input.tools }),
@@ -415,6 +456,9 @@ export class BotService {
       ...(state.tools === undefined ? {} : { tools: state.tools }),
       ...(state.agentsMd === undefined ? {} : { agentsMd: state.agentsMd }),
       ...(state.subagents === undefined ? {} : { subagents: state.subagents }),
+      ...(state.providers === undefined
+        ? {}
+        : { providers: state.providers.map(toProviderConfig) }),
     };
   }
 

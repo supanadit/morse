@@ -8,7 +8,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { BotEngineConfig, BotEngineLayout, BotEngineState } from '@morse/system';
+import type {
+  BotEngineConfig,
+  BotEngineLayout,
+  BotEngineState,
+  BotProviderApi,
+  BotProviderRecord,
+} from '@morse/system';
+import type { ModelInput } from '@morse/agent';
 
 /**
  * pi's configuration, as pi itself expects it.
@@ -55,6 +62,89 @@ export function piAgentDir(botRoot: string): string {
   return join(botRoot, 'config');
 }
 
+/**
+ * One `models.json` provider entry. An edit that only corrected model fields
+ * arrives without a credential (Morse never reads a key back) and possibly without
+ * an `api`, so whatever the file already holds is kept and only the models are
+ * rewritten.
+ */
+export function piProviderEntry(provider: BotProviderRecord, kept: unknown): unknown {
+  const existing = asRecord(kept) ?? {};
+  const baseUrl = provider.baseUrl ?? existing['baseUrl'];
+  const api = provider.api ?? existing['api'];
+  const apiKey =
+    provider.credential === undefined
+      ? existing['apiKey']
+      : provider.credential.kind === 'stored'
+        ? provider.credential.apiKey
+        : `$${provider.credential.name}`;
+  return {
+    ...existing,
+    // pi's provider `name` is its display name; keeping it is what lets Edit bot
+    // show the label the reader gave the provider.
+    ...(provider.label.length > 0 ? { name: provider.label } : {}),
+    ...(typeof baseUrl === 'string' && baseUrl.length > 0 ? { baseUrl } : {}),
+    ...(api === undefined ? {} : { api }),
+    ...(apiKey === undefined ? {} : { apiKey }),
+    models: provider.models.map((model) => ({
+      id: model.id,
+      ...(model.name === undefined ? {} : { name: model.name }),
+      ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+      ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+      // pi defaults a model's modalities to `["text"]`, so a vision model has to
+      // say so here or pi (and a bot's paste gate) treats it as text-only.
+      ...(model.input === undefined ? {} : { input: [...model.input] }),
+    })),
+  };
+}
+
+/**
+ * The providers `models.json` declares, as the wizard's own shape. Read back so
+ * Edit bot starts from what pi really has: the file is where a context window or a
+ * modality lives, and a wrong automatic value is fixed here, by hand.
+ */
+function readProviders(path: string): BotProviderRecord[] {
+  const file = readJsonObject(path) ?? {};
+  const entries = asRecord(file['providers']) ?? {};
+  const providers = Object.entries(entries).flatMap(([id, value]) => {
+    const provider = asRecord(value);
+    if (provider === undefined) {
+      return [];
+    }
+    const models = Array.isArray(provider['models']) ? provider['models'] : [];
+    return [
+      {
+        id,
+        label: typeof provider['name'] === 'string' ? provider['name'] : id,
+        ...(typeof provider['api'] === 'string' ? { api: provider['api'] as BotProviderApi } : {}),
+        ...(typeof provider['baseUrl'] === 'string' ? { baseUrl: provider['baseUrl'] } : {}),
+        models: models.flatMap((model) => {
+          const entry = asRecord(model);
+          const modelId = entry === undefined ? undefined : entry['id'];
+          if (entry === undefined || typeof modelId !== 'string' || modelId.length === 0) {
+            return [];
+          }
+          const input = Array.isArray(entry['input'])
+            ? entry['input'].filter((one): one is ModelInput => typeof one === 'string')
+            : undefined;
+          return [
+            {
+              id: modelId,
+              ...(typeof entry['name'] === 'string' ? { name: entry['name'] } : {}),
+              ...(typeof entry['contextWindow'] === 'number'
+                ? { contextWindow: entry['contextWindow'] }
+                : {}),
+              ...(typeof entry['maxTokens'] === 'number' ? { maxTokens: entry['maxTokens'] } : {}),
+              ...(input === undefined ? {} : { input }),
+            },
+          ];
+        }),
+      },
+    ];
+  });
+  return providers as BotProviderRecord[];
+}
+
 /** The workspace document pi reads from the directory it runs in. */
 export function piWorkspacePath(botRoot: string): string {
   return join(botRoot, 'workspace', 'AGENTS.md');
@@ -87,20 +177,7 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
   const existing = asRecord(models['providers']) ?? {};
   const providers: Record<string, unknown> = { ...existing };
   for (const provider of config.providers) {
-    providers[provider.id] = {
-      ...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
-      api: provider.api,
-      apiKey:
-        provider.credential.kind === 'stored'
-          ? provider.credential.apiKey
-          : `$${provider.credential.name}`,
-      models: provider.models.map((model) => ({
-        id: model.id,
-        ...(model.name === undefined ? {} : { name: model.name }),
-        ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
-        ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
-      })),
-    };
+    providers[provider.id] = piProviderEntry(provider, existing[provider.id]);
   }
   writePrivateJson(modelsPath, { ...models, providers });
 
@@ -158,7 +235,9 @@ export const piBotLayout: BotEngineLayout = {
       : undefined;
     const persona = readText(join(agentDir, SYSTEM_FILE));
     const agentsMd = readText(piWorkspacePath(botRoot));
+    const providers = readProviders(join(agentDir, MODELS_FILE));
     return {
+      ...(providers.length === 0 ? {} : { providers }),
       ...(typeof provider === 'string' && typeof model === 'string'
         ? { model: { provider, id: model, name: model } }
         : {}),

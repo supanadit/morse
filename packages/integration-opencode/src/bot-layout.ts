@@ -1,6 +1,13 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { BotEngineConfig, BotEngineLayout, BotEngineState } from '@morse/system';
+import type { ModelInput } from '@morse/agent';
+import type {
+  BotEngineConfig,
+  BotEngineLayout,
+  BotEngineState,
+  BotProviderModel,
+  BotProviderRecord,
+} from '@morse/system';
 import { readOpenCodeFile } from './internal/opencode-mcp-config.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
 
@@ -97,7 +104,7 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     // The bot is an agent of its own, and the one a new session starts in.
     default_agent: MORSE_AGENT,
     // Only what Morse owns is replaced; `mcp`, `plugins` and friends survive.
-    providers: providersBlock(config),
+    providers: providersBlock(config, asRecord(file['providers']) ?? {}),
     agents: agentsBlock(config),
     instructions,
   };
@@ -121,36 +128,146 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
  * The `providers` block: OpenCode's own provider entries, with the package that
  * speaks the wire protocol, the endpoint, the key and the models.
  */
-function providersBlock(config: BotEngineConfig): Record<string, unknown> {
+function providersBlock(
+  config: BotEngineConfig,
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
   const written: Record<string, unknown> = {};
   for (const provider of config.providers) {
-    written[provider.id] = {
-      name: provider.label,
-      package: OPENCODE_PACKAGE[provider.api] ?? '@ai-sdk/openai-compatible',
-      ...(provider.credential.kind === 'env' ? { env: [provider.credential.name] } : {}),
-      settings: {
-        ...(provider.baseUrl === undefined ? {} : { baseURL: provider.baseUrl }),
-        ...(provider.credential.kind === 'stored' ? { apiKey: provider.credential.apiKey } : {}),
-      },
-      models: Object.fromEntries(
-        provider.models.map((model) => [
-          model.id,
-          {
-            name: model.name ?? model.id,
-            ...(model.contextWindow === undefined && model.maxTokens === undefined
-              ? {}
-              : {
-                  limit: {
-                    ...(model.contextWindow === undefined ? {} : { context: model.contextWindow }),
-                    ...(model.maxTokens === undefined ? {} : { output: model.maxTokens }),
-                  },
-                }),
-          },
-        ]),
-      ),
-    };
+    written[provider.id] = openCodeProviderEntry(provider, existing[provider.id]);
   }
   return written;
+}
+
+/**
+ * The providers `opencode.json` declares, as the wizard's own shape. Read back so
+ * Edit bot starts from what the engine really has: `limit.context`/`limit.output`
+ * are its window and response cap, `capabilities.input` its modalities.
+ */
+function readProviders(value: unknown): BotProviderRecord[] {
+  const entries = asRecord(value) ?? {};
+  return Object.entries(entries).flatMap(([id, raw]) => {
+    const provider = asRecord(raw);
+    if (provider === undefined) {
+      return [];
+    }
+    const settings = asRecord(provider['settings']) ?? {};
+    const models = asRecord(provider['models']) ?? {};
+    const api = Object.entries(OPENCODE_PACKAGE).find(
+      ([, packageName]) => packageName === asString(provider['package']),
+    );
+    return [
+      {
+        id,
+        label: asString(provider['name']) ?? id,
+        ...(api === undefined ? {} : { api: api[0] as BotProviderRecord['api'] }),
+        ...(asString(settings['baseURL']) === undefined
+          ? {}
+          : { baseUrl: asString(settings['baseURL']) }),
+        models: Object.entries(models).flatMap(([modelId, rawModel]) => {
+          const entry = asRecord(rawModel);
+          if (entry === undefined) {
+            return [];
+          }
+          const limit = asRecord(entry['limit']) ?? {};
+          const capabilities = asRecord(entry['capabilities']) ?? {};
+          const input = Array.isArray(capabilities['input'])
+            ? capabilities['input'].filter((one): one is ModelInput => typeof one === 'string')
+            : undefined;
+          const context = numberField(limit['context']);
+          const output = numberField(limit['output']);
+          return [
+            {
+              id: modelId,
+              ...(asString(entry['name']) === undefined ? {} : { name: asString(entry['name']) }),
+              ...(context === undefined ? {} : { contextWindow: context }),
+              ...(output === undefined ? {} : { maxTokens: output }),
+              ...(input === undefined ? {} : { input }),
+            },
+          ];
+        }),
+      },
+    ];
+  });
+}
+
+/**
+ * One `providers.<id>` entry. An edit that only corrected model fields arrives
+ * without a credential (Morse never reads a key back) and possibly without an
+ * `api`, so whatever the file already holds is kept and only the models are
+ * rewritten — a corrected context window must not cost the reader their key.
+ */
+export function openCodeProviderEntry(
+  provider: BotProviderRecord,
+  kept: unknown,
+  packages: Record<string, string> = OPENCODE_PACKAGE,
+): unknown {
+  const existing = asRecord(kept) ?? {};
+  const existingSettings = asRecord(existing['settings']) ?? {};
+  const baseUrl = provider.baseUrl ?? asString(existingSettings['baseURL']);
+  const apiKey =
+    provider.credential === undefined
+      ? asString(existingSettings['apiKey'])
+      : provider.credential.kind === 'stored'
+        ? provider.credential.apiKey
+        : undefined;
+  const env =
+    provider.credential?.kind === 'env'
+      ? [provider.credential.name]
+      : Array.isArray(existing['env'])
+        ? existing['env']
+        : undefined;
+  const existingModels = asRecord(existing['models']) ?? {};
+  return {
+    ...existing,
+    name: provider.label,
+    package:
+      provider.api === undefined
+        ? (asString(existing['package']) ?? '@ai-sdk/openai-compatible')
+        : (packages[provider.api] ?? '@ai-sdk/openai-compatible'),
+    ...(env === undefined ? {} : { env }),
+    settings: {
+      ...existingSettings,
+      ...(baseUrl === undefined ? {} : { baseURL: baseUrl }),
+      ...(apiKey === undefined ? {} : { apiKey }),
+    },
+    models: Object.fromEntries(
+      provider.models.map((model) => [
+        model.id,
+        openCodeModelEntry(model, existingModels[model.id]),
+      ]),
+    ),
+  };
+}
+
+/**
+ * One `models.<id>` entry: the reader's corrections on top of whatever OpenCode
+ * already had. `limit.context`/`limit.output` are its context window and response
+ * cap, and `capabilities.input` is what says a model takes images — without it a
+ * vision model is used as a text-only one.
+ */
+function openCodeModelEntry(model: BotProviderModel, kept: unknown): unknown {
+  const existing = asRecord(kept) ?? {};
+  const existingLimit = asRecord(existing['limit']) ?? {};
+  const existingCapabilities = asRecord(existing['capabilities']) ?? {};
+  const context = model.contextWindow ?? numberField(existingLimit['context']);
+  const output = model.maxTokens ?? numberField(existingLimit['output']);
+  return {
+    ...existing,
+    name: model.name ?? asString(existing['name']) ?? model.id,
+    ...(context === undefined && output === undefined
+      ? {}
+      : {
+          limit: {
+            ...existingLimit,
+            ...(context === undefined ? {} : { context }),
+            ...(output === undefined ? {} : { output }),
+          },
+        }),
+    ...(model.input === undefined
+      ? {}
+      : { capabilities: { ...existingCapabilities, input: [...model.input] } }),
+  };
 }
 
 /**
@@ -226,8 +343,10 @@ export const openCodeBotLayout: BotEngineLayout = {
         const prompt = typeof record['system'] === 'string' ? record['system'] : '';
         return { name, prompt };
       });
+    const providers = readProviders(file['providers']);
     return {
       ...(model === undefined ? {} : { model }),
+      ...(providers.length === 0 ? {} : { providers }),
       ...(tools === undefined ? {} : { tools }),
       ...(persona === undefined ? {} : { persona }),
       ...(agentsMd === undefined ? {} : { agentsMd }),
@@ -330,6 +449,14 @@ function readText(path: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function numberField(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

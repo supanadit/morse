@@ -4,7 +4,7 @@
  * shapes name those choices per bot instead of borrowing a session's view state.
  */
 import type { ModelOption } from './model.js';
-import type { ThinkingLevel } from './primitives.js';
+import type { ModelInput, ThinkingLevel } from './primitives.js';
 import type { PromptImage } from './transcript.js';
 
 /** One bot in the roster, as the sidebar lists it. */
@@ -143,8 +143,21 @@ export type BotProviderCredentialInput =
 export interface BotProviderModelInput {
   id: string;
   name?: string;
+  /**
+   * The model's context window in tokens. Absent writes nothing and leaves the
+   * engine's own default in place — which is the honest answer when discovery could
+   * not find it, and the reason this field is editable by hand: a wrong automatic
+   * value either compacts too early or overflows the model.
+   */
   contextWindow?: number;
+  /** The provider's cap on one response, same rule as `contextWindow`. */
   maxTokens?: number;
+  /**
+   * Input modalities this model accepts. Absent means "the engine decides", whose
+   * default is usually text-only; `['text', 'image']` is what makes a vision model
+   * actually take an image, and what bot mode's paste gate reads.
+   */
+  input?: ModelInput[];
 }
 
 /**
@@ -161,6 +174,23 @@ export interface BotProviderInput {
   /** Absent for catalog providers the engine discovers from its own catalog. */
   baseUrl?: string;
   credential: BotProviderCredentialInput;
+  models: BotProviderModelInput[];
+}
+
+/** A provider Edit bot can correct without touching credentials. */
+export interface BotProviderConfig {
+  /** The engine config key: model references become `<id>/<model>`. */
+  id: string;
+  label: string;
+  /** The wire protocol; absent keeps whatever the engine file already says. */
+  api?: BotProviderApi;
+  baseUrl?: string;
+  /**
+   * Only on the way in, from a create or from an edit that collected a new key.
+   * Absent means "keep what the engine's own store already holds", which is how a
+   * correction of model fields never needs the reader to paste a credential again.
+   */
+  credential?: BotProviderCredentialInput;
   models: BotProviderModelInput[];
 }
 
@@ -203,9 +233,10 @@ export interface BotCreateInput {
 
 /**
  * Everything Edit bot fills its form with: the bot's own record as the host
- * stores it, plus the workspace instructions it wrote. Credentials are not here
- * — an engine keeps them in its own auth store, which Morse never reads back —
- * and neither are providers, which live in the engine's config file.
+ * stores it, plus the workspace instructions it wrote and the providers its engine
+ * config declares. Credentials are not here — an engine keeps them in its own auth
+ * store, which Morse never reads back; a provider comes back without one, which is
+ * what lets an edit rewrite model fields around a key it never sees again.
  */
 export interface BotConfig {
   /** The handle every key uses: the directory, the DM id, the `@mention`. */
@@ -230,6 +261,12 @@ export interface BotConfig {
   /** The bot workspace's AGENTS.md, when it has one. */
   agentsMd?: string;
   subagents?: Array<{ name: string; prompt: string }>;
+  /**
+   * Providers the bot's engine config declares, read back with the model fields a
+   * reader can correct: context window, output cap, modalities. Absent when the
+   * engine file names none (a catalog provider is the engine's, not the bot's).
+   */
+  providers?: BotProviderConfig[];
 }
 
 /**
@@ -256,6 +293,12 @@ export interface BotUpdateInput {
   subagents?: Array<{ name: string; prompt: string }>;
   /** Credentials to write into the bot's config; omitted leaves the stored ones. */
   credentials?: BotCredentialInput[];
+  /**
+   * Providers whose model fields the reader corrected — a context window, an output
+   * cap, an image modality. Written into the engine's own config around the
+   * credentials already there, so an edit never needs the key again.
+   */
+  providers?: BotProviderConfig[];
 }
 
 /** What the New group dialog sends; `chainCap` defaults to the service's cap. */

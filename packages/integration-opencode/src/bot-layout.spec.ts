@@ -93,6 +93,115 @@ describe('openCodeBotLayout', () => {
     });
   });
 
+  it('writes the modalities a reader corrected, so a vision model is used as one', () => {
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      providers: [
+        {
+          ...config.providers[0]!,
+          models: [
+            {
+              id: 'acme-vision',
+              name: 'Acme Vision',
+              contextWindow: 200_000,
+              maxTokens: 4096,
+              input: ['text', 'image'],
+            },
+          ],
+        },
+      ],
+    });
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      providers: Record<string, { models: Record<string, unknown> }>;
+    };
+    // `capabilities.input` is the schema's field for what a model accepts; without
+    // it OpenCode treats a vision model as text-only.
+    expect(file.providers['acme']?.models['acme-vision']).toEqual({
+      name: 'Acme Vision',
+      limit: { context: 200_000, output: 4096 },
+      capabilities: { input: ['text', 'image'] },
+    });
+  });
+
+  it('corrects a model without costing the reader the key it never shows', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+
+    // What Edit bot sends: the provider read back from opencode.json, so neither a
+    // credential nor an api — only the model fields it corrected.
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      credentials: [],
+      providers: [
+        {
+          id: 'acme',
+          label: 'Acme AI',
+          models: [{ id: 'acme-chat', name: 'Acme Chat', contextWindow: 64_000, maxTokens: 4_096 }],
+        },
+      ],
+    });
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    expect(file.providers['acme']).toMatchObject({
+      name: 'Acme AI',
+      package: '@ai-sdk/openai-compatible',
+      settings: { baseURL: 'https://llm.acme.example/v1', apiKey: 'sk-acme' },
+    });
+    expect((file.providers['acme']?.['models'] as Record<string, unknown>)['acme-chat']).toEqual({
+      name: 'Acme Chat',
+      limit: { context: 64_000, output: 4_096 },
+    });
+  });
+
+  it('reads the providers back, with their limits and modalities', () => {
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      providers: [
+        {
+          ...config.providers[0]!,
+          models: [
+            {
+              id: 'acme-chat',
+              name: 'Acme Chat',
+              contextWindow: 128_000,
+              maxTokens: 8_192,
+              input: ['text'],
+            },
+          ],
+        },
+      ],
+    });
+
+    const state = openCodeBotLayout.read(botRoot);
+
+    // No credential: OpenCode's key stays in its own settings block, unread.
+    expect(state.providers).toEqual([
+      {
+        id: 'acme',
+        label: 'Acme AI',
+        api: 'openai-completions',
+        baseUrl: 'https://llm.acme.example/v1',
+        models: [
+          {
+            id: 'acme-chat',
+            name: 'Acme Chat',
+            contextWindow: 128_000,
+            maxTokens: 8_192,
+            input: ['text'],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('says nothing about providers when the bot config declares none', () => {
+    writeOpenCodeBotConfig(botRoot, { ...config, providers: [] });
+
+    expect(openCodeBotLayout.read(botRoot).providers).toBeUndefined();
+  });
+
   it('writes subagents beside the bot agent, and the workspace document at the root', () => {
     writeOpenCodeBotConfig(botRoot, config);
 
@@ -270,6 +379,18 @@ describe('openCodeBotLayout', () => {
       persona: 'You are News Finder.',
       agentsMd: '# workspace rules\n',
       subagents: [{ name: 'reviewer', prompt: 'Read the diff.\nSecond line.' }],
+      // The bot's own provider, so its model limits can be corrected on an edit.
+      providers: [
+        {
+          id: 'acme',
+          label: 'Acme AI',
+          api: 'openai-completions',
+          baseUrl: 'https://llm.acme.example/v1',
+          models: [
+            { id: 'acme-chat', name: 'Acme Chat', contextWindow: 128_000, maxTokens: 8_192 },
+          ],
+        },
+      ],
     });
   });
 });

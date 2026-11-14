@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BotEngineCapabilities, BotProviderRecord, MorseLogger } from '@morse/system';
+import { piProviderEntry } from './bot-layout.js';
 import { PiRpcAgentFactory } from './pi-rpc-agent-factory.js';
 import { PI_INSTALL_COMMAND } from './internal/resolve-pi.js';
 
@@ -118,22 +119,7 @@ export function writePiProviders(
     existing as Record<string, unknown> | undefined,
   );
   for (const provider of providers) {
-    written[provider.id] = {
-      ...(typeof provider.baseUrl === 'string' && provider.baseUrl.length > 0
-        ? { baseUrl: provider.baseUrl }
-        : {}),
-      api: provider.api,
-      apiKey:
-        provider.credential.kind === 'stored'
-          ? provider.credential.apiKey
-          : `$${provider.credential.name}`,
-      models: provider.models.map((model) => ({
-        id: model.id,
-        ...(model.name === undefined ? {} : { name: model.name }),
-        ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
-        ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
-      })),
-    };
+    written[provider.id] = piProviderEntry(provider, written[provider.id]);
   }
   writePrivateJson(path, { ...file, providers: written });
 }

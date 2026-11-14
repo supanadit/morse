@@ -38,6 +38,52 @@ describe('discoverOpenAiCompatibleModels', () => {
     ]);
   });
 
+  it('fills in the capabilities a listing happens to declare, and leaves the rest out', async () => {
+    const base = await listen((req, res) => {
+      if (!req.url?.endsWith('/models')) {
+        res.statusCode = 404;
+        res.end('{}');
+        return;
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          data: [
+            // OpenRouter's shape: context/price on top_provider, modalities on architecture.
+            {
+              id: 'vision-model',
+              top_provider: { context_length: 200_000, max_completion_tokens: 8192 },
+              architecture: { input_modalities: ['text', 'image'] },
+            },
+            // vLLM / llama.cpp: max_model_len, and a bare vision flag.
+            { id: 'local-vlm', max_model_len: 32768, capabilities: { vision: true } },
+            // A text-only model that says so.
+            { id: 'plain', context_length: 128000, capabilities: { vision: false } },
+            // A listing that says nothing: no field is invented for it.
+            { id: 'mystery' },
+            // Junk numbers are not a capability.
+            { id: 'junk', context_length: 0, max_tokens: -5, max_output_tokens: 'many' },
+          ],
+        }),
+      );
+    });
+
+    const models = await discoverOpenAiCompatibleModels(base, { kind: 'stored', apiKey: 'sk' });
+
+    expect(models).toEqual([
+      {
+        id: 'vision-model',
+        contextWindow: 200_000,
+        maxTokens: 8192,
+        input: ['text', 'image'],
+      },
+      { id: 'local-vlm', contextWindow: 32768, input: ['text', 'image'] },
+      { id: 'plain', contextWindow: 128000, input: ['text'] },
+      { id: 'mystery' },
+      { id: 'junk' },
+    ]);
+  });
+
   it('reads the key from the named environment variable', async () => {
     process.env.MORSE_DISCOVER_TEST_KEY = 'sk-env';
     try {

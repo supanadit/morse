@@ -138,6 +138,8 @@ describe('writePiProviders', () => {
     writePiProviders(botRoot, [provider()]);
     const config = JSON.parse(readFileSync(join(botRoot, 'config', 'models.json'), 'utf8'));
     expect(config.providers.acme).toEqual({
+      // pi's own provider display name, kept so Edit bot can show the label.
+      name: 'Acme',
       baseUrl: 'https://llm.acme.example/v1',
       api: 'openai-completions',
       apiKey: 'sk-acme',

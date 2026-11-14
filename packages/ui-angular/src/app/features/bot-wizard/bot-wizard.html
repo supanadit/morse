@@ -149,13 +149,73 @@
           </div>
 
           @if (editing()) {
-            <!-- Providers are engine config written at creation; an edit cannot
-                 rewrite them yet, so the form does not pretend it can. -->
-            <h4 class="group-title">Custom providers</h4>
-            <p class="note">
-              This bot's own providers live in its engine config and are not rewritten here. Its
-              catalog keys are above.
-            </p>
+            <!-- The providers its engine config already declares, read back with the
+                 model fields a reader can correct: a context window or an output cap
+                 discovery could not know (or got wrong), and whether the model takes
+                 images. Editing them rewrites the engine's own file around its keys. -->
+            <h4 class="group-title">Providers & model limits</h4>
+            @if (engineProviders().length === 0) {
+              <p class="note">
+                This bot's engine config declares no providers of its own: its model comes from
+                the engine's catalog. Its keys are above.
+              </p>
+            } @else {
+              <p class="note">
+                Read from this bot's own {{ engineKind() }} config. A blank limit leaves the
+                engine's default in place — correct these when discovery could not know them.
+              </p>
+              @for (provider of engineProviders(); track provider.id) {
+                <div class="provider-card">
+                  <div class="provider-line">
+                    <strong>{{ provider.label }}</strong>
+                    <span class="provider-meta">{{ provider.id + (provider.api ? ' · ' + provider.api : '') + (provider.baseUrl ? ' · ' + provider.baseUrl : '') }}</span>
+                  </div>
+                  @for (model of provider.models; track model.id) {
+                    <div class="model-row">
+                      <span class="model-id">{{ model.id }}</span>
+                      <div class="model-caps">
+                        <label class="cap" title="Context window in tokens. Empty leaves the engine's own default.">
+                          <span>context</span>
+                          <input
+                            type="number"
+                            min="1"
+                            inputmode="numeric"
+                            [value]="model.contextWindow ?? ''"
+                            (input)="setKnownModelField(provider.id, model.id, 'contextWindow', $event)"
+                            placeholder="default"
+                            [attr.aria-label]="'Context window for ' + model.id"
+                          />
+                        </label>
+                        <label class="cap" title="Maximum output tokens. Empty leaves the engine's own default.">
+                          <span>max out</span>
+                          <input
+                            type="number"
+                            min="1"
+                            inputmode="numeric"
+                            [value]="model.maxTokens ?? ''"
+                            (input)="setKnownModelField(provider.id, model.id, 'maxTokens', $event)"
+                            placeholder="default"
+                            [attr.aria-label]="'Maximum output tokens for ' + model.id"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          class="cap-toggle"
+                          [class.on]="model.input?.includes('image') === true"
+                          (click)="toggleKnownModelImage(provider.id, model.id)"
+                          [attr.aria-pressed]="model.input?.includes('image') === true"
+                          [title]="model.input?.includes('image') === true
+                            ? 'This model takes images: press to say it does not'
+                            : 'This model takes text only: press to allow images'"
+                        >
+                          image
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            }
           } @else {
           <h4 class="group-title">Custom providers</h4>
           @for (provider of providers(); track provider.id) {
@@ -226,7 +286,45 @@
                 <span>Models <small>(add by hand any time)</small></span>
                 @for (model of draftModels(); track model.id) {
                   <div class="model-row">
-                    <span>{{ model.id }}</span>
+                    <span class="model-id">{{ model.id }}</span>
+                    <div class="model-caps">
+                      <label class="cap" title="Context window in tokens. Empty leaves the engine's own default.">
+                        <span>context</span>
+                        <input
+                          type="number"
+                          min="1"
+                          inputmode="numeric"
+                          [value]="model.contextWindow ?? ''"
+                          (input)="setModelField($index, 'contextWindow', $event)"
+                          placeholder="default"
+                          [attr.aria-label]="'Context window for ' + model.id"
+                        />
+                      </label>
+                      <label class="cap" title="Maximum output tokens. Empty leaves the engine's own default.">
+                        <span>max out</span>
+                        <input
+                          type="number"
+                          min="1"
+                          inputmode="numeric"
+                          [value]="model.maxTokens ?? ''"
+                          (input)="setModelField($index, 'maxTokens', $event)"
+                          placeholder="default"
+                          [attr.aria-label]="'Maximum output tokens for ' + model.id"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        class="cap-toggle"
+                        [class.on]="modelTakesImages(model)"
+                        (click)="toggleModelImage($index)"
+                        [attr.aria-pressed]="modelTakesImages(model)"
+                        [title]="modelTakesImages(model)
+                          ? 'This model takes images: press to say it does not'
+                          : 'This model takes text only: press to allow images'"
+                      >
+                        image
+                      </button>
+                    </div>
                     <button type="button" class="model-remove" (click)="removeDraftModel($index)" aria-label="Remove model">−</button>
                   </div>
                 }

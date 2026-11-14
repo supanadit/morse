@@ -1,4 +1,4 @@
-import type { ModelRef, ThinkingLevel } from '@morse/agent';
+import type { ModelInput, ModelRef, ThinkingLevel } from '@morse/agent';
 
 /**
  * A bot's portable identity, written to `<botRoot>/engine.json`.
@@ -118,8 +118,20 @@ export type BotProviderCredential =
 export interface BotProviderModel {
   id: string;
   name?: string;
+  /**
+   * The model's context window. Discovery often cannot know it, and a wrong guess
+   * makes an engine compact too early (or overflow): leaving it out writes nothing
+   * and the engine applies its own default, which the reader can override by hand.
+   */
   contextWindow?: number;
+  /** The provider's cap on the response. Same rule as `contextWindow`. */
   maxTokens?: number;
+  /**
+   * Input modalities the model accepts (`'text'`, `'image'`, …). Empty is not the
+   * same as absent: an engine's own default is usually text-only, so a vision model
+   * has to say so explicitly for Morse (and the engine) to send it an image.
+   */
+  input?: ModelInput[];
 }
 
 /**
@@ -132,10 +144,19 @@ export interface BotProviderRecord {
   /** The engine config key: model references become `<id>/<model>`. */
   id: string;
   label: string;
-  api: BotProviderApi;
+  /**
+   * The wire protocol. Absent when the reader corrected model fields of a provider
+   * the engine file already describes: the layout keeps the protocol it finds.
+   */
+  api?: BotProviderApi;
   /** Absent for catalog providers discovered by the engine itself. */
   baseUrl?: string;
-  credential: BotProviderCredential;
+  /**
+   * How the provider authenticates. Absent on the way back out of a layout: Edit
+   * bot never reads a key back, so a rewritten provider keeps whatever the engine
+   * file already holds.
+   */
+  credential?: BotProviderCredential;
   models: BotProviderModel[];
 }
 
@@ -160,7 +181,11 @@ export interface BotEngineConfig {
   agentsMd?: string;
   /** Provider keys the wizard collected. Each engine stores them its own way. */
   credentials: { provider: string; apiKey: string }[];
-  /** Provider and model overrides, in the engine's own provider config. */
+  /**
+   * Provider and model overrides, in the engine's own provider config. A record
+   * with no `credential` is an edit's correction of model fields: the layout keeps
+   * the key, endpoint and protocol the engine file already has.
+   */
   providers: readonly BotProviderRecord[];
   /**
    * The model the bot runs on. `undefined` means "leave whatever the engine
@@ -183,6 +208,13 @@ export interface BotEngineConfig {
 /** What a layout can read back out of an engine's own tree. */
 export interface BotEngineState {
   model?: ModelRef;
+  /**
+   * Providers the bot's own engine config declares, with the model fields a reader
+   * can correct — the context window, the output cap, the modalities. This is the
+   * engine's file read back, so an edit starts from what the engine really has and
+   * never from a guess.
+   */
+  providers?: BotProviderRecord[];
   thinkingLevel?: ThinkingLevel;
   /** The tools the engine's own config allows, when it says so explicitly. */
   tools?: string[];
