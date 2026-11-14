@@ -555,6 +555,28 @@ describe('piBotLayout', () => {
     });
   });
 
+  it('writes a description when the caller supplies one', () => {
+    // The other half of the rule: "not supplied" keeps the file's text, while a
+    // supplied description is authoritative and replaces what is there.
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({ mcpServers: { fs: { command: 'npx', description: 'old text' } } }),
+    );
+
+    writePiBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx', description: 'new text' }],
+    });
+
+    const file = read(piMcpPath(botRoot)) as { mcpServers: Record<string, unknown> };
+    expect(file.mcpServers['fs']).toEqual({
+      command: 'npx',
+      description: 'new text',
+      type: 'stdio',
+    });
+  });
+
   it('omits mcpServers when the bot has no mcp.json', () => {
     writePiBotConfig(botRoot, config);
 

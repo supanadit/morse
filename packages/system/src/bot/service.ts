@@ -221,6 +221,10 @@ function toMcpRecord(server: BotMcpServerInput): BotMcpServer {
     ...(server.headers === undefined ? {} : { headers: { ...server.headers } }),
     ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
     ...(server.exposure === undefined ? {} : { exposure: server.exposure }),
+    // The neutral shape carries the engine's own text for the server; dropping it
+    // here made every save look like "no description", which erased a
+    // hand-written one in the engine's file.
+    ...(server.description === undefined ? {} : { description: server.description }),
   };
 }
 
@@ -237,6 +241,9 @@ function toMcpConfig(server: BotMcpServer): BotMcpServerInput {
     ...(server.headers === undefined ? {} : { headers: { ...server.headers } }),
     ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
     ...(server.exposure === undefined ? {} : { exposure: server.exposure }),
+    // Read back too, so Edit bot shows the text the engine file holds instead of
+    // presenting an empty field that a save would then clear.
+    ...(server.description === undefined ? {} : { description: server.description }),
   };
 }
 

@@ -864,6 +864,9 @@ describe('BotService MCP servers', () => {
       env: { ALLOWED_DIR: '/tmp' },
       enabled: false,
       exposure: 'deferred',
+      // A hand-written description the engine file carries: Edit bot must see it
+      // and a save must pass it back, or every save erases it.
+      description: 'Reads the project files',
     },
     { name: 'web', type: 'http', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
   ];
