@@ -392,7 +392,7 @@ describe('PiMcp status', () => {
     expect(status.servers.map((server) => server.name)).toEqual(['envOne']);
   });
 
-  it('aborts the probe budget without failing the list', async () => {
+  it('aborts the probe budget without failing the list or inventing a config issue', async () => {
     vi.useFakeTimers();
     try {
       const agentDir = await tempRoot();
@@ -405,9 +405,13 @@ describe('PiMcp status', () => {
       await vi.advanceTimersByTimeAsync(10_000);
       const status = await pending;
 
+      // The row owns the failure: a server that will not connect is not a
+      // complaint about the file that configures it, so it stays out of both
+      // `issues` (which the panel offers Fix for) and `errors`.
       expect(status.servers[0]).toMatchObject({ state: 'disconnected' });
       expect(status.servers[0]!.error).toBeTruthy();
-      expect(status.issues?.length).toBeGreaterThan(0);
+      expect(status.issues).toEqual([]);
+      expect(status.errors).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
@@ -467,7 +471,7 @@ describe('PiMcp status', () => {
     expect(status.servers.every((server) => server.state === 'connected')).toBe(true);
   });
 
-  it('reports a thrown probe as failed, not disconnected', async () => {
+  it('reports a thrown probe as failed, not disconnected, and keeps it out of the issues', async () => {
     const agentDir = await tempRoot();
     const cwd = await tempRoot();
     writeJson(join(agentDir, 'mcp.json'), { mcpServers: { one: { command: 'node' } } });
@@ -479,7 +483,43 @@ describe('PiMcp status', () => {
     const status = await mcp.status(cwd, { probe: true });
 
     expect(status.servers[0]).toMatchObject({ state: 'failed', error: 'probe exploded' });
-    expect(status.errors).toContain('one: probe exploded');
+    // A refused connection is not a config-file complaint: the file is fine, and
+    // "Fix" must never be offered for it.
+    expect(status.issues).toEqual([]);
+    expect(status.errors).toEqual([]);
+  });
+
+  it('keeps config-file issues when a probe also fails, and never invents one for the failure', async () => {
+    const agentDir = await tempRoot();
+    const cwd = await tempRoot();
+    // JSONC: parseable, but not strict JSON — a genuine config-file complaint.
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(
+      join(agentDir, 'mcp.json'),
+      '{\n  // a comment\n  "mcpServers": { "one": { "command": "node" } }\n}\n',
+      'utf8',
+    );
+    const inspect = vi.fn(async () => {
+      throw new Error('connect ECONNREFUSED');
+    });
+
+    const mcp = new PiMcp({ agentDir, inspector: { inspect } });
+    const status = await mcp.status(cwd, { probe: true });
+
+    expect(status.servers[0]).toMatchObject({
+      name: 'one',
+      state: 'failed',
+      error: 'connect ECONNREFUSED',
+    });
+    expect(status.issues).toHaveLength(1);
+    expect(status.issues?.[0]).toMatchObject({
+      file: join(agentDir, 'mcp.json'),
+      fileId: 'mcp',
+      scope: 'global',
+      code: 'normalize',
+      fixable: true,
+    });
+    expect(status.errors).toEqual([status.issues?.[0]?.message]);
   });
 });
 

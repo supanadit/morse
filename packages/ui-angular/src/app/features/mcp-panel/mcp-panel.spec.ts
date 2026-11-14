@@ -231,6 +231,73 @@ describe('McpPanel config issues', () => {
     expect(element.querySelector('.fix')).toBeNull();
   });
 
+  it('renders the pointer when the issue names one', async () => {
+    const { element, fixture } = renderWithState({
+      servers: [],
+      errors: [],
+      issues: [{ ...PARSE_ISSUE, pointer: '/mcpServers/docs/args' }],
+    });
+    await settle(fixture);
+
+    expect(element.querySelector('.issue-pointer')?.textContent).toContain(
+      '/mcpServers/docs/args',
+    );
+  });
+
+  it('keeps two complaints about one file distinct when neither names a pointer', async () => {
+    const { element, fixture } = renderWithState({
+      servers: [],
+      errors: [],
+      issues: [
+        { ...PARSE_ISSUE, message: 'uses comments' },
+        { ...PARSE_ISSUE, message: 'has a trailing comma' },
+      ],
+    });
+    await settle(fixture);
+
+    const text = element.textContent ?? '';
+    expect(text).toContain('uses comments');
+    expect(text).toContain('has a trailing comma');
+    expect(element.querySelectorAll('.fix')).toHaveLength(2);
+  });
+
+  it('drops the path line when the message already names the file', async () => {
+    const { element, fixture } = renderWithState({
+      servers: [],
+      errors: [],
+      issues: [
+        {
+          ...PARSE_ISSUE,
+          message: '/c/opencode.json: rewrite this file without comments.',
+        },
+      ],
+    });
+    await settle(fixture);
+
+    expect(element.textContent ?? '').toContain('rewrite this file without comments');
+    expect(element.querySelector('.issue-file')).toBeNull();
+  });
+
+  it('keeps the path line for an unfixable issue even when the message repeats it', async () => {
+    const { element, fixture } = renderWithState({
+      servers: [],
+      errors: [],
+      issues: [
+        {
+          ...PARSE_ISSUE,
+          message: '/c/opencode.json: the file is not valid JSON.',
+          fixable: false,
+        },
+      ],
+    });
+    await settle(fixture);
+
+    expect(element.querySelector('.issue-file')?.textContent).toContain(
+      '/c/opencode.json',
+    );
+    expect(element.textContent ?? '').toMatch(/hand edit/i);
+  });
+
   it('shows an unfixable issue without a Fix button, and says it needs a hand edit', async () => {
     const { element, fixture } = renderWithState({
       servers: [],
@@ -263,7 +330,13 @@ describe('McpPanel config issues', () => {
     await settle(fixture);
 
     expect(buttonNamed(element, 'Fix')).toBeDefined();
-    expect(element.textContent ?? '').toContain('The host refused to rewrite the file.');
+    // The refusal is announced, not just painted.
+    expect(element.querySelector('[role="status"]')?.textContent).toContain(
+      'The host refused to rewrite the file.',
+    );
+    expect(element.querySelector('.fix')?.getAttribute('aria-label')).toBe(
+      'Fix /c/opencode.json',
+    );
   });
 
   it('keeps the legacy errors text when there are no structured issues', async () => {

@@ -36,6 +36,7 @@
                   <button
                     type="button"
                     class="fix"
+                    [attr.aria-label]="'Fix ' + issue.file"
                     [disabled]="fixing() !== null"
                     [attr.aria-busy]="fixing() === issueKey(issue) ? 'true' : null"
                     (click)="fixIssue(issue)"
@@ -44,7 +45,11 @@
                   </button>
                 }
               </div>
-              <div class="issue-file">{{ issue.file }}</div>
+              <!-- The message often starts with the path; repeat it only when it
+                   adds a locator the reader cannot get from the message itself. -->
+              @if (!issue.fixable || !issue.message.includes(issue.file)) {
+                <div class="issue-file">{{ issue.file }}</div>
+              }
               @if (issue.pointer; as pointer) {
                 <div class="issue-pointer">at <code>{{ pointer }}</code></div>
               }
@@ -281,6 +286,8 @@
             class="status-row"
             [class.error]="message.kind === 'error'"
             [class.ok]="message.kind === 'ok'"
+            role="status"
+            aria-live="polite"
           >
             {{ message.text }}
           </div>

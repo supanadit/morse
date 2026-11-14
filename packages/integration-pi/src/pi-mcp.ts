@@ -61,11 +61,11 @@ export interface McpServerStatus {
   toolExposure?: Record<string, McpExposure>;
   resources?: number;
   resourceTemplates?: number;
-  /** Why it is not connected: the connection error, or the config-file complaint. */
+  /** Why it is not connected: the probe's error, kept on the row it belongs to. */
   error?: string;
 }
 
-/** What `mcpStatus` answers. `errors` are config-file complaints and probe failures. */
+/** What `mcpStatus` answers. `errors` are config-file complaints, never probe failures. */
 export interface McpStatus {
   servers: McpServerStatus[];
   errors: string[];
@@ -75,7 +75,11 @@ export interface McpStatus {
    * project files (including `.pi/mcp.json`) are ignored until it is trusted.
    */
   trusted?: boolean;
-  /** Config-file complaints, plus any probe failure met while answering. */
+  /**
+   * Config-file complaints. A server that will not connect is not one of these:
+   * its failure lives on its row (`state`/`error`), because the file that
+   * configures it is fine and Fix cannot resolve a refused connection.
+   */
   issues?: ConfigIssue[];
 }
 
@@ -211,7 +215,6 @@ export class PiMcp {
     const entries = list.items;
     const servers = entries.map(toServerStatus);
     const byName = new Map(entries.map((entry) => [entry.server.name, entry]));
-    const probeIssues: ConfigIssue[] = [];
 
     if (options.probe === true) {
       const enabled = servers.filter((server) => server.enabled);
@@ -233,19 +236,20 @@ export class PiMcp {
             server.resourceTemplates = outcome.resourceTemplates;
           }
           if (outcome.error !== undefined) {
+            // A refusal belongs to this row. It is not a config-file complaint,
+            // so it must not reach `issues` where the panel offers Fix.
             server.error = outcome.error;
-            probeIssues.push(probeIssue(server, entry.scope, outcome.error));
           }
         } catch (error: unknown) {
           // A worker must never reject the whole list; this row carries it.
           server.state = 'failed';
           server.error = describe(error);
-          probeIssues.push(probeIssue(server, entry.scope, server.error));
         }
       });
     }
 
-    const issues = [...list.issues, ...probeIssues];
+    // Only the files' own complaints: a probe failure is the row's problem.
+    const issues = list.issues;
     const errors = issues.map((issue) => issue.message);
     return {
       servers,
@@ -541,23 +545,6 @@ function fixRefusal(
         fixable: false,
       },
     ],
-  };
-}
-
-/** A probe failure as a config issue, so the panel can show it beside the file. */
-function probeIssue(
-  server: McpServerStatus,
-  scope: ConfigScope,
-  message: string,
-): ConfigIssue {
-  return {
-    file: server.source,
-    fileId: 'mcp',
-    scope,
-    pointer: `/mcpServers/${server.name}`,
-    code: 'read',
-    message: `${server.name}: ${message}`,
-    fixable: false,
   };
 }
 

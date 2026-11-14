@@ -355,10 +355,11 @@ export class PromptEditor {
 
   /**
    * A stable identity for one issue, so the running Fix keeps its label while
-   * the list re-renders and two complaints about one file stay distinct.
+   * the list re-renders. The message is part of it because one file can report
+   * several complaints at the same code and with no pointer.
    */
   protected issueKey(issue: ConfigIssue): string {
-    return `${issue.file}\u0000${issue.code}\u0000${issue.pointer ?? ''}`;
+    return `${issue.file}\u0000${issue.code}\u0000${issue.pointer ?? ''}\u0000${issue.message}`;
   }
 
   /**
@@ -372,16 +373,20 @@ export class PromptEditor {
       return;
     }
     this.fixing.set(this.issueKey(issue));
-    const result = await this.store.fix(issue);
-    this.fixing.set(null);
-    this.status.set(
-      result.ok
-        ? { kind: 'ok', text: `Rewrote ${issue.file}.` }
-        : {
-            kind: 'error',
-            text: result.message ?? 'The host could not fix this file.',
-          },
-    );
+    try {
+      const result = await this.store.fix(issue);
+      this.status.set(
+        result.ok
+          ? { kind: 'ok', text: `Rewrote ${result.path ?? issue.file}.` }
+          : {
+              kind: 'error',
+              text: result.message ?? 'The host could not fix this file.',
+            },
+      );
+    } finally {
+      // A transport that throws must not leave every Fix disabled for good.
+      this.fixing.set(null);
+    }
   }
 
   protected setFilter(value: string): void {

@@ -122,10 +122,11 @@ export class McpPanel {
 
   /**
    * A stable identity for one issue, so the running Fix keeps its label while
-   * the panel re-renders and a duplicate message in the same file stays distinct.
+   * the panel re-renders. The message is part of it because one file can report
+   * several complaints at the same code and with no pointer.
    */
   protected issueKey(issue: ConfigIssue): string {
-    return `${issue.file}\u0000${issue.code}\u0000${issue.pointer ?? ''}`;
+    return `${issue.file}\u0000${issue.code}\u0000${issue.pointer ?? ''}\u0000${issue.message}`;
   }
 
   /**
@@ -138,9 +139,13 @@ export class McpPanel {
       return;
     }
     this.fixing.set(this.issueKey(issue));
-    const result = await this.mcp.fix(this.cwd(), issue);
-    this.fixing.set(null);
-    this.report(result.ok, result.message);
+    try {
+      const result = await this.mcp.fix(this.cwd(), issue);
+      this.report(result.ok, result.message);
+    } finally {
+      // A transport that throws must not leave every Fix disabled for good.
+      this.fixing.set(null);
+    }
   }
 
   protected stateLabel(server: McpServerStatus): string {

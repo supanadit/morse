@@ -47,7 +47,7 @@
     </div>
 
     @if (actionError(); as message) {
-      <div class="errors">{{ message }}</div>
+      <div class="errors" role="status" aria-live="polite">{{ message }}</div>
     }
 
     <p class="hint">Edits apply to new sessions; a running session keeps its servers until reopened.</p>
@@ -66,7 +66,7 @@
     }
 
     @if (issues().length > 0) {
-      <div class="errors issues">
+      <div class="errors">
         @for (issue of issues(); track issueKey(issue)) {
           <div class="issue">
             <div class="issue-head">
@@ -75,6 +75,7 @@
                 <button
                   type="button"
                   class="fix"
+                  [attr.aria-label]="'Fix ' + issue.file"
                   [disabled]="fixing() !== null"
                   [attr.aria-busy]="fixing() === issueKey(issue) ? 'true' : null"
                   (click)="fix(issue)"
@@ -83,7 +84,11 @@
                 </button>
               }
             </div>
-            <div class="issue-file">{{ issue.file }}</div>
+            <!-- The message often starts with the path; repeat it only when it
+                 adds a locator the reader cannot get from the message itself. -->
+            @if (!issue.fixable || !issue.message.includes(issue.file)) {
+              <div class="issue-file">{{ issue.file }}</div>
+            }
             @if (issue.pointer; as pointer) {
               <div class="issue-pointer">at <code>{{ pointer }}</code></div>
             }

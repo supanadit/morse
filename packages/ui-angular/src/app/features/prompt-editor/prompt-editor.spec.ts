@@ -12,6 +12,8 @@ interface RenderOptions {
   engine?: string;
   /** What `configFix` answers; the default is a successful rewrite. */
   fixResult?: unknown;
+  /** What the first `promptTemplates` read answers after a fix (the cleared list). */
+  templatesAfterFix?: unknown;
 }
 
 /**
@@ -26,18 +28,26 @@ function render(options: RenderOptions = {}): {
   requestHostCommand: ReturnType<typeof vi.fn>;
 } {
   const transport = new MemoryHostTransport();
-  const requestHostCommand = vi.fn((command: string) =>
-    Promise.resolve(
-      command === 'configFix'
-        ? (options.fixResult ?? { ok: true, issues: [] })
-        : (options.templates ?? {
-            templates: [],
-            globalDir: '/home/u/.pi/agent/prompts',
-            projectDir: '/repo/.pi/prompts',
-            trusted: true,
-          }),
-    ),
-  );
+  let reads = 0;
+  const requestHostCommand = vi.fn((command: string) => {
+    if (command === 'configFix') {
+      return Promise.resolve(options.fixResult ?? { ok: true, issues: [] });
+    }
+    reads += 1;
+    // The store re-reads after a successful fix: later reads may be the file
+    // the host just rewrote, so tests can hand back a cleared list.
+    if (reads > 1 && options.templatesAfterFix !== undefined) {
+      return Promise.resolve(options.templatesAfterFix);
+    }
+    return Promise.resolve(
+      options.templates ?? {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+      },
+    );
+  });
   const fake = {
     capabilities: signal({
       hostKind: 'server',
@@ -307,6 +317,127 @@ describe('PromptEditor config issues', () => {
     expect(element.querySelector('.status-row.error')?.textContent).toContain(
       'The host refused to rewrite the file.',
     );
+    // The failure is announced, not just painted.
+    expect(element.querySelector('[role="status"]')?.textContent).toContain(
+      'The host refused to rewrite the file.',
+    );
+  });
+
+  it('disables every Fix and shows “Fixing…” while a rewrite runs', async () => {
+    let release: ((value: unknown) => void) | undefined;
+    const pending = new Promise<unknown>((resolve) => {
+      release = resolve;
+    });
+    const { element, fixture } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [
+          BROKEN_TEMPLATE_ISSUE,
+          { ...BROKEN_TEMPLATE_ISSUE, file: '/repo/.pi/prompts/other.md' },
+        ],
+      },
+      fixResult: pending,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    (element.querySelector('.fix') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const buttons = [...element.querySelectorAll('.fix')] as HTMLButtonElement[];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    expect(buttons[0]?.textContent).toContain('Fixing…');
+    expect(buttons[1]?.textContent?.trim()).toBe('Fix');
+    expect(buttons[0]?.getAttribute('aria-label')).toBe(
+      'Fix /repo/.pi/prompts/broken.md',
+    );
+
+    release?.({ ok: true, issues: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  });
+
+  it('clears the issue and names the rewritten file after a successful fix', async () => {
+    const { element, fixture } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [BROKEN_TEMPLATE_ISSUE],
+      },
+      fixResult: { ok: true, path: '/repo/.pi/prompts/rewritten.md', issues: [] },
+      templatesAfterFix: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    (element.querySelector('.fix') as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(element.textContent ?? '').not.toContain('the frontmatter is not valid YAML');
+    expect(element.querySelector('.fix')).toBeNull();
+    expect(element.querySelector('.status-row.ok')?.textContent).toContain(
+      'Rewrote /repo/.pi/prompts/rewritten.md.',
+    );
+  });
+
+  it('drops the path line when the message already names the file', async () => {
+    const { element, fixture } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [
+          {
+            ...BROKEN_TEMPLATE_ISSUE,
+            message: '/repo/.pi/prompts/broken.md: the frontmatter is not valid YAML',
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(element.textContent ?? '').toContain('the frontmatter is not valid YAML');
+    expect(element.querySelector('.issue-file')).toBeNull();
+  });
+
+  it('keeps the path line for an unfixable issue even when the message repeats it', async () => {
+    const { element, fixture } = render({
+      templates: {
+        templates: [],
+        globalDir: '/home/u/.pi/agent/prompts',
+        projectDir: '/repo/.pi/prompts',
+        trusted: true,
+        issues: [
+          {
+            ...BROKEN_TEMPLATE_ISSUE,
+            message: '/repo/.pi/prompts/broken.md: the frontmatter is not valid YAML',
+            fixable: false,
+          },
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(element.querySelector('.issue-file')?.textContent).toContain(
+      '/repo/.pi/prompts/broken.md',
+    );
+    expect(element.textContent ?? '').toMatch(/hand edit/i);
   });
 
   it('shows an unfixable issue without a Fix button, and says it needs a hand edit', async () => {
