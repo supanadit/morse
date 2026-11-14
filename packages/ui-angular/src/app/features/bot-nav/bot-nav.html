@@ -235,16 +235,57 @@
         }
       }
       @case ('group') {
-        <button type="button" class="context-menu-item"
+        @if (open.confirming) {
+          <p class="context-menu-question">Delete group?</p>
+          <p class="context-menu-title">{{ open.group.title }}</p>
+          <button type="button" class="context-menu-item"
+            role="menuitem"
+            (click)="closeMenu()">Cancel</button>
+          <button type="button" class="context-menu-item danger"
+            role="menuitem"
+            (click)="deleteGroupNow(open.group)">
+            Delete group
+          </button>
+        } @else {
+          <button type="button" class="context-menu-item"
             role="menuitem"
             (click)="openGroup(open.group)">
-          Open
-        </button>
-        <button type="button" class="context-menu-item"
+            Open
+          </button>
+          <button type="button" class="context-menu-item"
             role="menuitem"
             (click)="startDiscussion(open.group.id)">
-          New discussion
-        </button>
+            New discussion
+          </button>
+          <button
+            type="button"
+            class="context-menu-item edit-group"
+            role="menuitem"
+            [disabled]="routingForConversation(open.group.id)"
+            [title]="
+              routingForConversation(open.group.id)
+                ? 'This group is answering — wait for the turn to end'
+                : 'Edit ' + open.group.title
+            "
+            (click)="editGroup(open.group)"
+          >
+            Edit group…
+          </button>
+          <button
+            type="button"
+            class="context-menu-item danger delete-group"
+            role="menuitem"
+            [disabled]="routingForConversation(open.group.id)"
+            [title]="
+              routingForConversation(open.group.id)
+                ? 'This group is answering — wait for the turn to end'
+                : 'Delete ' + open.group.title
+            "
+            (click)="askDeleteGroup(open.group)"
+          >
+            Delete group…
+          </button>
+        }
       }
     }
   </div>

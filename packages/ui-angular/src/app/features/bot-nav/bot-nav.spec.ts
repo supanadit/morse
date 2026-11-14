@@ -372,6 +372,55 @@ describe('BotNav', () => {
     expect(menuItem(host, 'delete-bot').disabled).toBe(false);
   });
 
+  it('opens the group dialog for the group its menu asked to edit', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'edit-group').click();
+    fixture.detectChanges();
+
+    expect(morse.ui.groupTarget()).toBe('group-workshop');
+    expect(morse.ui.groupOpen()).toBe(true);
+    expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('deletes a group through the menu, naming it in the confirmation', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+    const remove = vi.spyOn(morse, 'deleteGroup');
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'delete-group').click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.context-menu-title')?.textContent).toContain('The workshop');
+    expect(remove).not.toHaveBeenCalled();
+
+    [...host.querySelectorAll('.context-menu-item')]
+      .find((one) => one.textContent?.trim() === 'Delete group')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(remove).toHaveBeenCalledWith('group-workshop');
+  });
+
+  it('refuses to edit or delete a group that is answering', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    morse.bot.onRouting({ conversationId: 'group-workshop', target: 'Forge', queued: [] });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+
+    expect(menuItem(host, 'edit-group').disabled).toBe(true);
+    expect(menuItem(host, 'delete-group').disabled).toBe(true);
+  });
+
   it('highlights the conversation in front', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });

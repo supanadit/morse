@@ -29,7 +29,7 @@ interface MenuAnchor {
 type NavMenu =
   | (MenuAnchor & { kind: 'create' })
   | (MenuAnchor & { kind: 'bot'; bot: BotSummary; confirming: boolean })
-  | (MenuAnchor & { kind: 'group'; group: BotConversationSummary });
+  | (MenuAnchor & { kind: 'group'; group: BotConversationSummary; confirming: boolean });
 
 /**
  * Bot mode's sidebar: the roster of isolated bots, the groups they talk in, and
@@ -173,9 +173,14 @@ export class BotNav {
     return group.members.map((member) => this.displayNames().get(member) ?? member).join(', ');
   }
 
+  /** True while this conversation is answering, when acting on it would strand a turn. */
+  protected routingForConversation(id: string): boolean {
+    return this.routing()?.conversationId === id;
+  }
+
   /** True while this bot's own DM is answering, when deleting it would strand a turn. */
   protected routingFor(bot: BotSummary): boolean {
-    return this.routing()?.conversationId === `dm-${bot.username}`;
+    return this.routingForConversation(`dm-${bot.username}`);
   }
 
   /** The empty line a section shows: nothing yet, still loading, or nothing matching. */
@@ -222,7 +227,7 @@ export class BotNav {
     this.menu.set(
       'engineKind' in target
         ? { kind: 'bot', bot: target, confirming: false, ...point }
-        : { kind: 'group', group: target, ...point },
+        : { kind: 'group', group: target, confirming: false, ...point },
     );
   }
 
@@ -234,7 +239,7 @@ export class BotNav {
     this.menu.set(
       'engineKind' in target
         ? { kind: 'bot', bot: target, confirming: false, ...point }
-        : { kind: 'group', group: target, ...point },
+        : { kind: 'group', group: target, confirming: false, ...point },
     );
   }
 
@@ -257,6 +262,21 @@ export class BotNav {
     this.shell.closeNavigation();
   }
 
+  /** A group's delete is destructive too, so it asks in the menu first. */
+  protected askDeleteGroup(group: BotConversationSummary): void {
+    const open = this.menu();
+    if (open === undefined) {
+      return;
+    }
+    this.menu.set({ ...open, kind: 'group', group, confirming: true });
+  }
+
+  protected deleteGroupNow(group: BotConversationSummary): void {
+    this.closeMenu();
+    this.morse.deleteGroup(group.id);
+    this.shell.closeNavigation();
+  }
+
   protected startDiscussion(conversationId: string): void {
     this.closeMenu();
     this.morse.newBotDiscussion(conversationId);
@@ -276,8 +296,16 @@ export class BotNav {
     this.morse.ui.wizardOpen.set(true);
   }
 
+  /** Opens the group dialog on this group's own record. */
+  protected editGroup(group: BotConversationSummary): void {
+    this.closeMenu();
+    this.morse.ui.groupTarget.set(group.id);
+    this.morse.ui.groupOpen.set(true);
+  }
+
   protected newGroup(): void {
     this.closeMenu();
+    this.morse.ui.groupTarget.set(null);
     this.morse.ui.groupOpen.set(true);
   }
 
