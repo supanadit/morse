@@ -57,11 +57,13 @@ export class OpenCodeCommandSection extends NamedConfigSection<PromptTemplate> {
   }
 
   /**
-   * The entry to store. The editor sends the whole structured entry (it was
-   * handed the row's `entry` including the fields Morse does not edit), so the
-   * entry is written as given — exactly what OpenCode's own `command` value is.
+   * The entry to store: the kept entry's unknown fields first, then the row the
+   * editor sent. `template` and `description` belong to the editor, so an
+   * omitted `description` clears the stored one instead of resurrecting a field
+   * the row no longer shows; everything Morse does not edit (`agent`, `model`,
+   * `subtask`, ...) survives a save that does not carry it.
    */
-  override encodeEntry(item: PromptTemplate, _kept: unknown): unknown {
+  override encodeEntry(item: PromptTemplate, kept: unknown): unknown {
     const entry = item.entry;
     if (entry === undefined) {
       throw new Error(
@@ -71,7 +73,12 @@ export class OpenCodeCommandSection extends NamedConfigSection<PromptTemplate> {
     if (typeof entry.template !== 'string' || entry.template.length === 0) {
       throw new Error(`command "${item.name}" needs a "template".`);
     }
-    return { ...entry };
+    const keptEntry = isPlainObject(kept) ? kept : {};
+    const encoded: Record<string, unknown> = { ...keptEntry, ...entry };
+    if (entry.description === undefined) {
+      delete encoded['description'];
+    }
+    return encoded;
   }
 
   private entryIssue(context: SectionContext, name: string, message: string): ConfigIssue {

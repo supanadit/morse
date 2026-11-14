@@ -21,6 +21,7 @@ import {
   CompositeResourceStore,
   ConfigResourceStore,
   FileResourceStore,
+  isPlainObject,
   type ConfigLocator,
   type ConfigMutation,
   type ConfigPaths,
@@ -48,6 +49,10 @@ export interface OpenCodeFilePromptStoreHost {
  * scopes list (OpenCode merges them rather than shadowing), a save writes the
  * new file before it deletes a moved one, and a broken file stays listed with
  * its frontmatter `error` so the editor can show what OpenCode would drop.
+ *
+ * Order note: the base store lists the global rows before the project ones,
+ * while the old `listCommands` listed project first. Both rows are still
+ * listed; only presentation order differs, and it is intentional.
  */
 export class OpenCodeFilePromptStore extends FileResourceStore<
   PromptTemplate,
@@ -87,11 +92,17 @@ export class OpenCodeFilePromptStore extends FileResourceStore<
     return row;
   }
 
-  /** The file to write. The editor composes `raw`, so it is written verbatim. */
+  /**
+   * The file to write. The editor composes `raw`, so it is written verbatim —
+   * but only after the same frontmatter parser a list uses accepts it: a write
+   * must never create a `/command` OpenCode would silently drop. A file broken
+   * by hand still lists with `error` and can be fixed in the editor.
+   */
   encode(input: PromptTemplateInput): string {
     if (input.raw === undefined) {
       throw new Error('A file command needs its raw markdown.');
     }
+    parseCommandFile(input.raw);
     return input.raw;
   }
 
@@ -160,7 +171,8 @@ export class OpenCodeConfigPromptStore extends ConfigResourceStore<PromptTemplat
 
   /**
    * Save the entry, then drop the key a rename left behind. The write comes
-   * first so a failed save never loses the old command.
+   * first so a failed save never loses the old command; the old key is removed
+   * from whichever file in the read chain defines it.
    */
   override save(input: PromptTemplateInput, scope: ConfigScope, cwd?: string): ConfigMutation {
     if (!isValidCommandName(input.name)) {
@@ -174,10 +186,11 @@ export class OpenCodeConfigPromptStore extends ConfigResourceStore<PromptTemplat
     if (from === undefined || from === input.name || input.originalSource !== 'config') {
       return written;
     }
-    const removed = super.remove(from, scope, cwd);
-    // The old key being gone already leaves the rename complete; any other
-    // failure (a write error) must not hide behind a written entry.
-    if (removed.ok || removed.issues.every((issue) => issue.code === 'unsupported')) {
+    const removed = this.removeKeyEverywhere(from, cwd);
+    // No file defining the old key leaves the rename complete; a refusal (a
+    // file that cannot be decoded, or a write that failed) must not hide behind
+    // the entry that was already written.
+    if (removed === undefined || removed.ok) {
       return written;
     }
     return { ...removed, ok: false, message: removed.message ?? removed.issues[0]?.message };
@@ -187,7 +200,10 @@ export class OpenCodeConfigPromptStore extends ConfigResourceStore<PromptTemplat
     if (!isValidCommandName(name)) {
       return this.nameRefusal(name, cwd);
     }
-    return super.remove(name, scope, cwd, source);
+    // A listed row may be defined in a read fallback (a `json` beside the
+    // `jsonc` write target), so a delete follows the key rather than the write
+    // target. Nothing found keeps the base store's "not defined" refusal.
+    return this.removeKeyEverywhere(name, cwd) ?? super.remove(name, scope, cwd, source);
   }
 
   /** OpenCode's `/command` rule is also its `command`-key rule. */
@@ -208,6 +224,70 @@ export class OpenCodeConfigPromptStore extends ConfigResourceStore<PromptTemplat
         { file: path, fileId: this.fileId, scope: 'global', code: 'name', message, fixable: false },
       ],
     };
+  }
+
+  /**
+   * Delete one `command` key from whichever file in the read chain defines it.
+   * The write target is not necessarily that file: with both `opencode.jsonc`
+   * and `opencode.json`, a key defined only in the JSON fallback has to be
+   * removed there, or a rename would leave the old row behind.
+   *
+   * `undefined` means no readable file defines the key. A file that cannot be
+   * decoded might still hold it, so that is a refusal naming the file instead
+   * of a silent success.
+   */
+  private removeKeyEverywhere(name: string, cwd?: string): ConfigMutation | undefined {
+    let paths: ConfigPaths;
+    try {
+      paths = this.paths('global', cwd);
+    } catch (error) {
+      const message = messageOf(error);
+      return {
+        ok: false,
+        scope: 'global',
+        message,
+        issues: [
+          {
+            file: this.fileId,
+            fileId: this.fileId,
+            scope: 'global',
+            code: 'read',
+            message,
+            fixable: false,
+          },
+        ],
+      };
+    }
+    for (const path of paths.read) {
+      const scope = this.locator.scopeOf(this.fileId, path);
+      const file = this.locator.fileAt(this.fileId, path, scope);
+      const document = file.read();
+      const blocked = document.issues.find(
+        (issue) => issue.code === 'parse' || issue.code === 'read',
+      );
+      if (blocked !== undefined) {
+        return { ok: false, path, scope, message: blocked.message, issues: document.issues };
+      }
+      if (!isPlainObject(document.value)) {
+        continue;
+      }
+      const root = document.value;
+      const block = root[this.section.key];
+      const existing = isPlainObject(block) ? block : undefined;
+      if (existing === undefined || !Object.hasOwn(existing, name)) {
+        continue;
+      }
+      const nextBlock: Record<string, unknown> = { ...existing };
+      delete nextBlock[name];
+      const next: Record<string, unknown> = { ...root };
+      if (Object.keys(nextBlock).length === 0) {
+        delete next[this.section.key];
+      } else {
+        next[this.section.key] = nextBlock;
+      }
+      return file.write(next);
+    }
+    return undefined;
   }
 }
 

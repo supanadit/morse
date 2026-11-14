@@ -225,6 +225,20 @@ describe('OpenCodeFilePromptStore.save and remove', () => {
     expect(saved.message).toMatch(/valid command name/);
   });
 
+  it('refuses frontmatter the parser cannot read instead of writing it', () => {
+    const { prompts, cwd, globalDir } = fixture();
+
+    const saved = prompts.save(
+      { name: 'broken', scope: 'global', raw: '---\ndescription: never closed\n' },
+      'global',
+      cwd,
+    );
+
+    expect(saved.ok).toBe(false);
+    expect(saved.message).toMatch(/never closed/);
+    expect(existsSync(join(globalDir, 'broken.md'))).toBe(false);
+  });
+
   it('refuses to remove a command that is not there, naming the directory', () => {
     const { prompts, cwd, projectDir } = fixture();
 
@@ -275,6 +289,27 @@ describe('OpenCodeCommandSection', () => {
         undefined,
       ),
     ).toEqual({ template: 'Body', agent: 'build' });
+  });
+
+  it('merges the kept entry, keeping template and description authoritative', () => {
+    const section = new OpenCodeCommandSection();
+
+    const encoded = section.encodeEntry(
+      {
+        name: 'test',
+        scope: 'global',
+        source: 'config',
+        entry: { template: 'New body' },
+      },
+      { template: 'Old body', description: 'Old', agent: 'build', subtask: true, extra: 'kept' },
+    );
+
+    expect(encoded).toEqual({
+      template: 'New body',
+      agent: 'build',
+      subtask: true,
+      extra: 'kept',
+    });
   });
 
   it('refuses an entry without a template and a save without an entry', () => {
@@ -408,6 +443,122 @@ describe('OpenCodeConfigPromptStore', () => {
 
     expect(saved.ok).toBe(true);
     expect(readJson(configPath)['command']).toEqual({ new: { template: 'New' } });
+  });
+
+  it('removes a renamed key from the json fallback while the jsonc is the write target', () => {
+    const { prompts, cwd, configDir } = fixture();
+    const jsonc = join(configDir, 'opencode.jsonc');
+    const json = join(configDir, 'opencode.json');
+    writeCommandConfig(jsonc, { command: { keep: { template: 'Keep' } } });
+    writeCommandConfig(json, { command: { old: { template: 'Old', agent: 'build' } } });
+
+    const saved = prompts.save(
+      {
+        name: 'new',
+        scope: 'global',
+        source: 'config',
+        originalName: 'old',
+        originalSource: 'config',
+        entry: { template: 'New' },
+      },
+      'global',
+      cwd,
+    );
+
+    expect(saved).toMatchObject({ ok: true, path: jsonc });
+    expect(readJson(jsonc)['command']).toEqual({
+      keep: { template: 'Keep' },
+      new: { template: 'New' },
+    });
+    expect(readJson(json)['command']).toBeUndefined();
+  });
+
+  it('refuses a rename when a fallback file might still define the old key', () => {
+    const { prompts, cwd, configDir } = fixture();
+    const jsonc = join(configDir, 'opencode.jsonc');
+    const json = join(configDir, 'opencode.json');
+    writeCommandConfig(jsonc, { command: { keep: { template: 'Keep' } } });
+    // A corrupt fallback cannot prove the old key is gone, so the rename may not
+    // report success while it might still answer `/old`.
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(json, '{ "command": ', 'utf8');
+
+    const saved = prompts.save(
+      {
+        name: 'new',
+        scope: 'global',
+        source: 'config',
+        originalName: 'old',
+        originalSource: 'config',
+        entry: { template: 'New' },
+      },
+      'global',
+      cwd,
+    );
+
+    expect(saved.ok).toBe(false);
+    expect(saved.path).toBe(json);
+    expect(saved.issues[0]).toMatchObject({ code: 'parse', file: json });
+    expect(readJson(jsonc)['command']).toEqual({
+      keep: { template: 'Keep' },
+      new: { template: 'New' },
+    });
+  });
+
+  it('deletes a command defined in the json fallback', () => {
+    const { prompts, cwd, configDir } = fixture();
+    const jsonc = join(configDir, 'opencode.jsonc');
+    const json = join(configDir, 'opencode.json');
+    writeCommandConfig(jsonc, { command: { keep: { template: 'Keep' } } });
+    writeCommandConfig(json, { command: { extra: { template: 'Extra' } } });
+
+    const removed = prompts.remove('extra', 'global', cwd, 'config');
+
+    expect(removed).toMatchObject({ ok: true, path: json });
+    expect(readJson(json)['command']).toBeUndefined();
+    expect(readJson(jsonc)['command']).toEqual({ keep: { template: 'Keep' } });
+  });
+
+  it('keeps the fields the editor does not send when an entry is saved', () => {
+    const { prompts, cwd, configPath } = fixture();
+    writeCommandConfig(configPath, {
+      command: {
+        build: { template: 'Old body', description: 'Old', agent: 'build', subtask: true },
+      },
+    });
+
+    const saved = prompts.save(
+      { name: 'build', scope: 'global', source: 'config', entry: { template: 'New body' } },
+      'global',
+      cwd,
+    );
+
+    expect(saved.ok).toBe(true);
+    expect(readJson(configPath)['command']).toEqual({
+      build: { template: 'New body', agent: 'build', subtask: true },
+    });
+  });
+
+  it('replaces the description the editor sends', () => {
+    const { prompts, cwd, configPath } = fixture();
+    writeCommandConfig(configPath, {
+      command: { build: { template: 'Body', description: 'Old', agent: 'build' } },
+    });
+
+    prompts.save(
+      {
+        name: 'build',
+        scope: 'global',
+        source: 'config',
+        entry: { template: 'Body', description: 'New' },
+      },
+      'global',
+      cwd,
+    );
+
+    expect(readJson(configPath)['command']).toEqual({
+      build: { template: 'Body', description: 'New', agent: 'build' },
+    });
   });
 
   it('removes one entry, and the block once it empties', () => {

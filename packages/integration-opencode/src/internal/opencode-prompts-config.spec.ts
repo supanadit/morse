@@ -56,6 +56,18 @@ describe('parseCommandFile / composeCommandFile', () => {
     expect(() => parseCommandFile('---\ndescription: nope\n')).toThrow(/never closed/);
     expect(() => parseCommandFile('---\ngarbage line\n---\nbody')).toThrow(/no "key: value"/);
   });
+
+  it('accepts an empty frontmatter block', () => {
+    // `composeCommandFile(undefined, body)` and a hand-written empty mapping both
+    // produce this; it is valid YAML, not a broken command.
+    expect(parseCommandFile('---\n---\n\nBody.\n')).toEqual({
+      frontmatter: {},
+      body: '\n\nBody.\n',
+    });
+    expect(parseCommandFile('---\n\nkey: value\n---\nbody').frontmatter).toEqual({
+      key: 'value',
+    });
+  });
 });
 
 describe('file commands', () => {

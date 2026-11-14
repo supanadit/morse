@@ -67,6 +67,12 @@ export function parseCommandFile(raw: string): { frontmatter: Record<string, str
   }
   const frontmatter: Record<string, string> = {};
   for (const line of raw.slice(4, end).split('\n')) {
+    // A blank line is not malformed YAML: `---\n---` (an empty mapping) and a
+    // blank line between keys are both readable, and a save of a command with no
+    // description composes exactly that.
+    if (line.trim().length === 0) {
+      continue;
+    }
     const sep = line.indexOf(':');
     if (sep === -1) {
       throw new Error(`frontmatter line "${line.trim()}" has no "key: value".`);
