@@ -153,6 +153,37 @@ describe('Toolbar', () => {
     expect(bot?.getAttribute('title')).toBe('Bot (beta) — this host cannot run bot mode yet');
   });
 
+  it('keeps the wordmark on a host without a modes row, and flags the one with it', async () => {
+    // The wordmark stands down on a tight bar only to make room for the modes.
+    // VS Code has no modes row at all — dropping the name there left the panel
+    // anonymous under its own tab title — so its brand must stay, at any width.
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [Toolbar],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new VsCodeHostTransport() }],
+    }).compileComponents();
+    const vsCode = TestBed.createComponent(Toolbar);
+    vsCode.detectChanges();
+
+    expect(vsCode.nativeElement.querySelector('.modes')).toBeNull();
+    const brand = vsCode.nativeElement.querySelector('.brand') as HTMLElement;
+    expect(brand.classList.contains('with-modes')).toBe(false);
+    expect(brand.querySelector('.wordmark')?.textContent).toBe('Morse');
+
+    // The web host carries the modes row: its brand is the one that yields on a
+    // tight bar (the stylesheet hides `.with-modes .wordmark` there).
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [Toolbar],
+      providers: [{ provide: MORSE_TRANSPORT, useFactory: () => new MemoryHostTransport() }],
+    }).compileComponents();
+    const web = TestBed.createComponent(Toolbar);
+    web.detectChanges();
+
+    expect(web.nativeElement.querySelector('.modes')).toBeTruthy();
+    expect(web.nativeElement.querySelector('.brand')?.classList.contains('with-modes')).toBe(true);
+  });
+
   it('enables Bot where the host runs bots, and keeps the beta badge', async () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({

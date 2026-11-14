@@ -42,7 +42,10 @@
 }
 /*
  * The name. Quiet: it is what the window is, not a control. It stays in the wide bar
- * and stands down first when the bar is tight.
+ * and stands down first when the bar is tight — but only where the modes share the
+ * row (`with-modes`, the web host): there the words genuinely have to make room. A
+ * host without the modes row — VS Code — keeps the name at every width; dropping it
+ * there left the panel anonymous next to its own tab title, which reads as a bug.
  */
 .brand {
   display: inline-flex;
@@ -180,9 +183,11 @@
 /*
  * A middling bar drops the words before anything overflows: the mark and two mode
  * icons stay, which is still everything the row does. The command stays centred.
+ * The wordmark only steps aside where the modes are there to step aside *for* —
+ * a VS Code panel has no modes row, so its name stays and nothing overflows.
  */
 @container (max-width: 1020px) {
-  .wordmark,
+  .brand.with-modes .wordmark,
   .mode-label,
   .beta {
     display: none;

@@ -36,9 +36,12 @@
   <!--
        The name, and nothing else: Morse's mark is its wordmark. It is not a button —
        there is nothing to click it through to — so it reads as identity and not as
-       one more control in the row.
+       one more control in the row. The `with-modes` state says the mode row shares
+       the bar: only then does the name stand down first when the bar is tight (see
+       the stylesheet). A host without modes — VS Code — keeps its name at any width,
+       because there is nothing the name is making room for.
   -->
-  <span class="brand">
+  <span class="brand" [class.with-modes]="webHost()">
     <span class="wordmark">Morse</span>
   </span>
 
