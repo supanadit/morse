@@ -11,6 +11,7 @@ import {
 } from './config-discovery.js';
 import { OpenCodeEngineDefinition } from './open-code-engine.js';
 import { OpenCodeMcpStore } from './open-code-mcp-store.js';
+import { OpenCodePromptStore } from './open-code-prompt-store.js';
 
 const roots: string[] = [];
 
@@ -300,12 +301,12 @@ describe('OpenCodeEngineInstance', () => {
     expect(() => bot.file('config', 'project')).toThrow(UnsupportedScopeError);
   });
 
-  it('exposes the MCP store and no prompt store yet', () => {
+  it('exposes the MCP and prompt stores', () => {
     const instance = engine.create(userContext('/home/me', '/work/app'));
 
     expect(instance.mcp).toBeInstanceOf(OpenCodeMcpStore);
     expect(instance.mcp.fileId).toBe('config');
-    expect(instance.prompts).toBeUndefined();
+    expect(instance.prompts).toBeInstanceOf(OpenCodePromptStore);
   });
 
   it('rejects a file id it does not have', () => {

@@ -13,7 +13,6 @@ import {
   type ConfigPaths,
   type ConfigScope,
   type EngineContext,
-  type PromptStore,
 } from '@morse/engine-config';
 
 import {
@@ -25,6 +24,7 @@ import {
   projectConfigCandidates,
 } from './config-discovery.js';
 import { OpenCodeMcpStore } from './open-code-mcp-store.js';
+import { OpenCodePromptStore } from './open-code-prompt-store.js';
 
 /** The config files this engine can resolve today; later files extend the set. */
 const FILE_IDS = new Set([OPEN_CODE_CONFIG_FILE_ID]);
@@ -58,8 +58,8 @@ export class OpenCodeEngineInstance extends EngineInstance {
   /** Where the app-level `opencode.json` lives for this instance. */
   readonly configDir: string;
   readonly mcp: OpenCodeMcpStore;
-  /** OpenCode's prompt templates arrive with their own store; not yet. */
-  readonly prompts: PromptStore | undefined = undefined;
+  /** OpenCode's prompt templates: its `commands/*.md` files and the config's `command` key. */
+  readonly prompts: OpenCodePromptStore;
 
   /** Every project config path this instance resolved, so `scopeOf` can name it. */
   private readonly projectPaths = new Set<string>();
@@ -71,6 +71,7 @@ export class OpenCodeEngineInstance extends EngineInstance {
     this.ownership = context.ownership;
     this.configDir = openCodeConfigDir(context, definition.configDir);
     this.mcp = new OpenCodeMcpStore(this);
+    this.prompts = new OpenCodePromptStore(this, this.configDir);
   }
 
   paths(fileId: string, scope: ConfigScope, cwd?: string): ConfigPaths {

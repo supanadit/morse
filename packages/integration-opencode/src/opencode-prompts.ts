@@ -1,16 +1,28 @@
-import type { OpenCodeCommand } from './internal/opencode-prompts-config.js';
+import { homedir } from 'node:os';
 import {
-  composeCommandFile,
-  listCommands,
-  moveConfigCommand,
-  openCodeCommandDirs,
-  parseCommandFile,
-  removeCommandFile,
-  upsertConfigCommand,
-  writeCommandFile,
-  type CommandScope,
-  type CommandSource,
-} from './internal/opencode-prompts-config.js';
+  resolveEngineContext,
+  type ConfigIssue,
+  type ConfigMutation,
+  type PromptScope,
+  type PromptTemplate,
+  type PromptTemplateInput,
+} from '@morse/engine-config';
+import type { CommandSource } from './internal/opencode-prompts-config.js';
+import {
+  OpenCodeEngineDefinition,
+  type OpenCodeEngineInstance,
+} from './engine/open-code-engine.js';
+import type { OpenCodePromptStore } from './engine/open-code-prompt-store.js';
+
+/** What a prompt-template mutation answers, plus the surface it acted on. */
+export interface OpenCodePromptMutation {
+  ok: boolean;
+  message?: string;
+  path?: string;
+  scope?: PromptScope;
+  source: CommandSource;
+  issues?: ConfigIssue[];
+}
 
 /**
  * OpenCode's prompt-template administration: its `/commands`, both the markdown
@@ -25,10 +37,16 @@ import {
  * The global directory is injectable because a bot mode host runs the same
  * integration against a bot's own config tree; without it the bot would edit
  * the user's `~/.config/opencode`.
+ *
+ * The templates live behind `OpenCodePromptStore`; this manager keeps the port
+ * the hosts already speak (a `cwd` string, the old option name) and builds the
+ * user engine instance whose store answers.
  */
 export class OpenCodePrompts {
+  private readonly definition: OpenCodeEngineDefinition;
+
   constructor(
-    private readonly options: {
+    options: {
       /**
        * Overrides the global config directory (the one holding `commands/` and
        * `opencode.json`). A bot passes its own tree so it never edits the
@@ -36,80 +54,91 @@ export class OpenCodePrompts {
        */
       configDir?: string;
     } = {},
-  ) {}
+  ) {
+    this.definition = new OpenCodeEngineDefinition(
+      options.configDir === undefined ? {} : { configDir: options.configDir },
+    );
+  }
 
   list(cwd: string): {
-    templates: (OpenCodeCommand & { argumentHint?: undefined })[];
+    templates: PromptTemplate[];
     globalDir: string;
     projectDir?: string;
     /** OpenCode has no pi-style trust gate: project commands always load. */
     trusted: true;
     configPath: string;
+    /** Read failures the list met (a JSONC config needs normalizing before an edit). */
+    issues: ConfigIssue[];
   } {
-    const { commands, globalDir, projectDir, configPath } = listCommands(cwd, this.options.configDir);
-    return { templates: commands, globalDir, projectDir, trusted: true, configPath };
+    const listed = this.store(cwd).list(normalizeCwd(cwd));
+    return {
+      templates: listed.items,
+      globalDir: listed.globalDir,
+      ...(listed.projectDir === undefined ? {} : { projectDir: listed.projectDir }),
+      trusted: true,
+      configPath: listed.configPath ?? '',
+      issues: listed.issues,
+    };
   }
 
-  save(
-    input: {
-      name: string;
-      scope: CommandScope;
-      source?: CommandSource;
-      /** For `file` commands: the whole markdown file. */
-      raw?: string;
-      /** For `config` commands: the structured entry; `raw` is ignored. */
-      entry?: { template: string; description?: string; agent?: string; model?: string; subtask?: boolean };
-      originalName?: string;
-      originalScope?: CommandScope;
-      originalSource?: CommandSource;
-    },
-    cwd: string,
-  ): { ok: true; path?: string; source: CommandSource } {
+  save(input: PromptTemplateInput, cwd: string): OpenCodePromptMutation {
     const source = input.source ?? 'file';
+    // The manager's old contract: a missing half of the input is a caller bug,
+    // not a file the user can fix, so it throws instead of returning an issue.
     if (source === 'config') {
       if (input.entry === undefined) {
-        throw new Error('A config command needs its structured entry (template, description, ...).');
+        throw new Error(
+          'A config command needs its structured entry (template, description, ...).',
+        );
       }
-      const configPath = openCodeCommandDirs(cwd, this.options.configDir).configPath;
-      upsertConfigCommand(configPath, input.name, input.entry);
-      if (input.originalName !== undefined && input.originalName !== input.name && input.originalSource === 'config') {
-        moveConfigCommand(configPath, input.originalName);
-      }
-      return { ok: true, path: configPath, source: 'config' };
-    }
-    if (input.raw === undefined) {
+    } else if (input.raw === undefined) {
       throw new Error('A file command needs its raw markdown.');
     }
-    // Touch nothing but the target: a scope move deletes the old file only
-    // after the new one is written.
-    const dirs = openCodeCommandDirs(cwd, this.options.configDir);
-    const dir = input.scope === 'project' ? dirs.projectDir : dirs.globalDir;
-    if (dir === undefined) {
-      throw new Error('No workspace is open, so there is no project command directory.');
-    }
-    const path = writeCommandFile(dir, input.name, input.raw);
-    if (
-      input.originalName !== undefined &&
-      input.originalScope !== undefined &&
-      (input.originalName !== input.name || input.originalScope !== input.scope) &&
-      input.originalSource !== 'config'
-    ) {
-      const oldDir =
-        input.originalScope === 'project' ? dirs.projectDir ?? dirs.globalDir : dirs.globalDir;
-      removeCommandFile(oldDir, input.originalName);
-    }
-    return { ok: true, path, source: 'file' };
+    const saved = this.store(cwd).save({ ...input, source }, input.scope, normalizeCwd(cwd));
+    const message = saved.ok ? undefined : (saved.message ?? saved.issues[0]?.message);
+    return { ...saved, ...(message === undefined ? {} : { message }), source };
   }
 
   /** Delete by source: a file command removes the file, a config one the JSON key. */
-  delete(name: string, scope: CommandScope, cwd: string, source: CommandSource = 'file'): { ok: boolean } {
-    if (source === 'config') {
-      return { ok: moveConfigCommand(openCodeCommandDirs(cwd, this.options.configDir).configPath, name) };
-    }
-    const dirs = openCodeCommandDirs(cwd, this.options.configDir);
-    const dir = scope === 'project' ? dirs.projectDir ?? dirs.globalDir : dirs.globalDir;
-    return { ok: removeCommandFile(dir, name) };
+  delete(
+    name: string,
+    scope: PromptScope,
+    cwd: string,
+    source: CommandSource = 'file',
+  ): ConfigMutation {
+    return this.store(cwd).remove(name, scope, normalizeCwd(cwd), source);
+  }
+
+  /** A cheap fingerprint of the commands this directory lists, for change watching. */
+  configSignature(cwd?: string): string {
+    return this.store(cwd).signature(normalizeCwd(cwd));
+  }
+
+  private store(cwd?: string): OpenCodePromptStore {
+    return this.instance(cwd).prompts;
+  }
+
+  /**
+   * The engine instance for one call. An injected config dir names the global
+   * tree; without one the instance resolves `<xdg config home>/opencode` at the
+   * same moment this module always did.
+   */
+  private instance(cwd?: string): OpenCodeEngineInstance {
+    const project = normalizeCwd(cwd);
+    return this.definition.create(
+      resolveEngineContext({
+        ownership: 'user',
+        home: homedir(),
+        ...(project === undefined ? {} : { cwd: project }),
+      }),
+    );
   }
 }
 
-export { composeCommandFile, parseCommandFile };
+/** A real directory, or `undefined` for "no project" (the user commands alone). */
+function normalizeCwd(cwd: string | undefined): string | undefined {
+  const trimmed = cwd?.trim();
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
+}
+
+export { composeCommandFile, parseCommandFile } from './internal/opencode-prompts-config.js';

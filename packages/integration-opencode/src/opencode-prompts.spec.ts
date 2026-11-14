@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { OpenCodePrompts } from './opencode-prompts.js';
@@ -144,5 +144,51 @@ describe('OpenCodePrompts', () => {
         process.env['XDG_CONFIG_HOME'] = previous;
       }
     }
+  });
+
+  it('reports a JSONC config issue while still listing its commands', () => {
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
+    mkdirSync(globalBase, { recursive: true });
+    writeFileSync(
+      join(globalBase, 'opencode.json'),
+      '{\n  // note\n  "command": { "cfg": { "template": "Body" } },\n}\n',
+      'utf8',
+    );
+
+    const listed = prompts.list(workspace);
+
+    expect(listed.templates.find((t) => t.name === 'cfg')?.source).toBe('config');
+    expect(listed.issues.find((issue) => issue.code === 'normalize')).toMatchObject({
+      file: join(globalBase, 'opencode.json'),
+      code: 'normalize',
+      fixable: true,
+    });
+  });
+
+  it('answers a refused config save instead of throwing', () => {
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
+
+    const refused = prompts.save(
+      { name: 'x', scope: 'global', source: 'config', entry: { template: '' } },
+      workspace,
+    );
+
+    expect(refused.ok).toBe(false);
+    expect(refused.source).toBe('config');
+    expect(refused.message).toMatch(/needs a "template"/);
+    expect(existsSync(join(globalBase, 'opencode.json'))).toBe(false);
+  });
+
+  it('fingerprints the commands of a directory', () => {
+    const prompts = new OpenCodePrompts({ configDir: globalBase });
+    const before = prompts.configSignature(workspace);
+    expect(prompts.configSignature(workspace)).toBe(before);
+
+    prompts.save(
+      { name: 'sig', scope: 'global', raw: composeCommandFile(undefined, '\nB\n') },
+      workspace,
+    );
+
+    expect(prompts.configSignature(workspace)).not.toBe(before);
   });
 });
