@@ -400,12 +400,20 @@ export class BotService {
   }
 
   /**
-   * Removes a bot and everything of its own on disk. Conversations stay — their
-   * ids are the reader's history, and renumbering them would break every open
-   * tab — so a deleted bot's DM simply has no bot to answer it anymore.
+   * Removes a bot and everything that pointed at it: its directory (and with it
+   * every engine session), its DM, and its place in every group. A group whose
+   * last member it was goes too; a group with others left keeps them, their
+   * sessions and its history — only the deleted member's places are cleared.
    */
   async deleteBot(username: string): Promise<void> {
     const bot = this.botOrThrow(username);
+    // Any round speaking for this bot is over, including one it is answering in a
+    // group whose other members remain.
+    for (const [conversationId, round] of this.rounds) {
+      if (round.conversation.members.includes(bot.username)) {
+        this.stop(conversationId);
+      }
+    }
     const gateways = [...this.warm.values()].filter((warm) => warm.username === bot.username);
     await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
     const factory = this.factories.get(bot.username);
@@ -413,9 +421,46 @@ export class BotService {
     await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
     this.transcripts.forget(dmConversationId(bot.username));
     rmSync(this.botRoot(bot.username), { recursive: true, force: true });
+
+    const emptiedGroups: string[] = [];
+    for (const conversation of this.registry.conversations) {
+      if (!conversation.members.includes(bot.username)) {
+        continue;
+      }
+      conversation.members = conversation.members.filter((member) => member !== bot.username);
+      delete conversation.sessions[bot.username];
+      if (conversation.lead === bot.username) {
+        delete conversation.lead;
+      }
+      if (conversation.kind === 'group' && conversation.members.length === 0) {
+        emptiedGroups.push(conversation.id);
+      }
+      conversation.updatedAt = this.clock();
+    }
     this.registry.bots = this.registry.bots.filter(
       (candidate) => candidate.username !== bot.username,
     );
+    this.registry.groups = this.registry.groups
+      .filter((group) => !emptiedGroups.includes(group.id))
+      .map((group) => {
+        if (!group.members.includes(bot.username)) {
+          return group;
+        }
+        const { lead, ...rest } = group;
+        return {
+          ...rest,
+          members: group.members.filter((member) => member !== bot.username),
+          ...(lead === bot.username ? {} : { lead }),
+        };
+      });
+    this.registry.conversations = this.registry.conversations.filter(
+      (conversation) =>
+        conversation.id !== dmConversationId(bot.username) &&
+        !emptiedGroups.includes(conversation.id),
+    );
+    for (const id of emptiedGroups) {
+      this.transcripts.forget(id);
+    }
     saveBotRegistry(this.options.root, this.registry);
     this.emit({ type: 'roster' });
   }

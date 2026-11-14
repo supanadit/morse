@@ -849,6 +849,62 @@ describe('BotService creation', () => {
   });
 });
 
+describe('BotService bot deletion cleanup', () => {
+  it('deleteBot keeps a multi-member group without the bot', async () => {
+    const { service, root } = harness({
+      script: ({ bot }) => ({ text: `${bot} here` }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({
+      name: 'Launch',
+      members: ['forge', 'sable'],
+      lead: 'forge',
+    });
+    await service.send(group.id, '@forge @sable hello');
+
+    await service.deleteBot('forge');
+
+    const registry = loadBotRegistry(root);
+    const kept = registry.conversations.find((one) => one.id === group.id);
+    expect(kept?.members).toEqual(['sable']);
+    expect(kept?.lead).toBeUndefined();
+    expect(kept?.sessions['forge']).toBeUndefined();
+    expect(kept?.sessions['sable']?.engineSessionId).toBeDefined();
+    expect(registry.groups.find((one) => one.id === group.id)?.members).toEqual(['sable']);
+    expect(registry.conversations.some((one) => one.id === 'dm-forge')).toBe(false);
+    expect(service.transcript('dm-forge')).toEqual([]);
+    expect(existsSync(join(root, 'forge'))).toBe(false);
+  });
+
+  it('deleteBot removes a group whose only member it was', async () => {
+    const { service, root } = harness();
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Solo', members: ['forge'] });
+
+    await service.deleteBot('forge');
+
+    const registry = loadBotRegistry(root);
+    expect(registry.groups.some((one) => one.id === group.id)).toBe(false);
+    expect(registry.conversations.some((one) => one.id === group.id)).toBe(false);
+    expect(service.transcript(group.id)).toEqual([]);
+  });
+
+  it('deleteBot stops a round it is answering in a group', async () => {
+    const { service, adapter } = harness({
+      script: ({ bot }) => ({ text: `${bot} here`, hold: true }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const sending = service.send(group.id, '@forge hold on');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    await service.deleteBot('forge');
+
+    await expect(sending).resolves.toBeUndefined();
+    expect(gatewayFor(adapter, 'forge').disposed).toBe(true);
+  });
+});
+
 describe('BotService providers', () => {
   const PROVIDERS = [
     {
