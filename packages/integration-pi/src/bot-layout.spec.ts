@@ -441,4 +441,48 @@ describe('piBotLayout', () => {
     expect(state.model).toEqual({ provider: 'zai', id: 'glm-5.3', name: 'glm-5.3' });
     expect(state.mcpServers).toBeUndefined();
   });
+
+  it('ignores a null mcpServers entry instead of crashing the read', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(piMcpPath(botRoot), JSON.stringify({ mcpServers: { fs: null } }));
+
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([]);
+  });
+
+  it('ignores non-object mcpServers entries and keeps the valid ones', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({
+        mcpServers: {
+          fs: null,
+          arr: ['not', 'a', 'server'],
+          web: { url: 'https://example.com/mcp' },
+        },
+      }),
+    );
+
+    expect(piBotLayout.read(botRoot).mcpServers).toEqual([
+      { name: 'web', type: 'http', url: 'https://example.com/mcp', enabled: true },
+    ]);
+  });
+
+  it('rewrites a file with null mcpServers entries without crashing', () => {
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      piMcpPath(botRoot),
+      JSON.stringify({ mcpServers: { fs: null, web: { url: 'https://example.com/mcp' } } }),
+    );
+
+    writePiBotConfig(botRoot, {
+      ...config,
+      mcpServers: [{ name: 'fs', type: 'stdio', command: 'npx' }],
+    });
+
+    expect(read(piMcpPath(botRoot))).toEqual({
+      mcpServers: {
+        fs: { type: 'stdio', command: 'npx' },
+      },
+    });
+  });
 });

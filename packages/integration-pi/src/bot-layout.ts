@@ -118,8 +118,9 @@ function readPiMcpServers(path: string): BotMcpServer[] | undefined {
   } catch {
     return undefined;
   }
-  return Object.entries(file.mcpServers).flatMap(([name, entry]) => {
-    if (!definesMcpServer(entry)) {
+  return Object.entries(file.mcpServers).flatMap(([name, raw]) => {
+    const entry = asRecord(raw);
+    if (entry === undefined || !definesMcpServer(entry as McpFileServer)) {
       return [];
     }
     const type: BotMcpServer['type'] =
@@ -169,8 +170,9 @@ function writePiMcpServers(path: string, servers: readonly BotMcpServer[]): void
   const nextServers: Record<string, unknown> = { ...file.mcpServers };
   const serverNames = new Set(servers.map((server) => server.name));
 
-  for (const [name, entry] of Object.entries(file.mcpServers)) {
-    if (definesMcpServer(entry as McpFileServer) && !serverNames.has(name)) {
+  for (const [name, raw] of Object.entries(file.mcpServers)) {
+    const entry = asRecord(raw);
+    if (entry !== undefined && definesMcpServer(entry as McpFileServer) && !serverNames.has(name)) {
       delete nextServers[name];
     }
   }
