@@ -16,7 +16,7 @@ import {
   type MorseLogger,
 } from '@morse/system';
 import type { McpConfigScope, McpServerInput } from '@morse/protocol';
-import { OpenCodeMcp } from './opencode-mcp.js';
+import { OpenCodeMcp, type OpenCodeMcpStatusOptions } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
 import {
   connectOpenCode,
@@ -65,6 +65,16 @@ export interface OpenCodeEngineDeps {
   configDir?: string;
 }
 
+/**
+ * The extras this adapter answers. `fix` is the host's config-repair action;
+ * it is declared here because `AgentExtras` gains the port field with the host
+ * command that calls it, and the adapter is already able to answer.
+ */
+type OpenCodeExtras = AgentExtras & {
+  /** Rewrite a comment-bearing config file as strict JSON, so a write can land. */
+  fix?: (scope: string, cwd?: string) => Promise<unknown>;
+};
+
 export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
   readonly kind = 'opencode';
   /** This object *is* the engine, so the composite points at itself. */
@@ -81,10 +91,15 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
     // Small wrappers rather than the class itself: the ports speak in
     // `Record<string, unknown>` and `string` scopes, because `@morse/system`
     // must not know OpenCode's payload types. The casts live at this edge.
-    this.extras = {
+    const extras: OpenCodeExtras = {
+      // The host's Fix action: rewrite a comment-bearing file as strict JSON.
+      // `AgentExtras` gains the field with the host command; until then the
+      // adapter answers it here so the manager is reachable in one place.
+      fix: (scope, cwd) => Promise.resolve(mcp.fix(scope as McpConfigScope, cwd)),
       mcp: {
         configSignature: (cwd) => mcp.configSignature(cwd),
-        status: (cwd, _options) => Promise.resolve(mcp.status(cwd)),
+        status: (cwd, options) =>
+          Promise.resolve(mcp.status(cwd, options as OpenCodeMcpStatusOptions | undefined)),
         add: (input, cwd) => Promise.resolve(mcp.add(input as McpServerInput, cwd)),
         remove: (name, cwd, scope) =>
           Promise.resolve(mcp.remove(name, cwd, scope as McpConfigScope | undefined)),
@@ -99,6 +114,7 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
           Promise.resolve(prompts.delete(name, scope as never, cwd, source as never)),
       },
     };
+    this.extras = extras;
     this.factory = new OpenCodeAgentFactory({
       api: deps.api,
       stream: deps.stream,

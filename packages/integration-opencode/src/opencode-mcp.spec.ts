@@ -22,10 +22,28 @@ describe('OpenCodeMcp', () => {
 
   const globalPath = (): string => join(dir, 'config', 'opencode.json');
   const projectPath = (): string => join(cwd, 'opencode.json');
+  const projectJsoncPath = (): string => join(cwd, '.opencode', 'opencode.jsonc');
 
   const writeGlobal = (file: object): void => {
     mkdirSync(join(globalPath(), '..'), { recursive: true });
     writeFileSync(globalPath(), `${JSON.stringify(file, null, 2)}\n`);
+  };
+
+  /** A comment-bearing, trailing-comma file: readable, but not writable yet. */
+  const writeJsonc = (path: string): void => {
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(
+      path,
+      [
+        '{',
+        '  // a hand-written note',
+        '  "mcp": {',
+        '    "one": { "type": "local", "command": ["npx", "one"], },',
+        '  },',
+        '}',
+        '',
+      ].join('\n'),
+    );
   };
 
   describe('status', () => {
@@ -71,6 +89,23 @@ describe('OpenCodeMcp', () => {
       const status = mcp.status(cwd);
       expect(status.servers).toEqual([]);
       expect(status.errors[0]).toMatch(/local MCP server "broken"/);
+    });
+
+    it('without a directory lists the global file alone', () => {
+      writeGlobal({ mcp: { one: { type: 'local', command: ['npx', 'one'] } } });
+      writeFileSync(
+        projectPath(),
+        `${JSON.stringify({ mcp: { two: { type: 'local', command: ['two'] } } }, null, 2)}\n`,
+      );
+      // The empty-session view has no project: the user's own servers only.
+      expect(mcp.status().servers.map((s) => s.name)).toEqual(['one']);
+    });
+
+    it('reads a JSONC config and reports a fixable issue', () => {
+      writeJsonc(globalPath());
+      const status = mcp.status(cwd);
+      expect(status.servers.map((s) => s.name)).toEqual(['one']);
+      expect(status.issues?.[0]).toMatchObject({ code: 'normalize', fixable: true });
     });
   });
 
@@ -121,6 +156,37 @@ describe('OpenCodeMcp', () => {
       expect(mcp.setEnabled('three', false, cwd)).toMatchObject({
         ok: false,
         message: expect.stringMatching(/No server named "three"/),
+      });
+    });
+
+    it('refuses a mutation on JSONC until fixed, then writes', () => {
+      writeJsonc(globalPath());
+      const refused = mcp.add({ name: 'two', command: 'npx', args: ['two'] }, cwd);
+      expect(refused.ok).toBe(false);
+      expect(refused.issues?.[0]).toMatchObject({ code: 'normalize', fixable: true });
+      // The file is untouched: a refused write never drops the reader's comments.
+      expect(readFileSync(globalPath(), 'utf8')).toContain('// a hand-written note');
+
+      expect(mcp.fix('global', cwd)).toMatchObject({ ok: true, path: globalPath() });
+      expect(() => JSON.parse(readFileSync(globalPath(), 'utf8'))).not.toThrow();
+      expect(mcp.add({ name: 'two', command: 'npx', args: ['two'] }, cwd)).toMatchObject({
+        ok: true,
+        path: globalPath(),
+      });
+      expect(mcp.status(cwd).servers.map((s) => s.name).sort()).toEqual(['one', 'two']);
+    });
+
+    it('refuses a project write to a jsonc project file until fixed', () => {
+      writeJsonc(projectJsoncPath());
+      const refused = mcp.add({ name: 'one', scope: 'project', command: 'npx' }, cwd);
+      expect(refused).toMatchObject({ ok: false, path: projectJsoncPath() });
+      expect(refused.issues?.[0]).toMatchObject({ code: 'normalize', fixable: true });
+
+      expect(mcp.fix('project', cwd)).toMatchObject({ ok: true, path: projectJsoncPath() });
+      expect(() => JSON.parse(readFileSync(projectJsoncPath(), 'utf8'))).not.toThrow();
+      expect(mcp.add({ name: 'one', scope: 'project', command: 'npx' }, cwd)).toMatchObject({
+        ok: true,
+        path: projectJsoncPath(),
       });
     });
 
