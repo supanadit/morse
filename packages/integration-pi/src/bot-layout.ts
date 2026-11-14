@@ -52,6 +52,12 @@ const AUTH_FILE = 'auth.json';
 const MODELS_FILE = 'models.json';
 const SETTINGS_FILE = 'settings.json';
 const MCP_FILE = 'mcp.json';
+/**
+ * pi publishes a JSON Schema for `settings.json`; referencing it is what gives an
+ * editor completion and validation inside a bot's agent dir, where nothing else
+ * tells the reader which keys pi accepts.
+ */
+const PI_SETTINGS_SCHEMA = 'https://pi.dev/schemas/settings.schema.json';
 /** pi's system-prompt file: it *replaces* the default prompt. */
 const SYSTEM_FILE = 'SYSTEM.md';
 /**
@@ -309,9 +315,10 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
 
   // settings.json — the defaults pi starts a session with. Only the keys Morse
   // owns are touched: theme, packages and the reader's own preferences stay.
+  // `$schema` goes first so the file opens with the pointer to pi's schema.
   const settingsPath = join(agentDir, SETTINGS_FILE);
   const settings = readJsonObject(settingsPath) ?? {};
-  const next: Record<string, unknown> = { ...settings };
+  const next: Record<string, unknown> = { $schema: PI_SETTINGS_SCHEMA, ...settings };
   if (config.model === null) {
     // An explicit clear: back to the engine's own default.
     delete next['defaultProvider'];
@@ -391,6 +398,16 @@ export const piBotLayout: BotEngineLayout = {
    */
   repair(botRoot: string): void {
     const agentDir = piAgentDir(botRoot);
+    // settings.json existed before pi published a schema, so an older bot's file
+    // has no `$schema`. Seeded rather than written: the file is only touched when
+    // it is already there, and every other key is kept.
+    const settingsPath = join(agentDir, SETTINGS_FILE);
+    if (existsSync(settingsPath)) {
+      const settings = readJsonObject(settingsPath) ?? {};
+      if (settings['$schema'] !== PI_SETTINGS_SCHEMA) {
+        writePrivateJson(settingsPath, { $schema: PI_SETTINGS_SCHEMA, ...settings });
+      }
+    }
     const legacy = join(agentDir, LEGACY_PERSONA_FILE);
     const target = join(agentDir, SYSTEM_FILE);
     // An empty SYSTEM.md is treated as absent: an earlier repair (or a form saved

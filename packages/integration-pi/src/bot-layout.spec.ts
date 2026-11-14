@@ -58,7 +58,10 @@ describe('piBotLayout', () => {
     expect(read(join(botRoot, 'config', 'auth.json'))).toEqual({
       zai: { type: 'api_key', key: 'zai-key' },
     });
-    expect(read(join(botRoot, 'config', 'settings.json'))).toEqual({
+    const settings = read(join(botRoot, 'config', 'settings.json')) as Record<string, unknown>;
+    expect(Object.keys(settings)[0]).toBe('$schema');
+    expect(settings['$schema']).toBe('https://pi.dev/schemas/settings.schema.json');
+    expect(settings).toMatchObject({
       defaultProvider: 'zai',
       defaultModel: 'glm-5.3',
       defaultThinkingLevel: 'high',
@@ -228,6 +231,33 @@ describe('piBotLayout', () => {
     piBotLayout.repair?.(botRoot);
 
     expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('Hand-written.\n');
+  });
+
+  it('seeds the settings schema into an existing file and keeps the rest', () => {
+    const agentDir = join(botRoot, 'config');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ theme: 'dark', packages: [] }));
+    writeFileSync(join(agentDir, 'AGENTS.md'), 'You are News Finder.\n');
+
+    piBotLayout.repair?.(botRoot);
+
+    const settings = read(join(agentDir, 'settings.json')) as Record<string, unknown>;
+    expect(settings['$schema']).toBe('https://pi.dev/schemas/settings.schema.json');
+    expect(settings['theme']).toBe('dark');
+    expect(settings['packages']).toEqual([]);
+    // The legacy persona move still runs in the same pass: seeding `$schema` must
+    // not return early.
+    expect(readFileSync(join(agentDir, 'SYSTEM.md'), 'utf8')).toBe('You are News Finder.\n');
+  });
+
+  it('does not create settings.json in repair', () => {
+    const agentDir = join(botRoot, 'config');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'AGENTS.md'), 'You are News Finder.\n');
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(existsSync(join(agentDir, 'settings.json'))).toBe(false);
   });
 
   it('keeps the reader settings it does not own, and clears what the form cleared', () => {
