@@ -1,4 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -47,5 +55,70 @@ describe('JsonConfigFile', () => {
       ownership: 'user',
     });
     expect(file.read()).toMatchObject({ exists: false, strict: true, issues: [], value: undefined });
+  });
+
+  it('reports an existing but unreadable path as a read issue instead of throwing', () => {
+    const dir = root();
+    const path = join(dir, 'config-dir');
+    mkdirSync(path);
+    const file = new JsonConfigFile(path, 'config', 'global', { ownership: 'user' });
+
+    const read = file.read();
+    expect(read.exists).toBe(true);
+    expect(read.value).toBeUndefined();
+    expect(read.text).toBe('');
+    expect(read.strict).toBe(true);
+    expect(read.issues[0]).toMatchObject({ code: 'read', fixable: false, file: path });
+    expect(read.issues[0].message).toContain(path);
+
+    const refused = file.write({ a: 1 });
+    expect(refused.ok).toBe(false);
+    expect(refused.issues[0]).toMatchObject({ code: 'read', fixable: false });
+  });
+
+  it('initializes an empty file instead of refusing it', () => {
+    const path = join(root(), 'empty.json');
+    writeFileSync(path, '');
+    const file = new JsonConfigFile(path, 'config', 'global', { ownership: 'user' });
+
+    expect(file.read().issues).toEqual([]);
+    expect(file.write({ a: 1 }).ok).toBe(true);
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ a: 1 });
+  });
+
+  it('initializes a comment-only file instead of refusing it', () => {
+    const path = join(root(), 'comments.json');
+    writeFileSync(path, '// todo\n');
+    const file = new JsonConfigFile(path, 'config', 'global', { ownership: 'user' });
+
+    expect(file.read().issues).toEqual([]);
+    expect(file.write({ a: 1 }).ok).toBe(true);
+    expect(readFileSync(path, 'utf8')).not.toContain('// todo');
+  });
+
+  it('refuses to write genuinely corrupt content and leaves it untouched', () => {
+    const path = join(root(), 'corrupt.json');
+    const text = '{ "a":';
+    writeFileSync(path, text);
+    const file = new JsonConfigFile(path, 'config', 'global', { ownership: 'user' });
+
+    const refused = file.write({ a: 1 });
+    expect(refused.ok).toBe(false);
+    expect(refused.issues[0]).toMatchObject({ code: 'parse', fixable: false });
+    expect(readFileSync(path, 'utf8')).toBe(text);
+  });
+
+  it('normalizes an already strict file to a byte- and signature-identical no-op', () => {
+    const path = join(root(), 'strict.json');
+    const text = '{\n  "a": 1\n}\n';
+    writeFileSync(path, text);
+    const past = new Date('2020-01-01T00:00:00Z');
+    utimesSync(path, past, past);
+    const file = new JsonConfigFile(path, 'config', 'global', { ownership: 'user' });
+    const signature = file.signature();
+
+    expect(file.normalize()).toMatchObject({ ok: true, issues: [] });
+    expect(readFileSync(path, 'utf8')).toBe(text);
+    expect(file.signature()).toBe(signature);
   });
 });

@@ -42,7 +42,23 @@ export abstract class ConfigFile {
         issues: [],
       };
     }
-    const text = readFileSync(this.path, 'utf8');
+    let text: string;
+    try {
+      text = readFileSync(this.path, 'utf8');
+    } catch (error) {
+      // The path exists but cannot be read (a directory, permissions, a race):
+      // report it instead of throwing, and let `write` refuse it.
+      return {
+        path: this.path,
+        fileId: this.fileId,
+        scope: this.scope,
+        value: undefined,
+        text: '',
+        exists: true,
+        strict: true,
+        issues: [this.issue('read', `${this.path}: ${messageOf(error)}`, false)],
+      };
+    }
     const parsed = this.format().parse(text, this.path, this.fileId, this.scope);
     return {
       path: this.path,
@@ -55,13 +71,18 @@ export abstract class ConfigFile {
   }
 
   /**
-   * Write `value` strictly. A user file that is JSONC is refused until
+   * Write `value` strictly. A path that exists but cannot be read is refused
+   * with its `read` issue. A user file that is JSONC is refused until
    * `normalize()` drops the comments; an isolated file is Morse's own and is
-   * normalized on write. A file that cannot be parsed at all is never
-   * overwritten on the user's side: the write would destroy their content.
+   * normalized on write. A file with genuinely corrupt content is never
+   * overwritten on the user's side: the write would destroy their data.
    */
   write(value: unknown, options?: { normalize?: boolean }): ConfigMutation {
     const document = this.read();
+    const readIssues = document.issues.filter((issue) => issue.code === 'read');
+    if (readIssues.length > 0) {
+      return this.refuse(readIssues);
+    }
     if (
       document.issues.some((issue) => issue.code === 'parse') &&
       this.policy.ownership === 'user'
@@ -85,15 +106,24 @@ export abstract class ConfigFile {
     return this.store(value);
   }
 
-  /** Rewrite the file as strict JSON, keeping the parsed value. A syntax error cannot be fixed. */
+  /**
+   * Rewrite the file as strict JSON, keeping the parsed value. An unreadable
+   * path or a syntax error cannot be fixed, and an already strict, issue-free
+   * file is left untouched so a store's Fix never rewrites healthy fallbacks.
+   */
   normalize(): ConfigMutation {
     const document = this.read();
     if (!document.exists) {
       return { ok: true, path: this.path, scope: this.scope, issues: [] };
     }
-    const parseIssues = document.issues.filter((issue) => issue.code === 'parse');
-    if (parseIssues.length > 0) {
-      return this.refuse(parseIssues);
+    const blocking = document.issues.filter(
+      (issue) => issue.code === 'parse' || issue.code === 'read',
+    );
+    if (blocking.length > 0) {
+      return this.refuse(blocking);
+    }
+    if (document.strict) {
+      return { ok: true, path: this.path, scope: this.scope, issues: [] };
     }
     return this.store(document.value);
   }

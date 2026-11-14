@@ -34,11 +34,20 @@ export class JsonFormat extends ConfigFormat {
    * of the original text.
    */
   parse(text: string, path: string, fileId: string, scope: ConfigScope): ConfigParseResult {
+    if (text.trim().length === 0) {
+      return { value: undefined, strict: true, issues: [] };
+    }
     try {
       return { value: JSON.parse(text) as unknown, strict: true, issues: [] };
     } catch (error) {
+      const stripped = stripJsonc(text);
+      if (stripped.trim().length === 0) {
+        // Nothing but whitespace and comments: an empty document, which a write
+        // may initialize rather than an unfixable syntax error.
+        return { value: undefined, strict: true, issues: [] };
+      }
       try {
-        const value = JSON.parse(stripJsonc(text)) as unknown;
+        const value = JSON.parse(stripped) as unknown;
         return {
           value,
           strict: false,

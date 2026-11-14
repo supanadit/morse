@@ -35,4 +35,17 @@ describe('JsonFormat', () => {
   it('serializes with two spaces and a trailing newline', () => {
     expect(format.serialize({ a: 1 })).toBe('{\n  "a": 1\n}\n');
   });
+
+  it('treats whitespace- and comment-only text as an empty document, not an error', () => {
+    expect(format.parse(' \n\t', '/x.json', 'config', 'global')).toEqual({
+      value: undefined,
+      strict: true,
+      issues: [],
+    });
+    expect(format.parse('// todo\n', '/x.json', 'config', 'global')).toEqual({
+      value: undefined,
+      strict: true,
+      issues: [],
+    });
+  });
 });
