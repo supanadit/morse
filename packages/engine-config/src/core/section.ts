@@ -9,12 +9,6 @@ import type { ConfigIssue } from '@morse/protocol';
 
 import type { SectionContext } from './types.js';
 
-/** One entry of a named section, paired with its key. */
-export interface NamedConfigEntry<T> {
-  name: string;
-  item: T;
-}
-
 /** A JSON pointer to one place in a config document (`/mcpServers/filesystem`). */
 export function configPointer(...segments: string[]): string {
   return segments.map((segment) => `/${segment.replace(/~/g, '~0').replace(/\//g, '~1')}`).join('');

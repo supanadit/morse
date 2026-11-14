@@ -181,7 +181,7 @@ The wizard is a **full-page view** (never a modal): step rail at top, live summa
 large content area. It replaces the modal entirely for bot creation.
 
 The Connect step is a **provider manager over the bot's isolated config** — the UI equivalent of
-hand-editing `~/.config/opencode/opencode.json` or `~/.pi/agent/models.json`, scoped to
+hand-editing `~/.config/opencode/opencode.json[c]` or `~/.pi/agent/models.json`, scoped to
 `~/.morse/bot/<name>/`:
 
 - **Provider record** (Morse's abstraction): `{ id, label, api, baseUrl?, credential, models }`
@@ -243,7 +243,7 @@ manager is the general mechanism and the probe becomes one of its discovery stra
 - **Each bot carries its own MCP servers, written engine-natively.** The wizard's optional MCP step
   collects one engine-neutral list; the integration writes it where that engine keeps servers —
   pi's `mcpServers` in `<bot>/config/mcp.json` (its `PI_CODING_AGENT_DIR`), OpenCode's `mcp` block
-  in `<bot>/config/opencode/opencode.json` — and reads it back from the same file, so the form shows
+  in `<bot>/config/opencode/opencode.json[c]` — and reads it back from the same file, so the form shows
   what the engine really holds and the bot inherits nothing from the user's global config. No
   `pi`/`opencode` CLI runs for this. A malformed entry is skipped on read — and one that declares a
   transport without its command/url is dropped on the next save — while a pi entry that only
@@ -285,7 +285,7 @@ manager is the general mechanism and the probe becomes one of its discovery stra
 - **pi**: spawn with `PI_CODING_AGENT_DIR=<bot>/config`, `--session-dir <bot>/sessions`, cwd
   `<bot>/workspace`; model/thinking written engine-natively into the bot's config at wizard time.
 - **OpenCode**: spawn the bot's own server with `XDG_CONFIG_HOME`/`XDG_DATA_HOME` (or the
-  equivalent explicit config env) pointing into the bot's dirs, cwd `<bot>/workspace`; `opencode.json`
+  equivalent explicit config env) pointing into the bot's dirs, cwd `<bot>/workspace`; `opencode.json[c]`
   in the bot's config carries model, thinking and any wizard-defined subagents.
 
 ### Host/UI wiring

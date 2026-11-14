@@ -76,8 +76,8 @@ Morse **v0.27.2**. This page is the honest inventory of what ships. Everything e
   OpenCode alone. When neither resolves, the host registers nothing and reports an empty engine list —
   the panel then shows the full-screen setup card, which offers both installs (`engineSetup`).
 - Each engine's sessions are listed, opened, forked and deleted through the same commands. Engine-only extras
-  (MCP administration, prompt templates, version notice) come from the selected engine: OpenCode has none, so
-  those affordances are absent rather than empty.
+  (MCP administration, prompt templates, version notice) come from the selected engine: both engines have the
+  MCP manager and the prompt editor, and the version notice is pi's alone.
 
 ### Sessions and projects
 
@@ -159,17 +159,25 @@ turns them on so the panel stands on its own:
 
 ### MCP servers
 
-pi already connects MCP servers from `~/.pi/agent/mcp.json` and a project's `.pi/mcp.json`. Morse adds a
-manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated on `capabilities.mcp`):
+pi already connects MCP servers from `~/.pi/agent/mcp.json` and a project's `.pi/mcp.json`, and OpenCode from
+the `mcp` key of `opencode.json[c]`. Morse adds a manager for both (`Ctrl+Alt+S`, or the indicator dot in the
+chat toolbar, gated on `capabilities.mcp`):
 
 - **Indicator**: a dot whose colour is the active directory's MCP health — green when every enabled server
   connected, amber while one is connecting or needs sign-in, red when one failed or the config is malformed.
-  The state comes from `pi mcp list --json`, cached for a minute per directory.
+  The list comes from the configured files; pi then probes each enabled server in the background for its live
+  state, and OpenCode reports configured state only (a server connects when a session starts). The answer is
+  cached for a minute per directory. Servers a pi extension registers have no file entry, so they are not
+  listed — the panel says the list is configured files only.
 - **Manage**: remove a server and enable or disable it. One scope control — **This project** (default) or
   **Global** — decides which file every action writes. "This project" writes `.pi/mcp.json`; disabling a
   user-level server there writes a **project override** (like pi's "Disable in this project"), so other
   projects are unaffected. Enable/disable edits the same `mcp.json` pi reads; every other key and entry is
   preserved. The manager is the list; adding a server is a separate editor view.
+- **Read JSONC, fix it explicitly**: both engines' files are read as JSON or JSONC, so a file with comments
+  or trailing commas still lists. A write to a user's JSONC file is refused instead of silently dropping the
+  comments; a malformed file or entry is shown with its file, JSON pointer and a bounded snippet, and
+  **Fix** rewrites the named file as strict JSON in the browser host — never an arbitrary path.
 - **Add + inspect**: **Add server** opens the MCP editor — a tab in the browser host, a VS Code editor panel
   (`WebviewPanel`, routed `#/mcp`) in the extension — one at a time, and a second click just re-focuses it.
   The editor builds the entry and **Test connection** probes it with Morse's own MCP client (no Inspector
@@ -192,7 +200,9 @@ manager for them (`Ctrl+Alt+S`, or the indicator dot in the chat toolbar, gated 
 - Prompt templates run from a generated form with a live preview; a template file added or edited shows up
   without restarting pi (`commands/refresh`). A template pi refuses — bad YAML frontmatter, its own "Prompt
   conflicts" — is dropped from the palette and shown as one warning row above the conversation (never inside
-  it), with the files and pi's message behind a **Details** click.
+  it), with the files and pi's message behind a **Details** click. The same editor edits OpenCode's
+  `commands/*.md` files and the user config's `command` entries, and lists a config file it cannot write yet
+  as an issue with its **Fix**.
 - A model added to `models.json` shows up without restarting the host or the session: opening the model
   picker asks for a fresh catalog (`models/refresh`), and a reload re-reads the warm session's catalog.
   On a draft the session-less probe is re-run; on a warm session it is a plain RPC re-read.
@@ -238,9 +248,9 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
 - **Session rename** — a session is named by its engine (pi's session name, OpenCode's title). Morse displays
   that title and derives one from the first prompt before the engine names it, but has no rename command.
 - **OpenCode-only gaps, by design** — no Morse-side mode editor (modes are OpenCode's own agents), no custom
-  compaction instructions, no MCP/prompt-template editor, and no automatic restart of a crashed owned server.
-  Each is reported rather than simulated: a compaction with instructions warns and compacts without them; an
-  MCP or prompt command from the OpenCode engine is refused.
+  compaction instructions, no version notice, and no automatic restart of a crashed owned server. Each is
+  reported rather than simulated: a compaction with instructions warns and compacts without them; OpenCode's
+  MCP manager reports configured state rather than a live probe.
 - **Editing files in the browser** — the file tab is a read-only editor by design. It reads, folds, searches,
   quotes and diffs, but nothing writes: there is no save path, no dirty state and no language server.
 - **Staging, approving or rejecting changes as a set** — diffs are shown (tool-call diffs in the transcript,

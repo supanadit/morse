@@ -1,8 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 
 /**
- * One `opencode.json` document, read and written as plain JSON.
+ * One `opencode.json` document, read as plain JSON.
  *
  * OpenCode keeps everything — agents, providers, models *and* MCP servers — in
  * one file, so the writers that only own part of it hand a whole document
@@ -32,9 +31,4 @@ export function readOpenCodeFile(path: string): OpenCodeFile {
     throw new Error(`${path}: "mcp" must be an object.`);
   }
   return parsed as OpenCodeFile;
-}
-
-export function writeOpenCodeFile(path: string, file: OpenCodeFile): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, 'utf8');
 }

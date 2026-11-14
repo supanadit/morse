@@ -55,7 +55,11 @@ const OPENCODE_PACKAGE: Record<string, string> = {
   'google-generative-ai': '@ai-sdk/google',
 };
 
-/** The OpenCode file this bot's server reads. */
+/**
+ * The plain-JSON file Morse gives a bot's OpenCode server. The isolated engine
+ * reads an `opencode.jsonc` beside it — and writes that file — when one exists,
+ * so a tree with no `jsonc` uses exactly this path.
+ */
 export function openCodeConfigPath(botRoot: string): string {
   return join(botRoot, 'config', 'opencode', 'opencode.json');
 }

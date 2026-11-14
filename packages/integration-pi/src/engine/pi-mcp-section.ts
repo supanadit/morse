@@ -17,10 +17,10 @@ import {
 /**
  * The keys this codec owns; any other key of an entry is preserved verbatim.
  *
- * `description` is deliberately absent: no Morse form carries one through the
- * wizard (`BotService` drops it), so treating "not supplied" as "delete" erased
- * a hand-written description on any save. It is written when the caller does
- * send one, and otherwise left exactly as the reader wrote it.
+ * `description` is deliberately absent: no Morse form carried one through the
+ * wizard at the time this was written, so treating "not supplied" as "delete"
+ * erased a hand-written description on any save. It is written when the caller
+ * does send one, and otherwise left exactly as the reader wrote it.
  */
 const MANAGED_KEYS = [
   'type',

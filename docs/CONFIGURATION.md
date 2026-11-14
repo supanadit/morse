@@ -72,8 +72,8 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
 - **Modes** are OpenCode's primary agents. `plan`, `build` and any primary agent you define are offered; hidden
   and subagent-only agents are not. The current mode can be changed while a conversation runs (OpenCode's Tab
   behaviour), and the mode picker re-reads the catalog when it opens.
-- **Default mode** — OpenCode resolves it from your configuration. Set `default_agent` in `opencode.json` (or a
-  project `.opencode/opencode.json`):
+- **Default mode** — OpenCode resolves it from your configuration. Set `default_agent` in `opencode.json[c]` (or a
+  project `.opencode/opencode.json[c]`):
 
   ```json
   { "default_agent": "plan" }
@@ -83,20 +83,22 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
   exactly as OpenCode does. When none is set, it uses the first primary agent OpenCode reports, which is where
   the server places its resolved default. Morse never hardcodes `build` or `plan`. A session created without an
   explicit mode omits the agent field, so OpenCode applies the same default at prompt time.
-- **Adding or changing modes** — define a primary agent in `opencode.json` under `agents`, or add a Markdown file
+- **Adding or changing modes** — define a primary agent in `opencode.json[c]` under `agents`, or add a Markdown file
   under `.opencode/agent/` (or `~/.config/opencode/agent/`). OpenCode reloads its configuration; opening the
   mode picker (or starting a new session) re-reads `/api/agent` and `/api/config`, so the new, renamed, disabled
   or removed agent appears without restarting Morse.
 - **Commands** — OpenCode's own commands (markdown files under `~/.config/opencode/commands` and the project's
-  `.opencode/commands`, plus `command` entries in `opencode.json`) appear in the composer palette. Morse reads
+  `.opencode/commands`, plus `command` entries in `opencode.json[c]`) appear in the composer palette. Morse reads
   the same files and config the server loads, so a template that declares arguments — `$1`, `$ARGUMENTS`, or an
   `argument-hint` — opens the argument form, exactly as pi's templates do. Templates without declared arguments
   run as a bare `/name`, and OpenCode expands them itself (including its shell-injection and `@file` features,
   which Morse does not substitute). Commands Morse cannot find a file for — plugin-provided ones, nested
   `a/b` names — run the same way.
-- OpenCode exposes no MCP editor, no prompt templates and no version notice to Morse, so those affordances are
-  absent while it is the selected engine. A compaction asked for with custom instructions runs without them and
-  says so.
+- OpenCode's MCP servers and prompt templates are managed by the same panels as pi's: the MCP manager reads
+  the `mcp` key of `opencode.json[c]` and reports configured state — OpenCode connects a server when a session
+  starts — and the prompt editor lists its command files and the config's `command` entries. Only the version
+  notice is absent: OpenCode reports no installed version to Morse, so the "newer release" row never appears
+  for it. A compaction asked for with custom instructions runs without OpenCode-specific extras and says so.
 
 Morse's session index lives under `<MORSE_HOME>/sessions/` (the VS Code extension uses its global storage).
 It is what the sidebar lists; each engine's own storage still holds the conversations.
@@ -130,6 +132,49 @@ survives a host restart too. `MORSE_TERMINAL_IDLE_MS` is the dial for how long a
 running before it is reclaimed — the scrollback stays either way. A shell only ends sooner when its pane is
 closed.
 
+## MCP servers
+
+Morse reads MCP servers from each engine's own file and writes them back there — no `pi` or `opencode` CLI
+runs for this.
+
+| Engine | User file | Project file |
+|---|---|---|
+| pi | `<PI_CODING_AGENT_DIR>/mcp.json` (`~/.pi/agent/mcp.json` by default) | `<project>/.pi/mcp.json` |
+| OpenCode | `<xdg config>/opencode/opencode.json`, or `opencode.jsonc` beside it (the `jsonc` wins) | `<project>/.opencode/opencode.json[c]`, then `<project>/opencode.json[c]`, and the same pair in every ancestor |
+
+Every `.opencode` config outranks every direct one, and a nearer directory outranks a further one — OpenCode's
+own precedence. An OpenCode save lands in the first existing file of that order (in the project, or the user's
+file when there is no project), and a tree with no config at all gets a new `opencode.json`. A pi project file
+is read only while pi would load it, so the panel shows pi's **Trust this project** until it is.
+
+Both managers read **JSON or JSONC**: comments and trailing commas in a user's file are read, not rejected.
+They share one foundation (`@morse/engine-config`), so the read, preserve and Fix rules below hold for either
+engine; what differs is each engine's own file spelling.
+A project entry shadows the user-level server of the same name. pi's project entry with none of `command`,
+`url` or `type` is an *override* that only pins `enabled`/`exposure` for that directory (the same thing pi's
+own `/mcp` writes); OpenCode's entry replaces a same-named one outright.
+
+What the panel lists comes from the configured files, plus a probe where the engine has live state:
+
+- **pi** lists what the files declare and, in the background, connects each enabled, trusted server to report
+  its state and tools. Servers registered by a pi extension have no file entry, so they are **not** listed;
+  the panel says the list is configured files only. Project entries and overrides are ignored until the
+  project is trusted.
+- **OpenCode** reports configured state only: a server connects when a session starts, so the panel never
+  claims a live connection.
+
+A malformed file or entry is shown as an issue beside the list — the file, a JSON pointer, and a bounded
+snippet of what the engine read. An entry that is `null`, is not an object, or names a transport without its
+`command` (stdio) or `url` (http) is skipped while its siblings still list. An edit keeps every key Morse
+does not manage, and the `mcpServers`/`mcp` block is deleted once its last entry is removed.
+
+**Fix** rewrites one of those files as strict JSON at the same path, dropping comments and trailing commas, so
+the next edit can land. It only touches a path the selected engine resolved for that file id and scope — the
+write target or a read fallback, including a `.jsonc` or ancestor file — never an arbitrary path. The browser
+host offers it beside a fixable issue; a file with a real syntax error is reported as needing a hand edit,
+because Fix does not guess at missing braces or unquoted keys. Morse never silently strips a user's comments:
+a write to a JSONC user file is refused until Fix is used.
+
 ## Bots
 
 A bot keeps its MCP servers in its **own** tree — never in your global `~/.pi/agent` or
@@ -138,8 +183,9 @@ A bot keeps its MCP servers in its **own** tree — never in your global `~/.pi/
 - **pi** — `PI_CODING_AGENT_DIR` is `<bot>/config`, so the servers are the `mcpServers` entries of
   `<MORSE_HOME>/bot/<agent-name>/config/mcp.json`, in pi's own shape: `type` (`stdio` or `http`),
   `command`/`args`/`env`/`cwd` or `url`/`headers`, `enabled`, and pi's `exposure`.
-- **OpenCode** — the bot's own server loads `<bot>/config/opencode/opencode.json` (its
-  `XDG_CONFIG_HOME` is `<bot>/config`), and the servers are that file's `mcp` key as OpenCode writes
+- **OpenCode** — the bot's own server loads `<bot>/config/opencode/opencode.json` — or an
+  `opencode.jsonc` beside it, which the isolated engine reads and writes instead (its
+  `XDG_CONFIG_HOME` is `<bot>/config`) — and the servers are that file's `mcp` key as OpenCode writes
   it: `local` with a `command` array plus `environment`/`cwd`, or `remote` with `url` and `headers`;
   `enabled: false` switches one off.
 
@@ -148,26 +194,34 @@ The bot wizard writes them for you: the optional **MCP** step sits between **Per
 writes the files directly — no `pi` or `opencode` CLI runs for this — and a bot inherits no MCP
 servers from your own configuration.
 
+A bot's tree is Morse's own, so its files are private: directories `0700` and files `0600`. It is also
+the one place a JSONC file is normalized without asking: the bot's file is generated, so a JSONC
+`mcp.json` (or `opencode.json[c]`) is read and then rewritten as strict JSON by the same save, where a
+user's file waits for Fix.
+
 pi's `settings.json` in a bot's agent dir carries
 `"$schema": "https://pi.dev/schemas/settings.schema.json"` as its first key. Morse writes that
 reference — `repair` seeds it into a bot's existing `settings.json` — but never validates the file
 against it: the schema is for the editor, which uses it to validate and complete the file. OpenCode's
-`opencode.json` names its own (`https://opencode.ai/config.json`).
+config names its own (`https://opencode.ai/config.json`).
 
 Entries are read leniently and written authoritatively. An entry that is null, is not an object, or
 names a transport without its `command` (stdio) or `url` (http) is skipped when the wizard reads the
-file, and the rest still show. A server the wizard shows is rewritten on save. One it no longer
-shows is removed when pi declares it a server (it has a `command`, `url` or `type`), so a malformed
-stdio/http entry is gone after the next save; OpenCode's whole `mcp` block is replaced by the list on
-screen. What Morse does not show it does not delete: a pi entry with none of `command`, `url` or
-`type` is a project *override* that only switches a user-level server's `enabled`/`exposure`, and a
-`null` or non-object entry is left where it is. Unknown keys inside a managed server survive an edit
-too — `auth`, for instance, stays. A pi `mcp.json` that is not valid JSON is ignored on read: the
-bot's other settings still appear and the MCP step shows no servers, but adding a server to that file
-makes the save fail, because the writer has to rewrite a file it cannot parse — repair it by hand
-first. `opencode.json` is stricter still, since MCP lives inside it: an invalid file can be neither
-read nor written, so Edit bot shows nothing at all — persona, model, tools, subagents and MCP alike —
-and a save fails until it is fixed by hand.
+file, and the rest still show. A server the wizard shows is rewritten on save. An entry it no longer
+shows is removed on the next save — a malformed stdio/http entry and a `null` or non-object entry
+included — except a pi entry with none of `command`, `url` or `type`, which is a project *override*
+that only switches a user-level server's `enabled`/`exposure` and is kept. OpenCode's whole `mcp`
+block is replaced by the list on screen. Unknown keys inside a managed server survive an edit too —
+`auth`, for instance, stays. A name that is not letters, digits, `_` and `-`, or that is one of
+`__proto__`, `prototype` and `constructor`, is refused before anything is written.
+
+A pi `mcp.json` that cannot be parsed is ignored on read: the bot's other settings still appear and
+the MCP step shows no servers, but adding a server to that file makes the save fail, because the
+writer has to rewrite a file it cannot parse — repair it by hand first. `opencode.json[c]` is
+stricter still, since MCP lives inside it: a file that cannot be parsed can be neither read nor
+written, so Edit bot shows nothing at all — persona, model, tools, subagents and MCP alike — and a
+save fails until it is fixed by hand. A file that parses but whose `mcp` block is not an object lists
+no servers, and the next save replaces that block with the list on screen.
 
 ## Interface preferences
 
@@ -230,23 +284,40 @@ never pushes a session tab aside.
 
 ## Prompt templates
 
-pi turns Markdown files under `~/.pi/agent/prompts` (and, once a project is trusted, `<project>/.pi/prompts`)
-into `/commands`. Run **Edit prompt templates** — from the toolbar's document button, the command palette, or
-`Ctrl+Alt+E` (it is a Morse command, not a pi one) — to open Morse's editor for them: the browser host replaces
-the tab strip and chat with the full-page **Prompt templates** editor (toggle it from the same button, the
-command palette, or `Ctrl+Alt+E` again to go back), and VS Code opens a **Prompt templates** editor panel, the
-same way the MCP editor does. It lists the
-templates the host read — your user prompt directory plus, with a session in front, that session's project
-`.pi/prompts` — writes the file for you (frontmatter and body) and tests the expansion before you run it.
+Each engine's `/commands` are edited by the same **Edit prompt templates** view — from the toolbar's document
+button, the command palette, or `Ctrl+Alt+E` (it is a Morse command, not pi's or OpenCode's): the browser host
+replaces the tab strip and chat with the full-page **Prompt templates** editor (toggle it from the same button,
+the command palette, or `Ctrl+Alt+E` again to go back), and VS Code opens a **Prompt templates** editor panel,
+the same way the MCP editor does. It writes the template for you (frontmatter and body) and tests the expansion
+before you run it.
+
+- **pi** turns Markdown files under `~/.pi/agent/prompts` (and, once a project is trusted,
+  `<project>/.pi/prompts`) into `/commands`. The file name is the command name, and a project file shadows a
+  user one.
+- **OpenCode** reads `<xdg config>/opencode/commands/*.md` and `<project>/.opencode/commands/*.md` — both lists
+  show, because OpenCode merges them — plus the `command` entries of the **user-level** `opencode.json[c]`
+  (`{ template, description, agent?, model?, subtask? }`). A `command` row is edited as its structured entry;
+  a project `command` block is not read. OpenCode has no trust gate.
+
+Both engines' templates are read and written through the same foundation as their MCP servers, so the
+listing, validation and Fix rules are shared; what differs is the engine's own format — pi's frontmatter
+fields versus OpenCode's command files and `command` entries.
 
 The editor understands pi's full substitution vocabulary: `$1`, `${1:-fallback}`, `$@` / `$ARGUMENTS`,
 `${@:-fallback}`, `${@:2}` and `${@:2:3}`, with shell-like quoting for arguments that contain spaces. The
 **Fields** tester derives one input per argument from `argument-hint` (angle brackets required, square brackets
 optional) and shows the `${n:-…}` default as its placeholder; the **Raw** tester parses a line the way pi does.
-Either way the preview is the exact prompt the agent would receive. A save asks the host to re-read the files, so
-a new or renamed template shows up in the palette without restarting the session.
+Either way the preview is the exact prompt the agent would receive. For OpenCode the sheet lists the two forms
+OpenCode itself expands — `$ARGUMENTS` and `$1`–`$9` — and OpenCode applies its own shell and `@file` features
+when it runs the command. A save asks the host to re-read the templates, so a new or renamed one shows up in the
+palette without restarting the session.
 
-A template pi would refuse (invalid YAML frontmatter) is listed with its error instead of vanishing: fix the
-frontmatter and save. Writing a project template works before the project is trusted, but pi ignores `.pi/prompts`
-until you trust it — the editor says so, and the MCP panel's **Trust this project** does it. With no session in
-front there is no project scope, so the editor offers the user templates only.
+A template the engine would refuse is listed with its error instead of vanishing — pi's invalid YAML
+frontmatter, or an OpenCode command file whose frontmatter is broken — so fix it and save. Writing a project
+template works before the project is trusted, but pi ignores `.pi/prompts` until you trust it — the editor says
+so, and the MCP panel's **Trust this project** does it. With no session in front there is no project scope, so
+the editor offers the user templates only.
+
+A config file the editor cannot write yet — an `opencode.json[c]` still carrying comments — is listed as an
+issue beside the templates; **Fix** rewrites it as strict JSON, exactly as it does for MCP. A template file the
+host could not read stays listed with its own error instead.

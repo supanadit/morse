@@ -46,6 +46,14 @@ direction: Morse knows both formats.
 - Any dependency on the `pi`/`opencode` CLI. The only spawned process is the MCP
   server itself, during Test.
 
+> **Superseded (2026-11-14, engine resource foundation).** The "global MCP panel/editor"
+> non-goal above no longer holds: that panel/editor now uses the same foundation as this
+> wizard. Both surfaces are stores over `@morse/engine-config` (`McpStore`), so an
+> engine's MCP codec is written once and a bot is simply an isolated engine instance.
+> The rest of this document remains the historical design; see
+> [`2026-11-14-engine-resource-foundation-design.md`](2026-11-14-engine-resource-foundation-design.md)
+> for the shared contract.
+
 ## Anti-goals
 
 - Do **not** move engine format knowledge into `@morse/system` (a central

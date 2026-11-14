@@ -6,9 +6,10 @@
  * so a repository-level file can decide every package under it.
  *
  * Reads are limited to the files that exist, in precedence order, so a listing
- * never consults a path that cannot have content; the write target is the
- * nearest existing file, and only a tree with no config at all gets a new
- * `opencode.json`.
+ * never consults a path that cannot have content; the write target is the first
+ * existing file in that order (every `.opencode` config before every direct one,
+ * a `jsonc` before the `json` beside it), and only a tree with no config at all
+ * gets a new `opencode.json`.
  */
 import { existsSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';

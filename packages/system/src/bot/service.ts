@@ -221,9 +221,9 @@ function toMcpRecord(server: BotMcpServerInput): BotMcpServer {
     ...(server.headers === undefined ? {} : { headers: { ...server.headers } }),
     ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
     ...(server.exposure === undefined ? {} : { exposure: server.exposure }),
-    // The neutral shape carries the engine's own text for the server; dropping it
-    // here made every save look like "no description", which erased a
-    // hand-written one in the engine's file.
+    // The neutral shape carries the engine's own text for the server. Without
+    // this mapping the description was lost on every conversion, so the wizard
+    // read back no text and could never show the one the engine file holds.
     ...(server.description === undefined ? {} : { description: server.description }),
   };
 }
