@@ -53,6 +53,9 @@ logged; bot mode is one capability, not a precondition for code sessions).
 - A bot missing its DM conversation gets one, so the sidebar cannot offer a dead row.
 - A bot directory no registry entry claims is **reported, never deleted** — it may be a bot whose registry
   write was lost.
+- Morse's session index (`sessions/records/`) is additive: a newer release stores fields an older one does
+  not know (`titlePinned`, say). The older build reads the record and ignores them, and drops them only if
+  it rewrites that record — a renamed session then shows the engine's name again, never corruption.
 
 ## Engine layouts may need repair, not just rewriting
 

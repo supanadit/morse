@@ -1,7 +1,7 @@
 # Session rename and project deletion
 
 Date: 2026-11-15
-Status: proposed
+Status: implemented
 
 ## Intent
 
