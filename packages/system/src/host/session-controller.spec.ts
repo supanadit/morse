@@ -3064,3 +3064,76 @@ describe('HostSessionController bot messages', () => {
     });
   });
 });
+
+/**
+ * The transcript must know which model wrote each answer, and the host is the
+ * only one that can say: the reader changes model mid-conversation, so the
+ * controller feeds every `agent/state` it sees into the transcript, in front or
+ * not, before that session's next answer lands.
+ */
+describe('HostSessionController transcript model', () => {
+  it('feeds the session model to the transcript, in front or not', async () => {
+    const messages: HostToClientMessage[] = [];
+    const listeners: AgentEventListener[] = [];
+    const transcripts = new SessionTranscriptStore();
+    const emit = (event: AgentEvent): void => {
+      for (const listener of [...listeners]) {
+        listener(event);
+      }
+    };
+    const agentState: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'off',
+      model: { provider: 'zai', id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' },
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: true,
+      sessionId: 'sess-1',
+    };
+    const gateway: AgentGateway = {
+      subscribe(listener) {
+        listeners.push(listener);
+        return () => {
+          const index = listeners.indexOf(listener);
+          if (index >= 0) {
+            listeners.splice(index, 1);
+          }
+        };
+      },
+      state: () => Promise.resolve({ ...agentState }),
+      history: () => Promise.resolve({ entries: [], hasOlder: false }),
+      prompt: () => Promise.resolve<PromptDisposition>('started'),
+      forkMessages: () => Promise.resolve([]),
+      fork: () => Promise.resolve({ text: '', cancelled: true }),
+      abort: () => Promise.resolve(),
+      setModel: () => Promise.resolve(),
+      setThinkingLevel: () => Promise.resolve(),
+      compact: () => Promise.resolve(),
+      respondToInteraction: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    };
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(gateway) },
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const host = connect(registry, chat, transcripts, messages);
+    await host.start();
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+
+    emit({ type: 'agent/state', at: Date.now(), state: { ...agentState } });
+    emit({ type: 'agent/delta', at: Date.now(), channel: 'text', delta: 'hi' });
+    emit({ type: 'agent/message', at: Date.now(), text: 'hi', thinking: '' });
+
+    expect(transcripts.items('sess-1').at(-1)).toMatchObject({
+      kind: 'assistant',
+      model: 'glm-5.3-flash',
+    });
+  });
+});

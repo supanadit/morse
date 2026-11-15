@@ -1,4 +1,4 @@
-import type { AgentEvent, NoticeLevel } from '@morse/agent';
+import type { AgentEvent, ModelRef, NoticeLevel } from '@morse/agent';
 import type { ChatPin, HostToClientMessage, PromptImage, TranscriptItem } from '@morse/protocol';
 import { TranscriptProjector } from './transcript-projector.js';
 
@@ -31,6 +31,12 @@ export interface HistoryCursor {
 export class SessionTranscriptStore {
   private readonly projectors = new Map<string, TranscriptProjector>();
   private readonly cursors = new Map<string, HistoryCursor>();
+  /**
+   * The model each session is on, as the controller last heard it. Kept here
+   * beside the transcript so a projector created later (a second window, a
+   * session that arrived warm) still stamps its first assistant row.
+   */
+  private readonly models = new Map<string, ModelRef>();
   private readonly listeners = new Set<(update: TranscriptUpdate) => void>();
 
   /**
@@ -92,6 +98,20 @@ export class SessionTranscriptStore {
     this.projectorFor(sessionKey).apply(event);
   }
 
+  /**
+   * Records the model a session is on. The controller reports it on every
+   * `agent/state`, so a row opened after a model pick is stamped with the new
+   * one while rows already written keep the model that produced them.
+   */
+  setModel(sessionKey: string, model: ModelRef | undefined): void {
+    if (model === undefined) {
+      this.models.delete(sessionKey);
+    } else {
+      this.models.set(sessionKey, model);
+    }
+    this.projectors.get(sessionKey)?.setModel(model);
+  }
+
   /** Replays a resumed session's history into an empty transcript. */
   seed(sessionKey: string, items: TranscriptItem[]): void {
     const projector = this.projectorFor(sessionKey);
@@ -118,6 +138,11 @@ export class SessionTranscriptStore {
     }
     this.projectors.delete(fromKey);
     this.cursors.delete(fromKey);
+    const model = this.models.get(fromKey);
+    this.models.delete(fromKey);
+    if (model !== undefined) {
+      this.models.set(toKey, model);
+    }
     this.cursors.set(toKey, { hasOlder: false });
     this.projectorFor(toKey).replace(items);
   }
@@ -148,12 +173,14 @@ export class SessionTranscriptStore {
 
   clear(sessionKey: string): void {
     this.cursors.delete(sessionKey);
+    this.models.delete(sessionKey);
     this.projectors.delete(sessionKey);
   }
 
   dispose(): void {
     this.projectors.clear();
     this.cursors.clear();
+    this.models.clear();
     this.listeners.clear();
   }
 
@@ -171,6 +198,7 @@ export class SessionTranscriptStore {
           });
         },
       });
+      projector.setModel(this.models.get(sessionKey));
       this.projectors.set(sessionKey, projector);
     }
     return projector;

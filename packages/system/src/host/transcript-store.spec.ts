@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { AgentEvent } from '@morse/agent';
 import { SessionTranscriptStore } from './transcript-store.js';
 
 /**
@@ -79,5 +80,52 @@ describe('SessionTranscriptStore', () => {
     // A copy, not the projector's own array.
     store.items('s1').push({ kind: 'notice', id: 'n1', at: 3, level: 'info', text: 'x' });
     expect(store.items('s1')).toHaveLength(2);
+  });
+});
+
+/**
+ * The reader switches models mid-conversation, so the store carries the session's
+ * model alongside the transcript and hands it to the projector that stamps each
+ * new assistant row. A model change never rewrites rows already written.
+ */
+describe('SessionTranscriptStore model', () => {
+  const ZAI = { provider: 'zai', id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' };
+  const message = (text: string): AgentEvent => ({
+    type: 'agent/message',
+    at: 2,
+    text,
+    thinking: '',
+  });
+
+  it('stamps rows created after setModel, per session', () => {
+    const store = new SessionTranscriptStore();
+    store.setModel('s1', ZAI);
+    store.userPrompt('s1', 'hello');
+    store.apply('s1', message('hi'));
+    store.userPrompt('s2', 'hey');
+    store.apply('s2', message('yo'));
+
+    expect(store.items('s1').at(-1)).toMatchObject({ kind: 'assistant', model: 'glm-5.3-flash' });
+    expect(store.items('s2').at(-1)).not.toHaveProperty('model');
+  });
+
+  it('keeps the model for a projector created after setModel', () => {
+    const store = new SessionTranscriptStore();
+    store.setModel('s1', ZAI);
+    store.userPrompt('s1', 'hello');
+    store.apply('s1', message('hi'));
+
+    expect(store.items('s1').at(-1)).toMatchObject({ model: 'glm-5.3-flash' });
+  });
+
+  it('drops the remembered model with the transcript', () => {
+    const store = new SessionTranscriptStore();
+    store.setModel('s1', ZAI);
+    store.userPrompt('s1', 'hello');
+    store.clear('s1');
+    store.userPrompt('s1', 'again');
+    store.apply('s1', message('hi'));
+
+    expect(store.items('s1').at(-1)).not.toHaveProperty('model');
   });
 });
