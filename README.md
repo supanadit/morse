@@ -83,6 +83,40 @@ Morse started as a _vibe-coded prototype_, **but not anymore**. I fell in love w
   changes the model or the thinking level, toggles the git panel (browser host), and opens the compaction
   question; `/` jumps to the session search and `?` prints the whole list.
 
+## Why ACP is not supported yet
+
+Morse does **not** ship an [Agent Client Protocol](https://agentclientprotocol.com) engine yet. That is a
+deliberate decision, not an oversight. ACP standardises the conversation itself — sessions, prompts, streaming,
+permissions, cancellation, models, modes and commands — and that is genuinely useful. But the depth Morse needs
+around that conversation is still missing, and shipping it today would mean dead buttons and a half-empty panel.
+
+What is missing for the ACP agents we can drive today:
+
+- **History.** The agents we checked restore a resumed session without replaying it, so the transcript would
+  start blank. The only fixes are reading the agent's private store or copying transcripts into Morse; the first
+  is vendor-specific, and the second breaks the rule that the engine owns the conversation.
+- **MCP.** ACP passes MCP servers when a session starts, but has no methods to list, add, remove, enable or
+  disable them. Morse's MCP manager would have nothing to manage.
+- **Cost and usage.** Usage updates carry context tokens; cost is optional, and the agent we checked sends none.
+  The per-turn token breakdown is not a stable protocol field.
+- **Edit, fork and clone.** ACP has no conversation-branching primitive (fork is still a draft proposal), so
+  Morse's edit and fork actions would have to disappear.
+- **Model metadata.** ACP reports a model id and name, not the context window, output limit, input modalities or
+  provider the picker shows.
+- **Subagents and rich tool output.** Child sessions are not standard in v1, and diffs live in agent-specific
+  tool payloads rather than a shape Morse can render.
+- **Administration and bot mode.** ACP is a conversation protocol, not an agent-configuration API: MCP servers,
+  prompt templates, providers and bot configuration remain the agent's own business.
+
+ACP v1 exists and works, but it is thin. ACP v2 (still a draft, and explicitly not to be shipped by default until
+it stabilises) improves the turn lifecycle, message identity, tool output and diffs. It still does not
+standardise history retention, MCP administration, model metadata, cost, prompt templates or child-session
+transcripts, and no ACP agent we tested negotiates it yet.
+
+If those gaps close — or an ACP agent implements enough of them — the shape is already clear: one
+`integration-acp` package for the protocol, one declarative profile per agent, and no new package per program.
+The engine-agnostic seam is ready for it.
+
 ## Requirements
 
 - Node.js 20+ (developed on 24) and npm 10+.
