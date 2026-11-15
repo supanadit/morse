@@ -34,14 +34,14 @@ export interface OpenedSession {
   reused: boolean;
 }
 
-/** Result of forking the active session before a past user message. */
+/** Result of a branch operation (fork, rewrite or clone) on the active session. */
 export interface ForkedSession {
-  /** Registry key after the fork (the new session id); unchanged when cancelled. */
+  /** Registry key after the branch (the new session id); unchanged when cancelled. */
   key: string;
-  /** Registry key the session had before the fork. */
+  /** Registry key the session had before the branch. */
   previousKey: string;
   state: AgentSessionState;
-  /** Text of the message the fork re-opened, for restoring the editor. */
+  /** Text of the message the branch re-opened, for restoring the editor. */
   text: string;
   cancelled: boolean;
 }
@@ -287,21 +287,56 @@ export class SessionRegistry {
    * shared "session in front" — a VS Code editor tab pinned to one conversation
    * forks its own branch, not whichever session some other panel last activated.
    */
-  async forkActive(entryId: string, sessionKey?: string): Promise<ForkedSession> {
+  forkActive(entryId: string, sessionKey?: string): Promise<ForkedSession> {
+    return this.branchActive('fork', entryId, sessionKey);
+  }
+
+  /**
+   * Rewrites the active session from a past user message. An engine that can
+   * edit in place keeps its session id and the hot entry stands; one that
+   * branches (pi has no edit primitive) re-keys exactly like a fork.
+   */
+  rewriteActive(entryId: string, sessionKey?: string): Promise<ForkedSession> {
+    return this.branchActive('rewrite', entryId, sessionKey);
+  }
+
+  /** Branches the active session at its tip into a copy the reader continues in. */
+  cloneActive(sessionKey?: string): Promise<ForkedSession> {
+    return this.branchActive('clone', undefined, sessionKey);
+  }
+
+  /**
+   * The one body the three branch operations share: the engine moves the
+   * conversation (to a new session id, or in place for a rewrite), and the hot
+   * entry follows it rather than being respawned. A cancelled branch leaves the
+   * session untouched and still reports its state.
+   */
+  private async branchActive(
+    operation: 'fork' | 'rewrite' | 'clone',
+    entryId: string | undefined,
+    sessionKey?: string,
+  ): Promise<ForkedSession> {
     const previousKey = sessionKey ?? this.activeKey;
     const hot = previousKey === undefined ? undefined : this.hot.get(previousKey);
     if (previousKey === undefined || !hot) {
       throw new AgentUnavailableError('No active Morse session. Open a session first.');
     }
-    const result = await hot.gateway.fork(entryId);
-    // A cancelled fork leaves the session untouched and still reports its state.
+    const result =
+      operation === 'fork'
+        ? await hot.gateway.fork(entryId ?? '')
+        : operation === 'rewrite'
+          ? await hot.gateway.rewrite(entryId ?? '')
+          : await hot.gateway.clone();
+    // Only a fork and a rewrite report the message they dropped; a clone has
+    // none. (`typeof` because `in` narrows the omitted side to unknown.)
+    const text = 'text' in result && typeof result.text === 'string' ? result.text : '';
     const state = await hot.gateway.state();
     if (result.cancelled) {
-      return { key: previousKey, previousKey, state, text: result.text, cancelled: true };
+      return { key: previousKey, previousKey, state, text, cancelled: true };
     }
     const key = state.sessionId ?? this.nextSyntheticKey(hot.workspace);
     if (key === previousKey) {
-      return { key, previousKey, state, text: result.text, cancelled: false };
+      return { key, previousKey, state, text, cancelled: false };
     }
 
     hot.detach();
@@ -321,13 +356,13 @@ export class SessionRegistry {
     } else {
       this.recency.push(key);
     }
-    // Only adopt the fork as the host-wide session in front when this call was
-    // for it: a pinned tab forking its own conversation must not steal the
+    // Only adopt the branch as the host-wide session in front when this call was
+    // for it: a pinned tab branching its own conversation must not steal the
     // sidebar's pointer.
     if (sessionKey === undefined || sessionKey === this.activeKey) {
       this.activeKey = key;
     }
-    return { key, previousKey, state, text: result.text, cancelled: false };
+    return { key, previousKey, state, text, cancelled: false };
   }
 
   async close(key: string): Promise<void> {

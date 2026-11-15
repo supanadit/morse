@@ -81,6 +81,14 @@ class FakeGateway implements AgentGateway {
   refreshHistory?: () => Promise<void>;
   /** The engine id this session moves to on a fork, when one is configured. */
   private readonly forkTo: string | undefined;
+  /** The engine id a rewrite moves to; unset edits in place (when it commits). */
+  rewriteTo: string | undefined;
+  /** The dropped text a committing rewrite reports; unset makes a rewrite cancel. */
+  rewriteText: string | undefined;
+  /** The new session an engine's clone creates; unset makes a clone cancel. */
+  cloneTo: string | undefined;
+  /** What `userMessages()` offers for the edit-point lookup. */
+  messages: AgentUserMessage[] = [];
   private readonly listeners = new Set<(event: AgentEvent) => void>();
 
   constructor(state: AgentSessionState, forkTo?: string) {
@@ -114,15 +122,27 @@ class FakeGateway implements AgentGateway {
   }
 
   userMessages(): Promise<AgentUserMessage[]> {
-    return Promise.resolve([]);
+    return Promise.resolve(this.messages);
   }
 
-  rewrite(): Promise<{ text: string; cancelled: boolean }> {
-    return Promise.resolve({ text: '', cancelled: true });
+  rewrite(_entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    if (this.rewriteText === undefined) {
+      return Promise.resolve({ text: '', cancelled: true });
+    }
+    // An engine that can edit in place leaves the id alone; one that cannot
+    // branches, and the id moves with the new session.
+    if (this.rewriteTo !== undefined) {
+      this.current = { ...this.current, sessionId: this.rewriteTo };
+    }
+    return Promise.resolve({ text: this.rewriteText, cancelled: false });
   }
 
   clone(): Promise<{ cancelled: boolean }> {
-    return Promise.resolve({ cancelled: true });
+    if (this.cloneTo === undefined) {
+      return Promise.resolve({ cancelled: true });
+    }
+    this.current = { ...this.current, sessionId: this.cloneTo };
+    return Promise.resolve({ cancelled: false });
   }
 
   fork(): Promise<{ text: string; cancelled: boolean }> {
@@ -449,6 +469,95 @@ describe('AgentRouter', () => {
     // The session continues under the fork's id, and the parent is still listed.
     expect((await gateway.state()).sessionId).toBe(child.id);
     expect(await store.read(parentRecord.id)).toMatchObject({ id: parentRecord.id });
+  });
+
+  it('keeps the id when a rewrite edits in place, and forwards the user messages', async () => {
+    const record = recordOf('pi', 'pi-1');
+    const store = new MemoryStore();
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(state({ sessionId: 'pi-1' }));
+    inner.messages = [{ entryId: 'entry-1', text: 'the prompt being edited' }];
+    inner.rewriteText = 'the prompt being edited';
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({ sessionId: record.id });
+    expect(await gateway.userMessages()).toEqual(inner.messages);
+    // The row exists before the branch: an open always reads the state first.
+    expect((await gateway.state()).sessionId).toBe(record.id);
+
+    const rewritten = await gateway.rewrite('entry-1');
+    expect(rewritten).toEqual({ text: 'the prompt being edited', cancelled: false });
+    // In place: the id stands, so the row is the same one and no branch appears.
+    expect((await gateway.state()).sessionId).toBe(record.id);
+    expect(await store.read(record.id)).toMatchObject({
+      engineRef: { engine: 'pi', sessionId: 'pi-1' },
+    });
+    expect([...store.rows.keys()]).toEqual([record.id]);
+  });
+
+  it('re-keys a rewrite that branches onto a new engine session', async () => {
+    const record = recordOf('pi', 'pi-1');
+    const store = new MemoryStore();
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(state({ sessionId: 'pi-1' }));
+    inner.rewriteText = 'the prompt being edited';
+    inner.rewriteTo = 'pi-edited';
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({ sessionId: record.id });
+    expect((await gateway.state()).sessionId).toBe(record.id);
+    const rewritten = await gateway.rewrite('entry-1');
+    expect(rewritten).toEqual({ text: 'the prompt being edited', cancelled: false });
+
+    // An engine with no edit primitive branches: the id is re-derived and the
+    // new row nests under the one it was cut from. The row is written before a
+    // caller reads the state again, so the sidebar never shows the old id.
+    const edited = recordOf('pi', 'pi-edited');
+    expect(edited.id).not.toBe(record.id);
+    expect(await store.read(edited.id)).toMatchObject({
+      id: edited.id,
+      parentId: record.id,
+      engineRef: { engine: 'pi', sessionId: 'pi-edited' },
+    });
+    expect((await gateway.state()).sessionId).toBe(edited.id);
+    expect(await store.read(record.id)).toMatchObject({ id: record.id });
+  });
+
+  it('re-keys a clone onto the new session the engine created', async () => {
+    const record = recordOf('pi', 'pi-1');
+    const store = new MemoryStore();
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(state({ sessionId: 'pi-1' }));
+    inner.cloneTo = 'pi-clone';
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({ sessionId: record.id });
+    expect((await gateway.state()).sessionId).toBe(record.id);
+    expect(await gateway.clone()).toEqual({ cancelled: false });
+
+    const cloned = recordOf('pi', 'pi-clone');
+    // Same as a fork: the copy's row exists before any caller reads the state.
+    expect(await store.read(cloned.id)).toMatchObject({
+      id: cloned.id,
+      parentId: record.id,
+    });
+    expect((await gateway.state()).sessionId).toBe(cloned.id);
+    expect(await store.read(record.id)).toMatchObject({ id: record.id });
+  });
+
+  it('leaves the session alone when a rewrite or clone is cancelled', async () => {
+    const record = recordOf('pi', 'pi-1');
+    const store = new MemoryStore();
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(state({ sessionId: 'pi-1' }));
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({ sessionId: record.id });
+    expect((await gateway.state()).sessionId).toBe(record.id);
+    expect(await gateway.rewrite('entry-1')).toEqual({ text: '', cancelled: true });
+    expect(await gateway.clone()).toEqual({ cancelled: true });
+    expect((await gateway.state()).sessionId).toBe(record.id);
+    expect([...store.rows.keys()]).toEqual([record.id]);
   });
 
   it('translates a child link from the engine id to the Morse id a frontend opens', async () => {
