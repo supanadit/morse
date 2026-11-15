@@ -50,8 +50,8 @@ export interface ChatPromptMessage extends ClientMessageBase {
 
 /**
  * Replaces a past user message. How depends on the engine: one with an edit
- * primitive (OpenCode) rewrites the turn in place and re-runs it; one without
- * (pi) forks the conversation before it, drops that turn, and sends the edited
+ * primitive rewrites the turn in place and re-runs it; an engine without one
+ * forks the conversation before it, drops that turn, and sends the edited
  * text as a new prompt. `itemId` is the transcript item being edited; `text` is
  * what the user typed in its place.
  */

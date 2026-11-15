@@ -29,8 +29,9 @@ export interface MorseActions {
     sessionKey?: string,
   ): void;
   /**
-   * Replaces a past user message: the host forks the conversation before it and
-   * sends the edited text. The transcript after that turn is discarded.
+   * Replaces a past user message. An engine with an edit primitive rewrites the
+   * turn in place; an engine without one forks the conversation before it, drops
+   * that turn, and sends the edited text as a new prompt.
    */
   editMessage(itemId: string, text: string): void;
   /**
