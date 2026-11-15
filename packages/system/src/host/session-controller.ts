@@ -1577,10 +1577,12 @@ export class HostSessionController {
   }
 
   /**
-   * Edits a past user message: fork the conversation before it (which discards
-   * that turn and everything after), truncate the transcript to match, then send
-   * the edited text as a fresh prompt. Attachments on the original message ride
-   * along, so an image or pin is not silently dropped by the edit.
+   * Edits a past user message through the engine's own edit: an engine that can
+   * rewrite in place keeps its session (OpenCode), while one that only branches
+   * moves to a new one (pi). Both discard that turn and everything after it;
+   * the host truncates the transcript to match, then sends the edited text as a
+   * fresh prompt. Attachments on the original message ride along, so an image or
+   * pin is not silently dropped by the edit.
    */
   private async editPrompt(itemId: string, text: string): Promise<void> {
     const target = await this.forkBefore(itemId, 'edit');
@@ -1619,10 +1621,12 @@ export class HostSessionController {
   }
 
   /**
-   * Forks the active session before a past user message and re-homes the
-   * transcript onto the new branch. Shared by edit (which then sends) and fork
-   * (which seeds the composer). Returns the forked message, or `undefined` when
-   * the fork was refused — a notice has already been emitted in that case.
+   * Branches or rewrites the active session before a past user message and
+   * re-homes the transcript at that cut: a fork moves it to a new branch, a
+   * rewrite usually keeps the same key. Shared by edit (which then sends) and
+   * fork (which seeds the composer). Returns the message at the cut, or
+   * `undefined` when the operation was refused — a notice has already been
+   * emitted in that case.
    */
   private async forkBefore(
     itemId: string,
@@ -1682,28 +1686,33 @@ export class HostSessionController {
       this.options.emit(
         noticeMessage(
           'warn',
-          `This message cannot be ${past} — the agent has no fork point for it.`,
+          `This message cannot be ${past} — the agent has no point in its history for it.`,
           Date.now(),
         ),
       );
       return undefined;
     }
 
-    const forked = await this.guard(() => this.options.services.registry.forkActive(entryId));
-    if (!forked.ok) {
+    const branch = await this.guard(() =>
+      action === 'edit'
+        ? this.options.services.registry.rewriteActive(entryId)
+        : this.options.services.registry.forkActive(entryId),
+    );
+    if (!branch.ok) {
       return undefined;
     }
-    if (forked.value.cancelled) {
-      this.options.emit(noticeMessage('warn', 'The fork was cancelled.', Date.now()));
+    if (branch.value.cancelled) {
+      this.options.emit(noticeMessage('warn', `The ${action} was cancelled.`, Date.now()));
       return undefined;
     }
 
-    // The forked branch ends right before the chosen message: drop that row and
-    // everything after it, then re-home the transcript under the new session id.
+    // The branch ends right before the chosen message: drop that row and
+    // everything after it, then re-home the transcript. An in-place rewrite
+    // re-homes it under the same key, so the move is a plain replace.
     const index = items.findIndex((item) => item.id === itemId);
     const kept = items.slice(0, index);
-    this.activeKey = forked.value.key;
-    this.options.transcripts.move(key, forked.value.key, kept);
+    this.activeKey = branch.value.key;
+    this.options.transcripts.move(key, branch.value.key, kept);
     this.historyBefore = undefined;
     this.hasOlderHistory = false;
     this.loadingOlderHistory = false;
@@ -2661,7 +2670,7 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
 }
 
 /**
- * Maps a transcript item to the engine entry a fork targets.
+ * Maps a transcript row to the engine entry an edit or fork cuts at.
  *
  * Both lists are total: the engine lists every user message and the transcript
  * keeps a row for each, a text-less one (an image-only prompt) included. Counting
@@ -2673,12 +2682,14 @@ function entryIdForEdit(
   itemId: string,
   userMessages: AgentUserMessage[],
 ): string | undefined {
-  const forkable = items.filter((item): item is UserTranscriptItem => item.kind === 'user');
-  const index = forkable.findIndex((item) => item.id === itemId);
+  const userItems = items.filter((item): item is UserTranscriptItem => item.kind === 'user');
+  const index = userItems.findIndex((item) => item.id === itemId);
   if (index === -1) {
     return undefined;
   }
-  const position = userMessages.length - 1 - (forkable.length - 1 - index);
+  // Count from the end so a partially loaded transcript still lines up: both
+  // lists are total now, so the offset is exact.
+  const position = userMessages.length - (userItems.length - index);
   return position >= 0 ? userMessages[position]?.entryId : undefined;
 }
 
