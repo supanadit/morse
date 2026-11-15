@@ -104,8 +104,8 @@ live('OpenCodeAgent (live server)', () => {
     expect(history.entries.some((entry) => entry.role === 'user' && entry.text.includes('live-answer'))).toBe(true);
     expect(history.entries.some((entry) => entry.role === 'assistant' && entry.text.length > 0)).toBe(true);
 
-    const forks = await agent.forkMessages();
-    expect(forks.at(-1)?.text).toContain('live-answer');
+    const messages = await agent.userMessages();
+    expect(messages.at(-1)?.text).toContain('live-answer');
 
     await agent.dispose();
   }, 240_000);
@@ -314,7 +314,7 @@ live('OpenCodeAgent (live server)', () => {
     await agent.prompt('Reply with exactly: second-live', 'new');
     await until(() => events.some((event) => event.type === 'agent/run-end'));
 
-    const prompts = await agent.forkMessages();
+    const prompts = await agent.userMessages();
     expect(prompts.map((entry) => entry.text)).toEqual(
       expect.arrayContaining(['Reply with exactly: first-live', 'Reply with exactly: second-live']),
     );

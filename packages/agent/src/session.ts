@@ -7,9 +7,9 @@ import type {
 } from './ports.js';
 import type {
   AgentEvent,
-  AgentForkMessage,
   AgentInteractionResponse,
   AgentSessionState,
+  AgentUserMessage,
   ChatPin,
   ModelRef,
   PromptImage,
@@ -59,7 +59,9 @@ export abstract class Session implements AgentGateway {
     images?: PromptImage[],
     pins?: ChatPin[],
   ): Promise<PromptDisposition>;
-  abstract forkMessages(): Promise<AgentForkMessage[]>;
+  abstract userMessages(): Promise<AgentUserMessage[]>;
+  abstract rewrite(entryId: string): Promise<{ text: string; cancelled: boolean }>;
+  abstract clone(): Promise<{ cancelled: boolean }>;
   abstract fork(entryId: string): Promise<{ text: string; cancelled: boolean }>;
   abstract abort(): Promise<void>;
   abstract setModel(model: ModelRef): Promise<void>;

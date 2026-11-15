@@ -278,7 +278,10 @@ export class MorseService {
     this.actions.prompt(text, mode, images, pins, sessionKey);
   }
 
-  /** Replaces a past user message by forking the conversation before it. */
+  /**
+   * Replaces a past user message: an in-place rewrite on an engine that has its
+   * own edit, a fork before that message on one that does not.
+   */
   editMessage(itemId: string, text: string): void {
     this.actions.editMessage(itemId, text);
   }
@@ -289,6 +292,14 @@ export class MorseService {
    */
   forkMessage(itemId: string): void {
     this.actions.forkMessage(itemId);
+  }
+
+  /**
+   * Branches a new session after a finished answer, keeping that answer. Nothing
+   * is sent: the answer stays as the branch's tail until the user prompts again.
+   */
+  branchMessage(itemId: string): void {
+    this.actions.branchMessage(itemId);
   }
 
   /**

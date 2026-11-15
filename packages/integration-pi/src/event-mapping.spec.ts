@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentHistoryEntry } from '@morse/agent';
 import { appendPinMentions } from './pi-rpc-agent.js';
-import { activePathEntries, mapSessionEvent, splitTrailingMentions, toHistory, toEntryHistory } from './event-mapping.js';
+import { activePathEntries, mapSessionEvent, splitTrailingMentions, toHistory, toEntryHistory, userMessagesOf } from './event-mapping.js';
 
 const ISO_1 = '2026-01-01T00:00:01.000Z';
 const ISO_2 = '2026-01-01T00:00:02.000Z';
@@ -125,6 +125,38 @@ describe('activePathEntries', () => {
     expect(activePathEntries({ entries: all, leafId: 'missing' })).toEqual(all);
     expect(activePathEntries({ entries: all })).toEqual(all);
     expect(activePathEntries(undefined)).toEqual([]);
+  });
+});
+
+describe('userMessagesOf', () => {
+  it('lists every user message on the active path, including one with no text', () => {
+    const entries = [
+      { id: 'e1', type: 'message', parentId: null, message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+      { id: 'e2', type: 'message', parentId: 'e1', message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } },
+      { id: 'e3', type: 'message', parentId: 'e2', message: { role: 'user', content: [{ type: 'image', data: 'x', mimeType: 'image/png' }] } },
+    ];
+    expect(userMessagesOf(entries)).toEqual([
+      { entryId: 'e1', text: 'first' },
+      { entryId: 'e3', text: '' },
+    ]);
+  });
+
+  it('leaves a user entry that adds no row out of both lists', () => {
+    // A role-only prompt (no text, no thinking, no pins, no images) never
+    // produces a transcript row. Listing it here anyway would shift every
+    // older row by one against the engine's entries.
+    const entries = [
+      messageEntry('e1', null, ISO_1, { role: 'user', content: [] }),
+      messageEntry('e2', 'e1', ISO_2, {
+        role: 'user',
+        content: [{ type: 'text', text: 'hi' }],
+        timestamp: 2_000,
+      }),
+    ];
+    expect(userMessagesOf(entries)).toEqual([{ entryId: 'e2', text: 'hi' }]);
+    expect(
+      toEntryHistory(entries).map((entry) => (entry.role === 'user' ? entry.text : entry.role)),
+    ).toEqual(['hi']);
   });
 });
 

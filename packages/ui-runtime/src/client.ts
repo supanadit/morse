@@ -29,8 +29,9 @@ export interface MorseActions {
     sessionKey?: string,
   ): void;
   /**
-   * Replaces a past user message: the host forks the conversation before it and
-   * sends the edited text. The transcript after that turn is discarded.
+   * Replaces a past user message. An engine with an edit primitive rewrites the
+   * turn in place; an engine without one forks the conversation before it, drops
+   * that turn, and sends the edited text as a new prompt.
    */
   editMessage(itemId: string, text: string): void;
   /**
@@ -39,6 +40,8 @@ export interface MorseActions {
    * and seeds the composer with the forked prompt. Nothing is sent.
    */
   forkMessage(itemId: string): void;
+  /** Branches after a finished answer, keeping it; nothing is sent. */
+  branchMessage(itemId: string): void;
   /** Runs a host command and resolves with its value, when the host supports it. */
   hostCommand(
     command: HostCommand,
@@ -316,6 +319,7 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       send({ type: 'chat/prompt', payload: { text, mode, images, pins, sessionKey } }),
     editMessage: (itemId, text) => send({ type: 'chat/edit', payload: { itemId, text } }),
     forkMessage: (itemId) => send({ type: 'chat/fork', payload: { itemId } }),
+    branchMessage: (itemId) => send({ type: 'chat/branch', payload: { itemId } }),
     hostCommand: (command, args, timeoutMs) => requestHostCommand(command, args, timeoutMs),
     abort: () => send({ type: 'chat/abort', payload: {} }),
     newSession: (cwd) => send({ type: 'session/new', payload: { cwd } }),

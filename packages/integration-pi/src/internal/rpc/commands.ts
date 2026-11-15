@@ -78,6 +78,11 @@ export interface RpcForkCommand {
   entryId: string;
 }
 
+/** Branch at the tip: pi writes a new session file and rebinds to it. */
+export interface RpcCloneCommand {
+  type: 'clone';
+}
+
 export interface RpcGetForkMessagesCommand {
   type: 'get_fork_messages';
 }
@@ -123,6 +128,7 @@ export type RpcCommand =
   | RpcGetCommandsCommand
   | RpcGetSessionStatsCommand
   | RpcForkCommand
+  | RpcCloneCommand
   | RpcGetForkMessagesCommand
   | RpcSetModelCommand
   | RpcSetThinkingLevelCommand

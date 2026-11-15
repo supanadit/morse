@@ -314,3 +314,45 @@ describe('TranscriptProjector message model', () => {
     expect(projector.snapshot()[0]).not.toHaveProperty('model');
   });
 });
+
+/**
+ * A branch re-homes the surviving rows onto a fresh projector. Their ids are
+ * how an edit finds its engine entry, so the new projector must not re-issue
+ * one of them for the next prompt.
+ */
+describe('TranscriptProjector replace', () => {
+  function make(): TranscriptProjector {
+    return new TranscriptProjector({ emit: () => undefined, now });
+  }
+
+  it('resumes the id counter past the rows it was seeded with', () => {
+    const projector = make();
+    projector.replace([
+      { kind: 'user', id: 'morse-user-1', at: 1, text: 'first' },
+      {
+        kind: 'assistant',
+        id: 'morse-assistant-2',
+        at: 2,
+        text: 'answer',
+        thinking: '',
+        streaming: false,
+      },
+    ]);
+
+    projector.userPrompt('next');
+
+    expect(projector.snapshot().at(-1)?.id).toBe('morse-user-3');
+  });
+
+  it('ignores ids that are not this projector\u2019s own', () => {
+    const projector = make();
+    projector.replace([
+      { kind: 'user', id: 'sess-1#history-0-0', at: 1, text: 'first' },
+      { kind: 'user', id: 'other-user-9', at: 2, text: 'second' },
+    ]);
+
+    projector.userPrompt('next');
+
+    expect(projector.snapshot().at(-1)?.id).toBe('morse-user-1');
+  });
+});

@@ -228,9 +228,13 @@ export class SessionNav {
         id: session.id,
         label: session.title,
         data: session,
-        // Every row is a conversation, a fork included: the mark is what the row is,
-        // not where it sits in the tree.
-        icon: 'session' as const,
+        // The mark says what the row is: a subagent is a delegated bot, a fork is a
+        // branch of another conversation, and anything else is a plain session.
+        icon: session.subagent === true
+          ? ('session-bot' as const)
+          : session.parentId !== undefined
+            ? ('session-fork' as const)
+            : ('session' as const),
         badge: this.age(session.updatedAt),
         // A session with forks unfolds like a folder, so the forks are reachable.
         kind: children.length > 0 ? 'group' : 'leaf',

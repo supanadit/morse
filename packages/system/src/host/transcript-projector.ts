@@ -94,6 +94,17 @@ export class TranscriptProjector {
     this.items.push(...items);
     this.toolIndexes.clear();
     this.assistantIndex = -1;
+    // A branch re-homes kept rows onto a fresh projector, whose counter starts
+    // at zero. Seeding rows verbatim would therefore re-issue `morse-user-1` for
+    // the next prompt, and an edit resolves by id — it would cut at the oldest
+    // kept prompt instead of the one the reader clicked. Resume past the ids the
+    // rows already carry.
+    for (const item of items) {
+      const issued = this.issuedNumber(item.id);
+      if (issued !== undefined && issued > this.counter) {
+        this.counter = issued;
+      }
+    }
     this.options.emit({
       type: 'transcript/replace',
       payload: { items: this.snapshot() },
@@ -362,5 +373,24 @@ export class TranscriptProjector {
   private nextId(kind: string): string {
     this.counter += 1;
     return `${this.idPrefix}-${kind}-${this.counter}`;
+  }
+
+  /**
+   * The counter value an id issued by this projector ends with, or `undefined`
+   * for any other id (a history page's `key#history-page-index`, another
+   * projector's prefix, a hand-written row). Only this shape proves the id
+   * occupies a counter slot, so an unrelated id never pushes the counter.
+   */
+  private issuedNumber(id: string): number | undefined {
+    const prefix = `${this.idPrefix}-`;
+    if (!id.startsWith(prefix)) {
+      return undefined;
+    }
+    const match = /^[a-z]+-(\d+)$/.exec(id.slice(prefix.length));
+    if (!match) {
+      return undefined;
+    }
+    const number = Number(match[1]);
+    return Number.isSafeInteger(number) ? number : undefined;
   }
 }

@@ -157,7 +157,7 @@ Port types never leak `vscode`, NestJS or child-process types: `pi`'s protocol r
 Both hosts use `HostSessionController` from `@morse/system`, which owns the client conversation:
 
 ```
-frontend ──client/ready, chat/prompt, chat/edit, session/*, model/set, interaction/respond──▶ controller
+frontend ──client/ready, chat/prompt, chat/edit, chat/fork, chat/branch, chat/abort, session/*, model/set, interaction/respond──▶ controller
        ◀──host/ready, session/state, session/activity, transcript/*, session/list, interaction/*, notice, error── controller
 ```
 

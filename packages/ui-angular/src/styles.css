@@ -282,6 +282,12 @@
 .file-icon.session {
   color: #b08ccb;
 }
+.file-icon.session-fork {
+  color: #6aa84f;
+}
+.file-icon.session-bot {
+  color: #d05c5c;
+}
 .file-icon.code {
   color: #4b9fd5;
 }

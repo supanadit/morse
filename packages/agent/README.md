@@ -38,7 +38,7 @@ manifest field documents intent, the script does the work.
 | `src/domain/agent/state.ts` | `AgentSessionState`, `AgentWidget`, `AgentStatus`, `AgentDiagnostic`, `JsonValue`, `ToolResultDetails` |
 | `src/domain/agent/events.ts` | `AgentEvent` and its 13 event interfaces over `AgentEventBase` |
 | `src/domain/agent/history.ts` | `AgentHistoryEntry`, `AgentMessageEntry`, `AgentToolEntry`, `AgentCompactionEntry` |
-| `src/domain/agent/interaction.ts` | `AgentInteractionRequest` and its 4 request interfaces, `AgentInteractionResponse`, `AgentForkMessage`, `SelectOption` |
+| `src/domain/agent/interaction.ts` | `AgentInteractionRequest` and its 4 request interfaces, `AgentInteractionResponse`, `AgentUserMessage`, `SelectOption` |
 | `src/ports.ts` | `AgentGateway`, `AgentGatewayFactory`, `AgentHistoryPage`, `PromptMode`, `PromptDisposition`, `AgentEventListener` |
 | `src/session.ts` | `abstract class Session` — one conversation, with the listener fan-out and the state every adapter must get right the same way |
 | `src/engine.ts` | `abstract class SessionEngine` (`kind`, `factory`, optional `scan()`, `hasScan`) and `AgentSessionInfo` |

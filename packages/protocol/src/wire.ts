@@ -48,6 +48,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'chat/prompt',
   'chat/edit',
   'chat/fork',
+  'chat/branch',
   'chat/abort',
   'session/new',
   'session/load',

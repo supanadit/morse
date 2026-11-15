@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -648,5 +648,131 @@ process.stdin.on('data', (chunk) => {
     agent = new PiRpcAgent(options);
     const resumed = await agent.initialize();
     expect(resumed.speed).toEqual(measured);
+  });
+});
+
+/**
+ * Rewriting and cloning over the RPC. pi has no edit primitive, so an edit *is*
+ * a fork; a clone branches at the tip and reports the new session pi rebinds to.
+ * `userMessages` reads the branch on screen (`get_entries`'s active path) rather
+ * than pi's own fork picker, whose text filter drops an image-only prompt and
+ * shifts every entry after it.
+ */
+describe('PiRpcAgent branching', () => {
+  /** Two prompts, one of them image-only, on one branch. */
+  const ENTRIES = [
+    { id: 'e1', type: 'message', parentId: null, message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+    { id: 'e2', type: 'message', parentId: 'e1', message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } },
+    { id: 'e3', type: 'message', parentId: 'e2', message: { role: 'user', content: [{ type: 'image', data: 'x', mimeType: 'image/png' }] } },
+  ];
+
+  /**
+   * A minimal pi: it logs every command it receives to `log`, reports the
+   * entries above, rebinds to `s2` on `clone`, and answers a `fork` with the
+   * text of the entry it was asked to branch before.
+   */
+  const fakePi = (log: string) => String.raw`
+const ENTRIES = ${JSON.stringify(ENTRIES)};
+const LOG = ${JSON.stringify(log)};
+const fs = require('node:fs');
+let sessionId = 's1';
+let buffered = '';
+const write = (line) => process.stdout.write(JSON.stringify(line) + '\n');
+const respond = (req, data) =>
+  write({ type: 'response', id: req.id, command: req.type, success: true, data });
+const textOf = (entryId) => {
+  const entry = ENTRIES.find((candidate) => candidate.id === entryId);
+  const part = entry && entry.message.content.find((block) => block.type === 'text');
+  return part ? part.text : '';
+};
+const handle = (req) => {
+  fs.appendFileSync(LOG, JSON.stringify(req) + '\n');
+  if (req.type === 'get_state') {
+    respond(req, { sessionId });
+  } else if (req.type === 'get_entries') {
+    respond(req, { entries: ENTRIES, leafId: 'e3' });
+  } else if (req.type === 'clone') {
+    sessionId = 's2';
+    respond(req, {});
+  } else if (req.type === 'fork') {
+    respond(req, { text: textOf(req.entryId) });
+  } else {
+    respond(req, {});
+  }
+};
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buffered += chunk;
+  let end;
+  while ((end = buffered.indexOf('\n')) >= 0) {
+    const line = buffered.slice(0, end);
+    buffered = buffered.slice(end + 1);
+    if (line.trim().length > 0) handle(JSON.parse(line));
+  }
+});
+`;
+
+  interface SentCommand {
+    type?: string;
+    entryId?: string;
+  }
+
+  const started: PiRpcAgent[] = [];
+
+  afterEach(async () => {
+    for (const agent of started.splice(0)) {
+      await agent.dispose();
+    }
+  });
+
+  async function open(): Promise<{ agent: PiRpcAgent; log: string }> {
+    const log = join(await tempRoot(), 'commands.jsonl');
+    const cwd = await tempRoot();
+    const agentRoot = await tempRoot();
+    await mkdir(join(agentRoot, 'prompts'), { recursive: true });
+    await mkdir(join(cwd, '.pi', 'prompts'), { recursive: true });
+    const agent = new PiRpcAgent({
+      spawn: { command: process.execPath, args: ['-e', fakePi(log)], source: 'node-entry' },
+      workspace: { cwd, name: 'morse-spec' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
+    });
+    started.push(agent);
+    await agent.initialize();
+    return { agent, log };
+  }
+
+  /** Every command the fake pi received, in the order it read them. */
+  async function commandsSent(log: string): Promise<SentCommand[]> {
+    const text = await readFile(log, 'utf8');
+    return text
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as SentCommand);
+  }
+
+  it('reads user messages from the active path', async () => {
+    const { agent } = await open();
+    expect(await agent.userMessages()).toEqual([
+      { entryId: 'e1', text: 'first' },
+      { entryId: 'e3', text: '' },
+    ]);
+  });
+
+  it('clones onto the new session pi reports', async () => {
+    const { agent, log } = await open();
+    const result = await agent.clone();
+    expect(result).toEqual({ cancelled: false });
+    expect((await commandsSent(log)).some((command) => command.type === 'clone')).toBe(true);
+    expect((await agent.state()).sessionId).toBe('s2');
+  });
+
+  it('rewrites by forking, because pi has no edit primitive', async () => {
+    const { agent, log } = await open();
+    const result = await agent.rewrite('e1');
+    expect(result).toEqual({ text: 'first', cancelled: false });
+    expect((await commandsSent(log)).find((command) => command.type === 'fork')).toMatchObject({
+      entryId: 'e1',
+    });
   });
 });

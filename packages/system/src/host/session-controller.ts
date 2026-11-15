@@ -1,12 +1,12 @@
 import { AgentUnavailableError, MorseError } from '@morse/system';
 import type {
   AgentEvent,
-  AgentForkMessage,
   AgentGateway,
   AgentHistoryEntry,
   AgentInteractionRequest,
   AgentInteractionResponse,
   AgentSessionState,
+  AgentUserMessage,
   ModelRef,
   PromptImage,
   PromptMode,
@@ -16,6 +16,7 @@ import type {
 import type {
   BotControllerPort,
   ChatService,
+  ForkedSession,
   MorseLogger,
   OpenedSession,
   SessionRegistry,
@@ -461,6 +462,9 @@ export class HostSessionController {
         return;
       case 'chat/fork':
         await this.forkPrompt(message.payload.itemId);
+        return;
+      case 'chat/branch':
+        await this.branchFrom(message.payload.itemId);
         return;
       case 'chat/abort':
         await this.guard(() => this.options.services.chat.abort(this.promptTarget()));
@@ -1577,13 +1581,23 @@ export class HostSessionController {
   }
 
   /**
-   * Edits a past user message: fork the conversation before it (which discards
-   * that turn and everything after), truncate the transcript to match, then send
-   * the edited text as a fresh prompt. Attachments on the original message ride
-   * along, so an image or pin is not silently dropped by the edit.
+   * Edits a past user message through the engine's own edit: an engine that can
+   * rewrite in place keeps its session (OpenCode), while one that only branches
+   * moves to a new one (pi). Both discard that turn and everything after it;
+   * the host truncates the transcript to match, then sends the edited text as a
+   * fresh prompt. Attachments on the original message ride along, so an image or
+   * pin is not silently dropped by the edit.
    */
   private async editPrompt(itemId: string, text: string): Promise<void> {
-    const target = await this.forkBefore(itemId, 'edit');
+    const target = await this.cutBefore(itemId, 'edit', (item) =>
+      text.trim().length === 0 &&
+      (item.images?.length ?? 0) === 0 &&
+      (item.pins?.length ?? 0) === 0
+        ? // The cut commits the engine's revert (OpenCode) before the prompt is
+          // sent, so an empty edit would destroy the tail and send nothing.
+          'Nothing to send — the prompt is empty.'
+        : undefined,
+    );
     if (!target) {
       return;
     }
@@ -1599,7 +1613,7 @@ export class HostSessionController {
    * retyping it.
    */
   private async forkPrompt(itemId: string): Promise<void> {
-    const target = await this.forkBefore(itemId, 'fork');
+    const target = await this.cutBefore(itemId, 'fork');
     if (!target) {
       return;
     }
@@ -1619,19 +1633,218 @@ export class HostSessionController {
   }
 
   /**
-   * Forks the active session before a past user message and re-homes the
-   * transcript onto the new branch. Shared by edit (which then sends) and fork
-   * (which seeds the composer). Returns the forked message, or `undefined` when
-   * the fork was refused — a notice has already been emitted in that case.
+   * Branches after a finished answer without sending anything. The new branch
+   * keeps that answer and everything before it: the host forks before the next
+   * user prompt (both engines can), or clones the whole conversation when the
+   * answer is the last one. The transcript re-homes with the same rows, so the
+   * reader sees the branch point, not the old tail.
    */
-  private async forkBefore(
+  private async branchFrom(itemId: string): Promise<void> {
+    const source = await this.cutSource('branch');
+    if (!source) {
+      return;
+    }
+    const { key, gateway, items } = source;
+    const index = items.findIndex((item) => item.id === itemId);
+    const target = items[index];
+    if (!target) {
+      this.options.emit(
+        noticeMessage('warn', 'That message is no longer available to branch.', Date.now()),
+      );
+      return;
+    }
+    if (target.kind !== 'assistant') {
+      this.options.emit(noticeMessage('warn', 'Only an answer can start a branch.', Date.now()));
+      return;
+    }
+    // A turn's answer is its last one: a tool call or another answer after it
+    // means the row is mid-turn, and branching there would cut a turn in half.
+    const rest = items.slice(index + 1);
+    const nextPrompt = rest.findIndex((item) => item.kind === 'user');
+    const turnTail = nextPrompt === -1 ? rest : rest.slice(0, nextPrompt);
+    if (turnTail.some((item) => item.kind === 'assistant' || item.kind === 'tool')) {
+      this.options.emit(
+        noticeMessage('warn', 'Only the last answer of a turn can start a branch.', Date.now()),
+      );
+      return;
+    }
+    if (this.options.services.registry.stateOf(key)?.streaming === true) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          'Wait for the agent to finish before branching a message.',
+          Date.now(),
+        ),
+      );
+      return;
+    }
+
+    // The branch ends right after the chosen answer: fork before the next
+    // prompt when there is one, otherwise copy the conversation at its tip.
+    const nextUser = items.slice(index + 1).find((item) => item.kind === 'user');
+    let branch: ForkedSession;
+    if (nextUser) {
+      const messages = await this.guard(() => gateway.userMessages());
+      if (!messages.ok) {
+        return;
+      }
+      const entryId = entryIdForEdit(items, nextUser.id, messages.value);
+      if (entryId === undefined) {
+        this.options.emit(
+          noticeMessage(
+            'warn',
+            'This answer cannot be branched — the prompt after it has no point in the agent history.',
+            Date.now(),
+          ),
+        );
+        return;
+      }
+      const forked = await this.guard(() =>
+        this.options.services.registry.forkActive(entryId, key),
+      );
+      if (!forked.ok) {
+        return;
+      }
+      branch = forked.value;
+    } else {
+      const cloned = await this.guard(() => this.options.services.registry.cloneActive(key));
+      if (!cloned.ok) {
+        return;
+      }
+      branch = cloned.value;
+    }
+    if (branch.cancelled) {
+      this.options.emit(noticeMessage('warn', 'The branch was cancelled.', Date.now()));
+      return;
+    }
+
+    // Everything before the next prompt survives — the answer included.
+    const cut = nextUser ? items.findIndex((item) => item.id === nextUser.id) : items.length;
+    const kept = items.slice(0, cut);
+    const moved = branch.key !== branch.previousKey;
+    this.activeKey = branch.key;
+    this.options.transcripts.move(key, branch.key, kept);
+    if (moved) {
+      // The branch starts after the answer, so no older page precedes it.
+      this.historyBefore = undefined;
+      this.hasOlderHistory = false;
+    }
+    this.loadingOlderHistory = false;
+    this.emitState();
+    void this.publishSessions();
+  }
+
+  /**
+   * Cuts the active session before a past user message and re-homes the
+   * transcript at that cut: a fork moves it to a new branch, a rewrite usually
+   * keeps the same key. Shared by edit (which then sends) and fork (which seeds
+   * the composer). Returns the message at the cut, or `undefined` when the
+   * operation was refused — a notice has already been emitted in that case.
+   */
+  private async cutBefore(
     itemId: string,
     action: 'edit' | 'fork',
+    /**
+     * Refuses the cut after the row is found but before the engine is asked to
+     * move, returning the warning to show. An edit that would send nothing must
+     * not truncate first.
+     */
+    refuse?: (target: UserTranscriptItem) => string | undefined,
   ): Promise<UserTranscriptItem | undefined> {
+    const source = await this.cutSource(action);
+    if (!source) {
+      return undefined;
+    }
+    const { key, gateway, items } = source;
     const gerund = action === 'edit' ? 'editing' : 'forking';
     const past = action === 'edit' ? 'edited' : 'forked';
+    const target = items.find((item) => item.id === itemId);
+    if (!target || target.kind !== 'user') {
+      this.options.emit(
+        noticeMessage('warn', `That message is no longer available to ${action}.`, Date.now()),
+      );
+      return undefined;
+    }
+    if (this.options.services.registry.stateOf(key)?.streaming === true) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          `Wait for the agent to finish before ${gerund} a message.`,
+          Date.now(),
+        ),
+      );
+      return undefined;
+    }
+
+    const refusal = refuse?.(target);
+    if (refusal !== undefined) {
+      this.options.emit(noticeMessage('warn', refusal, Date.now()));
+      return undefined;
+    }
+    const messages = await this.guard(() => gateway.userMessages());
+    if (!messages.ok) {
+      return undefined;
+    }
+    const entryId = entryIdForEdit(items, itemId, messages.value);
+    if (entryId === undefined) {
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          `This message cannot be ${past} — the agent has no point in its history for it.`,
+          Date.now(),
+        ),
+      );
+      return undefined;
+    }
+
+    const branch = await this.guard(() =>
+      action === 'edit'
+        ? this.options.services.registry.rewriteActive(entryId, key)
+        : this.options.services.registry.forkActive(entryId, key),
+    );
+    if (!branch.ok) {
+      return undefined;
+    }
+    if (branch.value.cancelled) {
+      this.options.emit(noticeMessage('warn', `The ${action} was cancelled.`, Date.now()));
+      return undefined;
+    }
+
+    // The branch ends right before the chosen message: drop that row and
+    // everything after it, then re-home the transcript. An in-place rewrite
+    // re-homes it under the same key, so the move is a plain replace.
+    const index = items.findIndex((item) => item.id === itemId);
+    const kept = items.slice(0, index);
+    const moved = branch.value.key !== branch.value.previousKey;
+    this.activeKey = branch.value.key;
+    this.options.transcripts.move(key, branch.value.key, kept);
+    if (moved) {
+      // A fork starts a new branch at the cut, so nothing the reader held
+      // belongs before it: the older-page cursor is dropped with the old
+      // key. A rewrite keeps every message before the cut, including pages
+      // this reader never loaded, so its cursor still points at rows the
+      // engine has — clearing it here would hide them behind a fresh
+      // "newest page" read.
+      this.historyBefore = undefined;
+      this.hasOlderHistory = false;
+    }
+    this.loadingOlderHistory = false;
+    this.emitState();
+
+    return target;
+  }
+
+  /**
+   * What every branch-shaped action needs before it can cut: a draft has
+   * nothing to cut, a missing agent gets one more chance to open, and the cut
+   * needs a session key to re-home under. Returns the target session's key,
+   * gateway and rows, or `undefined` when a notice was already emitted.
+   */
+  private async cutSource(
+    action: 'edit' | 'fork' | 'branch',
+  ): Promise<{ key: string; gateway: AgentGateway; items: TranscriptItem[] } | undefined> {
     if (this.isDraft) {
-      // No session exists in a draft, so there is nothing to fork: do not spawn
+      // No session exists in a draft, so there is nothing to cut: do not spawn
       // one just to fail the lookup (or re-activate another session).
       this.options.emit(
         noticeMessage(
@@ -1654,62 +1867,7 @@ export class HostSessionController {
       this.options.emit(noticeMessage('warn', `No session to ${action}.`, Date.now()));
       return undefined;
     }
-    const items = this.options.transcripts.items(key);
-    const target = items.find((item) => item.id === itemId);
-    if (!target || target.kind !== 'user') {
-      this.options.emit(
-        noticeMessage('warn', `That message is no longer available to ${action}.`, Date.now()),
-      );
-      return undefined;
-    }
-    if (this.options.services.registry.stateOf(key)?.streaming === true) {
-      this.options.emit(
-        noticeMessage(
-          'warn',
-          `Wait for the agent to finish before ${gerund} a message.`,
-          Date.now(),
-        ),
-      );
-      return undefined;
-    }
-
-    const messages = await this.guard(() => gateway.forkMessages());
-    if (!messages.ok) {
-      return undefined;
-    }
-    const entryId = entryIdForEdit(items, itemId, messages.value);
-    if (entryId === undefined) {
-      this.options.emit(
-        noticeMessage(
-          'warn',
-          `This message cannot be ${past} — the agent has no fork point for it.`,
-          Date.now(),
-        ),
-      );
-      return undefined;
-    }
-
-    const forked = await this.guard(() => this.options.services.registry.forkActive(entryId));
-    if (!forked.ok) {
-      return undefined;
-    }
-    if (forked.value.cancelled) {
-      this.options.emit(noticeMessage('warn', 'The fork was cancelled.', Date.now()));
-      return undefined;
-    }
-
-    // The forked branch ends right before the chosen message: drop that row and
-    // everything after it, then re-home the transcript under the new session id.
-    const index = items.findIndex((item) => item.id === itemId);
-    const kept = items.slice(0, index);
-    this.activeKey = forked.value.key;
-    this.options.transcripts.move(key, forked.value.key, kept);
-    this.historyBefore = undefined;
-    this.hasOlderHistory = false;
-    this.loadingOlderHistory = false;
-    this.emitState();
-
-    return target;
+    return { key, gateway, items: this.options.transcripts.items(key) };
   }
 
   private async setModel(provider: string, id: string): Promise<void> {
@@ -2661,28 +2819,27 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
 }
 
 /**
- * Maps a transcript item to the fork entry pi knows.
+ * Maps a transcript row to the engine entry an edit or fork cuts at.
  *
- * pi's `get_fork_messages` lists every user message with non-empty text — the
- * same messages the transcript shows as text or pins (an image-only message has
- * no text and is not forkable). Matching the same distance from the end keeps
- * the two lists aligned even when an older history page is still unloaded.
+ * Both lists are total: the engine lists every user message and the transcript
+ * keeps a row for each, a text-less one (an image-only prompt) included. Counting
+ * the same distance from the end keeps the two lists aligned even when an older
+ * history page is still unloaded.
  */
 function entryIdForEdit(
   items: TranscriptItem[],
   itemId: string,
-  forkMessages: AgentForkMessage[],
+  userMessages: AgentUserMessage[],
 ): string | undefined {
-  const forkable = items.filter(
-    (item): item is UserTranscriptItem =>
-      item.kind === 'user' && (item.text.trim().length > 0 || (item.pins?.length ?? 0) > 0),
-  );
-  const index = forkable.findIndex((item) => item.id === itemId);
+  const userItems = items.filter((item): item is UserTranscriptItem => item.kind === 'user');
+  const index = userItems.findIndex((item) => item.id === itemId);
   if (index === -1) {
     return undefined;
   }
-  const position = forkMessages.length - 1 - (forkable.length - 1 - index);
-  return position >= 0 ? forkMessages[position]?.entryId : undefined;
+  // Count from the end so a partially loaded transcript still lines up: both
+  // lists are total now, so the offset is exact.
+  const position = userMessages.length - (userItems.length - index);
+  return position >= 0 ? userMessages[position]?.entryId : undefined;
 }
 
 function describeError(error: unknown): string {
