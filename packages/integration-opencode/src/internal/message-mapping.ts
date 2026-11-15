@@ -1,6 +1,6 @@
 import type {
-  AgentForkMessage,
   AgentHistoryEntry,
+  AgentUserMessage,
   SessionCounts,
   SessionSpeed,
   ToolResultDetails,
@@ -149,12 +149,14 @@ export function toHistoryEntries(messages: readonly ApiMessage[]): AgentHistoryE
 }
 
 /**
- * The user prompts a fork can target, in conversation order.
+ * Every user message the session holds, in conversation order.
  *
  * The newest-first page is reversed once for the whole list, so the caller sees
- * prompts oldest first — the order a menu of "edit that message" expects.
+ * messages oldest first — the order a menu of "edit that message" expects. A
+ * message with no text (an image-only prompt) stays in the list with `''`: the
+ * engine can fork it, and dropping it here would shift every later entry.
  */
-export function toForkMessages(messages: readonly ApiMessage[]): AgentForkMessage[] {
+export function toUserMessages(messages: readonly ApiMessage[]): AgentUserMessage[] {
   return messages
     .filter((message) => message.type === 'user')
     .reverse()

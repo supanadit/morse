@@ -579,6 +579,24 @@ export class RoutedGateway implements AgentGateway {
     return result;
   }
 
+  async rewrite(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    const result = await this.options.inner.rewrite(entryId);
+    if (!result.cancelled) {
+      // A rewrite may or may not move the session; absorbing the state is what
+      // re-derives the id when it does.
+      await this.state();
+    }
+    return result;
+  }
+
+  async clone(): Promise<{ cancelled: boolean }> {
+    const result = await this.options.inner.clone();
+    if (!result.cancelled) {
+      await this.state();
+    }
+    return result;
+  }
+
   async history(options?: { limit?: number; before?: string }) {
     const page = await this.options.inner.history(options);
     return {
@@ -600,8 +618,8 @@ export class RoutedGateway implements AgentGateway {
     return this.options.inner.prompt(text, mode, images, pins);
   }
 
-  forkMessages() {
-    return this.options.inner.forkMessages();
+  userMessages() {
+    return this.options.inner.userMessages();
   }
 
   abort() {

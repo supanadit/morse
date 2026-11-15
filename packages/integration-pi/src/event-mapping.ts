@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentHistoryEntry, AgentSessionState, ChatPin, NoticeLevel, PromptImage, TokenUsage, ToolResultDetails } from '@morse/agent';
+import type { AgentEvent, AgentHistoryEntry, AgentSessionState, AgentUserMessage, ChatPin, NoticeLevel, PromptImage, TokenUsage, ToolResultDetails } from '@morse/agent';
 import {
   asArray,
   asNumber,
@@ -131,6 +131,32 @@ ${summary}`,
   }
 
   return history;
+}
+
+/**
+ * Every user message on the given entries, in order, with its engine entry id.
+ *
+ * The entries are the active path, so this is the conversation on screen — the
+ * one a rewrite or a fork targets. The text is the user's own words, cut the
+ * same way the transcript cuts them; a message that carried none (an image-only
+ * prompt) stays with `''`, because dropping it would shift every entry after it.
+ */
+export function userMessagesOf(entries: readonly unknown[]): AgentUserMessage[] {
+  const messages: AgentUserMessage[] = [];
+  for (const raw of entries) {
+    const entry = asRecord(raw);
+    if (!entry || asString(entry['type']) !== 'message') {
+      continue;
+    }
+    const entryId = asString(entry['id']);
+    const message = asRecord(entry['message']);
+    if (entryId === undefined || !message || asString(message['role']) !== 'user') {
+      continue;
+    }
+    const text = splitTrailingMentions(contentToText(message['content'])).text;
+    messages.push({ entryId, text });
+  }
+  return messages;
 }
 
 /** A flat message list (`get_messages`) seen as entries, keeping the old shape. */

@@ -3,7 +3,7 @@ import {
   messageEntries,
   sessionCountsOf,
   sessionSpeedOf,
-  toForkMessages,
+  toUserMessages,
   toHistoryEntries,
   type ApiMessage,
 } from './message-mapping.js';
@@ -197,14 +197,14 @@ describe('message mapping', () => {
     ]);
   });
 
-  it('lists user prompts for forking in conversation order, including attachment-only ones', () => {
+  it('lists every user message in conversation order, including attachment-only ones', () => {
     const newestFirst = [
       { id: 'msg_c', time: { created: 3 }, type: 'user', text: 'third' },
       ASSISTANT_TEXT,
       { id: 'msg_b', time: { created: 2 }, type: 'user', text: '' },
       USER,
     ] satisfies ApiMessage[];
-    expect(toForkMessages(newestFirst)).toEqual([
+    expect(toUserMessages(newestFirst)).toEqual([
       { entryId: USER.id, text: USER.text },
       { entryId: 'msg_b', text: '' },
       { entryId: 'msg_c', text: 'third' },

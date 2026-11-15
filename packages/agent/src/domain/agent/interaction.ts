@@ -6,11 +6,12 @@
  */
 
 /**
- * A past user message the agent can fork from: stable entry id plus the exact
- * text the model received. Forking re-parents the conversation before it, which
- * is how a frontend lets a user edit a prompt that already has an answer.
+ * One user message a fork can target, as the engine names it: stable entry id
+ * plus the exact text the model received. Rewriting or forking re-parents the
+ * conversation at it, which is how a frontend lets a user edit a prompt that
+ * already has an answer. The text is empty when the message carried none.
  */
-export interface AgentForkMessage {
+export interface AgentUserMessage {
   entryId: string;
   text: string;
 }

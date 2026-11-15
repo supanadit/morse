@@ -1,9 +1,9 @@
 import type {
   AgentEvent,
-  AgentForkMessage,
   AgentHistoryEntry,
   AgentInteractionResponse,
   AgentSessionState,
+  AgentUserMessage,
   ChatPin,
   ModelRef,
   PromptImage,
@@ -49,10 +49,19 @@ export interface AgentGateway {
     pins?: ChatPin[],
   ): Promise<PromptDisposition>;
   /**
-   * Past user messages the agent can fork from, in conversation order. A
-   * frontend uses this to turn "edit my old prompt" into a fork of that entry.
+   * Every user message the session holds, in conversation order. Rewriting or
+   * forking names one of these entries, so a frontend turns "edit my old prompt"
+   * into an operation on an entry id the engine understands.
    */
-  forkMessages(): Promise<AgentForkMessage[]>;
+  userMessages(): Promise<AgentUserMessage[]>;
+  /**
+   * Rewrites the conversation the way this engine can: in place from `entryId`
+   * forward (same session id) or by branching before it (new session id). Returns
+   * the text of the message that was dropped.
+   */
+  rewrite(entryId: string): Promise<{ text: string; cancelled: boolean }>;
+  /** Branches at the tip: a new session copying this conversation through the last message. */
+  clone(): Promise<{ cancelled: boolean }>;
   /**
    * Optional: forget a cached first read of the conversation, so the next
    * `history()` re-reads the source. A watched session is written by someone

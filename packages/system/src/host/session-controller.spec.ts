@@ -3,13 +3,13 @@ import {
   type AgentEventListener,
   type AgentDiagnostic,
   type AgentEvent,
-  type AgentForkMessage,
   type AgentGateway,
   type AgentGatewayFactory,
   type AgentHistoryEntry,
   type AgentInteractionRequest,
   type AgentMode,
   type AgentSessionState,
+  type AgentUserMessage,
   type ModelRef,
   type PromptDisposition,
   type SessionEngine,
@@ -73,8 +73,8 @@ function fakeGateway(
     historyFn?: () => AgentHistoryEntry[];
     /** Counts transcript re-reads; omitted means the adapter has no cache to drop. */
     refreshHistory?: () => Promise<void>;
-    /** What `forkMessages()` offers for the fork point lookup. */
-    forkMessages?: AgentForkMessage[];
+    /** What `userMessages()` offers for the fork point lookup. */
+    userMessages?: AgentUserMessage[];
     /** A committed fork: the prompt it re-opened and the new session id. */
     fork?: { text: string; sessionId: string };
     /** Counts palette-driven command re-reads; omitted means the adapter can't. */
@@ -135,7 +135,9 @@ function fakeGateway(
         hasOlder: false,
       }),
     prompt: () => Promise.resolve<PromptDisposition>('started'),
-    forkMessages: () => Promise.resolve(options.forkMessages ?? []),
+    userMessages: () => Promise.resolve(options.userMessages ?? []),
+    rewrite: () => Promise.resolve({ text: '', cancelled: true }),
+    clone: () => Promise.resolve({ cancelled: true }),
     fork: () => {
       if (options.fork) {
         sessionId = options.fork.sessionId;
@@ -227,7 +229,7 @@ function harness(
   options: {
     compactError?: Error;
     hold?: CompactHold;
-    forkMessages?: AgentForkMessage[];
+    userMessages?: AgentUserMessage[];
     fork?: { text: string; sessionId: string };
     /** The factory refuses instead of returning a gateway: "pi is not installed". */
     spawnError?: Error;
@@ -284,7 +286,7 @@ function harness(
     ...(options.historyEntries ? { historyEntries: options.historyEntries } : {}),
     ...(options.historyFn ? { historyFn: options.historyFn } : {}),
     ...(options.refreshHistory ? { refreshHistory: options.refreshHistory } : {}),
-    ...(options.forkMessages ? { forkMessages: options.forkMessages } : {}),
+    ...(options.userMessages ? { userMessages: options.userMessages } : {}),
     ...(options.fork ? { fork: options.fork } : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
@@ -739,7 +741,9 @@ describe('HostSessionController scheduled compaction', () => {
       state: () => Promise.resolve({ ...agentState }),
       history: () => Promise.resolve({ entries: [], hasOlder: false }),
       prompt: () => Promise.resolve<PromptDisposition>('started'),
-      forkMessages: () => Promise.resolve([]),
+      userMessages: () => Promise.resolve([]),
+      rewrite: () => Promise.resolve({ text: '', cancelled: true }),
+      clone: () => Promise.resolve({ cancelled: true }),
       fork: () => Promise.resolve({ text: '', cancelled: true }),
       abort: () => Promise.resolve(),
       setModel: () => Promise.resolve(),
@@ -1355,7 +1359,7 @@ describe('HostSessionController session/delete', () => {
 describe('HostSessionController chat/fork', () => {
   it('branches before the message and seeds the composer instead of sending', async () => {
     const h = harness({
-      forkMessages: [{ entryId: 'entry-1', text: 'hello' }],
+      userMessages: [{ entryId: 'entry-1', text: 'hello' }],
       fork: { text: 'hello', sessionId: 'sess-2' },
     });
     await withOpenSession(h);
@@ -1390,7 +1394,7 @@ describe('HostSessionController chat/fork', () => {
       text: 'the highlighted words of one line',
     };
     const h = harness({
-      forkMessages: [{ entryId: 'entry-1', text: 'hello' }],
+      userMessages: [{ entryId: 'entry-1', text: 'hello' }],
       fork: { text: 'hello', sessionId: 'sess-2' },
     });
     await h.controller.start();
@@ -2341,7 +2345,9 @@ describe('HostSessionController session-scoped dialogs', () => {
       state: () => Promise.resolve(state),
       history: () => Promise.resolve({ entries: [], hasOlder: false }),
       prompt: () => Promise.resolve<PromptDisposition>('started'),
-      forkMessages: () => Promise.resolve([]),
+      userMessages: () => Promise.resolve([]),
+      rewrite: () => Promise.resolve({ text: '', cancelled: true }),
+      clone: () => Promise.resolve({ cancelled: true }),
       fork: () => Promise.resolve({ text: '', cancelled: true }),
       abort: () => Promise.resolve(),
       setModel: () => Promise.resolve(),
@@ -3110,7 +3116,9 @@ describe('HostSessionController transcript model', () => {
         state: () => Promise.resolve({ ...box.state }),
         history: () => Promise.resolve({ entries: [], hasOlder: false }),
         prompt: () => Promise.resolve<PromptDisposition>('started'),
-        forkMessages: () => Promise.resolve([]),
+        userMessages: () => Promise.resolve([]),
+        rewrite: () => Promise.resolve({ text: '', cancelled: true }),
+        clone: () => Promise.resolve({ cancelled: true }),
         fork: () => Promise.resolve({ text: '', cancelled: true }),
         abort: () => Promise.resolve(),
         setModel: () => Promise.resolve(),

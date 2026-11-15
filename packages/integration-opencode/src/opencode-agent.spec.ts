@@ -682,8 +682,9 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
-  it('lists forkable prompts in conversation order', async () => {
+  it('lists every user message, including one with no text', async () => {
     const messages: ApiMessage[] = [
+      { id: 'msg_4', type: 'user', time: { created: 4 }, text: '' },
       { id: 'msg_3', type: 'user', time: { created: 3 }, text: 'third' },
       { id: 'msg_2', type: 'assistant', time: { created: 2 }, content: [] },
       { id: 'msg_1', type: 'user', time: { created: 1 }, text: 'first' },
@@ -694,9 +695,10 @@ describe('OpenCodeAgent', () => {
           ? { data: messages, cursor: {} }
           : defaultHandler()(method, path, query, undefined),
     });
-    expect(await agent.forkMessages()).toEqual([
+    expect(await agent.userMessages()).toEqual([
       { entryId: 'msg_1', text: 'first' },
       { entryId: 'msg_3', text: 'third' },
+      { entryId: 'msg_4', text: '' },
     ]);
     await agent.dispose();
   });
@@ -710,6 +712,54 @@ describe('OpenCodeAgent', () => {
     expect(api.calls.find((call) => call.path.endsWith('/fork'))?.body).toEqual({
       before: 'msg_1',
     });
+    expect((await agent.state()).sessionId).toBe('ses_2');
+    expect(stream.subscriptions.map((entry) => entry.sessionID)).toEqual(['ses_2']);
+    await agent.dispose();
+  });
+
+  it('rewrites in place: stages and commits a revert without forking', async () => {
+    const { agent, api, stream } = await harness();
+    const before = api.calls.length;
+    const rewritten = await agent.rewrite('msg_1');
+    expect(rewritten).toEqual({ text: 'the dropped prompt', cancelled: false });
+    const posts = api.calls
+      .slice(before)
+      .filter((call) => call.method === 'POST')
+      .map((call) => call.path);
+    expect(posts).toEqual([
+      '/session/ses_1/revert/stage',
+      '/session/ses_1/revert/commit',
+    ]);
+    expect(api.calls.find((call) => call.path.endsWith('/revert/stage'))?.body).toEqual({
+      messageID: 'msg_1',
+    });
+    // The session did not move, so the stream subscription did not either.
+    expect((await agent.state()).sessionId).toBe('ses_1');
+    expect(stream.subscriptions.map((entry) => entry.sessionID)).toEqual(['ses_1']);
+    await agent.dispose();
+  });
+
+  it('clears a staged revert when the commit fails, leaving nothing half-applied', async () => {
+    const { agent, api } = await harness({
+      handler: (method, path, query, body) => {
+        if (method === 'POST' && path.endsWith('/revert/commit')) {
+          throw new Error('revert busy');
+        }
+        return defaultHandler()(method, path, query, body);
+      },
+    });
+    await expect(agent.rewrite('msg_1')).rejects.toThrow('revert busy');
+    expect(api.calls.find((call) => call.path.endsWith('/revert'))).toMatchObject({
+      method: 'DELETE',
+    });
+    await agent.dispose();
+  });
+
+  it('clones the full conversation onto a new session when there is no boundary', async () => {
+    const { agent, api, stream } = await harness();
+    const cloned = await agent.clone();
+    expect(cloned).toEqual({ cancelled: false });
+    expect(api.calls.find((call) => call.path.endsWith('/fork'))?.body).toBeUndefined();
     expect((await agent.state()).sessionId).toBe('ses_2');
     expect(stream.subscriptions.map((entry) => entry.sessionID)).toEqual(['ses_2']);
     await agent.dispose();

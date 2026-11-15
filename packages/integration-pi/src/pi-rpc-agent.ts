@@ -4,13 +4,13 @@ import {
   THINKING_LEVELS,
   MAX_PIN_EXCERPT,
   type AgentDiagnostic,
-  type AgentForkMessage,
   type AgentHistoryEntry,
   type AgentHistoryPage,
   type AgentInteractionRequest,
   type AgentInteractionResponse,
   type AgentSessionState,
   type AgentStatus,
+  type AgentUserMessage,
   type AgentWidget,
   type AgentCommand,
   type AgentCommandSource,
@@ -32,6 +32,7 @@ import {
   activePathEntries,
   toEntryHistory,
   toSessionStats,
+  userMessagesOf,
 } from './event-mapping.js';
 import {
   emptySpeed,
@@ -260,22 +261,36 @@ export class PiRpcAgent extends Session {
     this.historyCache = undefined;
   }
 
-  /** Past user messages pi can fork from (its `get_fork_messages`). */
-  async forkMessages(): Promise<AgentForkMessage[]> {
-    const data = await this.client.request<{ messages?: unknown[] }>({
-      type: 'get_fork_messages',
+  /**
+   * Every user message on the branch in view, oldest first.
+   *
+   * Read from `get_entries`'s active path rather than `get_fork_messages`: a
+   * session forked before inside pi holds several branches in one file, and only
+   * one of them is the conversation on screen. pi's own picker also drops a
+   * message with no text, which would shift every entry after it.
+   */
+  async userMessages(): Promise<AgentUserMessage[]> {
+    const data = await this.client.request<{ entries?: unknown[]; leafId?: unknown }>({
+      type: 'get_entries',
     });
-    const messages = Array.isArray(data?.messages) ? data.messages : [];
-    const result: AgentForkMessage[] = [];
-    for (const raw of messages) {
-      const record = asRecord(raw);
-      const entryId = record ? asString(record['entryId']) : undefined;
-      if (!record || !entryId) {
-        continue;
-      }
-      result.push({ entryId, text: asString(record['text']) ?? '' });
-    }
-    return result;
+    return userMessagesOf(activePathEntries(data));
+  }
+
+  /** pi has no edit primitive: an edit is a fork, and the port says so. */
+  async rewrite(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    return this.fork(entryId);
+  }
+
+  /**
+   * Branches at the tip. pi writes a new session file and rebinds in place, so
+   * the process stays alive but the session identity changes — the cached
+   * history is dropped and the state re-read before returning.
+   */
+  async clone(): Promise<{ cancelled: boolean }> {
+    const data = await this.client.request<{ cancelled?: boolean }>({ type: 'clone' });
+    this.historyCache = undefined;
+    await this.refreshState();
+    return { cancelled: data?.cancelled === true };
   }
 
   /**

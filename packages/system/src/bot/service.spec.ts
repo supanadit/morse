@@ -17,6 +17,7 @@ import type {
   AgentInteractionRequest,
   AgentInteractionResponse,
   AgentSessionState,
+  AgentUserMessage,
   ModelRef,
   PromptDisposition,
   ThinkingLevel,
@@ -144,8 +145,16 @@ class FakeGateway implements AgentGateway {
     return Promise.resolve('started');
   }
 
-  forkMessages(): Promise<never[]> {
+  userMessages(): Promise<AgentUserMessage[]> {
     return Promise.resolve([]);
+  }
+
+  rewrite(): Promise<{ text: string; cancelled: boolean }> {
+    return Promise.resolve({ text: '', cancelled: true });
+  }
+
+  clone(): Promise<{ cancelled: boolean }> {
+    return Promise.resolve({ cancelled: true });
   }
 
   fork(): Promise<{ text: string; cancelled: boolean }> {

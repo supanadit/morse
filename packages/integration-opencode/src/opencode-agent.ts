@@ -7,13 +7,13 @@ import {
   Session,
   MAX_PIN_EXCERPT,
   type AgentCommand,
-  type AgentForkMessage,
   type AgentFormRequest,
   type AgentHistoryPage,
   type AgentSelectRequest,
   type AgentInteractionResponse,
   type AgentMode,
   type AgentSessionState,
+  type AgentUserMessage,
   type ChatPin,
   type ModelRef,
   type PromptDisposition,
@@ -41,7 +41,7 @@ import {
   type ApiModel,
 } from './internal/model-mapping.js';
 import {
-  toForkMessages,
+  toUserMessages,
   toHistoryEntries,
   sessionCountsOf,
   sessionSpeedOf,
@@ -109,7 +109,7 @@ interface ApiSkill {
   description?: string;
 }
 
-/** How many message pages `history`/`forkMessages` will read before giving up. */
+/** How many message pages `history`/`userMessages` will read before giving up. */
 const MAX_HISTORY_PAGES = 20;
 /** `history`'s page size in messages when the caller does not name one. */
 const DEFAULT_HISTORY_LIMIT = 40;
@@ -331,8 +331,8 @@ export class OpenCodeAgent extends Session {
     };
   }
 
-  /** Every user prompt the session holds, in conversation order, for forking. */
-  async forkMessages(): Promise<AgentForkMessage[]> {
+  /** Every user message the session holds, in conversation order. */
+  async userMessages(): Promise<AgentUserMessage[]> {
     const messages: ApiMessage[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < MAX_HISTORY_PAGES; page += 1) {
@@ -346,7 +346,7 @@ export class OpenCodeAgent extends Session {
         break;
       }
     }
-    return toForkMessages(messages);
+    return toUserMessages(messages);
   }
 
   // ---------------------------------------------------------------- prompting
@@ -469,7 +469,7 @@ export class OpenCodeAgent extends Session {
     this.emitState(Date.now());
   }
 
-  // ---------------------------------------------------------------- fork / compact
+  // ---------------------------------------------------------------- fork / rewrite / clone
 
   /**
    * Forks before a user message: OpenCode creates a new engine session whose
@@ -482,17 +482,45 @@ export class OpenCodeAgent extends Session {
       `/session/${encodeURIComponent(this.engineId)}/fork`,
       { before: entryId },
     );
-    if (forked === undefined || typeof forked.id !== 'string' || forked.id.length === 0) {
-      throw new AgentUnavailableError('OpenCode did not return the forked session.');
-    }
-    this.engineId = forked.id;
-    this.mergeState({ sessionId: forked.id });
-    // The event source is keyed by engine id, so a fork must move the
-    // subscription with it or the new branch would stream nothing.
-    this.unsubscribe?.();
-    this.attach();
+    this.adoptSession(forked);
     await this.refreshState();
     return { text, cancelled: false };
+  }
+
+  /**
+   * Edits in place: OpenCode stages a reversible boundary at the message, then
+   * commits it, so that prompt and the turn after it leave the *same* session —
+   * unlike `fork`, the id does not move and the old branch is not kept.
+   */
+  async rewrite(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+    const text = await this.promptText(entryId);
+    const session = encodeURIComponent(this.engineId);
+    await this.api.post(`/session/${session}/revert/stage`, { messageID: entryId });
+    try {
+      await this.api.post(`/session/${session}/revert/commit`);
+    } catch (error: unknown) {
+      // A stage restores the files at once; a failed commit must hand them back
+      // rather than leave a half-applied boundary the user never asked for.
+      await this.api.delete(`/session/${session}/revert`).catch(() => undefined);
+      throw error;
+    }
+    await this.refreshState();
+    return { text, cancelled: false };
+  }
+
+  /**
+   * Branches at the tip: OpenCode copies the whole conversation into a new
+   * engine session with no boundary, and this agent continues as it.
+   */
+  async clone(): Promise<{ cancelled: boolean }> {
+    const forked = await this.api.post<ApiSessionInfo>(
+      `/session/${encodeURIComponent(this.engineId)}/fork`,
+    );
+    this.adoptSession(forked);
+    // The copy's record carries its own title and totals, so read it rather than
+    // keep the session this agent was showing a moment ago.
+    await this.refreshState();
+    return { cancelled: false };
   }
 
   /**
@@ -586,6 +614,21 @@ export class OpenCodeAgent extends Session {
 
   private attach(): void {
     this.unsubscribe = this.stream.subscribe(this.engineId, (event) => this.handle(event));
+  }
+
+  /**
+   * Continues this agent as the session the server just created — a fork, or a
+   * clone with no boundary. The event source is keyed by engine id, so the
+   * subscription has to move with it or the new branch would stream nothing.
+   */
+  private adoptSession(forked: ApiSessionInfo | undefined): void {
+    if (forked === undefined || typeof forked.id !== 'string' || forked.id.length === 0) {
+      throw new AgentUnavailableError('OpenCode did not return the forked session.');
+    }
+    this.engineId = forked.id;
+    this.mergeState({ sessionId: forked.id });
+    this.unsubscribe?.();
+    this.attach();
   }
 
   /**

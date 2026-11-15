@@ -1,12 +1,12 @@
 import { AgentUnavailableError, MorseError } from '@morse/system';
 import type {
   AgentEvent,
-  AgentForkMessage,
   AgentGateway,
   AgentHistoryEntry,
   AgentInteractionRequest,
   AgentInteractionResponse,
   AgentSessionState,
+  AgentUserMessage,
   ModelRef,
   PromptImage,
   PromptMode,
@@ -1673,7 +1673,7 @@ export class HostSessionController {
       return undefined;
     }
 
-    const messages = await this.guard(() => gateway.forkMessages());
+    const messages = await this.guard(() => gateway.userMessages());
     if (!messages.ok) {
       return undefined;
     }
@@ -2661,17 +2661,16 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
 }
 
 /**
- * Maps a transcript item to the fork entry pi knows.
+ * Maps a transcript item to the engine entry a fork targets.
  *
- * pi's `get_fork_messages` lists every user message with non-empty text — the
- * same messages the transcript shows as text or pins (an image-only message has
- * no text and is not forkable). Matching the same distance from the end keeps
- * the two lists aligned even when an older history page is still unloaded.
+ * The engine lists every user message; the rows counted here are the ones the
+ * transcript shows with text or pins. Counting the same distance from the end
+ * keeps the two lists aligned even when an older history page is still unloaded.
  */
 function entryIdForEdit(
   items: TranscriptItem[],
   itemId: string,
-  forkMessages: AgentForkMessage[],
+  userMessages: AgentUserMessage[],
 ): string | undefined {
   const forkable = items.filter(
     (item): item is UserTranscriptItem =>
@@ -2681,8 +2680,8 @@ function entryIdForEdit(
   if (index === -1) {
     return undefined;
   }
-  const position = forkMessages.length - 1 - (forkable.length - 1 - index);
-  return position >= 0 ? forkMessages[position]?.entryId : undefined;
+  const position = userMessages.length - 1 - (forkable.length - 1 - index);
+  return position >= 0 ? userMessages[position]?.entryId : undefined;
 }
 
 function describeError(error: unknown): string {

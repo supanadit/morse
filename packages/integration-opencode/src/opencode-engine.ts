@@ -348,7 +348,15 @@ class ProbeGateway implements AgentGateway {
     return Promise.reject(new UnsupportedByHostError('A draft has no session to prompt.'));
   }
 
-  forkMessages(): Promise<never> {
+  userMessages(): Promise<never> {
+    return Promise.reject(new UnsupportedByHostError('A draft has no conversation to fork.'));
+  }
+
+  rewrite(): Promise<never> {
+    return Promise.reject(new UnsupportedByHostError('A draft has no conversation to fork.'));
+  }
+
+  clone(): Promise<never> {
     return Promise.reject(new UnsupportedByHostError('A draft has no conversation to fork.'));
   }
 
