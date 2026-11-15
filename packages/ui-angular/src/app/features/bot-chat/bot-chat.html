@@ -73,6 +73,12 @@
                   </div>
                 }
                 <morse-markdown [text]="entry.text" variant="user" />
+                <time
+                  class="when"
+                  [attr.datetime]="stamp(entry.at)"
+                  [title]="fullStamp(entry.at)"
+                  >{{ clock(entry.at) }}</time
+                >
               </div>
             </div>
           }
@@ -82,6 +88,12 @@
               <div class="body">
                 <span class="author">{{ entry.author.name }}</span>
                 <div class="text"><morse-markdown [text]="entry.text" /></div>
+                <time
+                  class="when"
+                  [attr.datetime]="stamp(entry.at)"
+                  [title]="fullStamp(entry.at)"
+                  >{{ clock(entry.at) }}</time
+                >
               </div>
             </div>
           }
