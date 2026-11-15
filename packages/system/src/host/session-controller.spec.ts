@@ -82,6 +82,8 @@ function fakeGateway(
     rewrite?: { text: string };
     /** A committed fork: the prompt it re-opened and the new session id. */
     fork?: { text: string; sessionId: string };
+    /** A committed clone: the new session id. */
+    clone?: { sessionId: string };
     /** Whether the agent reports a run in flight. */
     streaming?: boolean;
     /** Counts palette-driven command re-reads; omitted means the adapter can't. */
@@ -153,7 +155,13 @@ function fakeGateway(
           ? { text: options.rewrite.text, cancelled: false }
           : { text: '', cancelled: true },
       ),
-    clone: () => Promise.resolve({ cancelled: true }),
+    clone: () => {
+      if (options.clone) {
+        sessionId = options.clone.sessionId;
+        return Promise.resolve({ cancelled: false });
+      }
+      return Promise.resolve({ cancelled: true });
+    },
     fork: () => {
       if (options.fork) {
         sessionId = options.fork.sessionId;
@@ -249,6 +257,8 @@ function harness(
     /** A committed rewrite: the text of the message it dropped, id unchanged. */
     rewrite?: { text: string };
     fork?: { text: string; sessionId: string };
+    /** A committed clone: the new session id. */
+    clone?: { sessionId: string };
     /** Whether the agent reports a run in flight. */
     streaming?: boolean;
     /** The factory refuses instead of returning a gateway: "pi is not installed". */
@@ -313,6 +323,7 @@ function harness(
     ...(options.rewrite ? { rewrite: options.rewrite } : {}),
     ...(options.streaming === undefined ? {} : { streaming: options.streaming }),
     ...(options.fork ? { fork: options.fork } : {}),
+    ...(options.clone ? { clone: options.clone } : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
     ...(options.mode === undefined ? {} : { mode: options.mode }),
@@ -1666,6 +1677,198 @@ describe('HostSessionController chat/fork', () => {
     // The fork hands back the same span, so the composer re-renders the exact
     // chip the reader sent instead of a line-only approximation.
     expect(seed?.payload).toEqual({ text: 'hello', pins: [pin] });
+  });
+});
+
+/**
+ * A branch is the other half of fork: it cuts *after* a finished answer instead
+ * of before a prompt, so the new branch keeps that answer and the reader types
+ * what comes next. Both engines can fork before a later prompt; when the answer
+ * is the last thing said there is no later prompt to cut at, so the whole
+ * conversation is cloned at its tip instead.
+ */
+describe('HostSessionController chat/branch', () => {
+  /** Two turns a reader has on screen: prompt, answer, prompt, answer. */
+  function transcript(): TranscriptItem[] {
+    return [
+      { kind: 'user', id: 'morse-user-1', at: 1, text: 'first' },
+      {
+        kind: 'assistant',
+        id: 'morse-assistant-1',
+        at: 2,
+        text: 'first answer',
+        thinking: '',
+        streaming: false,
+      },
+      { kind: 'user', id: 'morse-user-2', at: 3, text: 'second' },
+      {
+        kind: 'assistant',
+        id: 'morse-assistant-2',
+        at: 4,
+        text: 'second answer',
+        thinking: '',
+        streaming: false,
+      },
+    ];
+  }
+
+  /** A live session showing exactly these rows, without sending anything. */
+  async function openWith(h: Harness, items: TranscriptItem[]): Promise<void> {
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    h.transcripts.seed('sess-1', items);
+  }
+
+  function warns(h: Harness): Extract<HostToClientMessage, { type: 'notice' }>[] {
+    return h.messages.filter(
+      (message): message is Extract<HostToClientMessage, { type: 'notice' }> =>
+        message.type === 'notice' && message.payload.level === 'warn',
+    );
+  }
+
+  it('branches before the next prompt, keeping the answer', async () => {
+    const h = harness({
+      userMessages: [
+        { entryId: 'entry-1', text: 'first' },
+        { entryId: 'entry-2', text: 'second' },
+      ],
+      fork: { text: 'second', sessionId: 'sess-2' },
+    });
+    await openWith(h, transcript());
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    const prompt = vi.spyOn(h.chat, 'prompt');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-1' },
+    });
+
+    // The cut is before the *next* prompt: the answer it branches after survives.
+    expect(forkActive).toHaveBeenCalledWith('entry-2');
+    // Nothing is sent and nothing is seeded: the reader types what comes next.
+    expect(prompt).not.toHaveBeenCalled();
+    expect(h.messages.some((message) => message.type === 'composer/seed')).toBe(false);
+    expect(h.transcripts.items('sess-1')).toEqual([]);
+    expect(h.transcripts.items('sess-2').map((item) => item.id)).toEqual([
+      'morse-user-1',
+      'morse-assistant-1',
+    ]);
+  });
+
+  it('clones when the answer is the last one', async () => {
+    const h = harness({ clone: { sessionId: 'sess-2' } });
+    await openWith(h, transcript().slice(0, 2));
+    const cloneActive = vi.spyOn(h.registry, 'cloneActive');
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-1' },
+    });
+
+    // Nothing follows the answer, so there is no prompt to cut before: the
+    // conversation is copied at its tip and keeps every row.
+    expect(cloneActive).toHaveBeenCalledTimes(1);
+    expect(forkActive).not.toHaveBeenCalled();
+    expect(h.transcripts.items('sess-1')).toEqual([]);
+    expect(h.transcripts.items('sess-2').map((item) => item.id)).toEqual([
+      'morse-user-1',
+      'morse-assistant-1',
+    ]);
+    expect(h.messages.some((message) => message.type === 'composer/seed')).toBe(false);
+  });
+
+  it('refuses a branch while the agent is streaming', async () => {
+    const h = harness({ fork: { text: 'second', sessionId: 'sess-2' }, streaming: true });
+    await openWith(h, transcript());
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    const cloneActive = vi.spyOn(h.registry, 'cloneActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-1' },
+    });
+
+    expect(warns(h)).toHaveLength(1);
+    expect(forkActive).not.toHaveBeenCalled();
+    expect(cloneActive).not.toHaveBeenCalled();
+  });
+
+  it('leaves everything alone when the engine cancels the clone', async () => {
+    const h = harness();
+    await openWith(h, transcript().slice(0, 2));
+    const cloneActive = vi.spyOn(h.registry, 'cloneActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-1' },
+    });
+
+    // It really asked the engine, and the engine's refusal is what stopped it.
+    expect(cloneActive).toHaveBeenCalledTimes(1);
+    expect(warns(h)).toHaveLength(1);
+    // No re-key, no dropped branch, no new session row.
+    expect(h.registry.hotKeys()).toEqual(['sess-1']);
+    expect(h.transcripts.items('sess-1').map((item) => item.id)).toEqual([
+      'morse-user-1',
+      'morse-assistant-1',
+    ]);
+    expect(h.transcripts.items('sess-2')).toEqual([]);
+  });
+
+  it('refuses a prompt row: a branch starts after an answer', async () => {
+    const h = harness({ fork: { text: 'second', sessionId: 'sess-2' } });
+    await openWith(h, transcript());
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-user-1' },
+    });
+
+    expect(warns(h)).toHaveLength(1);
+    expect(forkActive).not.toHaveBeenCalled();
+    expect(h.transcripts.items('sess-1')).toHaveLength(4);
+  });
+
+  it('refuses a row that is gone', async () => {
+    const h = harness({ fork: { text: 'second', sessionId: 'sess-2' } });
+    await openWith(h, transcript());
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-gone' },
+    });
+
+    expect(warns(h)).toHaveLength(1);
+    expect(forkActive).not.toHaveBeenCalled();
+  });
+
+  it('refuses an answer the agent has no entry for', async () => {
+    // The engine lists no user message at all while the transcript has rows:
+    // there is no point in its history to branch before.
+    const h = harness({ fork: { text: 'second', sessionId: 'sess-2' } });
+    await openWith(h, transcript());
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-1' },
+    });
+
+    expect(warns(h)).toHaveLength(1);
+    expect(forkActive).not.toHaveBeenCalled();
   });
 });
 

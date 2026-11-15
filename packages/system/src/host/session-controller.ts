@@ -16,6 +16,7 @@ import type {
 import type {
   BotControllerPort,
   ChatService,
+  ForkedSession,
   MorseLogger,
   OpenedSession,
   SessionRegistry,
@@ -461,6 +462,9 @@ export class HostSessionController {
         return;
       case 'chat/fork':
         await this.forkPrompt(message.payload.itemId);
+        return;
+      case 'chat/branch':
+        await this.branchFrom(message.payload.itemId);
         return;
       case 'chat/abort':
         await this.guard(() => this.options.services.chat.abort(this.promptTarget()));
@@ -1585,7 +1589,7 @@ export class HostSessionController {
    * pin is not silently dropped by the edit.
    */
   private async editPrompt(itemId: string, text: string): Promise<void> {
-    const target = await this.forkBefore(itemId, 'edit');
+    const target = await this.cutBefore(itemId, 'edit');
     if (!target) {
       return;
     }
@@ -1601,7 +1605,7 @@ export class HostSessionController {
    * retyping it.
    */
   private async forkPrompt(itemId: string): Promise<void> {
-    const target = await this.forkBefore(itemId, 'fork');
+    const target = await this.cutBefore(itemId, 'fork');
     if (!target) {
       return;
     }
@@ -1621,44 +1625,112 @@ export class HostSessionController {
   }
 
   /**
-   * Branches or rewrites the active session before a past user message and
-   * re-homes the transcript at that cut: a fork moves it to a new branch, a
-   * rewrite usually keeps the same key. Shared by edit (which then sends) and
-   * fork (which seeds the composer). Returns the message at the cut, or
-   * `undefined` when the operation was refused — a notice has already been
-   * emitted in that case.
+   * Branches after a finished answer without sending anything. The new branch
+   * keeps that answer and everything before it: the host forks before the next
+   * user prompt (both engines can), or clones the whole conversation when the
+   * answer is the last one. The transcript re-homes with the same rows, so the
+   * reader sees the branch point, not the old tail.
    */
-  private async forkBefore(
-    itemId: string,
-    action: 'edit' | 'fork',
-  ): Promise<UserTranscriptItem | undefined> {
-    const gerund = action === 'edit' ? 'editing' : 'forking';
-    const past = action === 'edit' ? 'edited' : 'forked';
-    if (this.isDraft) {
-      // No session exists in a draft, so there is nothing to fork: do not spawn
-      // one just to fail the lookup (or re-activate another session).
+  private async branchFrom(itemId: string): Promise<void> {
+    const source = await this.cutSource('branch');
+    if (!source) {
+      return;
+    }
+    const { key, gateway, items } = source;
+    const index = items.findIndex((item) => item.id === itemId);
+    const target = items[index];
+    if (!target) {
+      this.options.emit(
+        noticeMessage('warn', 'That message is no longer available to branch.', Date.now()),
+      );
+      return;
+    }
+    if (target.kind !== 'assistant') {
+      this.options.emit(noticeMessage('warn', 'Only an answer can start a branch.', Date.now()));
+      return;
+    }
+    if (this.options.services.registry.stateOf(key)?.streaming === true) {
       this.options.emit(
         noticeMessage(
           'warn',
-          `Nothing to ${action} yet — this session has no messages.`,
+          'Wait for the agent to finish before branching a message.',
           Date.now(),
         ),
       );
-      return undefined;
+      return;
     }
-    if (!this.agentReady) {
-      await this.openDefaultSession();
-      if (!this.agentReady) {
-        return undefined;
+
+    // The branch ends right after the chosen answer: fork before the next
+    // prompt when there is one, otherwise copy the conversation at its tip.
+    const nextUser = items.slice(index + 1).find((item) => item.kind === 'user');
+    let branch: ForkedSession;
+    if (nextUser) {
+      const messages = await this.guard(() => gateway.userMessages());
+      if (!messages.ok) {
+        return;
       }
+      const entryId = entryIdForEdit(items, nextUser.id, messages.value);
+      if (entryId === undefined) {
+        this.options.emit(
+          noticeMessage(
+            'warn',
+            'This answer cannot be branched — the agent has no point in its history for it.',
+            Date.now(),
+          ),
+        );
+        return;
+      }
+      const forked = await this.guard(() => this.options.services.registry.forkActive(entryId));
+      if (!forked.ok) {
+        return;
+      }
+      branch = forked.value;
+    } else {
+      const cloned = await this.guard(() => this.options.services.registry.cloneActive());
+      if (!cloned.ok) {
+        return;
+      }
+      branch = cloned.value;
     }
-    const key = this.activeKey;
-    const gateway = this.addressedGateway();
-    if (key === undefined || !gateway) {
-      this.options.emit(noticeMessage('warn', `No session to ${action}.`, Date.now()));
+    if (branch.cancelled) {
+      this.options.emit(noticeMessage('warn', 'The branch was cancelled.', Date.now()));
+      return;
+    }
+
+    // Everything before the next prompt survives — the answer included.
+    const cut = nextUser ? items.findIndex((item) => item.id === nextUser.id) : items.length;
+    const kept = items.slice(0, cut);
+    const moved = branch.key !== branch.previousKey;
+    this.activeKey = branch.key;
+    this.options.transcripts.move(key, branch.key, kept);
+    if (moved) {
+      // The branch starts after the answer, so no older page precedes it.
+      this.historyBefore = undefined;
+      this.hasOlderHistory = false;
+    }
+    this.loadingOlderHistory = false;
+    this.emitState();
+    void this.publishSessions();
+  }
+
+  /**
+   * Cuts the active session before a past user message and re-homes the
+   * transcript at that cut: a fork moves it to a new branch, a rewrite usually
+   * keeps the same key. Shared by edit (which then sends) and fork (which seeds
+   * the composer). Returns the message at the cut, or `undefined` when the
+   * operation was refused — a notice has already been emitted in that case.
+   */
+  private async cutBefore(
+    itemId: string,
+    action: 'edit' | 'fork',
+  ): Promise<UserTranscriptItem | undefined> {
+    const source = await this.cutSource(action);
+    if (!source) {
       return undefined;
     }
-    const items = this.options.transcripts.items(key);
+    const { key, gateway, items } = source;
+    const gerund = action === 'edit' ? 'editing' : 'forking';
+    const past = action === 'edit' ? 'edited' : 'forked';
     const target = items.find((item) => item.id === itemId);
     if (!target || target.kind !== 'user') {
       this.options.emit(
@@ -1728,6 +1800,42 @@ export class HostSessionController {
     this.emitState();
 
     return target;
+  }
+
+  /**
+   * What every branch-shaped action needs before it can cut: a draft has
+   * nothing to cut, a missing agent gets one more chance to open, and the cut
+   * needs a session key to re-home under. Returns the target session's key,
+   * gateway and rows, or `undefined` when a notice was already emitted.
+   */
+  private async cutSource(
+    action: 'edit' | 'fork' | 'branch',
+  ): Promise<{ key: string; gateway: AgentGateway; items: TranscriptItem[] } | undefined> {
+    if (this.isDraft) {
+      // No session exists in a draft, so there is nothing to cut: do not spawn
+      // one just to fail the lookup (or re-activate another session).
+      this.options.emit(
+        noticeMessage(
+          'warn',
+          `Nothing to ${action} yet — this session has no messages.`,
+          Date.now(),
+        ),
+      );
+      return undefined;
+    }
+    if (!this.agentReady) {
+      await this.openDefaultSession();
+      if (!this.agentReady) {
+        return undefined;
+      }
+    }
+    const key = this.activeKey;
+    const gateway = this.addressedGateway();
+    if (key === undefined || !gateway) {
+      this.options.emit(noticeMessage('warn', `No session to ${action}.`, Date.now()));
+      return undefined;
+    }
+    return { key, gateway, items: this.options.transcripts.items(key) };
   }
 
   private async setModel(provider: string, id: string): Promise<void> {
