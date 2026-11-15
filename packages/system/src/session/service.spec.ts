@@ -25,12 +25,17 @@ import { SessionRegistry } from './service.js';
 
 const WORKSPACE: WorkspaceRef = { cwd: '/work/project', name: 'project' };
 
-/** What a branch test steers: where a clone lands and what an in-place rewrite drops. */
+/** What a branch test steers: where a clone lands and what a rewrite drops. */
 interface BranchBehaviour {
   /** The engine id a clone moves the session to. */
   cloneTo?: string;
-  /** The dropped text an in-place rewrite reports; unset makes it cancel. */
+  /** The dropped text a rewrite reports; unset makes it cancel. */
   rewriteText?: string;
+  /**
+   * The engine id a rewrite that branches lands on. Unset keeps the id (an
+   * in-place edit); set moves it, like pi's rewrite which has no edit primitive.
+   */
+  rewriteTo?: string;
 }
 
 class FakeGateway implements AgentGateway {
@@ -60,7 +65,10 @@ class FakeGateway implements AgentGateway {
     if (this.branch.rewriteText === undefined) {
       return Promise.resolve({ text: '', cancelled: true });
     }
-    // An in-place edit: the conversation reopens at the message, the id stands.
+    // An in-place edit keeps the id; an engine that branches gets a new one.
+    if (this.branch.rewriteTo !== undefined) {
+      this.current = { ...this.current, sessionId: this.branch.rewriteTo };
+    }
     return Promise.resolve({ text: this.branch.rewriteText, cancelled: false });
   }
 
@@ -166,14 +174,19 @@ function engineOf(kind: string): SessionEngine {
 const PRE_BRANCH_SESSION_ID = 'start-session';
 
 /**
- * The gateway the branch tests drive. `sessionId` is the new session an engine's
- * clone lands on; a rewrite edits in place and keeps the id it already has, so
- * only `rewriteText` (the message it reports dropped) applies to it.
+ * The gateway the branch tests drive. `sessionId` is the new session a clone (or
+ * a branching rewrite) lands on; `startsAt` is the id the session begins with —
+ * a rewrite that edits in place keeps it, so only `rewriteText` applies there.
  */
-function fakeGateway(options: { sessionId: string; rewriteText?: string }): FakeGateway {
+function fakeGateway(options: {
+  sessionId: string;
+  startsAt?: string;
+  rewriteText?: string;
+  rewriteTo?: string;
+}): FakeGateway {
   return new FakeGateway(
     {
-      sessionId: PRE_BRANCH_SESSION_ID,
+      sessionId: options.startsAt ?? PRE_BRANCH_SESSION_ID,
       workspace: WORKSPACE,
       thinkingLevel: 'off',
       availableModels: [],
@@ -185,21 +198,32 @@ function fakeGateway(options: { sessionId: string; rewriteText?: string }): Fake
     {
       cloneTo: options.sessionId,
       ...(options.rewriteText === undefined ? {} : { rewriteText: options.rewriteText }),
+      ...(options.rewriteTo === undefined ? {} : { rewriteTo: options.rewriteTo }),
     },
   );
 }
 
-/** A registry with `gateway` as its one hot, active session — what a branch needs. */
-async function makeRegistry(gateway: AgentGateway): Promise<SessionRegistry> {
-  const factory: AgentGatewayFactory = { create: () => Promise.resolve(gateway) };
+/** A registry with each gateway opened in turn, so the last one is the active session. */
+async function makeRegistryOf(...gateways: AgentGateway[]): Promise<SessionRegistry> {
+  const queue = [...gateways];
+  const factory: AgentGatewayFactory = {
+    create: () => Promise.resolve(queue.shift() as AgentGateway),
+  };
   const sessions = new SessionRegistry({
     factory,
     catalog: emptyCatalog,
     defaultWorkspace: WORKSPACE,
     logger: silentLogger,
   });
-  await sessions.open();
+  for (let i = 0; i < gateways.length; i += 1) {
+    await sessions.open();
+  }
   return sessions;
+}
+
+/** A registry with `gateway` as its one hot, active session — what a branch needs. */
+function makeRegistry(gateway: AgentGateway): Promise<SessionRegistry> {
+  return makeRegistryOf(gateway);
 }
 
 describe('SessionRegistry draft engine', () => {
@@ -444,7 +468,9 @@ describe('SessionRegistry rename and project delete', () => {
 /**
  * A branch is one operation with three names: a fork cuts before a message, a
  * rewrite edits one (in place when the engine can, by branching when it cannot),
- * and a clone branches at the tip. All three re-key the hot entry the same way.
+ * and a clone branches at the tip. All three re-key the hot entry the same way,
+ * and only a branch of the host-wide session in front adopts the new key — a
+ * pinned tab branching its own conversation must not steal the sidebar's pointer.
  */
 describe('SessionRegistry branch operations', () => {
   it('keeps the key when the engine rewrote in place', async () => {
@@ -462,5 +488,55 @@ describe('SessionRegistry branch operations', () => {
     const result = await registry.cloneActive();
     expect(result.previousKey).not.toBe(result.key);
     expect(result.key).toBe('next-session');
+    expect(registry.activeKeyOf()).toBe('next-session');
+  });
+
+  it('re-keys a pinned tab’s rewrite without stealing the active pointer', async () => {
+    // Only a rewrite that branches moves the key, so the pinned path is driven
+    // with one: pi has no edit primitive and always lands on a new session.
+    const pinned = fakeGateway({
+      startsAt: 'pinned-session',
+      sessionId: 'unused-clone',
+      rewriteText: 'old prompt',
+      rewriteTo: 'pinned-branch',
+    });
+    const front = fakeGateway({ startsAt: 'front-session', sessionId: 'unused-clone' });
+    const registry = await makeRegistryOf(pinned, front);
+
+    const result = await registry.rewriteActive('entry-1', 'pinned-session');
+
+    expect(result.previousKey).toBe('pinned-session');
+    expect(result.key).toBe('pinned-branch');
+    expect(registry.hotKeys()).toContain('pinned-branch');
+    expect(registry.hotKeys()).not.toContain('pinned-session');
+    // The tab followed its own conversation; the host's session in front did not.
+    expect(registry.activeKeyOf()).toBe('front-session');
+  });
+
+  it('adopts a rewrite that moved the key when no session was pinned', async () => {
+    const gateway = fakeGateway({
+      sessionId: 'unused-clone',
+      rewriteText: 'old prompt',
+      rewriteTo: 'next-session',
+    });
+    const registry = await makeRegistry(gateway);
+
+    const result = await registry.rewriteActive('entry-1');
+
+    expect(result.key).toBe('next-session');
+    expect(registry.activeKeyOf()).toBe('next-session');
+  });
+
+  it('re-keys a pinned tab’s clone without stealing the active pointer', async () => {
+    const pinned = fakeGateway({ startsAt: 'pinned-session', sessionId: 'pinned-clone' });
+    const front = fakeGateway({ startsAt: 'front-session', sessionId: 'front-clone' });
+    const registry = await makeRegistryOf(pinned, front);
+
+    const result = await registry.cloneActive('pinned-session');
+
+    expect(result.previousKey).toBe('pinned-session');
+    expect(result.key).toBe('pinned-clone');
+    expect(registry.hotKeys()).not.toContain('pinned-session');
+    expect(registry.activeKeyOf()).toBe('front-session');
   });
 });
