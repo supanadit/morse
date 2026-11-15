@@ -1383,6 +1383,36 @@ describe('HostSessionController chat/fork', () => {
     expect(h.transcripts.items('sess-2')).toEqual([]);
   });
 
+  it('counts a text-less user row, so the fork targets the message it names', async () => {
+    const h = harness({
+      userMessages: [
+        { entryId: 'entry-1', text: 'first' },
+        { entryId: 'entry-2', text: '' },
+        { entryId: 'entry-3', text: 'third' },
+      ],
+      fork: { text: 'first', sessionId: 'sess-2' },
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'first' } });
+    // An image-only prompt keeps its user row with no text, and the engine lists
+    // that row too: counting only the rows with text shifts every fork before it
+    // onto the neighbouring message.
+    await h.controller.handleClientMessage({
+      type: 'chat/prompt',
+      payload: { text: '', images: [{ data: 'AAAA', mimeType: 'image/png' }] },
+    });
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'third' } });
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/fork',
+      payload: { itemId: 'morse-user-1' },
+    });
+
+    expect(forkActive).toHaveBeenCalledWith('entry-1');
+  });
+
   it('seeds the composer with the column range and its excerpt', async () => {
     const pin = {
       path: 'src/app.ts',

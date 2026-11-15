@@ -2663,19 +2663,17 @@ function historyItems(key: string, entries: AgentHistoryEntry[], page: number): 
 /**
  * Maps a transcript item to the engine entry a fork targets.
  *
- * The engine lists every user message; the rows counted here are the ones the
- * transcript shows with text or pins. Counting the same distance from the end
- * keeps the two lists aligned even when an older history page is still unloaded.
+ * Both lists are total: the engine lists every user message and the transcript
+ * keeps a row for each, a text-less one (an image-only prompt) included. Counting
+ * the same distance from the end keeps the two lists aligned even when an older
+ * history page is still unloaded.
  */
 function entryIdForEdit(
   items: TranscriptItem[],
   itemId: string,
   userMessages: AgentUserMessage[],
 ): string | undefined {
-  const forkable = items.filter(
-    (item): item is UserTranscriptItem =>
-      item.kind === 'user' && (item.text.trim().length > 0 || (item.pins?.length ?? 0) > 0),
-  );
+  const forkable = items.filter((item): item is UserTranscriptItem => item.kind === 'user');
   const index = forkable.findIndex((item) => item.id === itemId);
   if (index === -1) {
     return undefined;
