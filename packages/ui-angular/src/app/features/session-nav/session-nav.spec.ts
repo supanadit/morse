@@ -7,6 +7,7 @@ import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { ShellState } from '../../state/shell-state';
 import { LayoutState } from '../../state/layout-state';
 import { OverlayStack } from '../../state/overlay-stack';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { ShortcutService } from '../../services/shortcut.service';
 import { ShortcutKeys } from '../../ui/shortcut-keys';
 import { UPDATE_LOADER, type VersionLoader } from '../../services/update';
@@ -43,6 +44,8 @@ class ScopedHostTransport extends BaseHostTransport {
     private readonly hasMoreByProject: Record<string, boolean> = {},
     /** The session a reload came back to, the way a host restores the open one. */
     private readonly activeSession?: { id: string; cwd: string },
+    /** Forces native dialogs regardless of scope (a global host may have them too). */
+    private readonly nativeDialogsOverride?: boolean,
   ) {
     super();
   }
@@ -53,6 +56,23 @@ class ScopedHostTransport extends BaseHostTransport {
 
   send(message: ClientToHostMessage): void {
     this.sent.push(message);
+    if (message.type === 'host/command') {
+      // The one host command this fake answers, so a native confirmation can be
+      // followed all the way to the delete it authorizes.
+      if (message.payload.command === 'confirmDeleteProject' && message.payload.requestId) {
+        queueMicrotask(() =>
+          this.emitMessage({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId ?? '',
+              ok: true,
+              data: { confirmed: true },
+            },
+          }),
+        );
+      }
+      return;
+    }
     if (message.type !== 'client/ready') {
       return;
     }
@@ -65,7 +85,7 @@ class ScopedHostTransport extends BaseHostTransport {
           hostKind: scoped ? 'vscode' : 'server',
           scope: this.scope,
           editorContext: scoped,
-          nativeDialogs: scoped,
+          nativeDialogs: this.nativeDialogsOverride ?? scoped,
           insertIntoEditor: false,
           revealFile: false,
           directoryPicker: this.directoryPicker,
@@ -187,6 +207,8 @@ interface RenderOptions {
   hasMoreByProject?: Record<string, boolean>;
   /** The session the host came back to, when a test needs the open project to be the second one. */
   activeSession?: { id: string; cwd: string };
+  /** Force native dialogs on a global host, so the project confirm can be asserted. */
+  nativeDialogs?: boolean;
 }
 
 async function render(
@@ -203,6 +225,7 @@ async function render(
     options.sessions,
     options.hasMoreByProject,
     options.activeSession,
+    options.nativeDialogs,
   );
   await TestBed.configureTestingModule({
     imports: [SessionNav],
@@ -545,6 +568,127 @@ describe('SessionNav', () => {
     const deleted = transport.sent.filter((message) => message.type === 'session/delete');
     expect(deleted).toHaveLength(1);
     expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('renames a session from its context menu', async () => {
+    const { host, transport, fixture } = await render('global');
+    const tabs = TestBed.inject(WorkspaceTabs);
+    tabs.focusSession({ id: 's1', title: 'Morse work', cwd: '/work/morse' });
+
+    const sessionRow = [...host.querySelectorAll<HTMLElement>('.row')].find((node) =>
+      node.textContent?.includes('Morse work'),
+    )!;
+    sessionRow.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 60 }),
+    );
+    fixture.detectChanges();
+
+    const rename = [...host.querySelectorAll<HTMLElement>('.context-menu-item')].find(
+      (node) => node.textContent?.trim() === 'Rename session…',
+    )!;
+    rename.click();
+    fixture.detectChanges();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const input = host.querySelector<HTMLInputElement>('.context-menu .rename-input')!;
+    // The field is the menu now: it takes focus (and selects the old title) so a
+    // reader can type a new name without clicking twice.
+    expect(document.activeElement).toBe(input);
+    input.value = 'Release prep';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    const sent = transport.sent.filter((message) => message.type === 'session/rename');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.payload).toEqual({ sessionId: 's1', title: 'Release prep' });
+    expect(tabs.tabs().find((tab) => tab.id === 's1')?.title).toBe('Release prep');
+  });
+
+  it('refuses an empty rename without sending it', async () => {
+    const { host, transport, fixture } = await render('global');
+
+    const sessionRow = [...host.querySelectorAll<HTMLElement>('.row')].find((node) =>
+      node.textContent?.includes('Morse work'),
+    )!;
+    sessionRow.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 60 }),
+    );
+    fixture.detectChanges();
+    [...host.querySelectorAll<HTMLElement>('.context-menu-item')]
+      .find((node) => node.textContent?.trim() === 'Rename session…')!
+      .click();
+    fixture.detectChanges();
+
+    const input = host.querySelector<HTMLInputElement>('.context-menu .rename-input')!;
+    input.value = '   ';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(transport.sent.some((message) => message.type === 'session/rename')).toBe(false);
+  });
+
+  it('deletes a project after asking in-app', async () => {
+    const { host, transport, fixture } = await render('global');
+    const tabs = TestBed.inject(WorkspaceTabs);
+    tabs.ensureSession({ id: 's1', title: 'Morse work', cwd: '/work/morse' });
+
+    const projectRow = host.querySelector<HTMLElement>('.row.group')!;
+    projectRow.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 60 }),
+    );
+    fixture.detectChanges();
+    expect(host.textContent).toContain('Delete project…');
+
+    [...host.querySelectorAll<HTMLElement>('.context-menu-item')]
+      .find((node) => node.textContent?.includes('Delete project'))!
+      .click();
+    fixture.detectChanges();
+    expect(host.querySelector('.context-menu-question')?.textContent).toContain('1 session');
+
+    host.querySelector<HTMLElement>('.context-menu-item.danger')!.click();
+    fixture.detectChanges();
+
+    expect(
+      transport.sent.some(
+        (message) => message.type === 'project/delete' && message.payload.path === '/work/morse',
+      ),
+    ).toBe(true);
+    expect(tabs.tabs().some((tab) => tab.id === 's1')).toBe(false);
+  });
+
+  it('asks the host to confirm a project delete when it has native dialogs', async () => {
+    const { host, transport, fixture } = await render('global', false, { nativeDialogs: true });
+
+    const projectRow = host.querySelector<HTMLElement>('.row.group')!;
+    projectRow.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 60 }),
+    );
+    fixture.detectChanges();
+    [...host.querySelectorAll<HTMLElement>('.context-menu-item')]
+      .find((node) => node.textContent?.includes('Delete project'))!
+      .click();
+    fixture.detectChanges();
+
+    expect(
+      transport.sent.some(
+        (message) =>
+          message.type === 'host/command' &&
+          message.payload.command === 'confirmDeleteProject' &&
+          (message.payload.args as { path?: string } | undefined)?.path === '/work/morse',
+      ),
+    ).toBe(true);
+
+    // Only the host's "yes" authorizes the delete, and it then reaches the wire
+    // with the project's sessions forgotten.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    expect(
+      transport.sent.some(
+        (message) => message.type === 'project/delete' && message.payload.path === '/work/morse',
+      ),
+    ).toBe(true);
   });
 
   it('offers the editor tab only where the host has one', async () => {

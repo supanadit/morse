@@ -103,6 +103,34 @@ describe('createMorseClient', () => {
     client.dispose();
   });
 
+  it('sends a session rename as `session/rename`', () => {
+    const transport = stubTransport();
+    const client = createMorseClient({ transport });
+
+    client.actions.renameSession('s1', 'Release prep');
+
+    expect(transport.sent.at(-1)).toEqual({
+      type: 'session/rename',
+      payload: { sessionId: 's1', title: 'Release prep' },
+    });
+
+    client.dispose();
+  });
+
+  it('sends a project delete as `project/delete` with its path', () => {
+    const transport = stubTransport();
+    const client = createMorseClient({ transport });
+
+    client.actions.deleteProject('/work/morse');
+
+    expect(transport.sent.at(-1)).toEqual({
+      type: 'project/delete',
+      payload: { path: '/work/morse' },
+    });
+
+    client.dispose();
+  });
+
   it('asks the host to re-read commands with `commands/refresh`', () => {
     const transport = stubTransport();
     const client = createMorseClient({ transport });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentSessionInfo } from '@morse/agent';
 import { toSessionRecord, type MorseSessionRecord } from './record.js';
 import type { SessionStore } from './ports.js';
-import { reconcileSessions } from './reconcile.js';
+import { planReconcile, reconcileSessions } from './reconcile.js';
 
 /**
  * Reconcile merges a harness report into Morse's index. What matters here is the
@@ -189,5 +189,46 @@ describe('reconcileSessions', () => {
     expect(store.persistedTokens.has(result.removals[0] ?? '')).toBe(false);
     // The other engine's row is untouched: a report only speaks for its own.
     expect(store.records.size).toBe(2);
+  });
+});
+
+/**
+ * A session's title is Morse's once the reader renames it. The engine keeps
+ * reporting its own name (a new token on every exchange), and none of those
+ * reports may put the engine's words back on the reader's row.
+ */
+describe('planReconcile pinned titles', () => {
+  const reported = (title: string): AgentSessionInfo =>
+    info({ title, token: 't2' });
+
+  it('keeps a renamed session’s title when the engine reports a new token', () => {
+    const stored: MorseSessionRecord = {
+      ...toSessionRecord('test', info({ title: 'Engine name', token: 't1' })),
+      title: 'Release prep',
+      titlePinned: true,
+    };
+    const plan = planReconcile(
+      'test',
+      [reported('Reply with exactly: pi-host')],
+      [stored],
+      new Map([[stored.id, 't1']]),
+    );
+
+    expect(plan.upserts).toHaveLength(1);
+    expect(plan.upserts[0]).toMatchObject({ title: 'Release prep', titlePinned: true });
+  });
+
+  it('takes the engine’s title for a session the reader never renamed', () => {
+    const stored = toSessionRecord('test', info({ title: 'Engine name', token: 't1' }));
+    const plan = planReconcile(
+      'test',
+      [reported('Reply with exactly: pi-host')],
+      [stored],
+      new Map([[stored.id, 't1']]),
+    );
+
+    expect(plan.upserts).toHaveLength(1);
+    expect(plan.upserts[0]?.title).toBe('Reply with exactly: pi-host');
+    expect(plan.upserts[0]).not.toHaveProperty('titlePinned');
   });
 });

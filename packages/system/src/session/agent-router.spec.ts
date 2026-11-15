@@ -856,3 +856,141 @@ describe('AgentRouter catalog', () => {
     expect(found.map((session) => session.title)).toEqual(['needle session']);
   });
 });
+
+/**
+ * Renaming and project deletion ride the same rule as the sidebar: the title is
+ * Morse's once pinned, and a project's sessions are whatever the index holds for
+ * that directory.
+ */
+describe('AgentRouter rename and project ids', () => {
+  it('renames by writing the record with the pin and no engine token', async () => {
+    const store = new MemoryStore();
+    const record = recordOf('pi', 'pi-1');
+    store.rows.set(record.id, record);
+    const writes: Array<{ record: MorseSessionRecord; token?: string }> = [];
+    const original = store.write.bind(store);
+    store.write = async (next, token) => {
+      writes.push({ record: next, token });
+      await original(next, token);
+    };
+    const { router } = build({ store, engines: [] });
+
+    await expect(router.rename(record.id, 'Release prep')).resolves.toBe(true);
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.record).toMatchObject({ title: 'Release prep', titlePinned: true });
+    expect(writes[0]?.token).toBeUndefined();
+  });
+
+  it('reports a rename of a session the index no longer holds', async () => {
+    const store = new MemoryStore();
+    const writes: MorseSessionRecord[] = [];
+    const original = store.write.bind(store);
+    store.write = async (next, token) => {
+      writes.push(next);
+      await original(next, token);
+    };
+    const { router } = build({ store, engines: [] });
+
+    await expect(router.rename('gone', 'x')).resolves.toBe(false);
+    expect(writes).toHaveLength(0);
+  });
+
+  it('leaves a pinned row alone when the engine renames itself', async () => {
+    const store = new MemoryStore();
+    const record = recordOf('pi', 'pi-1', { title: 'Release prep', titlePinned: true });
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(state({ sessionId: 'pi-1', sessionTitle: 'Release prep' }));
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      sessionId: record.id,
+    });
+    gateway.subscribe(() => undefined);
+    inner.emit({
+      type: 'agent/state',
+      at: 2,
+      state: state({ sessionId: 'pi-1', sessionTitle: 'Engine rename' }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(store.rows.get(record.id)?.title).toBe('Release prep');
+  });
+
+  it('keeps the rename of a running session through its next report', async () => {
+    const store = new MemoryStore();
+    const record = recordOf('pi', 'pi-1', { title: 'Reply with exactly: pi-host' });
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(
+      state({ sessionId: 'pi-1', sessionTitle: 'Reply with exactly: pi-host' }),
+    );
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      sessionId: record.id,
+    });
+    gateway.subscribe(() => undefined);
+    await gateway.state();
+    await router.rename(record.id, 'Release prep');
+
+    // The next report moves the count and names the session itself.
+    inner.emit({
+      type: 'agent/state',
+      at: 3,
+      state: state({
+        sessionId: 'pi-1',
+        sessionTitle: 'A brand new engine name',
+        counts: {
+          totalMessages: 4,
+          userMessages: 2,
+          assistantMessages: 2,
+          toolCalls: 0,
+          toolResults: 0,
+        },
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(store.rows.get(record.id)).toMatchObject({
+      title: 'Release prep',
+      titlePinned: true,
+    });
+  });
+
+  it('lets the engine rename a row the reader never pinned', async () => {
+    const store = new MemoryStore();
+    const record = recordOf('pi', 'pi-1', { title: 'Derived from the first prompt' });
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(
+      state({ sessionId: 'pi-1', sessionTitle: 'Derived from the first prompt' }),
+    );
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      sessionId: record.id,
+    });
+    gateway.subscribe(() => undefined);
+    inner.emit({
+      type: 'agent/state',
+      at: 2,
+      state: state({ sessionId: 'pi-1', sessionTitle: 'Engine rename' }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(store.rows.get(record.id)?.title).toBe('Engine rename');
+  });
+
+  it('lists only the sessions of one project', async () => {
+    const store = new MemoryStore();
+    const here = recordOf('pi', 'pi-1');
+    const elsewhere = recordOf('pi', 'pi-2', { cwd: '/work/other' });
+    store.rows.set(here.id, here);
+    store.rows.set(elsewhere.id, elsewhere);
+    const { router } = build({ store, engines: [] });
+
+    await expect(router.idsInProject('/work/project')).resolves.toEqual([here.id]);
+  });
+});

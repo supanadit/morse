@@ -8,10 +8,12 @@ import {
   type WorkspaceRef,
 } from '@morse/agent';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentUnavailableError } from '../errors.js';
+import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import { silentLogger } from '../logger.js';
 import type { SessionSummary } from '../domain/index.js';
-import type { SessionCatalog } from './ports.js';
+import type { SessionCatalog, SessionStore } from './ports.js';
+import { AgentRouter } from './agent-router.js';
+import { toSessionRecord, type MorseSessionRecord } from './record.js';
 import { SessionRegistry } from './service.js';
 
 /**
@@ -218,5 +220,155 @@ describe('SessionRegistry engineOf', () => {
     expect(sessions.engineOf(opened.key)).toBe('pi');
     await sessions.close(opened.key);
     expect(sessions.engineOf(opened.key)).toBeUndefined();
+  });
+});
+
+/**
+ * The use cases around the catalog's newer verbs: a rename reaches the index
+ * (never an engine), and a project delete is the session delete run over every
+ * row a directory holds — close first, then remove, and one failure never stops
+ * the rest.
+ */
+describe('SessionRegistry rename and project delete', () => {
+  function withCatalog(catalog: SessionCatalog): SessionRegistry {
+    return new SessionRegistry({
+      factory: new FakeFactory(),
+      catalog,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+  }
+
+  it('renames through the catalog and reports an unknown session', async () => {
+    const rename = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const sessions = withCatalog({ list: () => Promise.resolve([]), rename });
+
+    await expect(sessions.renameSession('s1', 'Release prep')).resolves.toBe(true);
+    await expect(sessions.renameSession('s2', 'x')).resolves.toBe(false);
+    expect(rename.mock.calls).toEqual([
+      ['s1', 'Release prep'],
+      ['s2', 'x'],
+    ]);
+  });
+
+  it('refuses a rename when the catalog cannot rename', async () => {
+    const sessions = withCatalog({ list: () => Promise.resolve([]) });
+
+    await expect(sessions.renameSession('s1', 'x')).rejects.toBeInstanceOf(
+      UnsupportedByHostError,
+    );
+  });
+
+  it('deletes a project’s sessions after closing each live one', async () => {
+    const order: string[] = [];
+    const sessions = withCatalog({
+      list: () => Promise.resolve([]),
+      idsInProject: () => Promise.resolve(['a', 'b']),
+      remove: (id) => {
+        order.push(`remove:${id}`);
+        return Promise.resolve();
+      },
+    });
+    vi.spyOn(sessions, 'close').mockImplementation(async (key) => {
+      order.push(`close:${key}`);
+    });
+
+    await expect(sessions.deleteProject('/work/morse')).resolves.toEqual({
+      deleted: ['a', 'b'],
+      failed: [],
+    });
+    expect(order).toEqual(['close:a', 'remove:a', 'close:b', 'remove:b']);
+  });
+
+  it('reports the sessions it could not delete and keeps going', async () => {
+    const sessions = withCatalog({
+      list: () => Promise.resolve([]),
+      idsInProject: () => Promise.resolve(['a', 'b', 'c']),
+      remove: (id) =>
+        id === 'b' ? Promise.reject(new Error('refused')) : Promise.resolve(),
+    });
+    vi.spyOn(sessions, 'close').mockResolvedValue(undefined);
+
+    await expect(sessions.deleteProject('/work/morse')).resolves.toEqual({
+      deleted: ['a', 'c'],
+      failed: ['b'],
+    });
+  });
+
+  it('deletes a project’s sessions through each owning engine', async () => {
+    // The router is the real catalog here: it must send each record to the
+    // engine that owns it, never to whichever engine happens to be first.
+    const rows = new Map<string, MorseSessionRecord>();
+    const record = (kind: string, id: string): MorseSessionRecord => {
+      const row = toSessionRecord(kind, {
+        sessionId: id,
+        cwd: '/work/morse',
+        updatedAt: 1,
+        messageCount: 1,
+        token: 't',
+      });
+      rows.set(row.id, row);
+      return row;
+    };
+    const pi = record('pi', 'pi-1');
+    const opencode = record('opencode', 'oc-1');
+    const removed: Record<string, string[]> = { pi: [], opencode: [] };
+    const store: SessionStore = {
+      list: () => Promise.resolve([...rows.values()]),
+      read: (id) => Promise.resolve(rows.get(id)),
+      write: (row) => {
+        rows.set(row.id, row);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        rows.delete(id);
+        return Promise.resolve();
+      },
+    };
+    const engineOf = (kind: 'pi' | 'opencode'): SessionEngine =>
+      ({
+        kind,
+        factory: new FakeFactory(kind),
+        catalog: {
+          list: () => Promise.resolve([]),
+          remove: (id: string) => {
+            removed[kind]?.push(id);
+            return Promise.resolve();
+          },
+        },
+      }) as unknown as SessionEngine;
+    const router = new AgentRouter({
+      store,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+      freshMs: 0,
+    });
+    const piEngine = engineOf('pi');
+    const openCodeEngine = engineOf('opencode');
+    router.register(piEngine, { catalog: piEngine.catalog });
+    router.register(openCodeEngine, { catalog: openCodeEngine.catalog });
+    const sessions = new SessionRegistry({
+      factory: new FakeFactory(),
+      catalog: router,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+
+    await expect(sessions.deleteProject('/work/morse')).resolves.toEqual({
+      deleted: [pi.id, opencode.id],
+      failed: [],
+    });
+
+    expect(removed.pi).toEqual([pi.engineRef.sessionId]);
+    expect(removed.opencode).toEqual([opencode.engineRef.sessionId]);
+    expect([...rows.keys()]).toEqual([]);
+  });
+
+  it('refuses a project delete when the catalog cannot list one', async () => {
+    const sessions = withCatalog({ list: () => Promise.resolve([]) });
+
+    await expect(sessions.deleteProject('/work/morse')).rejects.toBeInstanceOf(
+      UnsupportedByHostError,
+    );
   });
 });

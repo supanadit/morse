@@ -61,6 +61,13 @@ export interface MorseSessionRecord {
   id: string;
   /** The name the sidebar shows. Morse owns it, so a rename never starts an engine. */
   title: string;
+  /**
+   * True when the title is the reader's, set by a rename, rather than one the
+   * engine reported. Reconcile and the live row writer both leave a pinned title
+   * alone, so neither an engine token change nor a later engine rename can take
+   * it back. The engine's own conversation data is never touched either way.
+   */
+  titlePinned?: true;
   /** The directory the session works in, which is how the sidebar groups sessions. */
   cwd: string;
   engineRef: AgentEngineRef;
@@ -137,4 +144,19 @@ export function toSessionRecord(kind: string, info: AgentSessionInfo): MorseSess
         }),
     ...(info.subagent === undefined ? {} : { subagent: info.subagent }),
   };
+}
+
+/**
+ * The name a row carries after an engine report. A pinned title is the reader's,
+ * so no report replaces it; everything else follows the engine and falls back to
+ * what the row already had when the engine names nothing.
+ */
+export function titleForReport(
+  record: Pick<MorseSessionRecord, 'title' | 'titlePinned'>,
+  reported: string | undefined,
+): string {
+  if (record.titlePinned === true) {
+    return record.title;
+  }
+  return reported ?? record.title;
 }

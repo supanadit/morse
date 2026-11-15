@@ -57,6 +57,16 @@ export interface MorseActions {
    */
   deleteSession(sessionId: string): void;
   /**
+   * Renames a session. The title is Morse's own (it lives in the session index,
+   * not in the engine's conversation), and it wins over later engine titles.
+   */
+  renameSession(sessionId: string, title: string): void;
+  /**
+   * Deletes every session a project holds, through each engine's own storage,
+   * while leaving the project directory on disk.
+   */
+  deleteProject(path: string): void;
+  /**
    * Summarizes the context of one session. `sessionKey` pins it to the conversation
    * the ask belonged to, so a dialog opened over session A cannot compact whichever
    * session happens to be in front when the user says yes; omitted, it targets the
@@ -315,6 +325,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       send({ type: 'session/activate', payload: { sessionId, cwd } }),
     closeSession: (sessionId) => send({ type: 'session/close', payload: { sessionId } }),
     deleteSession: (sessionId) => send({ type: 'session/delete', payload: { sessionId } }),
+    renameSession: (sessionId, title) => send({ type: 'session/rename', payload: { sessionId, title } }),
+    deleteProject: (path) => send({ type: 'project/delete', payload: { path } }),
     compactSession: (instructions, sessionKey, schedule) =>
       send({
         type: 'session/compact',

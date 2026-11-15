@@ -21,7 +21,7 @@ import {
   type SessionStore,
 } from './ports.js';
 import { reconcileSessions } from './reconcile.js';
-import { toSessionSummary, UNTITLED_SESSION, type MorseSessionRecord } from './record.js';
+import { titleForReport, toSessionSummary, UNTITLED_SESSION, type MorseSessionRecord } from './record.js';
 
 /**
  * The engine router: how Morse addresses a session by its own id no matter which
@@ -84,6 +84,14 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   >();
   private defaultKind: string | undefined;
   /** Morse ids of the sessions this process is running right now. */
+  /**
+   * The routed gateways currently running, by Morse id. `running` answers "may a
+   * report prune this row?"; this answers "is there a live row to update?" — a
+   * rename has to reach it or the row's next write would put the engine's name
+   * back over the reader's.
+   */
+  private readonly liveRows = new Map<string, RoutedGateway>();
+
   private readonly running = new Set<string>();
   /** A refresh in flight, so concurrent callers share one scan burst. */
   private refreshing: Promise<void> | undefined;
@@ -345,6 +353,43 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     this.lastFresh = 0; // A delete must not be papered over by a stale window.
   }
 
+  /**
+   * Sets a title the reader chose. It is written to Morse's index only — the
+   * engine's conversation is untouched — and pinned, so no later report renames
+   * the row back.
+   */
+  async rename(id: string, title: string): Promise<boolean> {
+    // The index may be a page older than what the sidebar shows, so a session
+    // opened from a hot gateway is resolved the same way `create` resolves it.
+    await this.ensureFresh();
+    let record = await this.deps.store.read(id);
+    if (record === undefined) {
+      await this.ensureFresh(true);
+      record = await this.deps.store.read(id);
+    }
+    if (record === undefined) {
+      return false;
+    }
+    await this.deps.store.write({ ...record, title, titlePinned: true });
+    // A row that is already running holds its own copy: without this, its next
+    // report would write the engine's name (and drop the pin) back over the
+    // reader's title.
+    this.liveRows.get(id)?.adoptTitle(title);
+    return true;
+  }
+
+  /**
+   * Every session stored under one directory, for a whole-project delete. The
+   * scan is forced: a destructive cascade must not work from a stale window and
+   * leave behind a session file the reader just created.
+   */
+  async idsInProject(cwd: string): Promise<string[]> {
+    await this.ensureFresh(true);
+    return (await this.deps.store.list())
+      .filter((record) => record.cwd === cwd)
+      .map((record) => record.id);
+  }
+
   // ---------------------------------------------------------------- reconcile
 
   /**
@@ -421,7 +466,8 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     },
   ): AgentGateway {
     const record = options.record;
-    return new RoutedGateway({
+    let wrapped: RoutedGateway | undefined;
+    wrapped = new RoutedGateway({
       inner,
       kind: options.kind,
       cwd: record?.cwd ?? options.cwd ?? this.deps.defaultWorkspace.cwd,
@@ -430,15 +476,21 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
       ...(record === undefined ? {} : { record }),
       // The running set is what protects a live row from a stale report: it
       // follows the gateway's id through a fork and leaves when it is disposed.
+      // The map is the same bookkeeping, so a rename can reach the live row.
       onIdChange: (previous, next) => {
         if (previous !== undefined) {
           this.running.delete(previous);
+          if (this.liveRows.get(previous) === wrapped) {
+            this.liveRows.delete(previous);
+          }
         }
-        if (next !== undefined) {
+        if (next !== undefined && wrapped !== undefined) {
           this.running.add(next);
+          this.liveRows.set(next, wrapped);
         }
       },
     });
+    return wrapped;
   }
 }
 
@@ -482,7 +534,7 @@ export class RoutedGateway implements AgentGateway {
   /** The id last reported to `onIdChange`, so a re-key is announced once. */
   private announcedId: string | undefined;
   /** The record-carried fields a new row starts from, when resuming. */
-  private readonly carried: MorseSessionRecord | undefined;
+  private carried: MorseSessionRecord | undefined;
   private readonly options: RoutedOptions;
   /** Given through only when the harness gateway has it, so presence mirrors it. */
   readonly refreshCommands: (() => Promise<void>) | undefined;
@@ -644,6 +696,20 @@ export class RoutedGateway implements AgentGateway {
     return { ...event, childSession: this.rekeyChild(event.childSession) };
   }
 
+  /**
+   * Takes on a title the reader chose while this session is running. The row the
+   * gateway holds is what it writes on its next report, so the pin has to land
+   * here too — the store alone is not enough.
+   */
+  adoptTitle(title: string): void {
+    if (this.row !== undefined) {
+      this.row = { ...this.row, title, titlePinned: true };
+    }
+    if (this.carried !== undefined) {
+      this.carried = { ...this.carried, title, titlePinned: true };
+    }
+  }
+
   /** Tells the router this gateway is now running the row (or the forked one). */
   private announce(): void {
     const id = this.row?.id;
@@ -668,8 +734,9 @@ export class RoutedGateway implements AgentGateway {
     const row = this.row;
 
     if (row !== undefined && row.engineRef.sessionId === engineId) {
-      // Same engine session: only the mutable fields can have moved.
-      const title = state.sessionTitle ?? row.title;
+      // Same engine session: only the mutable fields can have moved. A pinned
+      // title stays the reader's, whatever the engine now calls the session.
+      const title = titleForReport(row, state.sessionTitle);
       const messageCount = state.counts?.totalMessages ?? row.messageCount;
       if (title !== row.title || messageCount !== row.messageCount) {
         this.row = { ...row, title, messageCount, updatedAt: nowOr(row.createdAt) };
@@ -680,9 +747,11 @@ export class RoutedGateway implements AgentGateway {
 
     if (row !== undefined) {
       // A fork: this gateway now speaks for the child. The parent's row stays
-      // so the child nests under it, and the child inherits what it shares.
+      // so the child nests under it, and the child inherits what it shares —
+      // except the pin: a new conversation has its own, engine-given name.
+      const { titlePinned: _parentPin, ...parent } = row;
       this.row = {
-        ...row,
+        ...parent,
         id: derivedId,
         engineRef: { engine: this.kind, sessionId: engineId },
         title: state.sessionTitle ?? row.title,
@@ -698,7 +767,7 @@ export class RoutedGateway implements AgentGateway {
     const carried = this.carried;
     if (carried !== undefined && carried.engineRef.sessionId === engineId) {
       // Resumed: the row exists; the report may only have refreshed it.
-      const title = state.sessionTitle ?? carried.title;
+      const title = titleForReport(carried, state.sessionTitle);
       const messageCount = state.counts?.totalMessages ?? carried.messageCount;
       this.row =
         title !== carried.title || messageCount !== carried.messageCount

@@ -100,6 +100,10 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
   used — so a catalog of hundreds of projects arrives as a list to scan (`state/session-nav-prefs.ts`).
 - Project browser with a searchable filter, session search, activate, close (retire the process) and delete
   (remove the session file, behind the host's own confirmation).
+- **Rename a session** from its context menu. The title is Morse's own, stored in `sessions/records/`: the
+  engine's conversation is never touched, and the name wins over every later title the engine reports.
+- **Delete a project** from its context menu: every session it holds is closed and removed through its own
+  engine's storage, the count is reported, and the directory itself stays on disk.
 - The browser host allows any directory; the VS Code host advertises `capabilities.scope: 'workspace'` and
   filters projects and sessions to the workspace roots.
 
@@ -254,8 +258,6 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
 
 ## Not built yet
 
-- **Session rename** — a session is named by its engine (pi's session name, OpenCode's title). Morse displays
-  that title and derives one from the first prompt before the engine names it, but has no rename command.
 - **OpenCode-only gaps, by design** — no Morse-side mode editor (modes are OpenCode's own agents), no custom
   compaction instructions, no version notice, and no automatic restart of a crashed owned server. Each is
   reported rather than simulated: a compaction with instructions warns and compacts without them; the browser

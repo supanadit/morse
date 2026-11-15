@@ -818,6 +818,19 @@ export class WorkspaceTabs {
   }
 
   /**
+   * Forgets every session tab of one project. A project delete removes those
+   * conversations from the host, so leaving their tabs would point at sessions
+   * that no longer open. File tabs stay: the directory itself is untouched.
+   */
+  forgetProject(cwd: string): void {
+    for (const tab of this.items()) {
+      if (tab.kind === 'session' && tab.cwd === cwd && tab.draft !== true) {
+        this.forget(tab.id);
+      }
+    }
+  }
+
+  /**
    * Removes a tab because the host was told to close or delete that session; no
    * action is sent (the caller does that). Falls back to the neighbour like
    * `close`, so the panel does not sit on a tab that just disappeared.

@@ -997,6 +997,18 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         );
         return { confirmed: answer === 'Delete' };
       }
+      case 'confirmDeleteProject': {
+        // The project-wide twin: the same irreversible loss, once per session in
+        // the directory, so the modal names the count and says what survives.
+        const name = stringArg(args, 'name');
+        const count = numberArg(args, 'count');
+        const answer = await vscode.window.showWarningMessage(
+          `Delete the ${count} session${count === 1 ? '' : 's'} in \u201c${name || 'this project'}\u201d? Their conversations cannot be recovered. The folder itself stays on disk.`,
+          { modal: true },
+          'Delete',
+        );
+        return { confirmed: answer === 'Delete' };
+      }
       default:
         throw new UnsupportedByHostError(`VS Code does not implement "${command}".`);
     }
@@ -1010,6 +1022,12 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 function stringArg(args: Record<string, unknown> | undefined, key: string): string {
   const value = args?.[key];
   return typeof value === 'string' ? value : '';
+}
+
+/** A numeric argument, or 0 when the panel did not send one. */
+function numberArg(args: Record<string, unknown> | undefined, key: string): number {
+  const value = args?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 /** The scope a mutation edits, when the panel named one. */

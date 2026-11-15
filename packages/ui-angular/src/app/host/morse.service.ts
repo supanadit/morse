@@ -344,6 +344,22 @@ export class MorseService {
     this.actions.closeSession(sessionId);
   }
 
+  /**
+   * Renames a session. The title is Morse's own — the engine keeps whatever name
+   * it wrote — and it survives every later report.
+   */
+  renameSession(sessionId: string, title: string): void {
+    this.actions.renameSession(sessionId, title);
+  }
+
+  /**
+   * Deletes every session a project holds, through each engine's own storage,
+   * while leaving the project directory on disk.
+   */
+  deleteProject(path: string): void {
+    this.actions.deleteProject(path);
+  }
+
   deleteSession(sessionId: string): void {
     this.actions.deleteSession(sessionId);
   }

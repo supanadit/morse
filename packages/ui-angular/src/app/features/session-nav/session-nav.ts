@@ -40,6 +40,20 @@ interface SessionMenu {
   session: SessionSummary;
   /** True while the menu is asking for confirmation instead of listing items. */
   confirming: boolean;
+  /** True while the menu is an editor for the session's title. */
+  renaming: boolean;
+}
+
+/** An open project context menu, anchored at the pointer. */
+interface ProjectMenu {
+  x: number;
+  y: number;
+  path: string;
+  name: string;
+  /** True number of sessions the project holds, as the host reported it. */
+  count: number;
+  /** True while the menu is asking for confirmation instead of listing items. */
+  confirming: boolean;
 }
 
 /**
@@ -67,6 +81,8 @@ export class SessionNav {
   private readonly prefs = inject(SessionNavPrefs);
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
+  /** The title field the session menu turns into while renaming. */
+  private readonly renameInput = viewChild<ElementRef<HTMLInputElement>>('renameInput');
 
   protected readonly query = signal('');
   /**
@@ -77,6 +93,9 @@ export class SessionNav {
   /** Projects the reader shut, by path; a path absent from the map is open. */
   protected readonly collapsed = this.prefs.folds;
   protected readonly menu = signal<SessionMenu | undefined>(undefined);
+  protected readonly projectMenu = signal<ProjectMenu | undefined>(undefined);
+  /** The title being typed in the rename editor. */
+  protected readonly renameDraft = signal('');
   /**
    * True while the sidebar is fetching a project's next page, keyed by cwd. The
    * value is the number of that project's sessions when the request went out, so
@@ -298,7 +317,11 @@ export class SessionNav {
 
   /** A right-click on a session row opens the row's menu at the pointer. */
   protected onTreeContext(open: { node: TreeNode<SessionSummary>; event: MouseEvent }): void {
-    if (isProjectNode(open.node) || isMoreNode(open.node)) {
+    if (isMoreNode(open.node)) {
+      return;
+    }
+    if (isProjectNode(open.node)) {
+      this.openProjectMenu(open.event, open.node.id.slice('project:'.length));
       return;
     }
     this.openMenu(open.event, open.node.data);
@@ -616,11 +639,103 @@ export class SessionNav {
       y: Math.max(0, Math.min(event.clientY, window.innerHeight - height)),
       session,
       confirming: false,
+      renaming: false,
     });
   }
 
   protected closeMenu(): void {
     this.menu.set(undefined);
+  }
+
+  /** A project's own menu: the only project operation is deleting its sessions. */
+  protected openProjectMenu(event: MouseEvent, path: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const group = this.visibleGroups().find((entry) => entry.path === path);
+    const width = 240;
+    const height = 84;
+    this.projectMenu.set({
+      x: Math.max(0, Math.min(event.clientX, window.innerWidth - width)),
+      y: Math.max(0, Math.min(event.clientY, window.innerHeight - height)),
+      path,
+      name: group?.name ?? path,
+      count: group?.total ?? group?.sessions.length ?? 0,
+      confirming: false,
+    });
+  }
+
+  protected closeProjectMenu(): void {
+    this.projectMenu.set(undefined);
+  }
+
+  /** Opens the title editor inside the session menu. */
+  protected startRename(open: SessionMenu): void {
+    this.renameDraft.set(open.session.title);
+    this.menu.set({ ...open, renaming: true });
+    // The menu's items are gone and the field is what is left: focus it once the
+    // render settles and select the old title, so typing replaces it. Without
+    // this the keystrokes reach the document and its shortcuts instead.
+    setTimeout(() => {
+      const field = this.renameInput()?.nativeElement;
+      field?.focus();
+      field?.select();
+    }, 0);
+  }
+
+  protected onRenameInput(event: Event): void {
+    this.renameDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * Commits the typed title. Empty input is refused here — the host would refuse
+   * it too, but a local no-op keeps the editor open for a corrected name.
+   */
+  protected commitRename(): void {
+    const open = this.menu();
+    const title = this.renameDraft().trim();
+    if (open === undefined || title.length === 0) {
+      return;
+    }
+    this.closeMenu();
+    this.morse.renameSession(open.session.id, title);
+    // The host republishes the list, but the tab must follow immediately: it is
+    // the reader's current label, not a cached copy of the old one.
+    this.tabs.refreshSession({ id: open.session.id, title, cwd: open.session.cwd });
+  }
+
+  /**
+   * Deleting a project is destructive, so it asks first, exactly like a session
+   * delete: the host's native modal where it has one, the menu's own question in
+   * the browser.
+   */
+  protected askDeleteProject(open: ProjectMenu): void {
+    if (this.nativeDialogs()) {
+      void this.confirmProjectOnHost(open);
+      return;
+    }
+    this.projectMenu.set({ ...open, confirming: true });
+  }
+
+  private async confirmProjectOnHost(open: ProjectMenu): Promise<void> {
+    const answer = await this.morse.requestHostCommand('confirmDeleteProject', {
+      path: open.path,
+      name: open.name,
+      count: open.count,
+    });
+    if (answer === undefined) {
+      this.projectMenu.set({ ...open, confirming: true });
+      return;
+    }
+    this.closeProjectMenu();
+    if ((answer as { confirmed?: boolean }).confirmed === true) {
+      this.deleteProjectNow(open);
+    }
+  }
+
+  protected deleteProjectNow(open: ProjectMenu): void {
+    this.closeProjectMenu();
+    this.tabs.forgetProject(open.path);
+    this.morse.deleteProject(open.path);
   }
 
   protected closeNow(session: SessionSummary): void {
@@ -702,6 +817,10 @@ export class SessionNav {
     // Innermost thing first: the panel, then the menu.
     if (this.filterOpen()) {
       this.closeFilter();
+      return;
+    }
+    if (this.projectMenu() !== undefined) {
+      this.closeProjectMenu();
       return;
     }
     if (this.menu() !== undefined) {

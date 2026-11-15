@@ -77,6 +77,17 @@ export interface SessionCatalog {
    * of pretending the session is gone.
    */
   remove?(id: string): Promise<void>;
+  /**
+   * Sets a session's title in Morse's own index. Answers false when the index no
+   * longer holds that session. Optional on purpose: a catalog that cannot rename
+   * omits it and the use case reports that.
+   */
+  rename?(id: string, title: string): Promise<boolean>;
+  /**
+   * The ids of every session stored under one project directory, for a whole-
+   * project delete. Optional like `remove`: a catalog that cannot say omits it.
+   */
+  idsInProject?(cwd: string): Promise<string[]>;
 }
 
 /**
