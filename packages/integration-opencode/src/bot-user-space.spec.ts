@@ -44,6 +44,33 @@ describe('botUserSpaceEnv', () => {
     expect(env).not.toHaveProperty(BOT_HOST_XDG_CONFIG_HOME_ENV);
     expect(env).not.toHaveProperty(BOT_HOST_XDG_DATA_HOME_ENV);
   });
+
+  it('falls back to $HOME/.config when the host config root is relative', () => {
+    const env = botUserSpaceEnv('/bots/forge', {
+      HOME: '/home/u',
+      XDG_CONFIG_HOME: 'relative/config',
+    });
+
+    expect(env[BOT_HOST_XDG_CONFIG_HOME_ENV]).toBe('/home/u/.config');
+    expect(env[BOT_HOST_XDG_DATA_HOME_ENV]).toBe('/home/u/.local/share');
+  });
+
+  it('falls back to $HOME/.local/share when the host data root is empty', () => {
+    const env = botUserSpaceEnv('/bots/forge', {
+      HOME: '/home/u',
+      XDG_DATA_HOME: '',
+    });
+
+    expect(env[BOT_HOST_XDG_CONFIG_HOME_ENV]).toBe('/home/u/.config');
+    expect(env[BOT_HOST_XDG_DATA_HOME_ENV]).toBe('/home/u/.local/share');
+  });
+
+  it('omits a relative host root when there is no absolute HOME to fall back to', () => {
+    const env = botUserSpaceEnv('/bots/forge', { XDG_CONFIG_HOME: 'relative/config' });
+
+    expect(env).not.toHaveProperty(BOT_HOST_XDG_CONFIG_HOME_ENV);
+    expect(env).not.toHaveProperty(BOT_HOST_XDG_DATA_HOME_ENV);
+  });
 });
 
 describe('writeBotUserSpacePlugin', () => {

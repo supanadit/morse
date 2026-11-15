@@ -117,6 +117,11 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     base = asRecord(applied.value) ?? {};
   }
 
+  // The bot's shell needs the reader's real XDG roots — Podman state, SSH keys,
+  // a checkout — while the server above keeps reading its own. Installed before
+  // the workspace document: a failed plugin write must not leave AGENTS.md changed.
+  writeBotUserSpacePlugin(botRoot);
+
   // The workspace document is the project's instructions; the persona is the
   // agent's system prompt, below. OpenCode discovers AGENTS.md from the project
   // root on its own, and naming it here keeps its role explicit. It is written
@@ -148,9 +153,6 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     next['model'] = `${config.model.provider}/${config.model.id}`;
   }
 
-  // The bot's shell needs the reader's real XDG roots — Podman state, SSH keys,
-  // a checkout — while the server above keeps reading its own.
-  writeBotUserSpacePlugin(botRoot);
   writeJsonAtomic(document.path, next);
   // No key collected means "keep the ones the engine already holds": an edit that
   // does not touch the keys must not wipe them.

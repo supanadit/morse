@@ -398,9 +398,17 @@ export class BotWizard {
     );
   }
 
-  /** The tools to send: nothing when the reader left the engine's default alone. */
+  /**
+   * The tools to send: nothing when the reader left pi's default alone, because
+   * pi resolves its own set. OpenCode's checklist is authoritative even when
+   * untouched: its `permissions` ruleset is what allows a tool, and an absent
+   * one would deny every call.
+   */
   private toolsToSend(): string[] | undefined {
-    return this.toolsEdited() ? [...this.tools()] : undefined;
+    if (this.toolsEdited()) {
+      return [...this.tools()];
+    }
+    return this.engineKind() === 'opencode' ? [...(DEFAULT_TOOLS['opencode'] ?? [])] : undefined;
   }
 
   /** The presets this engine's catalog carries, so the chips never lie. */

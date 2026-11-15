@@ -22,8 +22,9 @@ import { OpenCodeEventStream } from './internal/event-stream.js';
  *
  * The isolation is environmental and covers three things:
  * - the spawned server's `XDG_CONFIG_HOME` (`<botRoot>/config`) and
- *   `XDG_DATA_HOME` (`<botRoot>/sessions`), which is where OpenCode reads and
- *   writes providers, agents, MCP servers, commands, sessions and auth;
+ *   `XDG_DATA_HOME` (`<botRoot>/sessions`), where OpenCode reads and writes
+ *   providers, agents, MCP servers and commands (config root) and sessions,
+ *   logs and auth (data root);
  * - the MCP/command administration, pinned to the same config directory the
  *   server reads (`<botRoot>/config/opencode`), so an edit lands in the bot;
  * - credentials, written by Morse into the bot's data dir — never copied from

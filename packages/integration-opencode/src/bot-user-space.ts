@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 
 /** The variable through which the bot's shell plugin learns the host's config root. */
 export const BOT_HOST_XDG_CONFIG_HOME_ENV = 'MORSE_HOST_XDG_CONFIG_HOME';
@@ -12,15 +12,25 @@ const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIR_MODE = 0o700;
 
 /**
+ * A host root the shell can actually use: present, non-empty and absolute. A
+ * relative value would resolve against whatever directory the bot's command
+ * happens to run in, and an empty one is not a root at all.
+ */
+function knownRoot(value: string | undefined): string | undefined {
+  return value !== undefined && value.length > 0 && isAbsolute(value) ? value : undefined;
+}
+
+/**
  * The environment a bot's OpenCode server gets.
  *
  * Both XDG roots are redirected into the bot, not appended to, on purpose:
- * OpenCode reads providers, agents, sessions and auth from them, so inheriting
- * the host's would let a bot read and write the user's own state. The host's
+ * OpenCode reads providers, agents, MCP servers and commands from the config
+ * root, and sessions, logs and auth from the data root, so inheriting the
+ * host's would let a bot read and write the user's own engine state. The host's
  * real roots are not thrown away, though — they travel alongside as
  * `MORSE_HOST_XDG_*`, which is how the shell plugin (`writeBotUserSpacePlugin`)
  * hands them back to the commands a bot runs. Only the shell is given them: the
- * server's own file reads stay confined to the bot.
+ * server's own file reads keep using the bot's two roots.
  *
  * Everything else — `PATH` above all, which the spawn needs to find the binary —
  * is inherited unchanged. Because that inheritance is wholesale, an
@@ -32,11 +42,13 @@ export function botUserSpaceEnv(
   botRoot: string,
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const home = base['HOME'];
+  const home = knownRoot(base['HOME']);
   const configHome =
-    base['XDG_CONFIG_HOME'] ?? (home === undefined ? undefined : join(home, '.config'));
+    knownRoot(base['XDG_CONFIG_HOME']) ??
+    (home === undefined ? undefined : join(home, '.config'));
   const dataHome =
-    base['XDG_DATA_HOME'] ?? (home === undefined ? undefined : join(home, '.local', 'share'));
+    knownRoot(base['XDG_DATA_HOME']) ??
+    (home === undefined ? undefined : join(home, '.local', 'share'));
   return {
     ...base,
     XDG_CONFIG_HOME: join(botRoot, 'config'),

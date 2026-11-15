@@ -659,8 +659,9 @@ describe('BotWizard', () => {
       persona: 'You are Forge, the builder.',
       model: claude,
       thinkingLevel: 'high',
-      // No `tools` key: the reader never touched the checklist, so the engine's
-      // own default set applies — exactly what a default pi install resolves.
+      // The checklist was never touched, but OpenCode needs an explicit
+      // ruleset: its default set is what the permissions allow.
+      tools: ['read', 'edit', 'glob', 'grep', 'shell'],
       agentsMd: '# Forge workspace',
       subagents: [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }],
       requestId,
@@ -1123,6 +1124,19 @@ describe('BotWizard', () => {
     // `~/.pi/agent/settings.json`: no `defaultTools`, so pi resolves its own
     // default (read, bash, edit, write) exactly as it does from the CLI.
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('tools');
+  });
+
+  it('sends OpenCode’s default tools without the checklist being edited', async () => {
+    const { fixture, host, morse } = await render();
+    walkToReview(fixture, host, morse, 'opencode');
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+
+    // OpenCode expresses tool access as a generated `permissions` ruleset, so
+    // even an untouched checklist has to carry the default set: an absent one
+    // would leave the bot with nothing but the blanket deny.
+    expect(create.mock.calls[0]?.[0]?.tools).toEqual(['read', 'edit', 'glob', 'grep', 'shell']);
   });
 
   it('offers OpenCode 2 tool names, with shell on by default', async () => {

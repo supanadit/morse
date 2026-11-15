@@ -238,11 +238,14 @@ permission is allowed whenever a file tool is, which is what makes `~/.ssh` or a
 the workspace readable. There is no OS-level sandbox and no per-path allow-list behind this: a bot that
 may run a shell is your own login, and path rules alone would not confine it.
 
-What Morse keeps out of your own tree is the engine's state: OpenCode's config (`<bot>/config`), and its
-auth, database, sessions and logs (`<bot>/sessions`). Morse points both roots into the bot; it does not
-scrub an `OPENCODE_*` path override inherited from the host. Each bot's engine state and workspace land in
-its own directory, which is placement, not a boundary — with `external_directory` and a shell, a bot can
-read a sibling's files.
+The ruleset is generated from the checklist every time the wizard saves: a blanket deny, then one allow
+per chosen tool, so a resource-scoped rule hand-added to `opencode.json` is flattened by that save.
+
+What Morse keeps out of your own tree is the engine's config and data roots: OpenCode's config
+(`<bot>/config`), and its auth, database, sessions and logs (`<bot>/sessions`). Morse points both roots
+into the bot; it does not scrub an `OPENCODE_*` path override inherited from the host. Each bot's engine
+state and workspace land in its own directory, which is placement, not a boundary — with
+`external_directory` and a shell, a bot can read a sibling's files.
 
 For OpenCode that redirection is all the isolation there is: the server runs with `XDG_CONFIG_HOME` and
 `XDG_DATA_HOME` pointed into the bot, and your real values travel beside them as
@@ -251,9 +254,13 @@ For OpenCode that redirection is all the isolation there is: the server runs wit
 environment of each command, so rootless Podman, `systemctl --user` and `~/.ssh` work from inside a bot
 while its own server keeps the bot's roots. Only the shell is restored: if OpenCode cannot load the
 plugin, commands keep the bot's roots (your Podman state looks empty) and the failure appears in the
-bot's OpenCode log. A pi bot needs no such plugin: `PI_CODING_AGENT_DIR` is the only variable pointed at
-its tree, so its commands already see your environment. MCP servers keep the bot environment in every
-case.
+bot's OpenCode log at `<bot>/sessions/opencode/log/`. A pi bot needs no such plugin: `PI_CODING_AGENT_DIR`
+is the only variable pointed at its tree, so its commands already see your environment. MCP servers keep
+the bot environment in every case.
+
+Bots created before this update are repaired on the next host start: they gain the shell plugin and,
+where their generated ruleset still uses the old tool names, the correct permission actions — so their
+shell and external-path file access start working without being recreated.
 
 ## Interface preferences
 

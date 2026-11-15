@@ -295,7 +295,8 @@ A bot conversation has no workspace picker and no upload route, so a message car
 takes `images` (base64, the same `PromptImage` a code session sends) and `files`. Images become prompt content for
 the engine; files are decoded by `packages/system/src/bot/attachments.ts` into that bot's own
 `workspace/uploads/`, and the prompt names the relative path — each bot's cwd is its own workspace, so the bot
-opens it with the tools it already has and no bot ever sees another's attachments. Attachments ride along with
+opens it with the tools it already has. A bot's attachments are its own by placement, not by isolation: a bot
+with `external_directory` and a shell can read a sibling's uploads. Attachments ride along with
 every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
 relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
