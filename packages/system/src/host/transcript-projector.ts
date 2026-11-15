@@ -1,4 +1,4 @@
-import type { AgentChildSessionRef, AgentEvent } from '@morse/agent';
+import type { AgentChildSessionRef, AgentEvent, ModelRef } from '@morse/agent';
 import type {
   AssistantTranscriptItem,
   ChatPin,
@@ -29,10 +29,29 @@ export class TranscriptProjector {
   private counter = 0;
   private readonly now: () => number;
   private readonly idPrefix: string;
+  /**
+   * The model the session is on, as last reported. A row is stamped with it when
+   * it opens, so switching models mid-conversation leaves earlier answers on the
+   * model that actually wrote them.
+   */
+  private model?: ModelRef;
 
   constructor(private readonly options: TranscriptProjectorOptions) {
     this.now = options.now ?? (() => Date.now());
     this.idPrefix = options.idPrefix ?? 'morse';
+  }
+
+  /** Records which model answers are now coming from. */
+  setModel(model: ModelRef | undefined): void {
+    this.model = model;
+    if (model === undefined || this.assistantIndex < 0) {
+      return;
+    }
+    const item = this.items[this.assistantIndex];
+    if (item?.kind === 'assistant' && item.model === undefined) {
+      item.model = model.id;
+      this.updateItem(item);
+    }
   }
 
   snapshot(): TranscriptItem[] {
@@ -315,6 +334,7 @@ export class TranscriptProjector {
       text: '',
       thinking: '',
       streaming: true,
+      ...(this.model === undefined ? {} : { model: this.model.id }),
     };
     this.assistantIndex = this.items.length;
     this.appendItem(item);

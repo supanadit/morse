@@ -253,3 +253,64 @@ describe('TranscriptProjector child session link', () => {
     ]);
   });
 });
+
+/**
+ * Which model wrote an answer is part of the answer: the reader switches models
+ * mid-conversation, so each row keeps the model the session was on when it
+ * opened — not whichever one is selected now.
+ */
+describe('TranscriptProjector message model', () => {
+  const ZAI = { provider: 'zai', id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' };
+
+  function make(): { projector: TranscriptProjector; emitted: HostToClientMessage[] } {
+    const emitted: HostToClientMessage[] = [];
+    return {
+      projector: new TranscriptProjector({ emit: (m) => emitted.push(m), now }),
+      emitted,
+    };
+  }
+
+  it('stamps the model the session was on when the row opened', () => {
+    const { projector } = make();
+    projector.setModel(ZAI);
+    projector.apply({ type: 'agent/delta', at: now(), channel: 'text', delta: 'hi' });
+    projector.apply({ type: 'agent/message', at: now(), text: 'hi', thinking: '' });
+
+    expect(projector.snapshot()).toEqual([
+      expect.objectContaining({ kind: 'assistant', model: 'glm-5.3-flash' }),
+    ]);
+  });
+
+  it('leaves earlier rows on their own model when the session switches', () => {
+    const { projector } = make();
+    projector.setModel({ provider: 'zai', id: 'model-a', name: 'A' });
+    projector.apply({ type: 'agent/message', at: now(), text: 'one', thinking: '' });
+    projector.setModel({ provider: 'zai', id: 'model-b', name: 'B' });
+    projector.apply({ type: 'agent/message', at: now(), text: 'two', thinking: '' });
+
+    const rows = projector.snapshot().filter((item) => item.kind === 'assistant');
+    expect(rows.map((row) => (row.kind === 'assistant' ? row.model : undefined))).toEqual([
+      'model-a',
+      'model-b',
+    ]);
+  });
+
+  it('backfills a streaming row when the model arrives after its first delta', () => {
+    const { projector, emitted } = make();
+    projector.apply({ type: 'agent/delta', at: now(), channel: 'text', delta: 'hi' });
+    projector.setModel(ZAI);
+
+    const updates = emitted.filter(
+      (message): message is Extract<HostToClientMessage, { type: 'transcript/update' }> =>
+        message.type === 'transcript/update',
+    );
+    expect(updates.at(-1)?.payload).toMatchObject({ kind: 'assistant', model: 'glm-5.3-flash' });
+  });
+
+  it('omits the field entirely when no model was reported', () => {
+    const { projector } = make();
+    projector.apply({ type: 'agent/message', at: now(), text: 'hi', thinking: '' });
+
+    expect(projector.snapshot()[0]).not.toHaveProperty('model');
+  });
+});
