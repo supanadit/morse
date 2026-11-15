@@ -92,9 +92,12 @@ export function writePiCredentials(
   botRoot: string,
   entries: { provider: string; apiKey: string }[],
 ): void {
-  const auth: Record<string, { type: 'api'; key: string }> = {};
+  // pi reads `auth.json` entries whose `type` is `api_key`; anything else is
+  // skipped as an unknown credential, which would make a pasted key silently
+  // dead. Matches the layout's own write, byte for byte.
+  const auth: Record<string, { type: 'api_key'; key: string }> = {};
   for (const entry of entries) {
-    auth[entry.provider] = { type: 'api', key: entry.apiKey };
+    auth[entry.provider] = { type: 'api_key', key: entry.apiKey };
   }
   writePrivateJson(join(botRoot, 'config', AUTH_FILE), auth);
 }

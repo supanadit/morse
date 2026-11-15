@@ -205,7 +205,7 @@ describe('writePiCredentials', () => {
 
     const path = join(botRoot, 'config', 'auth.json');
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      anthropic: { type: 'api', key: 'sk' },
+      anthropic: { type: 'api_key', key: 'sk' },
     });
     expectPrivateFile(path);
   });
@@ -230,7 +230,7 @@ describe('writePiCredentials', () => {
     const configDir = join(botRoot, 'config');
     const path = join(configDir, 'auth.json');
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      anthropic: { type: 'api', key: 'sk-new' },
+      anthropic: { type: 'api_key', key: 'sk-new' },
     });
     expectPrivateFile(path);
     // The atomic write leaves no temp file beside the secret.
