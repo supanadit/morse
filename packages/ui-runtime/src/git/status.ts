@@ -91,7 +91,11 @@ function letterKind(letter: string | undefined): ChangeKind | undefined {
   }
 }
 
-/** Validates the host's answer: a host command reply is `unknown` on the wire. */
+/**
+ * Validates the host's answer: a host command reply is `unknown` on the wire.
+ * `branch` and `refs` are optional — a host older than them answers the working
+ * tree alone, and the branch list then refreshes only on the reader's click.
+ */
 export function asGitStatus(value: unknown): GitStatus | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
@@ -100,7 +104,12 @@ export function asGitStatus(value: unknown): GitStatus | undefined {
   if (candidate['isRepo'] !== true) {
     return typeof candidate['isRepo'] === 'boolean' ? { isRepo: false, files: [] } : undefined;
   }
-  return { isRepo: true, files: asFiles(candidate['files']) };
+  return {
+    isRepo: true,
+    files: asFiles(candidate['files']),
+    branch: typeof candidate['branch'] === 'string' ? candidate['branch'] : undefined,
+    refs: typeof candidate['refs'] === 'string' ? candidate['refs'] : undefined,
+  };
 }
 
 /**

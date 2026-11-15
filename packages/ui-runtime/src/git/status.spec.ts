@@ -70,6 +70,22 @@ describe('asGitStatus', () => {
     expect(asGitStatus({ files: [] })).toBeUndefined();
   });
 
+  it('carries the branch and the refs fingerprint the poll reports', () => {
+    expect(
+      asGitStatus({ isRepo: true, files: [], branch: 'main', refs: 'a1b2c3d4e5f6' }),
+    ).toMatchObject({
+      branch: 'main',
+      refs: 'a1b2c3d4e5f6',
+    });
+  });
+
+  it('leaves the branch and the fingerprint absent for a host that omits them', () => {
+    const parsed = asGitStatus({ isRepo: true, files: [] });
+
+    expect(parsed?.branch).toBeUndefined();
+    expect(parsed?.refs).toBeUndefined();
+  });
+
   it('maps paths to their badge letter', () => {
     const map = statusByPath({
       isRepo: true,

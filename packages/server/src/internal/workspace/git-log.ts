@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
 import type {
   GitBranches,
@@ -142,21 +143,27 @@ function toRepoPath(cwd: string, work: string, requested: string): string {
  */
 export async function readGitStatus(cwd: string, repo?: string): Promise<GitStatus> {
   const { work, base } = await repoContext(cwd, repo);
-  const relative = await gitText(
-    ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--relative'],
-    work,
-  );
+  // The refs ask runs beside the status ask, so the poll's branch news costs one
+  // spawn rather than a second round trip.
+  const [relative, refs] = await Promise.all([
+    gitText(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--relative'], work),
+    readRefs(work),
+  ]);
   if (relative !== undefined) {
-    return { isRepo: true, files: prefixStatus(parseStatus(relative, ''), base) };
+    return { isRepo: true, files: prefixStatus(parseStatus(relative, ''), base), ...refs };
   }
-  return readGitStatusByPrefix(work, base);
+  return readGitStatusByPrefix(work, base, refs);
 }
 
 /**
  * The three-call reading of the same thing, for a git too old for `--relative`
  * (and for any other failure, which it reports the way it always did).
  */
-async function readGitStatusByPrefix(cwd: string, base = ''): Promise<GitStatus> {
+async function readGitStatusByPrefix(
+  cwd: string,
+  base = '',
+  refs: RefsFingerprint = {},
+): Promise<GitStatus> {
   const inside = await gitText(['rev-parse', '--is-inside-work-tree'], cwd);
   if (inside?.trim() !== 'true') {
     return { isRepo: false, files: [] };
@@ -165,7 +172,52 @@ async function readGitStatusByPrefix(cwd: string, base = ''): Promise<GitStatus>
     gitText(['rev-parse', '--show-prefix'], cwd),
     gitText(['status', '--porcelain=v1', '-z', '--untracked-files=all'], cwd),
   ]);
-  return { isRepo: true, files: prefixStatus(parseStatus(raw ?? '', prefix?.trim() ?? ''), base) };
+  return {
+    isRepo: true,
+    files: prefixStatus(parseStatus(raw ?? '', prefix?.trim() ?? ''), base),
+    ...refs,
+  };
+}
+
+/**
+ * What a working-tree reading carries about the refs: the branch HEAD points at
+ * and a fingerprint of the refs `gitBranches` would list (see `GitStatus`).
+ */
+interface RefsFingerprint {
+  branch?: string;
+  refs?: string;
+}
+
+/**
+ * Every ref the branch picker lists, as one line each, digested — plus the branch
+ * HEAD is on, which the same answer marks with `*` (so no second `rev-parse`).
+ *
+ * A branch created, deleted or renamed by *another* git client (`lazygit` in a
+ * second terminal is the everyday case) leaves the working tree untouched, so
+ * the polled status alone cannot see it; this digest is what moves. A ref that
+ * moves — a commit, a fetch — moves it too, which is what keeps the history on
+ * screen honest. A quiet repository hashes to the same string every tick.
+ */
+async function readRefs(work: string): Promise<RefsFingerprint> {
+  const raw = await gitText(
+    [
+      'for-each-ref',
+      '--format=%(HEAD)%(refname:short)%00%(objectname)',
+      'refs/heads',
+      'refs/remotes',
+      'refs/tags',
+    ],
+    work,
+  );
+  if (raw === undefined) {
+    return {};
+  }
+  const head = raw.split('\n').find((line) => line.startsWith('*'));
+  const branch = head === undefined ? undefined : head.slice(1).split('\0')[0];
+  return {
+    branch: branch === undefined || branch.length === 0 ? undefined : branch,
+    refs: createHash('sha1').update(raw).digest('hex').slice(0, 12),
+  };
 }
 
 /** Maps repository-relative status paths onto the session directory. */

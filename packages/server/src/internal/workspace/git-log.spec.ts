@@ -3,7 +3,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { commitGit, readGitLog } from './git-log';
+import { commitGit, readGitLog, readGitStatus } from './git-log';
 
 let root = '';
 
@@ -71,5 +71,55 @@ describe('commitGit amend', () => {
 
   it('still refuses an empty message without amend', async () => {
     expect(await commitGit(root, '   ')).toMatchObject({ ok: false });
+  });
+});
+
+/**
+ * The polled status is how a browser frontend notices that another git client —
+ * `lazygit` in a second terminal — moved a branch, since none of it touches the
+ * working tree. `refs` is the fingerprint that moves; `branch` names HEAD.
+ */
+describe('readGitStatus refs', () => {
+  it('carries the checked-out branch and a refs fingerprint', async () => {
+    const status = await readGitStatus(root);
+
+    expect(status.isRepo).toBe(true);
+    expect(status.branch).toBe('main');
+    expect(status.refs).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it('reads a quiet repository to the same fingerprint every time', async () => {
+    const first = await readGitStatus(root);
+    const second = await readGitStatus(root);
+
+    expect(second.refs).toBe(first.refs);
+    expect(second.branch).toBe(first.branch);
+  });
+
+  it('moves the fingerprint when another client adds a branch', async () => {
+    const before = await readGitStatus(root);
+    git(root, 'branch', 'from-elsewhere');
+    const after = await readGitStatus(root);
+
+    expect(after.refs).toBeDefined();
+    expect(after.refs).not.toBe(before.refs);
+    expect(after.branch).toBe('main');
+  });
+
+  it('moves the fingerprint on a checkout, keeping the same empty tree', async () => {
+    const before = await readGitStatus(root);
+    git(root, 'checkout', '-q', 'feat');
+    const after = await readGitStatus(root);
+
+    expect(after.branch).toBe('feat');
+    expect(after.refs).not.toBe(before.refs);
+    // Nothing in the working tree moved: the status alone could not have told.
+    expect(after.files).toEqual(before.files);
+  });
+
+  it('reports no branch when HEAD is detached', async () => {
+    git(root, 'checkout', '-q', '--detach', 'HEAD');
+
+    expect((await readGitStatus(root)).branch).toBeUndefined();
   });
 });

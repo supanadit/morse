@@ -1,4 +1,12 @@
-import { computed, inject, Injectable, signal, type Signal } from '@angular/core';
+import {
+  computed,
+  effect,
+  inject,
+  Injectable,
+  signal,
+  untracked,
+  type Signal,
+} from '@angular/core';
 import type {
   GitBranches,
   GitCommit,
@@ -47,6 +55,12 @@ export class GitRepoState {
   private readonly feedback = signal<{ ok: boolean; text: string } | undefined>(undefined);
   /** The ref the log is scoped to; `undefined` means HEAD's history. */
   private readonly refSignal = signal<string | undefined>(undefined);
+  /**
+   * The refs fingerprint this repository was last reconciled against, from the
+   * polled status. `undefined` until the first reading, which is a baseline
+   * rather than a change: it describes what the panel already read on the way in.
+   */
+  private seenRefs: string | undefined;
   /** Bumped by every `refresh`, so a late page from an old project is dropped. */
   private generation = 0;
 
@@ -55,7 +69,7 @@ export class GitRepoState {
   readonly isRepo = computed(() => this.meta()?.isRepo === true);
   /** True once a project answered, even if it is not a repository. */
   readonly loaded = computed(() => this.meta() !== undefined);
-  readonly branch = computed(() => this.meta()?.branch);
+  readonly branch = computed(() => this.status()?.branch ?? this.meta()?.branch);
   readonly root = computed(() => this.meta()?.root);
   readonly hasMore = computed(() => this.meta()?.hasMore === true);
   readonly commits = this.items.asReadonly();
@@ -226,6 +240,21 @@ export class GitRepoState {
     });
   }
 
+  /**
+   * Records the refs fingerprint the poll just carried, and says whether the
+   * branch list on screen is now out of date. The first reading of a repository
+   * is a baseline, not a change, so a project switch does not re-read what it is
+   * about to read anyway.
+   */
+  noteRefs(digest: string): boolean {
+    if (this.seenRefs === digest) {
+      return false;
+    }
+    const baseline = this.seenRefs === undefined;
+    this.seenRefs = digest;
+    return !baseline;
+  }
+
   /** Shows a refusal the host was never asked about (a client-side guard). */
   refuse(text: string): void {
     this.feedback.set({ ok: false, text });
@@ -384,6 +413,32 @@ export class GitPanelState {
   readonly current = computed(
     () => this.sections().find((section) => section.info.current) ?? this.sections()[0],
   );
+
+  constructor() {
+    // A branch added, deleted, renamed, moved or checked out by *another* git
+    // client — `lazygit` in a second terminal is the everyday case — changes
+    // nothing in the working tree, so the changes list stays right while the
+    // branch chip, the branch picker and the history go stale. The refs
+    // fingerprint the shared poll carries is what tells them: when it moves for
+    // a repository, that repository's branches, its distance from upstream and
+    // its history are read again, with no click and no second timer. Our own
+    // mutations move the same fingerprint, so a stale reading heals itself too.
+    effect(() => {
+      const statuses = this.workspaceStore.repos();
+      for (const state of this.sections()) {
+        const digest = statuses[state.info.path]?.refs;
+        if (digest === undefined || !state.noteRefs(digest)) {
+          continue;
+        }
+        untracked(() => {
+          state.loadBranches();
+          // `refresh` re-reads the branch distance too, so a checkout, a pull or
+          // a commit made elsewhere moves the sync bar with it.
+          state.refresh();
+        });
+      }
+    });
+  }
 
   /**
    * Opens one repository, folding whichever was open. Clicking the open one

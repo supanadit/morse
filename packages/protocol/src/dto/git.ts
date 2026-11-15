@@ -32,10 +32,25 @@ export interface GitFileStatus {
   status: string;
 }
 
-/** What the `gitStatus` host command answers: the working tree's changes. */
+/**
+ * What the `gitStatus` host command answers: the working tree's changes, plus
+ * what the refs look like right now.
+ *
+ * The branch list itself lives behind `gitBranches`, which is far too much to
+ * ask for on every poll. `refs` is the cheap stand-in: a fingerprint of the refs
+ * `gitBranches` would list. A branch added, deleted, renamed, moved or checked
+ * out — by Morse, or by any other git client in another terminal — moves it,
+ * while nothing in the working tree changes at all, so this is the only signal
+ * that says a branch chip, a branch picker or a history graph on screen is out
+ * of date. Two readings of a quiet repository are the same string.
+ */
 export interface GitStatus {
   isRepo: boolean;
   files: GitFileStatus[];
+  /** The checked-out branch (`HEAD`'s short name); absent when detached. */
+  branch?: string;
+  /** Fingerprint of the refs `gitBranches` lists; a new value means re-read them. */
+  refs?: string;
 }
 
 /**

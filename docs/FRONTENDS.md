@@ -194,8 +194,11 @@ Code, where there is no editor tab, the composer chip keeps its annotation butto
   one on a timer (`fresh: true` bypasses the host's index cache); a moved file list, a moved working
   tree, a project switch or the refresh button throws the listed levels away, and whatever folder is
   still open is asked for again. Clicking a file opens a tab. The same poll asks
-  `gitStatus` (`{ isRepo, files: [{ path, status }] }`, porcelain codes), and a changed file shows the
-  one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the folder that holds it.
+  `gitStatus` (`{ isRepo, files: [{ path, status }], branch?, refs? }`, porcelain codes), and a changed
+  file shows the one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the
+  folder that holds it. The `branch` and `refs` the same answer carries are for the git panel: they are
+  what lets its branch list follow another client's git, without a second poll (see the git panel
+  below).
   A **filter box** above the list narrows the project: a query replaces the tree with a flat, ranked list of
   matching files (the `@mention` picker's `rankFiles`, so a name hit outranks a path hit) and each row names
   the folder it sits in; the title bar reads `3 of 41` rather than claiming a smaller project.
@@ -338,6 +341,14 @@ project's recent commits and their branch graph, toggled from the chat toolbar (
   commit. Stage a change first."*, and pressing Enter in the message box with an empty index says the
   same without asking git (`gitExec` prefers git's own stdout/stderr over Node's `Command failed: …`
   wrapper).
+- **Branches refresh on their own**, including the ones another git client moved. A branch created,
+  deleted, renamed or checked out by `lazygit` in a second terminal touches nothing in the working
+  tree, so the polled `gitStatus` carries two more things: `branch` (HEAD's short name, so the chip
+  follows a checkout within one tick) and `refs`, a short fingerprint of every ref `gitBranches`
+  would list — `git for-each-ref` over `refs/heads`, `refs/remotes` and `refs/tags`, digested. When a
+  repository's fingerprint moves, `GitPanelState` re-reads that repository's branches, its distance
+  from upstream and its history; while it does not, nothing extra is read. A host that reports no
+  fingerprint (an older one) simply refreshes on the reader's click, as before.
 - The history is read with `git log --all --date-order` and capped (250 by default, 500 hard), so a
   long repository stays readable. VS Code never loads this — the capability, the shortcut row and
   the panel are all gated on `capabilities.gitPanel`.

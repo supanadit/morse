@@ -625,7 +625,15 @@ export class MemoryHostTransport extends BaseHostTransport {
             payload: {
               requestId: message.payload.requestId,
               ok: true,
-              data: { isRepo: true, files: this.gitFiles },
+              data: {
+                isRepo: true,
+                files: this.gitFiles,
+                branch: this.gitSync.branch,
+                // The demo's branch list is scripted; the checked-out branch is
+                // what moves, so the panel's refs fingerprint follows a mock
+                // checkout the way a real checkout moves a real one.
+                refs: `mock-${this.gitSync.branch}`,
+              },
             },
           });
           return;
