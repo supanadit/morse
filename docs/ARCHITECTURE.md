@@ -299,6 +299,21 @@ opens it with the tools it already has and no bot ever sees another's attachment
 every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
 relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
+### What a bot can reach
+
+A bot runs as the reader, from its own workspace: it is not a container. Its file tools reach the home
+directory and its shell runs any command the reader can, so the boundary that matters is **state, not
+access** — OpenCode's config and auth stay in `<bot>/config`, its database, sessions and logs in
+`<bot>/sessions`, and each bot's workspace is its own, so a bot's engine reads and writes its own tree, not
+another bot's or the reader's `~/.config/opencode`.
+
+Keeping both true costs one environment decision, and the variables are in
+[CONFIGURATION.md](CONFIGURATION.md): the bot's server runs with its XDG roots redirected into the bot, and a
+generated shell plugin (`<bot>/config/opencode/plugins/morse-user-space.ts`) hands the reader's real roots to
+shell commands only. File access beyond the workspace needs no plugin — it is OpenCode's own
+`external_directory` permission, allowed exactly when a file tool is. Nothing here is an OS-level sandbox,
+and no per-path list is offered as one.
+
 ### What a bot knows, and when it learns it
 
 Each bot of a conversation has its **own engine session for that conversation** (`ConversationRecord.sessions`

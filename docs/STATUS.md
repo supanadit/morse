@@ -253,6 +253,11 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
 - **Bots of their own.** Each bot is an agent with its own directory, engine (`pi` or OpenCode), model, keys,
   persona, tools and subagents — written into that engine's own config files, not into a Morse copy of them.
   `engine.json` is an index entry: handle, name, description, engine, env names.
+- **The reader's machine, not a sandbox.** A bot runs as you, so its file tools reach your home directory and
+  its shell runs any command you can — rootless Podman, `systemctl --user`, `~/.ssh`. What stays isolated is
+  the engine's own state — config and auth in `<bot>/config`, database, sessions and logs in
+  `<bot>/sessions` — and each bot's workspace. There is no OS-level sandbox behind it
+  ([CONFIGURATION.md](CONFIGURATION.md)).
 - **Talking.** Direct messages and groups, with `@mentions`, a lead that answers an unaddressed message, and a
   capped relay chain between members. A round can be stopped; a send during a round is refused with a line in the
   transcript rather than queued invisibly.

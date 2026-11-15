@@ -229,6 +229,30 @@ written, so Edit bot shows nothing at all — persona, model, tools, subagents a
 save fails until it is fixed by hand. A file that parses but whose `mcp` block is not an object lists
 no servers, and the next save replaces that block with the list on screen.
 
+### What a bot can reach
+
+A bot is not a container. It is a process of the Morse host, running as you, from `<bot>/workspace` — so
+its file tools reach your home directory and its shell tool can run any command you can. A new OpenCode
+bot starts with `read`, `edit`, `glob`, `grep` and `shell`, and OpenCode's `external_directory`
+permission is allowed whenever a file tool is, which is what makes `~/.ssh` or an absolute path outside
+the workspace readable. There is no OS-level sandbox and no per-path allow-list behind this: a bot that
+may run a shell is your own login, and path rules alone would not confine it.
+
+What stays isolated is the engine's state, not the machine: OpenCode's config and auth (`<bot>/config`),
+its database, sessions and logs (`<bot>/sessions`), and each bot's own workspace. A bot's engine reads and
+writes its own tree — not another bot's, and not your `~/.config/opencode`.
+
+For OpenCode that isolation is exactly those two XDG roots. The server runs with `XDG_CONFIG_HOME` and
+`XDG_DATA_HOME` pointed into the bot, and your real values travel beside them as
+`MORSE_HOST_XDG_CONFIG_HOME` and `MORSE_HOST_XDG_DATA_HOME`. Morse writes
+`<bot>/config/opencode/plugins/morse-user-space.ts`, whose shell hook puts those values back on the
+environment of each command, so rootless Podman, `systemctl --user` and `~/.ssh` work from inside a bot
+while its own server keeps the bot's roots. Only the shell is restored: if OpenCode cannot load the
+plugin, commands keep the bot's roots (your Podman state looks empty) and the failure appears in the
+bot's OpenCode log. A pi bot needs no such plugin: `PI_CODING_AGENT_DIR` is the only variable pointed at
+its tree, so its commands already see your environment. MCP servers keep the bot environment in every
+case.
+
 ## Interface preferences
 
 Some display choices belong to whoever is reading, not to the host, so they live in the panel

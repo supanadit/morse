@@ -71,7 +71,11 @@ migration step, never on a normal start. Today:
 - **pi** — `config/AGENTS.md` → `config/SYSTEM.md` (the character becomes the system prompt), removed after
   the move so it is not said twice.
 - **opencode** — a persona left in `config/opencode/instructions/persona.md` is folded into the bot agent's
-  `system` and the file removed; the deprecated singular `agent` key → `agents` with `system`.
+  `system` and the file removed; the deprecated singular `agent` key → `agents` with `system`. A permission
+  ruleset in Morse's generated shape is translated to OpenCode 2's action names (`bash` → `shell`, `task` →
+  `subagent`), `list` is dropped, `external_directory` is added when a file tool is allowed, and the
+  user-space shell plugin (`config/opencode/plugins/morse-user-space.ts`) is installed. A ruleset the reader
+  wrote is left alone: the shape check is Morse's blanket-deny first rule.
 
 `repair` runs from the upgrade step *and* from the every-start reconcile, because it is conservative by
 contract: it only moves a file that an earlier Morse wrote, and only when the place it belongs is empty.
