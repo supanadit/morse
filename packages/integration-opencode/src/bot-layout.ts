@@ -332,14 +332,55 @@ function openCodeModelEntry(model: BotProviderModel, kept: unknown): unknown {
 }
 
 /**
+ * The wizard's tool ids, as OpenCode 2 names the permission actions it checks.
+ *
+ * The wizard keeps Morse's own vocabulary — the same ids pi's tool list uses —
+ * while OpenCode gates a call by an action: a tool it renamed must be allowed
+ * under the new name or the ruleset denies a tool the reader chose. `write` and
+ * `patch` both edit files, so both land on `edit`.
+ */
+const TOOL_ACTION_RENAMES: Record<string, string> = {
+  bash: 'shell',
+  task: 'subagent',
+  write: 'edit',
+  patch: 'edit',
+};
+
+/** A wizard tool with no permission action of its own to allow. */
+const DROPPED_TOOL_ACTIONS = new Set(['list']);
+
+/**
+ * Actions that reach beyond the bot's own tree. OpenCode checks
+ * `external_directory` separately from the tool it is called by, so a bot whose
+ * reader chose a file tool has to be allowed that action too — otherwise `read`
+ * is allowed and every path outside the workspace still asks.
+ */
+const FILE_TOOL_ACTIONS = new Set(['read', 'edit', 'glob', 'grep']);
+
+/** One wizard tool as the action OpenCode gates it by, or none. */
+function actionFor(tool: string): string | undefined {
+  if (tool === '*' || DROPPED_TOOL_ACTIONS.has(tool)) {
+    return undefined;
+  }
+  return TOOL_ACTION_RENAMES[tool] ?? tool;
+}
+
+/**
  * The agent's `permissions` ruleset for an allowed-tool list: a blanket deny,
- * then one allow per chosen tool (`read`, `edit`, `bash`, `webfetch`, …). OpenCode
- * evaluates the rules in order, so the deny has to come first.
+ * then one allow per chosen tool's action (`read`, `edit`, `shell`, …), and
+ * `external_directory` when a file tool was chosen. OpenCode evaluates the rules
+ * in order and the last match wins, so the deny comes first and every allow
+ * after it; one allow per action keeps a renamed pair (`write`, `patch`) from
+ * writing the same rule twice.
  */
 function permissionRules(tools: readonly string[]): Record<string, unknown>[] {
+  const actions = new Set(tools.flatMap((tool) => actionFor(tool) ?? []));
   return [
     { action: '*', resource: '*', effect: 'deny' },
-    ...tools.map((tool) => ({ action: tool, resource: '*', effect: 'allow' })),
+    ...[...actions].map((action) => ({ action, resource: '*', effect: 'allow' })),
+    ...([...actions].some((action) => FILE_TOOL_ACTIONS.has(action))
+      ? [{ action: 'external_directory', resource: '*', effect: 'allow' }]
+      : []),
   ];
 }
 
@@ -392,13 +433,25 @@ export const openCodeBotLayout: BotEngineLayout = {
       typeof file['default_agent'] === 'string' ? file['default_agent'] : MORSE_AGENT;
     const own = asRecord(agents[defaultAgent]) ?? asRecord(agents[MORSE_AGENT]) ?? {};
     const persona = typeof own['system'] === 'string' ? own['system'] : undefined;
-    // Read the allowlist back out of the ruleset: every explicit allow, in order.
+    // Read the allowlist back out of the ruleset, in the wizard's own vocabulary:
+    // every allow, translated from the action it was written as. A config an
+    // earlier Morse wrote still says `bash`, and `external_directory` is an
+    // action rather than a tool, so it must never come back as one.
     const rules = Array.isArray(own['permissions']) ? (own['permissions'] as unknown[]) : undefined;
-    const tools = rules?.flatMap((rule) => {
+    const allowed = rules?.flatMap((rule) => {
       const record = asRecord(rule) ?? {};
       const action = record['action'];
-      return record['effect'] === 'allow' && typeof action === 'string' ? [action] : [];
+      if (
+        record['effect'] !== 'allow' ||
+        typeof action !== 'string' ||
+        action === 'external_directory'
+      ) {
+        return [];
+      }
+      const tool = actionFor(action);
+      return tool === undefined ? [] : [tool];
     });
+    const tools = allowed === undefined ? undefined : [...new Set(allowed)];
     const subagents = Object.entries(agents)
       .filter(([name, entry]) => name !== defaultAgent && asRecord(entry)?.['mode'] === 'subagent')
       .map(([name, entry]) => {

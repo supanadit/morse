@@ -337,29 +337,79 @@ describe('openCodeBotLayout', () => {
     ]);
   });
 
-  it('allows exactly the tools the reader chose, as a permissions ruleset', () => {
-    writeOpenCodeBotConfig(botRoot, { ...config, tools: ['read', 'webfetch'] });
+  it('translates the wizard tools to OpenCode 2 permission actions', () => {
+    writeOpenCodeBotConfig(botRoot, {
+      ...config,
+      tools: ['read', 'bash', 'task', 'list', 'webfetch'],
+    });
 
     const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
       agents: Record<string, Record<string, unknown>>;
     };
-    // A blanket deny first, then one allow per chosen tool: OpenCode evaluates the
-    // rules in order, so anything not chosen stays denied.
     expect(file.agents['morse']?.['permissions']).toEqual([
       { action: '*', resource: '*', effect: 'deny' },
       { action: 'read', resource: '*', effect: 'allow' },
+      { action: 'shell', resource: '*', effect: 'allow' },
+      { action: 'subagent', resource: '*', effect: 'allow' },
       { action: 'webfetch', resource: '*', effect: 'allow' },
+      { action: 'external_directory', resource: '*', effect: 'allow' },
     ]);
-    expect(openCodeBotLayout.read(botRoot).tools).toEqual(['read', 'webfetch']);
+    expect(openCodeBotLayout.read(botRoot).tools).toEqual([
+      'read',
+      'shell',
+      'subagent',
+      'webfetch',
+    ]);
+  });
 
-    // No tools at all is the deny alone.
-    writeOpenCodeBotConfig(botRoot, { ...config, tools: [] });
-    const none = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+  it('adds external access only when a file tool is chosen', () => {
+    writeOpenCodeBotConfig(botRoot, { ...config, tools: ['shell'] });
+    let file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
       agents: Record<string, Record<string, unknown>>;
     };
-    expect(none.agents['morse']?.['permissions']).toEqual([
+    expect(file.agents['morse']?.['permissions']).toEqual([
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'shell', resource: '*', effect: 'allow' },
+    ]);
+
+    writeOpenCodeBotConfig(botRoot, { ...config, tools: ['read'] });
+    file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    expect(file.agents['morse']?.['permissions']).toContainEqual({
+      action: 'external_directory',
+      resource: '*',
+      effect: 'allow',
+    });
+    expect(openCodeBotLayout.read(botRoot).tools).toEqual(['read']);
+  });
+
+  it('keeps only the deny when no tools are chosen', () => {
+    writeOpenCodeBotConfig(botRoot, { ...config, tools: [] });
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    expect(file.agents['morse']?.['permissions']).toEqual([
       { action: '*', resource: '*', effect: 'deny' },
     ]);
+    expect(openCodeBotLayout.read(botRoot).tools).toEqual([]);
+  });
+
+  it('reads a legacy bash allow back as shell, without external_directory as a tool', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+    const path = openCodeConfigPath(botRoot);
+    const file = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    file.agents['morse']!['permissions'] = [
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'bash', resource: '*', effect: 'allow' },
+      { action: 'external_directory', resource: '*', effect: 'allow' },
+    ];
+    writeFileSync(path, JSON.stringify(file));
+
+    expect(openCodeBotLayout.read(botRoot).tools).toEqual(['shell']);
   });
 
   it('keeps a stored model when the caller does not know it, and clears only on demand', () => {
