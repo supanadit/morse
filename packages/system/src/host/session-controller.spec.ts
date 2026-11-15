@@ -6,6 +6,7 @@ import {
   type AgentGateway,
   type AgentGatewayFactory,
   type AgentHistoryEntry,
+  type AgentHistoryPage,
   type AgentInteractionRequest,
   type AgentMode,
   type AgentSessionState,
@@ -71,6 +72,8 @@ function fakeGateway(
     historyEntries?: AgentHistoryEntry[];
     /** A `history()` the test controls, so a refresh can see new entries. */
     historyFn?: () => AgentHistoryEntry[];
+    /** A paging `history()` the test drives, so the cursor each read sends is visible. */
+    historyPage?: (before?: string) => AgentHistoryPage;
     /** Counts transcript re-reads; omitted means the adapter has no cache to drop. */
     refreshHistory?: () => Promise<void>;
     /** What `userMessages()` offers for the edit point lookup. */
@@ -133,11 +136,15 @@ function fakeGateway(
       };
     },
     state: () => Promise.resolve(snapshot()),
-    history: () =>
-      Promise.resolve({
-        entries: options.historyFn ? options.historyFn() : (options.historyEntries ?? []),
-        hasOlder: false,
-      }),
+    history: (request) =>
+      Promise.resolve(
+        options.historyPage
+          ? options.historyPage(request?.before)
+          : {
+              entries: options.historyFn ? options.historyFn() : (options.historyEntries ?? []),
+              hasOlder: false,
+            },
+      ),
     prompt: () => Promise.resolve<PromptDisposition>('started'),
     userMessages: () => Promise.resolve(options.userMessages ?? []),
     rewrite: () =>
@@ -287,6 +294,8 @@ function harness(
     refreshHistory?: () => Promise<void>;
     /** A `history()` the test controls, so a refresh can see new entries. */
     historyFn?: () => AgentHistoryEntry[];
+    /** A paging `history()` the test drives, so the cursor each read sends is visible. */
+    historyPage?: (before?: string) => AgentHistoryPage;
   } = {},
 ): Harness {
   const messages: HostToClientMessage[] = [];
@@ -298,6 +307,7 @@ function harness(
     ...(options.hold ? { hold: options.hold } : {}),
     ...(options.historyEntries ? { historyEntries: options.historyEntries } : {}),
     ...(options.historyFn ? { historyFn: options.historyFn } : {}),
+    ...(options.historyPage ? { historyPage: options.historyPage } : {}),
     ...(options.refreshHistory ? { refreshHistory: options.refreshHistory } : {}),
     ...(options.userMessages ? { userMessages: options.userMessages } : {}),
     ...(options.rewrite ? { rewrite: options.rewrite } : {}),
@@ -1479,6 +1489,60 @@ describe('HostSessionController chat/edit', () => {
     });
 
     expect(rewriteActive).toHaveBeenCalledWith('entry-3');
+  });
+
+  it('keeps the older-page cursor when the engine rewrites the session in place', async () => {
+    const reads: (string | undefined)[] = [];
+    const h = harness({
+      userMessages: [
+        { entryId: 'entry-1', text: 'first' },
+        { entryId: 'entry-2', text: 'second' },
+        { entryId: 'entry-3', text: 'third' },
+        { entryId: 'entry-4', text: 'fourth' },
+      ],
+      rewrite: { text: 'third' },
+      historyPage: (before) => {
+        reads.push(before);
+        return { entries: [], hasOlder: false };
+      },
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    // Two rows on screen, and a page older still on the engine along with the
+    // cursor that asks for it.
+    h.transcripts.userPrompt('sess-1', 'third');
+    h.transcripts.userPrompt('sess-1', 'fourth');
+    h.transcripts.setHistoryCursor('sess-1', { before: 'page-before-third', hasOlder: true });
+    // A reattach restores how far back the reader had paged.
+    await h.controller.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    expect(h.lastState()?.hasOlderHistory).toBe(true);
+    // The cold open's own newest-page seed is not what this test watches.
+    reads.length = 0;
+
+    // A rewrite keeps every message before the cut, so editing the oldest
+    // loaded row must not persuade the host that the branch starts there.
+    await h.controller.handleClientMessage({
+      type: 'chat/edit',
+      payload: { itemId: 'morse-user-1', text: 'third!' },
+    });
+
+    expect(h.lastState()?.hasOlderHistory).toBe(true);
+    expect(h.lastState()?.loadingOlderHistory).toBe(false);
+    expect(h.transcripts.historyCursor('sess-1')).toEqual({
+      before: 'page-before-third',
+      hasOlder: true,
+    });
+
+    // And the affordance works: the next older page is asked for from where
+    // the reader stood, not from the newest page again.
+    await h.controller.handleClientMessage({ type: 'history/load', payload: {} });
+    expect(reads).toEqual(['page-before-third']);
   });
 
   it('refuses an edit while the agent is streaming, before the engine is touched', async () => {

@@ -1711,10 +1711,19 @@ export class HostSessionController {
     // re-homes it under the same key, so the move is a plain replace.
     const index = items.findIndex((item) => item.id === itemId);
     const kept = items.slice(0, index);
+    const moved = branch.value.key !== branch.value.previousKey;
     this.activeKey = branch.value.key;
     this.options.transcripts.move(key, branch.value.key, kept);
-    this.historyBefore = undefined;
-    this.hasOlderHistory = false;
+    if (moved) {
+      // A fork starts a new branch at the cut, so nothing the reader held
+      // belongs before it: the older-page cursor is dropped with the old
+      // key. A rewrite keeps every message before the cut, including pages
+      // this reader never loaded, so its cursor still points at rows the
+      // engine has — clearing it here would hide them behind a fresh
+      // "newest page" read.
+      this.historyBefore = undefined;
+      this.hasOlderHistory = false;
+    }
     this.loadingOlderHistory = false;
     this.emitState();
 
