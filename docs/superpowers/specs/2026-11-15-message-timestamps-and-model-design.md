@@ -1,7 +1,7 @@
 # Message timestamps and per-message model
 
 Date: 2026-11-15
-Status: proposed
+Status: implemented
 
 ## Intent
 
