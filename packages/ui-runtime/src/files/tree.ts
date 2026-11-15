@@ -91,6 +91,8 @@ export type IconKind =
   | 'folder-open'
   | 'repo'
   | 'session'
+  | 'session-fork'
+  | 'session-bot'
   | 'generic'
   | 'code'
   | 'data'
@@ -111,6 +113,8 @@ const ICON_SYMBOL: Record<IconKind, true> = {
   'folder-open': true,
   repo: true,
   session: true,
+  'session-fork': true,
+  'session-bot': true,
   generic: true,
   code: true,
   data: true,

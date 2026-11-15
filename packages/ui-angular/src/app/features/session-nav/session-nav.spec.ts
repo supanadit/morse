@@ -39,6 +39,7 @@ class ScopedHostTransport extends BaseHostTransport {
       updatedAt: number;
       messageCount: number;
       parentId?: string;
+      subagent?: boolean;
     }[],
     /** Projects the host reports as holding more sessions than it sent. */
     private readonly hasMoreByProject: Record<string, boolean> = {},
@@ -202,6 +203,7 @@ interface RenderOptions {
     updatedAt: number;
     messageCount: number;
     parentId?: string;
+    subagent?: boolean;
   }[];
   /** Projects the host reports as holding more sessions than it sent. */
   hasMoreByProject?: Record<string, boolean>;
@@ -420,6 +422,26 @@ describe('SessionNav', () => {
     expect(project.querySelector('use')?.getAttribute('href')).toBe('#morse-repo');
     const session = host.querySelector('.row:not(.group)') as HTMLElement;
     expect(session.querySelector('use')?.getAttribute('href')).toBe('#morse-session');
+  });
+
+  it('marks an original session, a fork and a subagent with different icons', async () => {
+    const { host } = await render('global', false, {
+      sessions: [
+        { id: 'original', title: 'Original', cwd: '/work/morse', updatedAt: 3, messageCount: 4 },
+        { id: 'fork', title: 'Branch', cwd: '/work/morse', updatedAt: 2, messageCount: 2, parentId: 'original' },
+        { id: 'sub', title: 'Subagent', cwd: '/work/morse', updatedAt: 1, messageCount: 1, parentId: 'original', subagent: true },
+      ],
+    });
+    // A row carries no id of its own, so it is found the way the neighbouring
+    // tests find one: by the label the reader sees.
+    const icon = (label: string) =>
+      [...host.querySelectorAll('.row')]
+        .find((row) => row.querySelector('.label')?.textContent?.trim() === label)
+        ?.querySelector('use')
+        ?.getAttribute('href');
+    expect(icon('Original')).toBe('#morse-session');
+    expect(icon('Branch')).toBe('#morse-session-fork');
+    expect(icon('Subagent')).toBe('#morse-session-bot');
   });
 
   it('opens a parent session from its name, and folds it from its caret', async () => {
