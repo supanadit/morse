@@ -140,6 +140,8 @@ ${summary}`,
  * one a rewrite or a fork targets. The text is the user's own words, cut the
  * same way the transcript cuts them; a message that carried none (an image-only
  * prompt) stays with `''`, because dropping it would shift every entry after it.
+ * A message that produces no transcript row at all is left out here too: both
+ * lists have to agree row for row.
  */
 export function userMessagesOf(entries: readonly unknown[]): AgentUserMessage[] {
   const messages: AgentUserMessage[] = [];
@@ -153,10 +155,46 @@ export function userMessagesOf(entries: readonly unknown[]): AgentUserMessage[] 
     if (entryId === undefined || !message || asString(message['role']) !== 'user') {
       continue;
     }
-    const text = splitTrailingMentions(contentToText(message['content'])).text;
-    messages.push({ entryId, text });
+    const row = messageRow(message, 'user');
+    if (!row) {
+      continue;
+    }
+    messages.push({ entryId, text: row.text });
   }
   return messages;
+}
+
+/**
+ * What a message contributes to the transcript, or `undefined` when it adds no
+ * row. One predicate for both readers of the same entries: the row-producing
+ * history mapper and `userMessagesOf` must agree, or a prompt with no content
+ * lands in one list and not the other and shifts every row against its entry.
+ */
+function messageRow(
+  message: Record<string, unknown>,
+  role: 'user' | 'assistant',
+): { text: string; thinking: string; pins?: ChatPin[]; images: PromptImage[] } | undefined {
+  let text = contentToText(message['content']);
+  const thinking = contentToThinking(message['content']);
+  let pins: ChatPin[] | undefined;
+  const images = role === 'user' ? contentToImages(message['content']) : [];
+  if (role === 'user') {
+    // The transcript keeps what the user actually typed: `@mention` lines
+    // Morse appended for pins come back out and render as attachment chips
+    // again, instead of a blob of mentions inside the message.
+    const split = splitTrailingMentions(text);
+    text = split.text;
+    pins = split.pins.length > 0 ? split.pins : undefined;
+  }
+  if (
+    text.length === 0 &&
+    thinking.length === 0 &&
+    (pins?.length ?? 0) === 0 &&
+    images.length === 0
+  ) {
+    return undefined;
+  }
+  return { text, thinking, pins, images };
 }
 
 /** A flat message list (`get_messages`) seen as entries, keeping the old shape. */
@@ -233,30 +271,14 @@ function collectMessage(
     return;
   }
 
-  let text = contentToText(message['content']);
-  const thinking = contentToThinking(message['content']);
-  let pins: ChatPin[] | undefined;
-  const images = role === 'user' ? contentToImages(message['content']) : [];
-  if (role === 'user') {
-    // The transcript keeps what the user actually typed: `@mention` lines
-    // Morse appended for pins come back out and render as attachment chips
-    // again, instead of a blob of mentions inside the message.
-    const split = splitTrailingMentions(text);
-    text = split.text;
-    pins = split.pins.length > 0 ? split.pins : undefined;
-  }
-  if (
-    text.length > 0 ||
-    thinking.length > 0 ||
-    (pins !== undefined && pins.length > 0) ||
-    images.length > 0
-  ) {
+  const row = messageRow(message, role);
+  if (row) {
     entries.push({
       role,
-      text,
-      thinking: thinking.length > 0 ? thinking : undefined,
-      ...(images.length > 0 ? { images } : {}),
-      ...(pins !== undefined ? { pins } : {}),
+      text: row.text,
+      thinking: row.thinking.length > 0 ? row.thinking : undefined,
+      ...(row.images.length > 0 ? { images: row.images } : {}),
+      ...(row.pins !== undefined ? { pins: row.pins } : {}),
       model: asString(message['model']),
       at: asNumber(message['timestamp']),
     });

@@ -140,6 +140,24 @@ describe('userMessagesOf', () => {
       { entryId: 'e3', text: '' },
     ]);
   });
+
+  it('leaves a user entry that adds no row out of both lists', () => {
+    // A role-only prompt (no text, no thinking, no pins, no images) never
+    // produces a transcript row. Listing it here anyway would shift every
+    // older row by one against the engine's entries.
+    const entries = [
+      messageEntry('e1', null, ISO_1, { role: 'user', content: [] }),
+      messageEntry('e2', 'e1', ISO_2, {
+        role: 'user',
+        content: [{ type: 'text', text: 'hi' }],
+        timestamp: 2_000,
+      }),
+    ];
+    expect(userMessagesOf(entries)).toEqual([{ entryId: 'e2', text: 'hi' }]);
+    expect(
+      toEntryHistory(entries).map((entry) => (entry.role === 'user' ? entry.text : entry.role)),
+    ).toEqual(['hi']);
+  });
 });
 
 describe('mapSessionEvent compaction_end', () => {
