@@ -287,10 +287,13 @@ item's* id.
 
 - `client.ts` gains `branchMessage(itemId)` sending `chat/branch`, and
   `MorseService.branchMessage` forwards it, next to `forkMessage`.
-- `transcript.ts`: a `canBranch(item)` for assistant items that are the turn's
-  last conversational row and are not streaming; `branch(item)` calls
-  `morse.branchMessage(item.id)`. The template shows it in the same hover action
-  group as edit/fork, labelled "Branch from here". Copy stays as it is.
+- `transcript.ts`: a `canBranch(row)` for an assistant row that is the **last
+  assistant row before the next user row (or the end)** — the turn's answer, not
+  the turn's first thought — and not streaming; `branch(row)` calls
+  `morse.branchMessage(row.item.id)`. The template shows it in the same hover
+  action group as edit/fork, labelled "Branch from here". Copy stays as it is.
+  A turn whose last row is a tool call has no answer to branch from, so it offers
+  nothing.
 - `IconKind` (`packages/ui-runtime/src/files/tree.ts`) gains `session-fork` and
   `session-bot` (and the `ICON_SYMBOL` map entries).
 - `app.html` sprite gains `morse-session-fork` (three nodes and a curve, the
