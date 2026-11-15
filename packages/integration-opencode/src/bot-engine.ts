@@ -8,6 +8,7 @@ import {
   type MorseLogger,
 } from '@morse/system';
 import { openCodeProviderEntry } from './bot-layout.js';
+import { botUserSpaceEnv } from './bot-user-space.js';
 import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
@@ -61,24 +62,19 @@ export interface BotOpenCodeEngineOptions {
 /**
  * The environment a bot's OpenCode server gets.
  *
- * Both XDG roots are overridden, not appended to, on purpose: a host launched
- * from inside the user's own OpenCode session inherits that user's dirs, and a
- * bot inheriting them would read and write the user's providers, sessions and
- * auth. Everything else — `PATH` above all, which the spawn needs to find the
- * binary — is inherited unchanged. Because that inheritance is wholesale, an
- * `OPENCODE_*` config-path override already set by the host reaches the bot
- * too and would bypass the XDG redirects; that is an accepted MVP risk,
- * documented here rather than silently scrubbing the user's environment.
+ * Same contract as `botUserSpaceEnv`, which does the work: both XDG roots are
+ * redirected into the bot so its server reads and writes nothing of the
+ * reader's, while the host's real roots travel as `MORSE_HOST_XDG_*` for the
+ * shell plugin (`writeBotUserSpacePlugin`), which restores them for the commands
+ * a bot runs. `PATH` above all, which the spawn needs to find the binary, is
+ * inherited unchanged — see `botUserSpaceEnv` for why that matters and what it
+ * costs.
  */
 export function botOpenCodeEnv(
   botRoot: string,
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  return {
-    ...base,
-    XDG_CONFIG_HOME: join(botRoot, 'config'),
-    XDG_DATA_HOME: join(botRoot, 'sessions'),
-  };
+  return botUserSpaceEnv(botRoot, base);
 }
 
 /**

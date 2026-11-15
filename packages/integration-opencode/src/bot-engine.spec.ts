@@ -257,7 +257,7 @@ async function startFakeServer(): Promise<{
 }
 
 describe('botOpenCodeEnv', () => {
-  it('points both XDG roots at the bot and keeps the base environment', () => {
+  it('points both XDG roots at the bot, carries the host roots and keeps the base environment', () => {
     const botRoot = tempRoot();
 
     const env = botOpenCodeEnv(botRoot, { PATH: '/usr/bin', HOME: '/home/u' });
@@ -267,12 +267,15 @@ describe('botOpenCodeEnv', () => {
       HOME: '/home/u',
       XDG_CONFIG_HOME: join(botRoot, 'config'),
       XDG_DATA_HOME: join(botRoot, 'sessions'),
+      MORSE_HOST_XDG_CONFIG_HOME: '/home/u/.config',
+      MORSE_HOST_XDG_DATA_HOME: '/home/u/.local/share',
     });
   });
 
   it('overrides XDG roots inherited from the base environment', () => {
     // A host launched from inside a user's OpenCode session carries that user's
-    // XDG dirs; a bot must never read or write them.
+    // XDG dirs; a bot must never read or write them. They survive as the
+    // MORSE_HOST_* variables the shell plugin restores for the bot's commands.
     const botRoot = tempRoot();
 
     const env = botOpenCodeEnv(botRoot, {
@@ -283,6 +286,8 @@ describe('botOpenCodeEnv', () => {
 
     expect(env['XDG_CONFIG_HOME']).toBe(join(botRoot, 'config'));
     expect(env['XDG_DATA_HOME']).toBe(join(botRoot, 'sessions'));
+    expect(env['MORSE_HOST_XDG_CONFIG_HOME']).toBe('/home/u/.config');
+    expect(env['MORSE_HOST_XDG_DATA_HOME']).toBe('/home/u/.local/share');
   });
 
   it('defaults to the host environment and does not mutate it', () => {
@@ -294,6 +299,16 @@ describe('botOpenCodeEnv', () => {
     expect(env['XDG_DATA_HOME']).toBe(join(botRoot, 'sessions'));
     // The full env matters: the spawn needs PATH to find the binary.
     expect(env['PATH']).toBe(process.env['PATH']);
+    // The host's own roots reach the bot as MORSE_HOST_*; OpenCode's documented
+    // XDG fallbacks are under HOME.
+    const home = process.env['HOME'];
+    expect(env['MORSE_HOST_XDG_CONFIG_HOME']).toBe(
+      process.env['XDG_CONFIG_HOME'] ?? (home === undefined ? undefined : join(home, '.config')),
+    );
+    expect(env['MORSE_HOST_XDG_DATA_HOME']).toBe(
+      process.env['XDG_DATA_HOME'] ??
+        (home === undefined ? undefined : join(home, '.local', 'share')),
+    );
 
     const base = { PATH: '/usr/bin' };
     botOpenCodeEnv(botRoot, base);

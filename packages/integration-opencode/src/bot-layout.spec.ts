@@ -10,6 +10,7 @@ import {
   openCodeLegacyPersonaPath,
   writeOpenCodeBotConfig,
 } from './bot-layout.js';
+import { botUserSpacePluginPath } from './bot-user-space.js';
 
 /**
  * OpenCode's own layout, as OpenCode reads it: one `opencode.json` that follows
@@ -73,6 +74,12 @@ describe('openCodeBotLayout', () => {
       description: 'Finds the news',
       system: 'You are News Finder.',
     });
+  });
+
+  it('installs the user-space shell plugin beside the config', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+
+    expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
   });
 
   it('writes providers in the schema shape: package, settings, models, limits', () => {

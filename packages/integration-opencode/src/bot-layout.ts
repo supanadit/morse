@@ -11,6 +11,7 @@ import type {
 } from '@morse/system';
 import { OpenCodeEngineDefinition } from './engine/open-code-engine.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
+import { writeBotUserSpacePlugin } from './bot-user-space.js';
 
 /**
  * OpenCode's configuration, as OpenCode itself expects it.
@@ -29,6 +30,9 @@ import { writeOpenCodeCredentials } from './bot-engine.js';
  *   reads from the project root on its own; `instructions` names it explicitly.
  * - `<botRoot>/sessions/opencode/auth.json` — the keys, in OpenCode's own auth
  *   store inside the bot's data dir (its `XDG_DATA_HOME` is `<botRoot>/sessions`).
+ * - `<botRoot>/config/opencode/plugins/morse-user-space.ts` — the plugin that
+ *   hands the host's real XDG roots back to the shell commands a bot runs, and
+ *   to nothing else (see `bot-user-space.ts`).
  *
  * There is no Morse-specific configuration in any of it, and no copy kept
  * elsewhere: `read` answers the wizard from these same files.
@@ -144,6 +148,9 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     next['model'] = `${config.model.provider}/${config.model.id}`;
   }
 
+  // The bot's shell needs the reader's real XDG roots — Podman state, SSH keys,
+  // a checkout — while the server above keeps reading its own.
+  writeBotUserSpacePlugin(botRoot);
   writeJsonAtomic(document.path, next);
   // No key collected means "keep the ones the engine already holds": an edit that
   // does not touch the keys must not wipe them.
