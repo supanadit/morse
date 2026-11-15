@@ -445,3 +445,34 @@ ul {
   background: var(--morse-hover);
   color: var(--morse-fg);
 }
+
+/* The rename editor: one field and its two buttons, sized to the menu. */
+.context-menu .rename-input {
+  display: block;
+  width: calc(100% - 12px);
+  margin: 4px 6px 2px;
+  padding: 5px 7px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-bg);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+}
+.context-menu .rename-input:focus {
+  outline: none;
+  border-color: var(--morse-accent);
+}
+.context-menu .rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.context-menu .rename-actions .context-menu-item {
+  width: auto;
+  padding: 5px 9px;
+}
+.context-menu .rename-actions .context-menu-item.primary {
+  color: var(--morse-accent);
+  font-weight: 600;
+}

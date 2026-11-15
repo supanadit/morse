@@ -88,8 +88,9 @@ browser asks in its own menu).
   gone when a row survived. The directory is never touched.
 
 **Frontend.** `renameSession` and `deleteProject` join the client; the session row's existing
-context menu gains **Rename** (inline edit in the row: Enter saves, Escape cancels, empty is
-refused), and a project row's context menu gains **Delete project…** showing its session count.
+context menu gains **Rename**, which turns the menu itself into a title field (Enter saves, Escape
+cancels, empty is refused — the shared tree draws labels, so the editor lives in the menu over the
+row), and a project row's context menu gains **Delete project…** showing its session count.
 The project row gets no rename and no other editable field — deletion is the whole project
 operation. Both confirm through the host when it has native dialogs, otherwise in-app. Deleting a
 project drops every removed id from the tabs and forgets any remembered active session; a draft tab

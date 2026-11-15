@@ -222,8 +222,8 @@
 @if (menu(); as open) {
   <div
     class="context-menu-layer"
-    (click)="closeMenu()"
-    (contextmenu)="$event.preventDefault(); closeMenu()"
+    (click)="closeMenu(); closeProjectMenu()"
+    (contextmenu)="$event.preventDefault(); closeMenu(); closeProjectMenu()"
   ></div>
   <div
     class="context-menu"
@@ -231,7 +231,24 @@
     [style.left.px]="open.x"
     [style.top.px]="open.y"
   >
-    @if (open.confirming) {
+    @if (open.renaming) {
+      <input
+        class="rename-input"
+        type="text"
+        aria-label="Session title"
+        maxlength="120"
+        [value]="renameDraft()"
+        (input)="onRenameInput($event)"
+        (keydown.enter)="commitRename()"
+        (keydown.escape)="closeMenu()"
+      />
+      <div class="rename-actions">
+        <button type="button" class="context-menu-item" (click)="closeMenu()">Cancel</button>
+        <button type="button" class="context-menu-item primary" (click)="commitRename()">
+          Save
+        </button>
+      </div>
+    } @else if (open.confirming) {
       <p class="context-menu-question">Delete this session?</p>
       <p class="context-menu-title">{{ open.session.title }}</p>
       <button type="button" class="context-menu-item" (click)="closeMenu()">Cancel</button>
@@ -239,6 +256,9 @@
         Delete
       </button>
     } @else {
+      <button type="button" class="context-menu-item" (click)="startRename(open)">
+        Rename session…
+      </button>
       <button type="button" class="context-menu-item" (click)="closeNow(open.session)">
         Close session
       </button>
@@ -253,6 +273,32 @@
       }
       <button type="button" class="context-menu-item danger" (click)="askDelete(open)">
         Delete session…
+      </button>
+    }
+  </div>
+}
+
+@if (projectMenu(); as open) {
+  <div
+    class="context-menu-layer"
+    (click)="closeProjectMenu()"
+    (contextmenu)="$event.preventDefault(); closeProjectMenu()"
+  ></div>
+  <div class="context-menu" role="menu" [style.left.px]="open.x" [style.top.px]="open.y">
+    @if (open.confirming) {
+      <p class="context-menu-question">
+        Delete the {{ open.count }} sessions in “{{ open.name }}”? The folder stays on disk.
+      </p>
+      <button type="button" class="context-menu-item" (click)="closeProjectMenu()">
+        Cancel
+      </button>
+      <button type="button" class="context-menu-item danger" (click)="deleteProjectNow(open)">
+        Delete
+      </button>
+    } @else {
+      <p class="context-menu-title">{{ open.name }} · {{ open.count }} sessions</p>
+      <button type="button" class="context-menu-item danger" (click)="askDeleteProject(open)">
+        Delete project…
       </button>
     }
   </div>
