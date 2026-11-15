@@ -127,8 +127,10 @@
           }
 
           <h4 class="group-title">Catalog providers</h4>
+          <!-- A key field only for the chips this bot already holds a key for; the
+               list scrolls because pi's catalog is long. -->
           <div class="presets">
-            @for (preset of knownProviders(); track preset.credential) {
+            @for (preset of orderedPresets(); track preset.engines.join(',') + ':' + preset.credential) {
               <div class="preset" [class.on]="hasPreset(preset.credential)">
                 <button type="button" class="preset-chip" (click)="choosePreset(preset.credential)">
                   {{ preset.label }}

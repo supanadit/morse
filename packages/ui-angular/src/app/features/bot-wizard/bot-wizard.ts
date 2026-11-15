@@ -48,7 +48,12 @@ interface ProviderDraft {
 
 /** A catalog provider the engine discovers itself: a preset chip and a key. */
 interface KnownProviderPreset {
-  /** The credential's engine-side provider name (`auth.json` key for OpenCode). */
+  /**
+   * The credential's engine-side provider name — the key it lands under in the
+   * bot's `auth.json`. Engine-specific, so the same brand may carry one name in
+   * pi's catalog and another in OpenCode's; a row belongs to the engine whose
+   * spelling it uses.
+   */
   credential: string;
   label: string;
   /** Engines whose catalogs carry it; others hide the chip. */
@@ -59,17 +64,60 @@ interface KnownProviderPreset {
  * Catalog providers per engine, as preset chips. The key goes into the bot's
  * own `auth.json` (OpenCode) / `auth.json` (pi) and the engine's probe lists
  * the models the key unlocks — no provider JSON needed for these.
+ *
+ * The pi rows mirror pi's own provider catalog (`getApiKeyEnvVars` in the
+ * installed bundle, `docs/providers.md`): every provider a single API key is
+ * enough for, spelled the way pi spells it in `auth.json`. A chip that only
+ * appears for one engine says so in `engines` — the wizard never shows a key
+ * field that engine cannot use.
  */
 const KNOWN_PROVIDERS: KnownProviderPreset[] = [
-  { credential: 'opencode', label: 'OpenCode (Zen & Go)', engines: ['opencode'] },
+  { credential: 'opencode', label: 'OpenCode Zen & Go', engines: ['opencode'] },
   { credential: 'anthropic', label: 'Anthropic', engines: ['opencode', 'pi'] },
   { credential: 'openai', label: 'OpenAI', engines: ['opencode', 'pi'] },
   { credential: 'google', label: 'Google', engines: ['opencode', 'pi'] },
   { credential: 'openrouter', label: 'OpenRouter', engines: ['opencode', 'pi'] },
   { credential: 'xai', label: 'xAI', engines: ['opencode', 'pi'] },
+  // pi's remaining catalog providers. OpenCode's own list stays as it is: its
+  // `auth.json` keys are models.dev ids (`moonshotai`, `togetherai`, …), which
+  // differ from pi's for several of the same brands.
+  { credential: 'opencode', label: 'OpenCode Zen', engines: ['pi'] },
+  { credential: 'opencode-go', label: 'OpenCode Go', engines: ['pi'] },
   { credential: 'deepseek', label: 'DeepSeek', engines: ['pi'] },
   { credential: 'groq', label: 'Groq', engines: ['pi'] },
   { credential: 'mistral', label: 'Mistral', engines: ['pi'] },
+  { credential: 'zai', label: 'Z.ai Coding Plan', engines: ['pi'] },
+  { credential: 'zai-coding-cn', label: 'Z.ai Coding Plan (China)', engines: ['pi'] },
+  { credential: 'minimax', label: 'MiniMax', engines: ['pi'] },
+  { credential: 'minimax-cn', label: 'MiniMax (China)', engines: ['pi'] },
+  { credential: 'moonshotai', label: 'Moonshot AI', engines: ['pi'] },
+  { credential: 'moonshotai-cn', label: 'Moonshot AI (China)', engines: ['pi'] },
+  { credential: 'kimi-coding', label: 'Kimi For Coding', engines: ['pi'] },
+  { credential: 'qwen-token-plan', label: 'Qwen Token Plan', engines: ['pi'] },
+  { credential: 'qwen-token-plan-cn', label: 'Qwen Token Plan (China)', engines: ['pi'] },
+  { credential: 'qwen-token-plan-individual', label: 'Qwen Individual', engines: ['pi'] },
+  { credential: 'qwen-token-plan-individual-cn', label: 'Qwen Individual (China)', engines: ['pi'] },
+  { credential: 'xiaomi', label: 'Xiaomi MiMo', engines: ['pi'] },
+  { credential: 'xiaomi-token-plan-cn', label: 'Xiaomi Token Plan (China)', engines: ['pi'] },
+  { credential: 'xiaomi-token-plan-ams', label: 'Xiaomi Token Plan (Amsterdam)', engines: ['pi'] },
+  { credential: 'xiaomi-token-plan-sgp', label: 'Xiaomi Token Plan (Singapore)', engines: ['pi'] },
+  { credential: 'nvidia', label: 'NVIDIA NIM', engines: ['pi'] },
+  { credential: 'cerebras', label: 'Cerebras', engines: ['pi'] },
+  { credential: 'fireworks', label: 'Fireworks', engines: ['pi'] },
+  { credential: 'together', label: 'Together AI', engines: ['pi'] },
+  { credential: 'baseten', label: 'Baseten', engines: ['pi'] },
+  { credential: 'vercel-ai-gateway', label: 'Vercel AI Gateway', engines: ['pi'] },
+  { credential: 'ant-ling', label: 'Ant Ling', engines: ['pi'] },
+  { credential: 'huggingface', label: 'Hugging Face', engines: ['pi'] },
+  { credential: 'meta', label: 'Meta', engines: ['pi'] },
+  { credential: 'radius', label: 'Radius', engines: ['pi'] },
+  // Deliberately absent: providers a single pasted key cannot finish. Cloudflare
+  // (Workers AI, AI Gateway) needs `CLOUDFLARE_ACCOUNT_ID` beside its key, Azure
+  // needs a resource and deployment map, Google Vertex and Amazon Bedrock take
+  // ambient cloud credentials, GitHub Copilot and Radius sign in with OAuth, and
+  // `typesafe` serves classifier models only — a bot needs a chat model. Those
+  // reach a bot through "Add provider" or the engine's own `/login` instead, and
+  // a chip whose key could not work would be worse than no chip.
 ];
 
 /** The API types a custom provider can speak, with the picker's wording. */
@@ -415,6 +463,20 @@ export class BotWizard {
   protected readonly knownProviders = computed(() =>
     KNOWN_PROVIDERS.filter((preset) => preset.engines.includes(this.engineKind())),
   );
+
+  /**
+   * The chips with the ones this bot already has keys for first, so a landed key
+   * does not scroll away from its own chip in a list this long.
+   */
+  protected readonly orderedPresets = computed(() => {
+    const chips = this.knownProviders();
+    const chosen = this.credentials();
+    return [...chips].sort(
+      (left, right) =>
+        Number(chosen.some((row) => row.provider === right.credential)) -
+        Number(chosen.some((row) => row.provider === left.credential)),
+    );
+  });
 
   /** The models the catalog probe answered with, for this wizard's request. */
   protected readonly probedModels = computed<ModelOption[]>(() => {

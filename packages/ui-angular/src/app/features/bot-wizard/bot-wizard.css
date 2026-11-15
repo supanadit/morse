@@ -403,22 +403,29 @@
 }
 
 .presets {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 6px;
-  max-width: 520px;
+  max-width: 620px;
+  /* pi's catalog is ~35 providers; scroll rather than push the rest of the
+     step below the fold. */
+  max-height: 244px;
+  overflow-y: auto;
+  padding: 1px 4px 1px 1px;
   margin-bottom: 8px;
 }
 
 .preset {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
 }
 
 .preset-chip {
   flex: none;
-  min-width: 160px;
+  width: 100%;
+  min-width: 0;
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--morse-border);
@@ -429,6 +436,9 @@
   font-size: 12px;
   font-weight: 500;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background 120ms ease,
@@ -445,7 +455,7 @@
 }
 
 .preset-key {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 8px;
   border: 1px solid var(--morse-border);

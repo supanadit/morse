@@ -282,6 +282,41 @@ describe('BotWizard', () => {
     expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
   });
 
+  it('offers pi\'s own catalog providers, OpenCode among them, and probes the id it chips', async () => {
+    const { fixture, host, morse } = await render();
+    const { probe } = walkToConnect(fixture, host, morse, 'pi');
+
+    const labels = [...host.querySelectorAll('.preset-chip')].map((one) => one.textContent?.trim());
+    // The subscription providers are the point: pi carries both OpenCode ids.
+    expect(labels).toContain('OpenCode Zen');
+    expect(labels).toContain('OpenCode Go');
+    expect(labels).toEqual(expect.arrayContaining(['Z.ai Coding Plan', 'Moonshot AI', 'MiniMax']));
+    expect(labels.length).toBeGreaterThan(30);
+
+    // The chip writes the provider id pi reads back out of `auth.json`, and the
+    // probe sends exactly that — not the chip's label.
+    const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
+    chips.find((one) => one.textContent?.trim() === 'OpenCode Go')?.click();
+    tick(fixture);
+    fillAndCommit(host, '.preset-key', 'oc_go_key');
+    tick(fixture);
+
+    expect(probe.mock.calls.at(-1)?.[0]).toBe('pi');
+    expect(probe.mock.calls.at(-1)?.[2]).toEqual([{ provider: 'opencode-go', apiKey: 'oc_go_key' }]);
+  });
+
+  it('keeps one chip per provider id, so a tracked list never repeats a key', async () => {
+    for (const kind of ['pi', 'opencode']) {
+      const { fixture, host, morse } = await render();
+      walkToConnect(fixture, host, morse, kind);
+      const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
+      const labels = chips.map((one) => one.textContent?.trim() ?? '');
+      expect(new Set(labels).size).toBe(labels.length);
+      // One key field per chip, and none before a chip is chosen.
+      expect(host.querySelectorAll('.preset-key').length).toBe(0);
+    }
+  });
+
   it('re-probes when a key is committed and keeps Next refused while nothing is listed', async () => {
     const { fixture, host, morse } = await render();
     const { probe } = walkToConnect(fixture, host, morse, 'opencode');
