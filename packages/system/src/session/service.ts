@@ -401,6 +401,43 @@ export class SessionRegistry {
   }
 
   /**
+   * Sets a title the reader chose. Morse's index holds it, so no engine is
+   * started or written to; the catalog answers false when the row is gone.
+   */
+  async renameSession(key: string, title: string): Promise<boolean> {
+    const rename = this.deps.catalog.rename;
+    if (!rename) {
+      throw new UnsupportedByHostError('This host cannot rename sessions.');
+    }
+    return rename.call(this.deps.catalog, key, title);
+  }
+
+  /**
+   * Deletes every session a project directory holds: each one is closed (its
+   * process retired, so a file is not removed while open) and then removed
+   * through whichever engine owns it. Failures are collected rather than thrown
+   * — a cascade that stopped at the first refusal would leave the reader with a
+   * half-deleted project and no count of what is left.
+   */
+  async deleteProject(path: string): Promise<{ deleted: string[]; failed: string[] }> {
+    const idsInProject = this.deps.catalog.idsInProject;
+    if (!idsInProject) {
+      throw new UnsupportedByHostError('This host cannot delete a project’s sessions.');
+    }
+    const deleted: string[] = [];
+    const failed: string[] = [];
+    for (const id of await idsInProject.call(this.deps.catalog, path)) {
+      try {
+        await this.remove(id);
+        deleted.push(id);
+      } catch {
+        failed.push(id);
+      }
+    }
+    return { deleted, failed };
+  }
+
+  /**
    * More of one project's sessions, for the sidebar's "Load more" row. A catalog
    * without paging answers with whatever it already has and no more to fetch, so
    * the sidebar simply stops offering to load.

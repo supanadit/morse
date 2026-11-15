@@ -151,6 +151,9 @@ interface GuardedFailed {
 type Guarded<T> = GuardedOk<T> | GuardedFailed;
 
 /** How many history entries one page carries when a resumed session is seeded. */
+/** How long a session title may be, as the sidebar's inline editor enforces. */
+const SESSION_TITLE_MAX = 120;
+
 const HISTORY_PAGE_SIZE = 50;
 
 /** The title a session without a name shows until the user says something. */
@@ -481,6 +484,12 @@ export class HostSessionController {
         return;
       case 'session/delete':
         await this.deleteSession(message.payload.sessionId);
+        return;
+      case 'session/rename':
+        await this.renameSession(message.payload.sessionId, message.payload.title);
+        return;
+      case 'project/delete':
+        await this.deleteProject(message.payload.path);
         return;
       case 'session/compact': {
         // The key the frontend sends pins the compaction to the conversation its
@@ -1122,6 +1131,73 @@ export class HostSessionController {
     this.options.transcripts.clear(sessionId);
     await this.fallBackAfterSessionGone(sessionId);
     this.options.emit(noticeMessage('info', 'Session deleted.', Date.now()));
+  }
+
+  /**
+   * Sets a title the reader chose. The name lives in Morse's index, so the
+   * engine is never asked and its own session data keeps the name it wrote.
+   */
+  private async renameSession(sessionId: string, title: string): Promise<void> {
+    const trimmed = title.trim();
+    if (trimmed.length === 0 || trimmed.length > SESSION_TITLE_MAX) {
+      this.fail(`A session title needs between 1 and ${SESSION_TITLE_MAX} characters.`);
+      return;
+    }
+    const result = await this.guard(() =>
+      this.options.services.registry.renameSession(sessionId, trimmed),
+    );
+    if (!result.ok) {
+      return;
+    }
+    if (!result.value) {
+      this.fail('That session is no longer in the index.');
+      return;
+    }
+    await this.publishSessions();
+  }
+
+  /**
+   * Deletes every session a project directory holds. The directory itself stays:
+   * a project is a group of conversations, and the reader may still want the
+   * folder. Each removal is the ordinary session delete, so each engine's own
+   * storage rules decide what "deleted" means.
+   */
+  private async deleteProject(path: string): Promise<void> {
+    if (path.length === 0 || !this.canOpen(path)) {
+      this.fail(
+        `Morse is not allowed to delete sessions in ${path}.`,
+        'Add it to MORSE_PROJECTS first.',
+      );
+      return;
+    }
+    const result = await this.guard(() =>
+      this.options.services.registry.deleteProject(path),
+    );
+    if (!result.ok) {
+      return;
+    }
+    const { deleted, failed } = result.value;
+    for (const id of deleted) {
+      this.options.transcripts.clear(id);
+    }
+    if (this.activeKey !== undefined && deleted.includes(this.activeKey)) {
+      await this.fallBackAfterSessionGone(this.activeKey);
+    }
+    const name = path.split(/[\\/]/).filter((part) => part.length > 0).at(-1) ?? path;
+    this.options.emit(
+      failed.length === 0
+        ? noticeMessage(
+            'info',
+            `Deleted ${deleted.length} session${deleted.length === 1 ? '' : 's'} in ${name}.`,
+            Date.now(),
+          )
+        : noticeMessage(
+            'warn',
+            `Deleted ${deleted.length} of ${deleted.length + failed.length} sessions in ${name} — the rest could not be removed.`,
+            Date.now(),
+          ),
+    );
+    await this.publishSessions();
   }
 
   /** The panel must stay usable once the session it showed is gone. */

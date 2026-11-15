@@ -30,6 +30,7 @@ import {
 } from '@morse/protocol';
 import { HostSessionController } from './session-controller.js';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
+import type { SessionCatalog } from '../session/ports.js';
 import type { TerminalBackend, TerminalSink } from './terminal.js';
 import type { HostScopeOptions } from './session-controller.js';
 
@@ -3193,5 +3194,196 @@ describe('HostSessionController transcript model', () => {
       kind: 'assistant',
       model: 'glm-5.3-flash',
     });
+  });
+});
+
+/**
+ * Renaming writes Morse's index and republishes; deleting a project is the
+ * per-session delete run over every row of one directory, with the count said
+ * out loud. Both refuse bad input before touching anything.
+ */
+describe('HostSessionController rename and project delete', () => {
+  function summary(id: string, title: string): SessionSummary {
+    return { id, title, cwd: WORKSPACE.cwd, updatedAt: 1, messageCount: 1 };
+  }
+
+  async function setup(options: {
+    sessions?: SessionSummary[];
+    renames?: boolean;
+    scope?: HostScopeOptions;
+  } = {}): Promise<{
+    host: HostSessionController;
+    messages: HostToClientMessage[];
+    transcripts: SessionTranscriptStore;
+    catalog: {
+      rows: SessionSummary[];
+      renamed: Array<[string, string]>;
+      idsRequested: string[];
+      removed: string[];
+    };
+  }> {
+    const rows = options.sessions ?? [summary('sess-1', 'Engine name')];
+    const renamed: Array<[string, string]> = [];
+    const idsRequested: string[] = [];
+    const removed: string[] = [];
+    const catalog: SessionCatalog = {
+      list: () => Promise.resolve(rows.map((row) => ({ ...row }))),
+      ...(options.renames === false
+        ? {}
+        : {
+            rename: (id: string, title: string): Promise<boolean> => {
+              renamed.push([id, title]);
+              const row = rows.find((entry) => entry.id === id);
+              if (row === undefined) {
+                return Promise.resolve(false);
+              }
+              row.title = title;
+              return Promise.resolve(true);
+            },
+          }),
+      idsInProject: (cwd: string): Promise<string[]> => {
+        idsRequested.push(cwd);
+        return Promise.resolve(rows.filter((row) => row.cwd === cwd).map((row) => row.id));
+      },
+      remove: (id: string): Promise<void> => {
+        removed.push(id);
+        const index = rows.findIndex((row) => row.id === id);
+        if (index >= 0) {
+          rows.splice(index, 1);
+        }
+        return Promise.resolve();
+      },
+    };
+    const registry = new SessionRegistry({
+      factory: {
+        create: (input) =>
+          Promise.resolve(fakeGateway({ sessionId: input.sessionId ?? 'sess-1' })),
+      },
+      catalog,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const messages: HostToClientMessage[] = [];
+    const host = connect(registry, chat, transcripts, messages, options.scope);
+    await host.start();
+    return {
+      host,
+      messages,
+      transcripts,
+      catalog: { rows, renamed, idsRequested, removed },
+    };
+  }
+
+  function lists(messages: HostToClientMessage[]): SessionSummary[][] {
+    return messages
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'session/list' }> =>
+          message.type === 'session/list',
+      )
+      .map((message) => message.payload.sessions);
+  }
+
+  function notices(messages: HostToClientMessage[]): string[] {
+    return messages.flatMap((message) =>
+      message.type === 'notice' && typeof message.payload.text === 'string'
+        ? [message.payload.text]
+        : [],
+    );
+  }
+
+  it('renames a session and republishes the list', async () => {
+    const h = await setup();
+
+    await h.host.handleClientMessage({
+      type: 'session/rename',
+      payload: { sessionId: 'sess-1', title: '  Release prep  ' },
+    });
+
+    expect(h.catalog.renamed).toEqual([['sess-1', 'Release prep']]);
+    expect(lists(h.messages).at(-1)?.find((row) => row.id === 'sess-1')?.title).toBe(
+      'Release prep',
+    );
+  });
+
+  it('refuses an empty title and a title past 120 characters', async () => {
+    const h = await setup();
+    // The start-up publish is detached; let it land before counting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const before = lists(h.messages).length;
+
+    await h.host.handleClientMessage({
+      type: 'session/rename',
+      payload: { sessionId: 'sess-1', title: '   ' },
+    });
+    await h.host.handleClientMessage({
+      type: 'session/rename',
+      payload: { sessionId: 'sess-1', title: 'x'.repeat(121) },
+    });
+
+    expect(h.catalog.renamed).toEqual([]);
+    expect(lists(h.messages)).toHaveLength(before);
+    expect(notices(h.messages).filter((text) => text.includes('120'))).toHaveLength(2);
+  });
+
+  it('accepts a title of exactly 120 characters', async () => {
+    const h = await setup();
+    const title = 'x'.repeat(120);
+
+    await h.host.handleClientMessage({
+      type: 'session/rename',
+      payload: { sessionId: 'sess-1', title },
+    });
+
+    expect(h.catalog.renamed).toEqual([['sess-1', title]]);
+  });
+
+  it('names the session it could not rename', async () => {
+    const h = await setup();
+    h.catalog.rows.length = 0;
+
+    await h.host.handleClientMessage({
+      type: 'session/rename',
+      payload: { sessionId: 'gone', title: 'Release prep' },
+    });
+
+    expect(notices(h.messages).some((text) => text.includes('no longer in the index'))).toBe(true);
+  });
+
+  it('deletes a project’s sessions, clears their transcripts and says how many', async () => {
+    const h = await setup({
+      sessions: [summary('sess-1', 'One'), summary('sess-2', 'Two')],
+    });
+    h.transcripts.userPrompt('sess-1', 'hello');
+    h.transcripts.userPrompt('sess-2', 'hello');
+    await h.host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+
+    await h.host.handleClientMessage({
+      type: 'project/delete',
+      payload: { path: WORKSPACE.cwd },
+    });
+
+    expect(h.catalog.removed).toEqual(['sess-1', 'sess-2']);
+    expect(h.transcripts.items('sess-1')).toEqual([]);
+    expect(h.transcripts.items('sess-2')).toEqual([]);
+    expect(lists(h.messages).at(-1)).toEqual([]);
+    expect(notices(h.messages).some((text) => text.includes('2 sessions'))).toBe(true);
+  });
+
+  it('refuses a project outside the host scope', async () => {
+    const h = await setup({ scope: { kind: 'workspace', roots: [WORKSPACE.cwd] } });
+
+    await h.host.handleClientMessage({
+      type: 'project/delete',
+      payload: { path: '/etc' },
+    });
+
+    expect(h.catalog.idsRequested).toEqual([]);
+    expect(h.catalog.removed).toEqual([]);
+    expect(notices(h.messages).some((text) => text.includes('not allowed'))).toBe(true);
   });
 });

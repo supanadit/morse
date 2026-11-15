@@ -8,7 +8,7 @@ import {
   type WorkspaceRef,
 } from '@morse/agent';
 import { describe, expect, it, vi } from 'vitest';
-import { AgentUnavailableError } from '../errors.js';
+import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import { silentLogger } from '../logger.js';
 import type { SessionSummary } from '../domain/index.js';
 import type { SessionCatalog } from './ports.js';
@@ -218,5 +218,86 @@ describe('SessionRegistry engineOf', () => {
     expect(sessions.engineOf(opened.key)).toBe('pi');
     await sessions.close(opened.key);
     expect(sessions.engineOf(opened.key)).toBeUndefined();
+  });
+});
+
+/**
+ * The use cases around the catalog's newer verbs: a rename reaches the index
+ * (never an engine), and a project delete is the session delete run over every
+ * row a directory holds — close first, then remove, and one failure never stops
+ * the rest.
+ */
+describe('SessionRegistry rename and project delete', () => {
+  function withCatalog(catalog: SessionCatalog): SessionRegistry {
+    return new SessionRegistry({
+      factory: new FakeFactory(),
+      catalog,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+  }
+
+  it('renames through the catalog and reports an unknown session', async () => {
+    const rename = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const sessions = withCatalog({ list: () => Promise.resolve([]), rename });
+
+    await expect(sessions.renameSession('s1', 'Release prep')).resolves.toBe(true);
+    await expect(sessions.renameSession('s2', 'x')).resolves.toBe(false);
+    expect(rename.mock.calls).toEqual([
+      ['s1', 'Release prep'],
+      ['s2', 'x'],
+    ]);
+  });
+
+  it('refuses a rename when the catalog cannot rename', async () => {
+    const sessions = withCatalog({ list: () => Promise.resolve([]) });
+
+    await expect(sessions.renameSession('s1', 'x')).rejects.toBeInstanceOf(
+      UnsupportedByHostError,
+    );
+  });
+
+  it('deletes a project’s sessions after closing each live one', async () => {
+    const order: string[] = [];
+    const sessions = withCatalog({
+      list: () => Promise.resolve([]),
+      idsInProject: () => Promise.resolve(['a', 'b']),
+      remove: (id) => {
+        order.push(`remove:${id}`);
+        return Promise.resolve();
+      },
+    });
+    vi.spyOn(sessions, 'close').mockImplementation(async (key) => {
+      order.push(`close:${key}`);
+    });
+
+    await expect(sessions.deleteProject('/work/morse')).resolves.toEqual({
+      deleted: ['a', 'b'],
+      failed: [],
+    });
+    expect(order).toEqual(['close:a', 'remove:a', 'close:b', 'remove:b']);
+  });
+
+  it('reports the sessions it could not delete and keeps going', async () => {
+    const sessions = withCatalog({
+      list: () => Promise.resolve([]),
+      idsInProject: () => Promise.resolve(['a', 'b', 'c']),
+      remove: (id) =>
+        id === 'b' ? Promise.reject(new Error('refused')) : Promise.resolve(),
+    });
+    vi.spyOn(sessions, 'close').mockResolvedValue(undefined);
+
+    await expect(sessions.deleteProject('/work/morse')).resolves.toEqual({
+      deleted: ['a', 'c'],
+      failed: ['b'],
+    });
+  });
+
+  it('refuses a project delete when the catalog cannot list one', async () => {
+    const sessions = withCatalog({ list: () => Promise.resolve([]) });
+
+    await expect(sessions.deleteProject('/work/morse')).rejects.toBeInstanceOf(
+      UnsupportedByHostError,
+    );
   });
 });
