@@ -61,6 +61,13 @@ export interface MorseSessionRecord {
   id: string;
   /** The name the sidebar shows. Morse owns it, so a rename never starts an engine. */
   title: string;
+  /**
+   * True when the title is the reader's, set by a rename, rather than one the
+   * engine reported. Reconcile and the live row writer both leave a pinned title
+   * alone, so neither an engine token change nor a later engine rename can take
+   * it back. The engine's own conversation data is never touched either way.
+   */
+  titlePinned?: true;
   /** The directory the session works in, which is how the sidebar groups sessions. */
   cwd: string;
   engineRef: AgentEngineRef;

@@ -71,7 +71,14 @@ export function planReconcile(
     const unchanged =
       tokens.get(record.id) === info.token && stored.get(record.id)?.version === record.version;
     if (!unchanged) {
-      upserts.push(record);
+      // A title the reader set is theirs: the engine's report may carry a newer
+      // token, but it does not get to rename the row back.
+      const carried = stored.get(record.id);
+      upserts.push(
+        carried?.titlePinned === true
+          ? { ...record, title: carried.title, titlePinned: true }
+          : record,
+      );
       upsertTokens.set(record.id, info.token);
     }
   }
