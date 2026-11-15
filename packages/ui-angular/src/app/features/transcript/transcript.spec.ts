@@ -528,6 +528,13 @@ describe('ChatTranscript message meta', () => {
     );
   });
 
+  it('puts the meta first, at the left of the actions row', async () => {
+    const host = await render([assistant({ model: 'glm-5.3-flash' })], catalog);
+
+    const row = host.querySelector('.assistant-actions');
+    expect(row?.firstElementChild?.classList.contains('stamp')).toBe(true);
+  });
+
   it('shows an unknown model id raw instead of hiding it', async () => {
     const host = await render([assistant({ model: 'retired-model' })], catalog);
 

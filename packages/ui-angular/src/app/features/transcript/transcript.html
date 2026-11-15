@@ -139,6 +139,11 @@
             @if (row.item.text) {
               <morse-markdown [text]="row.item.text" />
               <div class="assistant-actions">
+                <!-- The meta leads: the model and time read as the answer's byline,
+                     and the copy control fades in beside it on hover. -->
+                @if (meta(row.item); as m) {
+                  <span class="stamp" [title]="m.title">{{ m.label }}</span>
+                }
                 <button
                   type="button"
                   class="copy-msg"
@@ -148,9 +153,6 @@
                 >
                   {{ copiedId() === row.item.id ? '✓ Copied' : '⧉ Copy' }}
                 </button>
-                @if (meta(row.item); as m) {
-                  <span class="stamp" [title]="m.title">{{ m.label }}</span>
-                }
               </div>
             } @else if (row.item.streaming) {
               <span class="cursor">&nbsp;</span>

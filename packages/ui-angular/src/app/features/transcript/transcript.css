@@ -98,7 +98,7 @@
 }
 .assistant-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   min-height: 16px;
