@@ -1125,20 +1125,57 @@ describe('BotWizard', () => {
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('tools');
   });
 
-  it('offers OpenCode its own wider tool set, web tools included', async () => {
+  it('offers OpenCode 2 tool names, with shell on by default', async () => {
     const { fixture, host, morse } = await render();
     walkToReview(fixture, host, morse, 'opencode');
-    // Advanced is behind the walk: the checklist lives there.
     const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
     (rail[5]?.querySelector('button') as HTMLButtonElement).click();
     tick(fixture);
 
-    const names = [...host.querySelectorAll('.tool input[type="checkbox"]')].map((box) =>
-      box.getAttribute('data-tool'),
-    );
-    // pi has no web tool; OpenCode does, and the form reflects the engine.
-    expect(names).toContain('webfetch');
-    expect(names).toContain('websearch');
+    const boxes = [...host.querySelectorAll('.tool input[type="checkbox"]')] as HTMLInputElement[];
+    expect(boxes.map((box) => box.getAttribute('data-tool'))).toEqual([
+      'read',
+      'edit',
+      'glob',
+      'grep',
+      'shell',
+      'subagent',
+      'webfetch',
+      'websearch',
+      'todowrite',
+    ]);
+    expect(boxes.filter((box) => box.checked).map((box) => box.getAttribute('data-tool'))).toEqual([
+      'read',
+      'edit',
+      'glob',
+      'grep',
+      'shell',
+    ]);
+  });
+
+  it('sends shell, not bash or list, when the OpenCode checklist changes', async () => {
+    const { fixture, host, morse } = await render();
+    walkToReview(fixture, host, morse, 'opencode');
+    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
+    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+
+    const websearch = [...host.querySelectorAll('.tool input[type="checkbox"]')].find(
+      (box) => box.getAttribute('data-tool') === 'websearch',
+    ) as HTMLInputElement;
+    websearch.checked = true;
+    websearch.dispatchEvent(new Event('change'));
+    tick(fixture);
+
+    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
+    tick(fixture);
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.wizard-foot .primary').click();
+    tick(fixture);
+
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      tools: ['read', 'edit', 'glob', 'grep', 'shell', 'websearch'],
+    });
   });
 
   it('closes without creating anything when cancelled', async () => {

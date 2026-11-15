@@ -129,9 +129,8 @@ const ENGINE_TOOLS: Record<string, { name: string; hint?: string }[]> = {
     { name: 'edit' },
     { name: 'glob' },
     { name: 'grep' },
-    { name: 'list' },
-    { name: 'bash' },
-    { name: 'task' },
+    { name: 'shell', hint: 'run shell commands' },
+    { name: 'subagent', hint: 'launch subagents' },
     { name: 'webfetch', hint: 'fetch a URL' },
     { name: 'websearch', hint: 'search the web' },
     { name: 'todowrite' },
@@ -141,7 +140,7 @@ const ENGINE_TOOLS: Record<string, { name: string; hint?: string }[]> = {
 /** What a new bot starts with, per engine: the engine's own defaults, not "none". */
 const DEFAULT_TOOLS: Record<string, string[]> = {
   pi: ['read', 'bash', 'edit', 'write'],
-  opencode: ['read', 'edit', 'glob', 'grep', 'list', 'bash'],
+  opencode: ['read', 'edit', 'glob', 'grep', 'shell'],
 };
 
 /** The username rules, mirrored from the host so the form can say what is wrong. */
