@@ -918,6 +918,47 @@ describe('AgentRouter rename and project ids', () => {
     expect(store.rows.get(record.id)?.title).toBe('Release prep');
   });
 
+  it('keeps the rename of a running session through its next report', async () => {
+    const store = new MemoryStore();
+    const record = recordOf('pi', 'pi-1', { title: 'Reply with exactly: pi-host' });
+    store.rows.set(record.id, record);
+    const inner = new FakeGateway(
+      state({ sessionId: 'pi-1', sessionTitle: 'Reply with exactly: pi-host' }),
+    );
+    const { router } = build({ store, engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({
+      workspace: { cwd: '/work/project', name: 'project' },
+      sessionId: record.id,
+    });
+    gateway.subscribe(() => undefined);
+    await gateway.state();
+    await router.rename(record.id, 'Release prep');
+
+    // The next report moves the count and names the session itself.
+    inner.emit({
+      type: 'agent/state',
+      at: 3,
+      state: state({
+        sessionId: 'pi-1',
+        sessionTitle: 'A brand new engine name',
+        counts: {
+          totalMessages: 4,
+          userMessages: 2,
+          assistantMessages: 2,
+          toolCalls: 0,
+          toolResults: 0,
+        },
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(store.rows.get(record.id)).toMatchObject({
+      title: 'Release prep',
+      titlePinned: true,
+    });
+  });
+
   it('lets the engine rename a row the reader never pinned', async () => {
     const store = new MemoryStore();
     const record = recordOf('pi', 'pi-1', { title: 'Derived from the first prompt' });

@@ -84,6 +84,14 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   >();
   private defaultKind: string | undefined;
   /** Morse ids of the sessions this process is running right now. */
+  /**
+   * The routed gateways currently running, by Morse id. `running` answers "may a
+   * report prune this row?"; this answers "is there a live row to update?" — a
+   * rename has to reach it or the row's next write would put the engine's name
+   * back over the reader's.
+   */
+  private readonly liveRows = new Map<string, RoutedGateway>();
+
   private readonly running = new Set<string>();
   /** A refresh in flight, so concurrent callers share one scan burst. */
   private refreshing: Promise<void> | undefined;
@@ -351,11 +359,22 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
    * the row back.
    */
   async rename(id: string, title: string): Promise<boolean> {
-    const record = await this.deps.store.read(id);
+    // The index may be a page older than what the sidebar shows, so a session
+    // opened from a hot gateway is resolved the same way `create` resolves it.
+    await this.ensureFresh();
+    let record = await this.deps.store.read(id);
+    if (record === undefined) {
+      await this.ensureFresh(true);
+      record = await this.deps.store.read(id);
+    }
     if (record === undefined) {
       return false;
     }
     await this.deps.store.write({ ...record, title, titlePinned: true });
+    // A row that is already running holds its own copy: without this, its next
+    // report would write the engine's name (and drop the pin) back over the
+    // reader's title.
+    this.liveRows.get(id)?.adoptTitle(title);
     return true;
   }
 
@@ -447,7 +466,8 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     },
   ): AgentGateway {
     const record = options.record;
-    return new RoutedGateway({
+    let wrapped: RoutedGateway | undefined;
+    wrapped = new RoutedGateway({
       inner,
       kind: options.kind,
       cwd: record?.cwd ?? options.cwd ?? this.deps.defaultWorkspace.cwd,
@@ -456,15 +476,21 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
       ...(record === undefined ? {} : { record }),
       // The running set is what protects a live row from a stale report: it
       // follows the gateway's id through a fork and leaves when it is disposed.
+      // The map is the same bookkeeping, so a rename can reach the live row.
       onIdChange: (previous, next) => {
         if (previous !== undefined) {
           this.running.delete(previous);
+          if (this.liveRows.get(previous) === wrapped) {
+            this.liveRows.delete(previous);
+          }
         }
-        if (next !== undefined) {
+        if (next !== undefined && wrapped !== undefined) {
           this.running.add(next);
+          this.liveRows.set(next, wrapped);
         }
       },
     });
+    return wrapped;
   }
 }
 
@@ -508,7 +534,7 @@ export class RoutedGateway implements AgentGateway {
   /** The id last reported to `onIdChange`, so a re-key is announced once. */
   private announcedId: string | undefined;
   /** The record-carried fields a new row starts from, when resuming. */
-  private readonly carried: MorseSessionRecord | undefined;
+  private carried: MorseSessionRecord | undefined;
   private readonly options: RoutedOptions;
   /** Given through only when the harness gateway has it, so presence mirrors it. */
   readonly refreshCommands: (() => Promise<void>) | undefined;
@@ -668,6 +694,20 @@ export class RoutedGateway implements AgentGateway {
       return event;
     }
     return { ...event, childSession: this.rekeyChild(event.childSession) };
+  }
+
+  /**
+   * Takes on a title the reader chose while this session is running. The row the
+   * gateway holds is what it writes on its next report, so the pin has to land
+   * here too — the store alone is not enough.
+   */
+  adoptTitle(title: string): void {
+    if (this.row !== undefined) {
+      this.row = { ...this.row, title, titlePinned: true };
+    }
+    if (this.carried !== undefined) {
+      this.carried = { ...this.carried, title, titlePinned: true };
+    }
   }
 
   /** Tells the router this gateway is now running the row (or the forked one). */

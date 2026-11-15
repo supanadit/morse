@@ -81,6 +81,8 @@ export class SessionNav {
   private readonly prefs = inject(SessionNavPrefs);
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
+  /** The title field the session menu turns into while renaming. */
+  private readonly renameInput = viewChild<ElementRef<HTMLInputElement>>('renameInput');
 
   protected readonly query = signal('');
   /**
@@ -670,6 +672,14 @@ export class SessionNav {
   protected startRename(open: SessionMenu): void {
     this.renameDraft.set(open.session.title);
     this.menu.set({ ...open, renaming: true });
+    // The menu's items are gone and the field is what is left: focus it once the
+    // render settles and select the old title, so typing replaces it. Without
+    // this the keystrokes reach the document and its shortcuts instead.
+    setTimeout(() => {
+      const field = this.renameInput()?.nativeElement;
+      field?.focus();
+      field?.select();
+    }, 0);
   }
 
   protected onRenameInput(event: Event): void {

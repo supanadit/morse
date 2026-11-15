@@ -580,12 +580,16 @@ describe('WorkspaceTabs', () => {
     await flush();
     tabs.focusSession({ id: 's1', title: 'Morse work', cwd: '/work/morse' });
     tabs.ensureSession({ id: 's2', title: 'Other work', cwd: '/work/other' });
+    // A "New session" draft belongs to the project but holds no stored
+    // conversation, so deleting the project must not throw it away.
+    tabs.openDraft('/work/morse');
 
     tabs.forgetProject('/work/morse');
 
     expect(tabs.tabs().some((tab) => tab.kind === 'session' && tab.id === 's1')).toBe(false);
     expect(tabs.tabs().some((tab) => tab.kind === 'session' && tab.id === 's2')).toBe(true);
     expect(tabs.tabs().some((tab) => tab.kind === 'file' && tab.path === 'src/main.ts')).toBe(true);
+    expect(tabs.tabs().some((tab) => tab.kind === 'session' && tab.draft === true)).toBe(true);
   });
 
   it('forgets a tab the host was told to close, without sending actions', () => {

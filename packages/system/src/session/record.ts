@@ -84,7 +84,8 @@ export interface MorseSessionRecord {
   subagent?: boolean;
 }
 
-/** The placeholder a session shows before its first prompt names it. */export const UNTITLED_SESSION = 'Untitled session';
+/** The placeholder a session shows before its first prompt names it. */
+export const UNTITLED_SESSION = 'Untitled session';
 
 /**
  * The `SessionSummary` the sidebar and the wire use, projected from a record.

@@ -150,10 +150,10 @@ interface GuardedFailed {
 
 type Guarded<T> = GuardedOk<T> | GuardedFailed;
 
-/** How many history entries one page carries when a resumed session is seeded. */
 /** How long a session title may be, as the sidebar's inline editor enforces. */
 const SESSION_TITLE_MAX = 120;
 
+/** How many history entries one page carries when a resumed session is seeded. */
 const HISTORY_PAGE_SIZE = 50;
 
 /** The title a session without a name shows until the user says something. */
@@ -1180,6 +1180,9 @@ export class HostSessionController {
     for (const id of deleted) {
       this.options.transcripts.clear(id);
     }
+    // The paging cursor goes with the project: a later session under the same
+    // path must start from its own first page, not a stale offset.
+    this.sessionOffsets.delete(path);
     if (this.activeKey !== undefined && deleted.includes(this.activeKey)) {
       await this.fallBackAfterSessionGone(this.activeKey);
     }

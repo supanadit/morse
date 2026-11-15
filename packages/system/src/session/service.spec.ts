@@ -11,7 +11,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import { silentLogger } from '../logger.js';
 import type { SessionSummary } from '../domain/index.js';
-import type { SessionCatalog } from './ports.js';
+import type { SessionCatalog, SessionStore } from './ports.js';
+import { AgentRouter } from './agent-router.js';
+import { toSessionRecord, type MorseSessionRecord } from './record.js';
 import { SessionRegistry } from './service.js';
 
 /**
@@ -291,6 +293,75 @@ describe('SessionRegistry rename and project delete', () => {
       deleted: ['a', 'c'],
       failed: ['b'],
     });
+  });
+
+  it('deletes a project’s sessions through each owning engine', async () => {
+    // The router is the real catalog here: it must send each record to the
+    // engine that owns it, never to whichever engine happens to be first.
+    const rows = new Map<string, MorseSessionRecord>();
+    const record = (kind: string, id: string): MorseSessionRecord => {
+      const row = toSessionRecord(kind, {
+        sessionId: id,
+        cwd: '/work/morse',
+        updatedAt: 1,
+        messageCount: 1,
+        token: 't',
+      });
+      rows.set(row.id, row);
+      return row;
+    };
+    const pi = record('pi', 'pi-1');
+    const opencode = record('opencode', 'oc-1');
+    const removed: Record<string, string[]> = { pi: [], opencode: [] };
+    const store: SessionStore = {
+      list: () => Promise.resolve([...rows.values()]),
+      read: (id) => Promise.resolve(rows.get(id)),
+      write: (row) => {
+        rows.set(row.id, row);
+        return Promise.resolve();
+      },
+      remove: (id) => {
+        rows.delete(id);
+        return Promise.resolve();
+      },
+    };
+    const engineOf = (kind: 'pi' | 'opencode'): SessionEngine =>
+      ({
+        kind,
+        factory: new FakeFactory(kind),
+        catalog: {
+          list: () => Promise.resolve([]),
+          remove: (id: string) => {
+            removed[kind]?.push(id);
+            return Promise.resolve();
+          },
+        },
+      }) as unknown as SessionEngine;
+    const router = new AgentRouter({
+      store,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+      freshMs: 0,
+    });
+    const piEngine = engineOf('pi');
+    const openCodeEngine = engineOf('opencode');
+    router.register(piEngine, { catalog: piEngine.catalog });
+    router.register(openCodeEngine, { catalog: openCodeEngine.catalog });
+    const sessions = new SessionRegistry({
+      factory: new FakeFactory(),
+      catalog: router,
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+
+    await expect(sessions.deleteProject('/work/morse')).resolves.toEqual({
+      deleted: [pi.id, opencode.id],
+      failed: [],
+    });
+
+    expect(removed.pi).toEqual([pi.engineRef.sessionId]);
+    expect(removed.opencode).toEqual([opencode.engineRef.sessionId]);
+    expect([...rows.keys()]).toEqual([]);
   });
 
   it('refuses a project delete when the catalog cannot list one', async () => {

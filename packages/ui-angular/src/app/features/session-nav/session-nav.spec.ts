@@ -56,6 +56,23 @@ class ScopedHostTransport extends BaseHostTransport {
 
   send(message: ClientToHostMessage): void {
     this.sent.push(message);
+    if (message.type === 'host/command') {
+      // The one host command this fake answers, so a native confirmation can be
+      // followed all the way to the delete it authorizes.
+      if (message.payload.command === 'confirmDeleteProject' && message.payload.requestId) {
+        queueMicrotask(() =>
+          this.emitMessage({
+            type: 'host/command/result',
+            payload: {
+              requestId: message.payload.requestId ?? '',
+              ok: true,
+              data: { confirmed: true },
+            },
+          }),
+        );
+      }
+      return;
+    }
     if (message.type !== 'client/ready') {
       return;
     }
@@ -572,7 +589,11 @@ describe('SessionNav', () => {
     rename.click();
     fixture.detectChanges();
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const input = host.querySelector<HTMLInputElement>('.context-menu .rename-input')!;
+    // The field is the menu now: it takes focus (and selects the old title) so a
+    // reader can type a new name without clicking twice.
+    expect(document.activeElement).toBe(input);
     input.value = 'Release prep';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -658,7 +679,16 @@ describe('SessionNav', () => {
           (message.payload.args as { path?: string } | undefined)?.path === '/work/morse',
       ),
     ).toBe(true);
-    expect(transport.sent.some((message) => message.type === 'project/delete')).toBe(false);
+
+    // Only the host's "yes" authorizes the delete, and it then reaches the wire
+    // with the project's sessions forgotten.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+    expect(
+      transport.sent.some(
+        (message) => message.type === 'project/delete' && message.payload.path === '/work/morse',
+      ),
+    ).toBe(true);
   });
 
   it('offers the editor tab only where the host has one', async () => {
