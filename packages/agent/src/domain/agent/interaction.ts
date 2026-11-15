@@ -6,10 +6,12 @@
  */
 
 /**
- * One user message a fork can target, as the engine names it: stable entry id
- * plus the exact text the model received. Rewriting or forking re-parents the
- * conversation at it, which is how a frontend lets a user edit a prompt that
- * already has an answer. The text is empty when the message carried none.
+ * One user message a rewrite, fork or branch can target, as the engine names it:
+ * stable entry id plus the exact text the model received. Rewriting or forking
+ * re-parents the conversation at it, which is how a frontend lets a user edit a
+ * prompt that already has an answer; branching after an answer cuts before the
+ * next prompt's entry instead, keeping that answer. The text is empty when the
+ * message carried none.
  */
 export interface AgentUserMessage {
   entryId: string;

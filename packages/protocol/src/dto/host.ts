@@ -94,16 +94,18 @@ export interface HostCapabilities {
    */
   filePreview?: boolean;
   /**
-   * Host can fork the conversation before a past user message, which is how a
-   * user edits a prompt the agent already answered. Optional: an agent backend
-   * without fork support leaves it off and the frontend hides the affordance.
+   * Host can edit a prompt the agent already answered (`chat/edit`): in place on
+   * an engine with its own edit, or as a branch before that prompt on one that
+   * only forks. Optional: an agent backend without the primitive leaves it off
+   * and the frontend hides the affordance.
    */
   editMessage?: boolean;
   /**
    * Host can branch a new session before a past user message (`chat/fork`) and
-   * hand that prompt back to the composer. The same pi primitive as
-   * `editMessage`, only without sending anything. Optional: an agent backend
-   * without fork support leaves it off and the frontend hides the affordance.
+   * hand that prompt back to the composer. Rides the same branch primitive as
+   * `editMessage` and branching from an answer (`chat/branch`), only without
+   * sending anything. Optional: an agent backend without fork support leaves it
+   * off and the frontend hides the affordance.
    */
   forkMessage?: boolean;
   /**

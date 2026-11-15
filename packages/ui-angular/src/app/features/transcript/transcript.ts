@@ -503,18 +503,19 @@ export class ChatTranscript {
   }
 
   /**
-   * Editing a past prompt is offered only when the host can fork the
-   * conversation, and never while the agent is mid-run (the fork would race it).
+   * Editing a past prompt is offered only when the host can edit a prompt, and
+   * never while the agent is mid-run (the cut would race it).
    */
   protected canEdit(): boolean {
     return this.morse.capabilities()?.editMessage === true && this.morse.state().streaming !== true;
   }
 
   /**
-   * Forking is the same pi primitive as editing — a new branch before this
-   * message — so it needs the same host support and, like edit, must not race a
-   * running turn. It differs in outcome: nothing is sent, and the host hands the
-   * forked prompt back to the composer to continue the branch.
+   * Forking branches the conversation before this message — the same cut an
+   * edit makes, just without sending — so it needs the host's branch support and
+   * must not race a running turn either. It differs in outcome: nothing is sent,
+   * and the host hands the forked prompt back to the composer to continue the
+   * branch.
    */
   protected canFork(): boolean {
     return this.morse.capabilities()?.forkMessage === true && this.morse.state().streaming !== true;
@@ -576,7 +577,7 @@ export class ChatTranscript {
     }
   }
 
-  /** Sends the edited text; the host forks the conversation before this turn. */
+  /** Sends the edited text; the host rewrites or branches the conversation before this turn. */
   protected submitEdit(item: UserTranscriptItem): void {
     const text = this.editingText().trim();
     if (text.length === 0) {

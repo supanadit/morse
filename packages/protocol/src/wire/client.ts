@@ -62,7 +62,7 @@ export interface ChatEditMessage extends ClientMessageBase {
 
 /**
  * Branches a new session before a past user message: the host forks the
- * conversation (pi's `fork`), leaves the old branch resumable, and re-homes the
+ * conversation in the engine, leaves the old branch resumable, and re-homes the
  * transcript onto the new branch with an empty tail. Then it seeds the composer
  * with the forked prompt (`composer/seed`).
  */

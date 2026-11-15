@@ -142,9 +142,9 @@ function buildCapabilities(deps: ChatViewProviderDeps): HostCapabilities {
     insertIntoEditor: true,
     revealFile: true,
     filePicker: true,
-    // pi's fork re-parents the conversation, so a past prompt can be edited.
+    // The engine can cut the conversation at a past prompt, so it can be edited.
     editMessage: true,
-    // The same fork can branch a new session and hand the prompt back instead.
+    // The same cut can branch a new session and hand the prompt back instead.
     forkMessage: true,
     // The panel may ask the registry for the latest release, so a reader of a VSIX
     // installed by hand still hears about a newer one. VS Code itself only does

@@ -278,7 +278,10 @@ export class MorseService {
     this.actions.prompt(text, mode, images, pins, sessionKey);
   }
 
-  /** Replaces a past user message by forking the conversation before it. */
+  /**
+   * Replaces a past user message: an in-place rewrite on an engine that has its
+   * own edit, a fork before that message on one that does not.
+   */
   editMessage(itemId: string, text: string): void {
     this.actions.editMessage(itemId, text);
   }

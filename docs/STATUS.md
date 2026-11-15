@@ -122,10 +122,10 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
 Editing is whatever the engine's own edit is, and the host never pretends otherwise:
 
 - **Edit and resend** (`chat/edit`) **rewrites in place on OpenCode**: the same session reverts to that
-  prompt, so the conversation and the working tree roll back together, and the discarded tail is gone for
-  good once the replacement is sent. On pi, which has no edit primitive, the same action branches before
-  the prompt (a new session, files untouched) and sends the edited text there. Attachment chips on the
-  original ride along either way.
+  prompt, so the conversation and the working tree roll back together. The tail is gone for good when the
+  rewrite commits — before the replacement prompt is sent — and a send that fails afterwards cannot bring
+  it back. On pi, which has no edit primitive, the same action branches before the prompt (a new session,
+  files untouched) and sends the edited text there. Attachment chips on the original ride along either way.
 - **Fork** (`chat/fork`): a branch before a past user prompt without sending anything. The old branch
   stays resumable, the transcript re-homes onto the new (shorter) branch, and the forked prompt goes back
   to the composer.
@@ -135,8 +135,12 @@ Editing is whatever the engine's own edit is, and the host never pretends otherw
 - **Copy** stays what it was: clipboard only — no new session, no trip to the composer.
 
 A prompt with no text — an image-only or pin-only message — is a normal branch point on both engines: edit
-and fork count every user message instead of the engine picker's text-only list, so a prompt can never
-resolve to its neighbour.
+and fork count every user message instead of the engine picker's text-only list. (A prompt older than a
+`branch_summary` row pi wrote in its own TUI can still map one entry early; that known limitation is
+recorded in the design doc.)
+
+A branch is a new session, so it cannot page back into conversation that lived exclusively before the
+branch point: those older pages stay on the old session and are not reachable from this one's sidebar.
 
 The session list paints the three kinds apart: an original keeps the purple chat, a branch takes a green
 fork and a subagent a red bot. Edit and fork are advertised as `capabilities.editMessage` /

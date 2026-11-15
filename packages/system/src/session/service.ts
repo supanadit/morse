@@ -36,7 +36,7 @@ export interface OpenedSession {
 
 /** Result of a branch operation (fork, rewrite or clone) on the active session. */
 export interface ForkedSession {
-  /** Registry key after the branch (the new session id); unchanged when cancelled. */
+  /** Registry key after the branch: a new session id, or the same key for an in-place rewrite. Unchanged when cancelled. */
   key: string;
   /** Registry key the session had before the branch. */
   previousKey: string;

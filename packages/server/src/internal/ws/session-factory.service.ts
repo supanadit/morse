@@ -182,9 +182,9 @@ export class MorseSessionFactory {
       // which directory the agent should run in. The frontend opens its folder
       // modal; VS Code has a folder already and leaves this off.
       directoryPicker: true,
-      // pi's fork re-parents the conversation, so a past prompt can be edited.
+      // The engine can cut the conversation at a past prompt, so it can be edited.
       editMessage: true,
-      // The same fork can branch a new session and hand the prompt back instead.
+      // The same cut can branch a new session and hand the prompt back instead.
       forkMessage: true,
       // A page served by this host may ask the registry for the latest release, so
       // the sidebar can say when a newer Morse is out. A host without it stays
