@@ -220,6 +220,103 @@ describe('ChatTranscript message editing', () => {
 });
 
 /**
+ * Branching keeps a finished answer and starts a new session behind it. Only the
+ * answer that closes a turn is a branch point — a mid-turn note or tool call
+ * continues the same turn — and a running turn must not be branched.
+ */
+describe('ChatTranscript branching', () => {
+  const branchMessage = vi.fn();
+  const items = signal<TranscriptItem[]>([]);
+  const state = signal(viewState());
+
+  const twoTurns: TranscriptItem[] = [
+    { kind: 'user', id: 'u1', at: 1, text: 'first' },
+    { kind: 'assistant', id: 'a1', at: 2, text: 'first answer', thinking: '', streaming: false },
+    { kind: 'user', id: 'u2', at: 3, text: 'second' },
+    { kind: 'assistant', id: 'a2', at: 4, text: 'second answer', thinking: '', streaming: false },
+  ];
+
+  beforeEach(async () => {
+    branchMessage.mockClear();
+    state.set(viewState());
+    items.set(twoTurns);
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state,
+            items,
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: signal(false),
+            capabilities: signal({
+              hostKind: 'server',
+              scope: 'global',
+              editMessage: true,
+              forkMessage: true,
+            }),
+            editMessage: vi.fn(),
+            forkMessage: vi.fn(),
+            branchMessage,
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+  });
+
+  /** Whether each assistant row, in order, offers the branch action. */
+  function branchable(host: HTMLElement): boolean[] {
+    return [...host.querySelectorAll('.assistant')].map(
+      (row) => row.querySelector('[title="Branch from here"]') !== null,
+    );
+  }
+
+  it("offers branching on each turn's answer", () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+
+    expect(branchable(fixture.nativeElement as HTMLElement)).toEqual([true, true]);
+  });
+
+  it('does not offer it on a mid-turn assistant row', () => {
+    items.set([
+      { kind: 'user', id: 'u1', at: 1, text: 'first' },
+      { kind: 'assistant', id: 'a1', at: 2, text: 'first answer', thinking: '', streaming: false },
+      { kind: 'tool', id: 't1', at: 3, name: 'read', title: 'a.ts', status: 'ok' },
+      { kind: 'assistant', id: 'a2', at: 4, text: 'second answer', thinking: '', streaming: false },
+    ]);
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+
+    // The tool call continues the turn, so a1 is not the answer that ends it.
+    expect(branchable(fixture.nativeElement as HTMLElement)).toEqual([false, true]);
+  });
+
+  it("sends the branch with the answer's item id", () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const answers = [...host.querySelectorAll('.assistant')];
+    answers.at(-1)?.querySelector<HTMLButtonElement>('[title="Branch from here"]')?.click();
+
+    expect(branchMessage).toHaveBeenCalledWith('a2');
+    expect(branchMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the action while streaming', () => {
+    state.set(viewState(true));
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+
+    expect(branchable(fixture.nativeElement as HTMLElement)).toEqual([false, false]);
+  });
+});
+
+/**
  * A thinking note that is still streaming is the live indicator: it opens
  * itself, and folds back the moment the message produces prose. The transcript
  * must not add an empty assistant placeholder (a stray caret under the note).

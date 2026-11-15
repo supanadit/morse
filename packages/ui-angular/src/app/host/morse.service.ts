@@ -292,6 +292,14 @@ export class MorseService {
   }
 
   /**
+   * Branches a new session after a finished answer, keeping that answer. Nothing
+   * is sent: the answer stays as the branch's tail until the user prompts again.
+   */
+  branchMessage(itemId: string): void {
+    this.actions.branchMessage(itemId);
+  }
+
+  /**
    * A prompt a fork handed back: the composer drops it into the editor so the
    * user continues the new branch, optionally editing it first.
    */

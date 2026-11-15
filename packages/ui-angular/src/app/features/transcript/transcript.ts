@@ -26,6 +26,7 @@ import {
   pinNoteHint,
   pinRangeLabel,
   userMessageMarkdown,
+  type AssistantRow,
   type TranscriptRow,
 } from '@morse/ui-runtime';
 import { AnimationService } from '../../ui/animation.service';
@@ -111,6 +112,28 @@ export class ChatTranscript {
    * a long turn shows one open timeline instead of a wall of them.
    */
   protected readonly activeProcess = computed(() => activeProcessKey(this.rows()));
+  /** Keys of the assistant rows that end a turn: the answer, not a mid-turn note. */
+  private readonly answerKeys = computed<ReadonlySet<string>>(() => {
+    const keys = new Set<string>();
+    let candidate: string | undefined;
+    for (const row of this.rows()) {
+      if (row.kind === 'user') {
+        if (candidate !== undefined) {
+          keys.add(candidate);
+        }
+        candidate = undefined;
+      } else if (row.kind === 'assistant') {
+        candidate = row.key;
+      } else if (row.kind === 'process') {
+        // A tool call continues the turn, so any answer before it is not final.
+        candidate = undefined;
+      }
+    }
+    if (candidate !== undefined) {
+      keys.add(candidate);
+    }
+    return keys;
+  });
   /** One tick per user message, for the prompt navigator rail. */
   protected readonly railPrompts = computed<RailPrompt[]>(() =>
     this.rows()
@@ -500,6 +523,23 @@ export class ChatTranscript {
   /** Branches a new session before this message; the host seeds the composer. */
   protected fork(item: UserTranscriptItem): void {
     this.morse.forkMessage(item.id);
+  }
+
+  /**
+   * Branching from an answer keeps it and starts a new session behind it, so the
+   * action hangs off the row that closes the turn. A mid-turn note is part of the
+   * same turn, and a running turn must not be branched underneath the agent.
+   */
+  protected canBranch(row: AssistantRow): boolean {
+    return (
+      this.morse.capabilities()?.forkMessage === true &&
+      this.morse.state().streaming !== true &&
+      this.answerKeys().has(row.key)
+    );
+  }
+
+  protected branch(row: AssistantRow): void {
+    this.morse.branchMessage(row.item.id);
   }
 
   /** Opens the inline editor for a user message, seeded with its text. */
