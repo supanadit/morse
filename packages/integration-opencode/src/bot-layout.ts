@@ -516,6 +516,16 @@ function agentsBlock(config: BotEngineConfig): Record<string, unknown> {
 }
 
 /**
+ * An agent entry from an earlier layout, without the deprecated `prompt`: it is
+ * folded into `system` and must not linger beside it in the current shape.
+ */
+function withoutDeprecatedPrompt(entry: Record<string, unknown>): Record<string, unknown> {
+  const carried = { ...entry };
+  delete carried['prompt'];
+  return carried;
+}
+
+/**
  * Reads the bot's OpenCode configuration back into the wizard's own vocabulary,
  * so Edit bot shows what the engine actually holds rather than a copy.
  */
@@ -608,7 +618,11 @@ export const openCodeBotLayout: BotEngineLayout = {
       const own = asRecord(agents[MORSE_AGENT]) ?? {};
       const nextAgents: Record<string, unknown> = {
         ...agents,
+        // The whole entry is carried over, not rebuilt: `permissions` and any key
+        // a reader added survive, and the step below can still translate the
+        // ruleset. Rebuilding it here would silently drop the tool restrictions.
         [MORSE_AGENT]: {
+          ...withoutDeprecatedPrompt(own),
           mode: 'primary',
           ...(typeof own['description'] === 'string' ? { description: own['description'] } : {}),
           ...(typeof own['system'] === 'string' && own['system'].length > 0
@@ -637,6 +651,9 @@ export const openCodeBotLayout: BotEngineLayout = {
             continue;
           }
           const record = asRecord(entry) ?? {};
+          // The entry is carried over whole — a `permissions` array, a `model`,
+          // anything a reader added — so the ruleset can still be translated.
+          const carried = withoutDeprecatedPrompt(record);
           const prompt =
             typeof record['system'] === 'string'
               ? record['system']
@@ -644,6 +661,7 @@ export const openCodeBotLayout: BotEngineLayout = {
                 ? record['prompt']
                 : '';
           merged[name] = {
+            ...carried,
             ...(record['mode'] === 'subagent' ||
             record['mode'] === 'primary' ||
             record['mode'] === 'all'

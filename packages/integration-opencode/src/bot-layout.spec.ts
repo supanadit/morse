@@ -304,6 +304,52 @@ describe('openCodeBotLayout', () => {
     expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
   });
 
+  it('translates a generated ruleset while folding the legacy persona', () => {
+    // The worst case the repair has to survive: a bot from the persona-file era
+    // that also carries a generated ruleset. Rebuilding the agent entry to fold
+    // the persona would drop `permissions`, leaving the bot unrestricted.
+    const path = openCodeConfigPath(botRoot);
+    const legacy = openCodeLegacyPersonaPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode', 'instructions'), { recursive: true });
+    writeFileSync(legacy, 'You are News Finder.\n');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        username: 'News Finder',
+        instructions: [legacy],
+        agents: {
+          morse: {
+            model: 'acme/acme-chat',
+            permissions: [
+              { action: '*', resource: '*', effect: 'deny' },
+              { action: 'read', resource: '*', effect: 'allow' },
+              { action: 'bash', resource: '*', effect: 'allow' },
+            ],
+          },
+        },
+      }),
+    );
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    const file = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    // Every field on the entry comes through: the persona folded in, the ruleset
+    // translated, and the model the reader picked still there.
+    expect(file.agents['morse']).toEqual({
+      model: 'acme/acme-chat',
+      mode: 'primary',
+      system: 'You are News Finder.\n',
+      permissions: [
+        { action: '*', resource: '*', effect: 'deny' },
+        { action: 'read', resource: '*', effect: 'allow' },
+        { action: 'shell', resource: '*', effect: 'allow' },
+        { action: 'external_directory', resource: '*', effect: 'allow' },
+      ],
+    });
+  });
+
   it('moves subagents from the deprecated singular agent key to agents', () => {
     // What the previous layout wrote: OpenCode's older `agent` key, with `prompt`.
     const path = openCodeConfigPath(botRoot);
@@ -341,6 +387,48 @@ describe('openCodeBotLayout', () => {
     // The shell plugin is a repair's job too: a bot created before it existed
     // gets it on the next host start, without a trip through the wizard.
     expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
+  });
+
+  it('carries a deprecated agent ruleset over to agents and translates it', () => {
+    // The merge must take the whole entry: stripping it down to mode, system and
+    // description would throw away the tool restrictions the reader chose.
+    const path = openCodeConfigPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        agent: {
+          morse: {
+            mode: 'primary',
+            model: 'acme/acme-chat',
+            system: 'You are News Finder.',
+            permissions: [
+              { action: '*', resource: '*', effect: 'deny' },
+              { action: 'read', resource: '*', effect: 'allow' },
+              { action: 'bash', resource: '*', effect: 'allow' },
+            ],
+          },
+        },
+      }),
+    );
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    const file = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    expect(file['agent']).toBeUndefined();
+    expect(file['agents']).toEqual({
+      morse: {
+        mode: 'primary',
+        model: 'acme/acme-chat',
+        system: 'You are News Finder.',
+        permissions: [
+          { action: '*', resource: '*', effect: 'deny' },
+          { action: 'read', resource: '*', effect: 'allow' },
+          { action: 'shell', resource: '*', effect: 'allow' },
+          { action: 'external_directory', resource: '*', effect: 'allow' },
+        ],
+      },
+    });
   });
 
   it('repairs a generated ruleset from the bash era and installs the plugin', () => {
