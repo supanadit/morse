@@ -384,6 +384,106 @@ function permissionRules(tools: readonly string[]): Record<string, unknown>[] {
   ];
 }
 
+/** The first rule of every ruleset Morse generates: a blanket deny. */
+const GENERATED_FIRST_RULE: Record<string, unknown> = {
+  action: '*',
+  resource: '*',
+  effect: 'deny',
+};
+
+/**
+ * Whether a ruleset is one Morse generated, rather than one a reader wrote: its
+ * first rule is the blanket deny, with exactly the keys Morse writes. An extra
+ * key on that rule is a reader's own field, and a repair must leave alone what
+ * it did not write.
+ */
+function isGeneratedRuleset(rules: readonly unknown[]): boolean {
+  const first = asRecord(rules[0]);
+  if (first === undefined) {
+    return false;
+  }
+  const keys = Object.keys(first);
+  return (
+    keys.length === Object.keys(GENERATED_FIRST_RULE).length &&
+    keys.every((key) => first[key] === GENERATED_FIRST_RULE[key])
+  );
+}
+
+/**
+ * The ruleset of a config an earlier Morse wrote, in today's actions.
+ *
+ * The wizard's tool vocabulary was written straight through as permission
+ * actions before OpenCode 2 renamed them, so a bot from that release allows
+ * `bash` while its engine checks `shell` — every shell call is denied. The
+ * translation is the same map the writer uses, plus `external_directory` for a
+ * file tool, which that release never emitted. Nothing else is touched, and a
+ * ruleset that already reads correctly comes back byte-identical.
+ */
+function migrateRules(rules: readonly unknown[]): unknown[] {
+  const translated: unknown[] = [];
+  const seen = new Set<string>();
+  // A rename can make two rules identical (`write` and `patch` both edit), so
+  // the ruleset is de-duplicated after translation rather than before.
+  const add = (rule: unknown): void => {
+    const key = JSON.stringify(rule);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    translated.push(rule);
+  };
+  for (const rule of rules) {
+    const record = asRecord(rule);
+    const action = record?.['action'];
+    if (record === undefined || typeof action !== 'string') {
+      // A rule that names no action is not one Morse wrote; it is kept as it is.
+      add(rule);
+      continue;
+    }
+    if (!DROPPED_TOOL_ACTIONS.has(action)) {
+      add({ ...record, action: TOOL_ACTION_RENAMES[action] ?? action });
+    }
+  }
+  const allowsFileTool = translated.some((rule) => {
+    const record = asRecord(rule);
+    const action = record?.['action'];
+    return (
+      record?.['effect'] === 'allow' && typeof action === 'string' && FILE_TOOL_ACTIONS.has(action)
+    );
+  });
+  const allowsExternal = translated.some(
+    (rule) => asRecord(rule)?.['action'] === 'external_directory',
+  );
+  if (allowsFileTool && !allowsExternal) {
+    translated.push({ action: 'external_directory', resource: '*', effect: 'allow' });
+  }
+  return translated;
+}
+
+/**
+ * Translates the default agent's ruleset in place, and says whether it changed
+ * anything. Only a ruleset Morse generated (its first rule is the blanket deny)
+ * is rewritten; one a reader wrote by hand is left exactly as it is.
+ */
+function migratePermissions(file: Record<string, unknown>): boolean {
+  const agents = asRecord(file['agents']);
+  const agent = typeof file['default_agent'] === 'string' ? file['default_agent'] : MORSE_AGENT;
+  const own = asRecord(agents?.[agent]);
+  if (own === undefined) {
+    return false;
+  }
+  const rules = own['permissions'];
+  if (!Array.isArray(rules) || !isGeneratedRuleset(rules)) {
+    return false;
+  }
+  const next = migrateRules(rules);
+  if (JSON.stringify(next) === JSON.stringify(rules)) {
+    return false;
+  }
+  own['permissions'] = next;
+  return true;
+}
+
 /** The one-line label OpenCode shows for an agent, which is a single row. */
 const AGENT_DESCRIPTION_MAX = 80;
 
@@ -474,11 +574,23 @@ export const openCodeBotLayout: BotEngineLayout = {
     };
   },
   /**
-   * Moves the subagent block an earlier Morse wrote under OpenCode's deprecated
-   * singular `agent` key — with `prompt` — to the current `agents` key with the
-   * `system` field OpenCode reads today. Without this, a bot created by that
-   * release looks like it has no subagents at all, because the config is valid
-   * but the shape is obsolete.
+   * Brings a bot an earlier Morse wrote up to today's layout, in one pass and
+   * one write:
+   *
+   * - the persona an earlier release kept in an instruction file is folded into
+   *   the agent's `system`, where it replaces OpenCode's base prompt instead of
+   *   being appended as context, and the file is removed;
+   * - the subagents that release put under OpenCode's deprecated singular
+   *   `agent` key move to `agents` with the `system` field OpenCode reads today;
+   * - a ruleset it generated with the wizard's tool names is translated to the
+   *   permission actions OpenCode 2 checks, so `bash` becomes `shell` and a file
+   *   tool also gets `external_directory`;
+   * - the user-space shell plugin is installed, which is what lets a bot's
+   *   commands reach the reader's real XDG roots.
+   *
+   * A config with nothing to migrate is not rewritten; the plugin is, because
+   * rewriting the same source is harmless and its absence is exactly what a bot
+   * from before it existed has.
    */
   repair(botRoot: string): void {
     const engine = botInstance(botRoot);
@@ -490,6 +602,7 @@ export const openCodeBotLayout: BotEngineLayout = {
     //    base prompt, and drop the file so it is not also appended as context.
     const legacyPersonaPath = openCodeLegacyPersonaPath(botRoot);
     const legacyPersona = readText(legacyPersonaPath);
+    let changed = false;
     if (legacyPersona !== undefined) {
       const agents = asRecord(file['agents']) ?? asRecord(file['agent']) ?? {};
       const own = asRecord(agents[MORSE_AGENT]) ?? {};
@@ -512,43 +625,57 @@ export const openCodeBotLayout: BotEngineLayout = {
       file['default_agent'] = MORSE_AGENT;
       file['instructions'] = instructions;
       delete file['agent'];
+      changed = true;
+    } else {
+      // 2. Otherwise the deprecated `agent` key: merge it into `agents`.
+      const legacy = asRecord(file['agent']);
+      if (legacy !== undefined) {
+        const current = asRecord(file['agents']) ?? {};
+        const merged: Record<string, unknown> = { ...current };
+        for (const [name, entry] of Object.entries(legacy)) {
+          if (merged[name] !== undefined) {
+            continue;
+          }
+          const record = asRecord(entry) ?? {};
+          const prompt =
+            typeof record['system'] === 'string'
+              ? record['system']
+              : typeof record['prompt'] === 'string'
+                ? record['prompt']
+                : '';
+          merged[name] = {
+            ...(record['mode'] === 'subagent' ||
+            record['mode'] === 'primary' ||
+            record['mode'] === 'all'
+              ? { mode: record['mode'] }
+              : { mode: 'subagent' }),
+            ...(typeof record['description'] === 'string'
+              ? { description: record['description'] }
+              : {}),
+            system: prompt,
+          };
+        }
+        file['agents'] = merged;
+        delete file['agent'];
+        changed = true;
+      }
+    }
+    // 3. The generated ruleset, in the actions OpenCode 2 checks. Read after the
+    //    migrations above: folding the persona can have set `default_agent`.
+    if (migratePermissions(file)) {
+      changed = true;
+    }
+    // 4. The shell plugin, whether or not the config needed a migration.
+    writeBotUserSpacePlugin(botRoot);
+    // 5. One write for everything above.
+    if (changed) {
       writeJsonAtomic(path, file);
+    }
+    // 6. Only once the folded persona is in the config may its old file go.
+    if (legacyPersona !== undefined) {
       rmSync(legacyPersonaPath, { force: true });
       rmSync(join(botRoot, 'config', 'opencode', 'instructions'), { recursive: true, force: true });
-      return;
     }
-    const legacy = asRecord(file['agent']);
-    if (legacy === undefined) {
-      return;
-    }
-    const current = asRecord(file['agents']) ?? {};
-    const merged: Record<string, unknown> = { ...current };
-    for (const [name, entry] of Object.entries(legacy)) {
-      if (merged[name] !== undefined) {
-        continue;
-      }
-      const record = asRecord(entry) ?? {};
-      const prompt =
-        typeof record['system'] === 'string'
-          ? record['system']
-          : typeof record['prompt'] === 'string'
-            ? record['prompt']
-            : '';
-      merged[name] = {
-        ...(record['mode'] === 'subagent' ||
-        record['mode'] === 'primary' ||
-        record['mode'] === 'all'
-          ? { mode: record['mode'] }
-          : { mode: 'subagent' }),
-        ...(typeof record['description'] === 'string'
-          ? { description: record['description'] }
-          : {}),
-        system: prompt,
-      };
-    }
-    const next: Record<string, unknown> = { ...file, agents: merged };
-    delete next['agent'];
-    writeJsonAtomic(path, next);
   },
 };
 

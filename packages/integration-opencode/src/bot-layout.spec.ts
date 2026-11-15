@@ -299,6 +299,9 @@ describe('openCodeBotLayout', () => {
     // The old file is gone: leaving it would append the character a second time.
     expect(existsSync(legacy)).toBe(false);
     expect(openCodeBotLayout.read(botRoot).persona).toBe('You are News Finder.\n');
+    // The shell plugin is a repair's job too, so a bot from before it existed
+    // gets it on the next host start without a trip through the wizard.
+    expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
   });
 
   it('moves subagents from the deprecated singular agent key to agents', () => {
@@ -335,6 +338,76 @@ describe('openCodeBotLayout', () => {
     expect(openCodeBotLayout.read(botRoot).subagents).toEqual([
       { name: 'reviewer', prompt: 'Read the diff and report risks.' },
     ]);
+    // The shell plugin is a repair's job too: a bot created before it existed
+    // gets it on the next host start, without a trip through the wizard.
+    expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
+  });
+
+  it('repairs a generated ruleset from the bash era and installs the plugin', () => {
+    writeOpenCodeBotConfig(botRoot, { ...config, tools: ['read'] });
+    const path = openCodeConfigPath(botRoot);
+    const file = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    file.agents['morse']!['permissions'] = [
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'read', resource: '*', effect: 'allow' },
+      { action: 'bash', resource: '*', effect: 'allow' },
+      { action: 'list', resource: '*', effect: 'allow' },
+    ];
+    writeFileSync(path, JSON.stringify(file));
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    const repaired = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    expect(repaired.agents['morse']?.['permissions']).toEqual([
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'read', resource: '*', effect: 'allow' },
+      { action: 'shell', resource: '*', effect: 'allow' },
+      { action: 'external_directory', resource: '*', effect: 'allow' },
+    ]);
+    expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
+  });
+
+  it('leaves a hand-authored ruleset alone', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+    const path = openCodeConfigPath(botRoot);
+    const file = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    const rules = [
+      { action: 'bash', resource: 'git *', effect: 'allow' },
+      { action: 'read', resource: 'src/**', effect: 'allow' },
+    ];
+    file.agents['morse']!['permissions'] = rules;
+    writeFileSync(path, JSON.stringify(file));
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    const repaired = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    expect(repaired.agents['morse']?.['permissions']).toEqual(rules);
+  });
+
+  it('is idempotent across repairs', () => {
+    writeOpenCodeBotConfig(botRoot, { ...config, tools: ['read', 'bash'] });
+    const path = openCodeConfigPath(botRoot);
+    const file = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    (file['agents'] as Record<string, Record<string, unknown>>)['morse']!['permissions'] = [
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'read', resource: '*', effect: 'allow' },
+      { action: 'bash', resource: '*', effect: 'allow' },
+    ];
+    writeFileSync(path, JSON.stringify(file));
+
+    openCodeBotLayout.repair?.(botRoot);
+    const first = readFileSync(path, 'utf8');
+    openCodeBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(path, 'utf8')).toBe(first);
   });
 
   it('translates the wizard tools to OpenCode 2 permission actions', () => {
