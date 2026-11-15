@@ -9,6 +9,7 @@ export * from './transcript/rows.js';
 export * from './transcript/tasks.js';
 export * from './transcript/tools.js';
 export * from './transcript/usage.js';
+export * from './transcript/meta.js';
 export * from './palette/commands.js';
 export * from './sessions.js';
 export * from './ui/placement.js';

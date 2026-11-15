@@ -19,7 +19,10 @@ import type {
 } from '@morse/protocol';
 import {
   activeProcessKey,
+  clockTime,
+  fullTime,
   groupTranscriptItems,
+  modelMeta,
   pinNoteHint,
   pinRangeLabel,
   userMessageMarkdown,
@@ -357,10 +360,32 @@ export class ChatTranscript {
   }
 
   protected stamp(at: number): string {
-    if (at <= 0) {
-      return '';
+    return clockTime(at);
+  }
+
+  /** The stamp's tooltip: the full date, so a day-old answer is still placeable. */
+  protected stampTitle(at: number): string {
+    return fullTime(at);
+  }
+
+  /**
+   * The meta under an assistant answer: the model that wrote it (resolved to the
+   * name the picker shows) and the clock. Both parts are optional on their own —
+   * an older row has no model, a history row may have no timestamp — and the
+   * separator only appears when both exist.
+   */
+  protected meta(item: AssistantTranscriptItem): { label: string; title: string } | undefined {
+    const clock = clockTime(item.at);
+    const model = modelMeta(item.model, this.morse.state().availableModels);
+    if (clock.length === 0 && model === undefined) {
+      return undefined;
     }
-    return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const label =
+      model === undefined ? clock : clock.length === 0 ? model.label : `${model.label} · ${clock}`;
+    const title = [model?.title, fullTime(item.at)]
+      .filter((part) => part !== undefined && part.length > 0)
+      .join(' · ');
+    return { label, title };
   }
 
   /** The prompt as markdown, with its `@mentions` turned into chips. */

@@ -3064,3 +3064,134 @@ describe('HostSessionController bot messages', () => {
     });
   });
 });
+
+/**
+ * The transcript must know which model wrote each answer, and the host is the
+ * only one that can say: the reader changes model mid-conversation, so the
+ * controller feeds every `agent/state` it sees into the transcript, in front or
+ * not, before that session's next answer lands.
+ */
+describe('HostSessionController transcript model', () => {
+  const MODEL = { provider: 'zai', id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' };
+
+  /** A host whose factory hands out one hand-driven gateway per session. */
+  async function setup(): Promise<{
+    host: HostSessionController;
+    transcripts: SessionTranscriptStore;
+    emit(sessionId: string, event: AgentEvent): void;
+    activate(sessionId: string): Promise<void>;
+  }> {
+    const bySession = new Map<string, { listeners: AgentEventListener[]; state: AgentSessionState }>();
+    const gatewayFor = (sessionId: string): AgentGateway => {
+      const box = {
+        listeners: [] as AgentEventListener[],
+        state: {
+          workspace: WORKSPACE,
+          thinkingLevel: 'off' as const,
+          availableModels: [],
+          availableThinkingLevels: [],
+          availableCommands: [],
+          streaming: true,
+          sessionId,
+        },
+      };
+      bySession.set(sessionId, box);
+      return {
+        subscribe(listener) {
+          box.listeners.push(listener);
+          return () => {
+            const index = box.listeners.indexOf(listener);
+            if (index >= 0) {
+              box.listeners.splice(index, 1);
+            }
+          };
+        },
+        state: () => Promise.resolve({ ...box.state }),
+        history: () => Promise.resolve({ entries: [], hasOlder: false }),
+        prompt: () => Promise.resolve<PromptDisposition>('started'),
+        forkMessages: () => Promise.resolve([]),
+        fork: () => Promise.resolve({ text: '', cancelled: true }),
+        abort: () => Promise.resolve(),
+        setModel: () => Promise.resolve(),
+        setThinkingLevel: () => Promise.resolve(),
+        compact: () => Promise.resolve(),
+        respondToInteraction: () => Promise.resolve(),
+        dispose: () => Promise.resolve(),
+      };
+    };
+    const transcripts = new SessionTranscriptStore();
+    const messages: HostToClientMessage[] = [];
+    const registry = new SessionRegistry({
+      factory: {
+        create: (input) => Promise.resolve(gatewayFor(input.sessionId ?? 'unknown')),
+      },
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const host = connect(registry, chat, transcripts, messages);
+    await host.start();
+    return {
+      host,
+      transcripts,
+      activate: async (sessionId) => {
+        await host.handleClientMessage({
+          type: 'session/activate',
+          payload: { sessionId, cwd: WORKSPACE.cwd },
+        });
+      },
+      emit: (sessionId, event) => {
+        for (const listener of [...(bySession.get(sessionId)?.listeners ?? [])]) {
+          listener(event);
+        }
+      },
+    };
+  }
+
+  /** One answer from the session's gateway, after the model it is on is known. */
+  function answer(emit: (sessionId: string, event: AgentEvent) => void, sessionId: string): void {
+    emit(sessionId, {
+      type: 'agent/state',
+      at: Date.now(),
+      state: {
+        workspace: WORKSPACE,
+        thinkingLevel: 'off',
+        model: MODEL,
+        availableModels: [],
+        availableThinkingLevels: [],
+        availableCommands: [],
+        streaming: true,
+        sessionId,
+      },
+    });
+    emit(sessionId, { type: 'agent/delta', at: Date.now(), channel: 'text', delta: 'hi' });
+    emit(sessionId, { type: 'agent/message', at: Date.now(), text: 'hi', thinking: '' });
+  }
+
+  it('feeds the model of the session in front', async () => {
+    const h = await setup();
+    await h.activate('sess-1');
+
+    answer(h.emit, 'sess-1');
+
+    expect(h.transcripts.items('sess-1').at(-1)).toMatchObject({
+      kind: 'assistant',
+      model: 'glm-5.3-flash',
+    });
+  });
+
+  it('feeds the model of a session that is not in front', async () => {
+    const h = await setup();
+    // sess-2 is opened first and stays warm; sess-1 takes the front afterwards.
+    await h.activate('sess-2');
+    await h.activate('sess-1');
+
+    answer(h.emit, 'sess-2');
+
+    expect(h.transcripts.items('sess-2').at(-1)).toMatchObject({
+      kind: 'assistant',
+      model: 'glm-5.3-flash',
+    });
+  });
+});

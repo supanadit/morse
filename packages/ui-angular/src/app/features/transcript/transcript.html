@@ -97,7 +97,7 @@
               </div>
             }
             <div class="user-head">
-              <span class="stamp">{{ stamp(row.item.at) }}</span>
+              <span class="stamp" [title]="stampTitle(row.item.at)">{{ stamp(row.item.at) }}</span>
               @if (canEdit()) {
                 <button
                   type="button"
@@ -148,6 +148,9 @@
                 >
                   {{ copiedId() === row.item.id ? '✓ Copied' : '⧉ Copy' }}
                 </button>
+                @if (meta(row.item); as m) {
+                  <span class="stamp" [title]="m.title">{{ m.label }}</span>
+                }
               </div>
             } @else if (row.item.streaming) {
               <span class="cursor">&nbsp;</span>
@@ -165,6 +168,9 @@
         @case ('notice') {
           <div class="notice" [class]="row.item.level" [morseEnter]="0">
             <pre>{{ row.item.text }}</pre>
+            @if (stamp(row.item.at); as clock) {
+              <span class="stamp" [title]="stampTitle(row.item.at)">{{ clock }}</span>
+            }
           </div>
         }
         @case ('compaction') {
@@ -189,6 +195,9 @@
                 >
               }
               <span class="sep-line" aria-hidden="true"></span>
+              @if (stamp(row.item.at); as clock) {
+                <span class="sep-stamp" [title]="stampTitle(row.item.at)">{{ clock }}</span>
+              }
             </button>
             @if (expandedCompaction() === row.key && row.item.summary) {
               <div class="compaction-summary" [morseEnter]="0">

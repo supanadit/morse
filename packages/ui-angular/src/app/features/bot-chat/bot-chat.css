@@ -308,6 +308,21 @@
   font-size: 12px;
   font-weight: 600;
 }
+/* When a line was said: muted, under its words, right-aligned for the reader
+   and left-aligned for a bot, so the side still says who spoke. */
+.entry .when {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.entry.user .when {
+  display: block;
+  margin-top: 4px;
+  text-align: right;
+}
+.entry.bot .when {
+  margin-top: 2px;
+}
 .entry.bot .text {
   min-width: 0;
   overflow-wrap: anywhere;

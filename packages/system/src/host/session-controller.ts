@@ -1272,6 +1272,10 @@ export class HostSessionController {
       before: result.value.before,
       hasOlder: result.value.hasOlder,
     });
+    // A warm session's state may have arrived before this controller attached, so
+    // the transcript learns the model from the registry here too — otherwise the
+    // first answer after a reconnect would be stamped with nothing.
+    this.options.transcripts.setModel(key, this.options.services.registry.stateOf(key)?.model);
     this.options.transcripts.seed(
       key,
       historyItems(key, result.value.entries, this.historyPageSeq++),
@@ -1930,6 +1934,12 @@ export class HostSessionController {
     if (event.type === 'agent/interaction') {
       await this.handleInteraction(sessionKey, event.request);
       return;
+    }
+    // Which model writes the next answer is transcript content, not view chrome:
+    // the reader switches mid-conversation, so every state report is fed in
+    // before the branch below decides whether this session is in front.
+    if (event.type === 'agent/state') {
+      this.options.transcripts.setModel(sessionKey, event.state.model);
     }
     if (sessionKey !== this.activeKey) {
       // Keep inactive sessions' transcripts warm without streaming them, and

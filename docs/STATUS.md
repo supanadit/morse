@@ -12,6 +12,11 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
 - Tool calls as a **compact tree** by default: one summary line per turn with its steps and the files they
   touched nested under it. The always-open timeline is a per-user toggle (`morse.chat.toolDisplay=timeline`).
 - Thinking streams as it arrives, and a resumed session is seeded from the agent — never from a blank panel.
+- Every message is stamped with its wall-clock time (`HH:MM`, the full date on hover) in both code mode and
+  bot mode, so a line can be placed in the day.
+- Each answer names the model that produced it — the model the session was on when that row was written, not
+  whichever is selected now. The catalog's display name is used, falling back to the engine's own id for a
+  model it no longer lists.
 - Paged history for long sessions.
 
 ### While the agent works

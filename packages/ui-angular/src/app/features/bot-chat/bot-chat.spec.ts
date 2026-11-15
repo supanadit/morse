@@ -5,7 +5,7 @@ import type {
   BotTranscriptEntry,
   ClientToHostMessage,
 } from '@morse/protocol';
-import { MemoryHostTransport } from '@morse/ui-runtime';
+import { clockTime, fullTime, MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { AttachmentStore } from '../../state/attachments';
@@ -439,6 +439,22 @@ describe('BotChat', () => {
     const chat = host.querySelector('.chat') as HTMLElement;
     expect(chat.style.getPropertyValue('--morse-dock-height')).toMatch(/^\d+px$/);
     expect(host.querySelector('.composer-host')).not.toBeNull();
+  });
+
+  it('stamps every line, reader and bot alike', async () => {
+    const { fixture, host, morse } = await render();
+    const at = Date.UTC(2026, 10, 15, 7, 42, 4);
+    open(morse, dm, [
+      { id: '1', author: { role: 'user' }, text: 'hello', at },
+      { id: '2', author: { role: 'bot', name: 'Forge', avatar: 'F' }, text: 'hi', at: at + 60_000 },
+    ]);
+    fixture.detectChanges();
+
+    const times = [...host.querySelectorAll('time.when')] as HTMLTimeElement[];
+    expect(times).toHaveLength(2);
+    expect(times[0]?.textContent?.trim()).toBe(clockTime(at));
+    expect(times[0]?.title).toBe(fullTime(at));
+    expect(times[1]?.textContent?.trim()).toBe(clockTime(at + 60_000));
   });
 
   it('says so when no conversation is open', async () => {

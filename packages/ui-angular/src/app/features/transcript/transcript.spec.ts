@@ -1,15 +1,16 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type { SessionViewState, TranscriptItem } from '@morse/protocol';
+import type { ModelOption, SessionViewState, TranscriptItem } from '@morse/protocol';
+import { clockTime } from '@morse/ui-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { ChatTranscript } from './transcript';
 
-function viewState(streaming = false): SessionViewState {
+function viewState(streaming = false, models: ModelOption[] = []): SessionViewState {
   return {
     workspace: { cwd: '/work/morse', name: 'morse' },
     thinkingLevel: 'off',
-    availableModels: [],
+    availableModels: models,
     availableThinkingLevels: [],
     availableCommands: [],
     streaming,
@@ -465,5 +466,97 @@ describe('ChatTranscript child session link', () => {
 
     host.querySelector<HTMLButtonElement>('.child-link')?.click();
     expect(seen).toEqual([{ sessionId: 'ses_kid', agent: 'explore' }]);
+  });
+});
+
+/**
+ * The meta under a message is how a reader places it in the day and — after a
+ * model switch — knows which model actually answered. It must degrade to the
+ * clock alone, to the model alone, and to nothing at all without ever leaving a
+ * dangling separator behind.
+ */
+describe('ChatTranscript message meta', () => {
+  const AT = Date.UTC(2026, 10, 15, 7, 42, 4);
+  const catalog: ModelOption[] = [
+    { provider: 'zai', id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' },
+  ];
+
+  async function render(
+    items: TranscriptItem[],
+    models: ModelOption[] = [],
+  ): Promise<HTMLElement> {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [ChatTranscript],
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            state: signal(viewState(false, models)),
+            items: signal(items),
+            hasOlderHistory: signal(false),
+            loadingOlderHistory: signal(false),
+            capabilities: signal(null),
+            requestHostCommand: () => Promise.resolve(undefined),
+            loadOlderHistory: () => undefined,
+          },
+        },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  function assistant(overrides: Record<string, unknown> = {}): TranscriptItem {
+    return {
+      kind: 'assistant',
+      id: 'a1',
+      at: AT,
+      text: 'an answer',
+      thinking: '',
+      streaming: false,
+      ...overrides,
+    } as TranscriptItem;
+  }
+
+  it('shows the catalog name and clock under an assistant answer', async () => {
+    const host = await render([assistant({ model: 'glm-5.3-flash' })], catalog);
+
+    expect(host.querySelector('.assistant .stamp')?.textContent?.trim()).toBe(
+      `GLM-5.3-Flash · ${clockTime(AT)}`,
+    );
+  });
+
+  it('shows an unknown model id raw instead of hiding it', async () => {
+    const host = await render([assistant({ model: 'retired-model' })], catalog);
+
+    expect(host.querySelector('.assistant .stamp')?.textContent?.trim()).toBe(
+      `retired-model · ${clockTime(AT)}`,
+    );
+  });
+
+  it('shows only the clock when the engine reported no model', async () => {
+    const host = await render([assistant()], catalog);
+
+    expect(host.querySelector('.assistant .stamp')?.textContent?.trim()).toBe(clockTime(AT));
+  });
+
+  it('drops a missing timestamp without leaving a dangling separator', async () => {
+    const host = await render([assistant({ at: 0, model: 'glm-5.3-flash' })], catalog);
+    const stamp = host.querySelector('.assistant .stamp');
+
+    expect(stamp?.textContent?.trim()).toBe('GLM-5.3-Flash');
+    expect(stamp?.textContent).not.toContain('·');
+  });
+
+  it('stamps notice and compaction rows', async () => {
+    const host = await render([
+      { kind: 'notice', id: 'n1', at: AT, level: 'info', text: 'noted' },
+      { kind: 'compaction', id: 'c1', at: AT, summary: 'folded' },
+    ]);
+
+    expect(host.querySelector('.notice .stamp')?.textContent?.trim()).toBe(clockTime(AT));
+    expect(host.querySelector('.sep-stamp')?.textContent?.trim()).toBe(clockTime(AT));
   });
 });

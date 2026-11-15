@@ -15,6 +15,7 @@ import type {
   BotTranscriptEntry,
   PromptImage,
 } from '@morse/protocol';
+import { clockTime, fullTime } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
 import { ComposerDrafts } from '../../state/composer-drafts';
 import { Markdown } from '../../ui/markdown/markdown';
@@ -203,6 +204,16 @@ export class BotChat {
 
   protected stamp(at: number): string {
     return new Date(at).toISOString();
+  }
+
+  /** The clock under a line: when it was said, in the reader's locale. */
+  protected clock(at: number): string {
+    return clockTime(at);
+  }
+
+  /** The clock's tooltip: the full date, so an old line is still placeable. */
+  protected fullStamp(at: number): string {
+    return fullTime(at);
   }
 
   /** A bot's mark: its own avatar when it has one, else the letter it starts with. */
