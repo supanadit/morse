@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.29.0 — 15 November 2026
+
+## 🚀 New Features
+
+- **Edit your messages in place** — fix a typo without starting over
+- **Branch a session from any finished answer** — try a different path
+- **Rename sessions** right from the sidebar
+- **Delete projects** from the sidebar, with a confirmation dialog
+- **Message timestamps** — see when every answer arrived
+- **Model labels** — see which model answered each message
+- Session list shows fork and subagent icons
+
+## 🐛 Bug Fixes
+
+- Branches keep their own history instead of sharing one
+- Editing works cleanly on engines that rewrite the whole answer
+- Older pages stay put after an edit moves the session
+- A live rename or open draft survives a project deletion
+- Assistant name and time line up properly under answers
+
 ## 0.28.0 — 15 November 2026
 
 ## 🚀 New Features

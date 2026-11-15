@@ -1,5 +1,7 @@
 # Status
 
+This page describes **v0.29.0**.
+
 Morse **v0.28.0**. This page is the honest inventory of what ships. Everything else points here:
 [`README.md`](../README.md) for the pitch, [`ARCHITECTURE.md`](ARCHITECTURE.md) for how it is built,
 [`CONFIGURATION.md`](CONFIGURATION.md) for the knobs, [`FRONTENDS.md`](FRONTENDS.md) for the frontend contract.
