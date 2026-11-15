@@ -351,6 +351,14 @@ has no entry for the chosen item, with the notice wording the host already uses.
   prompt the engine rejected before recording it) is refused with the existing
   "no fork point for it" notice.
 
+## Known limitations
+
+- Pi writes a synthetic `branch_summary` row into a session's transcript when the
+  conversation was forked inside pi's own TUI. That row has no entry in
+  `userMessages()`, so a prompt older than such a summary maps one engine entry
+  early. This work does not fix it; a branch taken inside Morse never writes the
+  row.
+
 ## Left to the builder
 
 - The exact wording of the new notices and the hover labels.
