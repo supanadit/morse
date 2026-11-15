@@ -84,8 +84,7 @@ export interface MorseSessionRecord {
   subagent?: boolean;
 }
 
-/** The placeholder a session shows before its first prompt names it. */
-export const UNTITLED_SESSION = 'Untitled session';
+/** The placeholder a session shows before its first prompt names it. */export const UNTITLED_SESSION = 'Untitled session';
 
 /**
  * The `SessionSummary` the sidebar and the wire use, projected from a record.
@@ -144,4 +143,19 @@ export function toSessionRecord(kind: string, info: AgentSessionInfo): MorseSess
         }),
     ...(info.subagent === undefined ? {} : { subagent: info.subagent }),
   };
+}
+
+/**
+ * The name a row carries after an engine report. A pinned title is the reader's,
+ * so no report replaces it; everything else follows the engine and falls back to
+ * what the row already had when the engine names nothing.
+ */
+export function titleForReport(
+  record: Pick<MorseSessionRecord, 'title' | 'titlePinned'>,
+  reported: string | undefined,
+): string {
+  if (record.titlePinned === true) {
+    return record.title;
+  }
+  return reported ?? record.title;
 }
