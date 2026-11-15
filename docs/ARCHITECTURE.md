@@ -303,11 +303,12 @@ relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
 A bot runs as the reader, from its own workspace: it is not a container. Its file tools reach the home
 directory and its shell runs any command the reader can, so the boundary that matters is **state, not
-access** — OpenCode's config and auth stay in `<bot>/config`, its database, sessions and logs in
-`<bot>/sessions`, and each bot's workspace is its own, so a bot's engine reads and writes its own tree, not
-another bot's or the reader's `~/.config/opencode`.
+access**. Morse keeps the engine's state out of the reader's tree — OpenCode's config in `<bot>/config`;
+auth, database, sessions and logs in `<bot>/sessions` — by pointing both XDG roots into the bot, though an
+`OPENCODE_*` path override inherited from the host is not scrubbed. Each bot's tree is its own by
+placement, not by isolation: a bot with `external_directory` and a shell can read a sibling's files.
 
-Keeping both true costs one environment decision, and the variables are in
+That split is one environment decision, and the variables are in
 [CONFIGURATION.md](CONFIGURATION.md): the bot's server runs with its XDG roots redirected into the bot, and a
 generated shell plugin (`<bot>/config/opencode/plugins/morse-user-space.ts`) hands the reader's real roots to
 shell commands only. File access beyond the workspace needs no plugin — it is OpenCode's own

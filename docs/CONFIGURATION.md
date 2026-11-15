@@ -238,11 +238,13 @@ permission is allowed whenever a file tool is, which is what makes `~/.ssh` or a
 the workspace readable. There is no OS-level sandbox and no per-path allow-list behind this: a bot that
 may run a shell is your own login, and path rules alone would not confine it.
 
-What stays isolated is the engine's state, not the machine: OpenCode's config and auth (`<bot>/config`),
-its database, sessions and logs (`<bot>/sessions`), and each bot's own workspace. A bot's engine reads and
-writes its own tree — not another bot's, and not your `~/.config/opencode`.
+What Morse keeps out of your own tree is the engine's state: OpenCode's config (`<bot>/config`), and its
+auth, database, sessions and logs (`<bot>/sessions`). Morse points both roots into the bot; it does not
+scrub an `OPENCODE_*` path override inherited from the host. Each bot's engine state and workspace land in
+its own directory, which is placement, not a boundary — with `external_directory` and a shell, a bot can
+read a sibling's files.
 
-For OpenCode that isolation is exactly those two XDG roots. The server runs with `XDG_CONFIG_HOME` and
+For OpenCode that redirection is all the isolation there is: the server runs with `XDG_CONFIG_HOME` and
 `XDG_DATA_HOME` pointed into the bot, and your real values travel beside them as
 `MORSE_HOST_XDG_CONFIG_HOME` and `MORSE_HOST_XDG_DATA_HOME`. Morse writes
 `<bot>/config/opencode/plugins/morse-user-space.ts`, whose shell hook puts those values back on the

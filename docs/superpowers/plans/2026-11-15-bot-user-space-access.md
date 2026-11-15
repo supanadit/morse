@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - OpenCode permission actions are V2 names. Never write `bash`, `task` or `list` as a permission action.
-- Bot engine state stays under `<bot>/config` (config/auth) and `<bot>/sessions` (database, logs, sessions).
+- Bot engine state stays under `<bot>/config` (config) and `<bot>/sessions` (auth, database, logs, sessions).
 - No new runtime dependencies.
 - pi's tool list and environment are unchanged.
 - The plugin path and id are fixed: `<bot>/config/opencode/plugins/morse-user-space.ts`, id `morse.user-space`.
@@ -635,13 +635,13 @@ git commit -m "feat(bots): offer OpenCode 2 tool names"
 In `CONFIGURATION.md`, add a **What a bot can reach** subsection after the bot MCP section. Include:
 
 - A bot is not a container: it runs as the host's user from `<bot>/workspace`, and its file tools reach the reader's home directory; the shell tool can run any command the reader can.
-- Engine state stays isolated: OpenCode's config/auth (`<bot>/config`), database, sessions and logs (`<bot>/sessions`), and each bot's workspace.
+- Engine state stays in the bot's tree: OpenCode's config (`<bot>/config`), and auth, database, sessions and logs (`<bot>/sessions`); each bot's workspace is its own directory.
 - The server runs with redirected XDG roots and passes the real ones as `MORSE_HOST_XDG_CONFIG_HOME`/`MORSE_HOST_XDG_DATA_HOME`; `<bot>/config/opencode/plugins/morse-user-space.ts` restores them for shell commands only, so rootless Podman, `systemctl --user` and `~/.ssh` work. If OpenCode cannot load that plugin, shell commands keep the bot's XDG roots (empty user tools) and the failure appears in the bot's OpenCode log.
 - MCP servers keep the bot environment.
 
 In `ARCHITECTURE.md`, add a short **What a bot can reach** subsection under the bot-mode material, cross-referencing `CONFIGURATION.md` for the env detail.
 
-In `STATUS.md`, add a Bot mode bullet: bots run as the reader; file tools reach the home directory; shell runs user commands; engine config/auth/sessions stay in the bot's own tree.
+In `STATUS.md`, add a Bot mode bullet: bots run as the reader; file tools reach the home directory; shell runs user commands; engine config stays in `<bot>/config`, auth and sessions in `<bot>/sessions`.
 
 In `DATA-COMPATIBILITY.md`, extend the opencode repair bullet: a generated ruleset is translated to OpenCode 2 action names (`bash → shell`, `task → subagent`), `list` is dropped, `external_directory` is added, and the user-space plugin is installed; a ruleset not in Morse's generated shape is left alone.
 
