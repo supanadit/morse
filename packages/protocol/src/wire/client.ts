@@ -115,6 +115,26 @@ export interface SessionDeleteMessage extends ClientMessageBase {
 }
 
 /**
+ * Renames a session. The title lives in Morse's own record
+ * (`~/.morse/sessions/records/`), never in the engine's conversation data: the
+ * rename survives restarts and wins over every later name the engine reports.
+ */
+export interface SessionRenameMessage extends ClientMessageBase {
+  type: 'session/rename';
+  payload: { sessionId: string; title: string };
+}
+
+/**
+ * Deletes every session a project holds — from each engine's own storage — while
+ * leaving the project directory on disk. The host closes whatever is running
+ * first, then reports how many went.
+ */
+export interface ProjectDeleteMessage extends ClientMessageBase {
+  type: 'project/delete';
+  payload: { path: string };
+}
+
+/**
  * Summarizes one session's context. `sessionKey` pins it to the conversation the
  * question was asked about; omitted, it means "whatever is in front", the shared
  * panel's behaviour. `schedule` asks the host to wait instead: pi compacts by
@@ -394,6 +414,8 @@ export type ClientToHostMessage =
   | SessionRefreshMessage
   | SessionCloseMessage
   | SessionDeleteMessage
+  | SessionRenameMessage
+  | ProjectDeleteMessage
   | SessionCompactMessage
   | HistoryLoadMessage
   | SessionListRequestMessage

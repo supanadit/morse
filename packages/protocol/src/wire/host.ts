@@ -142,6 +142,11 @@ export type HostCommand =
   /** Ask the host to confirm a destructive action in its own dialog. */
   | 'confirmDeleteSession'
   /**
+   * The project-wide twin: deleting a project removes every session it holds, so
+   * the host's own modal names the count and says the folder stays on disk.
+   */
+  | 'confirmDeleteProject'
+  /**
    * Show a notification of the host's own (a finished run the reader stepped
    * away from). Only offered where `capabilities.notify` is set.
    */
