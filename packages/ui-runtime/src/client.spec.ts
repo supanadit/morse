@@ -103,6 +103,20 @@ describe('createMorseClient', () => {
     client.dispose();
   });
 
+  it('sends a branch as `chat/branch` with the target item id', () => {
+    const transport = stubTransport();
+    const client = createMorseClient({ transport });
+
+    client.actions.branchMessage('morse-assistant-2');
+
+    expect(transport.sent.at(-1)).toEqual({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-2' },
+    });
+
+    client.dispose();
+  });
+
   it('sends a session rename as `session/rename`', () => {
     const transport = stubTransport();
     const client = createMorseClient({ transport });

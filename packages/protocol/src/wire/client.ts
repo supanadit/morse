@@ -49,9 +49,11 @@ export interface ChatPromptMessage extends ClientMessageBase {
 }
 
 /**
- * Replaces a past user message: the host forks the conversation before it, drops
- * that turn, and sends the edited text as a new prompt. `itemId` is the transcript
- * item being edited; `text` is what the user typed in its place.
+ * Replaces a past user message. How depends on the engine: one with an edit
+ * primitive (OpenCode) rewrites the turn in place and re-runs it; one without
+ * (pi) forks the conversation before it, drops that turn, and sends the edited
+ * text as a new prompt. `itemId` is the transcript item being edited; `text` is
+ * what the user typed in its place.
  */
 export interface ChatEditMessage extends ClientMessageBase {
   type: 'chat/edit';
@@ -66,6 +68,17 @@ export interface ChatEditMessage extends ClientMessageBase {
  */
 export interface ChatForkMessage extends ClientMessageBase {
   type: 'chat/fork';
+  payload: { itemId: string };
+}
+
+/**
+ * Branches a new session after a finished answer: the host forks before the next
+ * user prompt (or clones the whole conversation at the tail), re-homes the
+ * transcript through that answer and seeds nothing — the branch keeps the answer,
+ * and the reader types what comes next.
+ */
+export interface ChatBranchMessage extends ClientMessageBase {
+  type: 'chat/branch';
   payload: { itemId: string };
 }
 
@@ -407,6 +420,7 @@ export type ClientToHostMessage =
   | ChatPromptMessage
   | ChatEditMessage
   | ChatForkMessage
+  | ChatBranchMessage
   | ChatAbortMessage
   | SessionNewMessage
   | SessionLoadMessage
