@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { AgentUnavailableError } from '@morse/system';
+import { resolveOpenCodeSpawn, type OpenCodeSpawn } from './resolve-opencode.js';
 
 /**
  * How Morse obtains an OpenCode server: attach to one the user configured, or
@@ -36,6 +37,11 @@ export interface OpenCodeConnectionOptions {
   password?: string;
   /** The binary to spawn when no URL is configured. Defaults to `opencode`. */
   bin?: string;
+  /**
+   * A binary already resolved on this machine, so detection and spawn cannot
+   * disagree. Omitted means `bin` is resolved here, which is what a bot does.
+   */
+  spawn?: OpenCodeSpawn;
   env?: NodeJS.ProcessEnv;
   startupTimeoutMs?: number;
 }
@@ -103,11 +109,32 @@ async function attach(options: OpenCodeConnectionOptions): Promise<OpenCodeConne
 
 /** Spawns a private server and reads the address/password it announces. */
 async function spawnServer(options: OpenCodeConnectionOptions): Promise<OpenCodeConnection> {
+  const env = options.env ?? process.env;
   const bin = options.bin?.trim() || 'opencode';
-  const child = spawn(bin, ['serve', '--hostname', '127.0.0.1', '--port', '0'], {
-    env: options.env ?? process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // The plan carries the program and the arguments that select OpenCode, so a
+  // Windows `.cmd` shim is started through what it wraps (node, an `.exe`, or
+  // `cmd.exe`) instead of being handed to `spawn` as a file it cannot run.
+  const plan = options.spawn ?? resolveOpenCodeSpawn(bin, env);
+  if (plan === undefined) {
+    throw missingBinary(bin);
+  }
+
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      plan.command,
+      [...plan.prefix, 'serve', '--hostname', '127.0.0.1', '--port', '0'],
+      {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
+    );
+  } catch (error: unknown) {
+    // A binary Node refuses before starting (EINVAL, a bad path) throws here
+    // rather than emitting `error`, so report it as the setup problem it is.
+    throw spawnFailure(bin, error);
+  }
 
   try {
     const announcement = await readAnnouncement(
@@ -276,12 +303,20 @@ function describeProbeFailure(baseUrl: string, error: unknown): AgentUnavailable
 }
 
 /** A missing binary is a setup problem with a next step, like a missing `pi`. */
-function spawnFailure(bin: string, error: Error): AgentUnavailableError {
+function missingBinary(bin: string): AgentUnavailableError {
+  return new AgentUnavailableError(
+    `Morse could not find the OpenCode binary "${bin}". Install OpenCode or set MORSE_OPENCODE_BIN.`,
+    { remedy: { install: OPENCODE_INSTALL_COMMAND } },
+  );
+}
+
+/** A binary that was found but would not start: its error, plus the install hint. */
+function spawnFailure(bin: string, error: unknown): AgentUnavailableError {
   const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
   return new AgentUnavailableError(
     missing
       ? `Morse could not find the OpenCode binary "${bin}". Install OpenCode or set MORSE_OPENCODE_BIN.`
-      : `Morse could not start "${bin} serve": ${error.message}`,
+      : `Morse could not start "${bin} serve": ${error instanceof Error ? error.message : String(error)}`,
     {
       cause: error,
       ...(missing ? { remedy: { install: OPENCODE_INSTALL_COMMAND } } : {}),

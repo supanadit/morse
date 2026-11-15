@@ -55,13 +55,15 @@ async function startFakeServer(password = PASSWORD): Promise<{
   };
 }
 
-/** A stand-in for `opencode serve`: prints what the real one announces. */
+/**
+ * A stand-in for `opencode serve`: prints what the real one announces.
+ *
+ * Windows gets the shape npm actually installs — a `.cmd` shim around a `.js` —
+ * because Node cannot start a `.cmd` itself and unwrapping one is what the
+ * resolver exists for. Elsewhere it is the same script with a shebang.
+ */
 function fakeBinary(dir: string): string {
-  const path = join(dir, 'fake-opencode');
-  writeFileSync(
-    path,
-    `#!/usr/bin/env node
-const fs = require('node:fs');
+  const body = `const fs = require('node:fs');
 process.on('SIGTERM', () => {
   fs.writeFileSync(process.env.FAKE_OC_STOP_FILE, 'stopped');
   process.exit(0);
@@ -76,9 +78,15 @@ if (process.env.FAKE_OC_EXIT === '1') {
   console.log('server password ' + process.env.FAKE_OC_PASSWORD);
   setInterval(() => {}, 1000);
 }
-`,
-    { mode: 0o755 },
-  );
+`;
+  if (process.platform === 'win32') {
+    writeFileSync(join(dir, 'fake-opencode.js'), body);
+    const shim = join(dir, 'fake-opencode.cmd');
+    writeFileSync(shim, '@ECHO off\r\n"%~dp0fake-opencode.js" %*\r\n');
+    return shim;
+  }
+  const path = join(dir, 'fake-opencode');
+  writeFileSync(path, `#!/usr/bin/env node\n${body}`, { mode: 0o755 });
   chmodSync(path, 0o755);
   return path;
 }
@@ -86,6 +94,14 @@ if (process.env.FAKE_OC_EXIT === '1') {
 describe('connectOpenCode', () => {
   let dir: string;
   let connection: OpenCodeConnection | undefined;
+
+  /**
+   * The stop file is the fake server's proof that it was *asked* to stop, which
+   * needs a delivered SIGTERM. Windows terminates a process instead of delivering
+   * one, so a JavaScript handler never runs there; the server is still stopped,
+   * just not gracefully, and only POSIX can observe the difference.
+   */
+  const gracefulStop = process.platform !== 'win32';
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'morse-opencode-connection-'));
@@ -175,7 +191,7 @@ describe('connectOpenCode', () => {
       await connection.close();
       connection = undefined;
       // The spawned process is gone, not just detached.
-      expect(existsSync(stopFile)).toBe(true);
+      expect(existsSync(stopFile)).toBe(gracefulStop);
     } finally {
       await fake.close();
     }
@@ -190,7 +206,7 @@ describe('connectOpenCode', () => {
         startupTimeoutMs: 200,
       }),
     ).rejects.toThrow(/did not announce its address and password/);
-    expect(existsSync(stopFile)).toBe(true);
+    expect(existsSync(stopFile)).toBe(gracefulStop);
   });
 
   it('fails immediately when the server exits, with its own output', async () => {

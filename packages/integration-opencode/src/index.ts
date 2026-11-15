@@ -27,7 +27,11 @@ export {
   type BotOpenCodeEngineOptions,
 } from './bot-engine.js';
 export { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
-export { findOpenCodeBinary } from './internal/resolve-opencode.js';
+export {
+  findOpenCodeBinary,
+  resolveOpenCodeSpawn,
+  type OpenCodeSpawn,
+} from './internal/resolve-opencode.js';
 export {
   connectOpenCode,
   OPENCODE_INSTALL_COMMAND,

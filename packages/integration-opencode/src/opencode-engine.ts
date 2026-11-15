@@ -35,7 +35,7 @@ import {
 } from './internal/model-mapping.js';
 import { OpenCodeAgent, readAvailableCommands } from './opencode-agent.js';
 import { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
-import { findOpenCodeBinary } from './internal/resolve-opencode.js';
+import { resolveOpenCodeSpawn } from './internal/resolve-opencode.js';
 
 /**
  * OpenCode as a `SessionEngine`: the kind, the factory, the catalog, and the
@@ -205,6 +205,11 @@ export async function createOpenCodeEngine(
  * A configured URL always tries (a wrong one is reported and the host keeps its
  * other engines); otherwise the binary decides. `undefined` means "not
  * installed", which is a pi-only host paying nothing — not an error.
+ *
+ * "Can run it" is the resolved spawn plan, not the file path: on Windows the
+ * `opencode` on PATH is usually a `.cmd` shim, and the plan is what starts the
+ * program inside it. Detection and spawn therefore use the same resolution, so a
+ * host cannot offer an OpenCode that then fails to start.
  */
 export async function openOpenCodeEngine(options: {
   url?: string;
@@ -215,16 +220,15 @@ export async function openOpenCodeEngine(options: {
   maxSessionsPerProject?: number;
 }): Promise<OpenCodeEngine | undefined> {
   const configuredBin = options.bin?.trim();
+  const bin =
+    configuredBin === undefined || configuredBin.length === 0 ? 'opencode' : configuredBin;
   if (options.url === undefined) {
-    const binary = findOpenCodeBinary(
-      configuredBin === undefined || configuredBin.length === 0 ? 'opencode' : configuredBin,
-      options.env ?? process.env,
-    );
-    if (binary === undefined) {
+    const spawn = resolveOpenCodeSpawn(bin, options.env ?? process.env);
+    if (spawn === undefined) {
       return undefined;
     }
     try {
-      return await createOpenCodeEngine({ ...options, bin: binary });
+      return await createOpenCodeEngine({ ...options, bin, spawn });
     } catch (error: unknown) {
       options.logger.error('Could not start the OpenCode engine', error);
       return undefined;
