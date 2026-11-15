@@ -1427,7 +1427,9 @@ describe('HostSessionController chat/edit', () => {
       payload: { itemId: 'morse-user-1', text: 'hello!' },
     });
 
-    expect(rewriteActive).toHaveBeenCalledWith('entry-1');
+    // The branch names the session the transcript belongs to: the registry's
+    // own "in front" pointer may be another tab's conversation.
+    expect(rewriteActive).toHaveBeenCalledWith('entry-1', 'sess-1');
     // The edit still sends: one prompt, carrying the corrected text.
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(prompt.mock.calls[0]?.[0]).toBe('hello!');
@@ -1475,7 +1477,7 @@ describe('HostSessionController chat/edit', () => {
       payload: { itemId: 'morse-user-1', text: 'first' },
     });
 
-    expect(rewriteActive).toHaveBeenCalledWith('entry-1');
+    expect(rewriteActive).toHaveBeenCalledWith('entry-1', 'sess-1');
   });
 
   it('maps the oldest loaded row when older history is still unloaded', async () => {
@@ -1499,7 +1501,7 @@ describe('HostSessionController chat/edit', () => {
       payload: { itemId: 'morse-user-1', text: 'third!' },
     });
 
-    expect(rewriteActive).toHaveBeenCalledWith('entry-3');
+    expect(rewriteActive).toHaveBeenCalledWith('entry-3', 'sess-1');
   });
 
   it('keeps the older-page cursor when the engine rewrites the session in place', async () => {
@@ -1554,6 +1556,32 @@ describe('HostSessionController chat/edit', () => {
     // the reader stood, not from the newest page again.
     await h.controller.handleClientMessage({ type: 'history/load', payload: {} });
     expect(reads).toEqual(['page-before-third']);
+  });
+
+  it('refuses an empty edit before the engine cuts the conversation', async () => {
+    const h = harness({
+      userMessages: [{ entryId: 'entry-1', text: 'hello' }],
+      rewrite: { text: 'hello' },
+    });
+    await openWithRows(h, ['hello']);
+    const rewriteActive = vi.spyOn(h.registry, 'rewriteActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/edit',
+      payload: { itemId: 'morse-user-1', text: '   ' },
+    });
+
+    // Cutting first and sending second would destroy the tail and then send
+    // nothing; the empty prompt is refused before the engine is touched.
+    const warns = h.messages.filter(
+      (message): message is Extract<HostToClientMessage, { type: 'notice' }> =>
+        message.type === 'notice' && message.payload.level === 'warn',
+    );
+    expect(warns).toHaveLength(1);
+    expect(warns[0]?.payload.text).toContain('Nothing to send');
+    expect(rewriteActive).not.toHaveBeenCalled();
+    expect(h.transcripts.items('sess-1')).toHaveLength(1);
   });
 
   it('refuses an edit while the agent is streaming, before the engine is touched', async () => {
@@ -1641,7 +1669,7 @@ describe('HostSessionController chat/fork', () => {
       payload: { itemId: 'morse-user-1' },
     });
 
-    expect(forkActive).toHaveBeenCalledWith('entry-1');
+    expect(forkActive).toHaveBeenCalledWith('entry-1', 'sess-1');
   });
 
   it('seeds the composer with the column range and its excerpt', async () => {
@@ -1748,7 +1776,7 @@ describe('HostSessionController chat/branch', () => {
     });
 
     // The cut is before the *next* prompt: the answer it branches after survives.
-    expect(forkActive).toHaveBeenCalledWith('entry-2');
+    expect(forkActive).toHaveBeenCalledWith('entry-2', 'sess-1');
     // Nothing is sent and nothing is seeded: the reader types what comes next.
     expect(prompt).not.toHaveBeenCalled();
     expect(h.messages.some((message) => message.type === 'composer/seed')).toBe(false);
@@ -1757,6 +1785,91 @@ describe('HostSessionController chat/branch', () => {
       'morse-user-1',
       'morse-assistant-1',
     ]);
+  });
+
+  it('gives the prompt after a branch a fresh id, so editing it cuts at its own entry', async () => {
+    const userMessages: AgentUserMessage[] = [
+      { entryId: 'entry-1', text: 'hello' },
+      { entryId: 'entry-2', text: 'second' },
+    ];
+    const h = harness({ userMessages, fork: { text: 'second', sessionId: 'sess-2' } });
+    await h.controller.start();
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'hello' } });
+    h.transcripts.seed('sess-1', [
+      {
+        kind: 'assistant',
+        id: 'sess-1#history-0-0',
+        at: 2,
+        text: 'first answer',
+        thinking: '',
+        streaming: false,
+      },
+    ]);
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'second' } });
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'sess-1#history-0-0' },
+    });
+
+    // The branch's projector is new; its counter must resume past the rows it
+    // was seeded with, or the next prompt re-issues an id already on screen.
+    userMessages.push({ entryId: 'entry-3', text: 'third' });
+    await h.controller.handleClientMessage({ type: 'chat/prompt', payload: { text: 'third' } });
+
+    const items = h.transcripts.items('sess-2');
+    const ids = items.map((item) => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const newestPrompt = items.filter((item) => item.kind === 'user').at(-1);
+    expect(newestPrompt?.id).not.toBe('morse-user-1');
+
+    // A duplicate id used to resolve to the *kept* prompt's entry: the edit
+    // would revert to an older turn instead of the one the reader clicked.
+    const rewriteActive = vi.spyOn(h.registry, 'rewriteActive');
+    h.messages.length = 0;
+    await h.controller.handleClientMessage({
+      type: 'chat/edit',
+      payload: { itemId: newestPrompt?.id ?? '', text: 'third!' },
+    });
+    expect(rewriteActive.mock.calls[0]?.[0]).toBe('entry-3');
+  });
+
+  it('refuses a mid-turn answer: a later answer or tool call means it is not final', async () => {
+    const h = harness({ clone: { sessionId: 'sess-2' } });
+    await openWith(h, [
+      { kind: 'user', id: 'morse-user-1', at: 1, text: 'first' },
+      {
+        kind: 'assistant',
+        id: 'morse-assistant-1',
+        at: 2,
+        text: 'thinking out loud',
+        thinking: '',
+        streaming: false,
+      },
+      { kind: 'tool', id: 'morse-tool-1', at: 3, name: 'bash', title: 'ls', status: 'ok' },
+      {
+        kind: 'assistant',
+        id: 'morse-assistant-2',
+        at: 4,
+        text: 'the real answer',
+        thinking: '',
+        streaming: false,
+      },
+    ]);
+    const forkActive = vi.spyOn(h.registry, 'forkActive');
+    const cloneActive = vi.spyOn(h.registry, 'cloneActive');
+    h.messages.length = 0;
+
+    await h.controller.handleClientMessage({
+      type: 'chat/branch',
+      payload: { itemId: 'morse-assistant-1' },
+    });
+
+    expect(warns(h)).toHaveLength(1);
+    expect(forkActive).not.toHaveBeenCalled();
+    expect(cloneActive).not.toHaveBeenCalled();
+    expect(h.transcripts.items('sess-1')).toHaveLength(4);
   });
 
   it('clones when the answer is the last one', async () => {
@@ -1773,7 +1886,7 @@ describe('HostSessionController chat/branch', () => {
 
     // Nothing follows the answer, so there is no prompt to cut before: the
     // conversation is copied at its tip and keeps every row.
-    expect(cloneActive).toHaveBeenCalledTimes(1);
+    expect(cloneActive).toHaveBeenCalledWith('sess-1');
     expect(forkActive).not.toHaveBeenCalled();
     expect(h.transcripts.items('sess-1')).toEqual([]);
     expect(h.transcripts.items('sess-2').map((item) => item.id)).toEqual([
@@ -1854,7 +1967,7 @@ describe('HostSessionController chat/branch', () => {
     expect(forkActive).not.toHaveBeenCalled();
   });
 
-  it('refuses an answer the agent has no entry for', async () => {
+  it('refuses an answer whose next prompt the agent has no entry for', async () => {
     // The engine lists no user message at all while the transcript has rows:
     // there is no point in its history to branch before.
     const h = harness({ fork: { text: 'second', sessionId: 'sess-2' } });

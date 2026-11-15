@@ -1589,7 +1589,15 @@ export class HostSessionController {
    * pin is not silently dropped by the edit.
    */
   private async editPrompt(itemId: string, text: string): Promise<void> {
-    const target = await this.cutBefore(itemId, 'edit');
+    const target = await this.cutBefore(itemId, 'edit', (item) =>
+      text.trim().length === 0 &&
+      (item.images?.length ?? 0) === 0 &&
+      (item.pins?.length ?? 0) === 0
+        ? // The cut commits the engine's revert (OpenCode) before the prompt is
+          // sent, so an empty edit would destroy the tail and send nothing.
+          'Nothing to send — the prompt is empty.'
+        : undefined,
+    );
     if (!target) {
       return;
     }
@@ -1649,6 +1657,17 @@ export class HostSessionController {
       this.options.emit(noticeMessage('warn', 'Only an answer can start a branch.', Date.now()));
       return;
     }
+    // A turn's answer is its last one: a tool call or another answer after it
+    // means the row is mid-turn, and branching there would cut a turn in half.
+    const rest = items.slice(index + 1);
+    const nextPrompt = rest.findIndex((item) => item.kind === 'user');
+    const turnTail = nextPrompt === -1 ? rest : rest.slice(0, nextPrompt);
+    if (turnTail.some((item) => item.kind === 'assistant' || item.kind === 'tool')) {
+      this.options.emit(
+        noticeMessage('warn', 'Only the last answer of a turn can start a branch.', Date.now()),
+      );
+      return;
+    }
     if (this.options.services.registry.stateOf(key)?.streaming === true) {
       this.options.emit(
         noticeMessage(
@@ -1674,19 +1693,21 @@ export class HostSessionController {
         this.options.emit(
           noticeMessage(
             'warn',
-            'This answer cannot be branched — the agent has no point in its history for it.',
+            'This answer cannot be branched — the prompt after it has no point in the agent history.',
             Date.now(),
           ),
         );
         return;
       }
-      const forked = await this.guard(() => this.options.services.registry.forkActive(entryId));
+      const forked = await this.guard(() =>
+        this.options.services.registry.forkActive(entryId, key),
+      );
       if (!forked.ok) {
         return;
       }
       branch = forked.value;
     } else {
-      const cloned = await this.guard(() => this.options.services.registry.cloneActive());
+      const cloned = await this.guard(() => this.options.services.registry.cloneActive(key));
       if (!cloned.ok) {
         return;
       }
@@ -1723,6 +1744,12 @@ export class HostSessionController {
   private async cutBefore(
     itemId: string,
     action: 'edit' | 'fork',
+    /**
+     * Refuses the cut after the row is found but before the engine is asked to
+     * move, returning the warning to show. An edit that would send nothing must
+     * not truncate first.
+     */
+    refuse?: (target: UserTranscriptItem) => string | undefined,
   ): Promise<UserTranscriptItem | undefined> {
     const source = await this.cutSource(action);
     if (!source) {
@@ -1749,6 +1776,11 @@ export class HostSessionController {
       return undefined;
     }
 
+    const refusal = refuse?.(target);
+    if (refusal !== undefined) {
+      this.options.emit(noticeMessage('warn', refusal, Date.now()));
+      return undefined;
+    }
     const messages = await this.guard(() => gateway.userMessages());
     if (!messages.ok) {
       return undefined;
@@ -1767,8 +1799,8 @@ export class HostSessionController {
 
     const branch = await this.guard(() =>
       action === 'edit'
-        ? this.options.services.registry.rewriteActive(entryId)
-        : this.options.services.registry.forkActive(entryId),
+        ? this.options.services.registry.rewriteActive(entryId, key)
+        : this.options.services.registry.forkActive(entryId, key),
     );
     if (!branch.ok) {
       return undefined;
