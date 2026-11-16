@@ -27,10 +27,12 @@ interface FakeEngine {
   kind: string;
   catalog: unknown;
   extras: unknown;
+  /** No factory capabilities: `engineOptions()` then reports no config reload. */
+  factory: Record<string, never>;
 }
 
 function engine(kind: string): FakeEngine {
-  return { kind, catalog: { kind }, extras: { kind } };
+  return { kind, catalog: { kind }, extras: { kind }, factory: {} };
 }
 
 /** A pi adapter whose binary is either found (`describe` returns) or missing. */
