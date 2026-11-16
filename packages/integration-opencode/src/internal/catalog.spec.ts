@@ -138,6 +138,28 @@ describe('readAgentCatalog', () => {
     const catalog = await readAgentCatalog(api as unknown as OpenCodeApi, '/work', silentLogger);
     expect(catalog.models.size).toBe(0);
   });
+
+  it('tolerates an agent whose model is explicitly null', async () => {
+    // The wire can serialise an absent model as `null`; one such agent must not
+    // take the whole catalog (and with it the session open) down.
+    const api = new FakeApi(
+      [
+        { id: 'build', name: 'Build', mode: 'primary', model: null },
+        {
+          id: 'plan',
+          name: 'Plan',
+          mode: 'primary',
+          model: { id: 'hy4', providerID: 'opencode-go' },
+        },
+      ],
+      [],
+    );
+    const catalog = await readAgentCatalog(api as unknown as OpenCodeApi, '/work', silentLogger);
+
+    expect(catalog.modes.map((mode) => mode.id)).toEqual(['build', 'plan']);
+    expect(catalog.models.has('build')).toBe(false);
+    expect(catalog.models.get('plan')).toEqual({ id: 'hy4', providerID: 'opencode-go' });
+  });
 });
 
 describe('readDefaultModel', () => {

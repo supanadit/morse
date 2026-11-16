@@ -28,7 +28,8 @@ export interface ApiAgent {
   description?: string;
   mode?: string;
   hidden?: boolean;
-  model?: ApiAgentModel;
+  /** `null` on the wire means the agent names no model, same as absent. */
+  model?: ApiAgentModel | null;
 }
 
 /** One configuration entry from `GET /api/config` (lowest to highest priority). */
@@ -141,6 +142,7 @@ function agentModel(agent: ApiAgent): ApiAgentModel | undefined {
   const model = agent.model;
   if (
     model === undefined ||
+    model === null ||
     typeof model.id !== 'string' ||
     model.id.length === 0 ||
     typeof model.providerID !== 'string' ||

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, AgentSessionState } from '@morse/agent';
 import { AgentUnavailableError, UnsupportedByHostError, silentLogger } from '@morse/system';
 import type { OpenCodeApi, OpenCodePage } from './internal/client.js';
+import type { OpenCodeConfigGuard } from './internal/config-guard.js';
 import type {
   OpenCodeEvent,
   OpenCodeEventListener,
@@ -150,6 +151,7 @@ async function harness(
     handler?: Handler;
     sessionId?: string;
     mode?: string;
+    guard?: OpenCodeConfigGuard;
   } = {},
 ): Promise<Harness> {
   const handler: Handler = options.handler ?? defaultHandler();
@@ -162,6 +164,7 @@ async function harness(
     logger: silentLogger,
     ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
     ...(options.mode === undefined ? {} : { mode: options.mode }),
+    ...(options.guard === undefined ? {} : { guard: options.guard }),
   });
   const events: AgentEvent[] = [];
   agent.subscribe((event) => events.push(event));
@@ -194,8 +197,20 @@ function defaultHandler(): Handler {
     }
     if (method === 'GET' && path === '/agent') {
       return [
-        { id: 'build', name: 'Build', mode: 'primary', hidden: false },
-        { id: 'plan', name: 'Plan', mode: 'primary', hidden: false },
+        {
+          id: 'build',
+          name: 'Build',
+          mode: 'primary',
+          hidden: false,
+          model: { id: 'flint-40b-free', providerID: 'opencode' },
+        },
+        {
+          id: 'plan',
+          name: 'Plan',
+          mode: 'primary',
+          hidden: false,
+          model: { id: 'plain-model', providerID: 'opencode' },
+        },
         { id: 'general', name: 'General', mode: 'subagent', hidden: false },
         { id: 'title', name: 'Title', mode: 'primary', hidden: true },
       ];
@@ -284,10 +299,10 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
-  it('claims no model before a run, then reports the one the step started serving', async () => {
-    // A session record without a model (a fresh Morse-opened session): the old
-    // behavior answered `/model/default`, which lies — a model the server cannot
-    // resolve falls back silently, so the label named a model never used.
+  it('starts a fresh session on its agent model, then reports the one the step started serving', async () => {
+    // A session record without a model (a fresh Morse-opened session): the build
+    // agent is configured with `flint-40b-free`, so that is the model the first
+    // prompt will use, and the panel names it before the run starts.
     const { agent, stream, events } = await harness({
       handler: (method, path, query) => {
         if (method === 'POST' && path === '/session') {
@@ -300,7 +315,7 @@ describe('OpenCodeAgent', () => {
       },
     });
     const before = await agent.state();
-    expect(before.model).toBeUndefined();
+    expect(before.model).toMatchObject({ provider: 'opencode', id: 'flint-40b-free' });
 
     const step = (id: string): OpenCodeEvent => ({
       type: 'session.step.started',
@@ -312,27 +327,146 @@ describe('OpenCodeAgent', () => {
       },
       created: 1_000,
     });
-    stream.emit('ses_1', step('plain-model'));
+    // The step served the model already named: nothing to correct, nothing said.
+    stream.emit('ses_1', step('flint-40b-free'));
     const served = await agent.state();
     expect(served.model).toMatchObject({
       provider: 'opencode',
-      id: 'plain-model',
-      name: 'Plain Model',
+      id: 'flint-40b-free',
+      name: 'Flint 40B Free',
     });
-    expect(served.availableThinkingLevels).toEqual([]);
-    // The first truth arrives silently; nothing was claimed before it.
+    expect(served.availableThinkingLevels).toEqual(['low', 'medium', 'high']);
     expect(events.filter((event) => event.type === 'agent/notice')).toEqual([]);
 
     // A silent fallback (the server could not resolve the configured model and
     // moved to another) is said out loud, not swapped into the label unnoticed.
-    stream.emit('ses_1', step('flint-40b-free'));
+    stream.emit('ses_1', step('plain-model'));
+    expect((await agent.state()).model).toMatchObject({
+      provider: 'opencode',
+      id: 'plain-model',
+    });
+    const notices = events.filter((event) => event.type === 'agent/notice');
+    expect(notices).toHaveLength(1);
+    expect((notices[0] as { text: string }).text).toContain('opencode/plain-model');
+    await agent.dispose();
+  });
+
+  it("seeds a fresh session with its agent's configured model", async () => {
+    const { agent } = await harness({
+      handler: (method, path, query) => {
+        if (method === 'POST' && path === '/session') return sessionInfo({ model: undefined });
+        if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+          return sessionInfo({ model: undefined });
+        }
+        return defaultHandler()(method, path, query, undefined);
+      },
+    });
     expect((await agent.state()).model).toMatchObject({
       provider: 'opencode',
       id: 'flint-40b-free',
     });
-    const notices = events.filter((event) => event.type === 'agent/notice');
-    expect(notices).toHaveLength(1);
-    expect((notices[0] as { text: string }).text).toContain('opencode/flint-40b-free');
+    await agent.dispose();
+  });
+
+  it('replaces the model when a never-prompted session switches to another agent', async () => {
+    const agents = [
+      {
+        id: 'build',
+        name: 'Build',
+        mode: 'primary',
+        hidden: false,
+        model: { id: 'flint-40b-free', providerID: 'opencode' },
+      },
+      {
+        id: 'plan',
+        name: 'Plan',
+        mode: 'primary',
+        hidden: false,
+        model: { id: 'plain-model', providerID: 'opencode' },
+      },
+    ];
+    let current = 'build';
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (method === 'POST' && path.endsWith('/agent')) {
+          current = (body as { agent: string }).agent;
+          return undefined;
+        }
+        if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+          return sessionInfo({ agent: current, model: undefined });
+        }
+        if (method === 'GET' && path === '/agent') return agents;
+        return defaultHandler()(method, path, query, undefined);
+      },
+    });
+    await agent.setMode('plan');
+    expect((await agent.state()).model).toMatchObject({ id: 'plain-model' });
+    await agent.dispose();
+  });
+
+  it('refreshes catalogs without losing a still-valid current model', async () => {
+    const { agent, api } = await harness();
+    await agent.refreshConfig();
+    expect(api.calls.some((call) => call.method === 'GET' && call.path === '/model')).toBe(true);
+    expect((await agent.state()).model).toMatchObject({ id: 'flint-40b-free' });
+    await agent.dispose();
+  });
+
+  it('keeps the session mode when a reload no longer lists it', async () => {
+    const { agent } = await harness({
+      handler: (method, path, query) => {
+        if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+          return sessionInfo({ agent: 'plan', model: undefined });
+        }
+        if (method === 'GET' && path === '/agent') {
+          return [{ id: 'build', name: 'Build', mode: 'primary', hidden: false }];
+        }
+        return defaultHandler()(method, path, query, undefined);
+      },
+    });
+    await agent.refreshConfig();
+    const state = await agent.state();
+    expect(state.availableModes?.map((mode) => mode.id)).toEqual(['build']);
+    expect(state.mode).toBe('plan');
+    await agent.dispose();
+  });
+
+  it('reports a running turn to the config guard and releases the session on dispose', async () => {
+    const guard = {
+      setStreaming: vi.fn(),
+      forget: vi.fn(),
+    } as unknown as OpenCodeConfigGuard;
+    const { agent, stream } = await harness({ guard });
+
+    stream.emit('ses_1', {
+      type: 'session.execution.started',
+      data: { sessionID: 'ses_1' },
+      created: 60,
+    });
+    expect(guard.setStreaming).toHaveBeenCalledWith('ses_1', true);
+
+    stream.emit('ses_1', {
+      type: 'session.execution.succeeded',
+      data: { sessionID: 'ses_1' },
+      created: 61,
+    });
+    expect(guard.setStreaming).toHaveBeenCalledWith('ses_1', false);
+
+    await agent.dispose();
+    expect(guard.forget).toHaveBeenCalledWith('ses_1');
+  });
+
+  it('moves its guard booking with a forked session', async () => {
+    const guard = {
+      setStreaming: vi.fn(),
+      forget: vi.fn(),
+    } as unknown as OpenCodeConfigGuard;
+    const { agent } = await harness({ guard });
+
+    await agent.fork('msg_1');
+    // The old id is released, and the new one carries the live streaming truth.
+    expect(guard.forget).toHaveBeenCalledWith('ses_1');
+    expect(guard.setStreaming).toHaveBeenCalledWith('ses_2', false);
     await agent.dispose();
   });
 

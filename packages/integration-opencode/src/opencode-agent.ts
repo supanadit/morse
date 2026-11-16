@@ -27,7 +27,13 @@ import {
 } from '@morse/agent';
 import { AgentUnavailableError, UnsupportedByHostError, type MorseLogger } from '@morse/system';
 import type { OpenCodeApi } from './internal/client.js';
-import { defaultModeId, readAgentModes, readDefaultModel } from './internal/catalog.js';
+import {
+  defaultModeId,
+  readAgentCatalog,
+  readDefaultModel,
+  type AgentCatalog,
+  type ApiAgentModel,
+} from './internal/catalog.js';
 import type { OpenCodeConfigGuard } from './internal/config-guard.js';
 import { listCommands, parseCommandFile } from './internal/opencode-prompts-config.js';
 import { OpenCodeEventMapper, toTokenUsage } from './internal/event-mapping.js';
@@ -171,6 +177,10 @@ export class OpenCodeAgent extends Session {
   private readonly guard: OpenCodeConfigGuard | undefined;
   private readonly mapper = new OpenCodeEventMapper();
   private readonly models = new Map<string, ApiModel>();
+  /** The model each primary agent is configured to run, by mode id. */
+  private readonly agentModels = new Map<string, ApiAgentModel>();
+  /** The agent OpenCode resolves for a session that has not named one. */
+  private defaultMode: string | undefined;
   private readonly imageFiles: string[] = [];
   private engineId: string;
   private unsubscribe: (() => void) | undefined;
@@ -208,6 +218,11 @@ export class OpenCodeAgent extends Session {
    */
   protected override mergeState(patch: Partial<AgentSessionState>): void {
     super.mergeState(patch);
+    if (patch.streaming !== undefined) {
+      // A config reload must never fire under a running turn; the guard is what
+      // knows which sessions are mid-step.
+      this.guard?.setStreaming(this.engineId, patch.streaming);
+    }
     const last = this.box.lastUsage;
     const contextWindow = this.box.model?.contextWindow;
     if (last === undefined || contextWindow === undefined || contextWindow <= 0) {
@@ -251,7 +266,7 @@ export class OpenCodeAgent extends Session {
     // The catalog is a nicety: a server that cannot answer it still serves the
     // conversation, so a failure degrades the pickers instead of the session.
     const directory = session.location?.directory ?? options.workspace.cwd;
-    const [models, commands, modes] = await Promise.all([
+    const [models, commands, catalog] = await Promise.all([
       options.api
         .get<ApiModel[]>('/model', { 'location[directory]': directory })
         .catch((error: unknown): ApiModel[] => {
@@ -259,28 +274,47 @@ export class OpenCodeAgent extends Session {
           return [];
         }),
       readAvailableCommands(options.api, directory, options.logger, options.configDir),
-      readAgentModes(options.api, directory, options.logger),
+      readAgentCatalog(options.api, directory, options.logger),
     ]);
-    // A fresh session has no model until its first prompt, so read the one the
-    // server would pick. It may not be in the catalog a stale server returned;
-    // append it so the picker can name it.
-    const defaultModel =
+    // A fresh session names no model until its first prompt. The model it will
+    // use is the one its agent is configured to run; `/model/default` is only
+    // the server's own fallback when that agent's model is not in the catalog.
+    // Both are read only for a session that has no model yet — a resumed one
+    // keeps the model the server recorded.
+    const fallbackModel =
       session.model === undefined
-        ? await readDefaultModel(options.api, directory, options.logger)
+        ? await resolveFallbackModel(
+            options.api,
+            directory,
+            options.logger,
+            models,
+            catalog,
+            session.agent ?? catalog.defaultMode,
+          )
         : undefined;
+    // A default the catalog a stale server returned does not list is appended so
+    // the picker can name it.
     const catalogModels =
-      defaultModel === undefined ||
+      fallbackModel === undefined ||
       models.some(
-        (model) => model.providerID === defaultModel.providerID && model.id === defaultModel.id,
+        (model) => model.providerID === fallbackModel.providerID && model.id === fallbackModel.id,
       )
         ? models
-        : [...models, defaultModel];
+        : [...models, fallbackModel];
 
     const agent = new OpenCodeAgent(
       options,
       session,
-      initialStateOf(session, options.workspace, catalogModels, commands, modes),
+      initialStateOf(
+        session,
+        options.workspace,
+        catalogModels,
+        commands,
+        catalog.modes,
+        fallbackModel,
+      ),
     );
+    agent.adoptCatalog(catalog);
     for (const model of catalogModels) {
       agent.models.set(modelKey(model), model);
     }
@@ -394,6 +428,24 @@ export class OpenCodeAgent extends Session {
 
   // ---------------------------------------------------------------- models
 
+  /**
+   * Replaces the agent-model map and the configured default from a catalog read.
+   *
+   * An empty catalog changes nothing: every caller treats it as a read that
+   * failed or raced a starting project, and blanking the map would leave the
+   * next refresh with nothing to resolve a model through.
+   */
+  private adoptCatalog(catalog: AgentCatalog): void {
+    if (catalog.modes.length === 0) {
+      return;
+    }
+    this.agentModels.clear();
+    for (const [id, model] of catalog.models) {
+      this.agentModels.set(id, model);
+    }
+    this.defaultMode = catalog.defaultMode;
+  }
+
   /** Selects a catalog model, keeping the current level when that model offers it. */
   async setModel(model: ModelRef): Promise<void> {
     const apiModel = this.modelFor(model.provider, model.id);
@@ -437,6 +489,10 @@ export class OpenCodeAgent extends Session {
   /**
    * Switches the session's agent. OpenCode owns the record, so the choice is
    * sent there rather than kept as a Morse-only field; the state follows.
+   *
+   * The new agent may be configured with another model, and a session that never
+   * prompted has no model of its own to keep: re-reading the record is what names
+   * the model the next step will actually use.
    */
   async setMode(mode: string): Promise<void> {
     const offered = this.box.availableModes ?? [];
@@ -448,6 +504,9 @@ export class OpenCodeAgent extends Session {
     await this.api.post(`/session/${encodeURIComponent(this.engineId)}/agent`, {
       agent: mode,
     });
+    await this.refreshState();
+    // The reader's choice wins over a record that may still read the old agent:
+    // the POST above settled it.
     this.mergeState({ mode });
     this.emitState(Date.now());
   }
@@ -459,23 +518,109 @@ export class OpenCodeAgent extends Session {
    * the reader's back.
    */
   async refreshModes(): Promise<void> {
-    const modes = await readAgentModes(this.api, this.box.workspace.cwd, this.log);
+    const catalog = await readAgentCatalog(this.api, this.box.workspace.cwd, this.log);
     // OpenCode always ships primary agents, so an empty answer is a read that
     // failed or raced a starting project, not a configuration without modes.
     // Dropping the list would take the mode picker away from a session that can
     // still use it; keep the last one until the server answers again.
-    if (modes.length === 0) {
+    if (catalog.modes.length === 0) {
       return;
     }
-    const patch: Partial<AgentSessionState> = { availableModes: modes };
+    this.adoptCatalog(catalog);
+    const patch: Partial<AgentSessionState> = { availableModes: catalog.modes };
     if (this.box.mode === undefined) {
-      const mode = defaultModeId(modes);
+      const mode = defaultModeId(catalog.modes);
       if (mode !== undefined) {
         patch.mode = mode;
       }
     }
     this.mergeState(patch);
     this.emitState(Date.now());
+  }
+
+  // ---------------------------------------------------------------- catalogs
+
+  /**
+   * Re-reads every catalog the composer shows and replaces the maps behind them.
+   *
+   * This is the manual reload's path: a config file OpenCode has just re-read
+   * can add, rename or remove models, agents, commands and skills, and a warm
+   * session must see that without being reopened. A still-valid current model is
+   * kept; one the new catalog no longer lists is replaced with the model its
+   * agent is configured to run. The current mode is never dropped for an empty
+   * modes list — that answer is a failed read, not a configuration.
+   */
+  async refreshConfig(): Promise<void> {
+    const directory = this.box.workspace.cwd;
+    const [models, commands, catalog] = await Promise.all([
+      this.api
+        .get<ApiModel[]>('/model', { 'location[directory]': directory })
+        .catch((error: unknown): ApiModel[] => {
+          this.log.warn('Could not read the OpenCode model catalog', error);
+          return [];
+        }),
+      readAvailableCommands(this.api, directory, this.log, this.configDir),
+      readAgentCatalog(this.api, directory, this.log),
+    ]);
+    if (this.disposed) {
+      return;
+    }
+    // Replace the map first: the state refresh below resolves its model through it.
+    this.models.clear();
+    for (const model of models) {
+      this.models.set(modelKey(model), model);
+    }
+    const patch: Partial<AgentSessionState> = {
+      availableModels: toModelRefs(models),
+      availableCommands: [...commands],
+    };
+    if (catalog.modes.length > 0) {
+      this.adoptCatalog(catalog);
+      patch.availableModes = catalog.modes;
+      if (this.box.mode === undefined) {
+        const mode = defaultModeId(catalog.modes);
+        if (mode !== undefined) {
+          patch.mode = mode;
+        }
+      }
+    }
+    this.mergeState(patch);
+    this.emitState(Date.now());
+
+    // The session record carries the agent another client may have switched and
+    // the usage the reload did not touch; a fresh session's model resolves
+    // through the catalog just replaced.
+    await this.refreshState();
+
+    const current = this.box.model;
+    if (current === undefined || this.modelFor(current.provider, current.id) !== undefined) {
+      return;
+    }
+    const agentModel =
+      this.box.mode === undefined ? undefined : this.agentModels.get(this.box.mode);
+    const replacement =
+      agentModel === undefined ? undefined : this.modelFor(agentModel.providerID, agentModel.id);
+    if (replacement === undefined) {
+      // Nothing names a model that would serve; leaving the last one is more
+      // honest than blanking the panel mid-conversation.
+      return;
+    }
+    this.mergeState({
+      model: toModelRef(replacement),
+      availableThinkingLevels: thinkingLevelsOf(replacement),
+      thinkingLevel: thinkingLevelOf(replacement, agentModel?.variant),
+    });
+    this.emitState(Date.now());
+  }
+
+  /** The model picker's refresh; every catalog is replaced by the same read. */
+  async refreshModels(): Promise<void> {
+    await this.refreshConfig();
+  }
+
+  /** The command palette's refresh; every catalog is replaced by the same read. */
+  async refreshCommands(): Promise<void> {
+    await this.refreshConfig();
   }
 
   // ---------------------------------------------------------------- fork / rewrite / clone
@@ -636,7 +781,12 @@ export class OpenCodeAgent extends Session {
     if (forked === undefined || typeof forked.id !== 'string' || forked.id.length === 0) {
       throw new AgentUnavailableError('OpenCode did not return the forked session.');
     }
+    const previous = this.engineId;
     this.engineId = forked.id;
+    // The guard tracks turns by engine id, so the booking moves with the session
+    // or a reload would wait on an id nobody answers for.
+    this.guard?.forget(previous);
+    this.guard?.setStreaming(this.engineId, this.box.streaming);
     this.mergeState({ sessionId: forked.id });
     this.unsubscribe?.();
     this.attach();
@@ -872,7 +1022,7 @@ export class OpenCodeAgent extends Session {
     // agents; the mode picker then never appears. Re-read them on a refresh
     // (connect or run end) until one lands, and leave a known list alone.
     const modesMissing = (this.box.availableModes ?? []).length === 0;
-    const [session, metrics, modes] = await Promise.all([
+    const [session, metrics, catalog] = await Promise.all([
       this.api.get<ApiSessionInfo>(`/session/${encodeURIComponent(this.engineId)}`),
       // Resuming has no step event to report the last answer, so the ring would
       // stay empty until the reader prompts again. This is the one read that
@@ -883,7 +1033,7 @@ export class OpenCodeAgent extends Session {
         return undefined;
       }),
       modesMissing
-        ? readAgentModes(this.api, this.box.workspace.cwd, this.log)
+        ? readAgentCatalog(this.api, this.box.workspace.cwd, this.log)
         : Promise.resolve(undefined),
     ]);
     if (this.disposed) {
@@ -896,7 +1046,7 @@ export class OpenCodeAgent extends Session {
     }
     const apiModel =
       session.model === undefined
-        ? this.selectedModel()
+        ? this.fallbackModelFor(session.agent ?? this.defaultMode)
         : this.modelFor(session.model.providerID, session.model.id);
     const patch: Partial<AgentSessionState> = {};
     if (typeof session.title === 'string' && session.title.length > 0) {
@@ -926,10 +1076,11 @@ export class OpenCodeAgent extends Session {
         patch.speed = metrics.speed;
       }
     }
-    if (modes !== undefined && modes.length > 0) {
-      patch.availableModes = modes;
+    if (catalog !== undefined && catalog.modes.length > 0) {
+      this.adoptCatalog(catalog);
+      patch.availableModes = catalog.modes;
       if (this.box.mode === undefined) {
-        const mode = defaultModeId(modes);
+        const mode = defaultModeId(catalog.modes);
         if (mode !== undefined) {
           patch.mode = mode;
         }
@@ -983,6 +1134,18 @@ export class OpenCodeAgent extends Session {
   private selectedModel(): ApiModel | undefined {
     const model = this.box.model;
     return model === undefined ? undefined : this.modelFor(model.provider, model.id);
+  }
+
+  /**
+   * The model a session with no recorded one would use: the configured model of
+   * the agent it runs, when the catalog knows it, else whatever the state
+   * already shows (which is how a `/model/default` seed survives a refresh).
+   */
+  private fallbackModelFor(mode: string | undefined): ApiModel | undefined {
+    const agentModel = mode === undefined ? undefined : this.agentModels.get(mode);
+    const configured =
+      agentModel === undefined ? undefined : this.modelFor(agentModel.providerID, agentModel.id);
+    return configured ?? this.selectedModel();
   }
 
   private modelFor(provider: string, id: string): ApiModel | undefined {
@@ -1039,15 +1202,21 @@ function initialStateOf(
   models: readonly ApiModel[],
   commands: readonly AgentCommand[],
   modes: readonly AgentMode[],
+  fallbackModel?: ApiModel,
 ): AgentSessionState {
   const apiModel =
     session.model === undefined
-      ? undefined
+      ? fallbackModel
       : models.find(
           (model) =>
             model.providerID === session.model?.providerID && model.id === session.model?.id,
         );
-  const model = apiModel === undefined ? modelRefOf(session.model) : toModelRef(apiModel);
+  const model =
+    apiModel !== undefined
+      ? toModelRef(apiModel)
+      : session.model === undefined
+        ? undefined
+        : modelRefOf(session.model);
   const usage = toTokenUsage(session.tokens);
   const directory = session.location?.directory;
   // A session created without an agent has none on its record until the first
@@ -1076,6 +1245,32 @@ function initialStateOf(
       ? { costUsd: session.cost }
       : {}),
   };
+}
+
+/**
+ * The model a session with no recorded one would use: the agent's configured
+ * model when that model is in the catalog, else the server's own default.
+ *
+ * `/model/default` is read only when the agent's model cannot be resolved, and a
+ * model no catalog knows stays undefined rather than naming one that will not
+ * serve.
+ */
+async function resolveFallbackModel(
+  api: OpenCodeApi,
+  directory: string,
+  logger: MorseLogger,
+  models: readonly ApiModel[],
+  catalog: AgentCatalog,
+  mode: string | undefined,
+): Promise<ApiModel | undefined> {
+  const agentModel = mode === undefined ? undefined : catalog.models.get(mode);
+  const configured =
+    agentModel === undefined
+      ? undefined
+      : models.find(
+          (model) => model.providerID === agentModel.providerID && model.id === agentModel.id,
+        );
+  return configured ?? (await readDefaultModel(api, directory, logger));
 }
 
 function modelRefOf(model: ApiSessionInfo['model']): ModelRef | undefined {
