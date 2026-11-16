@@ -17,14 +17,32 @@
         <h2 class="title">{{ conversation.title }}</h2>
         <span class="members">{{ memberNames(conversation) }}</span>
       </div>
-      <button
-        type="button"
-        class="new-discussion"
-        title="Start every bot on a fresh engine session, keeping this history"
-        (click)="newDiscussion()"
-      >
-        New discussion
-      </button>
+      <div class="actions">
+        <button
+          type="button"
+          class="head-action compact"
+          title="Ask every bot's engine to summarise what it holds, keeping this history"
+          (click)="compact()"
+        >
+          Compact
+        </button>
+        <button
+          type="button"
+          class="head-action danger clear-messages"
+          title="Delete this conversation's transcript and every bot's session for it"
+          (click)="clearMessages()"
+        >
+          Clear messages
+        </button>
+        <button
+          type="button"
+          class="head-action new-discussion"
+          title="Start every bot on a fresh engine session, keeping this history"
+          (click)="newDiscussion()"
+        >
+          New discussion
+        </button>
+      </div>
     </header>
 
     <!--
@@ -73,12 +91,17 @@
                   </div>
                 }
                 <morse-markdown [text]="entry.text" variant="user" />
-                <time
-                  class="when"
-                  [attr.datetime]="stamp(entry.at)"
-                  [title]="fullStamp(entry.at)"
-                  >{{ clock(entry.at) }}</time
-                >
+                <div class="line-meta">
+                  <time
+                    class="when"
+                    [attr.datetime]="stamp(entry.at)"
+                    [title]="fullStamp(entry.at)"
+                    >{{ clock(entry.at) }}</time
+                  >
+                  <!-- The same control code mode's transcript uses, so copying
+                       is one learned gesture in both modes. -->
+                  <morse-copy-button [text]="entry.text" />
+                </div>
               </div>
             </div>
           }
@@ -88,12 +111,15 @@
               <div class="body">
                 <span class="author">{{ entry.author.name }}</span>
                 <div class="text"><morse-markdown [text]="entry.text" /></div>
-                <time
-                  class="when"
-                  [attr.datetime]="stamp(entry.at)"
-                  [title]="fullStamp(entry.at)"
-                  >{{ clock(entry.at) }}</time
-                >
+                <div class="line-meta">
+                  <time
+                    class="when"
+                    [attr.datetime]="stamp(entry.at)"
+                    [title]="fullStamp(entry.at)"
+                    >{{ clock(entry.at) }}</time
+                  >
+                  <morse-copy-button [text]="entry.text" label="Copy" title="Copy response" />
+                </div>
               </div>
             </div>
           }
@@ -137,6 +163,7 @@
         [placeholder]="'Message ' + conversation.title + '…'"
         [botMembers]="mentionMembers()"
         [botBroadcast]="canBroadcast()"
+        [botUsage]="usage()"
         (botSend)="send($event)"
       />
     </div>

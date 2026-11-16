@@ -66,6 +66,10 @@ function fakeBot() {
     send: vi.fn(() => Promise.resolve()),
     stop: vi.fn(),
     newDiscussion: vi.fn(),
+    clear: vi.fn(() => Promise.resolve()),
+    compact: vi.fn(() => Promise.resolve()),
+    routing: vi.fn(() => null),
+    usage: vi.fn(() => undefined),
   };
   return {
     service: service as unknown as BotService,
@@ -310,15 +314,21 @@ describe('MorseSessionFactory bot wiring', () => {
       payload: { conversationId: 'dm-x' },
     });
 
-    expect(messages.at(-1)).toEqual({
-      type: 'bot/transcript',
-      payload: {
-        conversationId: 'dm-x',
-        entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
-        replace: true,
-        hasMore: false,
+    // The page, then the presence of the conversation (null: no round in flight).
+    // Opening re-sends both, so a chat the reader returns to mid-round is not
+    // drawn as idle, and its counters are not lost.
+    expect(messages.slice(-2)).toEqual([
+      {
+        type: 'bot/transcript',
+        payload: {
+          conversationId: 'dm-x',
+          entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+          replace: true,
+          hasMore: false,
+        },
       },
-    });
+      { type: 'bot/routing', payload: { conversationId: 'dm-x', state: null } },
+    ]);
   });
 
   it('broadcasts routing state and forgets the feed when the socket disconnects', () => {
@@ -330,11 +340,30 @@ describe('MorseSessionFactory bot wiring', () => {
     gateway.handleConnection(socket);
     expect(bot.subscribe).toHaveBeenCalledTimes(1);
 
-    bot.emit({ type: 'routing', state: { conversationId: 'dm-x', queued: [] } });
+    bot.emit({
+      type: 'routing',
+      conversationId: 'dm-x',
+      state: { conversationId: 'dm-x', queued: [] },
+    });
     const sent = (socket.send as unknown as { mock: { calls: [string][] } }).mock.calls;
     expect(JSON.parse(sent.at(-1)?.[0] ?? '{}')).toMatchObject({
       type: 'bot/routing',
-      payload: { state: { conversationId: 'dm-x', queued: [] } },
+      payload: { conversationId: 'dm-x', state: { conversationId: 'dm-x', queued: [] } },
+    });
+
+    // A turn's counters ride the same feed, keyed by the conversation they belong
+    // to, so the composer's ring follows the bot that just answered.
+    bot.emit({
+      type: 'usage',
+      usage: {
+        conversationId: 'dm-x',
+        bot: 'Forge',
+        contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 0.5 },
+      },
+    });
+    expect(JSON.parse(sent.at(-1)?.[0] ?? '{}')).toMatchObject({
+      type: 'bot/usage',
+      payload: { conversationId: 'dm-x', bot: 'Forge' },
     });
 
     gateway.handleDisconnect(socket);

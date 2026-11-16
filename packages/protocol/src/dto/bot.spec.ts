@@ -47,6 +47,8 @@ const CLIENT_BOT_MESSAGES = [
   { type: 'bot/send', payload: { conversationId: 'dm-forge', text: 'hi' } },
   { type: 'bot/stop', payload: { conversationId: 'dm-forge' } },
   { type: 'bot/newDiscussion', payload: { conversationId: 'dm-forge' } },
+  { type: 'bot/clear', payload: { conversationId: 'dm-forge' } },
+  { type: 'bot/compact', payload: { conversationId: 'dm-forge' } },
   {
     type: 'bot/groupCreate',
     payload: { name: 'Launch', members: ['forge', 'scout'], lead: 'forge' },
@@ -71,7 +73,15 @@ const HOST_BOT_MESSAGES = [
     type: 'bot/transcript',
     payload: { conversationId: 'dm-forge', entries: [], replace: true },
   },
-  { type: 'bot/routing', payload: { state: null } },
+  { type: 'bot/routing', payload: { conversationId: 'dm-forge', state: null } },
+  {
+    type: 'bot/usage',
+    payload: {
+      conversationId: 'dm-forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 21_000, contextWindow: 200_000, percent: 10.5 },
+    },
+  },
   { type: 'bot/models', payload: { requestId: 'req-2', kind: 'pi', models: [] } },
 ] as const;
 

@@ -701,6 +701,19 @@ export class HostSessionController {
             hasMore: page.hasMore,
           },
         });
+        // The two facts the service only pushes when they change: a client that
+        // arrives (or comes back) mid-round has to be told them, or the chat shows
+        // nothing happening while a bot is still working — and the composer's ring
+        // stays empty over a conversation that already has counters.
+        const routing = bot.routing(conversationId);
+        this.options.emit({
+          type: 'bot/routing',
+          payload: { conversationId, state: routing },
+        });
+        const usage = bot.usage(conversationId);
+        if (usage !== undefined) {
+          this.options.emit({ type: 'bot/usage', payload: usage });
+        }
         return;
       }
       case 'bot/history': {
@@ -740,6 +753,19 @@ export class HostSessionController {
         return;
       case 'bot/newDiscussion':
         await this.runBotAction(() => bot.newDiscussion(message.payload.conversationId));
+        return;
+      case 'bot/clear':
+        // The service pushes the emptied transcript itself (`replace` with no
+        // lines), so the client's page is cleared by the same path that clears
+        // the file; the roster is republished because the prune also ends any
+        // round, and a warm bot goes cold with it.
+        await this.runBotAction(() => bot.clear(message.payload.conversationId));
+        return;
+      case 'bot/compact':
+        // Compaction is a model call per member, so it is awaited like any other
+        // bot mutation: the round of notes and counters it writes arrives through
+        // the service's own pushes.
+        await this.runBotAction(() => bot.compact(message.payload.conversationId));
         return;
       default:
         // A `bot/*` request this controller does not route (a newer frontend on

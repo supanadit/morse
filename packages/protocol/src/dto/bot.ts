@@ -6,6 +6,7 @@
 import type { ModelOption } from './model.js';
 import type { McpServer } from './mcp.js';
 import type { ModelInput, ThinkingLevel } from './primitives.js';
+import type { ContextUsage, SessionCounts, SessionSpeed, TokenUsage } from './session.js';
 import type { PromptImage } from './transcript.js';
 
 /** One bot in the roster, as the sidebar lists it. */
@@ -118,6 +119,29 @@ export interface BotRoutingState {
   queued: string[];
   /** What the target is doing right now; absent until it reports, and after it says. */
   activity?: BotActivity;
+}
+
+/**
+ * What one conversation's last answer cost, in the terms the composer's context
+ * ring shows: how full the model's window is and what the engine session spent.
+ *
+ * A bot answers from its own engine session, so these are one bot's counters and
+ * not the conversation's. A group therefore reports the member that answered
+ * last — the session the reader just watched work — and names it, so a ring that
+ * jumps between members says whose it is.
+ */
+export interface BotUsage {
+  conversationId: string;
+  /** The bot whose engine session these counters belong to, by display name. */
+  bot?: string;
+  usage?: TokenUsage;
+  lastUsage?: TokenUsage;
+  contextUsage?: ContextUsage;
+  costUsd?: number;
+  counts?: SessionCounts;
+  speed?: SessionSpeed;
+  /** The model that engine session runs, for the panel's output cap. */
+  model?: ModelOption;
 }
 
 /** What the reader attached to one line, when anything was. */

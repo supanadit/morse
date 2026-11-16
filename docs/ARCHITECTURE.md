@@ -289,6 +289,22 @@ nothing else. Two rules follow from that, and both are easy to break by accident
 The round is announced before its engine is warm (`starting`, "Getting started…"), because starting one takes
 seconds and a silent chat in those seconds reads as a dropped message.
 
+A round belongs to its conversation, not to the window in front: `bot/routing` names the conversation on the
+envelope, so rounds can run in two rooms at once and a reader moving between them finds each row as the host
+last reported it. A round ending clears exactly its own room, and `bot/open` re-sends the round in flight with
+the counters that room last reported (`bot/routing`, `bot/usage`) — which is what makes a reloaded or revisited
+chat show a bot still working instead of looking broken.
+
+### What a turn cost
+
+Each bot answers from its own engine session, so the composer's context ring can only ever describe one member:
+the one that answered last. The host reads the engine's own counters at the turn's end (and again after a
+compaction) and pushes them as `bot/usage`, keeping the last set per conversation — a warm gateway is retired when
+a bot goes idle, and the ring must not go blank with a process it never named. A cleared conversation pushes the
+id alone, which is how the frontend knows there is nothing left to draw. The same indicator — and the same popup
+on click — draws it in its `context` variant: spent and remaining tokens, not a code session's message counts,
+cache, speed and cost, which would be one bot's half-known numbers claiming more than they can.
+
 ### What a bot message can carry
 
 A bot conversation has no workspace picker and no upload route, so a message carries its attachments: `bot/send`

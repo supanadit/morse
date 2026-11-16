@@ -40,6 +40,7 @@ export const HOST_MESSAGE_TYPES = [
   'bot/config',
   'bot/transcript',
   'bot/routing',
+  'bot/usage',
   'bot/models',
 ] as const;
 
@@ -88,6 +89,8 @@ export const CLIENT_MESSAGE_TYPES = [
   'bot/send',
   'bot/stop',
   'bot/newDiscussion',
+  'bot/clear',
+  'bot/compact',
   'bot/groupCreate',
   'bot/groupUpdate',
   'bot/groupDelete',

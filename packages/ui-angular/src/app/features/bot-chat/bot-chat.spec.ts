@@ -1,6 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type {
   BotConversationSummary,
+  BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
   ClientToHostMessage,
@@ -52,6 +53,21 @@ class RecordingHost extends MemoryHostTransport {
     this.sent.push(message);
     super.send(message);
   }
+}
+
+/**
+ * One routing push as the host sends it: the conversation on the envelope and the
+ * round inside. Kept as a helper because every test below is about the round, and
+ * the envelope is the same in all of them.
+ */
+function round(
+  conversationId: string,
+  state: Omit<BotRoutingState, 'conversationId'> | null,
+): { conversationId: string; state: BotRoutingState | null } {
+  return {
+    conversationId,
+    state: state === null ? null : { conversationId, ...state },
+  };
 }
 
 async function render(): Promise<{
@@ -233,12 +249,13 @@ describe('BotChat', () => {
     fixture.detectChanges();
     expect(host.querySelector('.acting')).toBeNull();
 
-    morse.bot.onRouting({
-      conversationId: workshop.id,
-      target: 'Forge',
-      queued: ['Sable'],
-      activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
-    });
+    morse.bot.onRouting(
+      round(workshop.id, {
+        target: 'Forge',
+        queued: ['Sable'],
+        activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
+      }),
+    );
     fixture.detectChanges();
 
     const row = host.querySelector('.transcript .acting') as HTMLElement;
@@ -248,7 +265,7 @@ describe('BotChat', () => {
     // Presence, not history: the row is not a line anyone scrolls back to.
     expect(host.querySelectorAll('.transcript .entry:not(.acting)').length).toBe(1);
 
-    morse.bot.onRouting(null);
+    morse.bot.onRouting(round(workshop.id, null));
     fixture.detectChanges();
     expect(host.querySelector('.acting')).toBeNull();
     expect(host.querySelector('.transcript')?.textContent).toContain('plan the launch');
@@ -259,21 +276,23 @@ describe('BotChat', () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);
 
-    morse.bot.onRouting({
-      conversationId: workshop.id,
-      target: 'Forge',
-      queued: [],
-      activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
-    });
+    morse.bot.onRouting(
+      round(workshop.id, {
+        target: 'Forge',
+        queued: [],
+        activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
+      }),
+    );
     fixture.detectChanges();
     const first = host.querySelector('.acting .doing-label') as HTMLElement;
 
-    morse.bot.onRouting({
-      conversationId: workshop.id,
-      target: 'Forge',
-      queued: [],
-      activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
-    });
+    morse.bot.onRouting(
+      round(workshop.id, {
+        target: 'Forge',
+        queued: [],
+        activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
+      }),
+    );
     fixture.detectChanges();
 
     const second = host.querySelector('.acting .doing-label') as HTMLElement;
@@ -287,7 +306,7 @@ describe('BotChat', () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);
 
-    morse.bot.onRouting({ conversationId: workshop.id, target: 'Sable', queued: [] });
+    morse.bot.onRouting(round(workshop.id, { target: 'Sable', queued: [] }));
     fixture.detectChanges();
 
     expect(host.querySelector('.acting .doing-label')?.textContent?.trim()).toBe(
@@ -299,12 +318,13 @@ describe('BotChat', () => {
     const { fixture, host, morse } = await render();
     open(morse, dm, []);
 
-    morse.bot.onRouting({
-      conversationId: workshop.id,
-      target: 'Sable',
-      queued: [],
-      activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
-    });
+    morse.bot.onRouting(
+      round(workshop.id, {
+        target: 'Sable',
+        queued: [],
+        activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
+      }),
+    );
     fixture.detectChanges();
 
     expect(host.querySelector('.acting')).toBeNull();
@@ -316,7 +336,7 @@ describe('BotChat', () => {
     fixture.detectChanges();
     expect(host.querySelector('.stop')).toBeNull();
 
-    morse.bot.onRouting({ conversationId: workshop.id, target: 'Forge', queued: [] });
+    morse.bot.onRouting(round(workshop.id, { target: 'Forge', queued: [] }));
     fixture.detectChanges();
     const stop = vi.spyOn(morse, 'stopBotRound');
 
@@ -348,6 +368,133 @@ describe('BotChat', () => {
     (host.querySelector('.new-discussion') as HTMLButtonElement).click();
 
     expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('clears the conversation only after asking, and says which one', async () => {
+    const { fixture, host, morse, sent } = await render();
+    open(morse, workshop, [entry('1', { role: 'user' }, 'hi')]);
+    fixture.detectChanges();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    (host.querySelector('.clear-messages') as HTMLButtonElement).click();
+
+    // Clearing deletes the transcript and every engine session, so it asks first.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(sent.at(-1)).toEqual({
+      type: 'bot/clear',
+      payload: { conversationId: workshop.id },
+    });
+  });
+
+  it('keeps the messages when clearing is declined', async () => {
+    const { fixture, host, morse, sent } = await render();
+    open(morse, workshop, [entry('1', { role: 'user' }, 'hi')]);
+    fixture.detectChanges();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const before = sent.length;
+
+    (host.querySelector('.clear-messages') as HTMLButtonElement).click();
+
+    expect(sent.length).toBe(before);
+    expect(host.querySelector('.transcript')?.textContent).toContain('hi');
+  });
+
+  it('compacts the conversation without asking, since nothing is lost', async () => {
+    const { fixture, host, morse, sent } = await render();
+    open(morse, workshop, [entry('1', { role: 'user' }, 'hi')]);
+    fixture.detectChanges();
+    const confirm = vi.spyOn(window, 'confirm');
+
+    (host.querySelector('.head-action.compact') as HTMLButtonElement).click();
+
+    // Compaction is about the engine's context, not the reader's history: the
+    // lines stay, so there is nothing to warn about.
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toEqual({
+      type: 'bot/compact',
+      payload: { conversationId: workshop.id },
+    });
+  });
+
+  it('copies a line, and shows the tick on the control that did it', async () => {
+    const { fixture, host, morse } = await render();
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    open(morse, workshop, [
+      entry('1', { role: 'user' }, 'the reader said this'),
+      entry('2', { role: 'bot', name: 'Forge', avatar: 'F' }, 'the **bot** said this'),
+    ]);
+    fixture.detectChanges();
+
+    const userCopy = host.querySelector('.entry.user .copy-msg') as HTMLButtonElement;
+    expect(userCopy.getAttribute('title')).toBe('Copy message');
+    userCopy.click();
+    fixture.detectChanges();
+
+    // The answer's markdown source is what leaves, the way code mode copies it.
+    const botCopy = host.querySelector('.entry.bot .copy-msg') as HTMLButtonElement;
+    botCopy.click();
+    fixture.detectChanges();
+
+    expect(writeText).toHaveBeenNthCalledWith(1, 'the reader said this');
+    expect(writeText).toHaveBeenNthCalledWith(2, 'the **bot** said this');
+    expect(botCopy.textContent?.trim()).toBe('✓ Copied');
+    expect(botCopy.classList.contains('revealed')).toBe(true);
+  });
+
+  it('draws the context ring from what the conversation reported', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, []);
+    fixture.detectChanges();
+    // Nothing has answered yet, so there is nothing to describe.
+    expect(host.querySelector('morse-usage-indicator')).toBeNull();
+
+    morse.bot.onUsage({
+      conversationId: dm.id,
+      bot: 'Forge',
+      contextUsage: { tokens: 42_000, contextWindow: 200_000, percent: 21 },
+    });
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-usage-indicator')).toBeTruthy();
+
+    // The popup is the budget, not a code session's whole economics: a bot
+    // answers from its own engine session, so messages, cache, speed and cost
+    // would be half-known numbers claiming more than they can.
+    (host.querySelector('morse-usage-indicator .mini') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const panel = host.querySelector('morse-usage-indicator .panel') as HTMLElement;
+    expect(panel.textContent).toContain('Remaining');
+    expect(panel.textContent).not.toContain('Session totals');
+    expect(panel.textContent).not.toContain('Tool calls');
+  });
+
+  it('keeps a round running while the reader reads another conversation', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        target: 'Forge',
+        queued: [],
+        activity: { kind: 'writing', label: 'Writing the answer…', at: 5 },
+      }),
+    );
+    fixture.detectChanges();
+    expect(host.querySelector('.acting .doing-label')?.textContent?.trim()).toBe(
+      'Writing the answer…',
+    );
+
+    // The reader switches rooms: the round belongs to the conversation it runs
+    // in, so coming back must find it exactly as it was.
+    morse.openBotConversation(dm.id);
+    fixture.detectChanges();
+    expect(host.querySelector('.acting')).toBeNull();
+
+    morse.openBotConversation(workshop.id);
+    fixture.detectChanges();
+    expect(host.querySelector('.acting .doing-label')?.textContent?.trim()).toBe(
+      'Writing the answer…',
+    );
   });
 
   it('sends from the composer as a bot line, with the conversation named in the box', async () => {

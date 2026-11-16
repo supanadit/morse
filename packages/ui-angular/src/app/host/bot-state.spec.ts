@@ -51,7 +51,10 @@ describe('BotState', () => {
     state.onRoster({ bots: [bot('forge')], conversations: [conversation('dm-forge')] });
     state.open('dm-forge');
     state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'hi')], replace: true });
-    state.onRouting({ conversationId: 'dm-forge', target: 'forge', queued: [] });
+    state.onRouting({
+      conversationId: 'dm-forge',
+      state: { conversationId: 'dm-forge', target: 'forge', queued: [] },
+    });
 
     // The bot was deleted: its conversation is gone from the roster, so the
     // workspace must not keep pointing at it — a prompt typed now would be sent
@@ -60,7 +63,7 @@ describe('BotState', () => {
 
     expect(state.activeId()).toBeNull();
     expect(state.transcripts()['dm-forge']).toBeUndefined();
-    expect(state.routing()).toBeNull();
+    expect(state.routing()['dm-forge']).toBeUndefined();
   });
 
   it('keeps the open conversation when a pushed roster still lists it', () => {
@@ -99,7 +102,11 @@ describe('BotState', () => {
 
   it('appends when the host sends entries alone', () => {
     const state = new BotState();
-    state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'hello')], replace: true });
+    state.onTranscript({
+      conversationId: 'dm-forge',
+      entries: [line('a', 'hello')],
+      replace: true,
+    });
 
     state.onTranscript({ conversationId: 'dm-forge', entries: [line('b', 'hi')], replace: false });
 
@@ -131,7 +138,11 @@ describe('BotState', () => {
 
   it('keeps each conversation transcript separate', () => {
     const state = new BotState();
-    state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'forge')], replace: true });
+    state.onTranscript({
+      conversationId: 'dm-forge',
+      entries: [line('a', 'forge')],
+      replace: true,
+    });
     state.onTranscript({ conversationId: 'group-1', entries: [line('b', 'group')], replace: true });
 
     // A replace on one conversation never touches another.
@@ -152,28 +163,81 @@ describe('BotState', () => {
     expect(state.transcripts()['dm-sable']).toEqual([]);
   });
 
-  it('sets and clears the routing state', () => {
+  it('per conversation sets and clears the routing state', () => {
     const state = new BotState();
     const route = { conversationId: 'group-1', target: 'forge', queued: ['sable'] };
 
-    state.onRouting(route);
-    expect(state.routing()).toEqual(route);
+    state.onRouting({ conversationId: 'group-1', state: route });
+    expect(state.routing()['group-1']).toEqual(route);
+    expect(state.routingFor('group-1')).toEqual(route);
 
-    state.onRouting(null);
-    expect(state.routing()).toBeNull();
+    state.onRouting({ conversationId: 'group-1', state: null });
+    expect(state.routingFor('group-1')).toBeUndefined();
   });
 
-  it('opens a conversation and drops the previous round', () => {
+  it("keeps another conversation's round when one ends", () => {
     const state = new BotState();
-    state.onRouting({ conversationId: 'dm-sable', target: 'sable', queued: [] });
+    // Two rooms, two rounds: a bot still answering in one is not affected by the
+    // other going quiet, which is the bug the per-conversation map exists for.
+    state.onRouting({
+      conversationId: 'group-1',
+      state: { conversationId: 'group-1', target: 'forge', queued: [] },
+    });
+    state.onRouting({
+      conversationId: 'dm-sable',
+      state: { conversationId: 'dm-sable', target: 'sable', queued: [] },
+    });
+
+    state.onRouting({ conversationId: 'dm-sable', state: null });
+
+    expect(state.routingFor('group-1')).toEqual({
+      conversationId: 'group-1',
+      target: 'forge',
+      queued: [],
+    });
+    expect(state.routingFor('dm-sable')).toBeUndefined();
+  });
+
+  it('keeps the round of a conversation it opens', () => {
+    const state = new BotState();
+    state.onRouting({
+      conversationId: 'dm-sable',
+      state: { conversationId: 'dm-sable', target: 'sable', queued: [] },
+    });
     state.onTranscript({ conversationId: 'dm-forge', entries: [line('a', 'hi')], replace: true });
 
     state.open('dm-forge');
 
     expect(state.activeId()).toBe('dm-forge');
-    expect(state.routing()).toBeNull();
+    // Switching chats is not stopping anything: the row is still there for the
+    // room being left, and is drawn again on the way back.
+    expect(state.routingFor('dm-sable')).toEqual({
+      conversationId: 'dm-sable',
+      target: 'sable',
+      queued: [],
+    });
     // Opening reads what is held; the host's replace reconciles it.
     expect(state.transcripts()['dm-forge']).toEqual([line('a', 'hi')]);
+  });
+
+  it("drops a conversation's counters when it is cleared, and keeps the rest", () => {
+    const state = new BotState();
+    state.onUsage({
+      conversationId: 'dm-forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 1200, contextWindow: 200_000, percent: 0.6 },
+    });
+    state.onUsage({
+      conversationId: 'dm-sable',
+      bot: 'Sable',
+      contextUsage: { tokens: 300, contextWindow: 100_000, percent: 0.3 },
+    });
+
+    // A prune sends the id alone: there is nothing left for the ring to describe.
+    state.onUsage({ conversationId: 'dm-forge' });
+
+    expect(state.usage()['dm-forge']).toBeUndefined();
+    expect(state.usage()['dm-sable']?.bot).toBe('Sable');
   });
 
   it('records probed models per request, keeping earlier answers', () => {

@@ -4,10 +4,12 @@ import type {
   BotConversationSummary,
   BotModelsMessage,
   BotRosterMessage,
+  BotRoutingMessage,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
   BotTranscriptMessage,
+  BotUsage,
   ModelOption,
 } from '@morse/protocol';
 
@@ -42,8 +44,23 @@ export class BotState {
    * asks for another page when the reader scrolls to the top and this is true.
    */
   readonly hasOlder = signal<Record<string, boolean>>({});
-  /** The round the host is running; `null` once none is in flight. */
-  readonly routing = signal<BotRoutingState | null>(null);
+  /**
+   * Every round in flight, keyed by conversation.
+   *
+   * A map rather than one value because rounds are per conversation: two bots can
+   * be answering in two rooms at once, and switching between them must neither
+   * hide the presence row of the one still working nor invent one for a room that
+   * is idle. `bot/routing` names its conversation on the way in — including when
+   * it clears — so a round ending in another room leaves this one alone.
+   */
+  readonly routing = signal<Record<string, BotRoutingState>>({});
+  /**
+   * The counters each conversation's last answer reported, keyed by conversation.
+   *
+   * Bot mode has one engine session per bot, so this is whichever member spoke
+   * last; the composer's ring draws it and says whose it is.
+   */
+  readonly usage = signal<Record<string, BotUsage>>({});
   /** The models each `bot/probeModels` request answered with, keyed by its id. */
   readonly models = signal<Record<string, ModelOption[]>>({});
   /**
@@ -59,7 +76,8 @@ export class BotState {
    * lists it means the host dropped it (a deleted bot, and the DM it kept), so
    * the workspace stops pointing at it. Leaving `activeId` behind would let the
    * composer send a prompt to a conversation that no longer exists, and the held
-   * transcript would linger for a row that is gone.
+   * transcript would linger for a row that is gone — with the round and the
+   * counters that described it, which is why all four go together.
    */
   onRoster(roster: BotRosterMessage['payload']): void {
     const conversations = [...roster.conversations];
@@ -69,7 +87,6 @@ export class BotState {
       return;
     }
     this.activeId.set(null);
-    this.routing.set(null);
     this.transcripts.update((held) => {
       if (held[active] === undefined) {
         return held;
@@ -79,6 +96,22 @@ export class BotState {
       return next;
     });
     this.hasOlder.update((held) => {
+      const next = { ...held };
+      delete next[active];
+      return next;
+    });
+    this.routing.update((held) => {
+      if (held[active] === undefined) {
+        return held;
+      }
+      const next = { ...held };
+      delete next[active];
+      return next;
+    });
+    this.usage.update((held) => {
+      if (held[active] === undefined) {
+        return held;
+      }
       const next = { ...held };
       delete next[active];
       return next;
@@ -101,12 +134,58 @@ export class BotState {
     });
     if (transcript.hasMore !== undefined) {
       this.hasOlder.update((held) => ({ ...held, [conversationId]: transcript.hasMore === true }));
+    } else if (replace) {
+      // A replace that does not say — a cleared conversation, or an older host —
+      // must not keep the previous answer: offering "scroll up for earlier
+      // messages" over a file that no longer exists invites a page of nothing.
+      this.hasOlder.update((held) => ({ ...held, [conversationId]: false }));
     }
   }
 
-  /** Who the host is asking right now, and whom it queued behind them. */
-  onRouting(state: BotRoutingState | null): void {
-    this.routing.set(state);
+  /**
+   * Who the host is asking in one conversation, and whom it queued behind them.
+   *
+   * `state: null` ends that conversation's row only. Anything else replaces it
+   * whole: the host always sends the round as it now stands.
+   */
+  onRouting(routing: BotRoutingMessage['payload']): void {
+    const { conversationId, state } = routing;
+    this.routing.update((held) => {
+      if (state === null) {
+        if (held[conversationId] === undefined) {
+          return held;
+        }
+        const next = { ...held };
+        delete next[conversationId];
+        return next;
+      }
+      return { ...held, [conversationId]: state };
+    });
+  }
+
+  /**
+   * What one conversation's last answer cost. An id with no counters (a pruned
+   * conversation) drops the ring rather than leaving the old number behind.
+   */
+  onUsage(usage: BotUsage): void {
+    this.usage.update((held) => {
+      const empty =
+        usage.usage === undefined &&
+        usage.lastUsage === undefined &&
+        usage.contextUsage === undefined &&
+        usage.counts === undefined &&
+        usage.speed === undefined &&
+        usage.costUsd === undefined;
+      if (!empty) {
+        return { ...held, [usage.conversationId]: usage };
+      }
+      if (held[usage.conversationId] === undefined) {
+        return held;
+      }
+      const next = { ...held };
+      delete next[usage.conversationId];
+      return next;
+    });
   }
 
   /** The models an engine offers with the wizard's credentials, for one request. */
@@ -120,12 +199,19 @@ export class BotState {
   }
 
   /**
-   * Points the workspace at one conversation. The previous round belongs to the
-   * conversation it started in, so the routing strip never shows over another.
+   * Points the workspace at one conversation.
+   *
+   * A round belongs to the conversation it started in, so nothing about the room
+   * being left is touched: the row for a bot still working stays in `routing` and
+   * is there again when the reader comes back.
    */
   open(id: string): void {
     this.activeId.set(id);
-    this.routing.set(null);
+  }
+
+  /** The round in flight in one conversation, if any. */
+  routingFor(id: string): BotRoutingState | undefined {
+    return this.routing()[id];
   }
 
   /** Drops a conversation's lines, keeping the key so it reads as opened-but-empty. */

@@ -16,6 +16,13 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
  * A compact context-window indicator for the composer: a small progress ring
  * that opens into a full usage panel on click — the ring is the glance, the
  * panel is the detail.
+ *
+ * Two panels in one component, because they answer two different questions. A
+ * code session is the reader's own run of work, so it reports the whole
+ * economics: messages, cache, speed, cost. A bot conversation has one engine
+ * session per bot, so its numbers are that bot's and only partly known — what
+ * matters there is the budget, so `variant: 'context'` draws used and remaining
+ * tokens and nothing else. Same ring, same popup, no second component.
  */
 @Component({
   selector: 'morse-usage-indicator',
@@ -35,6 +42,12 @@ export class UsageIndicator {
   readonly speed = input<SessionSpeed>();
   readonly model = input<ModelOption>();
   readonly sessionTitle = input<string>();
+  /**
+   * How much the panel says: `full` is a code session's whole economics, and
+   * `context` is only the window — used, remaining, and the limit it is measured
+   * against, which is all a bot's counters can honestly offer.
+   */
+  readonly variant = input<'full' | 'context'>('full');
 
   protected readonly open = signal(false);
   protected readonly circumference = CIRCUMFERENCE;
@@ -69,6 +82,19 @@ export class UsageIndicator {
     return window === undefined ? '—' : formatTokens(window);
   });
 
+  /**
+   * What is left of the window. `null` tokens means the engine has not said —
+   * right after a compaction it reports nothing until the next turn — so the
+   * remainder is unknown rather than assumed to be the whole window.
+   */
+  protected readonly remainingLabel = computed(() => {
+    const usage = this.contextUsage();
+    if (usage === undefined || usage.tokens === null || usage.tokens === undefined) {
+      return '—';
+    }
+    return formatTokens(Math.max(0, usage.contextWindow - usage.tokens));
+  });
+
   protected readonly costLabel = computed(() => formatCost(this.costUsd()) ?? '—');
 
   protected readonly outputLimitLabel = computed(() => {
@@ -82,7 +108,16 @@ export class UsageIndicator {
 
   /** Tooltip on the ring: the whole footer, without opening the panel. */
   protected readonly tooltip = computed(() => {
-    const lines: string[] = [`Context ${this.percentLabel()} · ${this.usedLabel()} / ${this.limitLabel()}`];
+    const lines: string[] = [
+      `Context ${this.percentLabel()} · ${this.usedLabel()} / ${this.limitLabel()}`,
+    ];
+    if (this.variant() === 'context') {
+      // A bot's panel offers the budget alone, so the ring's tooltip does too —
+      // printing a cost or a cache total here would reintroduce what the panel
+      // deliberately leaves out.
+      lines.push(`Remaining ${this.remainingLabel()}`);
+      return lines.join('\n');
+    }
     const summary = formatUsage({
       usage: this.usage(),
       costUsd: this.costUsd(),

@@ -300,7 +300,13 @@ export class MorseSessionFactory {
           });
           return;
         case 'routing':
-          emit({ type: 'bot/routing', payload: { state: event.state } });
+          emit({
+            type: 'bot/routing',
+            payload: { conversationId: event.conversationId, state: event.state },
+          });
+          return;
+        case 'usage':
+          emit({ type: 'bot/usage', payload: event.usage });
           return;
       }
     });

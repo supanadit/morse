@@ -123,14 +123,7 @@
                   </svg>
                 </button>
               }
-              <button
-                type="button"
-                class="copy-msg"
-                [title]="copiedId() === row.item.id ? 'Copied' : 'Copy message'"
-                (click)="copy(row.item)"
-              >
-                {{ copiedId() === row.item.id ? '✓' : '⧉' }}
-              </button>
+              <morse-copy-button [text]="copyText(row.item)" />
             </div>
           </div>
         }
@@ -159,15 +152,11 @@
                     </svg>
                   </button>
                 }
-                <button
-                  type="button"
-                  class="copy-msg"
-                  [class.revealed]="copiedId() === row.item.id"
-                  [title]="copiedId() === row.item.id ? 'Copied' : 'Copy response'"
-                  (click)="copyAssistant(row.item)"
-                >
-                  {{ copiedId() === row.item.id ? '✓ Copied' : '⧉ Copy' }}
-                </button>
+                <morse-copy-button
+                  [text]="row.item.text"
+                  label="Copy"
+                  title="Copy response"
+                />
               </div>
             } @else if (row.item.streaming) {
               <span class="cursor">&nbsp;</span>

@@ -9,6 +9,7 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
+  BotUsage,
   ComposerSeed,
   FrontendIdentity,
   HostCapabilities,
@@ -380,10 +381,30 @@ export interface BotTranscriptMessage extends HostMessageBase {
   };
 }
 
-/** Who the host is asking right now; `null` once no round is in flight. */
+/**
+ * Who the host is asking right now, per conversation; `state: null` once that
+ * conversation's round is over.
+ *
+ * The conversation id rides on the envelope, not only inside the state: a round
+ * ending clears this conversation's row and no other, which is what lets a chat
+ * the reader is not looking at keep its presence.
+ */
 export interface BotRoutingMessage extends HostMessageBase {
   type: 'bot/routing';
-  payload: { state: BotRoutingState | null };
+  payload: { conversationId: string; state: BotRoutingState | null };
+}
+
+/**
+ * What one conversation's last answer cost, for the composer's context ring.
+ *
+ * Pushed whenever an engine session reports new counters (after a turn, a
+ * compaction) and again when a conversation opens, so a chat the reader returns
+ * to shows the ring it had without waiting for another answer. A conversation
+ * with no usage yet — or one just cleared — sends the id alone.
+ */
+export interface BotUsageMessage extends HostMessageBase {
+  type: 'bot/usage';
+  payload: BotUsage;
 }
 
 /** Answer to `bot/inspect`: the bot's own record, for Edit bot to show. */
@@ -424,5 +445,6 @@ export type HostToClientMessage =
   | BotRosterMessage
   | BotTranscriptMessage
   | BotRoutingMessage
+  | BotUsageMessage
   | BotConfigMessage
   | BotModelsMessage;

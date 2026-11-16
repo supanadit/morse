@@ -322,10 +322,37 @@ describe('BotNav', () => {
     expect(host.querySelector('.context-menu')).toBeNull();
   });
 
+  it('shows a row as answering while its round runs, even off-screen', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    fixture.detectChanges();
+
+    const rowsFor = (): HTMLElement[] => rows(host, 'bot') as HTMLElement[];
+    expect(rowsFor()[0]?.querySelector('.presence')?.classList.contains('acting')).toBe(false);
+
+    // A round in Forge's DM, while nothing is open in front: the sidebar is the
+    // only place a reader can see that the bot still runs.
+    morse.bot.onRouting({
+      conversationId: 'dm-forge',
+      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+    });
+    fixture.detectChanges();
+
+    expect(rowsFor()[0]?.querySelector('.presence')?.classList.contains('acting')).toBe(true);
+    expect(rowsFor()[1]?.querySelector('.presence')?.classList.contains('acting')).toBe(false);
+
+    morse.bot.onRouting({ conversationId: 'dm-forge', state: null });
+    fixture.detectChanges();
+    expect(rowsFor()[0]?.querySelector('.presence')?.classList.contains('acting')).toBe(false);
+  });
+
   it('refuses to edit a bot that is answering', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge], conversations: [] });
-    morse.bot.onRouting({ conversationId: 'dm-forge', target: 'Forge', queued: [] });
+    morse.bot.onRouting({
+      conversationId: 'dm-forge',
+      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+    });
     fixture.detectChanges();
 
     rightClick(rows(host, 'bot')[0] as HTMLElement);
@@ -357,7 +384,10 @@ describe('BotNav', () => {
   it('refuses to delete a bot that is answering', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
-    morse.bot.onRouting({ conversationId: 'dm-forge', target: 'Forge', queued: [] });
+    morse.bot.onRouting({
+      conversationId: 'dm-forge',
+      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+    });
     fixture.detectChanges();
 
     // Forge's row is mid-round, Sable's is not.
@@ -430,7 +460,10 @@ describe('BotNav', () => {
   it('refuses to edit or delete a group that is answering', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
-    morse.bot.onRouting({ conversationId: 'group-workshop', target: 'Forge', queued: [] });
+    morse.bot.onRouting({
+      conversationId: 'group-workshop',
+      state: { conversationId: 'group-workshop', target: 'Forge', queued: [] },
+    });
     fixture.detectChanges();
 
     rightClick(rows(host, 'group')[0] as HTMLElement);

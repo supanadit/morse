@@ -1,5 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type { SessionSpeed, TokenUsage } from '@morse/protocol';
+import type { ContextUsage, SessionSpeed, TokenUsage } from '@morse/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { UsageIndicator } from './usage-indicator';
 
@@ -13,11 +13,17 @@ import { UsageIndicator } from './usage-indicator';
 function setup(inputs: {
   usage?: TokenUsage;
   speed?: SessionSpeed;
+  contextUsage?: ContextUsage;
+  variant?: 'full' | 'context';
 }): { fixture: ComponentFixture<UsageIndicator>; host: HTMLElement } {
   TestBed.configureTestingModule({ imports: [UsageIndicator] });
   const fixture = TestBed.createComponent(UsageIndicator);
   fixture.componentRef.setInput('usage', inputs.usage);
   fixture.componentRef.setInput('speed', inputs.speed);
+  fixture.componentRef.setInput('contextUsage', inputs.contextUsage);
+  if (inputs.variant !== undefined) {
+    fixture.componentRef.setInput('variant', inputs.variant);
+  }
   fixture.detectChanges();
   return { fixture, host: fixture.nativeElement as HTMLElement };
 }
@@ -76,5 +82,75 @@ describe('UsageIndicator session totals', () => {
     expect(cellValue(host, 'Avg speed')).toBe('42.7/s');
     expect(cellValue(host, 'Peak speed')).toBe('88.9/s');
     expect(cellValue(host, 'Lowest speed')).toBe('11.3/s');
+  });
+});
+
+/**
+ * Bot mode's panel is the budget and nothing else. A bot answers from its own
+ * engine session, so message counts, cache, speed and cost describe a run of the
+ * reader's work that does not exist here — the numbers arrived half-empty
+ * (`ASSISTANT 0`, `COST –`) and read as a broken panel rather than as a budget.
+ */
+describe('UsageIndicator in bot mode', () => {
+  const contextUsage: ContextUsage = {
+    tokens: 233_000,
+    contextWindow: 1_000_000,
+    percent: 23.3,
+  };
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  function open(host: HTMLElement, fixture: ComponentFixture<UsageIndicator>): void {
+    (host.querySelector('.mini') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  }
+
+  it('offers the pair a budget needs: spent and left', () => {
+    const usage: TokenUsage = { inputTokens: 900, outputTokens: 100, totalTokens: 1_000 };
+    const { fixture, host } = setup({ usage, contextUsage, variant: 'context' });
+    open(host, fixture);
+
+    expect(cellValue(host, 'Used')).toBe('233k');
+    expect(cellValue(host, 'Remaining')).toBe('767k');
+    // One row of two, not two of three: the window itself is on the bar above.
+    expect(host.querySelector('.grid.pair')).toBeTruthy();
+    expect(host.querySelector('.panel')?.textContent).toContain('233k / 1.0M');
+  });
+
+  it('leaves out the session economics a bot session cannot describe', () => {
+    const usage: TokenUsage = { inputTokens: 900, outputTokens: 100, totalTokens: 1_000 };
+    const { fixture, host } = setup({ usage, contextUsage, variant: 'context' });
+    open(host, fixture);
+
+    for (const label of ['Messages', 'User', 'Assistant', 'Tool calls', 'Cost', 'Output limit']) {
+      expect(cellValue(host, label)).toBe('');
+    }
+    expect(host.textContent).not.toContain('Session totals');
+    expect(host.textContent).not.toContain('Last assistant message');
+  });
+
+  it('says the remainder is unknown when the engine reports no tokens', () => {
+    // Right after a compaction the engine reports a window and no count; a
+    // remainder guessed from zero would claim the whole window is free.
+    const { fixture, host } = setup({
+      contextUsage: { tokens: null, contextWindow: 200_000, percent: null },
+      variant: 'context',
+    });
+    open(host, fixture);
+
+    expect(cellValue(host, 'Used')).toBe('—');
+    expect(cellValue(host, 'Remaining')).toBe('—');
+  });
+
+  it('keeps the whole panel for a code session', () => {
+    const { fixture, host } = setup({
+      usage: { inputTokens: 1_000, outputTokens: 500, totalTokens: 1_500 },
+      contextUsage,
+    });
+    open(host, fixture);
+
+    expect(cellValue(host, 'User')).toBe('—');
+    expect(host.textContent).toContain('Session totals');
+    expect(host.textContent).toContain('Output limit');
   });
 });

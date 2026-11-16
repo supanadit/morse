@@ -218,8 +218,9 @@ export class MorseService {
   }
 
   /**
-   * The `bot/*` half of the host-message switch: roster, transcript, routing and
-   * the model probe's answer. Every other host message is the client's.
+   * The `bot/*` half of the host-message switch: roster, transcript, routing, the
+   * counters a turn reported, and the model probe's answer. Every other host
+   * message is the client's.
    */
   private onBotMessage(message: HostToClientMessage): void {
     switch (message.type) {
@@ -230,7 +231,10 @@ export class MorseService {
         this.bot.onTranscript(message.payload);
         return;
       case 'bot/routing':
-        this.bot.onRouting(message.payload.state);
+        this.bot.onRouting(message.payload);
+        return;
+      case 'bot/usage':
+        this.bot.onUsage(message.payload);
         return;
       case 'bot/models':
         this.bot.onModels(message.payload);
@@ -675,6 +679,28 @@ export class MorseService {
   newBotDiscussion(conversationId: string | null = this.bot.activeId()): void {
     if (conversationId !== null) {
       this.transport.send({ type: 'bot/newDiscussion', payload: { conversationId } });
+    }
+  }
+
+  /**
+   * Empties one conversation for good: the host deletes its transcript file and
+   * every member's engine session, then answers with an empty `bot/transcript`
+   * (`replace: true`) and a cleared `bot/usage`.
+   */
+  clearBotMessages(conversationId: string | null = this.bot.activeId()): void {
+    if (conversationId !== null) {
+      this.transport.send({ type: 'bot/clear', payload: { conversationId } });
+    }
+  }
+
+  /**
+   * Asks every member's engine to summarise what it holds, so the next turn
+   * carries less context. The transcript is untouched; the host narrates the
+   * outcome in it.
+   */
+  compactBotConversation(conversationId: string | null = this.bot.activeId()): void {
+    if (conversationId !== null) {
+      this.transport.send({ type: 'bot/compact', payload: { conversationId } });
     }
   }
 }

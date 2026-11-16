@@ -53,61 +53,93 @@
       <span>{{ percentLabel() }} used</span>
     </div>
 
-    <div class="grid">
-      <div class="cell">
-        <span class="k">Messages</span><span class="v">{{ counts()?.totalMessages ?? '—' }}</span>
-      </div>
-      <div class="cell">
-        <span class="k">User</span><span class="v">{{ counts()?.userMessages ?? '—' }}</span>
-      </div>
-      <div class="cell">
-        <span class="k">Assistant</span><span class="v">{{ counts()?.assistantMessages ?? '—' }}</span>
-      </div>
-      <div class="cell">
-        <span class="k">Tool calls</span><span class="v">{{ counts()?.toolCalls ?? '—' }}</span>
-      </div>
-      <div class="cell"><span class="k">Cost</span><span class="v">{{ costLabel() }}</span></div>
-      <div class="cell">
-        <span class="k">Output limit</span><span class="v">{{ outputLimitLabel() }}</span>
-      </div>
+    <div class="grid" [class.pair]="variant() === 'context'">
+      @if (variant() === 'context') {
+        <!-- A bot's budget, and only that: what is spent and what is left. The
+             window both are measured against is already on the bar above, and
+             message counts, cache, speed and cost describe a code session's run
+             of work — a bot's belong to one engine session and arrive half-known,
+             which is what made the fuller panel look broken here. -->
+        <div class="cell">
+          <span class="k">Used</span><span class="v">{{ usedLabel() }}</span>
+        </div>
+        <div class="cell">
+          <span class="k">Remaining</span><span class="v">{{ remainingLabel() }}</span>
+        </div>
+      } @else {
+        <div class="cell">
+          <span class="k">Messages</span><span class="v">{{ counts()?.totalMessages ?? '—' }}</span>
+        </div>
+        <div class="cell">
+          <span class="k">User</span><span class="v">{{ counts()?.userMessages ?? '—' }}</span>
+        </div>
+        <div class="cell">
+          <span class="k">Assistant</span
+          ><span class="v">{{ counts()?.assistantMessages ?? '—' }}</span>
+        </div>
+        <div class="cell">
+          <span class="k">Tool calls</span><span class="v">{{ counts()?.toolCalls ?? '—' }}</span>
+        </div>
+        <div class="cell">
+          <span class="k">Cost</span><span class="v">{{ costLabel() }}</span>
+        </div>
+        <div class="cell">
+          <span class="k">Output limit</span><span class="v">{{ outputLimitLabel() }}</span>
+        </div>
+      }
     </div>
 
-    @if (lastUsage()) {
+    @if (variant() === 'full') {
+      @if (lastUsage()) {
+        <section>
+          <h4>Last assistant message</h4>
+          <div class="grid">
+            <div class="cell">
+              <span class="k">Input</span><span class="v">{{ lastValue('inputTokens') }}</span>
+            </div>
+            <div class="cell">
+              <span class="k">Output</span><span class="v">{{ lastValue('outputTokens') }}</span>
+            </div>
+            <div class="cell">
+              <span class="k">Reasoning</span
+              ><span class="v">{{ lastValue('reasoningTokens') }}</span>
+            </div>
+            <div class="cell">
+              <span class="k">Cache read</span
+              ><span class="v">{{ lastValue('cacheReadTokens') }}</span>
+            </div>
+            <div class="cell">
+              <span class="k">Cache write</span
+              ><span class="v">{{ lastValue('cacheWriteTokens') }}</span>
+            </div>
+            <div class="cell">
+              <span class="k">Cache hit</span><span class="v">{{ cacheHitLabel() }}</span>
+            </div>
+          </div>
+        </section>
+      }
+
       <section>
-        <h4>Last assistant message</h4>
+        <h4>Session totals</h4>
         <div class="grid">
           <div class="cell">
-            <span class="k">Input</span><span class="v">{{ lastValue('inputTokens') }}</span>
+            <span class="k">Cached</span><span class="v">{{ cachedLabel() }}</span>
           </div>
           <div class="cell">
-            <span class="k">Output</span><span class="v">{{ lastValue('outputTokens') }}</span>
+            <span class="k">Miss</span><span class="v">{{ missLabel() }}</span>
           </div>
           <div class="cell">
-            <span class="k">Reasoning</span><span class="v">{{ lastValue('reasoningTokens') }}</span>
+            <span class="k">Avg speed</span><span class="v">{{ avgSpeedLabel() }}</span>
           </div>
           <div class="cell">
-            <span class="k">Cache read</span><span class="v">{{ lastValue('cacheReadTokens') }}</span>
+            <span class="k">Peak speed</span><span class="v">{{ peakSpeedLabel() }}</span>
           </div>
           <div class="cell">
-            <span class="k">Cache write</span><span class="v">{{ lastValue('cacheWriteTokens') }}</span>
-          </div>
-          <div class="cell">
-            <span class="k">Cache hit</span><span class="v">{{ cacheHitLabel() }}</span>
+            <span class="k">Lowest speed</span><span class="v">{{ slowestSpeedLabel() }}</span>
           </div>
         </div>
+        <div class="totals">{{ sessionLine() || 'No usage yet.' }}</div>
       </section>
     }
-
-    <section>
-      <h4>Session totals</h4>
-      <div class="grid">
-        <div class="cell"><span class="k">Cached</span><span class="v">{{ cachedLabel() }}</span></div>
-        <div class="cell"><span class="k">Miss</span><span class="v">{{ missLabel() }}</span></div>
-        <div class="cell"><span class="k">Avg speed</span><span class="v">{{ avgSpeedLabel() }}</span></div>
-        <div class="cell"><span class="k">Peak speed</span><span class="v">{{ peakSpeedLabel() }}</span></div>
-        <div class="cell"><span class="k">Lowest speed</span><span class="v">{{ slowestSpeedLabel() }}</span></div>
-      </div>
-      <div class="totals">{{ sessionLine() || 'No usage yet.' }}</div>
-    </section>
   </div>
 }

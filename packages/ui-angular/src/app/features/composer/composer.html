@@ -405,8 +405,9 @@
     ></textarea>
   </morse-markdown-view>
 
-  @if (showStatusRow() && variant !== 'bot') {
-    <div class="status-row">
+  @if (variant === 'bot' ? showUsage() : showStatusRow()) {
+    <div class="status-row" [class.bot]="variant === 'bot'">
+      @if (variant !== 'bot') {
       <div class="status-live">
         <!-- Session facts: anything session-scoped — the engine this session
              runs (fixed once the draft is sent), where its model comes from,
@@ -420,9 +421,10 @@
           </div>
         }
       </div>
+      }
 
       <div class="status-end">
-        @if (running()) {
+        @if (running() && variant !== 'bot') {
           <span class="working" role="status">
             <span class="spinner"></span>
             <span>Working {{ elapsed() }}</span>
@@ -433,6 +435,7 @@
         @if (showUsage()) {
           <morse-usage-indicator
             class="usage-host"
+            [variant]="variant === 'bot' ? 'context' : 'full'"
             [usage]="usageState().usage"
             [lastUsage]="usageState().lastUsage"
             [costUsd]="usageState().costUsd"

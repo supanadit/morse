@@ -3448,6 +3448,10 @@ describe('HostSessionController bot messages', () => {
       send: () => Promise.resolve(),
       stop: () => undefined,
       newDiscussion: () => undefined,
+      clear: async () => undefined,
+      compact: async () => undefined,
+      routing: () => null,
+      usage: () => undefined,
       ...overrides,
     };
   }
@@ -3542,15 +3546,21 @@ describe('HostSessionController bot messages', () => {
       type: 'bot/open',
       payload: { conversationId: 'dm-x' },
     });
-    expect(messages.at(-1)).toEqual({
-      type: 'bot/transcript',
-      payload: {
-        conversationId: 'dm-x',
-        entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
-        replace: true,
-        hasMore: true,
+    // The transcript, then the two facts the service only pushes when they
+    // change: a conversation opened mid-round must still say a bot is working,
+    // and one with counters must still draw the ring.
+    expect(messages.slice(-2)).toEqual([
+      {
+        type: 'bot/transcript',
+        payload: {
+          conversationId: 'dm-x',
+          entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
+          replace: true,
+          hasMore: true,
+        },
       },
-    });
+      { type: 'bot/routing', payload: { conversationId: 'dm-x', state: null } },
+    ]);
 
     // Scrolling up asks for the page before the oldest line held, and the answer
     // is prepended rather than replacing what the chat already shows.

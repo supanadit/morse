@@ -104,14 +104,48 @@
   min-height: 16px;
   margin-top: -2px;
 }
-/* The answer's copy button mirrors the user bubble: revealed on hover. */
+/*
+ * The row's own glyphs — edit, fork, branch — share the `copy-msg` class with the
+ * copy control, which now lives in `morse-copy-button` and brings its own
+ * styles (it is unscoped, because the row that reveals it is this template's).
+ * What is left here shapes those three: hidden until the line is hovered.
+ */
+.user .user-head .copy-msg {
+  width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.user:hover .user-head .copy-msg,
+.user .user-head .copy-msg:focus-visible {
+  width: auto;
+  padding: 0 4px;
+  margin-left: 6px;
+  overflow: visible;
+  opacity: 1;
+}
+.user .stamp,
+.assistant .stamp {
+  font-size: 11px;
+  color: var(--morse-fg-muted);
+  white-space: nowrap;
+}
+.assistant-actions {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+  margin-top: -2px;
+}
+/* The branch glyph beside the byline is revealed on hover, like the rest. */
 .assistant .copy-msg {
   padding: 1px 7px;
   border: 1px solid transparent;
 }
 .assistant:hover .copy-msg,
-.assistant .copy-msg:focus-visible,
-.assistant .copy-msg.revealed {
+.assistant .copy-msg:focus-visible {
   opacity: 1;
 }
 .copy-msg {

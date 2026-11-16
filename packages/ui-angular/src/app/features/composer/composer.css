@@ -660,6 +660,11 @@ textarea:focus-visible {
   min-width: 0;
   margin-top: 6px;
 }
+/* A bot conversation's strip holds one thing — the context ring — so it sits at
+ * the end of the row the way code mode's does, with no facts column to push. */
+.status-row.bot {
+  justify-content: flex-end;
+}
 .status-live,
 .status-end {
   display: flex;

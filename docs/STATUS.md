@@ -268,7 +268,20 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   deleted only when that bot was its last member.
 - **Presence, not a trace.** While a bot works, one line says what it is doing (`Wait, let me think…`,
   `Reading launch-brief.md…`, `Running npm test…`) where its answer will land, and the answer replaces it.
-  Tool activity never enters the transcript.
+  Tool activity never enters the transcript. A round belongs to its conversation, so reading another room never
+  hides one still working — every conversation keeps its own row until its own round ends, and the sidebar's
+  dot breathes on the rows that are answering, in front or not.
+- **A budget you can see.** Each conversation's composer carries the same context ring as code mode, drawn from
+  the counters the member that answered last reported, and named, so a group's ring says whose window it is.
+  Clicking it opens the same popup, in its bot form: spent and remaining tokens, because a bot's message counts,
+  cache, speed and cost belong to one engine session and are not a run of the reader's work.
+- **Shrinking and forgetting.** *Compact* asks the members that have answered to summarise what they hold — the
+  transcript keeps every line, since compaction is about the engine's context, not the reader's history; a
+  conversation where nobody has answered yet says so rather than starting a session to compact nothing.
+  *Clear messages* is the gesture that forgets: it asks first, then deletes the conversation's transcript file
+  and each member's engine session, leaving the bot or group itself in place.
+- **Copying.** Any line — the reader's or a bot's — copies verbatim from `morse-copy-button`, the same control
+  code mode's transcript draws, so the glyph and the confirmation cannot drift apart between modes.
 - **Attachments.** Images go to the model as prompt content (gated by the model's own modality); other files are
   written into that bot's `workspace/uploads/` and named as a path it opens with its own tools.
 - **Model limits by hand.** Context window, output cap and image support are editable per model on create and

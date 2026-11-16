@@ -150,6 +150,11 @@
   gap: 6px;
   margin-top: 10px;
 }
+/* A bot's panel has two facts, not six: the pair fills the row instead of
+ * leaving a third of it empty. */
+.grid.pair {
+  grid-template-columns: repeat(2, 1fr);
+}
 .cell {
   padding: 6px 8px;
   border: 1px solid var(--morse-border);

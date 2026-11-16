@@ -1,0 +1,77 @@
+/*
+ * One copy control for both modes, so it cannot drift.
+ *
+ * Every rule is prefixed with the host element: these styles are unscoped (the
+ * component documents why), which means they are global and must only ever
+ * match this control. The reveal rules name the rows that host it — code mode's
+ * `.user` bubble and `.assistant` byline, bot mode's `.entry` line — because a
+ * scoped rule in either component could not reach the button inside here.
+ */
+morse-copy-button {
+  display: inline-flex;
+}
+
+morse-copy-button .copy-msg {
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+/* Revealed by the row it belongs to: hovered, focused, or just copied. */
+.user:hover morse-copy-button .copy-msg,
+.assistant:hover morse-copy-button .copy-msg,
+.entry:hover morse-copy-button .copy-msg,
+morse-copy-button .copy-msg:focus-visible,
+morse-copy-button .copy-msg.revealed {
+  opacity: 1;
+}
+
+morse-copy-button .copy-msg:hover {
+  color: var(--morse-fg);
+  background: var(--morse-hover);
+}
+
+/*
+ * The reader's own bubble keeps the control out of the layout until the line is
+ * hovered — zero width, then it grows in beside the stamp — exactly like the
+ * edit and fork glyphs next to it in the transcript's own stylesheet.
+ */
+.user .user-head morse-copy-button .copy-msg {
+  width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.user:hover .user-head morse-copy-button .copy-msg,
+.user .user-head morse-copy-button .copy-msg:focus-visible {
+  width: auto;
+  margin-left: 6px;
+  padding: 0 4px;
+  overflow: visible;
+}
+
+/*
+ * An answer's control rides the byline row: a little more padding and a
+ * transparent border, so its box does not jump when it is hovered.
+ */
+.assistant morse-copy-button .copy-msg {
+  padding: 1px 7px;
+  border: 1px solid transparent;
+}
+
+/* Nothing hovers on a touch screen, so the control is simply there instead of
+ * waiting for a pointer that will never arrive. */
+@media (hover: none) {
+  morse-copy-button .copy-msg {
+    opacity: 1;
+  }
+}

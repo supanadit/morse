@@ -13,11 +13,13 @@ import type {
   BotAuthor,
   BotConversationSummary,
   BotTranscriptEntry,
+  BotUsage,
   PromptImage,
 } from '@morse/protocol';
 import { clockTime, fullTime } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
 import { ComposerDrafts } from '../../state/composer-drafts';
+import { CopyButton } from '../../ui/copy-button/copy-button';
 import { Markdown } from '../../ui/markdown/markdown';
 import { ChatComposer, type BotComposerSend } from '../composer/composer';
 import type { MentionCandidate } from '../mention-picker/mention-picker';
@@ -36,7 +38,7 @@ import type { MentionCandidate } from '../mention-picker/mention-picker';
 @Component({
   selector: 'morse-bot-chat',
   templateUrl: './bot-chat.html',
-  imports: [Markdown, ChatComposer],
+  imports: [Markdown, ChatComposer, CopyButton],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './bot-chat.css',
 })
@@ -72,12 +74,23 @@ export class BotChat {
   /**
    * The round in flight, and only when it belongs to the conversation in front:
    * a bot still answering in another room must not draw a row here.
+   *
+   * Read from the per-conversation map, so leaving and coming back finds the row
+   * exactly as the host last reported it — the round never stopped just because
+   * the reader looked at something else.
    */
   protected readonly routing = computed(() => {
-    const routing = this.morse.bot.routing();
-    return routing !== null && routing.conversationId === this.morse.bot.activeId()
-      ? routing
-      : null;
+    const id = this.morse.bot.activeId();
+    return id === null ? null : (this.morse.bot.routing()[id] ?? null);
+  });
+
+  /**
+   * What the open conversation's last answer cost, for the composer's context
+   * ring; `undefined` until a bot has answered there.
+   */
+  protected readonly usage = computed<BotUsage | undefined>(() => {
+    const id = this.morse.bot.activeId();
+    return id === null ? undefined : this.morse.bot.usage()[id];
   });
 
   /**
@@ -286,6 +299,33 @@ export class BotChat {
   /** A sent image's `data:` URL, for the thumbnail in the reader's own bubble. */
   protected preview(image: PromptImage): string {
     return `data:${image.mimeType};base64,${image.data}`;
+  }
+
+  /**
+   * Shrinks what the bots remember of this conversation. Their engines summarise
+   * their own context; the lines here stay, so this never needs a warning.
+   */
+  protected compact(): void {
+    this.morse.compactBotConversation();
+  }
+
+  /**
+   * Empties the conversation for good — its lines, its file, and every member's
+   * engine session — so it asks first. Nothing here can be undone, unlike a new
+   * discussion, which keeps the history.
+   */
+  protected clearMessages(): void {
+    const id = this.morse.bot.activeId();
+    if (id === null) {
+      return;
+    }
+    const confirmed = confirm(
+      'Clear every message in this conversation? Its transcript and the bots\u2019 engine sessions are deleted. This cannot be undone.',
+    );
+    if (!confirmed) {
+      return;
+    }
+    this.morse.clearBotMessages(id);
   }
 
   /** The round's Stop: aborts the turn in flight and drops the queued relays. */ protected stop(): void {

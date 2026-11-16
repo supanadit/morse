@@ -61,7 +61,11 @@ export class BotNav {
   );
   /** The conversation in front, so its row reads as the open one. */
   protected readonly activeId = this.morse.bot.activeId;
-  /** The round the host is running, so a bot mid-answer is not deletable. */
+  /**
+   * Which conversations are mid-answer, so a row's destructive actions are held
+   * while its bot is still working. Read as a map: several conversations can be
+   * answering at once, and switching between them must not hide any of them.
+   */
   protected readonly routing = this.morse.bot.routing;
   /**
    * A roster arrives as a push, but nothing sends one until someone asks — so
@@ -175,7 +179,7 @@ export class BotNav {
 
   /** True while this conversation is answering, when acting on it would strand a turn. */
   protected routingForConversation(id: string): boolean {
-    return this.routing()?.conversationId === id;
+    return this.routing()[id] !== undefined;
   }
 
   /** True while this bot's own DM is answering, when deleting it would strand a turn. */

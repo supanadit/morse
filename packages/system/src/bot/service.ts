@@ -9,6 +9,7 @@ import type {
   AgentGatewayFactory,
   AgentInteractionRequest,
   AgentInteractionResponse,
+  AgentSessionState,
   ModelRef,
   PromptDisposition,
   WorkspaceRef,
@@ -30,6 +31,7 @@ import type {
   BotSummary,
   BotTranscriptEntry,
   BotUpdateInput,
+  BotUsage,
   PromptImage,
 } from '@morse/protocol';
 import { UnsupportedByHostError } from '../errors.js';
@@ -108,7 +110,8 @@ export interface BotEngineAdapter {
 export type BotEvent =
   | { type: 'roster' }
   | { type: 'transcript'; conversationId: string; entries: BotTranscriptEntry[]; replace: boolean }
-  | { type: 'routing'; state: BotRoutingState | null };
+  | { type: 'routing'; conversationId: string; state: BotRoutingState | null }
+  | { type: 'usage'; usage: BotUsage };
 
 /** The roster the sidebar draws: every bot, every conversation. */
 export interface BotRoster {
@@ -155,6 +158,10 @@ export type BotControllerPort = Pick<
   | 'send'
   | 'stop'
   | 'newDiscussion'
+  | 'clear'
+  | 'compact'
+  | 'routing'
+  | 'usage'
 >;
 
 const DEFAULT_IDLE_MS = 300_000;
@@ -362,6 +369,15 @@ export class BotService {
   /** Transcripts live on disk, so a restart keeps every conversation's history. */
   private readonly transcripts: BotTranscriptStore;
   private readonly rounds = new Map<string, Round>();
+  /**
+   * The last counters each conversation reported, per conversation.
+   *
+   * Held here rather than on the gateway because a warm gateway is retired when
+   * a bot goes idle, and the composer's context ring must not go blank with it:
+   * the number it showed is the last thing the engine said, and it stays said
+   * until the engine says otherwise.
+   */
+  private readonly usageByConversation = new Map<string, BotUsage>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
   private readonly idleMs: number;
   private readonly turnTimeoutMs: number;
@@ -926,6 +942,26 @@ export class BotService {
   }
 
   /**
+   * The round in flight on one conversation, as the chat draws it, or `null`.
+   *
+   * Read by the host when a conversation opens: a client that arrives — or
+   * returns — mid-round must see the row the round already has, since the
+   * service only pushes a state when it changes.
+   */
+  routing(conversationId: string): BotRoutingState | null {
+    const round = this.rounds.get(conversationId);
+    return round === undefined ? null : this.routingState(round);
+  }
+
+  /**
+   * The counters one conversation last reported, or `undefined` before its first
+   * answer. A read: an unknown conversation is simply empty.
+   */
+  usage(conversationId: string): BotUsage | undefined {
+    return this.usageByConversation.get(conversationId);
+  }
+
+  /**
    * Sends one human message and runs the whole round it starts — every mention,
    * every chained relay — before the returned promise settles.
    *
@@ -1018,6 +1054,114 @@ export class BotService {
     saveBotRegistry(this.options.root, this.registry);
   }
 
+  /**
+   * Empties one conversation for good: every line it holds, every engine session
+   * its members had for it, and every warm gateway still answering in it.
+   *
+   * The room itself stays — the bot, the group, its row in the sidebar — because
+   * the reader asked to forget what was said, not to delete whom they said it to.
+   * This is the difference from `newDiscussion`: that one keeps the history and
+   * starts fresh sessions behind it, while this one leaves nothing to scroll
+   * back to. Deletion is therefore done from the disk up: the sessions the
+   * engines store, then the transcript file, then the pointers that named them.
+   */
+  async clear(conversationId: string): Promise<void> {
+    const conversation = this.conversationOrThrow(conversationId);
+    const round = this.rounds.get(conversationId);
+    if (round !== undefined) {
+      // A queued relay would append a line to a conversation being emptied, and
+      // the turn in flight would do the same. The round ends before the file does.
+      round.stopped = true;
+      round.queue.length = 0;
+    }
+    const gateways = [...this.warm.values()].filter(
+      (warm) => warm.conversationId === conversationId,
+    );
+    await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
+    for (const member of conversation.members) {
+      const sessionId = conversation.sessions[member]?.engineSessionId;
+      if (sessionId !== undefined) {
+        await this.removeEngineSession(member, sessionId);
+      }
+    }
+    this.transcripts.forget(conversationId);
+    conversation.sessions = {};
+    this.usageByConversation.delete(conversationId);
+    this.touched(conversation);
+    // `replace` with nothing in it is the one way to tell a client that the chat
+    // it holds is wrong: an append of zero lines would leave every line standing.
+    this.emit({ type: 'transcript', conversationId, entries: [], replace: true });
+    // The ring has nothing left to describe, so it goes with the lines.
+    this.emit({ type: 'usage', usage: { conversationId } });
+  }
+
+  /**
+   * Shrinks what each member's engine session holds, the way code mode's
+   * `/compact` does. The transcript keeps every line: compaction is about the
+   * engine's context, not about what the reader has read.
+   *
+   * A cold member is started for this — compaction is a model call on a stored
+   * session, so there has to be a gateway to make it — and any member whose
+   * engine cannot summarise is logged and told in the transcript rather than
+   * failing the whole gesture.
+   */
+  async compact(conversationId: string): Promise<void> {
+    const conversation = this.conversationOrThrow(conversationId);
+    if (this.rounds.has(conversationId)) {
+      // pi compacts by aborting the run in flight, so compacting under a live
+      // round would drop the answer the reader is waiting for. Said, not thrown:
+      // the reader asked for a gesture, not for an error dialog.
+      this.note(conversationId, 'A round is running in this conversation — compact once it ends.');
+      return;
+    }
+    const failures: string[] = [];
+    let compacted = 0;
+    for (const member of conversation.members) {
+      const bot = this.bot(member);
+      if (bot === undefined) {
+        continue;
+      }
+      // A member that never answered holds nothing to shrink, and compacting an
+      // empty session would make its engine mint one — the opposite of the
+      // gesture, which is about carrying less context rather than starting over.
+      const existing = this.warm.get(warmKey(conversationId, member));
+      if (existing === undefined && conversation.sessions[member]?.engineSessionId === undefined) {
+        continue;
+      }
+      let warm: WarmGateway;
+      try {
+        warm = existing ?? (await this.ensureGateway(bot, conversation));
+      } catch (error) {
+        failures.push(`${bot.name} could not start: ${errorMessage(error)}`);
+        continue;
+      }
+      try {
+        await warm.gateway.compact();
+        compacted += 1;
+        // A compacted session is a different amount of context in the same
+        // session, so the counters are re-read rather than assumed.
+        await this.reportUsage(warm);
+      } catch (error: unknown) {
+        if (error instanceof UnsupportedByHostError) {
+          failures.push(`${bot.name}'s engine cannot compact this session`);
+          continue;
+        }
+        this.options.logger.warn('Failed to compact a bot session', error);
+        failures.push(`${bot.name} failed to compact: ${errorMessage(error)}`);
+      }
+    }
+    for (const failure of failures) {
+      this.note(conversationId, failure);
+    }
+    if (compacted > 0) {
+      this.note(conversationId, 'Compacted. The engine summarised what it held.');
+    } else if (failures.length === 0) {
+      // Said rather than silent: a button that seems to do nothing reads as
+      // broken, and this conversation genuinely has nothing to shrink yet.
+      this.note(conversationId, 'Nothing to compact yet — no bot has answered here.');
+    }
+  }
+
   /** Disposes every warm gateway and timer. Transcripts and listeners go too. */
   async dispose(): Promise<void> {
     for (const round of this.rounds.values()) {
@@ -1103,7 +1247,7 @@ export class BotService {
         this.rounds.delete(conversation.id);
       }
       if (round.announced) {
-        this.emit({ type: 'routing', state: null });
+        this.emit({ type: 'routing', conversationId: conversation.id, state: null });
       }
     }
   }
@@ -1184,6 +1328,10 @@ export class BotService {
       return undefined;
     } finally {
       round.current = undefined;
+      // The composer's ring is per conversation and outlives the round, so it is
+      // refreshed at the turn's end — not awaited: the next target's turn must not
+      // wait on a counter read, and a failed read leaves the last number standing.
+      void this.reportUsage(warm);
     }
   }
 
@@ -1623,20 +1771,63 @@ export class BotService {
 
   /** The round as the chat draws it: whom it asks, whom it queued, what is happening. */
   private emitRouting(round: Round): void {
-    const target = round.target;
-    if (target === undefined) {
+    const state = this.routingState(round);
+    if (state === null) {
       return;
     }
     round.announced = true;
-    this.emit({
-      type: 'routing',
-      state: {
-        conversationId: round.conversation.id,
-        target: this.displayNameOf(target.username),
-        queued: round.queue.map((queued) => this.displayNameOf(queued.username)),
-        ...(round.activity === undefined ? {} : { activity: round.activity }),
-      },
-    });
+    this.emit({ type: 'routing', conversationId: round.conversation.id, state });
+  }
+
+  /**
+   * One round's presence, or `null` before it has a target (and so nothing to say).
+   *
+   * Built from the round itself rather than remembered, so the host's answer to an
+   * opening conversation and the push it sends on a change can never disagree.
+   */
+  private routingState(round: Round): BotRoutingState | null {
+    const target = round.target;
+    if (target === undefined) {
+      return null;
+    }
+    return {
+      conversationId: round.conversation.id,
+      target: this.displayNameOf(target.username),
+      queued: round.queue.map((queued) => this.displayNameOf(queued.username)),
+      ...(round.activity === undefined ? {} : { activity: round.activity }),
+    };
+  }
+
+  /**
+   * Reads one engine session's counters and pushes them for this conversation.
+   *
+   * Best-effort: a gateway that has just gone away, or an engine that cannot
+   * answer for its state, leaves the ring showing the last number it had instead
+   * of blanking it — the reader has not spent fewer tokens because a process
+   * exited.
+   */
+  private async reportUsage(warm: WarmGateway): Promise<void> {
+    let state: AgentSessionState;
+    try {
+      state = await warm.gateway.state();
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to read a bot session\'s usage', error);
+      return;
+    }
+    const bot = this.bot(warm.username);
+    const usage: BotUsage = {
+      conversationId: warm.conversationId,
+      ...(bot === undefined ? {} : { bot: bot.name }),
+      ...(state.usage === undefined ? {} : { usage: state.usage }),
+      ...(state.lastUsage === undefined ? {} : { lastUsage: state.lastUsage }),
+      ...(state.contextUsage === undefined ? {} : { contextUsage: state.contextUsage }),
+      ...(state.costUsd === undefined ? {} : { costUsd: state.costUsd }),
+      ...(state.counts === undefined ? {} : { counts: state.counts }),
+      ...(state.speed === undefined ? {} : { speed: state.speed }),
+      ...(state.model === undefined ? {} : { model: state.model }),
+    };
+    this.usageByConversation.set(warm.conversationId, usage);
+    this.emit({ type: 'usage', usage });
   }
 
   private emit(event: BotEvent): void {

@@ -14,7 +14,7 @@
   flex-direction: column;
 }
 
-/* Who this is, and the one room-wide gesture. */
+/* Who this is, and the room-wide gestures beside it. */
 .head {
   flex: none;
   display: flex;
@@ -53,7 +53,27 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.new-discussion {
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+/* A narrow window stacks the gestures under the title rather than hiding them:
+ * a destructive action that silently disappears on a phone is worse than a
+ * second row. */
+@media (max-width: 720px) {
+  .head {
+    flex-wrap: wrap;
+  }
+  .titles {
+    flex-basis: 100%;
+  }
+  .actions {
+    margin-left: auto;
+  }
+}
+.head-action {
   flex: none;
   height: 28px;
   padding: 0 10px;
@@ -67,8 +87,13 @@
   cursor: pointer;
   transition: background 120ms ease;
 }
-.new-discussion:hover {
+.head-action:hover {
   background: color-mix(in srgb, var(--morse-fg) 8%, transparent);
+}
+/* The one action here that cannot be undone, so it reads as the exception. */
+.head-action.danger:hover {
+  background: color-mix(in srgb, var(--morse-danger, #e5484d) 16%, transparent);
+  color: var(--morse-danger, #e5484d);
 }
 
 /*
@@ -315,13 +340,28 @@
   font-size: 11px;
   white-space: nowrap;
 }
+/*
+ * A line's clock and its copy control. The control itself is `morse-copy-button`
+ * — the same one code mode's transcript draws, so the glyph, the confirmation
+ * and the fade-in are theirs to keep identical, not this stylesheet's.
+ */
+.line-meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 14px;
+}
+.entry.user .line-meta {
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.entry.bot .line-meta {
+  margin-top: 2px;
+}
 .entry.user .when {
   display: block;
-  margin-top: 4px;
+  margin-top: 0;
   text-align: right;
-}
-.entry.bot .when {
-  margin-top: 2px;
 }
 .entry.bot .text {
   min-width: 0;

@@ -74,6 +74,10 @@ interface FactoryOptions {
   omitSubagentWriter?: boolean;
   /** Makes the fake look like OpenCode refusing a level the current model lacks. */
   thinkingUnsupported?: boolean;
+  /** Counters the fake's `state()` reports, the way a real engine reports them. */
+  sessionUsage?: Partial<AgentSessionState>;
+  /** Makes the fake refuse `compact()`, like an engine without one. */
+  compactUnsupported?: boolean;
   script: Script;
 }
 
@@ -86,6 +90,8 @@ class FakeGateway implements AgentGateway {
   readonly responses: AgentInteractionResponse[] = [];
   readonly modelsApplied: ModelRef[] = [];
   readonly levelsApplied: ThinkingLevel[] = [];
+  /** How many times the engine was asked to summarise its own context. */
+  compacted = 0;
   disposed = false;
   aborted = false;
   /** Resolves the first time a prompt is sent, so a test can act mid-round. */
@@ -121,6 +127,7 @@ class FakeGateway implements AgentGateway {
       availableThinkingLevels: ['off', 'low', 'high'],
       availableCommands: [],
       streaming: false,
+      ...this.factory.sessionUsage,
     });
   }
 
@@ -187,6 +194,10 @@ class FakeGateway implements AgentGateway {
   }
 
   compact(): Promise<void> {
+    this.compacted += 1;
+    if (this.factory.compactUnsupported) {
+      return Promise.reject(new UnsupportedByHostError('this engine cannot compact a session'));
+    }
     return Promise.resolve();
   }
 
@@ -297,6 +308,14 @@ class FakeFactory implements AgentGatewayFactory {
 
   get thinkingUnsupported(): boolean {
     return this.options.thinkingUnsupported === true;
+  }
+
+  get compactUnsupported(): boolean {
+    return this.options.compactUnsupported === true;
+  }
+
+  get sessionUsage(): Partial<AgentSessionState> {
+    return this.options.sessionUsage ?? {};
   }
 
   get workspace(): WorkspaceRef {
@@ -494,6 +513,8 @@ interface HarnessOptions {
   supportsSubagents?: boolean;
   omitSubagentWriter?: boolean;
   thinkingUnsupported?: boolean;
+  sessionUsage?: Partial<AgentSessionState>;
+  compactUnsupported?: boolean;
 }
 
 interface Harness {
@@ -534,6 +555,10 @@ function harness(options: HarnessOptions = {}): Harness {
     ...(options.thinkingUnsupported === undefined
       ? {}
       : { thinkingUnsupported: options.thinkingUnsupported }),
+    ...(options.sessionUsage === undefined ? {} : { sessionUsage: options.sessionUsage }),
+    ...(options.compactUnsupported === undefined
+      ? {}
+      : { compactUnsupported: options.compactUnsupported }),
   };
   const adapter = new FakeAdapter(script, adapterOptions);
   const service = serviceOn(root, adapter, options);
@@ -1403,6 +1428,7 @@ describe('BotService rounds', () => {
     });
     expect(events).toContainEqual({
       type: 'routing',
+      conversationId: 'dm-forge',
       state: {
         conversationId: 'dm-forge',
         target: 'Forge',
@@ -1410,7 +1436,13 @@ describe('BotService rounds', () => {
         activity: expect.objectContaining({ kind: 'starting' }),
       },
     });
-    expect(events.at(-1)).toEqual({ type: 'routing', state: null });
+    // The round ends on the conversation it ran in: a clear names its room, so a
+    // chat the reader is not looking at keeps the row it still has.
+    expect(events.at(-1)).toEqual({
+      type: 'routing',
+      conversationId: 'dm-forge',
+      state: null,
+    });
   });
 
   it('shows what the bot is doing as it goes, and keeps none of it', async () => {
@@ -1871,6 +1903,166 @@ describe('BotService sessions', () => {
     expect(entries.at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'Still answered.',
+    });
+  });
+
+  it('clear deletes the transcript, the engine sessions and the pointers', async () => {
+    const { root, adapter, service } = harness({ script: () => ({ text: 'kept for now' }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+
+    await service.clear('dm-forge');
+
+    // Nothing is left to read: not in memory, not in the file on disk.
+    expect(service.transcript('dm-forge')).toEqual([]);
+    expect(
+      existsSync(join(root, 'transcripts', 'dm-forge.jsonl')),
+    ).toBe(false);
+    // The engine's own session goes too — this is the gesture that forgets, so a
+    // later message must not resume what was just deleted.
+    const factory = factoryFor(adapter, 'forge');
+    expect(factory.removedSessions).toEqual(['forge-session-1']);
+    expect(factory.gateways[0]?.disposed).toBe(true);
+    expect(loadBotRegistry(root).conversations[0]?.sessions).toEqual({});
+    // The room survives: the reader asked to forget the words, not the bot.
+    expect(service.roster().conversations.map((one) => one.id)).toEqual(['dm-forge']);
+    // The client is told the page it holds is wrong, which only `replace` says.
+    expect(events).toContainEqual({
+      type: 'transcript',
+      conversationId: 'dm-forge',
+      entries: [],
+      replace: true,
+    });
+    expect(service.usage('dm-forge')).toBeUndefined();
+  });
+
+  it('clear ends a round in flight before the file goes', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'still talking', hold: true }) });
+    await service.createBot(botInput());
+    const round = service.send('dm-forge', 'hi');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    await service.clear('dm-forge');
+    await round;
+
+    // The relay queued behind the held turn cannot append to a transcript that no
+    // longer exists, and the note is not resurrected into it.
+    expect(service.transcript('dm-forge')).toEqual([]);
+    expect(service.routing('dm-forge')).toBeNull();
+  });
+
+  it('clear of an unknown conversation is refused rather than silent', async () => {
+    const { service } = harness();
+
+    await expect(service.clear('dm-ghost')).rejects.toThrow('No bot conversation');
+  });
+
+  it('compact asks every member engine to summarise, and says so', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'noted' }) });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    // Both members answer once, so both have a session with something in it.
+    await service.send(group.id, '@forge hello');
+    await service.send(group.id, '@sable hello');
+    const before = factoryFor(adapter, 'forge').gateways[0];
+    expect(before?.compacted).toBe(0);
+
+    await service.compact(group.id);
+
+    // The warm gateway is reused: compaction is a model call on the session that
+    // already holds the context, not a reason to start another one.
+    expect(before?.compacted).toBe(1);
+    expect(gatewayFor(adapter, 'sable').compacted).toBe(1);
+    expect(factoryFor(adapter, 'forge').gateways).toHaveLength(1);
+    expect(service.transcript(group.id).map((entry) => entry.text)).toContain(
+      'Compacted. The engine summarised what it held.',
+    );
+  });
+
+  it('compact starts a cold member from its stored session, and skips one with none', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'noted' }) });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, '@forge hello');
+    // Sable never answered, so the engine session it would compact does not exist.
+
+    await service.compact(group.id);
+
+    expect(factoryFor(adapter, 'forge').gateways[0]?.compacted).toBe(1);
+    // Starting Sable would have made its engine mint a session: less context is
+    // the gesture, a new session is not.
+    expect(factoryFor(adapter, 'sable').createCalls).toHaveLength(0);
+  });
+
+  it('compact on a conversation where nobody answered says so instead of nothing', async () => {
+    const { service } = harness();
+    await service.createBot(botInput());
+
+    await service.compact('dm-forge');
+
+    expect(service.transcript('dm-forge').map((entry) => entry.text)).toEqual([
+      'Nothing to compact yet — no bot has answered here.',
+    ]);
+  });
+
+  it('compact waits for a quiet conversation instead of dropping the answer', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'busy', hold: true }) });
+    await service.createBot(botInput());
+    const round = service.send('dm-forge', 'hi');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    await service.compact('dm-forge');
+
+    // pi compacts by aborting the run in flight, so a round under way means later.
+    expect(gatewayFor(adapter, 'forge').compacted).toBe(0);
+    expect(service.transcript('dm-forge').map((entry) => entry.text)).toContain(
+      'A round is running in this conversation — compact once it ends.',
+    );
+    service.stop('dm-forge');
+    await round;
+  });
+
+  it('an engine that cannot compact is noted, and the round is not failed', async () => {
+    const { service } = harness({
+      compactUnsupported: true,
+      script: () => ({ text: 'noted' }),
+    });
+    await service.createBot(botInput());
+    // A session to compact: the engine's refusal is what this test is about.
+    await service.send('dm-forge', 'hi');
+
+    await expect(service.compact('dm-forge')).resolves.toBeUndefined();
+
+    expect(service.transcript('dm-forge').map((entry) => entry.text)).toContain(
+      "Forge's engine cannot compact this session",
+    );
+  });
+
+  it('pushes what a turn cost, per conversation, and remembers it for an open', async () => {
+    const { adapter, service } = harness({
+      sessionUsage: {
+        usage: { inputTokens: 900, outputTokens: 100, totalTokens: 1000 },
+        contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 0.5 },
+        costUsd: 0.02,
+        model: MODEL,
+      },
+      script: () => ({ text: 'done' }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    // The counters belong to a bot's engine session, so the push names it: a
+    // group's ring says whose window it is drawing.
+    expect(service.usage('dm-forge')).toMatchObject({
+      conversationId: 'dm-forge',
+      bot: 'Forge',
+      usage: { totalTokens: 1000 },
+      contextUsage: { percent: 0.5 },
+      costUsd: 0.02,
+      model: MODEL,
     });
   });
 

@@ -396,6 +396,28 @@ export interface BotNewDiscussionMessage extends ClientMessageBase {
   payload: { conversationId: string };
 }
 
+/**
+ * Empties one conversation for good: its transcript file and every member's
+ * engine session go with it, so the next message starts from nothing.
+ *
+ * Not the same gesture as `bot/newDiscussion`: that keeps the history and only
+ * starts fresh sessions behind it. This is the one that forgets.
+ */
+export interface BotClearMessage extends ClientMessageBase {
+  type: 'bot/clear';
+  payload: { conversationId: string };
+}
+
+/**
+ * Shrinks one conversation's context the way code mode's `/compact` does: every
+ * member's engine summarises what it holds, so the next turn carries less
+ * without the transcript losing a line.
+ */
+export interface BotCompactMessage extends ClientMessageBase {
+  type: 'bot/compact';
+  payload: { conversationId: string };
+}
+
 /** Creates a group conversation from the New group dialog. */
 export interface BotGroupCreateMessage extends ClientMessageBase {
   type: 'bot/groupCreate';
@@ -460,6 +482,8 @@ export type ClientToHostMessage =
   | BotSendMessage
   | BotStopMessage
   | BotNewDiscussionMessage
+  | BotClearMessage
+  | BotCompactMessage
   | BotGroupCreateMessage
   | BotGroupUpdateMessage
   | BotGroupDeleteMessage;

@@ -36,6 +36,7 @@ import { EnterDirective } from '../../ui/enter.directive';
 import { ToolGroup } from '../tool-group/tool-group';
 import { PromptRail, type RailPrompt } from '../prompt-rail/prompt-rail';
 import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive';
+import { CopyButton } from '../../ui/copy-button/copy-button';
 import { MorseService } from '../../host/morse.service';
 
 /** Mime subtype -> file extension, for the chip label of a persisted image. */
@@ -59,7 +60,7 @@ function previewPrompt(text: string): string {
 
 @Component({
   selector: 'morse-chat-transcript',
-  imports: [Markdown, ToolGroup, EnterDirective, PromptRail, NoteHoverDirective],
+  imports: [Markdown, ToolGroup, EnterDirective, PromptRail, NoteHoverDirective, CopyButton],
   templateUrl: './transcript.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './transcript.css',
@@ -88,7 +89,6 @@ export class ChatTranscript {
     () => this.morse.capabilities()?.editorContext === true,
   );
 
-  protected readonly copiedId = signal<string | null>(null);
   /** The image opened full-size from its chip, if any. */
   protected readonly preview = signal<{ src: string; label: string } | null>(null);
   /** The user message being edited in place, if any. */
@@ -594,7 +594,10 @@ export class ChatTranscript {
     }
   }
 
-  /** Copying includes the pin mentions, like the prompt the agent received. */
+  /**
+   * What the copy control takes: the prompt as the agent received it, so the pin
+   * mentions ride along with the words the reader typed.
+   */
   protected copyText(item: UserTranscriptItem): string {
     const pins = item.pins ?? [];
     if (pins.length === 0) {
@@ -608,24 +611,5 @@ export class ChatTranscript {
       .map((token) => `@${token}`)
       .join('\n');
     return item.text.trim().length > 0 ? `${item.text}\n\n${mentions}` : mentions;
-  }
-
-  protected copy(item: UserTranscriptItem): void {
-    this.copyRaw(item.id, this.copyText(item));
-  }
-
-  /** Copies the model's answer verbatim (the markdown source it produced). */
-  protected copyAssistant(item: AssistantTranscriptItem): void {
-    this.copyRaw(item.id, item.text);
-  }
-
-  private copyRaw(id: string, text: string): void {
-    void navigator.clipboard?.writeText(text);
-    this.copiedId.set(id);
-    setTimeout(() => {
-      if (this.copiedId() === id) {
-        this.copiedId.set(null);
-      }
-    }, 1200);
   }
 }

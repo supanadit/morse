@@ -237,16 +237,36 @@ describe('MorseService bot mode', () => {
     ]);
   });
 
-  it('sets and clears the routing state from bot/routing', () => {
+  it("sets and clears one conversation's routing state from bot/routing", () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
     const route = { conversationId: 'group-1', target: 'forge', queued: ['sable'] };
 
-    transport.toClient({ type: 'bot/routing', payload: { state: route } });
-    expect(morse.bot.routing()).toEqual(route);
+    transport.toClient({
+      type: 'bot/routing',
+      payload: { conversationId: 'group-1', state: route },
+    });
+    expect(morse.bot.routingFor('group-1')).toEqual(route);
 
-    transport.toClient({ type: 'bot/routing', payload: { state: null } });
-    expect(morse.bot.routing()).toBeNull();
+    transport.toClient({
+      type: 'bot/routing',
+      payload: { conversationId: 'group-1', state: null },
+    });
+    expect(morse.bot.routingFor('group-1')).toBeUndefined();
+  });
+
+  it('records the counters a turn reported, per conversation', () => {
+    const transport = new ScriptedTransport();
+    const morse = mount(transport);
+    const usage = {
+      conversationId: 'dm-forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 21_000, contextWindow: 200_000, percent: 10.5 },
+    };
+
+    transport.toClient({ type: 'bot/usage', payload: usage });
+
+    expect(morse.bot.usage()['dm-forge']).toEqual(usage);
   });
 
   it('records probed models under their request id', () => {
@@ -254,23 +274,35 @@ describe('MorseService bot mode', () => {
     const morse = mount(transport);
     const models = [{ provider: 'anthropic', id: 'claude-sonnet-4', name: 'Sonnet' }];
 
-    transport.toClient({ type: 'bot/models', payload: { requestId: 'probe-1', kind: 'pi', models } });
+    transport.toClient({
+      type: 'bot/models',
+      payload: { requestId: 'probe-1', kind: 'pi', models },
+    });
 
     expect(morse.bot.models()['probe-1']).toEqual(models);
   });
 
-  it('opens a conversation: active id set, routing dropped, bot/open sent', () => {
+  it("opens a conversation: active id set, the other room's round kept, bot/open sent", () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
     transport.toClient({
       type: 'bot/routing',
-      payload: { state: { conversationId: 'dm-sable', target: 'sable', queued: [] } },
+      payload: {
+        conversationId: 'dm-sable',
+        state: { conversationId: 'dm-sable', target: 'sable', queued: [] },
+      },
     });
 
     morse.openBotConversation('dm-forge');
 
     expect(morse.bot.activeId()).toBe('dm-forge');
-    expect(morse.bot.routing()).toBeNull();
+    // Opening another room never stops a round: the row is the conversation's,
+    // not the window's, so it is still set for the room being left.
+    expect(morse.bot.routingFor('dm-sable')).toEqual({
+      conversationId: 'dm-sable',
+      target: 'sable',
+      queued: [],
+    });
     expect(lastFrame(transport)).toEqual({
       type: 'bot/open',
       payload: { conversationId: 'dm-forge' },
@@ -317,6 +349,28 @@ describe('MorseService bot mode', () => {
 
     expect(transport.sent).toHaveLength(before);
     expect(morse.bot.transcripts()).toEqual({});
+  });
+
+  it('clears and compacts the conversation in front, or one it is told', () => {
+    const transport = new ScriptedTransport();
+    const morse = mount(transport);
+    morse.openBotConversation('dm-forge');
+
+    morse.clearBotMessages();
+    morse.compactBotConversation();
+
+    expect(transport.sent.slice(-2)).toEqual([
+      { type: 'bot/clear', payload: { conversationId: 'dm-forge' } },
+      { type: 'bot/compact', payload: { conversationId: 'dm-forge' } },
+    ]);
+
+    // A row's own action names its conversation instead of the one in front.
+    morse.clearBotMessages('group-1');
+
+    expect(lastFrame(transport)).toEqual({
+      type: 'bot/clear',
+      payload: { conversationId: 'group-1' },
+    });
   });
 
   it('probes models with the wizard credentials and its request id', () => {

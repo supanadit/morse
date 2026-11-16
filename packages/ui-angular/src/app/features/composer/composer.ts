@@ -15,11 +15,16 @@ import {
 } from '@angular/core';
 import type {
   BotFileInput,
+  BotUsage,
   CommandOption,
+  ContextUsage,
   ModelOption,
   PromptImage,
   PromptMode,
+  SessionCounts,
+  SessionSpeed,
   ThinkingLevel,
+  TokenUsage,
 } from '@morse/protocol';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList } from '@angular/cdk/drag-drop';
 import {
@@ -150,6 +155,22 @@ export class ChatComposer {
   @Input() botMembers: readonly MentionCandidate[] = [];
   /** Whether `@all` / `@everyone` belong in the list (a room with several bots). */
   @Input() botBroadcast = false;
+  /**
+   * What the open bot conversation's last answer cost, for the context ring.
+   *
+   * Bot mode has no session view of its own: its counters belong to a bot's
+   * engine session on the host, not to this frontend, so they arrive as an input
+   * and feed the same ring code mode draws. `undefined` means no bot has answered
+   * in this conversation yet, and the ring stays away.
+   *
+   * Held as a signal behind the setter because everything the ring draws is a
+   * `computed`: a plain input field is invisible to change detection's memoisation,
+   * and the ring would keep the emptiness it saw on the first render.
+   */
+  @Input() set botUsage(value: BotUsage | undefined) {
+    this.botUsageState.set(value);
+  }
+  private readonly botUsageState = signal<BotUsage | undefined>(undefined);
   /**
    * The reader's line for a bot conversation, trimmed and never empty, with what
    * they attached to it: a bot takes images as prompt content and any other file
@@ -306,9 +327,44 @@ export class ChatComposer {
     const model = this.morse.state().model;
     return model ? `${model.provider}/${model.id}` : '';
   });
-  protected readonly usageState = this.morse.state;
-  protected readonly showUsage = computed(() => {
+  protected readonly usageState = computed<{
+    usage?: TokenUsage;
+    lastUsage?: TokenUsage;
+    costUsd?: number;
+    contextUsage?: ContextUsage;
+    counts?: SessionCounts;
+    speed?: SessionSpeed;
+    model?: ModelOption;
+    sessionTitle?: string;
+  }>(() => {
+    if (this.variant === 'bot') {
+      const bot = this.botUsageState();
+      const title = bot?.bot;
+      return {
+        ...(bot?.usage === undefined ? {} : { usage: bot.usage }),
+        ...(bot?.lastUsage === undefined ? {} : { lastUsage: bot.lastUsage }),
+        ...(bot?.costUsd === undefined ? {} : { costUsd: bot.costUsd }),
+        ...(bot?.contextUsage === undefined ? {} : { contextUsage: bot.contextUsage }),
+        ...(bot?.counts === undefined ? {} : { counts: bot.counts }),
+        ...(bot?.speed === undefined ? {} : { speed: bot.speed }),
+        ...(bot?.model === undefined ? {} : { model: bot.model }),
+        ...(title === undefined ? {} : { sessionTitle: title }),
+      };
+    }
     const state = this.morse.state();
+    return {
+      ...(state.usage === undefined ? {} : { usage: state.usage }),
+      ...(state.lastUsage === undefined ? {} : { lastUsage: state.lastUsage }),
+      ...(state.costUsd === undefined ? {} : { costUsd: state.costUsd }),
+      ...(state.contextUsage === undefined ? {} : { contextUsage: state.contextUsage }),
+      ...(state.counts === undefined ? {} : { counts: state.counts }),
+      ...(state.speed === undefined ? {} : { speed: state.speed }),
+      ...(state.model === undefined ? {} : { model: state.model }),
+      ...(state.sessionTitle === undefined ? {} : { sessionTitle: state.sessionTitle }),
+    };
+  });
+  protected readonly showUsage = computed(() => {
+    const state = this.usageState();
     return state.usage !== undefined || state.contextUsage !== undefined;
   });
   /**

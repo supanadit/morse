@@ -81,12 +81,19 @@
               </span>
               <!-- Presence, the roster's one at-a-glance fact: a warm bot's
                    engine is already running, a cold one starts on its first
-                   message. -->
+                   message — and one still answering, even in a room the reader
+                   is not looking at, says so here, which is what stops a round
+                   in the background from looking like a broken chat. -->
               <span
                 class="presence"
                 [class.warm]="bot.warm"
+                [class.acting]="routingFor(bot)"
                 [attr.title]="
-                  bot.warm ? 'Warm — its engine is running' : 'Cold — starts on the first message'
+                  routingFor(bot)
+                    ? 'Answering…'
+                    : bot.warm
+                      ? 'Warm — its engine is running'
+                      : 'Cold — starts on the first message'
                 "
                 aria-hidden="true"
               ></span>
@@ -132,6 +139,14 @@
                 <span class="name">{{ group.title }}</span>
                 <span class="description">{{ groupSubtitle(group) }}</span>
               </span>
+              <!-- A group has no engine of its own, so its dot only ever means
+                   one thing: a member is answering in it right now. -->
+              <span
+                class="presence acting"
+                [class.quiet]="!routingForConversation(group.id)"
+                [attr.title]="routingForConversation(group.id) ? 'Answering…' : null"
+                aria-hidden="true"
+              ></span>
             </button>
             <button
               type="button"
