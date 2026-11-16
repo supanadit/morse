@@ -87,15 +87,21 @@ export class OpenCodeConfigGuard {
 
   /**
    * Reload regardless of ownership or streaming: the explicit, user-asked-for
-   * path. Clears every remembered signature, then seeds `cwd` anew so the
-   * caller's own next `ensureFresh` does not reload a second time.
+   * path. A successful reload clears every remembered signature, then seeds
+   * `cwd` anew so the caller's own next `ensureFresh` does not reload a second
+   * time. A failed reload leaves every signature untouched — including the one
+   * `cwd` showed before the edit — so the next `ensureFresh` still sees the
+   * change and retries it instead of forgetting the edit.
    */
-  async reloadNow(cwd?: string): Promise<void> {
-    await this.postReload(cwd);
+  async reloadNow(cwd?: string): Promise<boolean> {
+    if (!(await this.postReload(cwd))) {
+      return false;
+    }
     this.signatures.clear();
     if (cwd !== undefined) {
       this.signatures.set(cwd, this.signature(cwd));
     }
+    return true;
   }
 
   /** Track whether `sessionId` has a turn in progress. */

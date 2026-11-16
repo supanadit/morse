@@ -2152,7 +2152,11 @@ export class HostSessionController {
         !(this.draftCatalog?.availableModes ?? []).some((mode) => mode.id === this.draftMode)
       ) {
         this.draftMode = undefined;
-        this.emitState();
+        // The probe that just landed named the mode this reload dropped, so it
+        // fell back to `/api/model/default` while the mode pill already shows
+        // the new default agent. Probe once more with no explicit mode: the
+        // model pill must describe the agent the next prompt will use.
+        await this.warmDraft();
       }
       return;
     }
@@ -2204,6 +2208,12 @@ export class HostSessionController {
         });
       } catch (error: unknown) {
         this.options.logger.error(`Agent config reload failed: ${describeError(error)}`, error);
+        // The wire answer drives the composer's error row; the notice reaches
+        // the same channel a successful reload announces on, so a failure is
+        // never silent.
+        this.options.emit(
+          noticeMessage('error', 'The agent configuration could not be reloaded.', Date.now()),
+        );
         this.answerHostCommand(
           requestId,
           false,

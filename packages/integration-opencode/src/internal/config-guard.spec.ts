@@ -198,4 +198,34 @@ describe('OpenCodeConfigGuard', () => {
     await expect(guard.ensureFresh(work)).resolves.toBe(true);
     expect(posts).toEqual(['/location/reload', '/location/reload']);
   });
+
+  it('reports a failed manual reload and keeps the edit for a later retry', async () => {
+    const posts: string[] = [];
+    let refuse = true;
+    const guard = new OpenCodeConfigGuard({
+      api: {
+        post: async (path: string): Promise<undefined> => {
+          posts.push(path);
+          if (refuse) {
+            throw new Error('the server is busy');
+          }
+          return undefined;
+        },
+      },
+      logger: silentLogger,
+      owned: true,
+      env: { XDG_CONFIG_HOME: configHome },
+    });
+    await guard.ensureFresh(work);
+    touchGlobal();
+
+    // The explicit reload failed; it must not claim success or reseed the
+    // signature, or the next automatic probe would see no change to retry.
+    await expect(guard.reloadNow(work)).resolves.toBe(false);
+    expect(posts).toEqual(['/location/reload']);
+
+    refuse = false;
+    await expect(guard.ensureFresh(work)).resolves.toBe(true);
+    expect(posts).toEqual(['/location/reload', '/location/reload']);
+  });
 });

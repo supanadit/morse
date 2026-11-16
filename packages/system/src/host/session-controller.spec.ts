@@ -326,6 +326,8 @@ function harness(
     historyPage?: (before?: string) => AgentHistoryPage;
     /** The engine can re-read its own config, as OpenCode's can. */
     reloadConfig?: boolean;
+    /** Makes that reload reject, as a failed engine reload does. */
+    reloadConfigError?: Error;
     /** Counts config re-reads on warm sessions after a reload. */
     refreshConfig?: () => Promise<void>;
     /** The host's view scope; the workspace under test unless a test says otherwise. */
@@ -419,6 +421,9 @@ function harness(
       ? {
           reloadConfig: (input: { engine?: string; cwd?: string }) => {
             reloads.push(input);
+            if (options.reloadConfigError !== undefined) {
+              return Promise.reject(options.reloadConfigError);
+            }
             return Promise.resolve(true);
           },
         }
@@ -2467,16 +2472,25 @@ describe('HostSessionController agent config reload and draft probe', () => {
     let reloaded = false;
     const h = harness({
       reloadConfig: true,
-      probeState: () => ({
-        ...base(),
-        availableModes: reloaded ? [modes[0]] : modes,
-      }),
+      // Each mode names its own effective model, so a probe left on the dropped
+      // mode is visible in the pill instead of hiding behind a shared default.
+      probeState: (_model, _engine, mode) => {
+        const id = mode === 'plan' ? 'plan-model' : 'build-model';
+        return {
+          ...base(),
+          ...(mode === undefined ? {} : { mode }),
+          availableModes: reloaded ? [modes[0]] : modes,
+          availableModels: [{ provider: 'fake', id, name: id }],
+          model: { provider: 'fake', id, name: id },
+        };
+      },
     });
     await h.controller.start();
     // `enterDraft` awaits its probe, so the mode pick has a catalog to validate.
     await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
     await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
     expect(h.lastState()?.mode).toBe('plan');
+    expect(h.lastState()?.model?.id).toBe('plan-model');
 
     // The edited config removed the agent plan named; the reload must drop it
     // rather than open the next prompt under a mode the engine no longer has.
@@ -2489,6 +2503,47 @@ describe('HostSessionController agent config reload and draft probe', () => {
     expect(resultOf(h.messages, 'r1')).toMatchObject({ reloaded: true });
     expect(h.lastState()?.mode).toBeUndefined();
     expect(h.lastState()?.availableModes?.map((mode) => mode.id)).toEqual(['build']);
+    // The mode pill now names the new default agent, so the model pill must
+    // describe that agent's model — not the dropped plan's, and not the
+    // server's own fallback.
+    expect(h.lastState()?.model?.id).toBe('build-model');
+  });
+
+  it('answers a failed reload with ok:false and no success notice', async () => {
+    const h = harness({
+      reloadConfig: true,
+      reloadConfigError: new Error('the server answered 500'),
+    });
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'reloadAgentConfig', requestId: 'r1' },
+    });
+
+    const answer = h.messages.find(
+      (message) => message.type === 'host/command/result' && message.payload.requestId === 'r1',
+    );
+    expect(answer).toMatchObject({
+      payload: { ok: false, error: 'The agent configuration could not be reloaded.' },
+    });
+    // A failed reload says so on the notice channel too, and never announces
+    // the success it did not have.
+    expect(
+      h.messages.some(
+        (message) =>
+          message.type === 'notice' &&
+          message.payload.level === 'error' &&
+          message.payload.text === 'The agent configuration could not be reloaded.',
+      ),
+    ).toBe(true);
+    expect(
+      h.messages.some(
+        (message) =>
+          message.type === 'notice' &&
+          message.payload.level === 'info' &&
+          message.payload.text.includes('configuration reloaded'),
+      ),
+    ).toBe(false);
   });
 });
 

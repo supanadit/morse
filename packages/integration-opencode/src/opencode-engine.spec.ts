@@ -80,6 +80,8 @@ interface FakeApiOptions {
   agentModel: AgentModelRow | undefined;
   /** `/api/model/default`'s answer; `undefined` means the endpoint names none. */
   defaultModel: ApiModel | undefined;
+  /** Makes `POST /location/reload` fail, as a 500 or a timeout would. */
+  reloadError?: Error;
 }
 
 class FakeApi {
@@ -146,6 +148,9 @@ class FakeApi {
 
   post<T>(path: string, body?: unknown): Promise<T | undefined> {
     this.calls.push({ method: 'POST', path, body });
+    if (path === '/location/reload' && this.options.reloadError !== undefined) {
+      return Promise.reject(this.options.reloadError);
+    }
     if (path === '/session') {
       return Promise.resolve({
         id: 'ses_new',
@@ -174,6 +179,8 @@ function engineWith(
     defaultModel?: ApiModel;
     /** `/api/agent`'s model for `build`; present-but-undefined means it names none. */
     agentModel?: AgentModelRow;
+    /** Makes `POST /location/reload` fail, as a 500 or a timeout would. */
+    reloadError?: Error;
   } = {},
 ): {
   engine: OpenCodeEngine;
@@ -206,6 +213,7 @@ function engineWith(
     // which is exactly the state a server without a fallback leaves.
     agentModel: 'agentModel' in options ? options.agentModel : BUILD_AGENT_MODEL,
     defaultModel: 'defaultModel' in options ? options.defaultModel : FLINT,
+    ...(options.reloadError === undefined ? {} : { reloadError: options.reloadError }),
   });
   const closed = {
     stream: vi.fn(() => Promise.resolve()),
@@ -373,6 +381,18 @@ describe('OpenCodeEngine', () => {
     const paths = api.calls.map((call) => call.path);
     expect(paths).toContain('/location/reload');
     expect(paths.lastIndexOf('/location/reload')).toBeLessThan(paths.lastIndexOf('/model'));
+  });
+
+  it('reloads the config on demand', async () => {
+    const { engine } = engineWith();
+    await expect(engine.factory.reloadConfig({ cwd: WORKSPACE.cwd })).resolves.toBe(true);
+  });
+
+  it('rejects a manual reload the server refused', async () => {
+    const { engine } = engineWith({ reloadError: new Error('the server answered 500') });
+    await expect(engine.factory.reloadConfig({ cwd: WORKSPACE.cwd })).rejects.toThrow(
+      /could not reload its config/i,
+    );
   });
 
   it("watches the drafted project's config, not only the global one", async () => {
