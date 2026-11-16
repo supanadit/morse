@@ -115,6 +115,43 @@ describe('OpenCodeConfigGuard', () => {
     expect(posts).toEqual(['/location/reload']);
   });
 
+  it('reloads when a workspace gains its first project config', async () => {
+    const { guard, posts } = makeGuard({ owned: true });
+    await guard.ensureFresh(work);
+    writeFileSync(join(work, 'opencode.json'), '{"default_agent":"plan"}');
+    await expect(guard.ensureFresh(work)).resolves.toBe(true);
+    expect(posts).toEqual(['/location/reload']);
+  });
+
+  it('reloads when a workspace gains a .opencode/opencode.jsonc', async () => {
+    const { guard, posts } = makeGuard({ owned: true });
+    await guard.ensureFresh(work);
+    mkdirSync(join(work, '.opencode'), { recursive: true });
+    writeFileSync(join(work, '.opencode', 'opencode.jsonc'), '{\n  // first project config\n}\n');
+    await expect(guard.ensureFresh(work)).resolves.toBe(true);
+    expect(posts).toEqual(['/location/reload']);
+  });
+
+  it('fingerprints an explicit config dir instead of XDG_CONFIG_HOME', async () => {
+    // A bot's own tree: `configDir` wins over the XDG path the env names.
+    const botDir = join(root('morse-config-guard-bot-'), 'opencode');
+    mkdirSync(botDir, { recursive: true });
+    writeFileSync(join(botDir, 'opencode.json'), '{"default_agent":"build"}');
+    const posts: string[] = [];
+    const guard = new OpenCodeConfigGuard({
+      api: fakeApi(posts),
+      logger: silentLogger,
+      owned: true,
+      configDir: botDir,
+      env: { XDG_CONFIG_HOME: configHome },
+    });
+    await guard.ensureFresh(work);
+    expect(guard.signature(work)).toContain(join(botDir, 'opencode.json'));
+    utimesSync(join(botDir, 'opencode.json'), new Date(), new Date(Date.now() + 5_000));
+    await expect(guard.ensureFresh(work)).resolves.toBe(true);
+    expect(posts).toEqual(['/location/reload']);
+  });
+
   it('fingerprints each config file and marks a missing one', () => {
     const { guard } = makeGuard({ owned: true });
     const global = join(configHome, 'opencode', 'opencode.json');

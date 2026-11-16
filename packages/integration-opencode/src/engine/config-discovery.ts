@@ -100,6 +100,33 @@ export function discoverOpenCodeGlobalPaths(
 }
 
 /**
+ * Every config path that decides `cwd`, whether or not it exists: the project
+ * candidates in precedence order, then the app-level candidates. An isolated
+ * tree reads only its own app-level file, and a context with no directory has
+ * no project scope at all — both cases stop at the global list.
+ *
+ * This is the list a fingerprint must walk: a file that does not exist yet is
+ * still a candidate, so creating it has to change the fingerprint. `read` in
+ * {@link discoverOpenCodeConfigPaths} filters this same list, so precedence is
+ * defined once, here.
+ */
+export function openCodeConfigCandidates(
+  context: EngineContext,
+  configDir: string | undefined,
+  cwd: string | undefined,
+): string[] {
+  const global = globalConfigCandidates(context, configDir);
+  if (context.ownership === 'isolated') {
+    return global;
+  }
+  const dir = cwd ?? context.cwd;
+  if (dir === undefined || dir.trim().length === 0) {
+    return global;
+  }
+  return [...projectConfigCandidates(dir), ...global];
+}
+
+/**
  * The whole chain for file id `config`: the project files that exist, in
  * OpenCode's own precedence (`cwd`-nearest first, every `.opencode` config
  * before every direct one), then the user file (or the isolated root's file)
@@ -115,13 +142,12 @@ export function discoverOpenCodeConfigPaths(
   cwd?: string,
 ): ConfigPaths {
   const global = discoverOpenCodeGlobalPaths(context, configDir);
-  if (context.ownership === 'isolated') {
-    return global;
-  }
-  const dir = cwd ?? context.cwd;
+  const dir = context.ownership === 'isolated' ? undefined : (cwd ?? context.cwd);
   if (dir === undefined || dir.trim().length === 0) {
     return global;
   }
+  // Only the project half of the candidate list: this keeps `read` to files
+  // that exist and `write` inside the project, exactly as before.
   const existing = projectConfigCandidates(dir).filter((path) => existsSync(path));
   return {
     read: [...existing, ...global.read],
@@ -130,21 +156,22 @@ export function discoverOpenCodeConfigPaths(
 }
 
 /**
- * A stable fingerprint of every config file `cwd` reads: one
- * `<path>:<mtimeMs>:<size>` line per file, in precedence order, and
- * `<path>:missing` for a path that is not there. Comparing two signatures
+ * A stable fingerprint of every config path `cwd` reads: one
+ * `<path>:<mtimeMs>:<size>` line per candidate, in precedence order, and
+ * `<path>:missing` for a candidate that is not there. Comparing two signatures
  * answers "did the config change?" without parsing or watching anything, so a
  * caller can reload the server only when it actually must.
  *
- * A missing file is part of the signature on purpose: creating the file a tree
- * would read is a change too, and its `missing` line becomes a real line.
+ * Missing candidates are part of the signature on purpose: creating the first
+ * `opencode.json` in a workspace that had none is the change this guard exists
+ * for, and its `missing` line becomes a real one.
  */
 export function openCodeConfigSignature(
   context: EngineContext,
   configDir: string | undefined,
   cwd: string,
 ): string {
-  const paths = discoverOpenCodeConfigPaths(context, configDir, cwd).read;
+  const paths = openCodeConfigCandidates(context, configDir, cwd);
   return paths
     .map((path) => {
       try {
