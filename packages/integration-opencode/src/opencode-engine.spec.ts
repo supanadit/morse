@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AgentSessionState, ModelRef } from '@morse/agent';
 import type { ConfigMutation } from '@morse/engine-config';
 import { UnsupportedByHostError, silentLogger } from '@morse/system';
@@ -18,6 +18,51 @@ import { OpenCodeEngine } from './opencode-engine.js';
 
 const WORKSPACE = { cwd: '/work/project', name: 'project' };
 
+/**
+ * Every engine in this file fingerprints this directory, never the host's real
+ * config, so no test reads — or collects a reload from — the machine's own
+ * `opencode.json`.
+ */
+const tempConfigDir = mkdtempSync(join(tmpdir(), 'oc-engine-config-'));
+writeFileSync(join(tempConfigDir, 'opencode.json'), '{}\n', 'utf8');
+
+afterAll(() => {
+  rmSync(tempConfigDir, { recursive: true, force: true });
+});
+
+const FLINT: ApiModel = {
+  id: 'flint-40b-free',
+  providerID: 'opencode-go',
+  name: 'Flint 40B Free',
+  variants: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }],
+  limit: { context: 100_000, output: 8_000 },
+  capabilities: { input: ['text'] },
+};
+
+const QWEN: ApiModel = {
+  id: 'qwen4-max',
+  providerID: 'opencode-go',
+  name: 'Qwen4 Max',
+  limit: { context: 200_000, output: 16_000 },
+  capabilities: { input: ['text'] },
+};
+
+/** The model `/api/agent` reports for `plan`. */
+const PLAN_AGENT_MODEL = { id: FLINT.id, providerID: FLINT.providerID };
+
+/**
+ * The model `/api/agent` reports for `build`, the configured default agent. It
+ * is deliberately different from `/api/model/default`: that endpoint is not
+ * agent-aware, so a draft naming Qwen4 Max proves the agent's model won.
+ */
+const BUILD_AGENT_MODEL = { id: QWEN.id, providerID: QWEN.providerID };
+
+interface AgentModelRow {
+  id: string;
+  providerID: string;
+  variant?: string;
+}
+
 interface SessionRow {
   id: string;
   title?: string;
@@ -27,24 +72,30 @@ interface SessionRow {
   fork?: { sessionID?: string };
 }
 
+interface FakeApiOptions {
+  sessions: SessionRow[];
+  /** `/api/model`'s answer. */
+  models: ApiModel[];
+  /** `/api/agent`'s model for `build`; `undefined` means it names none. */
+  agentModel: AgentModelRow | undefined;
+  /** `/api/model/default`'s answer; `undefined` means the endpoint names none. */
+  defaultModel: ApiModel | undefined;
+}
+
 class FakeApi {
-  readonly calls: { method: 'GET' | 'POST' | 'DELETE'; path: string; body?: unknown }[] = [];
+  readonly calls: {
+    method: 'GET' | 'POST' | 'DELETE';
+    path: string;
+    body?: unknown;
+    params?: Record<string, string>;
+  }[] = [];
 
-  constructor(private readonly sessions: SessionRow[]) {}
+  constructor(private readonly options: FakeApiOptions) {}
 
-  get<T>(path: string): Promise<T> {
-    this.calls.push({ method: 'GET', path });
+  get<T>(path: string, params?: Record<string, string>): Promise<T> {
+    this.calls.push({ method: 'GET', path, ...(params === undefined ? {} : { params }) });
     if (path === '/model') {
-      return Promise.resolve([
-        {
-          id: 'flint-40b-free',
-          providerID: 'opencode',
-          name: 'Flint 40B Free',
-          variants: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }],
-          limit: { context: 100_000, output: 8_000 },
-          capabilities: { input: ['text'] },
-        },
-      ] satisfies ApiModel[] as unknown as T);
+      return Promise.resolve(this.options.models as unknown as T);
     }
     if (path === '/command') {
       return Promise.resolve([{ name: 'init', description: 'setup' }] as unknown as T);
@@ -56,26 +107,33 @@ class FakeApi {
     }
     if (path === '/agent') {
       return Promise.resolve([
-        { id: 'build', name: 'Build', mode: 'primary', hidden: false },
-        { id: 'plan', name: 'Plan', mode: 'primary', hidden: false },
+        {
+          id: 'build',
+          name: 'Build',
+          mode: 'primary',
+          hidden: false,
+          ...(this.options.agentModel === undefined ? {} : { model: this.options.agentModel }),
+        },
+        {
+          id: 'plan',
+          name: 'Plan',
+          mode: 'primary',
+          hidden: false,
+          model: PLAN_AGENT_MODEL,
+        },
         { id: 'general', name: 'General', mode: 'subagent', hidden: false },
       ] as unknown as T);
     }
     if (path === '/config') {
       return Promise.resolve([
-        { type: 'document', info: { default_agent: 'plan' } },
+        { type: 'document', info: { default_agent: 'build' } },
       ] as unknown as T);
     }
     if (path === '/model/default') {
-      return Promise.resolve({
-        id: 'flint-40b-free',
-        providerID: 'opencode',
-        name: 'Flint 40B Free',
-        variants: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }],
-      } as unknown as T);
+      return Promise.resolve((this.options.defaultModel ?? null) as unknown as T);
     }
     const id = path.split('/')[2];
-    const session = this.sessions.find((row) => row.id === id);
+    const session = this.options.sessions.find((row) => row.id === id);
     return session === undefined
       ? Promise.reject(new Error('not found'))
       : Promise.resolve(session as unknown as T);
@@ -83,7 +141,7 @@ class FakeApi {
 
   page<T>(path: string): Promise<OpenCodePage<T>> {
     this.calls.push({ method: 'GET', path });
-    return Promise.resolve({ data: this.sessions as unknown as T[] });
+    return Promise.resolve({ data: this.options.sessions as unknown as T[] });
   }
 
   post<T>(path: string, body?: unknown): Promise<T | undefined> {
@@ -110,14 +168,23 @@ function engineWith(
     owned?: boolean;
     /** The config dir its agents read global command templates from. */
     configDir?: string;
+    /** Replaces `/api/model`'s answer. */
+    models?: ApiModel[];
+    /** `/api/model/default`'s answer; present-but-undefined means it names none. */
+    defaultModel?: ApiModel;
+    /** `/api/agent`'s model for `build`; present-but-undefined means it names none. */
+    agentModel?: AgentModelRow;
   } = {},
 ): {
   engine: OpenCodeEngine;
   api: FakeApi;
   closed: { stream: ReturnType<typeof vi.fn>; connection: ReturnType<typeof vi.fn> };
+  /** Rewrites the config file and bumps its fingerprint, as an editor would. */
+  touchConfig: () => void;
 } {
-  const api = new FakeApi(
-    options.sessions ?? [
+  const configDir = options.configDir ?? tempConfigDir;
+  const api = new FakeApi({
+    sessions: options.sessions ?? [
       {
         id: 'ses_1',
         title: 'First',
@@ -134,7 +201,12 @@ function engineWith(
       // No directory: it cannot be grouped, so it is not reported.
       { id: 'ses_nowhere', time: { created: 3_000, updated: 3_000 } },
     ],
-  );
+    models: options.models ?? [FLINT, QWEN],
+    // `in`, not `??`: a test that passes the option explicitly wants "no model",
+    // which is exactly the state a server without a fallback leaves.
+    agentModel: 'agentModel' in options ? options.agentModel : BUILD_AGENT_MODEL,
+    defaultModel: 'defaultModel' in options ? options.defaultModel : FLINT,
+  });
   const closed = {
     stream: vi.fn(() => Promise.resolve()),
     connection: vi.fn(() => Promise.resolve()),
@@ -152,9 +224,15 @@ function engineWith(
       subscribe: () => () => undefined,
     } as unknown as OpenCodeEventStream,
     logger: silentLogger,
-    ...(options.configDir === undefined ? {} : { configDir: options.configDir }),
+    configDir,
   });
-  return { engine, api, closed };
+  let touched = 0;
+  const touchConfig = (): void => {
+    touched += 1;
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, 'opencode.json'), `{\n  "touched": ${touched}\n}\n`, 'utf8');
+  };
+  return { engine, api, closed, touchConfig };
 }
 
 describe('OpenCodeEngine', () => {
@@ -225,20 +303,108 @@ describe('OpenCodeEngine', () => {
       '/model/default',
       '/skill',
     ]);
-    expect(state.availableModels).toHaveLength(1);
+    expect(state.availableModels).toHaveLength(2);
     expect(state.availableCommands.map((command) => command.name)).toEqual(['init', 'OpenCode']);
-    // `/model/default` is only a candidate — a model the server cannot resolve
-    // falls back silently, so the draft claims no model until the first step
-    // names the one actually serving (or the reader picks one).
-    expect(state.model).toBeUndefined();
+    // The draft names the model the default agent is configured to run, which is
+    // what the first prompt will actually use.
+    expect(state.model).toMatchObject({ provider: 'opencode-go', id: 'qwen4-max' });
     expect(state.availableThinkingLevels).toEqual([]);
-    expect(state.mode).toBe('plan');
+    expect(state.mode).toBe('build');
     expect(state.availableModes?.map((mode) => mode.id)).toEqual(['build', 'plan']);
-    expect(state.availableModes?.find((mode) => mode.id === 'plan')?.default).toBe(true);
+    expect(state.availableModes?.find((mode) => mode.id === 'build')?.default).toBe(true);
 
     await probe.dispose();
     // A draft refuses what it cannot do instead of pretending.
     await expect(probe.prompt('hi', 'new')).rejects.toBeInstanceOf(UnsupportedByHostError);
+  });
+
+  it("names the default agent's configured model in a draft", async () => {
+    const { engine, api } = engineWith();
+    const state = await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
+    expect(state.model).toMatchObject({ provider: 'opencode-go', id: 'qwen4-max' });
+    // Every catalog read names the drafted workspace, so a project's own config
+    // decides the answer.
+    const modelCall = api.calls.find((call) => call.path === '/model');
+    expect(modelCall?.params).toEqual({ 'location[directory]': WORKSPACE.cwd });
+  });
+
+  it("names the picked mode's model in a draft", async () => {
+    const { engine } = engineWith();
+    const state = await (
+      await engine.factory.probeDefaults({ workspace: WORKSPACE, mode: 'plan' })
+    ).state();
+    expect(state.model).toMatchObject({ provider: 'opencode-go', id: 'flint-40b-free' });
+    expect(state.mode).toBe('plan');
+  });
+
+  it('keeps an explicitly picked model over any agent default', async () => {
+    const { engine } = engineWith();
+    const model: ModelRef = {
+      provider: 'opencode-go',
+      id: 'flint-40b-free',
+      name: 'Flint',
+    };
+    const state = await (
+      await engine.factory.probeDefaults({ workspace: WORKSPACE, model, mode: 'build' })
+    ).state();
+    expect(state.model).toMatchObject({ id: 'flint-40b-free' });
+  });
+
+  it('uses the server fallback when the agent model is not in the catalog', async () => {
+    const { engine } = engineWith({ agentModel: { id: 'missing', providerID: 'opencode-go' } });
+    const state = await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
+    expect(state.model).toMatchObject({ id: 'flint-40b-free' });
+  });
+
+  it('reports no model when neither the agent nor the fallback resolves', async () => {
+    const { engine } = engineWith({ models: [], defaultModel: undefined });
+    const state = await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
+    expect(state.model).toBeUndefined();
+  });
+
+  it('reloads the location before a probe when the config signature changed', async () => {
+    const { engine, api, touchConfig } = engineWith({ owned: true, configDir: tempConfigDir });
+    // The first probe seeds the signature; no reload yet.
+    await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
+    expect(api.calls.map((call) => call.path)).not.toContain('/location/reload');
+
+    touchConfig(); // writes the config or bumps its mtime
+    await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
+    const paths = api.calls.map((call) => call.path);
+    expect(paths).toContain('/location/reload');
+    expect(paths.lastIndexOf('/location/reload')).toBeLessThan(paths.lastIndexOf('/model'));
+  });
+
+  it("watches the drafted project's config, not only the global one", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'oc-engine-project-'));
+    try {
+      const project = join(root, 'project');
+      const configDir = join(root, 'config');
+      const projectConfig = join(project, '.opencode', 'opencode.json');
+      mkdirSync(join(project, '.opencode'), { recursive: true });
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'opencode.json'), '{}\n', 'utf8');
+      writeFileSync(projectConfig, '{"default_agent":"build"}\n', 'utf8');
+      const { engine, api } = engineWith({ owned: true, configDir });
+      const workspace = { cwd: project, name: 'project' };
+
+      // The first probe only seeds: the server already started from these files.
+      await (await engine.factory.probeDefaults({ workspace })).state();
+      expect(api.calls.map((call) => call.path)).not.toContain('/location/reload');
+
+      // The project file is part of the fingerprint, so editing it is the change
+      // the next probe acts on — a project's own config reaches its draft.
+      writeFileSync(projectConfig, '{"default_agent":"plan"}\n', 'utf8');
+      const state = await (await engine.factory.probeDefaults({ workspace })).state();
+      expect(api.calls.map((call) => call.path)).toContain('/location/reload');
+      // Every catalog read names the drafted project, which is what decides it.
+      expect(api.calls.filter((call) => call.path === '/model').at(-1)?.params).toEqual({
+        'location[directory]': project,
+      });
+      expect(state.workspace).toEqual(workspace);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("reads a bot's command templates from its own config dir, not the host's XDG one", async () => {
@@ -276,10 +442,10 @@ describe('OpenCodeEngine', () => {
 
   it("offers the picked model's levels on a probe", async () => {
     const { engine } = engineWith({ sessions: [] });
-    const model: ModelRef = { provider: 'opencode', id: 'flint-40b-free', name: 'Flint 40B Free' };
+    const model: ModelRef = { provider: 'opencode-go', id: 'flint-40b-free', name: 'Flint 40B Free' };
     const probe = await engine.factory.probeDefaults({ workspace: WORKSPACE, model });
     const state: AgentSessionState = await probe.state();
-    expect(state.model).toMatchObject({ provider: 'opencode', id: 'flint-40b-free' });
+    expect(state.model).toMatchObject({ provider: 'opencode-go', id: 'flint-40b-free' });
     expect(state.availableThinkingLevels).toEqual(['low', 'medium', 'high']);
     expect(state.thinkingLevel).toBe('medium');
   });

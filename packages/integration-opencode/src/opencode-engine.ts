@@ -25,7 +25,8 @@ import {
 } from './internal/connection.js';
 import { OpenCodeApi } from './internal/client.js';
 import { OpenCodeEventStream } from './internal/event-stream.js';
-import { defaultModeId, readAgentModes, readDefaultModel } from './internal/catalog.js';
+import { defaultModeId, readAgentCatalog, readDefaultModel } from './internal/catalog.js';
+import { OpenCodeConfigGuard } from './internal/config-guard.js';
 import {
   thinkingLevelOf,
   thinkingLevelsOf,
@@ -63,6 +64,12 @@ export interface OpenCodeEngineDeps {
    * is read out of the user's config.
    */
   configDir?: string;
+  /**
+   * The environment the OpenCode server was started with. The config guard
+   * fingerprints the config tree that environment resolves, so a bot's
+   * redirected XDG roots are the ones it stats rather than the host's.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
@@ -106,10 +113,21 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
       },
     };
     this.extras = extras;
+    // One guard per engine: every session and every draft shares the server, so
+    // they share the reload decision too. Ownership comes from the connection —
+    // only a server Morse started may be told to reload itself.
+    const guard = new OpenCodeConfigGuard({
+      api: deps.api,
+      logger: deps.logger,
+      owned: deps.connection.owned,
+      ...(deps.configDir === undefined ? {} : { configDir: deps.configDir }),
+      ...(deps.env === undefined ? {} : { env: deps.env }),
+    });
     this.factory = new OpenCodeAgentFactory({
       api: deps.api,
       stream: deps.stream,
       logger: deps.logger,
+      guard,
       ...(deps.configDir === undefined ? {} : { configDir: deps.configDir }),
     });
     this.catalog = new OpenCodeSessionCatalog({
@@ -196,6 +214,7 @@ export async function createOpenCodeEngine(
     ...(options.maxSessionsPerProject === undefined
       ? {}
       : { maxSessionsPerProject: options.maxSessionsPerProject }),
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
 }
 
@@ -252,6 +271,8 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       api: OpenCodeApi;
       stream: OpenCodeEventStream;
       logger: MorseLogger;
+      /** The engine's shared config guard: a changed file reloads the server. */
+      guard: OpenCodeConfigGuard;
       /** Where this engine's agents read global command templates from. */
       configDir?: string;
     },
@@ -267,6 +288,7 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       stream: this.deps.stream,
       workspace: input.workspace,
       logger: this.deps.logger,
+      guard: this.deps.guard,
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       ...(input.mode === undefined ? {} : { mode: input.mode }),
       ...(this.deps.configDir === undefined ? {} : { configDir: this.deps.configDir }),
@@ -274,13 +296,50 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
   }
 
   /**
+   * The config fingerprint a draft cache keys on: when the reader edits
+   * `opencode.json`, the cached draft must miss so the next probe reloads the
+   * server and reads the new catalogs. Synchronous, because a cache lookup is.
+   */
+  configSignature(options: { workspace: WorkspaceRef; engine?: string }): string {
+    return this.deps.guard.signature(options.workspace.cwd);
+  }
+
+  /**
+   * The manual path: reload the server's config now, whatever state it is in.
+   * The guard logs a failed reload instead of throwing, which is what the
+   * control wants — a warning, not a broken command.
+   */
+  reloadConfig(options: { engine?: string; cwd?: string }): Promise<void> {
+    return this.deps.guard.reloadNow(options.cwd);
+  }
+
+  /**
    * The draft catalog without a session: models, their levels, and the composer's
    * commands/skills, read straight from the server's catalogs. No session is
    * created, so opening the empty panel does not litter the server's history.
+   *
+   * The draft names the model the *effective agent* is configured to run — the
+   * picked mode's agent, else the configured default agent — because that is
+   * what the first prompt will use. `/model/default` is only the server's own
+   * fallback for an agent that names no model the catalog knows, and an
+   * explicitly picked model always wins. A model no catalog can resolve stays
+   * unset rather than naming one that will not serve.
+   *
+   * `engine` is the router's selection and goes unused here: reaching this
+   * factory already means the router picked it.
    */
-  async probeDefaults(input: { workspace: WorkspaceRef; model?: ModelRef }): Promise<AgentGateway> {
+  async probeDefaults(input: {
+    workspace: WorkspaceRef;
+    engine?: string;
+    model?: ModelRef;
+    mode?: string;
+  }): Promise<AgentGateway> {
     const directory = input.workspace.cwd;
-    const [models, commands, modes, defaultModel] = await Promise.all([
+    // The server reads its config once, so a file edited since then is invisible
+    // until it reloads. Seeding happens on the first probe, which must not reload
+    // a server that already started from these files.
+    await this.deps.guard.ensureFresh(directory);
+    const [models, commands, agentCatalog, defaultModel] = await Promise.all([
       this.deps.api
         .get<ApiModel[]>('/model', { 'location[directory]': directory })
         .catch((error: unknown): ApiModel[] => {
@@ -288,28 +347,34 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
           return [];
         }),
       readAvailableCommands(this.deps.api, directory, this.deps.logger, this.deps.configDir),
-      readAgentModes(this.deps.api, directory, this.deps.logger),
+      readAgentCatalog(this.deps.api, directory, this.deps.logger),
       readDefaultModel(this.deps.api, directory, this.deps.logger),
     ]);
-    const catalog =
-      defaultModel === undefined ||
-      models.some(
-        (model) => model.providerID === defaultModel.providerID && model.id === defaultModel.id,
-      )
-        ? models
-        : [...models, defaultModel];
-    // Only an explicitly picked model is reported as current: `/model/default`
-    // is what the server would try first, and a model it cannot resolve falls
-    // back silently — so until the first step names the real one (or the reader
-    // picks), the draft claims no model at all. The default stays in the
-    // catalog, so it remains pickable.
-    const selected =
-      input.model === undefined
-        ? undefined
-        : catalog.find(
-            (model) => model.providerID === input.model?.provider && model.id === input.model?.id,
-          );
-    const mode = defaultModeId(modes);
+    const catalog = [...models];
+    const known = (providerID: string, id: string): ApiModel | undefined =>
+      catalog.find((model) => model.providerID === providerID && model.id === id);
+    const mode = input.mode ?? defaultModeId(agentCatalog.modes);
+    const agentModel = mode === undefined ? undefined : agentCatalog.models.get(mode);
+
+    // An explicit pick is the reader's choice even when it does not resolve: a
+    // model the catalog lacks is reported as no model rather than silently
+    // swapped for one the reader never chose.
+    let selected: ApiModel | undefined;
+    if (input.model !== undefined) {
+      selected = known(input.model.provider, input.model.id);
+    } else {
+      selected =
+        agentModel === undefined ? undefined : known(agentModel.providerID, agentModel.id);
+      if (selected === undefined && defaultModel !== undefined) {
+        // The server's own fallback. Append it when the catalog a stale server
+        // returned does not list it yet, so the picker can name it.
+        const fallback = known(defaultModel.providerID, defaultModel.id);
+        selected = fallback ?? defaultModel;
+        if (fallback === undefined) {
+          catalog.push(defaultModel);
+        }
+      }
+    }
     const state: AgentSessionState = {
       workspace: input.workspace,
       ...(selected === undefined ? {} : { model: toModelRef(selected) }),
@@ -318,7 +383,7 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
       availableThinkingLevels: thinkingLevelsOf(selected),
       availableCommands: [...commands],
       ...(mode === undefined ? {} : { mode }),
-      ...(modes.length === 0 ? {} : { availableModes: [...modes] }),
+      ...(agentCatalog.modes.length === 0 ? {} : { availableModes: [...agentCatalog.modes] }),
       streaming: false,
     };
     return new ProbeGateway(state, this.kind);

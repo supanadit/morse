@@ -28,6 +28,7 @@ import {
 import { AgentUnavailableError, UnsupportedByHostError, type MorseLogger } from '@morse/system';
 import type { OpenCodeApi } from './internal/client.js';
 import { defaultModeId, readAgentModes, readDefaultModel } from './internal/catalog.js';
+import type { OpenCodeConfigGuard } from './internal/config-guard.js';
 import { listCommands, parseCommandFile } from './internal/opencode-prompts-config.js';
 import { OpenCodeEventMapper, toTokenUsage } from './internal/event-mapping.js';
 import type { OpenCodeEvent, OpenCodeEventStream } from './internal/event-stream.js';
@@ -152,6 +153,12 @@ export interface OpenCodeAgentOptions {
    * never reads the user's global commands.
    */
   configDir?: string;
+  /**
+   * The engine's shared config guard. The agent reports its streaming state to
+   * it and releases its id on dispose, so a reload can tell whether a turn is in
+   * progress.
+   */
+  guard?: OpenCodeConfigGuard;
 }
 
 export class OpenCodeAgent extends Session {
@@ -161,6 +168,7 @@ export class OpenCodeAgent extends Session {
   private readonly stream: OpenCodeEventStream;
   private readonly log: MorseLogger;
   private readonly configDir: string | undefined;
+  private readonly guard: OpenCodeConfigGuard | undefined;
   private readonly mapper = new OpenCodeEventMapper();
   private readonly models = new Map<string, ApiModel>();
   private readonly imageFiles: string[] = [];
@@ -186,6 +194,7 @@ export class OpenCodeAgent extends Session {
     this.stream = options.stream;
     this.log = options.logger;
     this.configDir = options.configDir;
+    this.guard = options.guard;
     this.engineId = session.id;
   }
 
@@ -605,6 +614,8 @@ export class OpenCodeAgent extends Session {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.clearListeners();
+    // A session that is gone never blocks a config reload.
+    this.guard?.forget(this.engineId);
     for (const path of this.imageFiles.splice(0)) {
       await rm(path, { force: true }).catch(() => undefined);
     }

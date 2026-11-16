@@ -102,6 +102,15 @@ export interface AgentGateway {
    * agent's configuration becomes selectable without restarting the session.
    */
   refreshModes?(): Promise<void>;
+  /**
+   * Optional: re-reads everything the harness keeps in its own configuration —
+   * models, agents/modes, commands and skills — for a session that is already
+   * warm. The manual "reload agent configuration" control calls it after the
+   * engine reloaded, so an edited config reaches this conversation without the
+   * reader restarting the host. Adapters with no engine-level configuration
+   * simply omit it.
+   */
+  refreshConfig?(): Promise<void>;
   compact(customInstructions?: string): Promise<void>;
   respondToInteraction(response: AgentInteractionResponse): Promise<void>;
   dispose(): Promise<void>;
@@ -109,6 +118,13 @@ export interface AgentGateway {
 
 /** Driven port (R2): creates a gateway for a workspace / persisted session. */
 export interface AgentGatewayFactory {
+  /**
+   * Optional: the engine kind this factory's engine is for when a caller has no
+   * choice yet — a fresh draft with no engine picked. A host with one registered
+   * default engine answers with it; a router that owns several engines exposes
+   * the same kind through its own getter.
+   */
+  readonly defaultEngineKind?: string;
   create(options: {
     workspace: WorkspaceRef;
     sessionId?: string;
@@ -120,15 +136,33 @@ export interface AgentGatewayFactory {
    * used only to read what the backend offers before any session exists (model
    * catalog, thinking levels, commands). Adapters without a session-less mode
    * omit it, and the draft state simply ships without a catalog. `engine` asks
-   * for a specific registered engine's catalogs (the draft's choice), and
-   * `model` asks for the levels of a specific model, so the draft picker can
-   * follow a model the user selected before the session exists.
+   * for a specific registered engine's catalogs (the draft's choice), `model`
+   * asks for the levels of a specific model, and `mode` asks for the model and
+   * levels of the mode the draft has picked, so the pickers can follow choices
+   * the user made before the session exists.
    */
   probeDefaults?(options: {
     workspace: WorkspaceRef;
     engine?: string;
     model?: ModelRef;
+    mode?: string;
   }): Promise<AgentGateway>;
+  /**
+   * Optional: the fingerprint of every config file `workspace.cwd` reads right
+   * now. A caller compares it to decide whether its cached draft catalogs are
+   * stale, because a config edit reaches the engine only when it reloads.
+   * Synchronous on purpose: a cache lookup cannot await a stat walk. Adapters
+   * whose engine has no config file simply omit it.
+   */
+  configSignature?(options: { workspace: WorkspaceRef; engine?: string }): string;
+  /**
+   * Optional: tells the engine to re-read its configuration — for an attached
+   * server too, since this is the explicit request. `cwd` names the workspace
+   * whose files changed, when the caller knows it; `engine` names the engine
+   * when the caller's draft has no session to ask. The manual control calls
+   * this, and it must work while sessions are running.
+   */
+  reloadConfig?(options: { engine?: string; cwd?: string }): Promise<void>;
 }
 
 /** One page of a resumed session's finished exchanges. */

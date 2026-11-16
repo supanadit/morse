@@ -121,6 +121,9 @@ export async function createBotOpenCodeEngine(
     mcp: new OpenCodeMcp({ ownership: 'isolated', root: configRoot }),
     prompts: new OpenCodePrompts({ ownership: 'isolated', root: configRoot }),
     configDir,
+    // The guard fingerprints the config tree the bot's server reads, which is
+    // the one this environment redirects into the bot.
+    env,
   });
 }
 
