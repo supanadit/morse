@@ -39,14 +39,29 @@ interface BranchBehaviour {
 }
 
 class FakeGateway implements AgentGateway {
+  private readonly listeners = new Set<(event: AgentEvent) => void>();
+  /** Present only when a test grants it, so the registry sees what an adapter would expose. */
+  refreshConfig?: () => Promise<void>;
+
   constructor(
     public current: AgentSessionState,
     readonly kind = 'pi',
     private readonly branch: BranchBehaviour = {},
   ) {}
 
-  subscribe(_listener: (event: AgentEvent) => void): () => void {
-    return () => undefined;
+  subscribe(listener: (event: AgentEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /** Test-only: flips streaming and reports it, as an engine finishing a turn would. */
+  setStreaming(streaming: boolean): void {
+    this.current = { ...this.current, streaming };
+    for (const listener of [...this.listeners]) {
+      listener({ type: 'agent/state', at: Date.now(), state: { ...this.current } });
+    }
   }
   state(): Promise<AgentSessionState> {
     return Promise.resolve({ ...this.current });
@@ -105,12 +120,22 @@ class FakeGateway implements AgentGateway {
 }
 
 class FakeFactory implements AgentGatewayFactory {
+  /** The config fingerprint `configSignature` reports; a test moves it to simulate an edit. */
+  signature = 'v1';
+  /** How many times the manual reload reached the engine. */
+  reloads = 0;
+
   /** The engine kind its gateways report, so a test can open a non-default one. */
   constructor(private readonly kind = 'pi') {}
 
+  /** What a caller with no draft choice gets; the gateway kind is the same answer. */
+  get defaultEngineKind(): string {
+    return this.kind;
+  }
+
   readonly created: { workspace: WorkspaceRef; sessionId?: string; engine?: string; mode?: string }[] =
     [];
-  readonly probed: { engine?: string; model?: ModelRef }[] = [];
+  readonly probed: { engine?: string; model?: ModelRef; mode?: string; workspace?: string }[] = [];
   private next = 0;
 
   create(input: { workspace: WorkspaceRef; sessionId?: string; engine?: string; mode?: string }) {
@@ -130,10 +155,17 @@ class FakeFactory implements AgentGatewayFactory {
     );
   }
 
-  probeDefaults(input: { workspace: WorkspaceRef; engine?: string; model?: ModelRef }) {
+  probeDefaults(input: {
+    workspace: WorkspaceRef;
+    engine?: string;
+    model?: ModelRef;
+    mode?: string;
+  }) {
     this.probed.push({
       ...(input.engine === undefined ? {} : { engine: input.engine }),
       ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.mode === undefined ? {} : { mode: input.mode }),
+      workspace: input.workspace.cwd,
     });
     return Promise.resolve(
       new FakeGateway({
@@ -146,6 +178,15 @@ class FakeFactory implements AgentGatewayFactory {
         streaming: false,
       }),
     );
+  }
+
+  configSignature(): string {
+    return this.signature;
+  }
+
+  reloadConfig(): Promise<void> {
+    this.reloads += 1;
+    return Promise.resolve();
   }
 }
 
@@ -254,9 +295,9 @@ describe('SessionRegistry draft engine', () => {
     expect(openCode?.mode).toBe('opencode:none');
     expect(openCodeModel?.mode).toBe('opencode:deepseek');
     expect(factory.probed).toEqual([
-      { engine: 'pi' },
-      { engine: 'opencode' },
-      { engine: 'opencode', model },
+      { engine: 'pi', workspace: WORKSPACE.cwd },
+      { engine: 'opencode', workspace: WORKSPACE.cwd },
+      { engine: 'opencode', model, workspace: WORKSPACE.cwd },
     ]);
     expect(sessions.cachedDraftDefaults('opencode')).toBe(openCode);
     expect(sessions.cachedDraftDefaults('opencode', model)).toBe(openCodeModel);
@@ -269,7 +310,10 @@ describe('SessionRegistry draft engine', () => {
     await sessions.draftDefaults('pi');
     sessions.refreshDraftDefaults();
     await sessions.draftDefaults('pi');
-    expect(factory.probed).toEqual([{ engine: 'pi' }, { engine: 'pi' }]);
+    expect(factory.probed).toEqual([
+      { engine: 'pi', workspace: WORKSPACE.cwd },
+      { engine: 'pi', workspace: WORKSPACE.cwd },
+    ]);
   });
 
   it('does not memoise a probe that throws', async () => {
@@ -292,6 +336,144 @@ describe('SessionRegistry draft engine', () => {
     await expect(sessions.draftDefaults('opencode')).rejects.toThrow('no server');
     await expect(sessions.draftDefaults('opencode')).resolves.toBeDefined();
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * A draft's catalogs depend on more than the engine and model: the mode decides
+ * the effective agent, the project decides which config files are read, and an
+ * edit to those files invalidates what the last probe read.
+ */
+describe('SessionRegistry draft freshness', () => {
+  it('keys a draft probe by mode, project and config signature', async () => {
+    const factory = new FakeFactory();
+    const sessions = registry(factory);
+    const a = await sessions.draftDefaults('opencode', undefined, 'build', WORKSPACE);
+    await sessions.draftDefaults('opencode', undefined, 'plan', WORKSPACE);
+    await sessions.draftDefaults('opencode', undefined, 'build', {
+      cwd: '/work/other',
+      name: 'other',
+    });
+    expect(factory.probed).toHaveLength(3);
+    factory.signature = 'v2';
+    await sessions.draftDefaults('opencode', undefined, 'build', WORKSPACE);
+    expect(factory.probed).toHaveLength(4);
+    expect(a?.mode).toBe('opencode:none');
+  });
+
+  it('probes the drafted project, not the host default', async () => {
+    const factory = new FakeFactory();
+    const sessions = registry(factory);
+    await sessions.draftDefaults('opencode', undefined, 'build', {
+      cwd: '/work/other',
+      name: 'other',
+    });
+    expect(factory.probed.at(-1)?.workspace).toBe('/work/other');
+  });
+
+  it('drops a cached draft when the config signature changes', async () => {
+    const factory = new FakeFactory();
+    const sessions = registry(factory);
+    await sessions.draftDefaults('opencode');
+    expect(sessions.cachedDraftDefaults('opencode')).toBeDefined();
+    factory.signature = 'v2';
+    expect(sessions.cachedDraftDefaults('opencode')).toBeUndefined();
+  });
+});
+
+/**
+ * Reloading an engine's configuration is a manual control: it must refuse to
+ * yank the config out from under a running turn unless the reader insists, and
+ * it must only speak for the engine it names.
+ */
+describe('SessionRegistry reloadAgentConfig', () => {
+  it('warns before reloading while that engine streams, then reloads on force', async () => {
+    const factory = new FakeFactory('opencode');
+    const sessions = registry(factory);
+    const opened = await sessions.open({ engine: 'opencode' });
+    (sessions.agentFor(opened.key) as FakeGateway).setStreaming(true);
+    await expect(sessions.reloadAgentConfig({ engine: 'opencode' })).resolves.toEqual({
+      reloaded: false,
+      requiresConfirmation: true,
+      running: 1,
+    });
+    expect(factory.reloads).toBe(0);
+    await expect(sessions.reloadAgentConfig({ engine: 'opencode', force: true })).resolves.toEqual({
+      reloaded: true,
+      running: 1,
+    });
+    expect(factory.reloads).toBe(1);
+  });
+
+  it('falls back to the factory’s default engine when none is named', async () => {
+    const factory = new FakeFactory('opencode');
+    const sessions = registry(factory);
+    const opened = await sessions.open({ engine: 'opencode' });
+    (sessions.agentFor(opened.key) as FakeGateway).setStreaming(true);
+
+    await expect(sessions.reloadAgentConfig()).resolves.toEqual({
+      reloaded: false,
+      requiresConfirmation: true,
+      running: 1,
+    });
+  });
+
+  it('does not count another engine’s running turn against the reload', async () => {
+    const factory = new FakeFactory('pi');
+    const sessions = registry(factory);
+    const opened = await sessions.open({ engine: 'pi' });
+    const pi = sessions.agentFor(opened.key) as FakeGateway;
+    pi.setStreaming(true);
+    const refresh = vi.fn(() => Promise.resolve());
+    pi.refreshConfig = refresh;
+
+    await expect(sessions.reloadAgentConfig({ engine: 'opencode' })).resolves.toEqual({
+      reloaded: true,
+      running: 0,
+    });
+    expect(factory.reloads).toBe(1);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the warm gateways of the reloaded engine', async () => {
+    const factory = new FakeFactory('opencode');
+    const sessions = registry(factory);
+    const opened = await sessions.open({ engine: 'opencode' });
+    const gateway = sessions.agentFor(opened.key) as FakeGateway;
+    const refresh = vi.fn(() => Promise.resolve());
+    gateway.refreshConfig = refresh;
+
+    await expect(sessions.reloadAgentConfig({ engine: 'opencode' })).resolves.toEqual({
+      reloaded: true,
+      running: 0,
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the reload working when a warm gateway cannot refresh its config', async () => {
+    const factory = new FakeFactory('opencode');
+    const sessions = registry(factory);
+    const opened = await sessions.open({ engine: 'opencode' });
+    const gateway = sessions.agentFor(opened.key) as FakeGateway;
+    gateway.refreshConfig = vi.fn(() => Promise.reject(new Error('boom')));
+
+    await expect(sessions.reloadAgentConfig({ engine: 'opencode' })).resolves.toEqual({
+      reloaded: true,
+      running: 0,
+    });
+    expect(factory.reloads).toBe(1);
+  });
+
+  it('clears the draft caches so the next probe reads the reloaded config', async () => {
+    const factory = new FakeFactory('opencode');
+    const sessions = registry(factory);
+    await sessions.draftDefaults('opencode');
+    expect(factory.probed).toHaveLength(1);
+
+    await sessions.reloadAgentConfig({ engine: 'opencode' });
+    await sessions.draftDefaults('opencode');
+
+    expect(factory.probed).toHaveLength(2);
   });
 });
 

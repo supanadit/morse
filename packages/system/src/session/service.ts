@@ -46,6 +46,16 @@ export interface ForkedSession {
   cancelled: boolean;
 }
 
+/** What a manual agent-config reload did, for the control that asked. */
+export interface ReloadedAgentConfig {
+  /** True when the engine reloaded its config and the warm sessions were refreshed. */
+  reloaded: boolean;
+  /** True when a turn was running and `force` was not given: nothing reloaded yet. */
+  requiresConfirmation?: boolean;
+  /** How many sessions of that engine were mid-turn when the reload was asked for. */
+  running: number;
+}
+
 export interface SessionRegistryDeps {
   factory: SessionFactory;
   catalog: SessionCatalog;
@@ -97,9 +107,16 @@ export class SessionRegistry {
   private readonly hotLimit: number;
   private activeKey: string | undefined;
   private syntheticKeys = 0;
-  /** Cached snapshots of never-recording probes, keyed by `(engine, model)`. */
+  /** Cached snapshots of never-recording probes, keyed by engine, model, mode, project and signature. */
   private readonly draftCache = new Map<string, AgentSessionState>();
   private readonly draftProbes = new Map<string, Promise<AgentSessionState | undefined>>();
+  /**
+   * The config fingerprint last read per `engine|project`. A changed fingerprint
+   * means the config files the draft reads were edited, so every cached catalog
+   * (and any probe still in flight) was built from a config the engine no
+   * longer uses.
+   */
+  private readonly draftSignatures = new Map<string, string>();
 
   constructor(private readonly deps: SessionRegistryDeps) {
     this.hotLimit = Math.max(1, deps.hotLimit ?? DEFAULT_HOT_LIMIT);
@@ -174,29 +191,48 @@ export class SessionRegistry {
   refreshDraftDefaults(): void {
     this.draftCache.clear();
     this.draftProbes.clear();
+    this.draftSignatures.clear();
   }
 
   /**
-   * The catalog already probed for an engine and model, when there is one.
-   * Synchronous on purpose: a reader switching back to a model Morse has already
-   * read the levels of gets them in the same frame as the pick instead of
-   * watching a loading row for a probe that is not needed.
+   * The catalog already probed for a draft's engine, model, mode and project,
+   * when there is one. Synchronous on purpose: a reader switching back to a model
+   * Morse has already read the levels of gets them in the same frame as the pick
+   * instead of watching a loading row for a probe that is not needed. The config
+   * signature is checked first, so an edited config misses here exactly as it
+   * misses in `draftDefaults()`.
    */
-  cachedDraftDefaults(engine?: string, model?: ModelRef): AgentSessionState | undefined {
-    return this.draftCache.get(draftKey(engine, model));
+  cachedDraftDefaults(
+    engine?: string,
+    model?: ModelRef,
+    mode?: string,
+    workspace?: WorkspaceRef,
+  ): AgentSessionState | undefined {
+    const project = workspace ?? this.deps.defaultWorkspace;
+    const signature = this.syncDraftSignature(engine, project);
+    return this.draftCache.get(draftKey({ engine, model, mode, workspace: project, signature }));
   }
 
   /**
    * What the backend offers before any session exists: the model catalog,
    * thinking levels, modes and commands of an untouched probe. Probed once per
-   * `(engine, model)` — never per client — from a gateway that never records
-   * itself (pi `--no-session`, OpenCode's catalog reads), so the empty state can
-   * ship real pickers without creating a session. Passing `engine` probes the
-   * engine the draft selected; passing `model` asks for that model's thinking
-   * levels, which pi reports per current model.
+   * `(engine, model, mode, project)` — never per client — from a gateway that
+   * never records itself (pi `--no-session`, OpenCode's catalog reads), so the
+   * empty state can ship real pickers without creating a session. Passing
+   * `engine` probes the engine the draft selected; passing `model` asks for that
+   * model's thinking levels, which pi reports per current model; passing `mode`
+   * and `workspace` asks for the catalogs of the mode and project the draft has
+   * chosen, because the effective agent and the config files both come from them.
    */
-  async draftDefaults(engine?: string, model?: ModelRef): Promise<AgentSessionState | undefined> {
-    const key = draftKey(engine, model);
+  async draftDefaults(
+    engine?: string,
+    model?: ModelRef,
+    mode?: string,
+    workspace?: WorkspaceRef,
+  ): Promise<AgentSessionState | undefined> {
+    const project = workspace ?? this.deps.defaultWorkspace;
+    const signature = this.syncDraftSignature(engine, project);
+    const key = draftKey({ engine, model, mode, workspace: project, signature });
     const cached = this.draftCache.get(key);
     if (cached) {
       return cached;
@@ -205,7 +241,7 @@ export class SessionRegistry {
     if (!probe) {
       // A rejected probe must not be memoized: the setup screen's Retry (or the
       // next draft) has to be able to reach the engine once the user installed it.
-      probe = this.probeDraft(engine, model)
+      probe = this.probeDraft({ engine, model, mode, workspace: project })
         .then((state) => {
           if (state) {
             this.draftCache.set(key, state);
@@ -219,6 +255,38 @@ export class SessionRegistry {
       this.draftProbes.set(key, probe);
     }
     return probe;
+  }
+
+  /**
+   * Re-reads an engine's own configuration — its models, agents/modes, commands
+   * and skills — then drops the draft catalogs read before the reload and tells
+   * every warm session of that engine to re-read too.
+   *
+   * A running turn is the one thing this refuses: the engine rebuilds its
+   * catalogs while working, and a reader must confirm before a reload lands
+   * under it. The count is scoped to the named engine (the factory's default
+   * when the draft named none), so another engine's turn never blocks it.
+   */
+  async reloadAgentConfig(
+    options: { engine?: string; cwd?: string; force?: boolean } = {},
+  ): Promise<ReloadedAgentConfig> {
+    const engine = options.engine ?? this.deps.factory.defaultEngineKind;
+    const running = this.runningSessions(engine);
+    if (running > 0 && options.force !== true) {
+      return { reloaded: false, requiresConfirmation: true, running };
+    }
+    const reload = this.deps.factory.reloadConfig;
+    if (reload === undefined) {
+      return { reloaded: false, running };
+    }
+    await reload.call(this.deps.factory, {
+      ...(engine === undefined ? {} : { engine }),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    });
+    // Every cached draft was read from the config the engine just replaced.
+    this.refreshDraftDefaults();
+    await this.refreshWarmGateways(engine);
+    return { reloaded: true, running };
   }
 
   /** The engine kinds this registry can open, for validating a draft choice. */
@@ -569,6 +637,7 @@ export class SessionRegistry {
     this.activeKey = undefined;
     this.draftCache.clear();
     this.draftProbes.clear();
+    this.draftSignatures.clear();
     await Promise.all(
       sessions.map((session) => {
         session.detach();
@@ -651,25 +720,84 @@ export class SessionRegistry {
     return this.hot.get(key)?.state.streaming === true;
   }
 
+  /** How many hot sessions of one engine are mid-turn; another engine's never count. */
+  private runningSessions(engine: string | undefined): number {
+    let running = 0;
+    for (const session of this.hot.values()) {
+      if (session.gateway.kind === engine && session.state.streaming === true) {
+        running += 1;
+      }
+    }
+    return running;
+  }
+
+  /**
+   * Tells the warm sessions of one engine to re-read what the reload replaced.
+   * A gateway that cannot re-read (or fails to) keeps its last catalogs; a
+   * warning is all the control needs, never a rejected reload.
+   */
+  private async refreshWarmGateways(engine: string | undefined): Promise<void> {
+    const refreshes: Promise<void>[] = [];
+    for (const session of this.hot.values()) {
+      if (session.gateway.kind !== engine) {
+        continue;
+      }
+      const refresh = session.gateway.refreshConfig;
+      if (refresh === undefined) {
+        continue;
+      }
+      refreshes.push(
+        refresh.call(session.gateway).catch((error: unknown) => {
+          this.deps.logger.warn(
+            `Could not refresh session ${session.key} after the ${engine ?? 'default'} config reload`,
+            error,
+          );
+        }),
+      );
+    }
+    await Promise.all(refreshes);
+  }
+
+  /**
+   * The fingerprint of the config files a draft's project reads, and the
+   * invalidation it triggers. Recorded per engine and project: a published
+   * fingerprint is content, so a changed one means every cached catalog was
+   * read from a config the engine no longer uses.
+   */
+  private syncDraftSignature(engine: string | undefined, workspace: WorkspaceRef): string {
+    const scope = `${engine ?? ''}|${workspace.cwd}`;
+    const signature = this.deps.factory.configSignature?.({ workspace, engine }) ?? '';
+    const previous = this.draftSignatures.get(scope);
+    if (previous !== undefined && previous !== signature) {
+      this.draftCache.clear();
+      this.draftProbes.clear();
+    }
+    this.draftSignatures.set(scope, signature);
+    return signature;
+  }
+
   private nextSyntheticKey(workspace: WorkspaceRef): string {
     this.syntheticKeys += 1;
     return `${workspace.cwd}#ephemeral-${this.syntheticKeys}`;
   }
 
   /** Asks the factory for a never-recording gateway and snapshots its state. */
-  private async probeDraft(
-    engine: string | undefined,
-    model: ModelRef | undefined,
-  ): Promise<AgentSessionState | undefined> {
+  private async probeDraft(options: {
+    engine?: string;
+    model?: ModelRef;
+    mode?: string;
+    workspace: WorkspaceRef;
+  }): Promise<AgentSessionState | undefined> {
     const factory = this.deps.factory.probeDefaults;
     if (!factory) {
       return undefined;
     }
     try {
       const gateway = await factory.call(this.deps.factory, {
-        workspace: this.deps.defaultWorkspace,
-        ...(engine === undefined ? {} : { engine }),
-        ...(model ? { model } : {}),
+        workspace: options.workspace,
+        ...(options.engine === undefined ? {} : { engine: options.engine }),
+        ...(options.model === undefined ? {} : { model: options.model }),
+        ...(options.mode === undefined ? {} : { mode: options.mode }),
       });
       const state = await gateway.state();
       await gateway.dispose();
@@ -688,9 +816,22 @@ export class SessionRegistry {
   }
 }
 
-/** Cache identity for a draft probe: the engine kind plus the model, if any. */
-function draftKey(engine: string | undefined, model: ModelRef | undefined): string {
-  return `${engine ?? ''}|${model ? `${model.provider}/${model.id}` : ''}`;
+/** One draft probe's identity: which engine, model, mode, project and config it reads. */
+interface DraftKey {
+  engine?: string;
+  model?: ModelRef;
+  mode?: string;
+  workspace: WorkspaceRef;
+  /** The project's config fingerprint when the probe was cached. */
+  signature: string;
+}
+
+/** Cache identity for a draft probe: the engine, model, mode, project and config signature. */
+function draftKey(input: DraftKey): string {
+  const model = input.model === undefined ? '' : `${input.model.provider}/${input.model.id}`;
+  return [input.engine ?? '', model, input.mode ?? '', input.workspace.cwd, input.signature].join(
+    '|',
+  );
 }
 
 function baseName(path: string): string {
