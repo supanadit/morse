@@ -117,6 +117,7 @@ Create `config-guard.spec.ts` with a temp `XDG_CONFIG_HOME`, a `FakeApi` that re
 
 ```ts
 it('seeds the first signature without reloading', async () => {
+  mkdirSync(join(configHome, 'opencode'), { recursive: true });
   writeFileSync(join(configHome, 'opencode', 'opencode.json'), '{"default_agent":"build"}');
   const { guard, posts } = makeGuard({ owned: true });
   await expect(guard.ensureFresh('/work')).resolves.toBe(false);
@@ -253,15 +254,20 @@ it('reports no model when neither the agent nor the fallback resolves', async ()
 });
 
 it('reloads the location before a probe when the config signature changed', async () => {
-  const { engine, api } = engineWith({ owned: true, configChanged: true });
+  const { engine, api, touchConfig } = engineWith({ owned: true, configDir: tempConfigDir });
+  // The first probe seeds the signature; no reload yet.
+  await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
+  expect(api.calls.map((call) => call.path)).not.toContain('/location/reload');
+
+  touchConfig(); // writes the config or bumps its mtime
   await (await engine.factory.probeDefaults({ workspace: WORKSPACE })).state();
   const paths = api.calls.map((call) => call.path);
   expect(paths).toContain('/location/reload');
-  expect(paths.indexOf('/location/reload')).toBeLessThan(paths.indexOf('/model'));
+  expect(paths.lastIndexOf('/location/reload')).toBeLessThan(paths.lastIndexOf('/model'));
 });
 ```
 
-`engineWith` grows options `agentModel`, `models`, `defaultModel`, `owned`, `configChanged`. For `configChanged`, write the config file after the guard's first seed (the probe is called twice) or use a temp config dir and `utimesSync`.
+`engineWith` grows options `agentModel`, `models`, `defaultModel`, `owned`, and `configDir`; it also returns `touchConfig`, which rewrites `<configDir>/opencode.json` and bumps its mtime. Use a `mkdtempSync` directory so no test reads the machine's real config.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -582,30 +588,42 @@ git commit -m "feat(sessions): expose an engine's config reload capability"
 ```ts
 it('warns before reloading agent config while a session runs', async () => {
   const h = harness({ streaming: true, reloadConfig: true });
-  await h.controller.receive({ type: 'host/command', payload: { command: 'reloadAgentConfig', requestId: 'r1' } });
-  const result = h.result('r1');
-  expect(result).toEqual({ reloaded: false, requiresConfirmation: true, running: 1 });
+  await h.controller.handleClientMessage({
+    type: 'host/command',
+    payload: { command: 'reloadAgentConfig', requestId: 'r1' },
+  });
+  expect(resultOf(h.messages, 'r1')).toEqual({
+    reloaded: false,
+    requiresConfirmation: true,
+    running: 1,
+  });
   expect(h.reloads()).toBe(0);
 });
 
 it('forces the reload and re-probes the draft', async () => {
   const h = harness({ streaming: true, reloadConfig: true });
-  await h.controller.receive({ type: 'host/command', payload: { command: 'reloadAgentConfig', args: { force: true }, requestId: 'r1' } });
+  await h.controller.handleClientMessage({
+    type: 'host/command',
+    payload: { command: 'reloadAgentConfig', args: { force: true }, requestId: 'r1' },
+  });
   expect(h.reloads()).toBe(1);
-  expect(h.result('r1')).toMatchObject({ reloaded: true });
+  expect(resultOf(h.messages, 'r1')).toMatchObject({ reloaded: true });
   expect(h.probes()).toBeGreaterThan(0);
 });
 
 it('probes a draft with the drafted project and mode', async () => {
   const h = harness({ probeState: true });
-  h.controller.enterDraft?.({ cwd: '/work/other', name: 'other' });
-  await h.controller.setModeForTest?.('plan');
+  await h.controller.handleClientMessage({
+    type: 'session/new',
+    payload: { cwd: '/work/other' },
+  });
+  await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
   expect(h.createdProbe().workspace.cwd).toBe('/work/other');
   expect(h.createdProbe().mode).toBe('plan');
 });
 ```
 
-Use the spec's existing message harness; add `reloadConfig`/`refreshConfig` options to `fakeGateway` and `factory`, and a `reloadConfig` spy to the factory. For the draft test, use the public client message the controller already handles (`session/new` with `cwd`, then `mode/set`) rather than a test-only method.
+Use the spec's existing message harness; add `reloadConfig`/`refreshConfig` options to `fakeGateway` and `factory`, and a `reloadConfig` spy to the factory. Add a small `resultOf(messages, requestId)` helper that finds the `host/command/result` with that id and returns its `payload.data`.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -651,10 +669,13 @@ git commit -m "feat(host): reload agent config from the composer"
 Copy the transport/mount helpers from `composer.engine-mode.spec.ts`. Add a transport that answers `reloadAgentConfig` with a queued reply and records requests.
 
 ```ts
+const CAPABLE: HostCapabilities = {
+  ...TWO_ENGINES,
+  engines: [{ kind: 'opencode', label: 'OpenCode', default: true, reloadConfig: true }],
+};
+
 it('shows the reload control only for an engine that offers it', async () => {
-  const yes = await mount(new ReloadTransport({ ...TWO_ENGINES, engines: [
-    { kind: 'opencode', label: 'OpenCode', default: true, reloadConfig: true },
-  ] }, state()));
+  const yes = await mount(new ReloadTransport(CAPABLE, state()));
   expect(yes.host.querySelector('.reload-config')).not.toBeNull();
 
   const no = await mount(new ReloadTransport(TWO_ENGINES, state()));
@@ -662,7 +683,7 @@ it('shows the reload control only for an engine that offers it', async () => {
 });
 
 it('warns with the running count, then forces on confirm', async () => {
-  const transport = new ReloadTransport(capable, state());
+  const transport = new ReloadTransport(CAPABLE, state());
   transport.replies.push({ reloaded: false, requiresConfirmation: true, running: 2 });
   const { fixture, host } = await mount(transport);
   (host.querySelector('.reload-config') as HTMLButtonElement).click();
@@ -677,7 +698,7 @@ it('warns with the running count, then forces on confirm', async () => {
 });
 
 it('cancels without sending a forced reload', async () => {
-  const transport = new ReloadTransport(capable, state());
+  const transport = new ReloadTransport(CAPABLE, state());
   transport.replies.push({ reloaded: false, requiresConfirmation: true, running: 1 });
   const { fixture, host } = await mount(transport);
   (host.querySelector('.reload-config') as HTMLButtonElement).click();
