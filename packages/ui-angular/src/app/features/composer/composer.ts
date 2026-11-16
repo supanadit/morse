@@ -323,6 +323,8 @@ export class ChatComposer {
   );
   /** The running count a refused reload reports, while the user decides. */
   protected readonly reloadWarning = signal<{ running: number } | undefined>(undefined);
+  /** A reload the host could not complete (a timeout, or the engine threw). */
+  protected readonly reloadError = signal(false);
   protected readonly reloadingConfig = signal(false);
   /** The modes the selected engine offers; absent for pi, so the pill is absent. */
   protected readonly availableModes = this.morse.availableModes;
@@ -766,6 +768,28 @@ export class ChatComposer {
       () => this.models().length > 0,
     );
     this.destroyRef.onDestroy(unbind);
+
+    // The reload warning and error name the session and engine that produced
+    // them, and the shell keeps one composer across sessions. A switch makes both
+    // stale: a count from the old session must never authorize a forced reload
+    // for the new one. The first run only records the baseline — nothing has
+    // changed yet, so it must not clear a notice already on screen.
+    let reloadKey: string | undefined;
+    effect(() => {
+      const key = `${this.morse.state().sessionId ?? ''}\u0000${this.currentEngine()}`;
+      untracked(() => {
+        if (reloadKey === undefined) {
+          reloadKey = key;
+          return;
+        }
+        if (key === reloadKey) {
+          return;
+        }
+        reloadKey = key;
+        this.reloadWarning.set(undefined);
+        this.reloadError.set(false);
+      });
+    });
 
     // A dropped file becomes an `@mention` in the text, so the user can still
     // edit what is about to be sent instead of it being sent behind their back.
@@ -2046,22 +2070,33 @@ export class ChatComposer {
     this.reloadWarning.set(undefined);
   }
 
+  /** A failed reload stays until dismissed or the next attempt. */
+  protected dismissReloadError(): void {
+    this.reloadError.set(false);
+  }
+
   private async requestReloadConfig(force: boolean): Promise<void> {
     if (this.reloadingConfig()) {
       return;
     }
     this.reloadingConfig.set(true);
+    this.reloadError.set(false);
     try {
       const answer = (await this.morse.requestHostCommand(
         'reloadAgentConfig',
         force ? { force: true } : {},
       )) as ReloadAgentConfigAnswer | undefined;
       if (answer === undefined) {
-        // The host timed out or is gone: say nothing rather than claim a reload.
+        // The host timed out, or answered `ok: false` because the engine threw
+        // (an invalid config after an edit is the likely one). Saying nothing
+        // here would read as a reload that landed.
+        this.reloadWarning.set(undefined);
+        this.reloadError.set(true);
         return;
       }
       if (answer.requiresConfirmation === true) {
-        this.reloadWarning.set({ running: answer.running });
+        // A malformed answer without a count must still read as a number.
+        this.reloadWarning.set({ running: answer.running ?? 0 });
       } else {
         // Landed, or an engine that cannot reload answered no. Either way no
         // warning belongs on screen.

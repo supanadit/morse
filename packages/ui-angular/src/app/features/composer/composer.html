@@ -458,6 +458,20 @@
     </div>
   }
 
+  @if (reloadError()) {
+    <div class="reload-error" role="alert">
+      <span>The agent configuration could not be reloaded.</span>
+      <button
+        type="button"
+        class="reload-error-dismiss"
+        aria-label="Dismiss"
+        (click)="dismissReloadError()"
+      >
+        ×
+      </button>
+    </div>
+  }
+
   <div class="controls">
     @if (variant !== 'bot') {
     <div class="controls-metrics">

@@ -29,12 +29,14 @@ class ReloadTransport extends BaseHostTransport {
   /** Every host command the composer asked for, in order. */
   readonly commands: { command: string; args?: Record<string, unknown> }[] = [];
   /** Answers queued for the next `reloadAgentConfig` requests; the queue refills
-   * with a plain success, so a test names only the answer it cares about. */
-  readonly replies: ReloadAnswer[] = [];
+   * with a plain success, so a test names only the answer it cares about. An
+   * explicit `undefined` stands for the host's `ok: false` (the engine threw),
+   * which the client resolves as `undefined` too. */
+  readonly replies: (ReloadAnswer | undefined)[] = [];
 
   constructor(
     private readonly capabilities: HostCapabilities,
-    private readonly view: SessionViewState,
+    private view: SessionViewState,
   ) {
     super();
   }
@@ -43,15 +45,24 @@ class ReloadTransport extends BaseHostTransport {
     this.emitStatus('open');
   }
 
+  /** Replays a state the way the host does after a pick or a session switch. */
+  state(next: Partial<SessionViewState>): void {
+    this.view = { ...this.view, ...next };
+    this.emitMessage({ type: 'session/state', payload: this.view });
+  }
+
   send(message: ClientToHostMessage): void {
     if (message.type === 'host/command') {
       this.commands.push({ command: message.payload.command, args: message.payload.args });
       const requestId = message.payload.requestId ?? '';
-      const reply = this.replies.shift() ?? { reloaded: true, running: 0 };
+      const reply = this.replies.length > 0 ? this.replies.shift() : { reloaded: true, running: 0 };
       queueMicrotask(() =>
         this.emitMessage({
           type: 'host/command/result',
-          payload: { requestId, ok: true, data: reply },
+          payload:
+            reply === undefined
+              ? { requestId, ok: false, error: 'reload failed' }
+              : { requestId, ok: true, data: reply },
         }),
       );
       return;
@@ -123,6 +134,17 @@ async function mount(
   return { fixture, host: fixture.nativeElement as HTMLElement };
 }
 
+/**
+ * The fake host answers from a microtask the fixture does not track, so
+ * `whenStable` can resume the test before the request's continuation writes the
+ * signal. One extra microtask turn lets that land before the DOM is read.
+ */
+async function settle(fixture: ComponentFixture<ChatComposer>): Promise<void> {
+  await fixture.whenStable();
+  await Promise.resolve();
+  fixture.detectChanges();
+}
+
 describe('ChatComposer agent config reload', () => {
   afterEach(() => TestBed.resetTestingModule());
 
@@ -139,17 +161,36 @@ describe('ChatComposer agent config reload', () => {
     transport.replies.push({ reloaded: false, requiresConfirmation: true, running: 2 });
     const { fixture, host } = await mount(transport);
     (host.querySelector('.reload-config') as HTMLButtonElement).click();
-    await fixture.whenStable();
+    // The request is in flight until the host answers: the control must be off
+    // before the reply lands, which is what the disabled binding and spin say.
     fixture.detectChanges();
+    expect((host.querySelector('.reload-config') as HTMLButtonElement).disabled).toBe(true);
+    await settle(fixture);
     expect(host.querySelector('.reload-warning')?.textContent).toContain('2 sessions are running');
-    expect(transport.commands.at(-1)).toMatchObject({ command: 'reloadAgentConfig', args: {} });
+    expect((host.querySelector('.reload-config') as HTMLButtonElement).disabled).toBe(false);
+    // toEqual, not toMatchObject: `{ force: false }` must fail here.
+    expect(transport.commands.at(-1)).toEqual({ command: 'reloadAgentConfig', args: {} });
 
     (host.querySelector('.reload-confirm') as HTMLButtonElement).click();
-    await fixture.whenStable();
-    expect(transport.commands.at(-1)).toMatchObject({
+    await settle(fixture);
+    expect(transport.commands.at(-1)).toEqual({
       command: 'reloadAgentConfig',
       args: { force: true },
     });
+  });
+
+  it('does nothing when the engine cannot reload', async () => {
+    // The host answers `{ reloaded: false }` with no confirmation when its engine
+    // has no reload to run. That is not a running-session refusal, so no warning
+    // (and certainly not a bogus "0 sessions are running") may appear.
+    const transport = new ReloadTransport(CAPABLE, state());
+    transport.replies.push({ reloaded: false, running: 2 });
+    const { fixture, host } = await mount(transport);
+    (host.querySelector('.reload-config') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(host.querySelector('.reload-warning')).toBeNull();
+    expect(host.querySelector('.reload-error')).toBeNull();
+    expect(transport.commands.at(-1)).toEqual({ command: 'reloadAgentConfig', args: {} });
   });
 
   it('cancels without sending a forced reload', async () => {
@@ -157,10 +198,44 @@ describe('ChatComposer agent config reload', () => {
     transport.replies.push({ reloaded: false, requiresConfirmation: true, running: 1 });
     const { fixture, host } = await mount(transport);
     (host.querySelector('.reload-config') as HTMLButtonElement).click();
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await settle(fixture);
     (host.querySelector('.reload-cancel') as HTMLButtonElement).click();
     fixture.detectChanges();
+    expect(host.querySelector('.reload-warning')).toBeNull();
+    expect(transport.commands).toHaveLength(1);
+  });
+
+  it('surfaces a reload the host could not complete', async () => {
+    // The host answers `ok: false` when the engine throws (an invalid config after
+    // an edit is the likely one). The client resolves that — and a timeout — as
+    // `undefined`, which must not read as a silent success.
+    const transport = new ReloadTransport(CAPABLE, state());
+    transport.replies.push(undefined);
+    const { fixture, host } = await mount(transport);
+    (host.querySelector('.reload-config') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(host.querySelector('.reload-error')?.textContent).toContain(
+      'The agent configuration could not be reloaded.',
+    );
+    expect(host.querySelector('.reload-warning')).toBeNull();
+
+    (host.querySelector('.reload-error-dismiss') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.reload-error')).toBeNull();
+  });
+
+  it('drops a stale warning when the session changes', async () => {
+    // The shell keeps one composer across sessions, so a warning naming the old
+    // session's running turns must not authorize a forced reload for the new one.
+    const transport = new ReloadTransport(CAPABLE, state());
+    transport.replies.push({ reloaded: false, requiresConfirmation: true, running: 1 });
+    const { fixture, host } = await mount(transport);
+    (host.querySelector('.reload-config') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(host.querySelector('.reload-warning')).not.toBeNull();
+
+    transport.state({ sessionId: 'sess-2', draft: false });
+    await settle(fixture);
     expect(host.querySelector('.reload-warning')).toBeNull();
     expect(transport.commands).toHaveLength(1);
   });
