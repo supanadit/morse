@@ -3,6 +3,7 @@ import { silentLogger } from '@morse/system';
 import type { OpenCodeApi } from './client.js';
 import {
   defaultModeId,
+  readAgentCatalog,
   readAgentModes,
   readDefaultModel,
   type ApiAgent,
@@ -90,13 +91,52 @@ describe('readAgentModes', () => {
   });
 
   it('returns no modes when the server offers no primary agents', async () => {
-    const api = new FakeApi(
-      [{ id: 'general', name: 'General', mode: 'subagent' }],
-      [],
-    );
+    const api = new FakeApi([{ id: 'general', name: 'General', mode: 'subagent' }], []);
     await expect(
       readAgentModes(api as unknown as OpenCodeApi, '/work', silentLogger),
     ).resolves.toEqual([]);
+  });
+});
+
+describe('readAgentCatalog', () => {
+  const MODELLED: ApiAgent[] = [
+    {
+      id: 'build',
+      name: 'Build',
+      mode: 'primary',
+      model: { id: 'deepseek', providerID: 'opencode-go' },
+    },
+    { id: 'plan', name: 'Plan', mode: 'primary', model: { id: 'hy4', providerID: 'opencode-go' } },
+    {
+      id: 'general',
+      name: 'General',
+      mode: 'subagent',
+      model: { id: 'deepseek', providerID: 'opencode-go' },
+    },
+    {
+      id: 'title',
+      name: 'Title',
+      mode: 'primary',
+      hidden: true,
+      model: { id: 'deepseek', providerID: 'opencode-go' },
+    },
+  ];
+
+  it('maps each primary agent to its configured model', async () => {
+    const api = new FakeApi(MODELLED, [{ type: 'document', info: { default_agent: 'build' } }]);
+    const catalog = await readAgentCatalog(api as unknown as OpenCodeApi, '/work', silentLogger);
+
+    expect(catalog.defaultMode).toBe('build');
+    expect(catalog.models.get('build')).toEqual({ id: 'deepseek', providerID: 'opencode-go' });
+    expect(catalog.models.get('plan')).toEqual({ id: 'hy4', providerID: 'opencode-go' });
+    expect(catalog.models.has('general')).toBe(false);
+    expect(catalog.models.has('title')).toBe(false);
+  });
+
+  it('leaves an agent without a configured model out of the model map', async () => {
+    const api = new FakeApi([{ id: 'build', name: 'Build', mode: 'primary' }], []);
+    const catalog = await readAgentCatalog(api as unknown as OpenCodeApi, '/work', silentLogger);
+    expect(catalog.models.size).toBe(0);
   });
 });
 
@@ -112,9 +152,7 @@ describe('readDefaultModel', () => {
     await expect(
       readDefaultModel(api as unknown as OpenCodeApi, '/work', silentLogger),
     ).resolves.toMatchObject({ id: 'default' });
-    expect(calls).toEqual([
-      { path: '/model/default', query: { 'location[directory]': '/work' } },
-    ]);
+    expect(calls).toEqual([{ path: '/model/default', query: { 'location[directory]': '/work' } }]);
   });
 
   it('treats a null answer as no default', async () => {
