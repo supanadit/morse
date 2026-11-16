@@ -11,7 +11,7 @@
  * a `jsonc` before the `json` beside it), and only a tree with no config at all
  * gets a new `opencode.json`.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 
 import type { ConfigPaths, EngineContext } from '@morse/engine-config';
@@ -127,4 +127,32 @@ export function discoverOpenCodeConfigPaths(
     read: [...existing, ...global.read],
     write: existing[0] ?? join(dir, OPEN_CODE_PROJECT_FILE),
   };
+}
+
+/**
+ * A stable fingerprint of every config file `cwd` reads: one
+ * `<path>:<mtimeMs>:<size>` line per file, in precedence order, and
+ * `<path>:missing` for a path that is not there. Comparing two signatures
+ * answers "did the config change?" without parsing or watching anything, so a
+ * caller can reload the server only when it actually must.
+ *
+ * A missing file is part of the signature on purpose: creating the file a tree
+ * would read is a change too, and its `missing` line becomes a real line.
+ */
+export function openCodeConfigSignature(
+  context: EngineContext,
+  configDir: string | undefined,
+  cwd: string,
+): string {
+  const paths = discoverOpenCodeConfigPaths(context, configDir, cwd).read;
+  return paths
+    .map((path) => {
+      try {
+        const stats = statSync(path);
+        return `${path}:${stats.mtimeMs}:${stats.size}`;
+      } catch {
+        return `${path}:missing`;
+      }
+    })
+    .join('\n');
 }
