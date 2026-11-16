@@ -62,6 +62,13 @@ interface EditorSnapshot {
   };
   openEditors: string[];
 }
+
+/** What `reloadAgentConfig` answers: landed, or refused with the running count. */
+interface ReloadAgentConfigAnswer {
+  reloaded: boolean;
+  requiresConfirmation?: boolean;
+  running: number;
+}
 import { PopoverFit } from '../../ui/popover-fit.directive';
 import { startResize } from '../../ui/resize-drag';
 import { EnterDirective } from '../../ui/enter.directive';
@@ -304,6 +311,19 @@ export class ChatComposer {
    * the facts line names the engine those sessions start in.
    */
   protected readonly showEnginePicker = computed(() => this.draft() && this.engines().length > 1);
+  /**
+   * The manual config reload is offered only where the engine can land it:
+   * OpenCode re-reads its own files, pi needs the host restarted instead. The
+   * control sits with the thinking picker because both describe the session's
+   * engine, not the draft's engine choice.
+   */
+  protected readonly canReloadConfig = computed(
+    () =>
+      this.engines().find((engine) => engine.kind === this.currentEngine())?.reloadConfig === true,
+  );
+  /** The running count a refused reload reports, while the user decides. */
+  protected readonly reloadWarning = signal<{ running: number } | undefined>(undefined);
+  protected readonly reloadingConfig = signal(false);
   /** The modes the selected engine offers; absent for pi, so the pill is absent. */
   protected readonly availableModes = this.morse.availableModes;
   protected readonly currentMode = computed(
@@ -1986,6 +2006,8 @@ export class ChatComposer {
   }
 
   protected onEnginePick(kind: string): void {
+    // The warning names the engine that refused; a different pick makes it stale.
+    this.reloadWarning.set(undefined);
     this.morse.setEngine(kind);
   }
 
@@ -2002,6 +2024,52 @@ export class ChatComposer {
 
   protected onModePick(mode: string): void {
     this.morse.setMode(mode);
+  }
+
+  /**
+   * Re-reads the engine's own configuration without restarting the host. The
+   * host refuses while a turn runs, because the engine rebuilds its catalogs
+   * mid-turn, and answers with the running count; the warning below the editor
+   * asks before sending the forced request.
+   */
+  protected onReloadConfig(): void {
+    void this.requestReloadConfig(false);
+  }
+
+  /** The user accepted the warning: the same reload, forced past running turns. */
+  protected confirmReloadConfig(): void {
+    void this.requestReloadConfig(true);
+  }
+
+  /** Backing out of the warning sends nothing. */
+  protected cancelReloadConfig(): void {
+    this.reloadWarning.set(undefined);
+  }
+
+  private async requestReloadConfig(force: boolean): Promise<void> {
+    if (this.reloadingConfig()) {
+      return;
+    }
+    this.reloadingConfig.set(true);
+    try {
+      const answer = (await this.morse.requestHostCommand(
+        'reloadAgentConfig',
+        force ? { force: true } : {},
+      )) as ReloadAgentConfigAnswer | undefined;
+      if (answer === undefined) {
+        // The host timed out or is gone: say nothing rather than claim a reload.
+        return;
+      }
+      if (answer.requiresConfirmation === true) {
+        this.reloadWarning.set({ running: answer.running });
+      } else {
+        // Landed, or an engine that cannot reload answered no. Either way no
+        // warning belongs on screen.
+        this.reloadWarning.set(undefined);
+      }
+    } finally {
+      this.reloadingConfig.set(false);
+    }
   }
 
   /**

@@ -450,6 +450,14 @@
     </div>
   }
 
+  @if (reloadWarning(); as warning) {
+    <div class="reload-warning" role="alert">
+      <span>{{ warning.running }} session{{ warning.running === 1 ? '' : 's' }} are running. Reloading agent configuration also cancels pending permission and form prompts. Running turns continue at their next step.</span>
+      <button type="button" class="reload-confirm" (click)="confirmReloadConfig()">Reload anyway</button>
+      <button type="button" class="reload-cancel" (click)="cancelReloadConfig()">Cancel</button>
+    </div>
+  }
+
   <div class="controls">
     @if (variant !== 'bot') {
     <div class="controls-metrics">
@@ -509,6 +517,19 @@
         (opened)="onThinkingOpen()"
         (pick)="onThinkingPick($event)"
       />
+
+      @if (canReloadConfig()) {
+        <button
+          type="button"
+          class="icon reload-config"
+          title="Reload agent configuration"
+          aria-label="Reload agent configuration"
+          [disabled]="reloadingConfig()"
+          (click)="onReloadConfig()"
+        >
+          ⟳
+        </button>
+      }
     </div>
     }
 

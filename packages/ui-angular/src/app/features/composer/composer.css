@@ -249,6 +249,20 @@
   color: var(--morse-error);
   border-color: var(--morse-error);
 }
+/* The config reload sits beside the thinking picker and borrows the same 24px
+   box, so the footer row keeps one height. While the host works, the glyph
+   alone turns: the border drops out so the square box does not read as a card
+   spinning. */
+.reload-config {
+  flex: none;
+  font-size: 14px;
+}
+.reload-config:disabled {
+  opacity: 0.7;
+  border-color: transparent;
+  background: transparent;
+  animation: spin 0.9s linear infinite;
+}
 .working {
   display: inline-flex;
   align-items: center;
@@ -324,6 +338,45 @@
   padding: 0;
   font-size: 14px;
   line-height: 1;
+}
+/*
+ * The reload warning is the footer's one decision row: it takes the same box
+ * as the pi-builtin notice and sits directly above the controls, so asking
+ * "reload anyway?" never opens a native dialog over the editor. The sentence
+ * wraps; the two answers keep their size.
+ */
+.reload-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel, var(--morse-hover));
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+}
+.reload-warning span {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+}
+.reload-warning button {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.reload-warning button:hover {
+  background: var(--morse-hover);
+}
+.reload-warning .reload-confirm {
+  border-color: var(--morse-fg-muted);
 }
 .attachments {
   display: flex;
