@@ -84,11 +84,11 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
   ```
 
   Morse reads the configuration documents from lowest to highest priority, so the last `default_agent` wins,
-  exactly as OpenCode does: the app-level `~/.config/opencode/opencode.json[c]` is lowest, then each project
-  `opencode.json[c]` from the workspace up the tree, with every `.opencode/opencode.json[c]` outranking the plain
-  one beside it. When none is set, it uses the first primary agent OpenCode reports, which is where the server
-  places its resolved default. Morse never hardcodes `build` or `plan`. A session created without an explicit
-  mode omits the agent field, so OpenCode applies the same default at prompt time.
+  exactly as OpenCode does: every `.opencode/opencode.json[c]` outranks every direct `opencode.json[c]`, a nearer
+  directory outranks a further one, and the app-level `~/.config/opencode/opencode.json[c]` is lowest. When none
+  is set, it uses the first primary agent OpenCode reports, which is where the server places its resolved
+  default. Morse never hardcodes `build` or `plan`. A session created without an explicit mode omits the agent
+  field, so OpenCode applies the same default at prompt time.
 - **The model a draft and a new session name** — the model the *effective agent* is configured to run, not
   `/api/model/default` first. That is the draft's picked mode (`build`, `plan`, any custom primary agent), else
   the agent `default_agent` resolves to. Morse reads it from `/api/agent`, which carries the model the server
@@ -96,21 +96,22 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
   Morse parses no precedence of its own. Switching the mode in a draft follows that agent's model, unless a model
   was picked by hand — that always wins — and a resumed session keeps the model it recorded. The model is
   validated against `/api/model`: an agent model the catalog does not list falls back to `/api/model/default`,
-  and the panel keeps `no model` only when neither resolves.
+  and, with no explicit pick, the panel keeps `no model` only when neither resolves.
 - **A config edit reaches the next new session** — OpenCode re-reads an edited `opencode.json[c]` on its own, so
   Morse does not wait to find out when: it fingerprints the app-level and project candidates — a missing file is
   part of the fingerprint, so creating the first one counts — and the empty panel's probe asks the server to
   reload (`POST /api/location/reload`) before it reads the catalogs. That happens only while no session of that
   engine is streaming, and only for a server Morse started itself; an attached `opencode serve` is left to
-  OpenCode's own watcher, because Morse never posts at somebody else's process. A change skipped because a
-  session was running keeps the old fingerprint, so the next idle probe reloads then. A warm session's next turn
-  is served by the reloaded config.
+  OpenCode's own watcher. Only the explicit ⟳ request below posts to an attached server. A change skipped because
+  a session was running keeps the old fingerprint, so the next idle probe reloads then. A warm session's next
+  turn is served by the reloaded config.
 - **Reloading now** — the composer's ⟳ control (**Reload agent configuration**, beside the thinking picker)
   asks the server to reload immediately, for every loaded location, and every warm session re-reads its model,
   mode, command and skill catalogs. It works for an attached server too, because this is the explicit request.
   When sessions are running it warns first, with the count, and says that pending permission and form prompts are
   cancelled; running turns continue at their next step. **Reload anyway** sends the forced reload. pi offers no
-  such control: it has no engine-level config to re-read, so a pi change still needs a restarted host.
+  such control: it has no engine-level config to reload, and its own pickers and draft probe already re-read what
+  pi owns on demand.
 - **Adding or changing modes** — define a primary agent in `opencode.json[c]` under `agents`, or add a Markdown file
   under `.opencode/agent/` (or `~/.config/opencode/agent/`). Opening the mode picker (or starting a new session)
   re-reads `/api/agent` and `/api/config`, so a new, renamed, disabled or removed agent appears without

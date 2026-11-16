@@ -139,8 +139,8 @@ with `OpenCodeAgentFactory`.
 
 `OpenCodeAgent` reports its streaming state to the guard from `mergeState` and releases its id on
 `dispose`. `probeDefaults` calls `ensureFresh(directory)` before reading `/model`, `/agent`,
-`/command` or `/skill`; that probe is the path a config edit takes, because the empty composer runs
-it before the next new session.
+`/command` or `/skill`; that probe is where Morse *forces* the reload, so the next new session
+reads catalogs the server has refreshed instead of waiting on OpenCode's own watcher.
 
 **The capability rides the factory, not extras.** `AgentGatewayFactory` (in `@morse/agent`) gains
 two optional methods and reads one optional property:

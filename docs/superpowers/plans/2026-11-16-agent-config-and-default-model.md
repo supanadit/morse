@@ -178,7 +178,7 @@ Expected: FAIL because the module does not exist.
 
 - [ ] **Step 3: Implement the signature helper and the guard**
 
-In `config-discovery.ts`, add a helper that takes the `read` list from `discoverOpenCodeConfigPaths(context, configDir, cwd)`, stats each file with `statSync`, and returns a stable `path:mtimeMs:size` joined string; a missing file contributes `path:missing`.
+In `config-discovery.ts`, add a helper that takes the candidate paths from `openCodeConfigCandidates(context, configDir, cwd)` — missing ones included, so creating the first config file changes the fingerprint — stats each with `statSync`, and returns a stable `path:mtimeMs:size` joined string; a missing file contributes `path:missing`.
 
 In `config-guard.ts`, implement the class:
 
@@ -478,7 +478,7 @@ Expected: FAIL — the new parameters and `reloadAgentConfig` do not exist.
 - `draftSignature(engine, workspace)` calls `factory.configSignature?.({workspace, engine}) ?? ''`.
 - Before a cache lookup, compare the signature per `engine|cwd`; a change clears `draftCache`/`draftProbes`.
 - `probeDraft` uses the passed workspace (falling back to `defaultWorkspace`) and forwards `mode`.
-- `reloadAgentConfig` resolves `engine ?? factory.defaultEngineKind` first, counts `state.streaming` for that engine, gates on `force`, calls `factory.reloadConfig`, and — only when the answer was not `false` (this engine has no config to reload) — clears the draft maps and awaits `refreshConfig?.()` on hot gateways of that engine (logging failures). A host with two engines must never count a pi turn against an OpenCode reload.
+- `reloadAgentConfig` resolves `engine ?? factory.defaultEngineKind` first, counts `state.streaming` for that engine, gates on `force`, calls `factory.reloadConfig` when the factory has one (and returns `{ reloaded: false, running }` when it does not), and — only when the answer was not `false` (this engine has no config to reload) — clears the draft maps and awaits `refreshConfig?.()` on hot gateways of that engine (logging failures). A host with two engines must never count a pi turn against an OpenCode reload.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 

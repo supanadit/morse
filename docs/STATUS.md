@@ -55,24 +55,26 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
   (`build`, `plan`, or any primary agent you defined), else the agent `default_agent` resolves to. Morse reads
   that model from `/api/agent`, so the server's own merging of the global and project `opencode.json[c]` is what
   decides it — a project override needs no separate handling. The model is checked against `/api/model`; an
-  agent model the catalog does not list falls back to `/api/model/default`, the server's own fallback, and
-  `no model` remains only when neither resolves. An explicit pick always wins; without one, switching the mode on
-  a draft makes the pill follow that mode's agent, because that is the agent the first prompt will run.
+  agent model the catalog does not list falls back to `/api/model/default`, the server's own fallback, and, with
+  no explicit pick, `no model` remains only when neither resolves. An explicit pick always wins; without one,
+  switching the mode on a draft makes the pill follow that mode's agent, because that is the agent the first
+  prompt will run.
 - A config edit reaches the next new session without restarting Morse or the OpenCode server. OpenCode already
   re-reads an edited `opencode.json[c]` on its own, so Morse does not depend on when: it fingerprints the
   app-level and project candidates (existence, mtime and size, so creating the first file counts), and the empty
   panel's probe asks the server to reload (`POST /api/location/reload`) before it reads the catalogs when that
-  fingerprint moved. Two rules keep the reload where it belongs: only a server Morse started itself is reloaded
-  (an attached `opencode serve` is left to OpenCode's own watcher, because Morse never posts at somebody else's
-  process), and only while no session of that engine is streaming — a deferred change keeps its old fingerprint,
-  so the next idle probe retries instead of forgetting it. A warm session is left alone by that reload, and its
-  next turn is served by the refreshed config.
+  fingerprint moved. Two rules keep the automatic reload where it belongs: it runs only on a server Morse
+  started itself (an attached `opencode serve` is left to OpenCode's own watcher), and only while no session of
+  that engine is streaming — a deferred change keeps its old fingerprint, so the next idle probe retries instead
+  of forgetting it. A warm session is left alone by that reload, and its next turn is served by the refreshed
+  config.
 - The composer's **⟳** control — **Reload agent configuration** — is the manual path: it asks the server to
   reload now, for every loaded location, and every warm session re-reads its own model, mode, command and skill
-  catalogs. It works for an attached server too, since this is the explicit request. Sessions running at that
-  moment make it warn first — it counts them and says pending permission and form prompts are cancelled. pi has
-  no reload control: it has no engine-level config Morse can re-read, so a pi change still needs a restarted
-  host.
+  catalogs. It works for an attached server too, since this is the explicit request — the automatic path is the
+  one that never posts to it. Sessions running at that moment make it warn first — it counts them and says
+  pending permission and form prompts are cancelled. pi has no reload control, because it has no engine-level
+  config to reload: its model and prompt pickers already re-read what pi owns on demand, so no restart is
+  involved.
 
 ### Modes
 
