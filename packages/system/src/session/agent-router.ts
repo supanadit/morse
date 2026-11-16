@@ -21,7 +21,12 @@ import {
   type SessionStore,
 } from './ports.js';
 import { reconcileSessions } from './reconcile.js';
-import { titleForReport, toSessionSummary, UNTITLED_SESSION, type MorseSessionRecord } from './record.js';
+import {
+  titleForReport,
+  toSessionSummary,
+  UNTITLED_SESSION,
+  type MorseSessionRecord,
+} from './record.js';
 
 /**
  * The engine router: how Morse addresses a session by its own id no matter which
@@ -54,6 +59,12 @@ export interface EngineDescriptor {
   label: string;
   /** True for the engine new sessions start in when the draft names none. */
   default?: boolean;
+  /**
+   * True when this engine can re-read its own configuration (`reloadConfig`),
+   * so the frontend only offers the manual reload on an engine that can serve
+   * it instead of promising what another engine does.
+   */
+  reloadConfig?: boolean;
 }
 
 export interface AgentRouterRegistration {
@@ -126,13 +137,16 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
 
   /**
    * The engines a frontend may choose between: kind, label, and which one new
-   * sessions start in. Registration order is kept so the list is stable.
+   * sessions start in. Registration order is kept so the list is stable. An
+   * engine whose factory can reload its config says so here, because the reload
+   * control is per engine — another one's capability is not this one's.
    */
   engineOptions(): EngineDescriptor[] {
     return [...this.engines.entries()].map(([kind, entry]) => ({
       kind,
       label: entry.label,
       ...(kind === this.defaultKind ? { default: true } : {}),
+      ...(entry.engine.factory.reloadConfig === undefined ? {} : { reloadConfig: true }),
     }));
   }
 
@@ -248,6 +262,7 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     workspace?: WorkspaceRef;
     engine?: string;
     model?: ModelRef;
+    mode?: string;
   }): Promise<AgentGateway> {
     await this.ensureFresh();
     const engine =
@@ -269,6 +284,46 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
       workspace: options.workspace ?? this.deps.defaultWorkspace,
       ...(options.engine === undefined ? {} : { engine: options.engine }),
       ...(options.model === undefined ? {} : { model: options.model }),
+      // The draft's mode decides which agent's model and levels the catalogs
+      // report, so it has to reach the probe, not just the picker.
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+    });
+  }
+
+  /**
+   * The config fingerprint the chosen engine would read for `workspace` right
+   * now. Empty when the engine has no config file (or is not installed): a
+   * caller compares signatures to invalidate its cached draft, and "nothing to
+   * fingerprint" is exactly what never invalidates it.
+   */
+  configSignature(options: { workspace: WorkspaceRef; engine?: string }): string {
+    const engine =
+      options.engine === undefined ? this.defaultEngine : this.engineFor(options.engine);
+    const signature = engine?.factory.configSignature;
+    if (engine === undefined || signature === undefined) {
+      return '';
+    }
+    return signature.call(engine.factory, {
+      workspace: options.workspace,
+      ...(options.engine === undefined ? {} : { engine: options.engine }),
+    });
+  }
+
+  /**
+   * Tells the chosen engine to re-read its configuration now. A no-op when the
+   * engine has no config to reload (or is not installed): the caller's request
+   * is per engine, so there is never another engine's config to fall back to.
+   */
+  async reloadConfig(options: { engine?: string; cwd?: string } = {}): Promise<void> {
+    const engine =
+      options.engine === undefined ? this.defaultEngine : this.engineFor(options.engine);
+    const reload = engine?.factory.reloadConfig;
+    if (engine === undefined || reload === undefined) {
+      return;
+    }
+    await reload.call(engine.factory, {
+      ...(options.engine === undefined ? {} : { engine: options.engine }),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
   }
 
@@ -541,6 +596,12 @@ export class RoutedGateway implements AgentGateway {
   readonly refreshModels: (() => Promise<void>) | undefined;
   readonly setMode: ((mode: string) => Promise<void>) | undefined;
   readonly refreshModes: (() => Promise<void>) | undefined;
+  /**
+   * Given through only when the harness gateway has it: the manual "reload agent
+   * configuration" control must reach a warm session's adapter, or the engine's
+   * reload never reaches this conversation.
+   */
+  readonly refreshConfig: (() => Promise<void>) | undefined;
   /** Given through only when the harness gateway has it, so presence mirrors it. */
   readonly refreshHistory: (() => Promise<void>) | undefined;
 
@@ -555,6 +616,8 @@ export class RoutedGateway implements AgentGateway {
       inner.refreshModels === undefined ? undefined : () => inner.refreshModels!();
     this.setMode = inner.setMode === undefined ? undefined : (mode) => inner.setMode!(mode);
     this.refreshModes = inner.refreshModes === undefined ? undefined : () => inner.refreshModes!();
+    this.refreshConfig =
+      inner.refreshConfig === undefined ? undefined : () => inner.refreshConfig!();
     this.refreshHistory =
       inner.refreshHistory === undefined ? undefined : () => inner.refreshHistory!();
   }

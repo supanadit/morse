@@ -12,7 +12,7 @@ import {
   type PromptMode,
   type WorkspaceRef,
 } from '@morse/agent';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import { silentLogger } from '../logger.js';
 import type { SessionCatalog, SessionStore } from './ports.js';
@@ -79,6 +79,8 @@ class FakeGateway implements AgentGateway {
   }[] = [];
   /** Counts transcript-cache drops; omitted means the adapter has no cache. */
   refreshHistory?: () => Promise<void>;
+  /** Counts config reloads; omitted means the adapter has no config to reload. */
+  refreshConfig?: () => Promise<void>;
   /** The engine id this session moves to on a fork, when one is configured. */
   private readonly forkTo: string | undefined;
   /** The engine id a rewrite moves to; unset edits in place (when it commits). */
@@ -290,6 +292,17 @@ function build(options: {
     });
   }
   return { router, store, engines };
+}
+
+/**
+ * An engine whose factory carries the optional capabilities a test drives —
+ * `configSignature`, `reloadConfig`, `probeDefaults` — without a new fixture per
+ * capability.
+ */
+function engineWithFactory(factory: Partial<AgentGatewayFactory>, kind = 'pi'): FakeEngine {
+  const engine = new FakeEngine(kind, () => new FakeGateway(state({ sessionId: `${kind}-new` })));
+  Object.assign(engine.factory, factory);
+  return engine;
 }
 
 describe('AgentRouter', () => {
@@ -809,6 +822,76 @@ describe('AgentRouter', () => {
       }),
     ).rejects.toBeInstanceOf(AgentUnavailableError);
     expect(engines.get('pi')?.created).toEqual([]);
+  });
+});
+
+/**
+ * Which optional capabilities an engine's factory has decide what a host may
+ * offer: a picker only advertises a config reload when the chosen engine can do
+ * one, and the router is the only layer that knows which factory a draft means.
+ */
+describe('AgentRouter engine capabilities', () => {
+  const WORKSPACE: WorkspaceRef = { cwd: '/work/project', name: 'project' };
+
+  it('reports which engines can reload their config', () => {
+    const store = new MemoryStore();
+    const router = new AgentRouter({ store, defaultWorkspace: WORKSPACE, logger: silentLogger });
+    const piEngine = new FakeEngine('pi', () => new FakeGateway(state({ sessionId: 'pi-new' })));
+    const openCodeEngine = engineWithFactory(
+      { reloadConfig: vi.fn(() => Promise.resolve()) },
+      'opencode',
+    );
+    router.register(piEngine, { label: 'pi' });
+    router.register(openCodeEngine, { label: 'OpenCode', default: true });
+
+    expect(router.engineOptions()).toEqual([
+      { kind: 'pi', label: 'pi' },
+      { kind: 'opencode', label: 'OpenCode', default: true, reloadConfig: true },
+    ]);
+  });
+
+  it('delegates configSignature and reloadConfig to the chosen engine', async () => {
+    const signature = vi.fn(() => 'v1');
+    const reload = vi.fn(() => Promise.resolve());
+    const engine = engineWithFactory({ configSignature: signature, reloadConfig: reload });
+    const store = new MemoryStore();
+    const router = new AgentRouter({ store, defaultWorkspace: WORKSPACE, logger: silentLogger });
+    router.register(engine, {});
+
+    expect(router.configSignature({ workspace: WORKSPACE })).toBe('v1');
+    await router.reloadConfig({ cwd: WORKSPACE.cwd });
+    expect(reload).toHaveBeenCalledWith({ cwd: WORKSPACE.cwd });
+  });
+
+  it('forwards a draft mode to probeDefaults', async () => {
+    const probeGateway = new FakeGateway(state({ sessionId: 'probe' }));
+    const probe = vi.fn(() => Promise.resolve(probeGateway));
+    const engine = engineWithFactory({ probeDefaults: probe });
+    const store = new MemoryStore();
+    const router = new AgentRouter({ store, defaultWorkspace: WORKSPACE, logger: silentLogger });
+    router.register(engine, {});
+
+    await router.probeDefaults({ workspace: WORKSPACE, mode: 'plan' });
+    expect(probe).toHaveBeenCalledWith({ workspace: WORKSPACE, mode: 'plan' });
+  });
+
+  it('passes a config reload through to the wrapped gateway', async () => {
+    const inner = new FakeGateway(state({ sessionId: 'parent-engine' }));
+    let reloaded = 0;
+    inner.refreshConfig = () => {
+      reloaded += 1;
+      return Promise.resolve();
+    };
+    const { router } = build({ engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+
+    const gateway = await router.create({ workspace: WORKSPACE });
+    await gateway.refreshConfig?.();
+    expect(reloaded).toBe(1);
+    // And a gateway whose adapter cannot reload simply reports no capability.
+    const plain = await build({ engines: [{ kind: 'pi' }] }).router.create({
+      workspace: WORKSPACE,
+    });
+    expect(plain.refreshConfig).toBeUndefined();
   });
 });
 

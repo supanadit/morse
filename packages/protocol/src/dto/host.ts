@@ -13,6 +13,11 @@ export interface EngineOption {
   label: string;
   /** True for the engine new sessions start in when the draft has no choice. */
   default?: boolean;
+  /**
+   * True when this engine can re-read its own configuration, so the frontend
+   * offers the manual reload only where it can land.
+   */
+  reloadConfig?: boolean;
 }
 
 /**
