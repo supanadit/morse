@@ -1024,14 +1024,14 @@ export class HostSessionController {
         mode,
         workspace,
       );
-      if (!this.draftProbeIsCurrent(ticket, engine, model, workspace)) {
+      if (!this.draftProbeIsCurrent(ticket, engine, model, mode, workspace)) {
         return;
       }
       this.draftCatalog = catalog;
       this.clearAgentFailure();
       this.emitState();
     } catch (error: unknown) {
-      if (!this.draftProbeIsCurrent(ticket, engine, model, workspace)) {
+      if (!this.draftProbeIsCurrent(ticket, engine, model, mode, workspace)) {
         return;
       }
       // The session-less probe is where a missing engine shows up on load.
@@ -1051,13 +1051,16 @@ export class HostSessionController {
 
   /**
    * True while the answer still belongs to the draft the reader is looking at.
-   * The project is part of that: a probe for project A must not land after the
-   * reader moved to B, whose config names a different model and modes.
+   * The mode and project are part of that: two quick mode picks race, and a
+   * probe for the mode the reader left must not land after the new one; a probe
+   * for project A must not land after the reader moved to B, whose config names
+   * a different model and modes.
    */
   private draftProbeIsCurrent(
     ticket: number | undefined,
     engine: string | undefined,
     model: ModelRef | undefined,
+    mode: string | undefined,
     workspace: WorkspaceRef,
   ): boolean {
     if (this.activeKey !== undefined || this.disposed) {
@@ -1067,6 +1070,9 @@ export class HostSessionController {
       return false;
     }
     if (this.draftEngine !== engine || this.draftModel !== model) {
+      return false;
+    }
+    if (this.draftMode !== mode) {
       return false;
     }
     return this.draftProjectCwd() === workspace.cwd;
@@ -2213,10 +2219,12 @@ export class HostSessionController {
         return;
       }
       this.options.emit(noticeMessage('info', 'Agent configuration reloaded.', Date.now()));
-      if (this.activeKey === undefined) {
+      if (this.isDraft) {
         // The empty panel's pickers came from the config the engine just
-        // replaced; a warm session re-read its own through the registry.
-        await this.warmDraft();
+        // replaced, and a mode list is exactly what a reload changes: re-probe
+        // and drop a picked mode the reloaded config no longer offers. A warm
+        // session re-read its own catalogs through the registry.
+        await this.refreshModes();
       } else {
         this.emitState();
       }

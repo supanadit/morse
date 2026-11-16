@@ -279,8 +279,12 @@ function harness(
     spawnError?: Error;
     /** The draft probe refuses too: the same missing pi, seen before any prompt. */
     probeError?: Error;
-    /** A successful session-less probe whose catalog depends on the requested model/engine. */
-    probeState?: (model?: ModelRef, engine?: string) => AgentSessionState | undefined;
+    /** A successful session-less probe whose catalog depends on the requested model/engine/mode. */
+    probeState?: (
+      model?: ModelRef,
+      engine?: string,
+      mode?: string,
+    ) => AgentSessionState | undefined;
     /** Engines the registry reports, so `engine/set` can validate a kind. */
     engines?: readonly SessionEngine[];
     /** The kind of engine the gateway reports; pi unless a test says otherwise. */
@@ -394,7 +398,7 @@ function harness(
           }) => {
             probes.count += 1;
             probeInputs.push(input);
-            const state = options.probeState!(input.model, input.engine);
+            const state = options.probeState!(input.model, input.engine, input.mode);
             if (!state) {
               return Promise.reject(new Error('no probe state'));
             }
@@ -2418,6 +2422,73 @@ describe('HostSessionController agent config reload and draft probe', () => {
 
     expect(h.createdProbe().workspace.cwd).toBe('/work/other');
     expect(h.createdProbe().mode).toBe('plan');
+  });
+
+  it('drops a slow probe for a mode the reader already left', async () => {
+    let releaseBuild: (() => void) | undefined;
+    // Each mode names its own effective model, so a stale catalog is visible.
+    const catalogOf = (mode: string | undefined): AgentSessionState => {
+      const id = mode === 'build' ? 'build-model' : 'plan-model';
+      return {
+        ...base(),
+        ...(mode === undefined ? {} : { mode }),
+        availableModes: modes,
+        availableModels: [{ provider: 'fake', id, name: id }],
+      };
+    };
+    const h = harness({
+      probeState: (_model, _engine, mode) => catalogOf(mode),
+      probeGate: (call) =>
+        call === 2
+          ? new Promise<void>((resolve) => {
+              releaseBuild = resolve;
+            })
+          : Promise.resolve(),
+    });
+    // `enterDraft` awaits its probe, so the mode pick has a catalog to validate.
+    await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
+
+    // The build pick's probe parks; the reader moves on to plan before it lands.
+    const pickingBuild = h.controller.handleClientMessage({
+      type: 'mode/set',
+      payload: { mode: 'build' },
+    });
+    await Promise.resolve();
+    await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
+    releaseBuild?.();
+    await pickingBuild;
+
+    // The build catalog must not replace plan's: the pickers would name the
+    // wrong agent's model, and the next prompt would open under build.
+    expect(h.lastState()?.availableModels?.map((model) => model.id)).toEqual(['plan-model']);
+  });
+
+  it('drops a drafted mode the reloaded config no longer offers', async () => {
+    let reloaded = false;
+    const h = harness({
+      reloadConfig: true,
+      probeState: () => ({
+        ...base(),
+        availableModes: reloaded ? [modes[0]] : modes,
+      }),
+    });
+    await h.controller.start();
+    // `enterDraft` awaits its probe, so the mode pick has a catalog to validate.
+    await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
+    await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
+    expect(h.lastState()?.mode).toBe('plan');
+
+    // The edited config removed the agent plan named; the reload must drop it
+    // rather than open the next prompt under a mode the engine no longer has.
+    reloaded = true;
+    await h.controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'reloadAgentConfig', requestId: 'r1' },
+    });
+
+    expect(resultOf(h.messages, 'r1')).toMatchObject({ reloaded: true });
+    expect(h.lastState()?.mode).toBeUndefined();
+    expect(h.lastState()?.availableModes?.map((mode) => mode.id)).toEqual(['build']);
   });
 });
 
