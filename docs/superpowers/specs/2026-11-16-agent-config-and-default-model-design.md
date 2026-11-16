@@ -125,10 +125,10 @@ for the Intent's "a project override decides the effective agent" to be true.
 **A shared config guard** lives in `integration-opencode`, constructed once per engine and shared
 with `OpenCodeAgentFactory`.
 
-- `signature(cwd)`: stat the existing files from
-  `discoverOpenCodeConfigPaths(context, configDir, cwd).read` and join `path:mtimeMs:size`. That
-  chain already covers the global file plus every project `.opencode/opencode.json[c]` and
-  `opencode.json[c]` up the tree, with OpenCode's precedence.
+- `signature(cwd)`: stat every candidate from `openCodeConfigCandidates(context, configDir, cwd)` —
+  the project files in precedence order, then the app-level pair — and join `path:mtimeMs:size`, or
+  `path:missing` for one that is not there, so creating the first config file is itself a change.
+  The list is the same one `discoverOpenCodeConfigPaths` filters, so precedence is defined once.
 - `ensureFresh(cwd)`: if the signature changed, and the engine tracks no streaming session, and
   the connection is owned, `POST /api/location/reload`, then remember the new signature. If a
   session is streaming, leave the signature stored so a later idle probe retries. If the
@@ -138,8 +138,9 @@ with `OpenCodeAgentFactory`.
 - Failures are logged and never fail a probe or a session open; the catalogs are still read.
 
 `OpenCodeAgent` reports its streaming state to the guard from `mergeState` and releases its id on
-`dispose`. `probeDefaults` and `OpenCodeAgent.open` call `ensureFresh(directory)` before reading
-`/model`, `/agent`, `/command` or `/skill`.
+`dispose`. `probeDefaults` calls `ensureFresh(directory)` before reading `/model`, `/agent`,
+`/command` or `/skill`; that probe is the path a config edit takes, because the empty composer runs
+it before the next new session.
 
 **The capability rides the factory, not extras.** `AgentGatewayFactory` (in `@morse/agent`) gains
 two optional methods and reads one optional property:
@@ -147,7 +148,7 @@ two optional methods and reads one optional property:
 ```ts
 readonly defaultEngineKind?: string;
 configSignature?(options: { workspace: WorkspaceRef; engine?: string }): string;
-reloadConfig?(options: { engine?: string; cwd?: string }): Promise<void>;
+reloadConfig?(options: { engine?: string; cwd?: string }): Promise<boolean | void>;
 ```
 
 `OpenCodeAgentFactory` implements both methods through the guard; pi omits them. `AgentRouter`
@@ -173,10 +174,11 @@ that:
    warning;
 2. without `force`, returns `{ reloaded: false, requiresConfirmation: true, running }` when that
    count is above zero;
-3. calls `factory.reloadConfig({ engine, cwd })`;
-4. clears the draft probe caches and asks every hot gateway of that engine to
-   `refreshConfig?.()`;
-5. returns `{ reloaded: true, running }`.
+3. calls `factory.reloadConfig({ engine, cwd })` when the factory has one (`{ reloaded: false, running }`
+   otherwise); `false` means this engine has no configuration to reload, so the caches and warm gateways are
+   left alone and the result is `{ reloaded: false, running }`;
+4. otherwise clears the draft probe caches and asks every hot gateway of that engine to
+   `refreshConfig?.()`, then returns `{ reloaded: true, running }`.
 
 `AgentGateway` gains an optional `refreshConfig?(): Promise<void>`. `OpenCodeAgent.refreshConfig`
 re-reads the model, agent, command and skill catalogs, updates its internal model map, merges the

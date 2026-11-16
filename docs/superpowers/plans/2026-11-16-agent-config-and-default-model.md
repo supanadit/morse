@@ -212,7 +212,7 @@ git commit -m "feat(opencode): add config signature and idle reload guard"
 **Interfaces:**
 - Produces: `AgentGatewayFactory.defaultEngineKind?: string`
 - Produces: `AgentGatewayFactory.configSignature?(options: { workspace: WorkspaceRef; engine?: string }): string`
-- Produces: `AgentGatewayFactory.reloadConfig?(options: { engine?: string; cwd?: string }): Promise<void>`
+- Produces: `AgentGatewayFactory.reloadConfig?(options: { engine?: string; cwd?: string }): Promise<boolean | void>`
 - Produces: `AgentGateway.refreshConfig?(): Promise<void>`
 - Produces: `probeDefaults(options: { workspace: WorkspaceRef; engine?: string; model?: ModelRef; mode?: string })`
 - Produces: `OpenCodeEngineDeps.env?: NodeJS.ProcessEnv`
@@ -278,7 +278,7 @@ Expected: FAIL with `state.model` undefined and `probeDefaults` ignoring `mode`.
 
 - `ports.ts`: add `readonly defaultEngineKind?: string`, the two optional factory methods and `refreshConfig?()` to `AgentGateway`, with comments matching the design's vocabulary. `AgentRouter` already has the getter, so it satisfies the property.
 - `opencode-engine.ts`: add `env` to `OpenCodeEngineDeps`; construct one `OpenCodeConfigGuard` in the constructor; pass it to `OpenCodeAgentFactory`. Pass `env` through `createOpenCodeEngine` and `createBotOpenCodeEngine` so the guard stats the same config tree the server reads.
-- `OpenCodeAgentFactory`: implement `configSignature` (`guard.signature(workspace.cwd)`) and `reloadConfig` (`guard.reloadNow(cwd)`), and pass `guard` into `OpenCodeAgent.open`.
+- `OpenCodeAgentFactory`: implement `configSignature` (`guard.signature(workspace.cwd)`) and `reloadConfig` (`guard.reloadNow(cwd)`, then `true` — this engine has a config, so the request was performed), and pass `guard` into `OpenCodeAgent.open`.
 - `probeDefaults`: accept `mode`; call `guard.ensureFresh(input.workspace.cwd)`; read `readAgentCatalog`; resolve the selected model as agent model → `/model/default` → unset; append the default model only when `/model/default` is used. Keep an explicit `input.model` winning.
 - `opencode-agent.ts`: add `guard?: OpenCodeConfigGuard` to `OpenCodeAgentOptions` and store it; do not change model behavior yet.
 
@@ -478,7 +478,7 @@ Expected: FAIL — the new parameters and `reloadAgentConfig` do not exist.
 - `draftSignature(engine, workspace)` calls `factory.configSignature?.({workspace, engine}) ?? ''`.
 - Before a cache lookup, compare the signature per `engine|cwd`; a change clears `draftCache`/`draftProbes`.
 - `probeDraft` uses the passed workspace (falling back to `defaultWorkspace`) and forwards `mode`.
-- `reloadAgentConfig` resolves `engine ?? factory.defaultEngineKind` first, counts `state.streaming` for that engine, gates on `force`, calls `factory.reloadConfig`, clears the draft maps, and awaits `refreshConfig?.()` on hot gateways of that engine (logging failures). A host with two engines must never count a pi turn against an OpenCode reload.
+- `reloadAgentConfig` resolves `engine ?? factory.defaultEngineKind` first, counts `state.streaming` for that engine, gates on `force`, calls `factory.reloadConfig`, and — only when the answer was not `false` (this engine has no config to reload) — clears the draft maps and awaits `refreshConfig?.()` on hot gateways of that engine (logging failures). A host with two engines must never count a pi turn against an OpenCode reload.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -506,7 +506,7 @@ git commit -m "feat(sessions): key draft probes by mode, project and config"
 - Produces: `EngineDescriptor.reloadConfig?: boolean`
 - Produces: `EngineOption.reloadConfig?: boolean`
 - Produces: `AgentRouter.configSignature(options: { workspace: WorkspaceRef; engine?: string }): string`
-- Produces: `AgentRouter.reloadConfig(options: { engine?: string; cwd?: string }): Promise<void>`
+- Produces: `AgentRouter.reloadConfig(options: { engine?: string; cwd?: string }): Promise<boolean>`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -523,12 +523,12 @@ it('reports which engines can reload their config', () => {
 
 it('delegates configSignature and reloadConfig to the chosen engine', async () => {
   const signature = vi.fn(() => 'v1');
-  const reload = vi.fn(() => Promise.resolve());
+  const reload = vi.fn(() => Promise.resolve(true));
   const engine = engineWithFactory({ configSignature: signature, reloadConfig: reload });
   const router = new AgentRouter({ store, defaultWorkspace: WORKSPACE, logger: silentLogger });
   router.register(engine, {});
   expect(router.configSignature({ workspace: WORKSPACE })).toBe('v1');
-  await router.reloadConfig({ cwd: WORKSPACE.cwd });
+  await expect(router.reloadConfig({ cwd: WORKSPACE.cwd })).resolves.toBe(true);
   expect(reload).toHaveBeenCalledWith({ cwd: WORKSPACE.cwd });
 });
 
@@ -554,7 +554,7 @@ Expected: FAIL — `reloadConfig` is absent from `engineOptions` and the router.
 - `EngineDescriptor` and `EngineOption` gain `reloadConfig?: boolean`.
 - `engineOptions()` sets it when `entry.engine.factory.reloadConfig !== undefined`.
 - `AgentRouter.configSignature` resolves the named/default engine and calls its factory's optional method, returning `''` when absent.
-- `AgentRouter.reloadConfig` resolves the engine and awaits its factory's optional method.
+- `AgentRouter.reloadConfig` resolves the engine and awaits its factory's optional method, returning `false` when no engine resolves or the factory has none, so the caller never reports a reload that did not happen.
 - `probeDefaults` forwards `mode`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
