@@ -875,6 +875,36 @@ describe('AgentRouter engine capabilities', () => {
     expect(probe).toHaveBeenCalledWith({ workspace: WORKSPACE, mode: 'plan' });
   });
 
+  it('reports whether the config reload was delegated', async () => {
+    const reload = vi.fn(() => Promise.resolve());
+    const capable = new AgentRouter({
+      store: new MemoryStore(),
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    capable.register(engineWithFactory({ reloadConfig: reload }));
+
+    await expect(capable.reloadConfig({})).resolves.toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    // A factory without the capability, and a kind that is not installed, both
+    // mean nothing was re-read — the caller must not report a success.
+    const plain = new AgentRouter({
+      store: new MemoryStore(),
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    plain.register(new FakeEngine('pi', () => new FakeGateway(state({ sessionId: 'pi-new' }))));
+    await expect(plain.reloadConfig()).resolves.toBe(false);
+
+    const empty = new AgentRouter({
+      store: new MemoryStore(),
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    await expect(empty.reloadConfig({ engine: 'pi' })).resolves.toBe(false);
+  });
+
   it('passes a config reload through to the wrapped gateway', async () => {
     const inner = new FakeGateway(state({ sessionId: 'parent-engine' }));
     let reloaded = 0;

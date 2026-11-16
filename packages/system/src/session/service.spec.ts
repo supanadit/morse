@@ -124,6 +124,8 @@ class FakeFactory implements AgentGatewayFactory {
   signature = 'v1';
   /** How many times the manual reload reached the engine. */
   reloads = 0;
+  /** Whether this engine has a config to reload; false is an engine that has none. */
+  canReload = true;
 
   /** The engine kind its gateways report, so a test can open a non-default one. */
   constructor(private readonly kind = 'pi') {}
@@ -184,9 +186,12 @@ class FakeFactory implements AgentGatewayFactory {
     return this.signature;
   }
 
-  reloadConfig(): Promise<void> {
+  reloadConfig(): Promise<boolean> {
+    if (!this.canReload) {
+      return Promise.resolve(false);
+    }
     this.reloads += 1;
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 }
 
@@ -462,6 +467,29 @@ describe('SessionRegistry reloadAgentConfig', () => {
       running: 0,
     });
     expect(factory.reloads).toBe(1);
+  });
+
+  it('reports a reload the engine cannot perform without touching its caches', async () => {
+    const factory = new FakeFactory('pi');
+    factory.canReload = false;
+    const sessions = registry(factory);
+    await sessions.draftDefaults('pi');
+    expect(factory.probed).toHaveLength(1);
+    const opened = await sessions.open({ engine: 'pi' });
+    const gateway = sessions.agentFor(opened.key) as FakeGateway;
+    const refresh = vi.fn(() => Promise.resolve());
+    gateway.refreshConfig = refresh;
+
+    await expect(sessions.reloadAgentConfig({ engine: 'pi' })).resolves.toEqual({
+      reloaded: false,
+      running: 0,
+    });
+    expect(factory.reloads).toBe(0);
+    // Nothing was re-read, so no warm session is told to re-read and the cached
+    // draft still answers the next probe.
+    expect(refresh).not.toHaveBeenCalled();
+    await sessions.draftDefaults('pi');
+    expect(factory.probed).toHaveLength(1);
   });
 
   it('clears the draft caches so the next probe reads the reloaded config', async () => {

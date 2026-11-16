@@ -161,8 +161,14 @@ export interface AgentGatewayFactory {
    * whose files changed, when the caller knows it; `engine` names the engine
    * when the caller's draft has no session to ask. The manual control calls
    * this, and it must work while sessions are running.
+   *
+   * Resolves `false` when this engine has no configuration to reload, so a
+   * caller that always reaches a factory (a router owning several engines) can
+   * report an honest "nothing was re-read" instead of a false success. `true`
+   * or no value means the reload was performed — or attempted, with the adapter
+   * logging a failure rather than throwing.
    */
-  reloadConfig?(options: { engine?: string; cwd?: string }): Promise<void>;
+  reloadConfig?(options: { engine?: string; cwd?: string }): Promise<boolean | void>;
 }
 
 /** One page of a resumed session's finished exchanges. */

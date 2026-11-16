@@ -307,10 +307,12 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
   /**
    * The manual path: reload the server's config now, whatever state it is in.
    * The guard logs a failed reload instead of throwing, which is what the
-   * control wants — a warning, not a broken command.
+   * control wants — a warning, not a broken command. Always `true`: this engine
+   * does have a config, so the request was performed.
    */
-  reloadConfig(options: { engine?: string; cwd?: string }): Promise<void> {
-    return this.deps.guard.reloadNow(options.cwd);
+  async reloadConfig(options: { engine?: string; cwd?: string }): Promise<boolean> {
+    await this.deps.guard.reloadNow(options.cwd);
+    return true;
   }
 
   /**

@@ -310,21 +310,24 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   }
 
   /**
-   * Tells the chosen engine to re-read its configuration now. A no-op when the
-   * engine has no config to reload (or is not installed): the caller's request
-   * is per engine, so there is never another engine's config to fall back to.
+   * Tells the chosen engine to re-read its configuration now. Resolves `false`
+   * when no engine resolves or the selected factory has no `reloadConfig`, so
+   * the caller does not report a reload that never happened; `true` when the
+   * request was delegated. It never throws and never falls back to another
+   * engine: the request is per engine.
    */
-  async reloadConfig(options: { engine?: string; cwd?: string } = {}): Promise<void> {
+  async reloadConfig(options: { engine?: string; cwd?: string } = {}): Promise<boolean> {
     const engine =
       options.engine === undefined ? this.defaultEngine : this.engineFor(options.engine);
     const reload = engine?.factory.reloadConfig;
     if (engine === undefined || reload === undefined) {
-      return;
+      return false;
     }
-    await reload.call(engine.factory, {
+    const performed = await reload.call(engine.factory, {
       ...(options.engine === undefined ? {} : { engine: options.engine }),
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
+    return performed !== false;
   }
 
   // ---------------------------------------------------------------- catalog

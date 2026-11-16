@@ -266,6 +266,10 @@ export class SessionRegistry {
    * catalogs while working, and a reader must confirm before a reload lands
    * under it. The count is scoped to the named engine (the factory's default
    * when the draft named none), so another engine's turn never blocks it.
+   *
+   * The factory answers `false` when the named engine has no config to reload
+   * (a router that always exposes the method); the caches then keep what they
+   * read, because nothing on the engine changed to invalidate them.
    */
   async reloadAgentConfig(
     options: { engine?: string; cwd?: string; force?: boolean } = {},
@@ -279,10 +283,13 @@ export class SessionRegistry {
     if (reload === undefined) {
       return { reloaded: false, running };
     }
-    await reload.call(this.deps.factory, {
+    const performed = await reload.call(this.deps.factory, {
       ...(engine === undefined ? {} : { engine }),
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
+    if (performed === false) {
+      return { reloaded: false, running };
+    }
     // Every cached draft was read from the config the engine just replaced.
     this.refreshDraftDefaults();
     await this.refreshWarmGateways(engine);
