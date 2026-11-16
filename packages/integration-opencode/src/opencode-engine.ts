@@ -337,9 +337,10 @@ export class OpenCodeAgentFactory implements AgentGatewayFactory {
     mode?: string;
   }): Promise<AgentGateway> {
     const directory = input.workspace.cwd;
-    // The server reads its config once, so a file edited since then is invisible
-    // until it reloads. Seeding happens on the first probe, which must not reload
-    // a server that already started from these files.
+    // The server's own watcher decides its own timing, so a file edited since it
+    // started may not be in effect at the next catalog read until it reloads.
+    // Seeding happens on the first probe, which must not reload a server that
+    // already started from these files.
     await this.deps.guard.ensureFresh(directory);
     const [models, commands, agentCatalog, defaultModel] = await Promise.all([
       this.deps.api

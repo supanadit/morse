@@ -8,10 +8,11 @@ import type { OpenCodeApi } from './client.js';
  * Guards the running OpenCode server against a config file that moved
  * underneath it.
  *
- * OpenCode reads its global and project `opencode.json[c]` files once, at
- * startup; editing them changes nothing the server serves until it is told to
- * reload. `POST /api/location/reload` is that signal, and it is disruptive to a
- * turn already in progress, so this guard holds three rules:
+ * OpenCode watches its global and project `opencode.json[c]` files and reloads
+ * them on its own, but when it notices is its own timing, not a guarantee about
+ * what the next catalog read sees. `POST /api/location/reload` makes that
+ * deterministic, and it is disruptive to a turn already in progress, so this
+ * guard holds three rules:
  *
  * - the first signature a workspace sees is only seeded, never reloaded: the
  *   server already started from those files;
