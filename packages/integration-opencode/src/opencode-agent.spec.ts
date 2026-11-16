@@ -172,9 +172,13 @@ async function harness(
 }
 
 function defaultHandler(): Handler {
-  return (method, path) => {
+  // OpenCode keeps the chosen agent on the session record; a refresh reads it
+  // back, so the fake records switches exactly as the server does.
+  let currentAgent = 'build';
+  return (method, path, _query, body) => {
     if (method === 'POST' && path === '/session') {
-      return sessionInfo();
+      currentAgent = (body as { agent?: string } | undefined)?.agent ?? 'build';
+      return sessionInfo({ agent: currentAgent });
     }
     if (method === 'GET' && path.includes('/message/')) {
       return { id: 'msg_1', type: 'user', time: { created: 1 }, text: 'the dropped prompt' };
@@ -187,7 +191,7 @@ function defaultHandler(): Handler {
     }
     if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
       const id = path.split('/')[2] ?? 'ses_1';
-      return sessionInfo({ id });
+      return sessionInfo({ id, agent: currentAgent });
     }
     if (method === 'GET' && path === '/model') {
       return MODELS;
@@ -219,6 +223,7 @@ function defaultHandler(): Handler {
       return [{ type: 'document', info: { default_agent: 'build' } }];
     }
     if (method === 'POST' && path.endsWith('/agent')) {
+      currentAgent = (body as { agent: string }).agent;
       return undefined;
     }
     if (method === 'GET' && path === '/command') {
@@ -412,6 +417,91 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
+  it('keeps every catalog when a reload reads nothing', async () => {
+    let readable = true;
+    const base = defaultHandler();
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (
+          !readable &&
+          method === 'GET' &&
+          ['/model', '/agent', '/command', '/skill'].includes(path)
+        ) {
+          return [];
+        }
+        return base(method, path, query, body);
+      },
+    });
+    const initial = await agent.state();
+    expect(initial.availableModels?.length).toBeGreaterThan(0);
+
+    // A starting project answers with nothing; an empty answer is a failed read,
+    // not "this configuration has no models or commands".
+    readable = false;
+    await agent.refreshConfig();
+
+    const state = await agent.state();
+    expect(state.availableModels).toEqual(initial.availableModels);
+    expect(state.availableCommands).toEqual(initial.availableCommands);
+    expect(state.availableModes).toEqual(initial.availableModes);
+    // The kept model map still resolves the model on screen.
+    expect(state.model).toMatchObject({ id: 'flint-40b-free' });
+    await agent.dispose();
+  });
+
+  it('keeps the command palette when one of its catalogs fails', async () => {
+    let broken = false;
+    const base = defaultHandler();
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (broken && method === 'GET' && path === '/skill') {
+          return Promise.reject(new Error('skills are down'));
+        }
+        return base(method, path, query, body);
+      },
+    });
+    const initial = await agent.state();
+
+    // `/command` answered, but the palette is only as good as both halves; a
+    // half-answer must not replace the working list.
+    broken = true;
+    await agent.refreshConfig();
+    expect((await agent.state()).availableCommands).toEqual(initial.availableCommands);
+    await agent.dispose();
+  });
+
+  it('refreshes the model and command catalogs when the mode picker refreshes', async () => {
+    let extras = false;
+    const base = defaultHandler();
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (extras && method === 'GET' && path === '/model') {
+          return [MODELS[1]];
+        }
+        if (extras && method === 'GET' && path === '/command') {
+          return [{ name: 'pr', description: 'open a pull request' }];
+        }
+        if (extras && method === 'GET' && path === '/skill') {
+          return [];
+        }
+        return base(method, path, query, body);
+      },
+    });
+    expect((await agent.state()).availableModels?.map((model) => model.id)).toContain(
+      'flint-40b-free',
+    );
+
+    extras = true;
+    await agent.refreshModes();
+
+    // The mode picker reads the whole config, so a model or command added by the
+    // same reload is picked up too.
+    const state = await agent.state();
+    expect(state.availableModels?.map((model) => model.id)).toEqual(['plain-model']);
+    expect(state.availableCommands.map((command) => command.name)).toEqual(['pr']);
+    await agent.dispose();
+  });
+
   it('keeps the session mode when a reload no longer lists it', async () => {
     const { agent } = await harness({
       handler: (method, path, query) => {
@@ -567,14 +657,23 @@ describe('OpenCodeAgent', () => {
 
   it('re-reads the agent list and keeps a current mode that still exists', async () => {
     let includePlan = true;
+    let currentAgent = 'build';
+    const base = defaultHandler();
     const handler: Handler = (method, path, query, body) => {
+      if (method === 'POST' && path.endsWith('/agent')) {
+        currentAgent = (body as { agent: string }).agent;
+        return undefined;
+      }
+      if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+        return sessionInfo({ agent: currentAgent });
+      }
       if (method === 'GET' && path === '/agent') {
         return [
           { id: 'build', name: 'Build', mode: 'primary' },
           ...(includePlan ? [{ id: 'plan', name: 'Plan', mode: 'primary' }] : []),
         ];
       }
-      return defaultHandler()(method, path, query, body);
+      return base(method, path, query, body);
     };
     const { agent } = await harness({ handler });
     await agent.setMode('plan');

@@ -512,30 +512,15 @@ export class OpenCodeAgent extends Session {
   }
 
   /**
-   * Re-reads the primary agents and the configured default. The current mode is
-   * kept even when the configuration no longer lists it: OpenCode may still have
-   * it on the session, and forcing another would change the conversation behind
-   * the reader's back.
+   * Re-reads the primary agents, the configured default and every other catalog.
+   * The current mode is kept even when the configuration no longer lists it:
+   * OpenCode may still have it on the session, and forcing another would change
+   * the conversation behind the reader's back.
    */
   async refreshModes(): Promise<void> {
-    const catalog = await readAgentCatalog(this.api, this.box.workspace.cwd, this.log);
-    // OpenCode always ships primary agents, so an empty answer is a read that
-    // failed or raced a starting project, not a configuration without modes.
-    // Dropping the list would take the mode picker away from a session that can
-    // still use it; keep the last one until the server answers again.
-    if (catalog.modes.length === 0) {
-      return;
-    }
-    this.adoptCatalog(catalog);
-    const patch: Partial<AgentSessionState> = { availableModes: catalog.modes };
-    if (this.box.mode === undefined) {
-      const mode = defaultModeId(catalog.modes);
-      if (mode !== undefined) {
-        patch.mode = mode;
-      }
-    }
-    this.mergeState(patch);
-    this.emitState(Date.now());
+    // The mode picker also shows the model and the commands of the selected
+    // agent, so one read of the whole config is what keeps the composer coherent.
+    await this.refreshConfig();
   }
 
   // ---------------------------------------------------------------- catalogs
@@ -547,33 +532,41 @@ export class OpenCodeAgent extends Session {
    * can add, rename or remove models, agents, commands and skills, and a warm
    * session must see that without being reopened. A still-valid current model is
    * kept; one the new catalog no longer lists is replaced with the model its
-   * agent is configured to run. The current mode is never dropped for an empty
-   * modes list — that answer is a failed read, not a configuration.
+   * agent is configured to run.
+   *
+   * Every read is best effort. OpenCode always ships models, primary agents and
+   * its built-in commands, so an empty answer is a read that failed or raced a
+   * starting project, not a configuration without them: a list is only replaced
+   * by a non-empty answer, and the last good picker survives a transient failure.
+   * The current mode is never dropped for an empty modes list either.
    */
   async refreshConfig(): Promise<void> {
     const directory = this.box.workspace.cwd;
-    const [models, commands, catalog] = await Promise.all([
+    const [models, commandCatalog, catalog] = await Promise.all([
       this.api
         .get<ApiModel[]>('/model', { 'location[directory]': directory })
         .catch((error: unknown): ApiModel[] => {
           this.log.warn('Could not read the OpenCode model catalog', error);
           return [];
         }),
-      readAvailableCommands(this.api, directory, this.log, this.configDir),
+      readCommandCatalog(this.api, directory, this.log, this.configDir),
       readAgentCatalog(this.api, directory, this.log),
     ]);
     if (this.disposed) {
       return;
     }
-    // Replace the map first: the state refresh below resolves its model through it.
-    this.models.clear();
-    for (const model of models) {
-      this.models.set(modelKey(model), model);
+    const patch: Partial<AgentSessionState> = {};
+    if (models.length > 0) {
+      // Replace the map first: the state refresh below resolves its model through it.
+      this.models.clear();
+      for (const model of models) {
+        this.models.set(modelKey(model), model);
+      }
+      patch.availableModels = toModelRefs(models);
     }
-    const patch: Partial<AgentSessionState> = {
-      availableModels: toModelRefs(models),
-      availableCommands: [...commands],
-    };
+    if (commandCatalog.complete && commandCatalog.commands.length > 0) {
+      patch.availableCommands = [...commandCatalog.commands];
+    }
     if (catalog.modes.length > 0) {
       this.adoptCatalog(catalog);
       patch.availableModes = catalog.modes;
@@ -584,8 +577,10 @@ export class OpenCodeAgent extends Session {
         }
       }
     }
-    this.mergeState(patch);
-    this.emitState(Date.now());
+    if (Object.keys(patch).length > 0) {
+      this.mergeState(patch);
+      this.emitState(Date.now());
+    }
 
     // The session record carries the agent another client may have switched and
     // the usage the reload did not touch; a fresh session's model resolves
@@ -1280,6 +1275,17 @@ function modelRefOf(model: ApiSessionInfo['model']): ModelRef | undefined {
   return { provider: model.providerID, id: model.id, name: model.id };
 }
 
+/** The composer's palette, and whether both source catalogs answered. */
+export interface CommandCatalog {
+  commands: AgentCommand[];
+  /**
+   * True when the command and skill reads both answered. A refresh uses it to
+   * keep the last good palette instead of replacing it with a failed read's
+   * half-answer.
+   */
+  complete: boolean;
+}
+
 /** The composer's palette: OpenCode commands (prompt templates) and skills. */
 export async function readAvailableCommands(
   api: OpenCodeApi,
@@ -1287,19 +1293,36 @@ export async function readAvailableCommands(
   logger: MorseLogger,
   configDir?: string,
 ): Promise<AgentCommand[]> {
+  const { commands } = await readCommandCatalog(api, directory, logger, configDir);
+  return commands;
+}
+
+/**
+ * The same palette, plus whether both catalogs answered: a refresh must be able
+ * to tell "this configuration has no commands" from "the read failed".
+ */
+export async function readCommandCatalog(
+  api: OpenCodeApi,
+  directory: string,
+  logger: MorseLogger,
+  configDir?: string,
+): Promise<CommandCatalog> {
   // The project travels as `location[directory]`, the same way the agent catalog
   // asks for it: a plain `directory` query param is ignored, and the server would
   // answer for its own working directory instead.
+  let complete = true;
   const [commands, skills] = await Promise.all([
     api
       .get<ApiCommand[]>('/command', { 'location[directory]': directory })
       .catch((error: unknown): ApiCommand[] => {
+        complete = false;
         logger.warn('Could not read the OpenCode command catalog', error);
         return [];
       }),
     api
       .get<ApiSkill[]>('/skill', { 'location[directory]': directory })
       .catch((error: unknown): ApiSkill[] => {
+        complete = false;
         logger.warn('Could not read the OpenCode skill catalog', error);
         return [];
       }),
@@ -1329,7 +1352,7 @@ export async function readAvailableCommands(
       source: 'skill',
     });
   }
-  return entries;
+  return { commands: entries, complete };
 }
 
 /**
