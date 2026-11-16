@@ -92,6 +92,8 @@ function fakeGateway(
     refreshModels?: () => Promise<void>;
     /** Counts mode-catalog re-reads; omitted means the adapter can't. */
     refreshModes?: () => Promise<void>;
+    /** Counts config re-reads after a reload; omitted means the adapter can't. */
+    refreshConfig?: () => Promise<void>;
     /** The mode a live session reports. */
     mode?: string;
     /** The modes a live session offers. */
@@ -196,6 +198,7 @@ function fakeGateway(
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
     ...(options.refreshModes ? { refreshModes: options.refreshModes } : {}),
+    ...(options.refreshConfig ? { refreshConfig: options.refreshConfig } : {}),
     ...(options.refreshHistory ? { refreshHistory: options.refreshHistory } : {}),
     dispose: () => Promise.resolve(),
   };
@@ -218,6 +221,17 @@ interface Harness extends FreshClient {
   created(): { workspace: typeof WORKSPACE; sessionId?: string; engine?: string; mode?: string }[];
   /** Session-less draft probes: how often the draft asked pi for its catalog. */
   probes(): number;
+  /** The inputs the last session-less probe was asked with. */
+  createdProbe(): {
+    workspace: typeof WORKSPACE;
+    engine?: string;
+    model?: ModelRef;
+    mode?: string;
+  };
+  /** Config reloads the factory performed, in order. */
+  reloadInputs(): { engine?: string; cwd?: string }[];
+  /** How often the factory reloaded its config. */
+  reloads(): number;
   replaces(): TranscriptItem[][];
   lastState(): SessionViewState | undefined;
   /** A reconnecting client: same registry and transcripts, a fresh sink. */
@@ -306,6 +320,12 @@ function harness(
     historyFn?: () => AgentHistoryEntry[];
     /** A paging `history()` the test drives, so the cursor each read sends is visible. */
     historyPage?: (before?: string) => AgentHistoryPage;
+    /** The engine can re-read its own config, as OpenCode's can. */
+    reloadConfig?: boolean;
+    /** Counts config re-reads on warm sessions after a reload. */
+    refreshConfig?: () => Promise<void>;
+    /** The host's view scope; the workspace under test unless a test says otherwise. */
+    scope?: HostScopeOptions;
   } = {},
 ): Harness {
   const messages: HostToClientMessage[] = [];
@@ -326,6 +346,7 @@ function harness(
     ...(options.clone ? { clone: options.clone } : {}),
     ...(options.refreshCommands ? { refreshCommands: options.refreshCommands } : {}),
     ...(options.refreshModels ? { refreshModels: options.refreshModels } : {}),
+    ...(options.refreshConfig ? { refreshConfig: options.refreshConfig } : {}),
     ...(options.mode === undefined ? {} : { mode: options.mode }),
     ...(options.availableModes === undefined ? {} : { availableModes: options.availableModes }),
     ...(options.onSetMode === undefined ? {} : { onSetMode: options.onSetMode }),
@@ -333,6 +354,13 @@ function harness(
   });
   const spawns = { count: 0 };
   const probes = { count: 0 };
+  const probeInputs: {
+    workspace: typeof WORKSPACE;
+    engine?: string;
+    model?: ModelRef;
+    mode?: string;
+  }[] = [];
+  const reloads: { engine?: string; cwd?: string }[] = [];
   const created: {
     workspace: typeof WORKSPACE;
     sessionId?: string;
@@ -340,6 +368,8 @@ function harness(
     mode?: string;
   }[] = [];
   const factory: AgentGatewayFactory = {
+    // The engine a draft with no pick resolves its config from, as the router does.
+    defaultEngineKind: options.kind ?? 'pi',
     create: (input) => {
       spawns.count += 1;
       created.push(input);
@@ -360,8 +390,10 @@ function harness(
             workspace: typeof WORKSPACE;
             engine?: string;
             model?: ModelRef;
+            mode?: string;
           }) => {
             probes.count += 1;
+            probeInputs.push(input);
             const state = options.probeState!(input.model, input.engine);
             if (!state) {
               return Promise.reject(new Error('no probe state'));
@@ -379,6 +411,14 @@ function harness(
             },
           }
         : {}),
+    ...(options.reloadConfig
+      ? {
+          reloadConfig: (input: { engine?: string; cwd?: string }) => {
+            reloads.push(input);
+            return Promise.resolve(true);
+          },
+        }
+      : {}),
   };
   const removed: string[] = [];
   const registry = new SessionRegistry({
@@ -396,7 +436,7 @@ function harness(
   });
   const chat = new ChatService({ agent: registry, logger: silentLogger });
   const transcripts = new SessionTranscriptStore();
-  const scope: HostScopeOptions = { kind: 'workspace', roots: [WORKSPACE.cwd] };
+  const scope: HostScopeOptions = options.scope ?? { kind: 'workspace', roots: [WORKSPACE.cwd] };
   const controller = connect(registry, chat, transcripts, messages, scope, options.agentHint);
   return {
     messages,
@@ -408,6 +448,9 @@ function harness(
     spawns: () => spawns.count,
     created: () => created,
     probes: () => probes.count,
+    createdProbe: () => probeInputs.at(-1) ?? { workspace: WORKSPACE },
+    reloadInputs: () => reloads,
+    reloads: () => reloads.length,
     replaces: () =>
       messages
         .filter(
@@ -437,6 +480,18 @@ function lastStateOf(messages: HostToClientMessage[]): SessionViewState | undefi
     )
     .at(-1);
   return state;
+}
+
+/**
+ * The data a `host/command` answer carried, so a test can assert what the
+ * frontend received instead of digging through the message log itself.
+ */
+function resultOf(messages: HostToClientMessage[], requestId: string): unknown {
+  const answer = messages.find(
+    (message): message is Extract<HostToClientMessage, { type: 'host/command/result' }> =>
+      message.type === 'host/command/result' && message.payload.requestId === requestId,
+  );
+  return answer?.payload.data;
 }
 
 function lastReplaceOf(messages: HostToClientMessage[]): TranscriptItem[] {
@@ -2267,6 +2322,102 @@ describe('HostSessionController project list', () => {
     const key = registry.activeKeyOf();
     const items = key === undefined ? [] : transcripts.items(key);
     expect(items.some((item) => item.kind === 'notice' && item.level === 'error')).toBe(false);
+  });
+});
+
+/**
+ * The reload control's wire command and the draft probe's identity. A reload
+ * re-reads an engine's own config, so it must refuse to land under a running
+ * turn until the reader confirms, and the empty panel must probe the project and
+ * mode the reader actually drafted — otherwise its model describes the wrong one.
+ */
+describe('HostSessionController agent config reload and draft probe', () => {
+  const modes: AgentMode[] = [
+    { id: 'build', name: 'Build', default: true },
+    { id: 'plan', name: 'Plan' },
+  ];
+  const base = (): AgentSessionState => ({
+    workspace: WORKSPACE,
+    thinkingLevel: 'off',
+    availableModels: [],
+    availableThinkingLevels: [],
+    availableCommands: [],
+    streaming: false,
+  });
+
+  it('warns before reloading agent config while a session runs', async () => {
+    const h = harness({ streaming: true, reloadConfig: true });
+    await withOpenSession(h);
+
+    await h.controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'reloadAgentConfig', requestId: 'r1' },
+    });
+
+    expect(resultOf(h.messages, 'r1')).toEqual({
+      reloaded: false,
+      requiresConfirmation: true,
+      running: 1,
+    });
+    expect(h.reloads()).toBe(0);
+    // Nothing was re-read, so nothing claims it was.
+    expect(
+      h.messages.some((message) => message.type === 'notice' && message.payload.level === 'info'),
+    ).toBe(false);
+  });
+
+  it('forces the reload and re-probes the draft', async () => {
+    const refreshed: number[] = [];
+    const h = harness({
+      streaming: true,
+      reloadConfig: true,
+      probeState: () => base(),
+      refreshConfig: () => {
+        refreshed.push(1);
+        return Promise.resolve();
+      },
+    });
+    await withOpenSession(h);
+    // Back to an empty panel: the draft in front is what has a catalog to re-probe.
+    await h.controller.handleClientMessage({ type: 'session/new', payload: {} });
+    const before = h.probes();
+
+    await h.controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command: 'reloadAgentConfig', args: { force: true }, requestId: 'r1' },
+    });
+
+    expect(h.reloads()).toBe(1);
+    // The reload names the project whose config it re-read.
+    expect(h.reloadInputs().at(-1)).toMatchObject({ cwd: WORKSPACE.cwd });
+    expect(resultOf(h.messages, 'r1')).toMatchObject({ reloaded: true });
+    // The warm session behind the draft re-read its own config, and the draft
+    // pickers were probed again against the reloaded one.
+    expect(refreshed).toHaveLength(1);
+    expect(h.probes()).toBeGreaterThan(before);
+    expect(
+      h.messages.some(
+        (message) =>
+          message.type === 'notice' &&
+          message.payload.level === 'info' &&
+          message.payload.text.includes('configuration reloaded'),
+      ),
+    ).toBe(true);
+  });
+
+  it('probes a draft with the drafted project and mode', async () => {
+    const h = harness({
+      probeState: () => ({ ...base(), mode: 'plan', availableModes: modes }),
+      scope: { kind: 'global' },
+    });
+    await h.controller.handleClientMessage({
+      type: 'session/new',
+      payload: { cwd: '/work/other' },
+    });
+    await h.controller.handleClientMessage({ type: 'mode/set', payload: { mode: 'plan' } });
+
+    expect(h.createdProbe().workspace.cwd).toBe('/work/other');
+    expect(h.createdProbe().mode).toBe('plan');
   });
 });
 

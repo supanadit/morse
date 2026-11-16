@@ -117,6 +117,15 @@ export type HostCommand =
    */
   | 'searchSessions'
   /**
+   * Re-read the viewing engine's own configuration — its models, modes/agents,
+   * commands and skills — without restarting the host (`{ force? }` →
+   * `{ reloaded, requiresConfirmation?, running }`). Refused while a turn of that
+   * engine runs unless `force` is set, because the engine rebuilds its catalogs
+   * mid-turn; the answer carries how many sessions were running so the control
+   * can say so before asking again.
+   */
+  | 'reloadAgentConfig'
+  /**
    * Text across the viewing project's files (`{ query, caseSensitive?,
    * include?, exclude? }` → `WorkspaceSearchResult`): matches grouped by file,
    * each line carrying its number, a window of its text and where the matches

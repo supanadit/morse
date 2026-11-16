@@ -19,6 +19,7 @@ import type {
   ForkedSession,
   MorseLogger,
   OpenedSession,
+  ReloadedAgentConfig,
   SessionRegistry,
   SessionSummary,
 } from '@morse/system';
@@ -1004,22 +1005,33 @@ export class HostSessionController {
   /**
    * Fills the draft pickers from the registry's session-less probe. A ticket is
    * passed when a newly chosen engine triggered the read, so an older probe
-   * cannot land after the reader moved on; the engine/model comparison covers
-   * the initial probe and a model pick made while it was in flight.
+   * cannot land after the reader moved on; the engine/model/project comparison
+   * covers the initial probe and a model pick made while it was in flight.
+   *
+   * The project and mode travel with the request: the effective agent (and so
+   * the configured model) comes from the project's config, and pi reports the
+   * levels and model of the mode it runs.
    */
   private async warmDraft(ticket?: number): Promise<void> {
     const engine = this.draftEngine;
     const model = this.draftModel;
+    const mode = this.draftMode;
+    const workspace = this.draftWorkspace ?? this.options.services.registry.defaultWorkspace;
     try {
-      const catalog = await this.options.services.registry.draftDefaults(engine, model);
-      if (!this.draftProbeIsCurrent(ticket, engine, model)) {
+      const catalog = await this.options.services.registry.draftDefaults(
+        engine,
+        model,
+        mode,
+        workspace,
+      );
+      if (!this.draftProbeIsCurrent(ticket, engine, model, workspace)) {
         return;
       }
       this.draftCatalog = catalog;
       this.clearAgentFailure();
       this.emitState();
     } catch (error: unknown) {
-      if (!this.draftProbeIsCurrent(ticket, engine, model)) {
+      if (!this.draftProbeIsCurrent(ticket, engine, model, workspace)) {
         return;
       }
       // The session-less probe is where a missing engine shows up on load.
@@ -1037,11 +1049,16 @@ export class HostSessionController {
     }
   }
 
-  /** True while the answer still belongs to the draft the reader is looking at. */
+  /**
+   * True while the answer still belongs to the draft the reader is looking at.
+   * The project is part of that: a probe for project A must not land after the
+   * reader moved to B, whose config names a different model and modes.
+   */
   private draftProbeIsCurrent(
     ticket: number | undefined,
     engine: string | undefined,
     model: ModelRef | undefined,
+    workspace: WorkspaceRef,
   ): boolean {
     if (this.activeKey !== undefined || this.disposed) {
       return false;
@@ -1049,7 +1066,15 @@ export class HostSessionController {
     if (ticket !== undefined && ticket !== this.engineRefresh) {
       return false;
     }
-    return this.draftEngine === engine && this.draftModel === model;
+    if (this.draftEngine !== engine || this.draftModel !== model) {
+      return false;
+    }
+    return this.draftProjectCwd() === workspace.cwd;
+  }
+
+  /** The project a draft's probes read: its own pick, else the host's default. */
+  private draftProjectCwd(): string {
+    return (this.draftWorkspace ?? this.options.services.registry.defaultWorkspace).cwd;
   }
 
   /** Clears the engine-loading flag, unless a newer switch has taken it over. */
@@ -1909,8 +1934,15 @@ export class HostSessionController {
       // pi reports thinking levels per *current* model, so the picker has to be
       // re-probed for the model the reader just chose before a session exists —
       // unless that model was probed before, in which case its levels are
-      // already known and land in the same frame as the pick.
-      const cached = this.options.services.registry.cachedDraftDefaults(this.draftEngine, picked);
+      // already known and land in the same frame as the pick. The cached answer
+      // is keyed by the drafted mode and project too: the same model can name
+      // different levels under another mode.
+      const cached = this.options.services.registry.cachedDraftDefaults(
+        this.draftEngine,
+        picked,
+        this.draftMode,
+        this.draftWorkspace ?? this.options.services.registry.defaultWorkspace,
+      );
       if (cached) {
         this.draftCatalog = cached;
         this.emitState();
@@ -1956,19 +1988,28 @@ export class HostSessionController {
   /**
    * Re-reads the draft catalog for a model picked before any session exists, so
    * the thinking picker mirrors that model's levels instead of the default
-   * model's. The request is dropped when the reader picks again or a session
-   * opens while the probe is in flight.
+   * model's. The request is dropped when the reader picks again, switches mode or
+   * project, or a session opens while the probe is in flight.
    */
   private async refreshDraftCatalog(model: ModelRef, ticket: number): Promise<void> {
     const engine = this.draftEngine;
+    const mode = this.draftMode;
+    const workspace = this.draftWorkspace ?? this.options.services.registry.defaultWorkspace;
     try {
-      const catalog = await this.options.services.registry.draftDefaults(engine, model);
+      const catalog = await this.options.services.registry.draftDefaults(
+        engine,
+        model,
+        mode,
+        workspace,
+      );
       if (
         catalog &&
         this.activeKey === undefined &&
         !this.disposed &&
         this.draftEngine === engine &&
-        this.draftModel === model
+        this.draftModel === model &&
+        this.draftMode === mode &&
+        this.draftProjectCwd() === workspace.cwd
       ) {
         this.draftCatalog = catalog;
       }
@@ -2012,6 +2053,11 @@ export class HostSessionController {
       }
       this.draftMode = mode;
       this.emitState();
+      // The mode names the agent that will answer, and so the model the pickers
+      // should name: the draft's catalog was read for the mode it left. Dropping
+      // the cached probes makes this read the reloaded/other agent's own.
+      this.options.services.registry.refreshDraftDefaults();
+      await this.warmDraft();
       return;
     }
     const key = this.viewKey();
@@ -2132,6 +2178,48 @@ export class HostSessionController {
         });
       const scoped = sessions.filter((session) => this.withinScope(session.cwd));
       this.answerHostCommand(requestId, true, { sessions: scoped });
+      return;
+    }
+    // The draft pickers' config reload belongs here too: the registry owns the
+    // engine's config and every warm gateway that must re-read it, and the
+    // draft in front of this client is the project whose config was edited.
+    if (command === 'reloadAgentConfig') {
+      const key = this.activeKey;
+      const state = key === undefined ? undefined : this.options.services.registry.stateOf(key);
+      const engine =
+        key === undefined ? this.draftEngine : this.options.services.registry.engineOf(key);
+      const cwd = state?.workspace.cwd ?? this.draftProjectCwd();
+      let result: ReloadedAgentConfig;
+      try {
+        result = await this.options.services.registry.reloadAgentConfig({
+          ...(engine === undefined ? {} : { engine }),
+          cwd,
+          ...(args?.force === true ? { force: true } : {}),
+        });
+      } catch (error: unknown) {
+        this.options.logger.error(`Agent config reload failed: ${describeError(error)}`, error);
+        this.answerHostCommand(
+          requestId,
+          false,
+          undefined,
+          'The agent configuration could not be reloaded.',
+        );
+        return;
+      }
+      this.answerHostCommand(requestId, true, result);
+      // An engine with no config to reload answers `reloaded: false`; saying
+      // otherwise would announce a re-read that never happened.
+      if (!result.reloaded) {
+        return;
+      }
+      this.options.emit(noticeMessage('info', 'Agent configuration reloaded.', Date.now()));
+      if (this.activeKey === undefined) {
+        // The empty panel's pickers came from the config the engine just
+        // replaced; a warm session re-read its own through the registry.
+        await this.warmDraft();
+      } else {
+        this.emitState();
+      }
       return;
     }
     const handler = this.options.onHostCommand;
