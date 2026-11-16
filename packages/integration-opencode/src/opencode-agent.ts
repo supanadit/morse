@@ -530,9 +530,10 @@ export class OpenCodeAgent extends Session {
    *
    * This is the manual reload's path: a config file OpenCode has just re-read
    * can add, rename or remove models, agents, commands and skills, and a warm
-   * session must see that without being reopened. A still-valid current model is
-   * kept; one the new catalog no longer lists is replaced with the model its
-   * agent is configured to run.
+   * session must see that without being reopened. A still-valid model keeps its
+   * place with the fresh entry's name, limits and variants; one the catalog no
+   * longer lists is replaced by the current agent's model or the server's own
+   * default, and the panel names no model when neither can serve it.
    *
    * Every read is best effort. OpenCode always ships models, primary agents and
    * its built-in commands, so an empty answer is a read that failed or raced a
@@ -587,23 +588,59 @@ export class OpenCodeAgent extends Session {
     // through the catalog just replaced.
     await this.refreshState();
 
+    // Whatever the panel names must be a model the picker offers — or nothing.
+    // Keeping the last model is only honest after a *failed* read (the map was
+    // kept); after a good one the catalog is the truth, so the resolution mirrors
+    // `open`: the current model when `/model` still lists it, else the current
+    // agent's model, else the server's own `/model/default` (appended when the
+    // catalog does not list it), else no model at all.
     const current = this.box.model;
-    if (current === undefined || this.modelFor(current.provider, current.id) !== undefined) {
+    if (current === undefined) {
       return;
     }
-    const agentModel =
-      this.box.mode === undefined ? undefined : this.agentModels.get(this.box.mode);
-    const replacement =
-      agentModel === undefined ? undefined : this.modelFor(agentModel.providerID, agentModel.id);
-    if (replacement === undefined) {
-      // Nothing names a model that would serve; leaving the last one is more
-      // honest than blanking the panel mid-conversation.
+    const offered = (model: ApiModel): boolean =>
+      (this.box.availableModels ?? []).some(
+        (entry) => entry.provider === model.providerID && entry.id === model.id,
+      );
+    // A model the catalog still lists keeps its place; one it carries but does
+    // not offer (disabled) does not, and the chain moves on to the agent's model.
+    const listed = this.modelFor(current.provider, current.id);
+    let chosen = listed !== undefined && offered(listed) ? listed : undefined;
+    if (chosen === undefined && this.box.mode !== undefined) {
+      const agentModel = this.agentModels.get(this.box.mode);
+      const configured =
+        agentModel === undefined
+          ? undefined
+          : this.modelFor(agentModel.providerID, agentModel.id);
+      if (configured !== undefined && offered(configured)) {
+        chosen = configured;
+      }
+    }
+    if (chosen === undefined) {
+      const serverDefault = await readDefaultModel(this.api, directory, this.log);
+      if (serverDefault !== undefined) {
+        chosen = this.modelFor(serverDefault.providerID, serverDefault.id) ?? serverDefault;
+        if (!offered(chosen)) {
+          // The server's own fallback may be missing from a stale catalog; append
+          // it, exactly as `open` does, so the picker can name it.
+          this.models.set(modelKey(chosen), chosen);
+          this.mergeState({
+            availableModels: [...(this.box.availableModels ?? []), toModelRef(chosen)],
+          });
+        }
+      }
+    }
+    if (chosen === undefined) {
+      this.mergeState({ model: undefined, availableThinkingLevels: [] });
+      this.emitState(Date.now());
       return;
     }
+    // A still-valid model keeps its place, but the fresh entry is the truth for
+    // its name, limits and variants — including the level they leave available.
     this.mergeState({
-      model: toModelRef(replacement),
-      availableThinkingLevels: thinkingLevelsOf(replacement),
-      thinkingLevel: thinkingLevelOf(replacement, agentModel?.variant),
+      model: toModelRef(chosen),
+      availableThinkingLevels: thinkingLevelsOf(chosen),
+      thinkingLevel: thinkingLevelOf(chosen, variantForLevel(chosen, this.box.thinkingLevel)),
     });
     this.emitState(Date.now());
   }

@@ -497,8 +497,95 @@ describe('OpenCodeAgent', () => {
     // The mode picker reads the whole config, so a model or command added by the
     // same reload is picked up too.
     const state = await agent.state();
-    expect(state.availableModels?.map((model) => model.id)).toEqual(['plain-model']);
+    expect(state.availableModels?.map((model) => model.id)).toContain('plain-model');
     expect(state.availableCommands.map((command) => command.name)).toEqual(['pr']);
+    await agent.dispose();
+  });
+
+  it('never leaves a model outside the picker when a reload drops it', async () => {
+    let models = MODELS;
+    const base = defaultHandler();
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (method === 'GET' && path === '/model') return models;
+        return base(method, path, query, body);
+      },
+    });
+    expect((await agent.state()).model).toMatchObject({ id: 'flint-40b-free' });
+
+    // The reload drops flint. The agent still names it and the server default is
+    // flint too, so it is the model that will serve: it is appended to the
+    // picker, the same rule `open` applies, never shown outside it.
+    models = [MODELS[1]];
+    await agent.refreshConfig();
+
+    const state = await agent.state();
+    expect(state.model).toMatchObject({ id: 'flint-40b-free' });
+    expect(state.availableModels?.map((model) => model.id)).toContain('flint-40b-free');
+    await agent.dispose();
+  });
+
+  it('stops naming a model the fresh catalog dropped when nothing can replace it', async () => {
+    let dropped = false;
+    const base = defaultHandler();
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (dropped && method === 'GET' && path === '/model') return [MODELS[1]];
+        if (dropped && method === 'GET' && path === '/model/default') return null;
+        return base(method, path, query, body);
+      },
+    });
+    expect((await agent.state()).model).toMatchObject({ id: 'flint-40b-free' });
+
+    dropped = true;
+    await agent.refreshConfig();
+
+    // `/model` no longer lists flint, its agent entry resolves to nothing in the
+    // catalog and there is no server default: the panel names no model rather
+    // than one the picker cannot offer.
+    const state = await agent.state();
+    expect(state.model).toBeUndefined();
+    expect(state.availableThinkingLevels).toEqual([]);
+    await agent.dispose();
+  });
+
+  it('re-applies a still-valid model from the fresh catalog', async () => {
+    const renamed: ApiModel = {
+      id: 'flint-40b-free',
+      providerID: 'opencode',
+      name: 'Flint 40B Renamed',
+      variants: [{ id: 'high' }],
+      limit: { context: 1_000, output: 500 },
+    };
+    let refreshed = false;
+    const base = defaultHandler();
+    const { agent } = await harness({
+      handler: (method, path, query, body) => {
+        if (!refreshed) {
+          return base(method, path, query, body);
+        }
+        // The catalog is fresh, but the session record read fails: the model on
+        // screen still has to pick up the new name, limits and variants.
+        if (method === 'GET' && /^\/session\/ses_[^/]+$/.test(path)) {
+          return Promise.reject(new Error('record unavailable'));
+        }
+        if (method === 'GET' && path === '/model') return [renamed];
+        return base(method, path, query, body);
+      },
+    });
+
+    refreshed = true;
+    await agent.refreshConfig();
+
+    const state = await agent.state();
+    expect(state.model).toMatchObject({
+      id: 'flint-40b-free',
+      name: 'Flint 40B Renamed',
+      contextWindow: 1_000,
+    });
+    // The old `medium` level left with the variants it belonged to.
+    expect(state.availableThinkingLevels).toEqual(['high']);
+    expect(state.thinkingLevel).toBe('high');
     await agent.dispose();
   });
 
