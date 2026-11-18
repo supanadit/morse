@@ -96,14 +96,26 @@ export function botDataMigrations(): DataMigration[] {
  * without a chain cap. A save is enough because the reader already knows how to
  * read both versions; the file is backed up first, like every other step that
  * rewrites the registry.
+ *
+ * A registry that cannot be read is reported and left alone rather than failing
+ * the upgrade: throwing here would keep the layout at 4, so the step would run
+ * again on every start, back up the same broken file again, and hold the
+ * every-start reconcile behind a file only the reader can fix.
  */
 function stampRegistryVersion(context: BotDataContext): void {
   const botDir = join(context.root, BOT_DIR);
   if (!existsSync(join(botDir, REGISTRY_FILE))) {
     return;
   }
-  context.backup([join(BOT_DIR, REGISTRY_FILE)], 'registry-v3');
-  saveBotRegistry(botDir, loadBotRegistry(botDir));
+  try {
+    const registry = loadBotRegistry(botDir);
+    context.backup([join(BOT_DIR, REGISTRY_FILE)], 'registry-v3');
+    saveBotRegistry(botDir, registry);
+  } catch (error: unknown) {
+    context.logger.warn(
+      `Bot registry left as it is, could not be read: ${(error as Error).message}`,
+    );
+  }
 }
 
 /**

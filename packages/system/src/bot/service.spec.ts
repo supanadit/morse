@@ -501,6 +501,15 @@ async function flush(): Promise<void> {
   await Promise.resolve();
 }
 
+/**
+ * Makes the next registry save fail for real: the path `registry.json` must be is
+ * a directory, so both the atomic rename and the in-place fallback refuse it.
+ */
+function blockRegistryWrites(root: string): void {
+  rmSync(join(root, 'registry.json'));
+  mkdirSync(join(root, 'registry.json'));
+}
+
 interface HarnessOptions {
   script?: Script;
   models?: ModelRef[];
@@ -809,6 +818,20 @@ describe('BotService creation', () => {
     expect(after?.sessions['forge']).toBeUndefined();
     expect(after?.sessions['sable']?.engineSessionId).toBe(sableSession);
     expect(forgeGateway.disposed).toBe(true);
+  });
+
+  it('updateGroup rejects when the registry cannot be written', async () => {
+    const { service, root } = harness();
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await flush();
+    blockRegistryWrites(root);
+
+    // A rename the file never got would otherwise be reported as done and quietly
+    // revert on the next restart: the failed save has to reach the caller.
+    await expect(
+      service.updateGroup({ id: group.id, name: 'Launch, revised', members: ['forge', 'sable'] }),
+    ).rejects.toThrow(/registry\.json/);
   });
 
   it('starts a fresh session when a removed member is added back', async () => {
@@ -1966,6 +1989,16 @@ describe('BotService sessions', () => {
     const { service } = harness();
 
     await expect(service.clear('dm-ghost')).rejects.toThrow('No bot conversation');
+  });
+
+  it('clear rejects when the registry cannot be written', async () => {
+    const { service, root } = harness();
+    await service.createBot(botInput());
+    blockRegistryWrites(root);
+
+    // The transcript is gone but the pointers that named its sessions were not
+    // saved; the caller must hear that, not just the log.
+    await expect(service.clear('dm-forge')).rejects.toThrow(/registry\.json/);
   });
 
   it('compact asks every member engine to summarise, and says so', async () => {

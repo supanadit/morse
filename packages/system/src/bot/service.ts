@@ -799,7 +799,7 @@ export class BotService {
         await this.dropWarm(warm, true);
       }
     }
-    this.touched(conversation);
+    await this.touchedAndSaved(conversation);
     this.emit({ type: 'roster' });
     return this.summarize(conversation);
   }
@@ -1086,7 +1086,7 @@ export class BotService {
     this.transcripts.forget(conversationId);
     conversation.sessions = {};
     this.usageByConversation.delete(conversationId);
-    this.touched(conversation);
+    await this.touchedAndSaved(conversation);
     // `replace` with nothing in it is the one way to tell a client that the chat
     // it holds is wrong: an append of zero lines would leave every line standing.
     this.emit({ type: 'transcript', conversationId, entries: [], replace: true });
@@ -1851,10 +1851,23 @@ export class BotService {
     };
   }
 
-  /** Every mutation of a conversation's place in the roster rewrites the registry. */
+  /**
+   * Every mutation of a conversation's place in the roster rewrites the registry.
+   * The write is queued; a caller that reports success to the reader should use
+   * `touchedAndSaved`, so a failed save is not just a log line.
+   */
   private touched(conversation: ConversationRecord): void {
     conversation.updatedAt = this.clock();
     this.saveRegistrySoon();
+  }
+
+  /**
+   * The same mutation, waited for. A method that tells the reader its change
+   * worked must not hide a failed save: the next restart would silently undo it.
+   */
+  private touchedAndSaved(conversation: ConversationRecord): Promise<void> {
+    conversation.updatedAt = this.clock();
+    return this.saveRegistry();
   }
 
   /**

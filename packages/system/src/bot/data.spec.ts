@@ -309,6 +309,29 @@ describe('bot data maintenance', () => {
     ).toBe(true);
   });
 
+  it('leaves an unreadable registry alone and still stamps the new layout', () => {
+    // An install already at layout 4 with a hand-broken registry: only the new
+    // step runs, and it must not strand the upgrade on a file Morse cannot read.
+    writeFileSync(join(root, 'version.json'), JSON.stringify({ layout: 4, updatedAt: 'old' }));
+    writeFileSync(join(botDir, 'registry.json'), '{ not json');
+    const warn = vi.fn();
+
+    const result = maintainData({
+      root,
+      logger: { ...silentLogger, warn },
+      migrations: botDataMigrations(),
+      extra: { adapters: {} },
+    });
+
+    // Reported, not thrown: the layout still reaches 5, so the next start neither
+    // retries the step nor backs up the same broken file again.
+    expect(result.to).toBe(CURRENT_DATA_LAYOUT);
+    expect(result.applied).toContain('rewrite the bot registry as version 3');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not be read'));
+    // The reader's file is exactly as they left it.
+    expect(readFileSync(join(botDir, 'registry.json'), 'utf8')).toBe('{ not json');
+  });
+
   it('reports a bot whose engine configuration went missing instead of inventing one', () => {
     saveBotRegistry(botDir, {
       version: 3,
