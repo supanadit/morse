@@ -12,7 +12,9 @@ import {
 import type {
   BotAuthor,
   BotConversationSummary,
+  BotHandoff,
   BotTranscriptEntry,
+  BotTurnTrace,
   BotUsage,
   PromptImage,
 } from '@morse/protocol';
@@ -25,6 +27,19 @@ import { ChatComposer, type BotComposerSend } from '../composer/composer';
 import { botUsageInputs, hasBotUsage, type BotUsageInputs } from '../composer/bot-usage';
 import type { MentionCandidate } from '../mention-picker/mention-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
+
+/**
+ * One row of the chat's timeline: a line the host kept, or the record of a turn
+ * that produced one. Exactly one of `entry` and `trace` is set.
+ */
+interface TimelineItem {
+  /** Unique across both kinds: an entry and a trace may share an id, never a row. */
+  key: string;
+  /** When it belongs in the conversation: a line's `at`, a trace's `endedAt`. */
+  at: number;
+  entry?: BotTranscriptEntry;
+  trace?: BotTurnTrace;
+}
 
 /**
  * Bot mode's conversation: the lines of the DM or group in front, who said
@@ -65,6 +80,33 @@ export class BotChat {
     const id = this.morse.bot.activeId();
     return id === null ? [] : (this.morse.bot.transcripts()[id] ?? []);
   });
+  /**
+   * One timeline of lines and finished turns, ordered by when each belongs in the
+   * conversation: a line's `at` and a turn's `endedAt`.
+   *
+   * A trace is drawn where its turn settled, which is just above the answer it
+   * produced. Traces come first in the source list so that a tie — a line written
+   * in the same millisecond the turn ended — keeps the record above the line.
+   */
+  protected readonly timeline = computed<TimelineItem[]>(() => {
+    const id = this.morse.bot.activeId();
+    if (id === null) {
+      return [];
+    }
+    const items: TimelineItem[] = [
+      ...this.morse.bot.tracesFor(id).map((trace) => ({
+        key: `trace:${trace.id}`,
+        at: trace.endedAt,
+        trace,
+      })),
+      ...(this.morse.bot.transcripts()[id] ?? []).map((entry) => ({
+        key: `entry:${entry.id}`,
+        at: entry.at,
+        entry,
+      })),
+    ];
+    return items.sort((left, right) => left.at - right.at);
+  });
   /** Whether the host said older entries exist before the ones held. */
   protected readonly hasOlder = computed(() => {
     const id = this.morse.bot.activeId();
@@ -72,6 +114,8 @@ export class BotChat {
   });
   /** True while a page of older entries is in flight, so the row says so. */
   protected readonly loadingOlder = signal(false);
+  /** The finished turns the reader has opened; a closed one is one line. */
+  protected readonly expandedTurns = signal<ReadonlySet<string>>(new Set<string>());
 
   /**
    * The round in flight, and only when it belongs to the conversation in front:
@@ -253,6 +297,48 @@ export class BotChat {
     return author.avatar ?? author.name.slice(0, 1).toUpperCase();
   }
 
+  /** A finished turn's mark, from the name it was written with. */
+  protected initial(name: string): string {
+    return name.slice(0, 1).toUpperCase();
+  }
+
+  /**
+   * The one line a finished turn collapses to: whose turn it was, how long it
+   * ran, how many steps it took, and whom it asked.
+   *
+   * The name comes from the trace, not the roster: a handle can be reused and a
+   * bot renamed or deleted, and the record still has to say who did the work.
+   */
+  protected turnSummary(trace: BotTurnTrace): string {
+    const steps = trace.steps.length === 1 ? '1 step' : `${trace.steps.length} steps`;
+    const parts = [trace.name, turnDuration(trace.endedAt - trace.startedAt), steps];
+    if (trace.handoffs.length > 0) {
+      parts.push(`asked ${trace.handoffs.map((handoff) => `@${handoff.username}`).join(', ')}`);
+    }
+    return parts.join(' · ');
+  }
+
+  /** Whether the reader has opened this turn's step list. */
+  protected isExpanded(id: string): boolean {
+    return this.expandedTurns().has(id);
+  }
+
+  /** Opens or closes one turn's record; the others keep their own state. */
+  protected toggleTurn(id: string): void {
+    this.expandedTurns.update((open) => {
+      const next = new Set(open);
+      if (!next.delete(id)) {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  /** Follows a handoff to the conversation the ask happened in. */
+  protected openHandoff(handoff: BotHandoff): void {
+    this.morse.openBotConversation(handoff.conversationId);
+  }
+
   /**
    * The members a `@` can address: every bot in the conversation, in roster order,
    * with the handle the host routes on and the name the reader knows it by.
@@ -370,4 +456,22 @@ export class BotChat {
     }
     this.morse.newBotDiscussion();
   }
+}
+
+/**
+ * How long a finished turn ran, in the reader's words.
+ *
+ * Rounded to whole seconds, so a short turn says `0s` rather than a decimal that
+ * claims more precision than a person reads. A finished turn always shows its
+ * duration: unlike the live row, there is no threshold below which it is noise —
+ * the record is the point.
+ */
+function turnDuration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
 }

@@ -243,7 +243,14 @@ describe('MorseService bot mode', () => {
     const route = {
       conversationId: 'group-1',
       active: [
-        { target: 'forge', username: 'forge', activity: { kind: 'thinking' as const, label: 'Wait…', at: 1 } },
+        {
+          target: 'forge',
+          username: 'forge',
+          activity: { kind: 'thinking' as const, label: 'Wait…', at: 1 },
+          startedAt: 1,
+          steps: [{ kind: 'thinking' as const, label: 'Wait…', at: 1 }],
+          handoffs: [],
+        },
       ],
       queued: ['sable'],
     };
@@ -300,7 +307,14 @@ describe('MorseService bot mode', () => {
         state: {
           conversationId: 'dm-sable',
           active: [
-            { target: 'sable', username: 'sable', activity: { kind: 'thinking', label: 'Wait…', at: 1 } },
+            {
+              target: 'sable',
+              username: 'sable',
+              activity: { kind: 'thinking', label: 'Wait…', at: 1 },
+              startedAt: 1,
+              steps: [{ kind: 'thinking', label: 'Wait…', at: 1 }],
+              handoffs: [],
+            },
           ],
           queued: [],
         },
@@ -314,7 +328,16 @@ describe('MorseService bot mode', () => {
     // not the window's, so it is still set for the room being left.
     expect(morse.bot.routingFor('dm-sable')).toEqual({
       conversationId: 'dm-sable',
-      active: [{ target: 'sable', username: 'sable', activity: { kind: 'thinking', label: 'Wait…', at: 1 } }],
+      active: [
+        {
+          target: 'sable',
+          username: 'sable',
+          activity: { kind: 'thinking', label: 'Wait…', at: 1 },
+          startedAt: 1,
+          steps: [{ kind: 'thinking', label: 'Wait…', at: 1 }],
+          handoffs: [],
+        },
+      ],
       queued: [],
     });
     expect(lastFrame(transport)).toEqual({

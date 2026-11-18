@@ -4,6 +4,7 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
+  BotTurnTrace,
   ClientToHostMessage,
 } from '@morse/protocol';
 import { clockTime, fullTime, MemoryHostTransport } from '@morse/ui-runtime';
@@ -92,8 +93,13 @@ async function render(): Promise<{
   };
 }
 
-function entry(id: string, author: BotTranscriptEntry['author'], text: string): BotTranscriptEntry {
-  return { id, author, text, at: 1 };
+function entry(
+  id: string,
+  author: BotTranscriptEntry['author'],
+  text: string,
+  at = 1,
+): BotTranscriptEntry {
+  return { id, author, text, at };
 }
 
 /** Types into the composer's prompt, the way a reader does while `@` is open. */
@@ -102,6 +108,22 @@ function mentionInto(fixture: ComponentFixture<BotChat>, host: HTMLElement, text
   box.value = text;
   box.dispatchEvent(new Event('input', { bubbles: true }));
   fixture.detectChanges();
+}
+
+/** A finished turn, worded the way the host keeps it. */
+function turn(overrides: Partial<BotTurnTrace> = {}): BotTurnTrace {
+  return {
+    id: 'delivery-1',
+    conversationId: 'dm-forge',
+    username: 'sigil',
+    name: 'Sigil',
+    startedAt: 0,
+    endedAt: 100,
+    status: 'done',
+    steps: [],
+    handoffs: [],
+    ...overrides,
+  };
 }
 
 /** A conversation in front, with the lines the test wants to read. */
@@ -141,6 +163,99 @@ describe('BotChat', () => {
 
     const system = host.querySelector('.entry.system') as HTMLElement;
     expect(system.textContent).toContain('Round stopped.');
+  });
+
+  it('draws a finished turn above its answer', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [
+        entry('u1', { role: 'user' }, 'what changed?', 50),
+        entry('a1', { role: 'bot', name: 'Sigil', avatar: 'S' }, 'The **tests** pass.', 120),
+      ],
+      replace: true,
+      traces: [
+        turn({
+          steps: [
+            { kind: 'thinking', label: 'Reading the brief…', at: 10, status: 'ok' },
+            {
+              kind: 'tool',
+              label: 'Running the tests…',
+              tool: 'bash',
+              at: 40,
+              status: 'error',
+              error: 'exit code 1',
+            },
+          ],
+          handoffs: [
+            {
+              username: 'loom',
+              conversationId: 'thread-sigil-loom',
+              deliveryId: 'delivery-2',
+              at: 60,
+              state: 'done',
+            },
+          ],
+        }),
+      ],
+    });
+    fixture.detectChanges();
+
+    // The line is one gesture, named by the name the turn was written with — Sigil
+    // is not in this roster, so resolving the roster would draw nothing.
+    const turnRow = host.querySelector('.turn') as HTMLElement;
+    const summary = turnRow.querySelector('.turn-line') as HTMLButtonElement;
+    expect(turnRow.querySelector('.turn-summary')?.textContent?.trim()).toBe(
+      'Sigil · 0s · 2 steps · asked @loom',
+    );
+    expect(summary.getAttribute('aria-expanded')).toBe('false');
+
+    // The turn sits above the answer it produced, not after it: the reader sees
+    // how the work went before reading what it wrote.
+    const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
+      one.classList.contains('turn')
+        ? one.getAttribute('data-trace-id')
+        : one.getAttribute('data-entry-id'),
+    );
+    expect(order).toEqual(['u1', 'delivery-1', 'a1']);
+
+    // Expanding opens the record: each step's words and outcome, the failure's own
+    // text, and the ask as a link back to the conversation it happened in.
+    summary.click();
+    fixture.detectChanges();
+    expect(summary.getAttribute('aria-expanded')).toBe('true');
+    expect(turnRow.textContent).toContain('Reading the brief…');
+    expect(turnRow.textContent).toContain('ok');
+    expect(turnRow.textContent).toContain('Running the tests…');
+    expect(turnRow.querySelector('.step-error')?.textContent?.trim()).toBe('exit code 1');
+
+    const open = vi.spyOn(morse, 'openBotConversation');
+    (turnRow.querySelector('.handoff') as HTMLButtonElement).click();
+    expect(open).toHaveBeenCalledWith('thread-sigil-loom');
+  });
+
+  it('draws a finished turn that recorded no steps and no handoffs', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [entry('a1', { role: 'bot', name: 'Sigil' }, 'Nothing to report.', 120)],
+      replace: true,
+      traces: [turn({ status: 'cancelled', steps: [], handoffs: [] })],
+    });
+    fixture.detectChanges();
+
+    const summary = host.querySelector('.turn-line') as HTMLButtonElement;
+    // Duration is always shown, even when it rounds to none: a cancelled turn is
+    // still a turn, and its record still says how long it ran.
+    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe('Sigil · 0s · 0 steps');
+
+    summary.click();
+    fixture.detectChanges();
+    expect(host.querySelector('.turn')?.textContent).toContain('No steps were recorded');
   });
 
   it('keeps the lines of the conversation in front, not another one', async () => {
@@ -256,6 +371,9 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
+            startedAt: 10,
+            steps: [{ kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 }],
+            handoffs: [],
           },
         ],
         queued: ['Sable'],
@@ -288,6 +406,9 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
+            startedAt: 20,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 20 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -303,6 +424,9 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
+            startedAt: 21,
+            steps: [{ kind: 'writing', label: 'Writing the answer…', at: 21 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -328,11 +452,17 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'starting', label: 'Getting started…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'starting', label: 'Getting started…', at: 1 }],
+            handoffs: [],
           },
           {
             target: 'Sable',
             username: 'sable',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+            startedAt: 2,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 2 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -341,14 +471,12 @@ describe('BotChat', () => {
     fixture.detectChanges();
 
     // Two lanes, two rooms' worth of work at once: the room shows both members.
-    expect([...host.querySelectorAll('.acting .author')].map((one) => one.textContent?.trim())).toEqual([
-      'Forge',
-      'Sable',
-    ]);
-    expect([...host.querySelectorAll('.acting .doing-label')].map((one) => one.textContent?.trim())).toEqual([
-      'Getting started…',
-      'Wait, let me think…',
-    ]);
+    expect(
+      [...host.querySelectorAll('.acting .author')].map((one) => one.textContent?.trim()),
+    ).toEqual(['Forge', 'Sable']);
+    expect(
+      [...host.querySelectorAll('.acting .doing-label')].map((one) => one.textContent?.trim()),
+    ).toEqual(['Getting started…', 'Wait, let me think…']);
   });
 
   it('keeps two bots with one display name on separate rows, rings and stops', async () => {
@@ -378,11 +506,17 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
           },
           {
             target: 'Forge',
             username: 'builder',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+            startedAt: 2,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 2 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -436,11 +570,17 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
           },
           {
             target: 'Sable',
             username: 'sable',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+            startedAt: 2,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 2 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -487,6 +627,9 @@ describe('BotChat', () => {
             target: 'Sable',
             username: 'sable',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
+            startedAt: 30,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 30 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -510,6 +653,9 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'starting', label: 'Getting started…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'starting', label: 'Getting started…', at: 1 }],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -660,6 +806,9 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'writing', label: 'Writing the answer…', at: 5 },
+            startedAt: 5,
+            steps: [{ kind: 'writing', label: 'Writing the answer…', at: 5 }],
+            handoffs: [],
           },
         ],
         queued: [],

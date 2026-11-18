@@ -61,79 +61,135 @@
           {{ loadingOlder() ? 'Loading earlier messages…' : 'Scroll up for earlier messages' }}
         </p>
       }
-      @if (entries().length === 0) {
+      @if (timeline().length === 0) {
         <p class="empty-note">No messages yet. Say hello to {{ conversation.title }}.</p>
       }
-      @for (entry of entries(); track entry.id) {
-        @switch (entry.author.role) {
-          @case ('user') {
-            <!-- The reader's own line, on the reading side, as they typed it,
-                 with whatever they attached: thumbnails for images, a chip for
-                 each file the host wrote into the bot's workspace. -->
-            <div class="entry user" [attr.data-entry-id]="entry.id">
-              <div class="bubble">
-                @if (entry.images?.length) {
-                  <div class="sent-images">
-                    @for (image of entry.images ?? []; track $index) {
-                      <img
-                        class="sent-image"
-                        [src]="preview(image)"
-                        alt="Image attached to this message"
-                      />
-                    }
+      @for (item of timeline(); track item.key) {
+        @if (item.trace; as trace) {
+          <!--
+            A finished turn: one line above the answer it produced, saying who ran
+            it, how long it took and how much work it did. Opening it reads the
+            record — the steps, how each went, and the asks it handed on.
+          -->
+          <div class="entry turn" [attr.data-trace-id]="trace.id" [attr.data-status]="trace.status">
+            <span class="avatar" aria-hidden="true">{{ initial(trace.name) }}</span>
+            <div class="turn-body">
+              <button
+                type="button"
+                class="turn-line"
+                [attr.aria-expanded]="isExpanded(trace.id)"
+                [title]="
+                  isExpanded(trace.id) ? 'Hide the steps of this turn' : 'Show the steps of this turn'
+                "
+                (click)="toggleTurn(trace.id)"
+              >
+                <span class="turn-summary">{{ turnSummary(trace) }}</span>
+                <span class="turn-caret" aria-hidden="true">{{
+                  isExpanded(trace.id) ? '▾' : '▸'
+                }}</span>
+              </button>
+              @if (isExpanded(trace.id)) {
+                <div class="turn-steps">
+                  @if (trace.steps.length === 0) {
+                    <p class="turn-none">No steps were recorded.</p>
+                  }
+                  @for (step of trace.steps; track $index) {
+                    <div class="step" [attr.data-status]="step.status ?? null">
+                      <span class="step-label">{{ step.label }}</span>
+                      @if (step.status; as status) {
+                        <span class="step-outcome">{{ status }}</span>
+                      }
+                      @if (step.error; as error) {
+                        <span class="step-error">{{ error }}</span>
+                      }
+                    </div>
+                  }
+                  @for (handoff of trace.handoffs; track handoff.deliveryId) {
+                    <button
+                      type="button"
+                      class="handoff"
+                      [title]="'Open the conversation with @' + handoff.username"
+                      (click)="openHandoff(handoff)"
+                    >
+                      {{ '@' + handoff.username }}
+                      <span class="handoff-state">{{ handoff.state }}</span>
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        } @else if (item.entry; as entry) {
+          @switch (entry.author.role) {
+            @case ('user') {
+              <!-- The reader's own line, on the reading side, as they typed it,
+                   with whatever they attached: thumbnails for images, a chip for
+                   each file the host wrote into the bot's workspace. -->
+              <div class="entry user" [attr.data-entry-id]="entry.id">
+                <div class="bubble">
+                  @if (entry.images?.length) {
+                    <div class="sent-images">
+                      @for (image of entry.images ?? []; track $index) {
+                        <img
+                          class="sent-image"
+                          [src]="preview(image)"
+                          alt="Image attached to this message"
+                        />
+                      }
+                    </div>
+                  }
+                  @if (entry.files?.length) {
+                    <div class="sent-files">
+                      @for (file of entry.files ?? []; track file) {
+                        <span class="sent-file" [title]="file">{{ file }}</span>
+                      }
+                    </div>
+                  }
+                  <morse-markdown [text]="entry.text" variant="user" />
+                  <div class="line-meta">
+                    <time
+                      class="when"
+                      [attr.datetime]="stamp(entry.at)"
+                      [title]="fullStamp(entry.at)"
+                      >{{ clock(entry.at) }}</time
+                    >
+                    <!-- The same control code mode's transcript uses, so copying
+                         is one learned gesture in both modes. -->
+                    <morse-copy-button [text]="entry.text" />
                   </div>
-                }
-                @if (entry.files?.length) {
-                  <div class="sent-files">
-                    @for (file of entry.files ?? []; track file) {
-                      <span class="sent-file" [title]="file">{{ file }}</span>
-                    }
-                  </div>
-                }
-                <morse-markdown [text]="entry.text" variant="user" />
-                <div class="line-meta">
-                  <time
-                    class="when"
-                    [attr.datetime]="stamp(entry.at)"
-                    [title]="fullStamp(entry.at)"
-                    >{{ clock(entry.at) }}</time
-                  >
-                  <!-- The same control code mode's transcript uses, so copying
-                       is one learned gesture in both modes. -->
-                  <morse-copy-button [text]="entry.text" />
                 </div>
               </div>
-            </div>
-          }
-          @case ('bot') {
-            <div class="entry bot" [attr.data-entry-id]="entry.id">
-              <span class="avatar" aria-hidden="true">{{ mark(entry.author) }}</span>
-              <div class="body">
-                <span class="author">{{ entry.author.name }}</span>
-                <div class="text"><morse-markdown [text]="entry.text" /></div>
-                <div class="line-meta">
-                  <time
-                    class="when"
-                    [attr.datetime]="stamp(entry.at)"
-                    [title]="fullStamp(entry.at)"
-                    >{{ clock(entry.at) }}</time
-                  >
-                  <morse-copy-button [text]="entry.text" label="Copy" title="Copy response" />
+            }
+            @case ('bot') {
+              <div class="entry bot" [attr.data-entry-id]="entry.id">
+                <span class="avatar" aria-hidden="true">{{ mark(entry.author) }}</span>
+                <div class="body">
+                  <span class="author">{{ entry.author.name }}</span>
+                  <div class="text"><morse-markdown [text]="entry.text" /></div>
+                  <div class="line-meta">
+                    <time
+                      class="when"
+                      [attr.datetime]="stamp(entry.at)"
+                      [title]="fullStamp(entry.at)"
+                      >{{ clock(entry.at) }}</time
+                    >
+                    <morse-copy-button [text]="entry.text" label="Copy" title="Copy response" />
+                  </div>
                 </div>
               </div>
-            </div>
-          }
-          @case ('system') {
-            <!-- Morse's own note (a dropped relay, a stop): a quiet line, not chat. -->
-            <p class="entry system" [attr.data-entry-id]="entry.id">{{ entry.text }}</p>
-          }
-          @case ('discussion') {
-            <!-- A discussion boundary: a new engine session in the same chat, so
-                 the reader can scroll from today's session back into older ones. -->
-            <p class="entry divider" [attr.data-entry-id]="entry.id" role="separator">
-              <span>{{ entry.text }}</span>
-              <time [attr.datetime]="stamp(entry.at)">{{ when(entry.at) }}</time>
-            </p>
+            }
+            @case ('system') {
+              <!-- Morse's own note (a dropped relay, a stop): a quiet line, not chat. -->
+              <p class="entry system" [attr.data-entry-id]="entry.id">{{ entry.text }}</p>
+            }
+            @case ('discussion') {
+              <!-- A discussion boundary: a new engine session in the same chat, so
+                   the reader can scroll from today's session back into older ones. -->
+              <p class="entry divider" [attr.data-entry-id]="entry.id" role="separator">
+                <span>{{ entry.text }}</span>
+                <time [attr.datetime]="stamp(entry.at)">{{ when(entry.at) }}</time>
+              </p>
+            }
           }
         }
       }

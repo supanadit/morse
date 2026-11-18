@@ -199,8 +199,22 @@ describe('BotNav', () => {
       state: {
         conversationId: thread.id,
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
-          { target: 'Sable', username: 'sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
+          {
+            target: 'Sable',
+            username: 'sable',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+            startedAt: 2,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 2 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -402,7 +416,14 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -425,7 +446,14 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -466,7 +494,14 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -548,7 +583,14 @@ describe('BotNav', () => {
       state: {
         conversationId: 'group-workshop',
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -582,8 +624,22 @@ describe('BotNav', () => {
       state: {
         conversationId: 'group-workshop',
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
-          { target: 'Sable', username: 'sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
+          {
+            target: 'Sable',
+            username: 'sable',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+            startedAt: 2,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 2 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -624,8 +680,22 @@ describe('BotNav', () => {
       state: {
         conversationId: room.id,
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait…', at: 1 } },
-          { target: 'Forge', username: 'builder', activity: { kind: 'thinking', label: 'Wait…', at: 2 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait…', at: 1 }],
+            handoffs: [],
+          },
+          {
+            target: 'Forge',
+            username: 'builder',
+            activity: { kind: 'thinking', label: 'Wait…', at: 2 },
+            startedAt: 2,
+            steps: [{ kind: 'thinking', label: 'Wait…', at: 2 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },
@@ -656,7 +726,14 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
         ],
         queued: [],
       },

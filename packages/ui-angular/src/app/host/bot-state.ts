@@ -9,9 +9,26 @@ import type {
   BotSummary,
   BotTranscriptEntry,
   BotTranscriptMessage,
+  BotTurnTrace,
   BotUsage,
   ModelOption,
 } from '@morse/protocol';
+
+/**
+ * One conversation's finished turns, oldest first and one row per id: a page
+ * replaces, an older page prepends and a settled turn appends, so the same turn
+ * arriving twice — a resend, or a page that overlaps what is held — stays one.
+ */
+function mergeTraces(current: BotTurnTrace[], incoming: BotTurnTrace[]): BotTurnTrace[] {
+  const byId = new Map<string, BotTurnTrace>();
+  for (const trace of current) {
+    byId.set(trace.id, trace);
+  }
+  for (const trace of incoming) {
+    byId.set(trace.id, trace);
+  }
+  return [...byId.values()].sort((left, right) => left.endedAt - right.endedAt);
+}
 
 /** The roster as one value: the bots the host runs, and the conversations it keeps. */
 export interface BotRoster {
@@ -39,6 +56,14 @@ export class BotState {
   /** The conversation the bot workspace shows; `null` before the first open. */
   readonly activeId = signal<string | null>(null);
   readonly transcripts = signal<Record<string, BotTranscriptEntry[]>>({});
+  /**
+   * Every settled turn held per conversation, oldest first.
+   *
+   * A trace is the record of a turn that already ended, so it is kept beside the
+   * lines rather than appended to them: opening a conversation brings a window of
+   * both, and a settle push adds one turn without touching the transcript.
+   */
+  readonly traces = signal<Record<string, BotTurnTrace[]>>({});
   /**
    * Whether older entries remain before what is held, per conversation. The chat
    * asks for another page when the reader scrolls to the top and this is true.
@@ -79,8 +104,9 @@ export class BotState {
    * lists it means the host dropped it (a deleted bot, and the DM it kept), so
    * the workspace stops pointing at it. Leaving `activeId` behind would let the
    * composer send a prompt to a conversation that no longer exists, and the held
-   * transcript would linger for a row that is gone — with the round and the
-   * counters that described it, which is why all four go together.
+   * transcript would linger for a row that is gone — with the record of the turns
+   * that produced it, the round and the counters that described it, which is why
+   * they all go together.
    */
   onRoster(roster: BotRosterMessage['payload']): void {
     const conversations = [...roster.conversations];
@@ -99,6 +125,14 @@ export class BotState {
       return next;
     });
     this.hasOlder.update((held) => {
+      const next = { ...held };
+      delete next[active];
+      return next;
+    });
+    this.traces.update((held) => {
+      if (held[active] === undefined) {
+        return held;
+      }
       const next = { ...held };
       delete next[active];
       return next;
@@ -135,6 +169,25 @@ export class BotState {
         [conversationId]: prepend === true ? [...entries, ...current] : [...current, ...entries],
       };
     });
+    const incoming = transcript.traces;
+    if (replace) {
+      // A page is the newest window. No traces on it means no turn settled there,
+      // which is what a fresh or cleared room sends: what was held is not part of
+      // this window, so the record starts from what the host just said.
+      this.traces.update((held) => ({
+        ...held,
+        [conversationId]: mergeTraces([], incoming ?? []),
+      }));
+    } else if (incoming !== undefined && incoming.length > 0) {
+      this.traces.update((held) => {
+        const current = held[conversationId] ?? [];
+        return {
+          ...held,
+          [conversationId]:
+            prepend === true ? mergeTraces(incoming, current) : mergeTraces(current, incoming),
+        };
+      });
+    }
     if (transcript.hasMore !== undefined) {
       this.hasOlder.update((held) => ({ ...held, [conversationId]: transcript.hasMore === true }));
     } else if (replace) {
@@ -143,6 +196,11 @@ export class BotState {
       // messages" over a file that no longer exists invites a page of nothing.
       this.hasOlder.update((held) => ({ ...held, [conversationId]: false }));
     }
+  }
+
+  /** The finished turns held for one conversation, oldest first. */
+  tracesFor(conversationId: string): BotTurnTrace[] {
+    return this.traces()[conversationId] ?? [];
   }
 
   /**
@@ -244,5 +302,6 @@ export class BotState {
   /** Drops a conversation's lines, keeping the key so it reads as opened-but-empty. */
   resetTranscript(id: string): void {
     this.transcripts.update((held) => ({ ...held, [id]: [] }));
+    this.traces.update((held) => ({ ...held, [id]: [] }));
   }
 }
