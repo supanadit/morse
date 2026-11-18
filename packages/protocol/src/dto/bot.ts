@@ -108,10 +108,13 @@ export interface BotTranscriptEntry {
  * What a bot is doing this moment, in the reader's words.
  *
  * A chat shows presence, not a trace: the line is replaced by whatever the bot
- * moves on to and disappears with the answer, so nothing here is ever appended
- * to the transcript. The host is the one that knows what an engine's events
- * mean, hence the label ("Reading launch-brief.md") rather than an event shape:
- * every engine says it differently and morse says it once.
+ * moves on to and disappears with the answer, so nothing here is appended to the
+ * transcript. The same shape is what a finished turn keeps, which is why a tool's
+ * outcome rides along instead of ending at the engine's own event.
+ *
+ * The host is the one that knows what an engine's events mean, hence the label
+ * ("Reading launch-brief.md") rather than an event shape: every engine says it
+ * differently and morse says it once.
  */
 export interface BotActivity {
   /** Which kind of work it is, for the row's tone and its dots. */
@@ -122,16 +125,58 @@ export interface BotActivity {
   tool?: string;
   /** Epoch milliseconds the activity began: a changed `at` restarts the animation. */
   at: number;
+  /** A tool's outcome, once known. Absent while it runs; absent on a thought. */
+  status?: 'running' | 'ok' | 'error';
+  /**
+   * What a failed tool said, trimmed to a line the row can open. Absent unless
+   * it failed.
+   */
+  error?: string;
+  /**
+   * How long a finished tool took, so the record can point at the slow ones.
+   * Absent while it runs.
+   */
+  durationMs?: number;
 }
 
 /**
- * One bot at work in a conversation: its display name, its handle and what it is
- * doing.
+ * One ask a working bot handed to another bot during its turn.
+ *
+ * The row reads the target's delivery to draw the state, so a handoff moves
+ * asked → working → done without the sender's engine sending anything else, and
+ * a peer that failed stays visible on the sender's row rather than only in a note
+ * elsewhere.
+ */
+export interface BotHandoff {
+  /** The bot that was asked, by handle. */
+  username: string;
+  /** The thread or room it was asked in, so the row's chip can open it. */
+  conversationId: string;
+  /** The delivery the ask created: where `state` is read from. */
+  deliveryId: string;
+  /** Epoch milliseconds the ask was made. */
+  at: number;
+  /**
+   * How far the ask has moved: a queued delivery is `asked`, a running one
+   * `working`, a done one `done`, and a failed, dropped or cancelled one `failed`.
+   */
+  state: 'asked' | 'working' | 'done' | 'failed';
+  /** What that bot is doing there right now. Absent when it has no live step. */
+  activity?: BotActivity;
+}
+
+/**
+ * One bot at work in a conversation: its display name, its handle, the steps it
+ * has taken and what it is doing now.
  *
  * Both identities travel because a display name is a label and may repeat: two
  * bots can be called "Forge", but only one can be `forge`. A reader is shown
  * `target`; every key — the row's Angular track, its Stop and its ring — uses
  * `username`.
+ *
+ * The turn so far travels with the row instead of being fetched: a chat opened
+ * mid-turn draws the work that already happened, and the answer appears as the
+ * bot writes it.
  */
 export interface BotRoutingActive {
   /** The bot's display name, for the row's heading. */
@@ -139,6 +184,14 @@ export interface BotRoutingActive {
   /** The bot's handle: unique, and the only thing a stop takes. */
   username: string;
   activity: BotActivity;
+  /** When this turn was taken off the queue, for the row's elapsed count. */
+  startedAt: number;
+  /** Every step taken so far, newest last and capped at 8; `activity` is the last. */
+  steps: BotActivity[];
+  /** The asks this turn handed to other bots, so their state moves with the row. */
+  handoffs: BotHandoff[];
+  /** The answer so far, text channel only. Absent until the bot writes a word. */
+  partial?: string;
 }
 
 /**

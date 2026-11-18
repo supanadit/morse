@@ -5,7 +5,9 @@ import {
   type BotBusSendResult,
   type BotDelivery,
   type BotRosterEntry,
+  type BotTurnTrace,
 } from './bot-bus.js';
+import type { BotTranscriptMessage } from '../wire.js';
 
 /**
  * These shapes are the contract between the host's delivery bus and the plugin
@@ -55,5 +57,37 @@ describe('bot bus shapes', () => {
     };
     expect(input.kind).toBeUndefined();
     expect(result.queued).toBe(true);
+  });
+});
+
+/**
+ * A finished turn leaves a record: the steps it took, the asks it handed on and
+ * how it ended. The record travels beside the transcript page it belongs to, so
+ * a room draws its history from one push.
+ */
+describe('bot turn records', () => {
+  it('keeps a finished turn as a trace', () => {
+    const trace: BotTurnTrace = {
+      id: 'd1',
+      conversationId: 'dm-sigil',
+      username: 'sigil',
+      name: 'Sigil',
+      startedAt: 10,
+      endedAt: 48_000,
+      status: 'done',
+      steps: [{ kind: 'tool', label: 'Reading brief.md', tool: 'read', at: 12, status: 'ok' }],
+      handoffs: [],
+    };
+    expect(trace.steps[0]?.status).toBe('ok');
+  });
+
+  it('carries traces on a transcript page', () => {
+    const payload: BotTranscriptMessage['payload'] = {
+      conversationId: 'dm-sigil',
+      entries: [],
+      replace: false,
+      traces: [],
+    };
+    expect(payload.traces).toEqual([]);
   });
 });

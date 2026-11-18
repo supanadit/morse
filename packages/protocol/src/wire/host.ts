@@ -9,6 +9,7 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
+  BotTurnTrace,
   BotUsage,
   ComposerSeed,
   FrontendIdentity,
@@ -368,7 +369,8 @@ export interface BotRosterMessage extends HostMessageBase {
 }
 
 /**
- * A conversation's transcript, as the host now has it.
+ * A conversation's transcript, and the turns that produced it, as the host now
+ * has it.
  *
  * - `replace: true` resets what the client holds: opening a conversation sends
  *   the newest page of it.
@@ -387,6 +389,11 @@ export interface BotTranscriptMessage extends HostMessageBase {
     replace: boolean;
     prepend?: boolean;
     hasMore?: boolean;
+    /**
+     * Finished turns whose `endedAt` falls in this page, oldest first. Absent when
+     * no turn settled in its window, so a room with no history stays a plain list.
+     */
+    traces?: BotTurnTrace[];
   };
 }
 

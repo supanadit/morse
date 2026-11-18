@@ -1,13 +1,15 @@
 /**
  * Bot mode's delivery bus: one queued unit of work that names a bot and one
- * transcript line, the roster a bot reads to find a teammate, and the call a
- * bot makes to hand work over.
+ * transcript line, the roster a bot reads to find a teammate, the call a bot
+ * makes to hand work over, and the record a settled turn leaves behind.
  *
  * A delivery exists so that "ask this bot about that line" is data the host can
  * persist, queue and retry rather than a call held open inside a turn. These are
  * the shapes the host's bus and the plugins' tools both speak, so a later
  * implementation cannot rename a field one side already promises.
  */
+
+import type { BotActivity, BotHandoff } from './bot.js';
 
 /**
  * What a bus call is for. `message` is ordinary conversation, `assign` marks work
@@ -79,6 +81,41 @@ export interface BotDelivery {
   status: BotDeliveryStatus;
   /** Why a delivery was dropped or failed, worded for the transcript's system line. */
   note?: string;
+}
+
+/**
+ * How a finished turn ended. A cancelled or failed turn is recorded too: "how
+ * long it ran, where it stopped" is exactly what the record is for.
+ */
+export type BotTurnTraceStatus = 'done' | 'failed' | 'cancelled';
+
+/**
+ * One finished turn, kept as the conversation's record of it.
+ *
+ * Written once when the turn settles, never while it runs. A trace is history for
+ * the person reading the room, not context for an engine: nothing here is ever
+ * put into a prompt.
+ */
+export interface BotTurnTrace {
+  /** The delivery id: one turn, one trace. */
+  id: string;
+  conversationId: string;
+  /** The bot that answered, by handle. */
+  username: string;
+  /**
+   * The display name at settle time. Stored rather than resolved from the roster,
+   * because handles are reusable and a trace keeps the name it was written with.
+   */
+  name: string;
+  /** Epoch milliseconds the turn was taken off the queue. */
+  startedAt: number;
+  /** Epoch milliseconds it settled. */
+  endedAt: number;
+  status: BotTurnTraceStatus;
+  /** Every step the turn took, newest last; empty when the engine never started. */
+  steps: BotActivity[];
+  /** The asks this turn handed to other bots, with the state each ended in. */
+  handoffs: BotHandoff[];
 }
 
 /**

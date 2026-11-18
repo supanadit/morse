@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { BotCreateInput, BotTranscriptEntry } from './bot.js';
+import type {
+  BotActivity,
+  BotCreateInput,
+  BotRoutingActive,
+  BotTranscriptEntry,
+} from './bot.js';
 import type { ClientToHostMessage } from '../wire.js';
 import { isClientToHostMessage, isHostToClientMessage } from '../wire.js';
 
@@ -150,6 +155,47 @@ describe('bot wire messages', () => {
   it('rejects an unknown bot message type in both directions', () => {
     expect(isClientToHostMessage({ type: 'bot/nope', payload: {} })).toBe(false);
     expect(isHostToClientMessage({ type: 'bot/nope', payload: {} })).toBe(false);
+  });
+});
+
+/**
+ * A working bot's row shows the steps it took, the asks it handed to peers and
+ * the answer it is writing. Nothing here runs a host; the annotations keep a
+ * later task from changing a field the row already draws.
+ */
+describe('bot work rows', () => {
+  it('names a tool step that failed', () => {
+    const step: BotActivity = {
+      kind: 'tool',
+      label: 'Running npm test',
+      tool: 'bash',
+      at: 1,
+      status: 'error',
+      error: 'exit 1',
+      durationMs: 1_200,
+    };
+    expect(step.status).toBe('error');
+  });
+
+  it('draws a live row from a turn record', () => {
+    const row: BotRoutingActive = {
+      target: 'Sigil',
+      username: 'sigil',
+      startedAt: 10,
+      steps: [{ kind: 'starting', label: 'Getting started…', at: 10 }],
+      handoffs: [
+        {
+          username: 'loom',
+          conversationId: 'thread-loom-sigil',
+          deliveryId: 'd1',
+          at: 11,
+          state: 'working',
+        },
+      ],
+      partial: 'Tally is',
+      activity: { kind: 'writing', label: 'Writing the answer…', at: 12 },
+    };
+    expect(row.handoffs[0]?.state).toBe('working');
   });
 });
 
