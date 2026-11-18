@@ -54,10 +54,9 @@ import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js
  * - `<botRoot>/workspace/AGENTS.md` — the workspace document, which pi reads as a
  *   context file from the directory it runs in.
  * - `extensions/morse-bot-bus.ts` — Morse's own pi extension, generated source
- *   that registers `bot_list` and `bot_send`. It is the one file under
- *   `extensions/`; anything else there belongs to the reader. The block between
- *   the `morse-bot-bus` markers is Morse's and `repair` refreshes it when its
- *   version moves.
+ *   that registers `bot_list` and `bot_send`. The whole file is Morse's and is
+ *   replaced whole on a save and by `repair` when its version moves; a reader's
+ *   own tools belong in a separate file in that directory.
  *
  * `keybindings.json`, `skills/` and `prompts/` are pi's too; Morse writes none of
  * them yet, and a bot inherits no other extensions, keybindings, skills or
@@ -248,10 +247,11 @@ export function piBusExtensionPath(botRoot: string): string {
 
 /**
  * Whether `text` is Morse's extension at the version this code writes. Only the
- * markers and the version line are checked: a reader may add a tool after the
- * end marker, and repair must not take it away. Repair only looks at Morse's own
- * path, so another file in `extensions/` is the reader's by construction; a file
- * at Morse's path without the markers is a damaged Morse copy, regenerated.
+ * markers and the version line are checked: they tell Morse's file from a
+ * hand-written one (which repair leaves alone) and detect a stale copy. Nothing
+ * after the end marker is promised to survive — a save and a version bump both
+ * replace the file whole — so the generated comment sends a reader's own tools
+ * to a separate file.
  */
 function isMorseBusExtension(text: string | undefined): boolean {
   return (
@@ -350,8 +350,8 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
   writePrivateText(join(agentDir, APPEND_SYSTEM_FILE), BOT_BUS_INSTRUCTION);
   // extensions/morse-bot-bus.ts — the tools that instruction names. pi loads
   // every file in that directory with jiti, so this is the whole asset: no
-  // dependency, no import from Morse, and it is rewritten whole when the
-  // generated version changes.
+  // dependency, no import from Morse, and it is replaced whole on every save
+  // and by repair when the generated version changes.
   writePrivateText(piBusExtensionPath(botRoot), piBusExtensionSource());
   if ((config.agentsMd ?? '').trim().length > 0) {
     writePrivateText(piWorkspacePath(botRoot), config.agentsMd as string);

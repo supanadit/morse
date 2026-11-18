@@ -36,8 +36,10 @@ export const PI_BUS_EXTENSION_END = '// morse-bot-bus:end';
  */
 export function piBusExtensionSource(): string {
   return `${PI_BUS_EXTENSION_START}
-// Written by Morse. Everything up to the end marker is replaced by the layout's
-// repair when it changes version; put your own tools outside the markers.
+// Written by Morse. This file belongs to Morse and is replaced whole — on every
+// wizard save, and by the layout's repair when the block's version changes — so
+// do not edit it. A tool of your own belongs in a separate file beside this one,
+// in this same extensions directory, where Morse never touches it.
 import { readFileSync } from 'node:fs';
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { Type } from '@earendil-works/pi-ai';
@@ -46,14 +48,6 @@ const NO_TURN = 'No active turn — answer the person.';
 const NO_ADDRESS = 'Morse did not give this bot a bus address — answer the person.';
 const NO_TOKEN = 'Morse has no bus token for this bot — answer the person.';
 const NO_ANSWER = 'Could not reach Morse: it answered without a readable body — answer the person.';
-
-interface Turn {
-  deliveryId: string;
-  conversationId: string;
-  rootId: string;
-  depth: number;
-  expiresAt: number;
-}
 
 type Answer =
   | { kind: 'ok'; body: Record<string, unknown> }
@@ -105,32 +99,24 @@ function readToken(): string | undefined {
 }
 
 /**
- * The turn this call belongs to, or nothing. Expiry is checked here so a cold
- * probe — after a timeout, or from a compacted session — reads the same sentence
- * the host would give it without a round trip. The host still refuses on its own
- * copy of the file; this is a hint, not a credential.
+ * Whether this call has a live turn. The file is parsed again every time, and
+ * expiry is checked here so a cold probe — after a timeout, or from a compacted
+ * session — reads the sentence the host would give it without a round trip. The
+ * host still refuses on its own copy of the file: this is a liveness check, and
+ * the body sends no turn of its own.
  */
-function activeTurn(): Turn | undefined {
+function hasActiveTurn(): boolean {
   const path = process.env['MORSE_BUS_TURN_FILE'];
-  if (path === undefined || path.length === 0) return undefined;
+  if (path === undefined || path.length === 0) return false;
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
-    return undefined;
+    return false;
   }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const turn = value as Record<string, unknown>;
-  const expiresAt = turn['expiresAt'];
-  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return undefined;
-  if (expiresAt <= Date.now()) return undefined;
-  return {
-    deliveryId: typeof turn['deliveryId'] === 'string' ? turn['deliveryId'] : '',
-    conversationId: typeof turn['conversationId'] === 'string' ? turn['conversationId'] : '',
-    rootId: typeof turn['rootId'] === 'string' ? turn['rootId'] : '',
-    depth: typeof turn['depth'] === 'number' ? turn['depth'] : 0,
-    expiresAt,
-  };
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const expiresAt = (value as Record<string, unknown>)['expiresAt'];
+  return typeof expiresAt === 'number' && Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 /** One POST to the host with the bot's credentials; resolves, never rejects. */
@@ -139,8 +125,7 @@ async function callBus(tool: 'list' | 'send', body: Record<string, unknown>): Pr
   if (address === undefined) return { kind: 'local', text: NO_ADDRESS };
   const token = readToken();
   if (token === undefined) return { kind: 'local', text: NO_TOKEN };
-  const turn = activeTurn();
-  if (turn === undefined) return { kind: 'local', text: NO_TURN };
+  if (!hasActiveTurn()) return { kind: 'local', text: NO_TURN };
 
   let response: Response;
   try {
@@ -150,7 +135,7 @@ async function callBus(tool: 'list' | 'send', body: Record<string, unknown>): Pr
         Authorization: \`Bearer \${token}\`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ...body, turn }),
+      body: JSON.stringify(body),
     });
   } catch (error) {
     return { kind: 'local', text: \`Could not reach Morse: \${reasonOf(error)} — answer the person.\` };
@@ -185,7 +170,11 @@ async function callBus(tool: 'list' | 'send', body: Record<string, unknown>): Pr
 
 /** The roster a bot can read: one teammate per line, state and room last. */
 function rosterText(body: Record<string, unknown>): string {
-  const listed = Array.isArray(body['bots']) ? body['bots'] : [];
+  const listed = body['bots'];
+  // A 200 whose body is not the roster shape is a host this extension cannot
+  // read, not an empty roster: reporting "no bots" would tell a bot to answer
+  // alone when teammates may exist.
+  if (!Array.isArray(listed)) return 'Could not read the roster from Morse — answer the person.';
   const lines = listed.flatMap((entry) => {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
     const bot = entry as Record<string, unknown>;

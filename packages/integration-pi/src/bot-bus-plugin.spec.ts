@@ -45,18 +45,38 @@ describe('piBusExtensionSource', () => {
     expect(source).toMatch(/parameters: Type\.Object\(\{\}\)/);
   });
 
+  it("tells the reader the file is Morse's and is replaced whole", () => {
+    const source = piBusExtensionSource();
+
+    // The layout rewrites this file on every wizard save and repair rewrites it
+    // on a version bump; `extensions/` is excluded from the pre-repair backup.
+    // The comment must not invite a reader to add tools here.
+    expect(source).toContain('This file belongs to Morse and is replaced whole');
+    expect(source).toContain('separate file');
+    expect(source).not.toMatch(/outside the markers/i);
+    expect(source).not.toMatch(/your own tools/i);
+  });
+
   it('reads the token and the live turn at call time, never at load', () => {
     const source = piBusExtensionSource();
 
     // Both credentials are read by helpers that run inside a call, so a token
     // Morse re-minted after the session started takes effect on the next call.
     expect(source).toMatch(/function readToken\(\)/);
-    expect(source).toMatch(/function activeTurn\(\)/);
+    expect(source).toMatch(/function hasActiveTurn\(\)/);
     expect(source).toContain('const token = readToken();');
-    expect(source).toContain('const turn = activeTurn();');
+    expect(source).toContain('if (!hasActiveTurn()) return');
     // Nothing at module scope captures a credential path or value.
     expect(source).not.toMatch(/^const .*MORSE_BUS_/m);
     expect(source).not.toMatch(/^let .*MORSE_BUS_/m);
+  });
+
+  it('sends only the tool arguments, because the host re-reads its own turn file', () => {
+    const source = piBusExtensionSource();
+
+    expect(source).toContain('body: JSON.stringify(body),');
+    expect(source).not.toContain('...body, turn');
+    expect(source).not.toContain('turn }');
   });
 
   it('reports a missing turn and a dead endpoint instead of throwing', () => {
@@ -81,6 +101,9 @@ describe('piBusExtensionSource', () => {
     expect(source).toContain("'in this room'");
     expect(source).toContain("'elsewhere'");
     expect(source).toContain('No bots are on this Morse yet');
+    // A 200 body without a `bots` array is unreadable, not an empty roster.
+    expect(source).toContain('Could not read the roster from Morse');
+    expect(source).toContain('if (!Array.isArray(listed))');
   });
 
   it('returns the delivery result as text', () => {
