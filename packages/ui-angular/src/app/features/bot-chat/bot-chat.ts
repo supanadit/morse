@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -10,6 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type {
+  BotActivity,
   BotAuthor,
   BotConversationSummary,
   BotHandoff,
@@ -27,6 +29,12 @@ import { ChatComposer, type BotComposerSend } from '../composer/composer';
 import { botUsageInputs, hasBotUsage, type BotUsageInputs } from '../composer/bot-usage';
 import type { MentionCandidate } from '../mention-picker/mention-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
+import { elapsedLabel, revealLength, rowIsQuiet } from './reveal';
+
+/** How often an answer still arriving is revealed by one step. */
+const REVEAL_INTERVAL_MS = 50;
+/** How often the live row re-reads the clock under its elapsed time. */
+const CLOCK_INTERVAL_MS = 1_000;
 
 /**
  * One row of the chat's timeline: a line the host kept, or the record of a turn
@@ -39,6 +47,48 @@ interface TimelineItem {
   at: number;
   entry?: BotTranscriptEntry;
   trace?: BotTurnTrace;
+}
+
+/**
+ * One bot working right now, as its row draws it: the current step, how long the
+ * turn has run, the work behind it, the words written so far and the bots it asked.
+ */
+interface ActingRow {
+  /** Changes with every activity, so Angular rebuilds the row and replays its entrance. */
+  key: string;
+  /** The turn's own identity: stable while steps change, new when the bot starts over. */
+  turnKey: string;
+  kind: BotActivity['kind'];
+  label: string;
+  name: string;
+  mark: string;
+  queued: string[];
+  /** The bot's handle: unique, and the only thing a stop takes. */
+  username: string;
+  /** When the turn was taken off the queue, for the row's elapsed count. */
+  startedAt: number;
+  /** The newest step's epoch milliseconds: the quiet read counts from here. */
+  lastStepAt: number;
+  /** Whether any step is still running, which keeps the row from going quiet. */
+  runningTool: boolean;
+  /** How many steps the turn has taken, for the chevron's count. */
+  stepCount: number;
+  /** The newest three steps, oldest first, behind the row's chevron. */
+  steps: BotActivity[];
+  /** The answer so far, as text; never absent once the row exists. */
+  partial: string;
+  handoffs: BotHandoff[];
+  /** This bot's own counters, so its row's ring describes its own window. */
+  ring?: BotUsageInputs;
+}
+
+/**
+ * How much of one bot's live answer is on screen, and the text that was on screen
+ * when the cursor was put there — enough to tell a continuation from a new turn.
+ */
+interface RevealCursor {
+  shown: number;
+  text: string;
 }
 
 /**
@@ -161,8 +211,9 @@ export class BotChat {
   });
 
   /**
-   * One line of presence per bot working right now — "Reading launch-brief.md" —
-   * where its answer will appear.
+   * One live row per bot working right now — what it is doing, how long it has
+   * run, the steps behind it, the answer appearing as it is written and the bots
+   * it asked.
    *
    * A chat has presence, not a trace: a row is replaced as its bot moves on and
    * gone when its turn ends, so it never enters the transcript the host keeps.
@@ -170,20 +221,7 @@ export class BotChat {
    * `key` changes with every new activity, which is what makes Angular rebuild the
    * node and replay the animation instead of quietly swapping the words.
    */
-  protected readonly acting = computed<
-    {
-      key: string;
-      kind: string;
-      label: string;
-      name: string;
-      mark: string;
-      queued: string[];
-      /** The bot's handle: unique, and the only thing a stop takes. */
-      username: string;
-      /** This bot's own counters, so its row's ring describes its own window. */
-      ring?: BotUsageInputs;
-    }[]
-  >(() => {
+  protected readonly acting = computed<ActingRow[]>(() => {
     const routing = this.routing();
     if (routing === null) {
       return [];
@@ -199,8 +237,10 @@ export class BotChat {
       const bot = bots.find((one) => one.username === entry.username);
       const usage = id === null ? undefined : this.morse.bot.usageFor(id, entry.username);
       const ring = usage === undefined ? undefined : botUsageInputs(usage);
+      const newest = entry.steps.at(-1) ?? activity;
       return {
         key: `${entry.username}:${activity.kind}:${activity.at}`,
+        turnKey: `${entry.username}:${entry.startedAt}`,
         kind: activity.kind,
         label: activity.label,
         name: entry.target,
@@ -209,12 +249,34 @@ export class BotChat {
         // the first row, rather than repeated beside every working member.
         queued: index === 0 ? routing.queued : [],
         username: entry.username,
+        startedAt: entry.startedAt,
+        lastStepAt: newest.at,
+        runningTool: entry.steps.some((step) => step.status === 'running'),
+        stepCount: entry.steps.length,
+        // Three is what a glance can hold; the rest is the finished turn's record.
+        steps: entry.steps.slice(-3),
+        partial: entry.partial ?? '',
+        handoffs: entry.handoffs,
         // A bot that has not reported yet has nothing to draw, so its row stays
         // ringless rather than showing an empty gauge.
         ...(ring === undefined || !hasBotUsage(ring) ? {} : { ring }),
       };
     });
   });
+
+  /**
+   * How much of each bot's live answer has been revealed, by handle.
+   *
+   * Keyed by the bot, not by the row: a row is rebuilt for every step, and the
+   * words must not start over just because the bot moved on to its next tool.
+   */
+  private readonly cursors = signal<Readonly<Record<string, RevealCursor>>>({});
+  /** The wall clock the live rows read, so their timers move without a push. */
+  private readonly now = signal(Date.now());
+  /** The live rows the reader has opened the steps of, by turn. */
+  protected readonly expandedSteps = signal<ReadonlySet<string>>(new Set<string>());
+  private revealTimer: ReturnType<typeof setInterval> | undefined;
+  private clockTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor() {
     /*
@@ -291,6 +353,166 @@ export class BotChat {
         }
       });
     });
+    // The live rows keep two clocks of their own: the reveal of an answer still
+    // arriving, and the wall clock under the elapsed time and the quiet read. Both
+    // follow the rows: nothing runs while no bot is working, and nothing survives
+    // the row it was started for.
+    effect(() => {
+      const rows = this.acting();
+      untracked(() => {
+        this.now.set(Date.now());
+        this.syncCursors(rows, false);
+        this.syncRevealTimer(rows);
+        this.syncClockTimer(rows.length > 0);
+      });
+    });
+    inject(DestroyRef).onDestroy(() => {
+      this.stopRevealTimer();
+      this.stopClockTimer();
+    });
+  }
+
+  /** The part of a working bot's answer that is on screen, as plain text. */
+  protected revealed(row: ActingRow): string {
+    return row.partial.slice(0, this.cursors()[row.username]?.shown ?? 0);
+  }
+
+  /** How long the bot has been on this turn, once it is old enough to say. */
+  protected elapsed(row: ActingRow): string | undefined {
+    return elapsedLabel(this.now() - row.startedAt);
+  }
+
+  /** Whether the bot has stopped reporting steps, so the row stops shimmering. */
+  protected quiet(row: ActingRow): boolean {
+    return rowIsQuiet(this.now(), row.lastStepAt, row.runningTool);
+  }
+
+  /**
+   * The row's one sentence for assistive tech: who is working and what it is
+   * doing. The visible row carries the steps, the words and the chips, which a
+   * screen reader would read out as noise every time a tool changed.
+   */
+  protected liveSentence(row: ActingRow): string {
+    if (this.quiet(row)) {
+      return `${row.name} is waiting on the model.`;
+    }
+    const doing = row.label.slice(0, 1).toLowerCase() + row.label.slice(1);
+    return `${row.name} is ${doing.replace(/[.…!?]+$/, '')}.`;
+  }
+
+  /** Whether the reader has opened this live turn's step list. */
+  protected stepsOpen(turnKey: string): boolean {
+    return this.expandedSteps().has(turnKey);
+  }
+
+  /** What the chevron says: every step, or the newest three of a longer turn. */
+  protected stepsLabel(row: ActingRow): string {
+    if (row.stepCount <= row.steps.length) {
+      return row.stepCount === 1 ? '1 step' : `${row.stepCount} steps`;
+    }
+    return `Latest ${row.steps.length} of ${row.stepCount} steps`;
+  }
+
+  /** Opens or closes one live turn's steps; other turns keep their own state. */
+  protected toggleSteps(turnKey: string): void {
+    this.expandedSteps.update((open) => {
+      const next = new Set(open);
+      if (!next.delete(turnKey)) {
+        next.add(turnKey);
+      }
+      return next;
+    });
+  }
+
+  /**
+   * A handoff chip in words: `asked @loom`, `loom is working`, `loom answered`,
+   * `loom failed`. The wire's state names are for machines; a reader gets the
+   * sentence the row would say out loud.
+   */
+  protected handoffLabel(handoff: BotHandoff): string {
+    switch (handoff.state) {
+      case 'asked':
+        return `asked @${handoff.username}`;
+      case 'working':
+        return `${handoff.username} is working`;
+      case 'done':
+        return `${handoff.username} answered`;
+      case 'failed':
+        return `${handoff.username} failed`;
+    }
+  }
+
+  /**
+   * Lines this bot's revealed word count up with what the host has sent.
+   *
+   * The cursor is clamped to the text that arrived, so a short push never reveals
+   * a word nobody wrote. A new turn for the same bot starts at zero unless its
+   * words still begin with what was already shown — a continuation of the same
+   * answer keeps its place, a different answer does not borrow it.
+   */
+  private syncCursors(rows: readonly ActingRow[], advance: boolean): void {
+    const previous = this.cursors();
+    const next: Record<string, RevealCursor> = {};
+    for (const row of rows) {
+      const held = previous[row.username];
+      const continues =
+        held !== undefined && row.partial.startsWith(held.text.slice(0, held.shown));
+      const shown = continues ? Math.min(held.shown, row.partial.length) : 0;
+      next[row.username] = {
+        shown: advance ? revealLength(shown, row.partial) : shown,
+        text: row.partial,
+      };
+    }
+    this.cursors.set(next);
+  }
+
+  /** Whether any working bot still has words the reader has not been shown. */
+  private pendingWords(rows: readonly ActingRow[]): boolean {
+    const cursors = this.cursors();
+    return rows.some((row) => row.partial.length > (cursors[row.username]?.shown ?? 0));
+  }
+
+  private syncRevealTimer(rows: readonly ActingRow[]): void {
+    if (!this.pendingWords(rows)) {
+      this.stopRevealTimer();
+      return;
+    }
+    if (this.revealTimer !== undefined) {
+      return;
+    }
+    this.revealTimer = setInterval(() => {
+      const current = this.acting();
+      this.now.set(Date.now());
+      this.syncCursors(current, true);
+      if (!this.pendingWords(current)) {
+        this.stopRevealTimer();
+      }
+    }, REVEAL_INTERVAL_MS);
+  }
+
+  private stopRevealTimer(): void {
+    if (this.revealTimer !== undefined) {
+      clearInterval(this.revealTimer);
+      this.revealTimer = undefined;
+    }
+  }
+
+  private syncClockTimer(running: boolean): void {
+    if (!running) {
+      this.stopClockTimer();
+      return;
+    }
+    if (this.clockTimer !== undefined) {
+      return;
+    }
+    this.clockTimer = setInterval(() => this.now.set(Date.now()), CLOCK_INTERVAL_MS);
+  }
+
+  private stopClockTimer(): void {
+    if (this.clockTimer !== undefined) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = undefined;
+    }
   }
 
   /** The divider's wall-clock time, so a boundary is placeable in the day. */

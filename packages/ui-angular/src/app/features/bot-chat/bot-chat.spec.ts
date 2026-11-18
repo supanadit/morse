@@ -1,6 +1,9 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type {
+  BotActivity,
   BotConversationSummary,
+  BotHandoff,
+  BotRoutingActive,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
@@ -137,8 +140,30 @@ function open(
   morse.bot.onTranscript({ conversationId: conversation.id, entries, replace: true });
 }
 
+/**
+ * One live row as the host pushes it: the current step, what has been written so
+ * far and the asks this turn handed on.
+ */
+function live(overrides: Partial<BotRoutingActive> = {}): BotRoutingActive {
+  const activity: BotActivity = overrides.activity ?? {
+    kind: 'thinking',
+    label: 'Wait, let me think…',
+    at: 1_000,
+  };
+  return {
+    target: 'Forge',
+    username: 'forge',
+    activity,
+    startedAt: activity.at,
+    steps: [activity],
+    handoffs: [],
+    ...overrides,
+  };
+}
+
 describe('BotChat', () => {
   afterEach(() => {
+    vi.useRealTimers();
     TestBed.resetTestingModule();
     vi.restoreAllMocks();
   });
@@ -503,6 +528,337 @@ describe('BotChat', () => {
     // A new node, so the row's entrance animation replays rather than the words
     // quietly swapping inside a node that never moved.
     expect(second).not.toBe(first);
+  });
+
+  it('shows what the bot is doing now, how long it has run, and the words already written', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const words = 'Tally is the one that survives being said out loud';
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            startedAt: 62_000,
+            partial: words,
+            activity: { kind: 'writing', label: 'Writing the answer…', at: 70_000 },
+            steps: [
+              { kind: 'thinking', label: 'Wait, let me think…', at: 63_000, status: 'ok' },
+              { kind: 'writing', label: 'Writing the answer…', at: 70_000 },
+            ],
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    const row = host.querySelector('.acting') as HTMLElement;
+    expect(row.querySelector('.doing-label')?.textContent?.trim()).toBe('Writing the answer…');
+    // The timer is hidden while the turn is young and counts once it is not.
+    expect(row.querySelector('.elapsed')?.textContent?.trim()).toBe('38s');
+    // Nothing is revealed before the first tick: the row starts at the beginning.
+    expect(row.querySelector('.partial')).toBeNull();
+
+    vi.advanceTimersByTime(50);
+    fixture.detectChanges();
+    const first = host.querySelector('.acting .partial')?.textContent ?? '';
+    expect(first.length).toBeGreaterThan(0);
+    expect(words.startsWith(first)).toBe(true);
+
+    vi.advanceTimersByTime(1_000);
+    fixture.detectChanges();
+    const later = host.querySelector('.acting .partial')?.textContent ?? '';
+    expect(later.length).toBeGreaterThan(first.length);
+    expect(words.startsWith(later)).toBe(true);
+    expect(later.length).toBeLessThanOrEqual(words.length);
+  });
+
+  it('starts a turn’s words over when the bot begins a new one', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [live({ partial: 'Tally is the one that survives being said out loud' })],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    expect(host.querySelector('.acting .partial')?.textContent?.length).toBeGreaterThan(0);
+
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            startedAt: 99_500,
+            activity: { kind: 'writing', label: 'Writing the answer…', at: 99_500 },
+            partial: 'A completely different answer',
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    // Not one word of the new turn before its first tick: the cursor was the old
+    // turn's, and borrowing it would put words on screen the reader never waited for.
+    expect(host.querySelector('.acting .partial')).toBeNull();
+  });
+
+  it('stops revealing at the end, and forgets the words when the row goes away', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [live({ partial: 'a '.repeat(300) })],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+    vi.advanceTimersByTime(50);
+    fixture.detectChanges();
+    expect(host.querySelector('.acting .partial')?.textContent?.length).toBeGreaterThan(0);
+
+    // The row leaves while there is still text unread: its clock and its reveal
+    // stop with it, rather than ticking into a conversation it no longer belongs to.
+    const clear = vi.spyOn(globalThis, 'clearInterval');
+    morse.bot.onRouting(round(workshop.id, null));
+    fixture.detectChanges();
+    expect(host.querySelector('.acting')).toBeNull();
+    expect(clear).toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2_000);
+    fixture.detectChanges();
+    expect(host.querySelector('.partial')).toBeNull();
+  });
+
+  it('goes quiet after twenty seconds without a step, keeping its label and clock', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 99_000 },
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 99_000 }],
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+    expect(host.querySelector('.acting')?.getAttribute('data-quiet')).toBeNull();
+    expect(host.querySelector('.acting .quiet')).toBeNull();
+
+    vi.advanceTimersByTime(20_000);
+    fixture.detectChanges();
+    const row = host.querySelector('.acting') as HTMLElement;
+    expect(row.getAttribute('data-quiet')).toBe('true');
+    expect(row.querySelector('.quiet')?.textContent).toContain('waiting on the model');
+    // Quiet is about the shimmer, not about forgetting the turn.
+    expect(row.querySelector('.doing-label')?.textContent?.trim()).toBe('Wait, let me think…');
+    expect(row.querySelector('.elapsed')?.textContent?.trim()).toBe('21s');
+  });
+
+  it('stays at work while a tool is still running, however long it takes', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            activity: {
+              kind: 'tool',
+              label: 'Running the tests…',
+              tool: 'bash',
+              at: 99_000,
+              status: 'running',
+            },
+            steps: [
+              {
+                kind: 'tool',
+                label: 'Running the tests…',
+                tool: 'bash',
+                at: 99_000,
+                status: 'running',
+              },
+            ],
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    vi.advanceTimersByTime(60_000);
+    fixture.detectChanges();
+    const row = host.querySelector('.acting') as HTMLElement;
+    expect(row.getAttribute('data-quiet')).toBeNull();
+    expect(row.querySelector('.quiet')).toBeNull();
+  });
+
+  it('opens the newest three steps, with a failed step’s error behind its own disclosure', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const steps: BotActivity[] = [
+      { kind: 'tool', label: 'Reading brief.md', tool: 'read', at: 90_000, status: 'ok' },
+      { kind: 'thinking', label: 'Weighing the options', at: 91_000, status: 'ok' },
+      { kind: 'tool', label: 'Reading the log', tool: 'read', at: 92_000, status: 'ok' },
+      {
+        kind: 'tool',
+        label: 'Running the tests',
+        tool: 'bash',
+        at: 93_000,
+        status: 'error',
+        error: 'exit code 1',
+      },
+      { kind: 'writing', label: 'Writing the answer…', at: 94_000, status: 'running' },
+    ];
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [live({ activity: steps[4] as BotActivity, steps, startedAt: 90_000 })],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    const toggle = host.querySelector('.acting .steps-toggle') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // A long turn shows what a glance holds, and says so rather than claiming
+    // five steps are on screen.
+    expect(toggle.querySelector('.steps-label')?.textContent?.trim()).toBe('Latest 3 of 5 steps');
+    expect(host.querySelector('.acting .live-step-list')).toBeNull();
+    toggle.click();
+    fixture.detectChanges();
+
+    // The newest three, oldest first: what the bot did a while ago is the
+    // finished turn's job, not the live row's.
+    expect(
+      [...host.querySelectorAll('.acting .live-step-list .step-label')].map((label) =>
+        label.textContent?.trim(),
+      ),
+    ).toEqual(['Reading the log', 'Running the tests', 'Writing the answer…']);
+    const failed = host.querySelector(
+      '.acting .live-step-list .step[data-status="error"]',
+    ) as HTMLElement;
+    const error = failed.querySelector('details.step-error') as HTMLDetailsElement;
+    expect(error.querySelector('summary')?.textContent).toContain('error');
+    expect(error.textContent).toContain('exit code 1');
+  });
+
+  it('draws one chip per ask, in words, opening the room it happened in', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const handoffs: BotHandoff[] = [
+      {
+        username: 'loom',
+        conversationId: 'thread-forge-loom',
+        deliveryId: 'd1',
+        at: 90_001,
+        state: 'asked',
+      },
+      {
+        username: 'sable',
+        conversationId: 'thread-forge-sable',
+        deliveryId: 'd2',
+        at: 90_002,
+        state: 'working',
+        activity: {
+          kind: 'tool',
+          label: 'Reading the fine print',
+          tool: 'read',
+          at: 95_000,
+          status: 'running',
+        },
+      },
+      {
+        username: 'dye',
+        conversationId: 'thread-forge-dye',
+        deliveryId: 'd3',
+        at: 90_003,
+        state: 'done',
+      },
+      {
+        username: 'ash',
+        conversationId: 'thread-forge-ash',
+        deliveryId: 'd4',
+        at: 90_004,
+        state: 'failed',
+      },
+    ];
+    morse.bot.onRouting(round(workshop.id, { active: [live({ handoffs })], queued: [] }));
+    fixture.detectChanges();
+
+    const chips = [...host.querySelectorAll('.acting .handoff-chip')] as HTMLButtonElement[];
+    expect(chips.map((chip) => chip.textContent?.replace(/\s+/g, ' ').trim() ?? '')).toEqual([
+      'asked @loom',
+      'sable is working Reading the fine print',
+      'dye answered',
+      'ash failed',
+    ]);
+
+    const opened = vi.spyOn(morse, 'openBotConversation');
+    chips[1]?.click();
+    expect(opened).toHaveBeenCalledWith('thread-forge-sable');
+  });
+
+  it('draws no words until the bot has written some', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [live({ activity: { kind: 'starting', label: 'Getting started…', at: 99_000 } })],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    vi.advanceTimersByTime(1_000);
+    fixture.detectChanges();
+    expect(host.querySelector('.acting .partial')).toBeNull();
+  });
+
+  it('keeps one sentence for assistive tech, naming the bot and its work', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            activity: {
+              kind: 'tool',
+              label: 'Reading launch-brief.md…',
+              tool: 'read',
+              at: 99_000,
+            },
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    const status = host.querySelector('.acting [role="status"]') as HTMLElement;
+    expect(status.textContent?.trim()).toBe('Forge is reading launch-brief.md.');
   });
 
   it('draws one presence row per working bot', async () => {

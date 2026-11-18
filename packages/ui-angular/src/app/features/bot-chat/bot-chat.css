@@ -152,6 +152,140 @@
 .entry.acting[data-kind='tool'] .doing-label {
   color: var(--morse-fg);
 }
+/* How long this turn has run: quiet, tabular, and absent while it is young. */
+.entry.acting .elapsed {
+  flex: none;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * A row that has stopped reporting: the label and the clock stay (the turn is
+ * still there), but the shimmer drops and the row says what it is waiting for.
+ * A model thinking hard reports nothing for a while, and movement there would
+ * claim work that is not visible.
+ */
+.entry.acting .quiet {
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 11.5px;
+  font-style: italic;
+}
+.entry.acting[data-quiet='true'] .dots i,
+.entry.acting[data-quiet='true'] .doing-label {
+  animation: none;
+}
+.entry.acting[data-quiet='true'] .dots i {
+  opacity: 0.4;
+}
+/* One sentence for assistive tech, drawn for the ear and not for the eye. */
+.live-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* The steps behind the row's chevron, the same quiet shape as a turn's record. */
+.live-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 1px;
+}
+.steps-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.steps-toggle:hover .steps-label {
+  color: var(--morse-fg);
+}
+.steps-caret {
+  flex: none;
+  font-size: 9px;
+  opacity: 0.7;
+}
+.live-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 2px 10px;
+  border-left: 2px solid var(--morse-border);
+}
+/* A failed step's error is rare enough to keep behind its own disclosure. */
+.step-error summary {
+  cursor: pointer;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.step-error pre {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--morse-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+}
+/* The answer as it is written: muted, pre-wrap, and never mistaken for the final line. */
+.entry.acting .partial {
+  margin: 2px 0 0;
+  max-width: 62ch;
+  color: color-mix(in srgb, var(--morse-fg) 62%, transparent);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The bots this turn asked, one chip each: a link to the room it happened in. */
+.handoffs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 3px;
+}
+.handoff-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.handoff-chip:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.handoff-chip[data-state='working'] {
+  color: var(--morse-accent);
+}
+.handoff-chip[data-state='failed'] {
+  color: var(--morse-danger, #e5484d);
+}
+.chip-doing {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-size: 10.5px;
+}
 .entry.acting .queued {
   min-width: 0;
   overflow: hidden;

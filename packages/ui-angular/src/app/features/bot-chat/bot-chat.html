@@ -194,17 +194,99 @@
         }
       }
       @for (row of acting(); track row.key) {
-        <div class="entry bot acting" role="status" aria-live="polite" [attr.data-kind]="row.kind">
+        <!--
+          A working bot's live row: the step it is on, how long the turn has run,
+          the work behind it, the answer appearing as it is written, and one chip
+          per bot it asked. A quiet row keeps its words and its clock but stops
+          shimmering and says what it is waiting for.
+        -->
+        <div
+          class="entry bot acting"
+          [attr.data-kind]="row.kind"
+          [attr.data-quiet]="quiet(row) ? 'true' : null"
+        >
           <span class="avatar" aria-hidden="true">{{ row.mark }}</span>
           <div class="body">
             <span class="author">{{ row.name }}</span>
             <span class="doing">
               <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
               <span class="doing-label" [title]="row.label">{{ row.label }}</span>
+              @if (elapsed(row); as since) {
+                <span class="elapsed" title="How long this turn has run">{{ since }}</span>
+              }
               @if (row.queued.length > 0) {
                 <span class="queued">then {{ row.queued.join(', ') }}</span>
               }
             </span>
+            @if (quiet(row)) {
+              <span class="quiet">waiting on the model</span>
+            }
+            <!-- The row's one sentence for assistive tech: everything below is
+                 noise to read out on every tool change. -->
+            <span class="live-status" role="status" aria-live="polite">{{
+              liveSentence(row)
+            }}</span>
+            @if (row.steps.length > 0) {
+              <div class="live-steps">
+                <button
+                  type="button"
+                  class="steps-toggle"
+                  [attr.aria-expanded]="stepsOpen(row.turnKey)"
+                  [title]="
+                    stepsOpen(row.turnKey)
+                      ? 'Hide the steps of this turn'
+                      : 'Show the steps of this turn'
+                  "
+                  (click)="toggleSteps(row.turnKey)"
+                >
+                  <span class="steps-label">{{ stepsLabel(row) }}</span>
+                  <span class="steps-caret" aria-hidden="true">{{
+                    stepsOpen(row.turnKey) ? '▾' : '▸'
+                  }}</span>
+                </button>
+                @if (stepsOpen(row.turnKey)) {
+                  <div class="live-step-list">
+                    @for (step of row.steps; track $index) {
+                      <div class="step" [attr.data-status]="step.status ?? null">
+                        <span class="step-label">{{ step.label }}</span>
+                        @if (step.status; as status) {
+                          <span class="step-outcome">{{ status }}</span>
+                        }
+                        @if (step.error; as error) {
+                          <details class="step-error">
+                            <summary>Show the error</summary>
+                            <pre>{{ error }}</pre>
+                          </details>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+            <!-- The answer as it arrives: only what the host has sent, revealed a
+                 few words at a time, and plain text because it is not finished. -->
+            @if (revealed(row); as words) {
+              <p class="partial">{{ words }}</p>
+            }
+            @if (row.handoffs.length > 0) {
+              <div class="handoffs">
+                @for (handoff of row.handoffs; track handoff.deliveryId) {
+                  <button
+                    type="button"
+                    class="handoff-chip"
+                    [attr.data-state]="handoff.state"
+                    [title]="'Open the conversation with @' + handoff.username"
+                    (click)="openHandoff(handoff)"
+                  >
+                    {{ handoffLabel(handoff) }}
+                    @if (handoff.activity; as activity) {
+                      <span class="chip-doing">{{ activity.label }}</span>
+                    }
+                  </button>
+                }
+              </div>
+            }
           </div>
           <!-- Each lane has its own engine session, so each row draws that bot's
                own window. A bot that has not reported yet has none. -->
