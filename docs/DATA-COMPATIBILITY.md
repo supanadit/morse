@@ -58,6 +58,24 @@ logged; bot mode is one capability, not a precondition for code sessions).
   not know (`titlePinned`, say). The older build reads the record and ignores them, and drops them only if
   it rewrites that record — a renamed session then shows the engine's name again, never corruption.
 
+## Bot mode's additive data
+
+Two things bot mode stores carry no migration and no version bump, because neither changes a shape an older
+build already writes:
+
+- **A finished turn's trace.** `<dataDir>/bot/traces/<conversationId>.json` — one JSON array per conversation,
+  rewritten whole on every settle, through a temp file renamed into place. A missing file is a room with no
+  finished turn yet, not a gap to repair. The store bounds itself: its hourly sweep drops turns older than
+  seven days and keeps a room's newest hundred. The directory is the store's own — a sweep reads every
+  `*.json` in it as one conversation's history — so no other file may be written there, and removing a
+  conversation's file is how a room's history is forgotten. A build that predates the directory never reads
+  it, and nothing in it is engine context, so an older Morse loses nothing by ignoring it.
+- **A thread's origin.** `parentId` (the room the asking bot was working in) and `askedBy` (the bot that opened
+  the thread) are optional on a thread, and the registry stays version 3: no step and no
+  `CURRENT_DATA_LAYOUT` bump. A thread written before this change has neither, so it answers in place and
+  forwards nothing — exactly what it did before — and there is nothing to backfill. The registry validator
+  requires neither field, so a build that does not know them still reads every conversation.
+
 ## Engine layouts may need repair, not just rewriting
 
 An engine's configuration files are not interchangeable: the *same* content in the wrong file is silently

@@ -295,6 +295,39 @@ last reported it. A turn ending clears exactly its own room, and `bot/open` re-s
 every bot's counters for that room (`bot/routing`, one `bot/usage` per bot) — which is what makes a reloaded or
 revisited chat show a bot still working instead of looking broken.
 
+### The turn record and the trace store
+
+A turn has two shapes, built from one record: what the room draws while the lane runs, and what the room keeps
+once it settles.
+
+- **In memory, while the lane runs.** `packages/system/src/bot/turns.ts` holds one record per bot handle —
+  lanes are per bot, so a bot takes one turn at a time, and starting another replaces whatever the record held.
+  It keeps the steps (newest last, `TURN_STEPS_MAX` = 8), the asks the turn handed to peers
+  (`TURN_HANDOFFS_MAX` = 8) and the tail of the answer so far (`TURN_PARTIAL_MAX` = 2000 characters). There is
+  no I/O in it, so the shape a row draws is testable without a service or a file. The host pushes a snapshot as
+  `BotRoutingActive` on `bot/routing` — `steps`, `handoffs`, `partial`, `startedAt` — and the frontend owns
+  presentation only: the newest step, the elapsed clock, the words revealed by
+  `features/bot-chat/reveal.ts`, and one chip per ask.
+- **On settle, into the store.** The settle takes the record once (`take`) — so the trace is written from what
+  the tracker actually saw — and one `BotTurnTrace` is built from it: the delivery's id (one turn, one trace),
+  the bot's display name as the roster holds it *then* (handles are reusable, so a trace keeps the name it was
+  written with), `startedAt`, `endedAt`, `status`, and the steps and asks as each ended. `recordTrace` adds it
+  to `BotTraceStore` and pushes a `transcript` event carrying the trace and no lines (`entries: []`,
+  `replace: false`): the transcript does not change, and a room already showing the answer only learns what
+  history it now has. A failed or cancelled turn is recorded too — a turn that wrote nothing still happened.
+  The answer is handed back to its parent room first, so a relayed answer exists in the parent before the
+  thread's trace does.
+- **The store, on disk.** `packages/system/src/bot/traces.ts`, one JSON array per conversation at
+  `<dataDir>/bot/traces/<conversationId>.json`, rewritten whole and atomically — the file plumbing is shared
+  with the delivery store (`ConversationFiles`). A conversation's page carries the traces that ended in its
+  window (`tracesIn`), which is what lets the chat draw a finished turn above the answer it produced. The
+  hourly sweep drops turns older than `TRACE_TTL_MS` (seven days) and keeps a room's newest `TRACE_LIMIT`
+  (100); clearing a conversation, or deleting its bot or group, forgets the file with it.
+- **History, never context.** Nothing in the store is put into a prompt, and nothing in it is read by a bot. A
+  trace is the person's record of the turn; a bot's memory stays the transcript slice and
+  `BotSessionRef.toldUpTo`. That is also why the store only stores and serves: there is no status to move and
+  no queue to drain.
+
 ### What a turn cost
 
 Each bot answers from its own engine session, so usage is kept per `(conversation, bot)`: a room with two
