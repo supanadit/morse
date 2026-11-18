@@ -182,7 +182,10 @@ describe('bot work rows', () => {
       target: 'Sigil',
       username: 'sigil',
       startedAt: 10,
-      steps: [{ kind: 'starting', label: 'Getting started…', at: 10 }],
+      steps: [
+        { kind: 'starting', label: 'Getting started…', at: 10 },
+        { kind: 'writing', label: 'Writing the answer…', at: 12 },
+      ],
       handoffs: [
         {
           username: 'loom',
