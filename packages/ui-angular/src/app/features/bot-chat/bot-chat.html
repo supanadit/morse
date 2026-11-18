@@ -246,10 +246,15 @@
                 </button>
                 @if (stepsOpen(row.turnKey)) {
                   <div class="live-step-list">
-                    <!-- Keyed by the step, not its slot: when the newest-three
-                         window slides, a step's node must follow the step, so an
-                         opened error and focus never land on a different row. -->
-                    @for (step of row.steps; track step.at + ':' + $index) {
+                    <!-- Keyed by the step's own identity, never its slot: when the
+                         newest-three window slides, a step's node follows the step,
+                         so an opened error and focus never land on a different row.
+                         Two genuinely identical steps in the same millisecond are
+                         indistinguishable to a reader, so sharing a node is harmless. -->
+                    @for (
+                      step of row.steps;
+                      track step.at + ':' + step.kind + ':' + (step.tool ?? '') + ':' + step.label
+                    ) {
                       <div class="step" [attr.data-status]="step.status ?? null">
                         <span class="step-label">{{ step.label }}</span>
                         @if (step.status; as status) {

@@ -793,6 +793,79 @@ describe('BotChat', () => {
     expect(error.textContent).toContain('exit code 1');
   });
 
+  it('keeps a step’s node and its opened error when the newest three slide', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const readBrief: BotActivity = {
+      kind: 'tool',
+      label: 'Reading brief.md',
+      tool: 'read',
+      at: 90_000,
+      status: 'ok',
+    };
+    const failedTests: BotActivity = {
+      kind: 'tool',
+      label: 'Running the tests',
+      tool: 'bash',
+      at: 91_000,
+      status: 'error',
+      error: 'exit code 1',
+    };
+    const writing: BotActivity = { kind: 'writing', label: 'Writing the answer…', at: 92_000 };
+    const readLog: BotActivity = {
+      kind: 'tool',
+      label: 'Reading the log',
+      tool: 'read',
+      at: 93_000,
+      status: 'ok',
+    };
+    // The activity is held still so this isolates the step list's own keying: a
+    // real push also changes the row's key, which is the entrance animation's job.
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({ activity: writing, steps: [readBrief, failedTests, writing], startedAt: 90_000 }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+    (host.querySelector('.acting .steps-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const dropped = host.querySelector('.acting .live-step-list .step') as HTMLElement;
+    expect(dropped.textContent).toContain('Reading brief.md');
+    const failed = host.querySelector(
+      '.acting .live-step-list .step[data-status="error"]',
+    ) as HTMLElement;
+    const error = failed.querySelector('details.step-error') as HTMLDetailsElement;
+    error.open = true;
+
+    // The window slides by one step: the oldest leaves, a newer one arrives.
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({ activity: writing, steps: [failedTests, writing, readLog], startedAt: 90_000 }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(
+      [...host.querySelectorAll('.acting .live-step-list .step-label')].map((label) =>
+        label.textContent?.trim(),
+      ),
+    ).toEqual(['Running the tests', 'Writing the answer…', 'Reading the log']);
+    // The step that left is gone; the failed step kept its node and its open error,
+    // so neither the disclosure nor focus moved onto another row.
+    expect(dropped.isConnected).toBe(false);
+    expect(failed.isConnected).toBe(true);
+    expect(error.open).toBe(true);
+  });
+
   it('draws one chip per ask, in words, opening the room it happened in', async () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);
