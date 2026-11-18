@@ -2613,6 +2613,44 @@ describe('BotService bus', () => {
     await settle(service, 'thread-loom-sigil');
   });
 
+  it('refuses a thread id that already belongs to another pair', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    // Hyphenated usernames make the id ambiguous: these two different pairs both
+    // spell `thread-a-b-c`.
+    await service.createBot(botInput({ username: 'a-b', name: 'A B', description: 'First pair' }));
+    await service.createBot(botInput({ username: 'c', name: 'C', description: 'First pair' }));
+    await service.createBot(botInput({ username: 'a', name: 'A', description: 'Second pair' }));
+    await service.createBot(botInput({ username: 'b-c', name: 'B C', description: 'Second pair' }));
+
+    await holdTurn(service, adapter, 'dm-a-b', 'a-b');
+    const first = await service.busSend('a-b', { to: 'c', text: 'hello c' });
+    expect(first.conversationId).toBe('thread-a-b-c');
+
+    await holdTurn(service, adapter, 'dm-a', 'a');
+    const refusal = await service
+      .busSend('a', { to: 'b-c', text: 'collide' })
+      .catch((error: unknown) => error);
+
+    // The other pair's private room is never written into; the sender is told
+    // why rather than having its line delivered to a stranger.
+    expect(refusal).toBeInstanceOf(BotBusError);
+    expect((refusal as BotBusError).reason).toContain('another pair');
+    expect(
+      service.roster().conversations.find((one) => one.id === 'thread-a-b-c'),
+    ).toMatchObject({ kind: 'thread', members: ['a-b', 'c'] });
+    // The first pair's room holds its own line and nothing from the other pair.
+    const lines = service.transcript('thread-a-b-c');
+    expect(lines[0]).toMatchObject({ text: '@c hello c' });
+    expect(lines.some((entry) => entry.text.includes('collide'))).toBe(false);
+
+    service.stop('dm-a-b');
+    service.stop('dm-a');
+    service.stop('thread-a-b-c');
+    await settle(service, 'dm-a-b');
+    await settle(service, 'dm-a');
+    await settle(service, 'thread-a-b-c');
+  });
+
   it('reuses one thread when both bots send again', async () => {
     const { adapter, service } = harness({
       script: ({ bot, prompt }) => {
@@ -2837,6 +2875,43 @@ describe('BotService bus', () => {
     await settle(service, 'thread-loom-sigil');
   });
 
+  it('refuses a turn file whose trigger or depth was edited', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    await holdTurn(service, adapter, group.id, 'sigil');
+    const paths = service.botBusPaths('sigil');
+    const live = JSON.parse(readFileSync(paths.turnFile, 'utf8'));
+
+    // A fresh root at depth 0 would opt this send out of both loop backstops
+    // while still naming the delivery the lane is really running. The delivery
+    // is the authority on both, so the file is refused.
+    writeFileSync(paths.turnFile, JSON.stringify({ ...live, depth: 0, rootId: 'fresh-root' }));
+    await expect(service.busSend('sigil', { to: 'loom', text: 'reset' })).rejects.toThrow(
+      'no active turn',
+    );
+
+    // Either one alone is already a file this turn did not write.
+    writeFileSync(paths.turnFile, JSON.stringify({ ...live, depth: live.depth + 1 }));
+    await expect(service.busSend('sigil', { to: 'loom', text: 'deeper' })).rejects.toThrow(
+      'no active turn',
+    );
+    writeFileSync(paths.turnFile, JSON.stringify({ ...live, rootId: 'fresh-root' }));
+    await expect(service.busSend('sigil', { to: 'loom', text: 'new root' })).rejects.toThrow(
+      'no active turn',
+    );
+
+    // Restored, it is the live turn again: the refusal is about the file.
+    writeFileSync(paths.turnFile, JSON.stringify(live));
+    await expect(service.busSend('sigil', { to: 'loom', text: 'honest' })).resolves.toMatchObject({
+      conversationId: group.id,
+      queued: true,
+    });
+
+    service.stop(group.id);
+    await settle(service, group.id);
+  });
+
   it('reports inRoom from the live turn and false for everyone without one', async () => {
     const { adapter, service } = harness({ script: holdsPersonTurns });
     await busBots(service);
@@ -2860,35 +2935,80 @@ describe('BotService bus', () => {
     expect(service.busRoster('sigil').some((entry) => entry.inRoom)).toBe(false);
   });
 
-  it('notes a send past the depth limit instead of queueing it', async () => {
-    const { root, adapter, service } = harness({
-      now: () => 1_000_000,
-      script: holdsPersonTurns,
+  it('drops a send one hop past the depth limit, with a note', async () => {
+    // A real chain, not a hand-written file: each bot forwards once from inside
+    // its own turn, so every delivery's depth is the one the host queued it with.
+    let hop = 0;
+    let bus: BotService | undefined;
+    const sends: Promise<unknown>[] = [];
+    const { root, service } = harness({
+      script: ({ bot }) => {
+        hop += 1;
+        const target = bot === 'sigil' ? 'loom' : 'sigil';
+        sends.push(bus!.busSend(bot, { to: target, text: `hop ${hop}` }).catch((error: unknown) => error));
+        return { text: `${bot} hop ${hop}` };
+      },
     });
+    bus = service;
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+
+    await service.send(group.id, '@sigil start');
+    await settle(service, group.id);
+
+    // Five turns: the person's, then four forwards. The fifth forward would be
+    // depth 5 — one past the cap — so it is noted and nothing is queued.
+    const results = await Promise.all(sends);
+    expect(results.at(-1)).toEqual({
+      deliveryId: '',
+      conversationId: group.id,
+      queued: false,
+    });
+    expect(
+      deliveriesOf(root, group.id)
+        .filter((row) => row.reason === 'bot')
+        .map((row) => row.depth),
+    ).toEqual([1, 2, 3, 4]);
+    const notes = service
+      .transcript(group.id)
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain(`past the depth limit of ${BUS_LIMITS.depth}`);
+  });
+
+  it('takes the delivery that reaches the per-root limit and drops the next with a note', async () => {
+    const { root, adapter, service } = harness({ script: holdsPersonTurns });
     await busBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
     await holdTurn(service, adapter, group.id, 'sigil');
 
-    // The turn itself is already at the cap, so this send would be one hop past.
-    const paths = service.botBusPaths('sigil');
-    const live = JSON.parse(readFileSync(paths.turnFile, 'utf8'));
-    writeFileSync(paths.turnFile, JSON.stringify({ ...live, depth: BUS_LIMITS.depth }));
+    // The person's line is one delivery of this root; the bot sends fill the
+    // rest, and the one that brings the root to its limit is still taken.
+    for (let index = 0; index < BUS_LIMITS.perRoot - 1; index += 1) {
+      const result = await service.busSend('sigil', { to: 'loom', text: `filled ${index}` });
+      expect(result.queued).toBe(true);
+    }
+    expect(deliveriesOf(root, group.id)).toHaveLength(BUS_LIMITS.perRoot);
 
-    const result = await service.busSend('sigil', { to: 'loom', text: 'too deep' });
+    const refused = await service.busSend('sigil', { to: 'loom', text: 'one too many' });
 
-    expect(result).toEqual({ deliveryId: '', conversationId: group.id, queued: false });
-    const note = service.transcript(group.id).at(-1);
-    expect(note).toMatchObject({ author: { role: 'system' } });
-    expect(note?.text).toContain(`depth limit of ${BUS_LIMITS.depth}`);
-    // Nothing was queued, and no thread was opened for a send that was refused.
-    expect(deliveriesOf(root, group.id).filter((row) => row.reason === 'bot')).toEqual([]);
-    expect(service.roster().conversations.some((one) => one.kind === 'thread')).toBe(false);
+    expect(refused).toEqual({ deliveryId: '', conversationId: group.id, queued: false });
+    // Nothing was added: the root stays at its limit, and the room says why.
+    expect(deliveriesOf(root, group.id)).toHaveLength(BUS_LIMITS.perRoot);
+    expect(
+      service
+        .transcript(group.id)
+        .filter((entry) => entry.author.role === 'system')
+        .map((entry) => entry.text)
+        .some((text) => text.includes(`past its limit of ${BUS_LIMITS.perRoot}`)),
+    ).toBe(true);
 
     service.stop(group.id);
     await settle(service, group.id);
   });
 
-  it('refuses a bot once it has sent more than an hour allows', async () => {
+  it('refuses a bot’s sixty-first send in an hour', async () => {
     const { adapter, service } = harness({
       now: () => 1_000_000,
       // Every bot's first turn holds, so Loom's queue stays put while the sends
@@ -2898,18 +3018,18 @@ describe('BotService bus', () => {
     await busBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
 
-    // A root allows one delivery per slot, so the hour is filled from two: the
-    // DM's root (which lands in the thread) and the group's.
+    // A root takes 48 deliveries, the person's line included, so the hour is
+    // filled from two roots: 47 here, then 13 more — 60 in all. The one past
+    // the hour is the refusal.
     await holdTurn(service, adapter, 'dm-sigil', 'sigil');
-    for (let index = 0; index < BUS_LIMITS.perRoot; index += 1) {
+    for (let index = 0; index < BUS_LIMITS.perRoot - 1; index += 1) {
       await service.busSend('sigil', { to: 'loom', text: `first root ${index}` });
     }
     service.stop('dm-sigil');
     await settle(service, 'dm-sigil');
 
     await holdTurn(service, adapter, group.id, 'sigil');
-    // Enough more to pass the hour by one: the next send is the refusal.
-    for (let index = 0; index < BUS_LIMITS.perBotPerHour - BUS_LIMITS.perRoot + 1; index += 1) {
+    for (let index = 0; index < BUS_LIMITS.perBotPerHour - (BUS_LIMITS.perRoot - 1); index += 1) {
       await service.busSend('sigil', { to: 'loom', text: `second root ${index}` });
     }
 

@@ -1135,10 +1135,12 @@ export class BotService {
 
     const depth = turn.depth + 1;
     // The two drop arms are what a loop looks like from the room's side; the
-    // hourly cap is a tool error the sending bot must read and act on.
+    // hourly cap is a tool error the sending bot must read and act on. Every
+    // count includes the delivery being judged — that is what `busRefusal`
+    // documents, and what makes "at the limit" still pass.
     const refused = busRefusal({
       depth,
-      rootCount: this.deliveriesUnderRoot(turn.rootId),
+      rootCount: this.deliveriesUnderRoot(turn.rootId) + 1,
       recentCount: 0,
     });
     if (refused !== undefined) {
@@ -1148,7 +1150,7 @@ export class BotService {
     const hourly = busRefusal({
       depth: 0,
       rootCount: 0,
-      recentCount: this.recentSendsOf(username),
+      recentCount: this.recentSendsOf(username) + 1,
     });
     if (hourly !== undefined) {
       throw new BotBusError(hourly);
@@ -1161,6 +1163,20 @@ export class BotService {
       const threadId = threadConversationId(username, target.username);
       const existing = this.findConversation(threadId);
       if (existing !== undefined) {
+        // Ids are built from hyphenated usernames, so two different pairs can
+        // spell the same one ("a-b" + "c" and "a" + "b-c"). A room that is not
+        // this pair's is never written into: that would put a private line in
+        // front of a stranger.
+        const isThisPair =
+          existing.members.length === 2 &&
+          existing.members.includes(sender.username) &&
+          existing.members.includes(target.username);
+        if (!isThisPair) {
+          throw new BotBusError(
+            `cannot open a thread between "${username}" and "${input.to}": ` +
+              `the id "${threadId}" belongs to another pair`,
+          );
+        }
         room = existing;
       } else {
         room = this.createThread(sender, target);
@@ -1966,6 +1982,13 @@ export class BotService {
       .all(context.conversationId)
       .find((candidate) => candidate.id === context.deliveryId);
     if (row?.status !== 'running') {
+      return undefined;
+    }
+    // The trigger and the hop count come from the delivery, not from the file:
+    // an engine owns that config directory, so a hand-written file naming a
+    // fresh root at depth 0 would otherwise opt itself out of both loop
+    // backstops while still pointing at a real, running delivery.
+    if (context.rootId !== row.rootId || context.depth !== row.depth) {
       return undefined;
     }
     return context;
