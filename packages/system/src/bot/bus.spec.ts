@@ -75,24 +75,31 @@ describe('addressedBots', () => {
 });
 
 describe('busRefusal', () => {
-  it('refuses a relay past the depth, root, queue and hourly caps', () => {
-    expect(busRefusal({ depth: 5, rootCount: 1, queueLength: 0, recentCount: 0 })).toMatch(
-      /depth/i,
-    );
-    expect(busRefusal({ depth: 1, rootCount: 49, queueLength: 0, recentCount: 0 })).toMatch(/48/);
-    expect(busRefusal({ depth: 1, rootCount: 1, queueLength: 33, recentCount: 0 })).toMatch(
-      /queue/i,
-    );
-    expect(busRefusal({ depth: 1, rootCount: 1, queueLength: 0, recentCount: 61 })).toMatch(
-      /hour/i,
-    );
-    expect(busRefusal({ depth: 1, rootCount: 1, queueLength: 0, recentCount: 0 })).toBeUndefined();
+  it('stops a relay past the depth, root and hourly caps', () => {
+    expect(busRefusal({ depth: 5, rootCount: 1, recentCount: 0 })).toMatch(/depth/i);
+    expect(busRefusal({ depth: 1, rootCount: 49, recentCount: 0 })).toMatch(/48/);
+    expect(busRefusal({ depth: 1, rootCount: 1, recentCount: 61 })).toMatch(/hour/i);
+    expect(busRefusal({ depth: 1, rootCount: 1, recentCount: 0 })).toBeUndefined();
+  });
+
+  it('drops a depth or root overflow rather than calling it a refusal', () => {
+    expect(busRefusal({ depth: 5, rootCount: 1, recentCount: 0 })).toMatch(/not queued/i);
+    expect(busRefusal({ depth: 1, rootCount: 49, recentCount: 0 })).toMatch(/not queued/i);
+    expect(busRefusal({ depth: 1, rootCount: 1, recentCount: 61 })).toMatch(/refused/i);
+  });
+
+  it('does not take a queue length: a full queue drops the oldest, never the newcomer', () => {
+    // The queue cap is the lane's, so a queue-like field must not become an arm
+    // here by accident; this call is the one the lane actually makes.
+    expect(busRefusal({ depth: 1, rootCount: 1, recentCount: 0 })).toBeUndefined();
+    const ignoringExtraFields = busRefusal as (input: unknown) => string | undefined;
+    expect(
+      ignoringExtraFields({ depth: 1, rootCount: 1, recentCount: 0, queueLength: 33 }),
+    ).toBeUndefined();
   });
 
   it('takes a delivery that sits exactly at every limit', () => {
-    expect(
-      busRefusal({ depth: 4, rootCount: 48, queueLength: 32, recentCount: 60 }),
-    ).toBeUndefined();
+    expect(busRefusal({ depth: 4, rootCount: 48, recentCount: 60 })).toBeUndefined();
   });
 
   it('publishes the four caps the lane enforces', () => {

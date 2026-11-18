@@ -86,44 +86,58 @@ export function addressedBots({ text, members, lead, kind }: BotAddressInput): B
   return members.map((username) => ({ username, reason: 'all' }));
 }
 
-/** What a lane knows about one delivery when it decides whether to take it. */
+/**
+ * What a lane knows about one delivery when it decides whether to refuse it.
+ *
+ * There is no queue length here on purpose. A full queue does not reject the
+ * newcomer — the lane drops the oldest queued delivery and notes it — so a count
+ * this function cannot act on would only invite the wrong rule.
+ */
 export interface BusBackstopInput {
   /** Bot-to-bot hops from the trigger; a person's message is depth 0. */
   depth: number;
   /** Deliveries already caused by the same trigger. */
   rootCount: number;
-  /** Work already waiting for the recipient. */
-  queueLength: number;
   /** Deliveries the recipient accepted in the last hour. */
   recentCount: number;
 }
 
 /**
- * Whether a delivery must be refused, as the sentence a person reads when it is.
- * `undefined` means the lane may queue it.
+ * Whether a delivery must stop, as the sentence a person reads, or `undefined`
+ * when the lane may queue it.
  *
- * The sentence names the limit it hit because a dropped ask that only says "busy"
- * leaves the sender guessing whether to retry, wait or split the work. Each cap is
+ * The arms differ in what the caller does with the answer, because the spec's
+ * limits differ in their effect:
+ *
+ * - `depth` past the cap and too many deliveries from one root are dropped: the
+ *   caller does not queue the delivery and writes the sentence as the transcript
+ *   note, so a reader can tell a loop from a bot that stopped talking.
+ * - The hourly cap is a refusal: a bot is still holding its turn when it hits it,
+ *   so the sentence is returned as a tool error and the sender learns to stop and
+ *   say why.
+ *
+ * The queue cap is deliberately absent: it is the lane's, which owns the queue and
+ * can drop the oldest queued row with a note. Refusing the newcomer here would be
+ * the opposite of that effect.
+ *
+ * The sentence names the limit it hit because an ask that only says "busy" leaves
+ * the sender guessing whether to retry, wait or split the work. Each cap is
  * checked against "more than", so a delivery at the limit is still taken: the
  * limit is what a bot may absorb, not one less.
  */
 export function busRefusal({
   depth,
   rootCount,
-  queueLength,
   recentCount,
 }: BusBackstopInput): string | undefined {
   if (depth > BUS_LIMITS.depth) {
-    return `This ask is ${depth} hops from its trigger, past the depth limit of ${BUS_LIMITS.depth}, so it was not delivered.`;
+    return `This ask is ${depth} hops from its trigger, past the depth limit of ${BUS_LIMITS.depth}, so it was not queued.`;
   }
   if (rootCount > BUS_LIMITS.perRoot) {
-    return `This trigger has already caused ${rootCount} deliveries, past its limit of ${BUS_LIMITS.perRoot}, so this one was not delivered.`;
-  }
-  if (queueLength > BUS_LIMITS.queuePerBot) {
-    return `This bot already has ${queueLength} deliveries in its queue, past the limit of ${BUS_LIMITS.queuePerBot}, so it was not accepted.`;
+    return `This trigger has already caused ${rootCount} deliveries, past its limit of ${BUS_LIMITS.perRoot}, so this one was not queued.`;
   }
   if (recentCount > BUS_LIMITS.perBotPerHour) {
-    return `This bot has been sent ${recentCount} deliveries in the last hour, past its limit of ${BUS_LIMITS.perBotPerHour}, so it was not accepted.`;
+    return `This bot has been sent ${recentCount} deliveries in the last hour, past its limit of ${BUS_LIMITS.perBotPerHour}, so it was refused.`;
   }
   return undefined;
 }
