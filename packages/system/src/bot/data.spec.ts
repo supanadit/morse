@@ -462,4 +462,26 @@ describe('bot data maintenance', () => {
     // is reported rather than deleted.
     expect(existsSync(join(botDir, 'orphan', 'workspace'))).toBe(true);
   });
+
+  it('treats the trace directory as Morse’s own, not a lost bot', () => {
+    saveBotRegistry(botDir, { version: 3, bots: [], groups: [], conversations: [] });
+    const traces = join(botDir, 'traces');
+    mkdirSync(traces, { recursive: true });
+    writeFileSync(join(traces, 'dm-forge.json'), '[{"id":"delivery-1"}]');
+    const warn = vi.fn();
+
+    reconcileBotData({
+      root,
+      logger: { ...silentLogger, warn },
+      now: () => new Date(),
+      backup: () => undefined,
+      adapters: {},
+    });
+
+    // A finished turn's history is not a directory to explain: it belongs to the
+    // trace store, so a start must not report it as a bot whose record was lost —
+    // and must not touch the file either.
+    expect(warn).not.toHaveBeenCalled();
+    expect(readFileSync(join(traces, 'dm-forge.json'), 'utf8')).toBe('[{"id":"delivery-1"}]');
+  });
 });
