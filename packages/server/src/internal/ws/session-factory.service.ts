@@ -296,6 +296,9 @@ export class MorseSessionFactory {
               conversationId: event.conversationId,
               entries: event.entries,
               replace: event.replace,
+              // A turn that just settled rides the same event as an append of no
+              // lines: without it the open room would never learn its history.
+              ...(event.traces === undefined ? {} : { traces: event.traces }),
             },
           });
           return;

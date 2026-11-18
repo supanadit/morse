@@ -30,6 +30,7 @@ import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
 import { BUS_LIMITS } from './bus.js';
 import { DELIVERY_TTL_MS } from './deliveries.js';
+import { BotTraceStore, TRACE_TTL_MS } from './traces.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
 import type { BotEngineConfig, BotEngineLayout, BotEngineState, BotMcpServer } from './types.js';
 import { BotBusError, BotService } from './service.js';
@@ -1498,7 +1499,19 @@ describe('BotService rounds', () => {
     });
     expect(entries[1]).toMatchObject({ author: { role: 'bot', name: 'Forge' }, text: 'Done.' });
     // Opening a conversation answers with its newest page, not the whole file.
-    expect(service.open('dm-forge')).toEqual({ entries, hasMore: false });
+    expect(service.open('dm-forge')).toEqual({
+      entries,
+      hasMore: false,
+      // The turn that just ended is that page's history, served with it.
+      traces: [
+        expect.objectContaining({
+          conversationId: 'dm-forge',
+          username: 'forge',
+          name: 'Forge',
+          status: 'done',
+        }),
+      ],
+    });
     expect(events).toContainEqual({
       type: 'transcript',
       conversationId: 'dm-forge',
@@ -2368,6 +2381,238 @@ describe('BotService rounds', () => {
     await settle(service, 'dm-forge');
 
     expect(service.routing('dm-forge')).toBeNull();
+  });
+
+  /**
+   * A finished turn is history beside the transcript: written once when it
+   * settles, pushed into the room that just went quiet, and read back with the
+   * page it belongs to. It is never context — `contextFor` reads transcripts only.
+   */
+  it('records a finished turn and pushes it without reloading', async () => {
+    const { root, adapter, service } = harness({
+      script: () => ({ text: 'Tally — counts every coin', hold: true }),
+    });
+    await service.createBot(botInput());
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+
+    await service.send('dm-forge', 'name a bot');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+    gateway.emit({
+      type: 'agent/tool-start',
+      at: 1,
+      toolCallId: 't1',
+      name: 'read',
+      title: 'brief.md',
+    });
+    gateway.release();
+    await settle(service);
+
+    // One trace, one push: the turn becomes history the moment its lane goes
+    // quiet, and it travels as an append of no lines so the chat does not reload.
+    const pushed = events.filter(
+      (event) => event.type === 'transcript' && event.traces !== undefined,
+    );
+    expect(pushed).toHaveLength(1);
+    const delivery = deliveriesOf(root, 'dm-forge')[0];
+    expect(pushed[0]).toEqual({
+      type: 'transcript',
+      conversationId: 'dm-forge',
+      entries: [],
+      replace: false,
+      traces: [
+        expect.objectContaining({
+          id: delivery?.id,
+          conversationId: 'dm-forge',
+          username: 'forge',
+          name: 'Forge',
+          status: 'done',
+          startedAt: expect.any(Number),
+          endedAt: expect.any(Number),
+        }),
+      ],
+    });
+    // Read back from the room with the steps it took.
+    expect(service.open('dm-forge').traces[0]).toMatchObject({
+      id: delivery?.id,
+      steps: expect.arrayContaining([expect.objectContaining({ kind: 'tool' })]),
+    });
+  });
+
+  it('forgets a room’s traces with its transcript', async () => {
+    const { service } = harness({ script: () => ({ text: 'done' }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    await settle(service);
+    expect(service.open('dm-forge').traces).toHaveLength(1);
+
+    await service.clear('dm-forge');
+
+    expect(service.open('dm-forge').traces).toEqual([]);
+  });
+
+  it('records a failed turn as failed', async () => {
+    const { adapter, service } = harness({ script: () => ({ hold: true }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'name a bot');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+
+    gateway.emit({ type: 'agent/run-end', at: 1, reason: 'error', error: 'the engine fell over' });
+    gateway.release();
+    await settle(service);
+
+    expect(service.open('dm-forge').traces[0]).toMatchObject({ status: 'failed' });
+  });
+
+  it('records a stopped turn as cancelled', async () => {
+    const { adapter, service } = harness({ script: () => ({ hold: true }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    await gatewayFor(adapter, 'forge').prompted;
+    // A withdrawal clears the row at once, so the room looks idle before the
+    // aborted turn has settled; wait for the turn itself to become history.
+    const traced = new Promise<void>((resolve) => {
+      service.subscribe((event) => {
+        if (event.type === 'transcript' && event.traces !== undefined) {
+          resolve();
+        }
+      });
+    });
+
+    service.stop('dm-forge');
+    await traced;
+
+    expect(service.open('dm-forge').traces[0]).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('reads the turns that ended inside the page it returns', async () => {
+    let now = 1_000;
+    const { root, service } = harness({
+      now: () => now,
+      script: () => ({ text: 'done' }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'first');
+    await settle(service);
+    now = 2_000;
+    await service.send('dm-forge', 'second');
+    await settle(service);
+
+    const entries = service.transcript('dm-forge');
+    const [first, second] = deliveriesOf(root, 'dm-forge');
+    // The newest page holds only the second round, so only its turn is history
+    // for it: a page's traces are the ones that ended in its window.
+    const newest = service.open('dm-forge', 2);
+    expect(newest.entries.map((entry) => entry.text)).toEqual(['second', 'done']);
+    expect(newest.traces.map((trace) => trace.id)).toEqual([second?.id]);
+    // An older page ends where the requested line starts, so the answer after it
+    // belongs to the page above, not this one — even at the same millisecond.
+    const older = service.history('dm-forge', entries[3]?.id, 2);
+    expect(older.entries.map((entry) => entry.text)).toEqual(['done', 'second']);
+    expect(older.traces.map((trace) => trace.id)).toEqual([first?.id]);
+    // A page with no lines has no window, and so no history.
+    expect(service.open('dm-empty').traces).toEqual([]);
+  });
+
+  it('keeps a room’s turns when a new discussion starts', async () => {
+    const { service } = harness({ script: () => ({ text: 'done' }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    await settle(service);
+
+    service.newDiscussion('dm-forge');
+
+    // The room's history is what the reader keeps; only the sessions restart.
+    expect(service.open('dm-forge').traces).toHaveLength(1);
+  });
+
+  it('forgets the traces of a deleted bot and a deleted group', async () => {
+    const { service } = harness({ script: () => ({ text: 'done' }) });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send('dm-forge', 'hi');
+    await settle(service);
+    await service.send(group.id, '@forge hi');
+    await settle(service, group.id);
+    expect(service.open('dm-forge').traces).toHaveLength(1);
+    expect(service.open(group.id).traces).toHaveLength(1);
+
+    await service.deleteBot('forge');
+    await service.deleteGroup(group.id);
+
+    expect(service.open('dm-forge').traces).toEqual([]);
+    expect(service.open(group.id).traces).toEqual([]);
+  });
+
+  it('ages finished turns out in the same sweep as the deliveries', async () => {
+    let now = 1_000;
+    const { root, service } = harness({
+      now: () => now,
+      script: () => ({ text: 'done' }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'first');
+    await settle(service);
+    expect(service.open('dm-forge').traces).toHaveLength(1);
+
+    // A week later the next send is the moment the sweep runs again.
+    now += TRACE_TTL_MS + 1;
+    await service.send('dm-forge', 'second');
+    await settle(service);
+
+    // The week-old turn is gone; the one that just settled is the room's history.
+    const [second] = deliveriesOf(root, 'dm-forge');
+    expect(service.open('dm-forge').traces.map((trace) => trace.id)).toEqual([second?.id]);
+    expect(new BotTraceStore(join(root, 'traces')).all('dm-forge')).toHaveLength(1);
+  });
+
+  it('a corrupt turn history never breaks a send or the lane', async () => {
+    let now = 1_000;
+    const { root, service } = harness({
+      now: () => now,
+      script: () => ({ text: 'done' }),
+    });
+    await service.createBot(botInput());
+    mkdirSync(join(root, 'traces'), { recursive: true });
+    writeFileSync(join(root, 'traces', 'dm-forge.json'), '{ not history');
+
+    now += TRACE_TTL_MS + 1;
+    await expect(service.send('dm-forge', 'hi')).resolves.toBeUndefined();
+    await settle(service);
+
+    // Housekeeping reported the file and moved on: the ask was still answered,
+    // and the lane is free for the next one.
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({ text: 'done' });
+    expect(service.routing('dm-forge')).toBeNull();
+  });
+
+  it('writes no trace when a shutdown hands the delivery back', async () => {
+    let calls = 0;
+    const { root, adapter, service } = harness({
+      script: () => {
+        calls += 1;
+        return calls === 1 ? { hold: true } : { text: 'late answer' };
+      },
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'name a bot');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    await service.dispose();
+
+    // The turn was handed back, not written off: nothing calls it history yet,
+    // and the next host owns the ask.
+    expect(new BotTraceStore(join(root, 'traces')).all('dm-forge')).toEqual([]);
+    expect(deliveriesOf(root, 'dm-forge')[0]?.status).toBe('queued');
+
+    const restarted = serviceOn(root, adapter);
+    registerService(restarted);
+    await settle(restarted);
+
+    // It ran again, and only now is its trace written.
+    expect(restarted.open('dm-forge').traces).toHaveLength(1);
   });
 
   it('clearing a room whose only work is queued clears its routing state', async () => {

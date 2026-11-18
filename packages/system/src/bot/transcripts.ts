@@ -9,7 +9,7 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { BotAuthor, BotTranscriptEntry } from '@morse/protocol';
+import type { BotAuthor, BotTranscriptEntry, BotTurnTrace } from '@morse/protocol';
 
 /**
  * Bot conversations' transcripts, kept on disk so a restart does not lose them.
@@ -28,6 +28,26 @@ import type { BotAuthor, BotTranscriptEntry } from '@morse/protocol';
  * sequence of engine sessions.
  */
 export interface TranscriptPage {
+  entries: BotTranscriptEntry[];
+  /** True when older entries remain before the first one returned. */
+  hasMore: boolean;
+  /**
+   * The finished turns that ended inside this page's window, oldest first.
+   *
+   * A trace is history for the reader, not a line of the conversation, so it
+   * travels with the page it belongs to instead of being interleaved into it.
+   */
+  traces: BotTurnTrace[];
+}
+
+/**
+ * One page of lines as the store reads it.
+ *
+ * The store knows transcripts and nothing else, so it cannot answer for the
+ * turns that ended in a page; the service attaches those when it builds the
+ * `TranscriptPage` the chat receives.
+ */
+export interface TranscriptSlice {
   entries: BotTranscriptEntry[];
   /** True when older entries remain before the first one returned. */
   hasMore: boolean;
@@ -55,7 +75,7 @@ export class BotTranscriptStore {
    * The newest page: what the chat shows when it opens. `hasMore` says whether
    * scrolling up has anything to fetch.
    */
-  latest(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptPage {
+  latest(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptSlice {
     const entries = this.readAll(conversationId);
     const size = Math.max(1, limit);
     if (entries.length <= size) {
@@ -73,7 +93,7 @@ export class BotTranscriptStore {
     conversationId: string,
     beforeId: string | undefined,
     limit: number = TRANSCRIPT_PAGE_SIZE,
-  ): TranscriptPage {
+  ): TranscriptSlice {
     const entries = this.readAll(conversationId);
     const size = Math.max(1, limit);
     const end =

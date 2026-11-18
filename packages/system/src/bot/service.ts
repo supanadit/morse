@@ -36,6 +36,7 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
+  BotTurnTrace,
   BotUpdateInput,
   BotUsage,
   PromptImage,
@@ -49,7 +50,8 @@ import { addressedBots, busRefusal, BUS_LIMITS } from './bus.js';
 import { BotDeliveryStore, DELIVERY_TTL_MS } from './deliveries.js';
 import { HOST_PERSON_ID, hostPerson } from './person.js';
 import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
-import { BotTurnTracker } from './turns.js';
+import { BotTraceStore } from './traces.js';
+import { BotTurnTracker, type TurnSnapshot } from './turns.js';
 import { discoverOpenAiCompatibleModels } from './providers.js';
 import type { BotProviderModel } from './types.js';
 import {
@@ -124,7 +126,17 @@ export interface BotEngineAdapter {
 /** Everything a host can observe from the bot layer, for its own fan-out. */
 export type BotEvent =
   | { type: 'roster' }
-  | { type: 'transcript'; conversationId: string; entries: BotTranscriptEntry[]; replace: boolean }
+  | {
+      type: 'transcript';
+      conversationId: string;
+      entries: BotTranscriptEntry[];
+      replace: boolean;
+      /**
+       * The turns that just settled, when this event is their landing: an append
+       * of no lines that tells the open room what history it now has.
+       */
+      traces?: BotTurnTrace[];
+    }
   | { type: 'routing'; conversationId: string; state: BotRoutingState | null }
   | { type: 'usage'; usage: BotUsage };
 
@@ -420,6 +432,13 @@ export class BotService {
    */
   private readonly deliveries: BotDeliveryStore;
   /**
+   * The turns each conversation has finished, beside its transcript.
+   *
+   * A trace is written once, when a turn settles, and never read by a bot:
+   * history for the reader, not context for an engine.
+   */
+  private readonly traces: BotTraceStore;
+  /**
    * The bots running a turn right now, by username.
    *
    * One entry is one lane: a bot appears here exactly while its current delivery
@@ -490,6 +509,7 @@ export class BotService {
     this.registry = loadBotRegistry(options.root);
     this.transcripts = new BotTranscriptStore(options.root);
     this.deliveries = new BotDeliveryStore(join(options.root, 'deliveries'));
+    this.traces = new BotTraceStore(join(options.root, 'traces'));
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
     this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.clock = options.now ?? Date.now;
@@ -639,6 +659,7 @@ export class BotService {
     this.factories.delete(bot.username);
     await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
     this.transcripts.forget(dmConversationId(bot.username));
+    this.traces.forget(dmConversationId(bot.username));
     rmSync(this.botRoot(bot.username), { recursive: true, force: true });
 
     const emptiedGroups: string[] = [];
@@ -690,6 +711,7 @@ export class BotService {
     for (const id of emptiedGroups) {
       this.transcripts.forget(id);
       this.deliveries.forget(id);
+      this.traces.forget(id);
       this.forgetRoomUsage(id);
     }
     const dm = dmConversationId(bot.username);
@@ -961,6 +983,7 @@ export class BotService {
     }
     this.transcripts.forget(id);
     this.deliveries.forget(id);
+    this.traces.forget(id);
     // The room is gone whole, so its counters go with it rather than outliving it.
     this.forgetRoomUsage(id);
     this.registry.groups = this.registry.groups.filter((candidate) => candidate.id !== id);
@@ -1066,10 +1089,12 @@ export class BotService {
 
   /**
    * The newest page, which is what opening a conversation shows. `hasMore` tells
-   * the chat whether scrolling up has anything to fetch.
+   * the chat whether scrolling up has anything to fetch; `traces` are the turns
+   * that ended in it, so an opened room draws its history without a second read.
    */
   open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptPage {
-    return this.transcripts.latest(conversationId, limit);
+    const page = this.transcripts.latest(conversationId, limit);
+    return { ...page, traces: this.tracesIn(conversationId, page.entries) };
   }
 
   /** The page before `beforeId`, for the chat's scroll-to-top. */
@@ -1078,7 +1103,42 @@ export class BotService {
     beforeId: string | undefined,
     limit: number = TRANSCRIPT_PAGE_SIZE,
   ): TranscriptPage {
-    return this.transcripts.before(conversationId, beforeId, limit);
+    const page = this.transcripts.before(conversationId, beforeId, limit);
+    // The page ends where the requested line starts, so a turn that ended after
+    // it belongs to the page above — unless the id was unknown, in which case
+    // the store fell back to the newest page and there is no upper bound.
+    const boundary =
+      beforeId === undefined
+        ? undefined
+        : this.transcripts.all(conversationId).find((entry) => entry.id === beforeId);
+    return {
+      ...page,
+      traces: this.tracesIn(conversationId, page.entries, boundary?.at),
+    };
+  }
+
+  /**
+   * The finished turns whose end falls in one page's window.
+   *
+   * The store keeps them oldest first, so a page's history reads in the order it
+   * happened. A page with no lines has no window at all: a room with no history
+   * is a plain list, not every turn it ever had.
+   */
+  private tracesIn(
+    conversationId: string,
+    entries: BotTranscriptEntry[],
+    beforeAt?: number,
+  ): BotTurnTrace[] {
+    const oldest = entries[0];
+    if (oldest === undefined) {
+      return [];
+    }
+    return this.traces
+      .all(conversationId)
+      .filter(
+        (trace) =>
+          trace.endedAt >= oldest.at && (beforeAt === undefined || trace.endedAt < beforeAt),
+      );
   }
 
   /**
@@ -1571,6 +1631,9 @@ export class BotService {
     }
     this.transcripts.forget(conversationId);
     this.deliveries.forget(conversationId);
+    // The history went with the lines it belongs to; a trace left behind would
+    // be a turn the reader can no longer read the answer to.
+    this.traces.forget(conversationId);
     conversation.sessions = {};
     // Every bot's counters go, not just the last answer's: a stale ring would
     // describe a session that no longer exists. The client learns which rings to
@@ -1770,6 +1833,14 @@ export class BotService {
     } catch (error: unknown) {
       this.options.logger.warn('Failed to prune finished bot deliveries', error);
     }
+    // The room's turns age out in the same pass: one sweep, one hour, so a live
+    // host pays for history once rather than on every message. A corrupt file is
+    // reported and skipped, exactly as a broken queue is.
+    try {
+      this.traces.prune(now);
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to prune finished bot turns', error);
+    }
     this.dropExpiredDeliveries(now);
   }
 
@@ -1884,15 +1955,73 @@ export class BotService {
     } finally {
       // A graceful shutdown hands this turn back to the queue: writing a status
       // here would make the ask look finished, and `dispose`'s requeue would then
-      // find nothing to put back.
-      if (!this.disposed) {
+      // find nothing to put back. One flag for both the status and the trace, so
+      // a turn can never be recorded as history without having settled.
+      const settled = !this.disposed;
+      if (settled) {
         this.deliveries.setStatus(conversationId, delivery.id, status, note);
       }
       this.turnAttachments.delete(delivery.id);
-      // The turn is history now; whoever writes that history reads it here.
-      this.turns.take(delivery.to);
+      // The turn is history now: take the record once, here, so the trace below
+      // is written from what the tracker actually saw.
+      const turn = this.turns.take(delivery.to);
+      // The order below is the settle's, and it matters: the status is written,
+      // a graceful shutdown has had its chance to requeue, and only a delivery
+      // that really settled becomes history. The answer's hand-back belongs
+      // between the status and the trace, so a trace records the turn as it
+      // ended — never before the answer it handed out.
+      try {
+        // A room that was deleted while its turn ended has no history to keep:
+        // the trace would outlive every page that could show it.
+        const room = this.findConversation(conversationId);
+        if (settled && turn !== undefined && room !== undefined) {
+          this.recordTrace(turn, delivery, status);
+        }
+      } catch (error: unknown) {
+        // A turn's history is not worth a stuck lane: the next ask behind this
+        // one must still run, so a failed write is reported and the lane goes on.
+        this.options.logger.warn("Failed to write a finished bot turn's trace", error);
+      }
       this.finishLane(delivery.to, conversationId);
     }
+  }
+
+  /**
+   * Writes one settled turn and pushes it into its room.
+   *
+   * The trace is the delivery's id and the tracker's record, with the bot's
+   * display name as the roster holds it *now*: handles are reusable, and a trace
+   * keeps the name it was written with. The asks keep the state they ended in,
+   * exactly as the tracker recorded them — the delivery files are not re-read,
+   * because a peer's ask may have settled after this turn did.
+   *
+   * The push appends no lines and replaces nothing: the transcript is unchanged,
+   * and a room that already shows the answer only learns what history it now has.
+   */
+  private recordTrace(
+    turn: TurnSnapshot,
+    delivery: BotDelivery,
+    status: BotDeliveryStatus,
+  ): void {
+    const trace: BotTurnTrace = {
+      id: delivery.id,
+      conversationId: turn.conversationId,
+      username: turn.username,
+      name: this.displayNameOf(turn.username),
+      startedAt: turn.startedAt,
+      endedAt: this.clock(),
+      status: traceStatus(status),
+      steps: turn.steps,
+      handoffs: turn.handoffs,
+    };
+    this.traces.add(trace);
+    this.emit({
+      type: 'transcript',
+      conversationId: turn.conversationId,
+      entries: [],
+      replace: false,
+      traces: [trace],
+    });
   }
 
   /**
@@ -3119,6 +3248,15 @@ function handoffState(status: BotDeliveryStatus): BotHandoff['state'] {
     case 'cancelled':
       return 'failed';
   }
+}
+
+/**
+ * How a settled delivery reads as history. A turn only ever ends done, failed or
+ * cancelled; the other delivery states belong to asks that never settled as a
+ * turn at all.
+ */
+function traceStatus(status: BotDeliveryStatus): BotTurnTrace['status'] {
+  return status === 'done' || status === 'failed' ? status : 'cancelled';
 }
 
 /**
