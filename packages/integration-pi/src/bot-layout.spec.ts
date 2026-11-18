@@ -11,9 +11,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BOT_BUS_INSTRUCTION, type BotEngineConfig } from '@morse/system';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { PI_BUS_EXTENSION_FILE, piBusExtensionSource } from './bot-bus-plugin.js';
 import {
   piAgentDir,
   piBotLayout,
+  piBusExtensionPath,
   piMcpPath,
   piSystemPromptPath,
   piWorkspacePath,
@@ -317,6 +319,62 @@ describe('piBotLayout', () => {
     expect(readFileSync(join(botRoot, 'config', 'APPEND_SYSTEM.md'), 'utf8')).toBe(
       `${BOT_BUS_INSTRUCTION}\n`,
     );
+  });
+
+  it('writes the bus extension where pi auto-loads it, readable by its owner only', () => {
+    writePiBotConfig(botRoot, config);
+
+    expect(piBusExtensionPath(botRoot)).toBe(
+      join(botRoot, 'config', 'extensions', PI_BUS_EXTENSION_FILE),
+    );
+    expect(readFileSync(piBusExtensionPath(botRoot), 'utf8')).toBe(piBusExtensionSource());
+    // The file carries no secret, but a bot tree stays private as a whole; pi
+    // loads it as code from the same directory as the auth file.
+    expect(statSync(piBusExtensionPath(botRoot)).mode & 0o777).toBe(0o600);
+  });
+
+  it('puts the bus extension back when it was deleted', () => {
+    writePiBotConfig(botRoot, config);
+    rmSync(piBusExtensionPath(botRoot));
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(piBusExtensionPath(botRoot), 'utf8')).toBe(piBusExtensionSource());
+  });
+
+  it('refreshes the bus extension when its version is not the one this code writes', () => {
+    mkdirSync(join(botRoot, 'config', 'extensions'), { recursive: true });
+    writeFileSync(
+      piBusExtensionPath(botRoot),
+      '// morse-bot-bus:start v0\nexport default function (pi) {}\n// morse-bot-bus:end\n',
+    );
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(piBusExtensionPath(botRoot), 'utf8')).toBe(piBusExtensionSource());
+  });
+
+  it('replaces a bus extension that lost its markers', () => {
+    mkdirSync(join(botRoot, 'config', 'extensions'), { recursive: true });
+    writeFileSync(piBusExtensionPath(botRoot), 'export default function (pi) {}\n');
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(piBusExtensionPath(botRoot), 'utf8')).toBe(piBusExtensionSource());
+  });
+
+  it('leaves an extension file the reader owns alone', () => {
+    const extensions = join(botRoot, 'config', 'extensions');
+    mkdirSync(extensions, { recursive: true });
+    const own = join(extensions, 'reader-tools.ts');
+    writeFileSync(own, 'export default function (pi) {\n  // mine\n}\n');
+
+    piBotLayout.repair?.(botRoot);
+
+    // `extensions/` is pi's slot: Morse writes only its own file there. Another
+    // file in the slot belongs to the reader and is never touched.
+    expect(readFileSync(own, 'utf8')).toBe('export default function (pi) {\n  // mine\n}\n');
+    expect(readFileSync(piBusExtensionPath(botRoot), 'utf8')).toBe(piBusExtensionSource());
   });
 
   it('replaces a settings schema that is not pi when the wizard writes', () => {

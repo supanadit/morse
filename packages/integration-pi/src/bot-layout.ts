@@ -18,6 +18,12 @@ import type {
 } from '@morse/system';
 import { BOT_BUS_INSTRUCTION } from '@morse/system';
 import type { ModelInput } from '@morse/agent';
+import {
+  PI_BUS_EXTENSION_END,
+  PI_BUS_EXTENSION_FILE,
+  PI_BUS_EXTENSION_START,
+  piBusExtensionSource,
+} from './bot-bus-plugin.js';
 import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
 
 /**
@@ -47,10 +53,15 @@ import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js
  *   persona edit rewrites `SYSTEM.md` and must never take the habit with it.
  * - `<botRoot>/workspace/AGENTS.md` — the workspace document, which pi reads as a
  *   context file from the directory it runs in.
+ * - `extensions/morse-bot-bus.ts` — Morse's own pi extension, generated source
+ *   that registers `bot_list` and `bot_send`. It is the one file under
+ *   `extensions/`; anything else there belongs to the reader. The block between
+ *   the `morse-bot-bus` markers is Morse's and `repair` refreshes it when its
+ *   version moves.
  *
- * `keybindings.json`, `extensions/`, `skills/` and `prompts/` are pi's too; Morse
- * writes none of them yet, and a bot inherits no keybindings, extensions, skills
- * or prompts from the user's own configuration.
+ * `keybindings.json`, `skills/` and `prompts/` are pi's too; Morse writes none of
+ * them yet, and a bot inherits no other extensions, keybindings, skills or
+ * prompts from the user's own configuration.
  *
  * The distinction matters (docs.pi.dev/latest/configuration): `AGENTS.md` in the
  * agent dir is *user instructions applied across working directories* — appended
@@ -225,6 +236,31 @@ export function piSystemPromptPath(botRoot: string): string {
   return join(piAgentDir(botRoot), SYSTEM_FILE);
 }
 
+/** The extension directory pi auto-loads from. */
+export function piExtensionsDir(botRoot: string): string {
+  return join(piAgentDir(botRoot), 'extensions');
+}
+
+/** Morse's generated bot-bus extension inside that directory. */
+export function piBusExtensionPath(botRoot: string): string {
+  return join(piExtensionsDir(botRoot), PI_BUS_EXTENSION_FILE);
+}
+
+/**
+ * Whether `text` is Morse's extension at the version this code writes. Only the
+ * markers and the version line are checked: a reader may add a tool after the
+ * end marker, and repair must not take it away. Repair only looks at Morse's own
+ * path, so another file in `extensions/` is the reader's by construction; a file
+ * at Morse's path without the markers is a damaged Morse copy, regenerated.
+ */
+function isMorseBusExtension(text: string | undefined): boolean {
+  return (
+    text !== undefined &&
+    text.includes(`${PI_BUS_EXTENSION_START}\n`) &&
+    text.includes(PI_BUS_EXTENSION_END)
+  );
+}
+
 /**
  * A `settings.json` object whose `$schema` is pi's, keeping every other key.
  *
@@ -312,6 +348,11 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
   // the system prompt, never folded into the persona: the habit is Morse's and a
   // persona edit must not be able to change or erase it.
   writePrivateText(join(agentDir, APPEND_SYSTEM_FILE), BOT_BUS_INSTRUCTION);
+  // extensions/morse-bot-bus.ts — the tools that instruction names. pi loads
+  // every file in that directory with jiti, so this is the whole asset: no
+  // dependency, no import from Morse, and it is rewritten whole when the
+  // generated version changes.
+  writePrivateText(piBusExtensionPath(botRoot), piBusExtensionSource());
   if ((config.agentsMd ?? '').trim().length > 0) {
     writePrivateText(piWorkspacePath(botRoot), config.agentsMd as string);
   }
@@ -394,6 +435,13 @@ export const piBotLayout: BotEngineLayout = {
     const instructionPath = join(agentDir, APPEND_SYSTEM_FILE);
     if (readText(instructionPath) !== `${BOT_BUS_INSTRUCTION}\n`) {
       writePrivateText(instructionPath, BOT_BUS_INSTRUCTION);
+    }
+    // The extension is Morse's file too. A missing one, or one whose markers or
+    // version are not this code's, is regenerated; any other file in
+    // `extensions/` belongs to the reader and is never touched.
+    const extensionPath = piBusExtensionPath(botRoot);
+    if (!isMorseBusExtension(readText(extensionPath))) {
+      writePrivateText(extensionPath, piBusExtensionSource());
     }
     // settings.json existed before pi published a schema, so an older bot's file
     // has no `$schema`. Seeded rather than written: the file is only touched when
