@@ -309,13 +309,15 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   has run (`42s`, `2m 05s`). A row with no new step and nothing running for twenty seconds stops shimmering and
   says it is waiting on the model, so a hard think is not mistaken for a stall.
 - **A finished turn stays as one line.** Above the answer it produced: the bot's name, how long it took, how
-  many steps and who it asked; opening it shows every step and every ask, in the state each ended in. A turn
-  that failed or was cancelled keeps its line too. A room keeps its newest hundred turns for seven days, so
+  many steps and who it asked; opening it shows the steps the turn kept (up to eight) and every ask, each with
+  how far it had got when the turn settled — a peer can answer after the asker's turn is over. A turn that
+  failed or was cancelled keeps its line too. A room keeps its newest hundred turns for seven days, so
   scrolling back finds the work behind an answer without the transcript ever growing a tool log.
 - **A delegated answer comes home.** A bot that asks a peer in a private thread gets that peer's answer said in
   the room the person spoke in — one line naming the bot and the peer it was answering — and it is woken there
-  to reply to the person, unless it did the answering itself or the relay would spend the chain's budget. A
-  delegated turn that failed or was cancelled is said there too, naming the bot and how it ended.
+  to reply to the person, unless it did the answering itself, nobody else is in the room it came from, or the
+  relay would spend the chain's budget. A delegated turn that failed or was cancelled is said there too, naming
+  the bot and how it ended.
 - **A budget you can see.** Usage and context are per bot per conversation: while a bot runs, its presence row
   carries that bot's own ring, and a room with nobody running shows none. The composer keeps one ring, for the
   bot that reported most recently, named so a group's ring says whose window it is. Clicking a ring opens the

@@ -67,7 +67,7 @@ build already writes:
   rewritten whole on every settle, through a temp file renamed into place. A missing file is a room with no
   finished turn yet, not a gap to repair. The store bounds itself: its hourly sweep drops turns older than
   seven days and keeps a room's newest hundred. The directory is the store's own — a sweep reads every
-  `*.json` in it as one conversation's history — so no other file may be written there, and removing a
+  `*.json` in it as one conversation's history — so no other `*.json` may be written there, and removing a
   conversation's file is how a room's history is forgotten. A build that predates the directory never reads
   it, and nothing in it is engine context, so an older Morse loses nothing by ignoring it.
 - **A thread's origin.** `parentId` (the room the asking bot was working in) and `askedBy` (the bot that opened

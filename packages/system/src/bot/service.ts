@@ -1997,9 +1997,10 @@ export class BotService {
    *
    * The trace is the delivery's id and the tracker's record, with the bot's
    * display name as the roster holds it *now*: handles are reusable, and a trace
-   * keeps the name it was written with. The asks keep the state they ended in,
-   * exactly as the tracker recorded them — the delivery files are not re-read,
-   * because a peer's ask may have settled after this turn did.
+   * keeps the name it was written with. Each ask is resolved against its delivery
+   * at this moment, so the trace says how far the ask had got when this turn
+   * settled rather than the `asked` its record was opened with — a peer can
+   * answer after the asker's turn is over.
    *
    * The push appends no lines and replaces nothing: the transcript is unchanged,
    * and a room that already shows the answer only learns what history it now has.
@@ -2018,7 +2019,7 @@ export class BotService {
       endedAt: this.clock(),
       status: traceStatus(status),
       steps: turn.steps,
-      handoffs: turn.handoffs,
+      handoffs: this.tracedHandoffs(turn.handoffs),
     };
     this.traces.add(trace);
     this.emit({
@@ -2027,6 +2028,38 @@ export class BotService {
       entries: [],
       replace: false,
       traces: [trace],
+    });
+  }
+
+  /**
+   * The asks one settled turn leaves behind, each read from the delivery it
+   * created.
+   *
+   * The tracker records a handoff once, as `asked`, and never moves it: the live
+   * row re-derives the state on every push from the delivery, but a trace is
+   * written once and nothing re-reads it. So the state is resolved here through
+   * the same mapping the row uses, and means what it can mean at this instant —
+   * how far the ask had got when the turn settled. A delivery that is gone keeps
+   * the state the turn recorded.
+   */
+  private tracedHandoffs(handoffs: BotHandoff[]): BotHandoff[] {
+    // An ask points at a delivery in the thread it opened, so each room is read
+    // once however many asks point into it.
+    const byRoom = new Map<string, BotDelivery[]>();
+    const rowsOf = (conversationId: string): BotDelivery[] => {
+      const cached = byRoom.get(conversationId);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const rows = this.deliveries.all(conversationId);
+      byRoom.set(conversationId, rows);
+      return rows;
+    };
+    return handoffs.map((handoff) => {
+      const row = rowsOf(handoff.conversationId).find(
+        (candidate) => candidate.id === handoff.deliveryId,
+      );
+      return row === undefined ? handoff : { ...handoff, state: handoffState(row.status) };
     });
   }
 

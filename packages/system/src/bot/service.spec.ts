@@ -3163,6 +3163,21 @@ async function holdTurn(
 }
 
 /**
+ * Waits for a bot's first gateway, for a turn the test did not open itself: an
+ * ask in a thread starts the peer's lane in the background.
+ */
+async function waitForGateway(adapter: FakeAdapter, bot: string): Promise<FakeGateway> {
+  for (let tick = 0; tick < 500; tick += 1) {
+    const factory = adapter.factories.find((candidate) => basename(candidate.botRoot) === bot);
+    if (factory !== undefined && factory.gateways.length > 0) {
+      return gatewayFor(adapter, bot);
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`${bot} never started a turn.`);
+}
+
+/**
  * Holds the turn a person started and answers one a bot started: a bus call
  * happens inside a prompt, so only the turn a test opens has to stay live.
  */
@@ -4424,6 +4439,67 @@ describe('BotService answers', () => {
     ).toMatchObject({ to: 'sage', depth: 4 });
 
     await settle(service, group.id);
+  });
+
+  /**
+   * A trace is written once and never re-read, so its asks are resolved when the
+   * turn settles: how far each had got then, since a peer may answer later.
+   */
+  it('records a failed ask as failed when the asking turn settles', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'loom'
+          ? { text: 'the answer', hold: true }
+          : prompt.includes('answered the ask you sent')
+            ? { text: 'for the person' }
+            : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const ask = await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+
+    // The peer's own turn fails while the asker is still thinking.
+    const loom = await waitForGateway(adapter, 'loom');
+    await loom.prompted;
+    loom.emit({ type: 'agent/run-end', at: 1, reason: 'error', error: 'the engine fell over' });
+    loom.release();
+    await settle(service, ask.conversationId);
+
+    held.release();
+    await settle(service, 'dm-sigil');
+
+    expect(service.open('dm-sigil').traces.at(-1)?.handoffs).toEqual([
+      expect.objectContaining({ username: 'loom', deliveryId: ask.deliveryId, state: 'failed' }),
+    ]);
+  });
+
+  it('records an ask still running as working when the asking turn settles', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'loom'
+          ? { text: 'the answer', hold: true }
+          : prompt.includes('answered the ask you sent')
+            ? { text: 'for the person' }
+            : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const ask = await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    const loom = await waitForGateway(adapter, 'loom');
+    await loom.prompted;
+
+    // The asker settles while the peer is still inside its turn, so the trace
+    // says where the ask had got — not where it later ended up.
+    held.release();
+    await settle(service, 'dm-sigil');
+
+    expect(service.open('dm-sigil').traces.at(-1)?.handoffs).toEqual([
+      expect.objectContaining({ username: 'loom', deliveryId: ask.deliveryId, state: 'working' }),
+    ]);
+
+    loom.release();
+    await settle(service, ask.conversationId);
+    await settle(service, 'dm-sigil');
   });
 });
 
