@@ -664,11 +664,18 @@ export class MorseService {
     });
   }
 
-  /** Stops the round in flight on the open conversation, dropping its queued relays. */
-  stopBotRound(): void {
-    const conversationId = this.bot.activeId();
+  /**
+   * Stops the round in flight in one conversation and drops its queued relays.
+   * Defaults to the conversation in front; a row's menu names its own. With a
+   * username only that bot's work in the conversation stops, so the room's other
+   * bots and its work in other rooms keep running.
+   */
+  stopBotRound(conversationId: string | null = this.bot.activeId(), username?: string): void {
     if (conversationId !== null) {
-      this.transport.send({ type: 'bot/stop', payload: { conversationId } });
+      this.transport.send({
+        type: 'bot/stop',
+        payload: { conversationId, ...(username === undefined ? {} : { username }) },
+      });
     }
   }
 

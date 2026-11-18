@@ -1335,11 +1335,17 @@ export class BotService {
 
   /**
    * Aborts this conversation's running turns and cancels everything queued in it.
-   * Other rooms and other bots keep going: a lane that loses its turn takes its
-   * next delivery, and a bot working elsewhere is untouched.
+   *
+   * With a username, only that bot's work here is withdrawn: its turn in this
+   * room is aborted, and its deliveries waiting here are cancelled. Without one,
+   * every bot in the room stops. Either way other rooms keep going — a lane that
+   * loses its turn takes its next delivery, and a bot working elsewhere is
+   * untouched — and the gateways stay warm.
    */
-  stop(conversationId: string): void {
-    const rows = this.deliveries.all(conversationId);
+  stop(conversationId: string, username?: string): void {
+    const rows = this.deliveries
+      .all(conversationId)
+      .filter((row) => username === undefined || row.to === username);
     const queued = rows.filter((row) => row.status === 'queued');
     const running = rows.filter((row) => row.status === 'running');
     if (queued.length === 0 && running.length === 0) {

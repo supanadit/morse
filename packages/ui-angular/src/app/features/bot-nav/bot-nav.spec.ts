@@ -509,6 +509,72 @@ describe('BotNav', () => {
     expect(bots[1]?.classList.contains('active')).toBe(false);
   });
 
+  it('stops one bot from a group’s menu by its handle, leaving the rest running', async () => {
+    const { fixture, host, morse, sent } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
+    morse.bot.onRouting({
+      conversationId: 'group-workshop',
+      state: {
+        conversationId: 'group-workshop',
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
+        ],
+        queued: [],
+      },
+    });
+    fixture.detectChanges();
+    const stop = vi.spyOn(morse, 'stopBotRound');
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+
+    // One entry per bot the room reports as active, named by handle — a display
+    // name can repeat, a handle cannot.
+    const items = [...host.querySelectorAll('.context-menu .stop-bot')] as HTMLButtonElement[];
+    expect(items.map((one) => one.textContent?.trim())).toEqual(['Stop @forge', 'Stop @sable']);
+
+    items[0]?.click();
+    fixture.detectChanges();
+
+    expect(stop).toHaveBeenCalledWith('group-workshop', 'forge');
+    expect(sent.at(-1)).toEqual({
+      type: 'bot/stop',
+      payload: { conversationId: 'group-workshop', username: 'forge' },
+    });
+    expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('offers a plain stop for a DM’s one bot', async () => {
+    const { fixture, host, morse, sent } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.bot.onRouting({
+      conversationId: 'dm-forge',
+      state: {
+        conversationId: 'dm-forge',
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+        ],
+        queued: [],
+      },
+    });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+
+    const item = menuItem(host, 'stop-bot');
+    expect(item.textContent?.trim()).toBe('Stop');
+    item.click();
+
+    // A DM has only one bot, so the menu names no one; the host still gets its
+    // handle, because the wire speaks handles.
+    expect(sent.at(-1)).toEqual({
+      type: 'bot/stop',
+      payload: { conversationId: 'dm-forge', username: 'forge' },
+    });
+  });
+
   it('asks the host for the roster when nothing is loaded yet', async () => {
     const { sent } = await render();
 

@@ -233,6 +233,17 @@
           >
             New discussion
           </button>
+          @if (routingFor(open.bot)) {
+            <button
+              type="button"
+              class="context-menu-item stop-bot"
+              role="menuitem"
+              [title]="'Stop ' + open.bot.name + ' without disturbing anything else'"
+              (click)="stopDm(open.bot)"
+            >
+              Stop
+            </button>
+          }
           <button
             type="button"
             class="context-menu-item danger delete-bot"
@@ -272,6 +283,18 @@
             (click)="startDiscussion(open.group.id)">
             New discussion
           </button>
+          @for (member of activeMembers(open.group); track member) {
+            <button
+              type="button"
+              class="context-menu-item stop-bot"
+              role="menuitem"
+              [attr.data-username]="member"
+              [title]="'Stop @' + member + ' in this room'"
+              (click)="stopBot(open.group.id, member)"
+            >
+              Stop @{{ member }}
+            </button>
+          }
           <button
             type="button"
             class="context-menu-item edit-group"

@@ -1958,6 +1958,114 @@ describe('BotService rounds', () => {
     });
   });
 
+  it('stops one bot in one conversation and leaves every other bot and room working', async () => {
+    const { root, adapter, service } = harness({
+      script: () => ({ text: 'late', hold: true }),
+    });
+    await service.createBot(botInput({ username: 'sigil', name: 'Sigil' }));
+    await service.createBot(botInput({ username: 'loom', name: 'Loom' }));
+    const shop = service.createGroup({ name: 'Shop', members: ['sigil', 'loom'] });
+    const second = service.createGroup({ name: 'Second', members: ['sigil'] });
+
+    // Two lanes run side by side, and Sigil's is already busy when its other
+    // room asks for it.
+    await service.send(shop.id, '@sigil @loom go');
+    const sigil = gatewayFor(adapter, 'sigil');
+    const loom = gatewayFor(adapter, 'loom');
+    await sigil.prompted;
+    await loom.prompted;
+    await service.send(second.id, '@sigil go');
+    expect(deliveriesOf(root, second.id).map((row) => row.status)).toEqual(['queued']);
+
+    service.stop(shop.id, 'sigil');
+
+    // Only the named bot's delivery in this room was withdrawn; Loom was never
+    // asked to stop, so its turn keeps running.
+    const shopRows = deliveriesOf(root, shop.id);
+    expect(shopRows.find((row) => row.to === 'sigil')?.status).toBe('cancelled');
+    expect(shopRows.find((row) => row.to === 'loom')?.status).toBe('running');
+    expect(sigil.aborted).toBe(true);
+    expect(loom.aborted).toBe(false);
+
+    // The other room's engine is the lane's next gateway; the first one was
+    // aborted and holds nothing any more.
+    for (let tick = 0; tick < 200 && factoryFor(adapter, 'sigil').gateways.length < 2; tick += 1) {
+      await Promise.resolve();
+    }
+    const secondGateway = gatewayFor(adapter, 'sigil', 1);
+    await secondGateway.prompted;
+    // The stopped lane is free, so the bot's work in the other room starts rather
+    // than being cancelled with it.
+    expect(deliveriesOf(root, second.id).map((row) => row.status)).toEqual(['running']);
+    secondGateway.release();
+    gatewayFor(adapter, 'loom').release();
+    await settle(service, shop.id);
+    await settle(service, second.id);
+
+    // A late settle from the aborted engine cannot bring the cancelled row back.
+    expect(deliveriesOf(root, shop.id).find((row) => row.to === 'sigil')?.status).toBe('cancelled');
+  });
+
+  it('stop without a username cancels every bot in that conversation only', async () => {
+    const { root, adapter, service } = harness({
+      script: () => ({ text: 'late', hold: true }),
+    });
+    await twoBots(service);
+    const launch = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const other = service.createGroup({ name: 'Other', members: ['forge'] });
+
+    await service.send(launch.id, '@all go');
+    await gatewayFor(adapter, 'forge').prompted;
+    await gatewayFor(adapter, 'sable').prompted;
+    await service.send(other.id, '@forge queued');
+    expect(deliveriesOf(root, other.id).map((row) => row.status)).toEqual(['queued']);
+
+    service.stop(launch.id);
+    await settle(service, launch.id);
+
+    expect(deliveriesOf(root, launch.id).map((row) => row.status)).toEqual([
+      'cancelled',
+      'cancelled',
+    ]);
+    // The whole room was stopped, not the bots' work everywhere: Forge's lane
+    // takes its next delivery and the other room starts.
+    expect(deliveriesOf(root, other.id).map((row) => row.status)).toEqual(['running']);
+
+    for (let tick = 0; tick < 200 && factoryFor(adapter, 'forge').gateways.length < 2; tick += 1) {
+      await Promise.resolve();
+    }
+    const otherGateway = gatewayFor(adapter, 'forge', 1);
+    await otherGateway.prompted;
+    otherGateway.release();
+    await settle(service, other.id);
+  });
+
+  it('stopping a bot that is not running in the room is a no-op', async () => {
+    const { root, adapter, service } = harness({
+      script: () => ({ text: 'late', hold: true }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, '@forge hold');
+    await gatewayFor(adapter, 'forge').prompted;
+    const before = deliveriesOf(root, group.id);
+    const notes = (): number =>
+      service.transcript(group.id).filter((entry) => entry.author.role === 'system').length;
+    expect(notes()).toBe(0);
+
+    service.stop(group.id, 'sable');
+
+    // Nothing to stop, so nothing changes: no row, no note, no routing event and
+    // no engine told to abort.
+    expect(deliveriesOf(root, group.id)).toEqual(before);
+    expect(notes()).toBe(0);
+    expect(service.routing(group.id)?.active.map((one) => one.target)).toEqual(['Forge']);
+    expect(gatewayFor(adapter, 'forge').aborted).toBe(false);
+
+    gatewayFor(adapter, 'forge').release();
+    await settle(service, group.id);
+  });
+
   it('drops a bot’s oldest queued ask when its queue is full, and keeps the newcomer', async () => {
     const { root, adapter, service } = harness({
       script: ({ call }) => (call === 1 ? { text: 'late', hold: true } : { text: 'ok' }),

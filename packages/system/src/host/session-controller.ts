@@ -749,7 +749,7 @@ export class HostSessionController {
         return;
       }
       case 'bot/stop':
-        bot.stop(message.payload.conversationId);
+        bot.stop(message.payload.conversationId, message.payload.username);
         this.emitBotRoster(bot);
         return;
       case 'bot/newDiscussion':

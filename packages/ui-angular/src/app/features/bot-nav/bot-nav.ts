@@ -188,6 +188,18 @@ export class BotNav {
     return this.routingForConversation(`dm-${bot.username}`);
   }
 
+  /**
+   * The handles of the bots this room says are running. Routing names them by
+   * display name (that is what the reader sees), so each member is matched back
+   * to its handle here: display names can repeat, handles cannot, and only a
+   * handle can be stopped.
+   */
+  protected activeMembers(group: BotConversationSummary): string[] {
+    const active = new Set((this.routing()[group.id]?.active ?? []).map((one) => one.target));
+    const names = this.displayNames();
+    return group.members.filter((member) => active.has(names.get(member) ?? member));
+  }
+
   /** The empty line a section shows: nothing yet, still loading, or nothing matching. */
   protected botsEmpty(): string {
     if (this.filtering()) {
@@ -285,6 +297,17 @@ export class BotNav {
   protected startDiscussion(conversationId: string): void {
     this.closeMenu();
     this.morse.newBotDiscussion(conversationId);
+  }
+
+  /** Stops one bot in the conversation whose menu this is. */
+  protected stopBot(conversationId: string, username: string): void {
+    this.closeMenu();
+    this.morse.stopBotRound(conversationId, username);
+  }
+
+  /** A DM holds one bot, so its stop needs no name in the menu. */
+  protected stopDm(bot: BotSummary): void {
+    this.stopBot(`dm-${bot.username}`, bot.username);
   }
 
   protected newBot(): void {

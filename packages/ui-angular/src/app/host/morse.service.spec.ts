@@ -486,6 +486,20 @@ describe('MorseService bot mode', () => {
     });
   });
 
+  it('stops one bot in a named conversation', () => {
+    const transport = new ScriptedTransport();
+    const morse = mount(transport);
+    // The row's menu acts on its own room, whether or not it is the one in front.
+    morse.openBotConversation('dm-forge');
+
+    morse.stopBotRound('group-workshop', 'sable');
+
+    expect(lastFrame(transport)).toEqual({
+      type: 'bot/stop',
+      payload: { conversationId: 'group-workshop', username: 'sable' },
+    });
+  });
+
   it('starts a fresh discussion on the open conversation', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);

@@ -384,10 +384,10 @@ export interface BotSendMessage extends ClientMessageBase {
   };
 }
 
-/** Stops the round in flight, cancelling its queued relays. */
+/** Stops the round in flight, cancelling its queued relays; a username narrows it to one bot. */
 export interface BotStopMessage extends ClientMessageBase {
   type: 'bot/stop';
-  payload: { conversationId: string };
+  payload: { conversationId: string; username?: string };
 }
 
 /** Starts a fresh engine session for every member, keeping the conversation's history. */

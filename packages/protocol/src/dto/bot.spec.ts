@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BotCreateInput, BotTranscriptEntry } from './bot.js';
+import type { ClientToHostMessage } from '../wire.js';
 import { isClientToHostMessage, isHostToClientMessage } from '../wire.js';
 
 /**
@@ -46,6 +47,9 @@ const CLIENT_BOT_MESSAGES = [
   { type: 'bot/open', payload: { conversationId: 'dm-forge' } },
   { type: 'bot/send', payload: { conversationId: 'dm-forge', text: 'hi' } },
   { type: 'bot/stop', payload: { conversationId: 'dm-forge' } },
+  // A per-bot stop names a handle, not a display name: the host reads it as a
+  // username and leaves every other bot in the room running.
+  { type: 'bot/stop', payload: { conversationId: 'group-launch', username: 'sigil' } },
   { type: 'bot/newDiscussion', payload: { conversationId: 'dm-forge' } },
   { type: 'bot/clear', payload: { conversationId: 'dm-forge' } },
   { type: 'bot/compact', payload: { conversationId: 'dm-forge' } },
@@ -130,6 +134,17 @@ describe('bot wire messages', () => {
 
     expect(isClientToHostMessage(message)).toBe(true);
     expect(message.payload.credentials).toEqual([{ provider: 'anthropic', apiKey: 'sk-probe' }]);
+  });
+
+  it('carries the optional bot handle on a per-bot stop', () => {
+    const message: ClientToHostMessage = {
+      type: 'bot/stop',
+      payload: { conversationId: 'group-launch', username: 'sigil' },
+    };
+
+    // The handle is what the host stops; a display name could repeat in a room.
+    expect(isClientToHostMessage(message)).toBe(true);
+    expect(message.payload.username).toBe('sigil');
   });
 
   it('rejects an unknown bot message type in both directions', () => {
