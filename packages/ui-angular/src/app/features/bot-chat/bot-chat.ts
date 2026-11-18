@@ -82,30 +82,50 @@ export class BotChat {
   });
   /**
    * One timeline of lines and finished turns, ordered by when each belongs in the
-   * conversation: a line's `at` and a turn's `endedAt`.
+   * conversation.
    *
-   * A trace is drawn where its turn settled, which is just above the answer it
-   * produced. Traces come first in the source list so that a tie — a line written
-   * in the same millisecond the turn ended — keeps the record above the line.
+   * A turn is anchored to the answer it produced, not to the moment the host
+   * stamped the trace: the answer is appended when the engine finishes and the
+   * trace is written after it, with I/O in between, so `endedAt` usually follows
+   * the answer's `at`. The anchor is the earliest bot line by that turn's own
+   * handle falling between `startedAt` and `endedAt`; the record is placed right
+   * before it. A turn with no such line — cancelled or failed before writing, or
+   * its answer outside the loaded window — keeps its place by `endedAt`.
    */
   protected readonly timeline = computed<TimelineItem[]>(() => {
     const id = this.morse.bot.activeId();
     if (id === null) {
       return [];
     }
+    const entries = this.morse.bot.transcripts()[id] ?? [];
+    const anchored = new Map<string, BotTurnTrace[]>();
+    const loose: TimelineItem[] = [];
+    for (const trace of this.morse.bot.tracesFor(id)) {
+      const answer = answerFor(trace, entries);
+      if (answer === undefined) {
+        loose.push({ key: `trace:${trace.id}`, at: trace.endedAt, trace });
+        continue;
+      }
+      const held = anchored.get(answer.id) ?? [];
+      held.push(trace);
+      anchored.set(answer.id, held);
+    }
     const items: TimelineItem[] = [
-      ...this.morse.bot.tracesFor(id).map((trace) => ({
-        key: `trace:${trace.id}`,
-        at: trace.endedAt,
-        trace,
-      })),
-      ...(this.morse.bot.transcripts()[id] ?? []).map((entry) => ({
-        key: `entry:${entry.id}`,
-        at: entry.at,
-        entry,
-      })),
+      ...loose,
+      ...entries.map((entry) => ({ key: `entry:${entry.id}`, at: entry.at, entry })),
     ];
-    return items.sort((left, right) => left.at - right.at);
+    items.sort((left, right) => left.at - right.at || itemRank(left) - itemRank(right));
+    const ordered: TimelineItem[] = [];
+    for (const item of items) {
+      const { entry } = item;
+      if (entry !== undefined) {
+        for (const trace of anchored.get(entry.id) ?? []) {
+          ordered.push({ key: `trace:${trace.id}`, at: entry.at, trace });
+        }
+      }
+      ordered.push(item);
+    }
+    return ordered;
   });
   /** Whether the host said older entries exist before the ones held. */
   protected readonly hasOlder = computed(() => {
@@ -456,6 +476,37 @@ export class BotChat {
     }
     this.morse.newBotDiscussion();
   }
+}
+
+/**
+ * The line a finished turn wrote, when the loaded window still holds it.
+ *
+ * The handle is the identity: a display name may repeat, and an older line may
+ * carry no handle at all. The earliest bot line by that handle inside the turn's
+ * own span is the answer — a later line from the same bot belongs to a later turn.
+ */
+function answerFor(
+  trace: BotTurnTrace,
+  entries: BotTranscriptEntry[],
+): BotTranscriptEntry | undefined {
+  let answer: BotTranscriptEntry | undefined;
+  for (const entry of entries) {
+    if (entry.author.role !== 'bot' || entry.author.username !== trace.username) {
+      continue;
+    }
+    if (entry.at < trace.startedAt || entry.at > trace.endedAt) {
+      continue;
+    }
+    if (answer === undefined || entry.at < answer.at) {
+      answer = entry;
+    }
+  }
+  return answer;
+}
+
+/** A trace sorts before an entry at the same instant, so a record sits above its line. */
+function itemRank(item: TimelineItem): number {
+  return item.trace === undefined ? 1 : 0;
 }
 
 /**

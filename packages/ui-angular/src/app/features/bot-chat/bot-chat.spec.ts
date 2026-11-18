@@ -173,11 +173,20 @@ describe('BotChat', () => {
       conversationId: dm.id,
       entries: [
         entry('u1', { role: 'user' }, 'what changed?', 50),
-        entry('a1', { role: 'bot', name: 'Sigil', avatar: 'S' }, 'The **tests** pass.', 120),
+        entry(
+          'a1',
+          { role: 'bot', name: 'Sigil', username: 'sigil', avatar: 'S' },
+          'The **tests** pass.',
+          120,
+        ),
       ],
       replace: true,
       traces: [
         turn({
+          // The host appends the answer and only then stamps the trace, so the
+          // turn's end follows the line it produced.
+          startedAt: 90,
+          endedAt: 130,
           steps: [
             { kind: 'thinking', label: 'Reading the brief…', at: 10, status: 'ok' },
             {
@@ -234,6 +243,61 @@ describe('BotChat', () => {
     const open = vi.spyOn(morse, 'openBotConversation');
     (turnRow.querySelector('.handoff') as HTMLButtonElement).click();
     expect(open).toHaveBeenCalledWith('thread-sigil-loom');
+  });
+
+  it('puts each finished turn above its own answer, not both above the first', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [
+        entry('a1', { role: 'bot', name: 'Sigil', username: 'sigil' }, 'The first answer.', 120),
+        entry('u2', { role: 'user' }, 'and then?', 140),
+        entry('a2', { role: 'bot', name: 'Sigil', username: 'sigil' }, 'The second answer.', 180),
+      ],
+      replace: true,
+      traces: [
+        // Each trace ends after its own answer; the spans do not overlap, so the
+        // handle alone cannot tell them apart — the window does.
+        turn({ id: 'turn-1', startedAt: 90, endedAt: 130 }),
+        turn({ id: 'turn-2', startedAt: 150, endedAt: 190 }),
+      ],
+    });
+    fixture.detectChanges();
+
+    const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
+      one.classList.contains('turn')
+        ? one.getAttribute('data-trace-id')
+        : one.getAttribute('data-entry-id'),
+    );
+    expect(order).toEqual(['turn-1', 'a1', 'u2', 'turn-2', 'a2']);
+  });
+
+  it('keeps a turn with no answer in place by when it ended', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [
+        entry('u1', { role: 'user' }, 'before', 100),
+        entry('u2', { role: 'user' }, 'after', 200),
+      ],
+      replace: true,
+      traces: [turn({ id: 'stopped', status: 'cancelled', startedAt: 110, endedAt: 150 })],
+    });
+    fixture.detectChanges();
+
+    // A cancelled turn wrote no line, so nothing anchors it: it falls where it
+    // ended, still drawn and still in the transcript's own order.
+    const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
+      one.classList.contains('turn')
+        ? one.getAttribute('data-trace-id')
+        : one.getAttribute('data-entry-id'),
+    );
+    expect(order).toEqual(['u1', 'stopped', 'u2']);
+    expect(host.querySelector('.turn-line')).not.toBeNull();
   });
 
   it('draws a finished turn that recorded no steps and no handoffs', async () => {
