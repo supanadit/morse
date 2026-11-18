@@ -34,8 +34,9 @@ Steps live where their data lives, and are ordered by the version they produce (
 idempotent, must tolerate missing files, and must never delete something a later step needs.
 
 - `@morse/system` — `bot/data.ts` (`botDataMigrations()`) holds bot mode's steps: the registry's
-  `username` split, and the move of a bot's model/persona/subagents out of `engine.json` into the engine's
-  own configuration files.
+  `username` split, the move of a bot's model/persona/subagents out of `engine.json` into the engine's
+  own configuration files, and the registry-v3 rewrite that drops every group's `chainCap` and writes
+  back what the reader already reads forward.
 - A future store adds its own module next to its data and registers its steps in the host's maintenance
   call. The runner (`@morse/system` — `data/layout.ts`, `maintainData`) knows nothing about bots.
 

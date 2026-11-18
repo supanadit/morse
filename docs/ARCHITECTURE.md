@@ -286,12 +286,12 @@ nothing else. Two rules follow from that, and both are easy to break by accident
   the label is built where the engine's vocabulary is already translated; the frontend only animates it. An
   unknown tool still reads as a sentence ("Using memory_search …") instead of vanishing.
 
-The round is announced before its engine is warm (`starting`, "Getting started…"), because starting one takes
+A turn is announced before its engine is warm (`starting`, "Getting started…"), because starting one takes
 seconds and a silent chat in those seconds reads as a dropped message.
 
-A round belongs to its conversation, not to the window in front: `bot/routing` names the conversation on the
-envelope, so rounds can run in two rooms at once and a reader moving between them finds each row as the host
-last reported it. A round ending clears exactly its own room, and `bot/open` re-sends the round in flight plus
+A turn belongs to its conversation, not to the window in front: `bot/routing` names the conversation on the
+envelope, so turns can run in two rooms at once and a reader moving between them finds each row as the host
+last reported it. A turn ending clears exactly its own room, and `bot/open` re-sends the turn in flight plus
 every bot's counters for that room (`bot/routing`, one `bot/usage` per bot) — which is what makes a reloaded or
 revisited chat show a bot still working instead of looking broken.
 
@@ -315,8 +315,8 @@ the engine; files are decoded by `packages/system/src/bot/attachments.ts` into t
 `workspace/uploads/`, and the prompt names the relative path — each bot's cwd is its own workspace, so the bot
 opens it with the tools it already has. A bot's attachments are its own by placement, not by isolation: a bot
 with `external_directory` and a shell can read a sibling's uploads. Attachments ride along with
-every prompt in the round, because they are part of the human message; a chained teammate, which only ever sees
-relay text, is told what came with it (`[attached: 1 image, 1 file]`).
+every prompt in the turn, because they are part of the human message; a teammate asked with `bot_send`, which
+only ever sees relay text, is told what came with it (`[attached: 1 image, 1 file]`).
 
 ### What a bot can reach
 
@@ -346,7 +346,7 @@ moment a bot is asked: it hands that bot **everything said since its last turn**
 transcript, framed as a chat log (`[Launch] Sable: …`). `BotSessionRef.toldUpTo` records the last entry a bot was
 given, which is what makes this exact rather than approximate:
 
-- a bot that sat a round out is caught up when it is finally called — including replies that were relayed to
+- a bot that was not addressed is caught up when it is finally called — including replies that were relayed to
   someone else;
 - a bot is never handed its own words back, because those are already its assistant turns in its own session;
 - nothing is sent twice, so a long conversation does not grow its prompts quadratically;
