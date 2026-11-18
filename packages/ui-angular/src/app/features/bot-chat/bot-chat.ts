@@ -54,9 +54,9 @@ interface TimelineItem {
  * turn has run, the work behind it, the words written so far and the bots it asked.
  */
 interface ActingRow {
-  /** Changes with every activity, so Angular rebuilds the row and replays its entrance. */
+  /** The turn's identity: the row is rebuilt when the bot starts another turn. */
   key: string;
-  /** The turn's own identity: stable while steps change, new when the bot starts over. */
+  /** The same turn, used to remember whether its step list is open. */
   turnKey: string;
   kind: BotActivity['kind'];
   label: string;
@@ -226,8 +226,9 @@ export class BotChat {
    * A chat has presence, not a trace: a row is replaced as its bot moves on and
    * gone when its turn ends, so it never enters the transcript the host keeps.
    * A room can have several bots working at once, which is why this is a list:
-   * `key` changes with every new activity, which is what makes Angular rebuild the
-   * node and replay the animation instead of quietly swapping the words.
+   * `key` is the turn's own identity, so a step changes the words inside the row
+   * without rebuilding it — an opened step list and the label's animation last
+   * until the bot starts another turn.
    */
   protected readonly acting = computed<ActingRow[]>(() => {
     const routing = this.routing();
@@ -246,9 +247,12 @@ export class BotChat {
       const usage = id === null ? undefined : this.morse.bot.usageFor(id, entry.username);
       const ring = usage === undefined ? undefined : botUsageInputs(usage);
       const newest = entry.steps.at(-1) ?? activity;
+      // The handle and the start time are the turn: steps arrive under the same
+      // pair, and a new turn is the only thing that changes it.
+      const turnKey = `${entry.username}:${entry.startedAt}`;
       return {
-        key: `${entry.username}:${activity.kind}:${activity.at}`,
-        turnKey: `${entry.username}:${entry.startedAt}`,
+        key: turnKey,
+        turnKey,
         kind: activity.kind,
         label: activity.label,
         name: entry.target,
@@ -562,18 +566,47 @@ export class BotChat {
 
   /**
    * The one line a finished turn collapses to: whose turn it was, how long it
-   * ran, how many steps it took, and whom it asked.
+   * ran, how much work it did, and whom it asked.
    *
    * The name comes from the trace, not the roster: a handle can be reused and a
-   * bot renamed or deleted, and the record still has to say who did the work.
+   * bot renamed or deleted, and the record still has to say who did the work. A
+   * cancelled turn says whether it stopped or never got going, instead of
+   * counting a placeholder step as work.
    */
   protected turnSummary(trace: BotTurnTrace): string {
-    const steps = trace.steps.length === 1 ? '1 step' : `${trace.steps.length} steps`;
-    const parts = [trace.name, turnDuration(trace.endedAt - trace.startedAt), steps];
+    const parts = [trace.name, turnDuration(trace.endedAt - trace.startedAt)];
+    if (trace.status === 'cancelled') {
+      parts.push(trace.steps.length === 0 ? 'could not start' : 'stopped');
+    } else {
+      parts.push(trace.steps.length === 1 ? '1 step' : `${trace.steps.length} steps`);
+    }
     if (trace.handoffs.length > 0) {
       parts.push(`asked ${trace.handoffs.map((handoff) => `@${handoff.username}`).join(', ')}`);
     }
     return parts.join(' · ');
+  }
+
+  /**
+   * A step's outcome in the reader's words. The wire's `ok` and `error` are for
+   * machines; a finished turn has no outcome to report for a step still marked
+   * running, so it says nothing there.
+   */
+  protected stepOutcome(status: BotActivity['status'], finished = false): string | undefined {
+    switch (status) {
+      case 'ok':
+        return 'done';
+      case 'error':
+        return 'failed';
+      case 'running':
+        return finished ? undefined : 'running';
+      default:
+        return undefined;
+    }
+  }
+
+  /** The word a failed turn needs for a reader who cannot see its colour. */
+  protected turnStatus(trace: BotTurnTrace): string | undefined {
+    return trace.status === 'failed' ? 'failed' : undefined;
   }
 
   /** Whether the reader has opened this turn's step list. */

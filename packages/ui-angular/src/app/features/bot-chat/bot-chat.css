@@ -98,9 +98,10 @@
 
 /*
  * The round in flight, drawn where its answer will land: a line of presence, not
- * a status bar and not a message. It is rebuilt on every activity, so the row
- * slides in each time the bot moves on — a chat shows what is happening now, and
- * a trace of it would be history nobody asked to keep.
+ * a status bar and not a message. The row belongs to the turn, so the words
+ * inside it change as the bot moves on while an opened step list stays put — a
+ * chat shows what is happening now, and a trace of it would be history nobody
+ * asked to keep.
  */
 .entry.acting {
   align-items: flex-start;
@@ -177,8 +178,10 @@
 .entry.acting[data-quiet='true'] .dots i {
   opacity: 0.4;
 }
-/* One sentence for assistive tech, drawn for the ear and not for the eye. */
-.live-status {
+/* Written for the ear, not the eye: the row's status sentence, and a word the
+   colours already say (a failed turn) for a reader who cannot see them. */
+.live-status,
+.visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;

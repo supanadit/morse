@@ -261,7 +261,10 @@ describe('BotChat', () => {
     fixture.detectChanges();
     expect(summary.getAttribute('aria-expanded')).toBe('true');
     expect(turnRow.textContent).toContain('Reading the brief…');
-    expect(turnRow.textContent).toContain('ok');
+    // The wire says `ok`/`error`; the record says what happened in words.
+    expect(
+      [...turnRow.querySelectorAll('.step-outcome')].map((one) => one.textContent?.trim()),
+    ).toEqual(['done', 'failed']);
     expect(turnRow.textContent).toContain('Running the tests…');
     expect(turnRow.querySelector('.step-error')?.textContent?.trim()).toBe('exit code 1');
 
@@ -338,13 +341,65 @@ describe('BotChat', () => {
     fixture.detectChanges();
 
     const summary = host.querySelector('.turn-line') as HTMLButtonElement;
-    // Duration is always shown, even when it rounds to none: a cancelled turn is
-    // still a turn, and its record still says how long it ran.
-    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe('Sigil · 0s · 0 steps');
+    // A turn that never got going says so, rather than counting a step it did
+    // not take: the placeholder the live row starts with is not history.
+    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe(
+      'Sigil · 0s · could not start',
+    );
 
     summary.click();
     fixture.detectChanges();
     expect(host.querySelector('.turn')?.textContent).toContain('No steps were recorded');
+  });
+
+  it('says a stopped turn had steps, and words a step’s outcome for a reader', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [
+        entry('a1', { role: 'bot', name: 'Sigil', username: 'sigil' }, 'Only got this far.', 120),
+      ],
+      replace: true,
+      traces: [
+        turn({
+          id: 'stopped',
+          status: 'cancelled',
+          startedAt: 90,
+          endedAt: 120,
+          steps: [
+            { kind: 'thinking', label: 'Reading the brief…', at: 100, status: 'ok' },
+            { kind: 'tool', label: 'Running the tests…', tool: 'bash', at: 110, status: 'running' },
+          ],
+        }),
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe('Sigil · 0s · stopped');
+    (host.querySelector('.turn-line') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    // A step still marked running in a finished record has no outcome to report.
+    expect(
+      [...host.querySelectorAll('.turn .step-outcome')].map((one) => one.textContent?.trim()),
+    ).toEqual(['done']);
+  });
+
+  it('says a failed turn failed in words, not only in its colour', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
+    morse.bot.open(dm.id);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [entry('a1', { role: 'bot', name: 'Sigil' }, 'It broke.', 120)],
+      replace: true,
+      traces: [turn({ status: 'failed', steps: [] })],
+    });
+    fixture.detectChanges();
+
+    const row = host.querySelector('.turn') as HTMLElement;
+    expect(row.querySelector('.turn-line .visually-hidden')?.textContent?.trim()).toBe('failed');
   });
 
   it('keeps the lines of the conversation in front, not another one', async () => {
@@ -484,7 +539,7 @@ describe('BotChat', () => {
     expect(host.querySelector('.transcript')?.textContent).not.toContain('Reading launch-brief.md');
   });
 
-  it('replaces the line as the bot moves on, and animates the new one', async () => {
+  it('keeps one row through a turn, and a new one for the next', async () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);
 
@@ -504,6 +559,7 @@ describe('BotChat', () => {
       }),
     );
     fixture.detectChanges();
+    const firstRow = host.querySelector('.acting') as HTMLElement;
     const first = host.querySelector('.acting .doing-label') as HTMLElement;
 
     morse.bot.onRouting(
@@ -513,8 +569,11 @@ describe('BotChat', () => {
             target: 'Forge',
             username: 'forge',
             activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
-            startedAt: 21,
-            steps: [{ kind: 'writing', label: 'Writing the answer…', at: 21 }],
+            startedAt: 20,
+            steps: [
+              { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
+              { kind: 'writing', label: 'Writing the answer…', at: 21 },
+            ],
             handoffs: [],
           },
         ],
@@ -523,11 +582,31 @@ describe('BotChat', () => {
     );
     fixture.detectChanges();
 
+    // The same turn keeps its row: the label changes inside it, so an open step
+    // list and the label's own animation are not thrown away by every step.
+    expect(host.querySelector('.acting')).toBe(firstRow);
     const second = host.querySelector('.acting .doing-label') as HTMLElement;
     expect(second.textContent?.trim()).toBe('Writing the answer…');
-    // A new node, so the row's entrance animation replays rather than the words
-    // quietly swapping inside a node that never moved.
-    expect(second).not.toBe(first);
+    expect(second).toBe(first);
+
+    // A new turn is a new row, so its entrance plays once for the turn.
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 40 },
+            startedAt: 40,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 40 }],
+            handoffs: [],
+          },
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+    expect(host.querySelector('.acting')).not.toBe(firstRow);
   });
 
   it('shows what the bot is doing now, how long it has run, and the words already written', async () => {
@@ -951,8 +1030,9 @@ describe('BotChat', () => {
       'ash failed',
     ]);
     // The extra detail is visible, but the chip's name is the state sentence the
-    // row is required to say, without the activity text read on top of it.
-    expect(chips[1]?.getAttribute('aria-label')).toBe('sable is working');
+    // row is required to say — plus what the control does — without the activity
+    // text read on top of it.
+    expect(chips[1]?.getAttribute('aria-label')).toBe('sable is working — opens the conversation');
     expect(chips[1]?.querySelector('.chip-doing')?.getAttribute('aria-hidden')).toBe('true');
 
     const opened = vi.spyOn(morse, 'openBotConversation');

@@ -84,6 +84,11 @@
                 (click)="toggleTurn(trace.id)"
               >
                 <span class="turn-summary">{{ turnSummary(trace) }}</span>
+                @if (turnStatus(trace); as status) {
+                  <!-- Failure is in the step outcomes and the tint; a reader who
+                       cannot see the tint still needs the word. -->
+                  <span class="visually-hidden">{{ status }}</span>
+                }
                 <span class="turn-caret" aria-hidden="true">{{
                   isExpanded(trace.id) ? '▾' : '▸'
                 }}</span>
@@ -96,8 +101,8 @@
                   @for (step of trace.steps; track $index) {
                     <div class="step" [attr.data-status]="step.status ?? null">
                       <span class="step-label">{{ step.label }}</span>
-                      @if (step.status; as status) {
-                        <span class="step-outcome">{{ status }}</span>
+                      @if (stepOutcome(step.status, true); as outcome) {
+                        <span class="step-outcome">{{ outcome }}</span>
                       }
                       @if (step.error; as error) {
                         <span class="step-error">{{ error }}</span>
@@ -257,8 +262,8 @@
                     ) {
                       <div class="step" [attr.data-status]="step.status ?? null">
                         <span class="step-label">{{ step.label }}</span>
-                        @if (step.status; as status) {
-                          <span class="step-outcome">{{ status }}</span>
+                        @if (stepOutcome(step.status); as outcome) {
+                          <span class="step-outcome">{{ outcome }}</span>
                         }
                         @if (step.error; as error) {
                           <details class="step-error">
@@ -284,7 +289,7 @@
                     type="button"
                     class="handoff-chip"
                     [attr.data-state]="handoff.state"
-                    [attr.aria-label]="handoffLabel(handoff)"
+                    [attr.aria-label]="handoffLabel(handoff) + ' — opens the conversation'"
                     [title]="'Open the conversation with @' + handoff.username"
                     (click)="openHandoff(handoff)"
                   >
