@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   AgentEvent,
@@ -17,6 +17,8 @@ import type {
 import type {
   BotActivity,
   BotAuthor,
+  BotBusSendInput,
+  BotBusSendResult,
   BotConfig,
   BotDelivery,
   BotDeliveryStatus,
@@ -29,6 +31,7 @@ import type {
   BotOutgoingAttachments,
   BotProviderConfig,
   BotProviderCredentialInput,
+  BotRosterEntry,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
@@ -36,11 +39,12 @@ import type {
   BotUsage,
   PromptImage,
 } from '@morse/protocol';
+import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { activityForEvent, startingActivity } from './activity.js';
 import { writeBotAttachments } from './attachments.js';
-import { addressedBots, BUS_LIMITS } from './bus.js';
+import { addressedBots, busRefusal, BUS_LIMITS } from './bus.js';
 import { BotDeliveryStore, DELIVERY_TTL_MS } from './deliveries.js';
 import { HOST_PERSON_ID, hostPerson } from './person.js';
 import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
@@ -140,6 +144,12 @@ export interface BotServiceOptions {
   idleMs?: number;
   /** How long one bot turn (or one gateway start) may take. Default 5 minutes. */
   turnTimeoutMs?: number;
+  /**
+   * The host's local bot-bus URL, handed to a bot's engine as `MORSE_BUS_URL`.
+   * Absent until the host serves the endpoint, so an engine started without one
+   * simply has no bus to call.
+   */
+  busEndpoint?: string;
   /** Clock, for tests. */
   now?: () => number;
 }
@@ -171,6 +181,30 @@ export type BotControllerPort = Pick<
   | 'usage'
 >;
 
+/**
+ * The slice of `BotService` the host's internal bus endpoint delegates to. A
+ * bearer token names the caller and these are the only two tools a bot may ask
+ * for, so transport code cannot reach a lane, a transcript or a registry write.
+ */
+export type BotBusPort = Pick<BotService, 'resolveBusToken' | 'busRoster' | 'busSend'>;
+
+/**
+ * A bus call the host refuses, with the sentence a bot can act on.
+ *
+ * Not a crash: a self-send, an unknown teammate, a stale turn or a bucket of
+ * hourly chatter is a tool error the plugin hands back inside the bot's turn, so
+ * `reason` is the whole message and the transport returns it rather than a stack.
+ */
+export class BotBusError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'BotBusError';
+    this.reason = reason;
+  }
+}
+
 const DEFAULT_IDLE_MS = 300_000;
 const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 /**
@@ -196,6 +230,12 @@ const CONTEXT_MAX_CHARS = 24_000;
  * bounded without walking every conversation on every message.
  */
 const PRUNE_INTERVAL_MS = 3_600_000;
+/**
+ * How far back the bus counts one bot's own sends. The per-bot hourly cap is a
+ * backstop against a loop, not a quota: it lives in memory because a restart
+ * that forgets an hour of chatter is cheaper than persisting it for every bot.
+ */
+const BUS_SEND_WINDOW_MS = 3_600_000;
 
 /** A provider from a layout, in the shape Edit bot reads back. */
 function toProviderConfig(provider: BotProviderRecord): BotProviderConfig {
@@ -332,6 +372,19 @@ interface PromptOutcome {
   noted?: boolean;
 }
 
+/**
+ * What the plugin reads from a bot's turn file: the room, trigger and hop count
+ * the bot is answering in, without the bot having to name any of them. `expiresAt`
+ * is the turn's own deadline, so a file a crash left behind stops being a turn.
+ */
+interface BusTurnContext {
+  deliveryId: string;
+  conversationId: string;
+  rootId: string;
+  depth: number;
+  expiresAt: number;
+}
+
 /** One live engine session, keyed by (conversation, bot). */
 interface WarmGateway {
   readonly conversationId: string;
@@ -395,6 +448,14 @@ export class BotService {
    */
   private readonly usageByConversation = new Map<string, BotUsage>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
+  /**
+   * The bus token each bot's engine was started with, in both directions: a
+   * token names its bot, and a bot's token is replaced when it is minted again.
+   */
+  private readonly busTokens = new Map<string, string>();
+  private readonly busTokenOf = new Map<string, string>();
+  /** When each bot last sent over the bus, for the hourly backstop. */
+  private readonly busSends = new Map<string, number[]>();
   private readonly idleMs: number;
   private readonly turnTimeoutMs: number;
   private readonly clock: () => number;
@@ -494,7 +555,7 @@ export class BotService {
       mkdirSync(join(botRoot, 'config'), { recursive: true, mode: 0o700 });
       mkdirSync(join(botRoot, 'sessions'), { recursive: true, mode: 0o700 });
       mkdirSync(join(botRoot, 'workspace'), { recursive: true, mode: 0o700 });
-      factory = adapter.createFactory(botRoot, this.engineEnv(record.credentialEnv));
+      factory = adapter.createFactory(botRoot, this.engineEnv(record.credentialEnv, record.username));
       writeBotIdentity(botRoot, record);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
       // The probe runs as the bot itself — its root, its credentials — so a bad
@@ -550,6 +611,10 @@ export class BotService {
     }
     const gateways = [...this.warm.values()].filter((warm) => warm.username === bot.username);
     await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
+    // The bot's engine is stopping, so its bus credential dies with it: a token
+    // that outlived the bot would let a dead plugin's calls through.
+    this.forgetBusToken(bot.username);
+    this.busSends.delete(bot.username);
     const factory = this.factories.get(bot.username);
     this.factories.delete(bot.username);
     await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
@@ -566,7 +631,13 @@ export class BotService {
       if (conversation.lead === bot.username) {
         delete conversation.lead;
       }
-      if (conversation.kind === 'group' && conversation.members.length === 0) {
+      if (
+        conversation.kind === 'thread' ||
+        (conversation.kind === 'group' && conversation.members.length === 0)
+      ) {
+        // A thread is a private pair, so one member left is not a room: it goes
+        // whole, with its history, rather than becoming a one-sided conversation
+        // nobody can answer in. An emptied group has nothing left to name either.
         emptiedGroups.push(conversation.id);
       }
       conversation.updatedAt = this.clock();
@@ -1010,6 +1081,174 @@ export class BotService {
   }
 
   /**
+   * The bots one bot may reach, as `bot_list` reports them: everything this Morse
+   * knows, with the capability signal and never a credential, an engine, a
+   * workspace, a model or a conversation.
+   *
+   * `inRoom` is read from the caller's live turn file, so a bot can tell a
+   * teammate it is already speaking to from one it would have to open a thread
+   * with. A caller with no turn sees `inRoom` false for everyone, which is true:
+   * it is not in a room right now.
+   */
+  busRoster(username: string): BotRosterEntry[] {
+    const turn = this.liveBusTurn(username);
+    const room = turn === undefined ? undefined : this.findConversation(turn.conversationId);
+    return this.registry.bots.map((bot) => {
+      const queued = this.queuedFor(bot.username).length;
+      return {
+        username: bot.username,
+        name: bot.name,
+        description: cappedDescription(bot.description),
+        state: this.lanes.has(bot.username) ? 'working' : queued > 0 ? 'queued' : 'idle',
+        queued,
+        inRoom: room?.members.includes(bot.username) === true,
+      };
+    });
+  }
+
+  /**
+   * Hands one bot's work to another: in the room the caller is answering in when
+   * the target is there, and in a private thread between the two otherwise.
+   *
+   * The line is written before the delivery and the delivery carries its id, so
+   * the recipient's slice has something to end at — and the room shows who asked
+   * whom. A send that a backstop drops is answered in the transcript instead of
+   * queued, and one past the hourly cap is refused outright: the caller is still
+   * inside its turn and can read the sentence and stop.
+   */
+  async busSend(username: string, input: BotBusSendInput): Promise<BotBusSendResult> {
+    if (input.to === username) {
+      throw new BotBusError('a bot cannot send to itself');
+    }
+    const target = this.bot(input.to);
+    if (target === undefined) {
+      throw new BotBusError(`unknown bot "${input.to}"`);
+    }
+    const turn = this.activeBusTurn(username);
+    const current = this.findConversation(turn.conversationId);
+    const sender = this.bot(username);
+    if (current === undefined || sender === undefined || !current.members.includes(username)) {
+      // The room this turn named is gone or no longer this bot's. Guessing
+      // another one is exactly how a line lands where nobody asked for it.
+      throw new BotBusError('no active turn');
+    }
+
+    const depth = turn.depth + 1;
+    // The two drop arms are what a loop looks like from the room's side; the
+    // hourly cap is a tool error the sending bot must read and act on.
+    const refused = busRefusal({
+      depth,
+      rootCount: this.deliveriesUnderRoot(turn.rootId),
+      recentCount: 0,
+    });
+    if (refused !== undefined) {
+      this.note(current.id, refused);
+      return { deliveryId: '', conversationId: current.id, queued: false };
+    }
+    const hourly = busRefusal({
+      depth: 0,
+      rootCount: 0,
+      recentCount: this.recentSendsOf(username),
+    });
+    if (hourly !== undefined) {
+      throw new BotBusError(hourly);
+    }
+
+    let room: ConversationRecord;
+    if (current.members.includes(target.username)) {
+      room = current;
+    } else {
+      const threadId = threadConversationId(username, target.username);
+      const existing = this.findConversation(threadId);
+      if (existing !== undefined) {
+        room = existing;
+      } else {
+        room = this.createThread(sender, target);
+        // The delivery file is written synchronously below, so its room has to be
+        // on disk before it: a restart between the two would leave work pointing
+        // at a conversation the next host has never heard of.
+        await this.saveRegistry();
+        // That write yielded, so a delete could have run during it. A line for a
+        // room nobody owns is worse than a refused send, so both ends are checked
+        // again before anything is written.
+        if (this.bot(username) === undefined) {
+          throw new BotBusError('no active turn');
+        }
+        if (this.bot(target.username) === undefined || this.findConversation(room.id) !== room) {
+          throw new BotBusError(`unknown bot "${input.to}"`);
+        }
+      }
+    }
+
+    const entry = this.append(room.id, botAuthor(sender), `@${target.username} ${input.text}`);
+    const delivery: BotDelivery = {
+      id: newDeliveryId(),
+      rootId: turn.rootId,
+      conversationId: room.id,
+      entryId: entry.id,
+      // A fresh object: the sender's record is the registry's, and a stored
+      // delivery must not share a mutable record with it.
+      from: { type: 'bot', username },
+      to: target.username,
+      kind: input.kind ?? 'message',
+      reason: 'bot',
+      depth,
+      createdAt: this.clock(),
+      status: 'queued',
+    };
+    // The queue backstop is the lane's: a full queue drops its oldest row with a
+    // note, and the newcomer is always taken.
+    this.makeRoomFor(target.username);
+    const busy = this.lanes.has(target.username);
+    this.deliveries.add(delivery);
+    this.recordSend(username);
+    this.pump(target.username);
+    if (busy) {
+      this.emitRouting(room.id);
+    }
+    return { deliveryId: delivery.id, conversationId: room.id, queued: true };
+  }
+
+  /** Where one bot's bus credentials live: the mint and the turn writer agree here. */
+  botBusPaths(username: string): { tokenFile: string; turnFile: string } {
+    // The username names a directory and both credentials are read from it, so
+    // a value that could step outside the data dir is refused here rather than
+    // trusted from a caller.
+    if (!isSafeUsername(username)) {
+      throw new Error(`"${username}" is not a usable username.`);
+    }
+    const config = join(this.botRoot(username), 'config');
+    return {
+      tokenFile: join(config, '.morse-bus-token'),
+      turnFile: join(config, '.morse-bus-turn.json'),
+    };
+  }
+
+  /**
+   * Mints the token a bot's engine is started with, replacing whatever token it
+   * had: one live credential per bot, held in memory, so a restart revokes what
+   * the previous process handed out.
+   */
+  issueBusToken(username: string): string {
+    this.botOrThrow(username);
+    this.forgetBusToken(username);
+    const token = randomBytes(32).toString('hex');
+    this.busTokens.set(token, username);
+    this.busTokenOf.set(username, token);
+    const { tokenFile } = this.botBusPaths(username);
+    writeFileSync(tokenFile, token, { mode: 0o600 });
+    // The mode applies when the file is created; a file a crash left behind keeps
+    // its own, and this credential must be private either way.
+    chmodSync(tokenFile, 0o600);
+    return token;
+  }
+
+  /** The bot a bearer token names, or `undefined` for a token this host never minted. */
+  resolveBusToken(token: string): string | undefined {
+    return this.busTokens.get(token);
+  }
+
+  /**
    * Sends one human message: writes it as a line, fans it out as one delivery per
    * addressee, and starts each bot's lane. It resolves when the work is *queued*,
    * never when it is answered — a bot's turn takes as long as its engine takes,
@@ -1306,6 +1545,10 @@ export class BotService {
     this.turns.clear();
     this.turnAttachments.clear();
     this.announced.clear();
+    // Credentials die with the process that handed them out.
+    this.busTokens.clear();
+    this.busTokenOf.clear();
+    this.busSends.clear();
     this.listeners.clear();
   }
 
@@ -1477,6 +1720,11 @@ export class BotService {
       return 'cancelled';
     }
     try {
+      // The bot's plugin reads this to name the room, trigger and hop count it is
+      // answering in. Written before the prompt and gone when the turn settles, so
+      // a call from a cold probe, a compaction session or after a timeout has
+      // nothing to read and is refused instead of guessing a room.
+      this.writeTurnFile(bot.username, delivery);
       // No prompt prefix: the persona is the engine's own instruction file (pi's
       // agent-dir AGENTS.md, OpenCode's `instructions`), written once by the
       // layout, so the engine applies it exactly as it would for a hand-built
@@ -1516,6 +1764,9 @@ export class BotService {
       }
       return 'failed';
     } finally {
+      // The turn is over however it ended, so its context file goes with it: a
+      // stale one is worse than none, because it still names a room.
+      this.clearTurnFile(bot.username);
       // The composer's ring is per conversation and outlives the turn, so it is
       // refreshed at the turn's end — not awaited: the lane's next delivery must
       // not wait on a counter read, and a failed read leaves the last number.
@@ -1591,6 +1842,141 @@ export class BotService {
   /** The next delivery one bot's lane should take, wherever it is waiting. */
   private oldestQueuedFor(username: string): BotDelivery | undefined {
     return this.queuedFor(username)[0];
+  }
+
+  /**
+   * Opens the private thread between two bots. The id is the sorted pair, so
+   * either bot asking again lands in the same room, and its title follows that
+   * same member order — a thread is named for the two bots, not for the sender.
+   */
+  private createThread(sender: BotRecord, target: BotRecord): ConversationRecord {
+    const members =
+      sender.username < target.username
+        ? [sender.username, target.username]
+        : [target.username, sender.username];
+    const conversation: ConversationRecord = {
+      id: threadConversationId(sender.username, target.username),
+      kind: 'thread',
+      title: members.map((username) => this.displayNameOf(username)).join(' · '),
+      members,
+      sessions: {},
+      updatedAt: this.clock(),
+    };
+    this.registry.conversations.push(conversation);
+    return conversation;
+  }
+
+  /**
+   * How much work one trigger has already caused, across every room it reached.
+   * Counted from the delivery files rather than from memory, so a restart keeps
+   * the per-root cap honest.
+   */
+  private deliveriesUnderRoot(rootId: string): number {
+    let count = 0;
+    for (const conversation of this.registry.conversations) {
+      for (const row of this.deliveries.all(conversation.id)) {
+        if (row.rootId === rootId) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }
+
+  /** One bot's sends inside the hour, with aged-out ones dropped as they are read. */
+  private recentSendsOf(username: string): number {
+    const cutoff = this.clock() - BUS_SEND_WINDOW_MS;
+    const recent = (this.busSends.get(username) ?? []).filter((at) => at > cutoff);
+    this.busSends.set(username, recent);
+    return recent.length;
+  }
+
+  private recordSend(username: string): void {
+    const recent = this.busSends.get(username) ?? [];
+    recent.push(this.clock());
+    this.busSends.set(username, recent);
+  }
+
+  private forgetBusToken(username: string): void {
+    const token = this.busTokenOf.get(username);
+    if (token === undefined) {
+      return;
+    }
+    this.busTokens.delete(token);
+    this.busTokenOf.delete(username);
+  }
+
+  /**
+   * Writes the context file a bot's plugin reads during one turn: the delivery,
+   * the room it names, the trigger it descends from and the hop count — none of
+   * which the bot has to state, so none of which it can get wrong.
+   */
+  private writeTurnFile(username: string, delivery: BotDelivery): void {
+    const { turnFile } = this.botBusPaths(username);
+    const context: BusTurnContext = {
+      deliveryId: delivery.id,
+      conversationId: delivery.conversationId,
+      rootId: delivery.rootId,
+      depth: delivery.depth,
+      expiresAt: this.clock() + this.turnTimeoutMs,
+    };
+    writeFileSync(turnFile, JSON.stringify(context), { mode: 0o600 });
+    // Same rule as the token: a file left by a crash must not stay group-readable.
+    chmodSync(turnFile, 0o600);
+  }
+
+  private clearTurnFile(username: string): void {
+    rmSync(this.botBusPaths(username).turnFile, { force: true });
+  }
+
+  private readTurnFile(username: string): BusTurnContext | undefined {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(this.botBusPaths(username).turnFile, 'utf8'));
+    } catch {
+      // Missing, half-written or unreadable: one refusal, and no room to guess.
+      return undefined;
+    }
+    return isBusTurnContext(parsed) ? parsed : undefined;
+  }
+
+  /**
+   * The turn a bus call belongs to, or nothing. Three things must agree: the file
+   * exists and is in time, and its delivery is the one this bot's lane is running.
+   * The last check is what keeps a file a crash left behind from pointing a send
+   * at a room this bot is no longer answering in.
+   */
+  private liveBusTurn(username: string): BusTurnContext | undefined {
+    const context = this.readTurnFile(username);
+    if (context === undefined || context.expiresAt <= this.clock()) {
+      return undefined;
+    }
+    const running = this.turns.get(username);
+    if (
+      running === undefined ||
+      running.deliveryId !== context.deliveryId ||
+      running.conversationId !== context.conversationId
+    ) {
+      return undefined;
+    }
+    // The store decides whether that delivery is still owed a turn: a stop or a
+    // withdrawal marks it terminal at once, while its engine may still be
+    // winding down and could still call.
+    const row = this.deliveries
+      .all(context.conversationId)
+      .find((candidate) => candidate.id === context.deliveryId);
+    if (row?.status !== 'running') {
+      return undefined;
+    }
+    return context;
+  }
+
+  private activeBusTurn(username: string): BusTurnContext {
+    const context = this.liveBusTurn(username);
+    if (context === undefined) {
+      throw new BotBusError('no active turn');
+    }
+    return context;
   }
 
   /** Withdraws every delivery in a conversation, running and waiting alike. */
@@ -1677,6 +2063,11 @@ export class BotService {
           `Thinking level "${level}" is not available on this model — using the engine default.`,
         );
       }
+      // The engine is up, so the credential its plugin sends with is minted now.
+      // In this `try` on purpose: a token that cannot be written is a startup
+      // failure, and the gateway above must be disposed rather than leaked.
+      // Re-minting replaces any token from an earlier start: one bot, one token.
+      this.issueBusToken(bot.username);
     } catch (error) {
       await gateway.dispose().catch((disposalError: unknown) => {
         this.options.logger.warn(
@@ -2247,7 +2638,22 @@ export class BotService {
     return `${lines.join('\n')}\n(open them from your workspace; they are not pasted here)`;
   }
 
-  private engineEnv(envVars: readonly string[]): NodeJS.ProcessEnv {
+  /**
+   * The environment an engine factory gets.
+   *
+   * The host environment is spread whole, not narrowed to the bot's declared
+   * variables: a child process needs PATH, HOME and the platform's own variables
+   * to start at all (the integrations' env builders document the same hazard),
+   * and what a bot may *use* is confined by the integration pointing its config
+   * and session directories at the bot's root. The declared names are copied
+   * explicitly so a future host that scopes its base cannot silently drop them.
+   *
+   * A bot also gets the three bus names, which are its own two credential paths
+   * plus the host's endpoint. A caller with no bot (the wizard's probe of an
+   * engine that does not exist yet) passes no username and gets none: there is no
+   * bot directory to read a token from.
+   */
+  private engineEnv(envVars: readonly string[], username?: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const name of envVars) {
       const value = process.env[name];
@@ -2255,6 +2661,15 @@ export class BotService {
         env[name] = value;
       }
     }
+    if (username === undefined) {
+      return env;
+    }
+    const paths = this.botBusPaths(username);
+    if (this.options.busEndpoint !== undefined) {
+      env['MORSE_BUS_URL'] = this.options.busEndpoint;
+    }
+    env['MORSE_BUS_TOKEN_FILE'] = paths.tokenFile;
+    env['MORSE_BUS_TURN_FILE'] = paths.turnFile;
     return env;
   }
 
@@ -2266,7 +2681,7 @@ export class BotService {
     }
     const created = adapter.createFactory(
       this.botRoot(bot.username),
-      this.engineEnv(bot.credentialEnv),
+      this.engineEnv(bot.credentialEnv, bot.username),
     );
     this.factories.set(bot.username, created);
     return created;
@@ -2371,6 +2786,36 @@ function activityKey(conversationId: string, username: string): string {
  */
 function newDeliveryId(): string {
   return randomBytes(8).toString('hex');
+}
+
+/**
+ * The one conversation id a pair of bots shares, whichever of them is sending:
+ * the usernames sorted, so `bot_send` finds the same thread from either side.
+ */
+function threadConversationId(left: string, right: string): string {
+  return left < right ? `thread-${left}-${right}` : `thread-${right}-${left}`;
+}
+
+/** The roster's description, cut to the cap a whole-list fetch can afford. */
+function cappedDescription(description: string): string {
+  return description.length <= BOT_DESCRIPTION_LIMIT
+    ? description
+    : description.slice(0, BOT_DESCRIPTION_LIMIT);
+}
+
+/** Whether a parsed turn file is the shape the plugin and the host agreed on. */
+function isBusTurnContext(value: unknown): value is BusTurnContext {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const turn = value as Record<string, unknown>;
+  return (
+    typeof turn['deliveryId'] === 'string' &&
+    typeof turn['conversationId'] === 'string' &&
+    typeof turn['rootId'] === 'string' &&
+    typeof turn['depth'] === 'number' &&
+    typeof turn['expiresAt'] === 'number'
+  );
 }
 
 /** The transcript line a relay arrives as: who, in which conversation, said what. */

@@ -62,14 +62,15 @@ export interface BotSessionRef {
 }
 
 /**
- * One thread as Morse sees it: a DM has a single member, a group many. `sessions`
- * maps each participant's bot name to its engine session for this thread, so a
- * restart resumes where the reader left instead of forking a second session.
+ * One thread as Morse sees it: a DM has a single member, a group many, and a
+ * private bot-to-bot thread exactly two. `sessions` maps each participant's bot
+ * name to its engine session for this thread, so a restart resumes where the
+ * reader left instead of forking a second session.
  */
 export interface ConversationRecord {
   id: string;
-  kind: 'dm' | 'group';
-  /** The group's name, or the bot's display name for a DM. */
+  kind: 'dm' | 'group' | 'thread';
+  /** The group's name, the bot's display name for a DM, or both names for a thread. */
   title: string;
   /** Member bot usernames; a DM has exactly one. */
   members: string[];

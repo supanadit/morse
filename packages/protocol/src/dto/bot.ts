@@ -29,10 +29,13 @@ export interface BotSummary {
   warm: boolean;
 }
 
-/** One conversation in the roster: a DM with a bot, or a group of bots. */
+/**
+ * One conversation in the roster: a DM with a bot, a group of bots, or the
+ * private thread two bots opened to work something out between themselves.
+ */
 export interface BotConversationSummary {
   id: string;
-  kind: 'dm' | 'group';
+  kind: 'dm' | 'group' | 'thread';
   title: string;
   /** Member bot usernames; an unaddressed group fan-out asks them in this order. */
   members: string[];

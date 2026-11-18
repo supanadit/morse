@@ -24,13 +24,15 @@ import type {
   WorkspaceRef,
 } from '@morse/agent';
 import type { BotCreateInput, BotDelivery, BotMcpServerInput, BotRoutingState, PromptImage } from '@morse/protocol';
+import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
+import { BUS_LIMITS } from './bus.js';
 import { DELIVERY_TTL_MS } from './deliveries.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
 import type { BotEngineConfig, BotEngineLayout, BotEngineState, BotMcpServer } from './types.js';
-import { BotService } from './service.js';
+import { BotBusError, BotService } from './service.js';
 import { loadBotRegistry, readBotIdentity, saveBotRegistry } from './store.js';
 import type { BotEngineCapabilities, BotRecord } from './types.js';
 
@@ -551,6 +553,8 @@ interface HarnessOptions {
   thinkingUnsupported?: boolean;
   sessionUsage?: Partial<AgentSessionState>;
   compactUnsupported?: boolean;
+  /** The host's local bot-bus URL, handed to each bot's engine. */
+  busEndpoint?: string;
 }
 
 interface Harness {
@@ -570,6 +574,7 @@ function serviceOn(root: string, adapter: FakeAdapter, options: HarnessOptions =
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
     ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.busEndpoint === undefined ? {} : { busEndpoint: options.busEndpoint }),
   });
 }
 
@@ -2428,6 +2433,496 @@ describe('BotService sessions', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(gateway.disposed).toBe(true);
     expect(service.roster().bots[0]?.warm).toBe(false);
+  });
+});
+
+/**
+ * The two bots the bus tests talk through, with the spec's own example names:
+ * Sigil is the caller, Loom the teammate it reaches.
+ */
+async function busBots(service: BotService): Promise<void> {
+  await service.createBot(
+    botInput({ username: 'sigil', name: 'Sigil', description: 'Crafts bot names & identities' }),
+  );
+  await service.createBot(
+    botInput({ username: 'loom', name: 'Loom', description: 'Weaves long threads' }),
+  );
+}
+
+/**
+ * Waits until a bot's turn file exists — the same signal a live engine's tool
+ * call would have. The file is written before the prompt, so a turn that has one
+ * is a turn the bus may answer inside.
+ */
+async function waitForTurn(service: BotService, username: string): Promise<void> {
+  const { turnFile } = service.botBusPaths(username);
+  for (let tick = 0; tick < 500; tick += 1) {
+    if (existsSync(turnFile)) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`${username}'s turn never wrote its turn file.`);
+}
+
+/**
+ * Starts one bot's turn and holds it open, so a bus call has the live turn the
+ * real plugin always has. Returns the gateway a test releases (or aborts) to let
+ * the lane finish.
+ */
+async function holdTurn(
+  service: BotService,
+  adapter: FakeAdapter,
+  conversationId: string,
+  username: string,
+  index = 0,
+): Promise<FakeGateway> {
+  await service.send(conversationId, `@${username} hold this turn`);
+  await waitForTurn(service, username);
+  return gatewayFor(adapter, username, index);
+}
+
+/**
+ * Holds the turn a person started and answers one a bot started: a bus call
+ * happens inside a prompt, so only the turn a test opens has to stay live.
+ */
+const holdsPersonTurns: Script = ({ prompt }) =>
+  prompt.startsWith('[From ') ? { text: 'answered' } : { text: 'held', hold: true };
+
+describe('BotService bus', () => {
+  it('lists the roster with a capped description and no private fields', async () => {
+    const { service } = harness();
+    await busBots(service);
+    await service.createBot(
+      botInput({
+        username: 'sage',
+        name: 'Sage',
+        description: 'x'.repeat(BOT_DESCRIPTION_LIMIT + 50),
+      }),
+    );
+
+    const roster = service.busRoster('sigil');
+    const loom = roster.find((entry) => entry.username === 'loom');
+    const sage = roster.find((entry) => entry.username === 'sage');
+
+    // Only what a sender decides on: no credentials, engine, workspace or rooms.
+    expect(loom).toEqual({
+      username: 'loom',
+      name: 'Loom',
+      description: 'Weaves long threads',
+      state: 'idle',
+      queued: 0,
+      inRoom: false,
+    });
+    expect(loom).not.toHaveProperty('credentialEnv');
+    expect(loom).not.toHaveProperty('engineKind');
+    expect(sage?.description).toHaveLength(BOT_DESCRIPTION_LIMIT);
+    expect(roster.map((entry) => entry.username)).toEqual(['sigil', 'loom', 'sage']);
+  });
+
+  it('reports a bot as working while its lane runs and queued while work waits', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.send('dm-sigil', 'one more thing');
+
+    const roster = service.busRoster('sigil');
+    expect(roster.find((entry) => entry.username === 'sigil')).toMatchObject({
+      state: 'working',
+      queued: 1,
+    });
+    expect(roster.find((entry) => entry.username === 'loom')).toMatchObject({
+      state: 'idle',
+      queued: 0,
+    });
+
+    service.stop('dm-sigil');
+    await settle(service, 'dm-sigil');
+  });
+
+  it('sends into the room the caller is answering in', async () => {
+    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    const held = await holdTurn(service, adapter, group.id, 'sigil');
+
+    const result = await service.busSend('sigil', { to: 'loom', text: 'name it' });
+
+    expect(result).toMatchObject({ conversationId: group.id, queued: true });
+    const rows = deliveriesOf(root, group.id);
+    const sent = rows.find((row) => row.id === result.deliveryId);
+    // The room shows who asked whom, and the delivery points at that line.
+    const line = service
+      .transcript(group.id)
+      .find((entry) => entry.id === sent?.entryId);
+    expect(line).toMatchObject({
+      author: { role: 'bot', name: 'Sigil', username: 'sigil' },
+      text: '@loom name it',
+    });
+    expect(sent).toMatchObject({
+      conversationId: group.id,
+      entryId: line?.id,
+      from: { type: 'bot', username: 'sigil' },
+      to: 'loom',
+      kind: 'message',
+      reason: 'bot',
+      depth: 1,
+    });
+    // One trigger, one root: the send descends from the turn it was made in.
+    expect(sent?.rootId).toBe(rows[0]?.rootId);
+    expect(rows[0]?.depth).toBe(0);
+
+    held.release();
+    await settle(service, group.id);
+  });
+
+  it('opens a thread when the target is not in the caller’s room', async () => {
+    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const result = await service.busSend('sigil', { to: 'loom', text: 'outside' });
+
+    const thread = service.roster().conversations.find((one) => one.id === result.conversationId);
+    expect(result).toMatchObject({ conversationId: 'thread-loom-sigil', queued: true });
+    // The pair, sorted, so either bot's send finds the same room — and the title
+    // follows that same member order.
+    expect(thread).toMatchObject({
+      id: 'thread-loom-sigil',
+      kind: 'thread',
+      title: 'Loom · Sigil',
+      members: ['loom', 'sigil'],
+    });
+    const [sent] = deliveriesOf(root, 'thread-loom-sigil');
+    expect(sent).toMatchObject({
+      conversationId: 'thread-loom-sigil',
+      from: { type: 'bot', username: 'sigil' },
+      to: 'loom',
+      reason: 'bot',
+      depth: 1,
+    });
+    // A thread has content from its first line.
+    expect(
+      service.transcript('thread-loom-sigil').find((entry) => entry.id === sent?.entryId),
+    ).toMatchObject({ text: '@loom outside' });
+
+    service.stop('dm-sigil');
+    service.stop('thread-loom-sigil');
+    await settle(service, 'dm-sigil');
+    await settle(service, 'thread-loom-sigil');
+  });
+
+  it('reuses one thread when both bots send again', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot, prompt }) => {
+        const fromBot = prompt.startsWith('[From ');
+        return bot === 'sigil'
+          ? { text: 'sigil here', hold: !fromBot }
+          : { text: 'loom here', hold: fromBot };
+      },
+    });
+    await busBots(service);
+
+    // Sigil asks from its own DM, so the room it answers in is not Loom's.
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const first = await service.busSend('sigil', { to: 'loom', text: 'first' });
+    await waitForTurn(service, 'loom');
+    // Loom answers from inside its own held turn: the other direction, same room.
+    const second = await service.busSend('loom', { to: 'sigil', text: 'second' });
+    expect(second.conversationId).toBe(first.conversationId);
+
+    gatewayFor(adapter, 'sigil', 0).release();
+    gatewayFor(adapter, 'loom', 0).release();
+    await settle(service, first.conversationId);
+    await settle(service, 'dm-sigil');
+
+    // A second turn, a second send from Sigil: the same pair is still one room.
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const third = await service.busSend('sigil', { to: 'loom', text: 'third' });
+    expect(third.conversationId).toBe(first.conversationId);
+    expect(service.roster().conversations.filter((one) => one.kind === 'thread')).toHaveLength(1);
+    expect(service.roster().conversations.find((one) => one.id === first.conversationId)).toMatchObject(
+      { kind: 'thread', members: ['loom', 'sigil'] },
+    );
+
+    service.stop('dm-sigil');
+    service.stop(first.conversationId);
+    await settle(service, 'dm-sigil');
+    await settle(service, first.conversationId);
+  });
+
+  it('takes a thread with a bot that is deleted', async () => {
+    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const thread = await service.busSend('sigil', { to: 'loom', text: 'see you' });
+
+    await service.deleteBot('loom');
+
+    // A thread is a private pair: one member left is not a room, so it goes with
+    // the bot instead of becoming a one-sided conversation nobody can answer in.
+    expect(service.roster().conversations.some((one) => one.id === thread.conversationId)).toBe(
+      false,
+    );
+    expect(loadBotRegistry(root).conversations.map((one) => one.id)).toEqual(['dm-sigil']);
+    expect(deliveriesOf(root, thread.conversationId)).toEqual([]);
+
+    service.stop('dm-sigil');
+    await settle(service, 'dm-sigil');
+  });
+
+  it('refuses a self-send with a readable reason', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const refusal = await service
+      .busSend('sigil', { to: 'sigil', text: 'me' })
+      .catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(BotBusError);
+    expect((refusal as BotBusError).reason).toBe('a bot cannot send to itself');
+
+    service.stop('dm-sigil');
+    await settle(service, 'dm-sigil');
+  });
+
+  it('fails a send to a bot that was deleted, and the lane keeps going', async () => {
+    const { adapter, service } = harness({
+      script: ({ call }) => (call === 1 ? { text: 'held', hold: true } : { text: 'answered' }),
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    await service.deleteBot('loom');
+    await expect(service.busSend('sigil', { to: 'loom', text: 'gone' })).rejects.toThrow(/unknown/i);
+
+    // The refusal is the caller's problem, not the lane's: the turn it happened
+    // inside still settles, and the bot's next message is answered.
+    held.release();
+    await settle(service, 'dm-sigil');
+    await service.send('dm-sigil', 'again');
+    await settle(service, 'dm-sigil');
+    expect(service.transcript('dm-sigil').filter((entry) => entry.author.role === 'bot')).toHaveLength(
+      2,
+    );
+  });
+
+  it('writes a token file only its own bot can use', async () => {
+    const { service } = harness();
+    await busBots(service);
+
+    const token = service.issueBusToken('sigil');
+    const other = service.issueBusToken('loom');
+
+    expect(service.resolveBusToken(token)).toBe('sigil');
+    expect(service.resolveBusToken(other)).toBe('loom');
+    expect(service.resolveBusToken('not-a-token')).toBeUndefined();
+    const paths = service.botBusPaths('sigil');
+    if (process.platform !== 'win32') {
+      expect(statSync(paths.tokenFile).mode & 0o777).toBe(0o600);
+    }
+    expect(readFileSync(paths.tokenFile, 'utf8')).toBe(token);
+
+    // One live credential per bot: minting again retires the old token.
+    const again = service.issueBusToken('sigil');
+    expect(service.resolveBusToken(again)).toBe('sigil');
+    expect(service.resolveBusToken(token)).toBeUndefined();
+    expect(service.resolveBusToken(other)).toBe('loom');
+  });
+
+  it('mints a bot its own token when its engine starts', async () => {
+    const { service } = harness({ script: () => ({ text: 'ok' }) });
+    await busBots(service);
+
+    await service.send('dm-sigil', 'hi');
+    await settle(service, 'dm-sigil');
+
+    const token = readFileSync(service.botBusPaths('sigil').tokenFile, 'utf8');
+    expect(service.resolveBusToken(token)).toBe('sigil');
+    // Loom's engine never started, so no token of its own exists.
+    expect(existsSync(service.botBusPaths('loom').tokenFile)).toBe(false);
+  });
+
+  it('hands a bot the bus names and leaves the engine probe without them', async () => {
+    const { root, adapter, service } = harness({ busEndpoint: 'http://127.0.0.1:4319' });
+    await service.createBot(
+      botInput({ username: 'sigil', name: 'Sigil', description: 'Crafts bot names & identities' }),
+    );
+
+    const env = adapter.envs[0];
+    expect(env?.['MORSE_BUS_URL']).toBe('http://127.0.0.1:4319');
+    expect(env?.['MORSE_BUS_TOKEN_FILE']).toBe(join(root, 'sigil', 'config', '.morse-bus-token'));
+    expect(env?.['MORSE_BUS_TURN_FILE']).toBe(join(root, 'sigil', 'config', '.morse-bus-turn.json'));
+
+    // The wizard's probe asks about an engine, not about a bot, so it has no bot
+    // directory whose token it could read and no room it could answer in.
+    await service.probeModels('fake', [], [{ provider: 'anthropic', apiKey: 'sk-ant' }]);
+    const probe = adapter.envs.at(-1);
+    expect(probe?.['MORSE_BUS_URL']).toBeUndefined();
+    expect(probe?.['MORSE_BUS_TOKEN_FILE']).toBeUndefined();
+    expect(probe?.['MORSE_BUS_TURN_FILE']).toBeUndefined();
+  });
+
+  it('writes the turn file for the delivery it answers and removes it when the turn ends', async () => {
+    const { root, adapter, service } = harness({
+      now: () => 1_000_000,
+      turnTimeoutMs: 5_000,
+      script: holdsPersonTurns,
+    });
+    await service.createBot(
+      botInput({ username: 'sigil', name: 'Sigil', description: 'Crafts bot names & identities' }),
+    );
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const paths = service.botBusPaths('sigil');
+    if (process.platform !== 'win32') {
+      expect(statSync(paths.turnFile).mode & 0o777).toBe(0o600);
+    }
+    const [row] = deliveriesOf(root, 'dm-sigil');
+    expect(JSON.parse(readFileSync(paths.turnFile, 'utf8'))).toEqual({
+      deliveryId: row?.id,
+      conversationId: 'dm-sigil',
+      rootId: row?.rootId,
+      depth: 0,
+      expiresAt: 1_005_000,
+    });
+
+    held.release();
+    await settle(service, 'dm-sigil');
+    expect(existsSync(paths.turnFile)).toBe(false);
+  });
+
+  it('refuses a bus call without a live turn, or after the turn file has expired', async () => {
+    const now = 1_000_000;
+    const { adapter, service } = harness({
+      now: () => now,
+      turnTimeoutMs: 5_000,
+      script: holdsPersonTurns,
+    });
+    await busBots(service);
+
+    await expect(service.busSend('sigil', { to: 'loom', text: 'nowhere' })).rejects.toThrow(
+      'no active turn',
+    );
+
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const paths = service.botBusPaths('sigil');
+    const live = JSON.parse(readFileSync(paths.turnFile, 'utf8'));
+
+    // Unreadable: a half-written or hand-broken file is not a room to guess at.
+    writeFileSync(paths.turnFile, 'not a turn');
+    await expect(service.busSend('sigil', { to: 'loom', text: 'broken' })).rejects.toThrow(
+      'no active turn',
+    );
+
+    // Expired: the turn it named may already be gone, so it is refused too.
+    writeFileSync(paths.turnFile, JSON.stringify({ ...live, expiresAt: now - 1 }));
+    await expect(service.busSend('sigil', { to: 'loom', text: 'late' })).rejects.toThrow(
+      'no active turn',
+    );
+
+    // The same live turn, in time, is answered: those refusals were about the
+    // file, not about the bot.
+    writeFileSync(paths.turnFile, JSON.stringify(live));
+    await expect(service.busSend('sigil', { to: 'loom', text: 'in time' })).resolves.toMatchObject({
+      conversationId: 'thread-loom-sigil',
+      queued: true,
+    });
+
+    service.stop('dm-sigil');
+    service.stop('thread-loom-sigil');
+    await settle(service, 'dm-sigil');
+    await settle(service, 'thread-loom-sigil');
+  });
+
+  it('reports inRoom from the live turn and false for everyone without one', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    await service.createBot(
+      botInput({ username: 'sage', name: 'Sage', description: 'Somewhere else' }),
+    );
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    const held = await holdTurn(service, adapter, group.id, 'sigil');
+
+    expect(
+      service
+        .busRoster('sigil')
+        .filter((entry) => entry.inRoom)
+        .map((entry) => entry.username),
+    ).toEqual(['sigil', 'loom']);
+
+    held.release();
+    await settle(service, group.id);
+
+    // No turn file, no room: a settled turn leaves `inRoom` false for everyone.
+    expect(service.busRoster('sigil').some((entry) => entry.inRoom)).toBe(false);
+  });
+
+  it('notes a send past the depth limit instead of queueing it', async () => {
+    const { root, adapter, service } = harness({
+      now: () => 1_000_000,
+      script: holdsPersonTurns,
+    });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    await holdTurn(service, adapter, group.id, 'sigil');
+
+    // The turn itself is already at the cap, so this send would be one hop past.
+    const paths = service.botBusPaths('sigil');
+    const live = JSON.parse(readFileSync(paths.turnFile, 'utf8'));
+    writeFileSync(paths.turnFile, JSON.stringify({ ...live, depth: BUS_LIMITS.depth }));
+
+    const result = await service.busSend('sigil', { to: 'loom', text: 'too deep' });
+
+    expect(result).toEqual({ deliveryId: '', conversationId: group.id, queued: false });
+    const note = service.transcript(group.id).at(-1);
+    expect(note).toMatchObject({ author: { role: 'system' } });
+    expect(note?.text).toContain(`depth limit of ${BUS_LIMITS.depth}`);
+    // Nothing was queued, and no thread was opened for a send that was refused.
+    expect(deliveriesOf(root, group.id).filter((row) => row.reason === 'bot')).toEqual([]);
+    expect(service.roster().conversations.some((one) => one.kind === 'thread')).toBe(false);
+
+    service.stop(group.id);
+    await settle(service, group.id);
+  });
+
+  it('refuses a bot once it has sent more than an hour allows', async () => {
+    const { adapter, service } = harness({
+      now: () => 1_000_000,
+      // Every bot's first turn holds, so Loom's queue stays put while the sends
+      // accumulate and each caller remains inside one live turn.
+      script: ({ call }) => (call === 1 ? { text: 'held', hold: true } : { text: 'answered' }),
+    });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+
+    // A root allows one delivery per slot, so the hour is filled from two: the
+    // DM's root (which lands in the thread) and the group's.
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    for (let index = 0; index < BUS_LIMITS.perRoot; index += 1) {
+      await service.busSend('sigil', { to: 'loom', text: `first root ${index}` });
+    }
+    service.stop('dm-sigil');
+    await settle(service, 'dm-sigil');
+
+    await holdTurn(service, adapter, group.id, 'sigil');
+    // Enough more to pass the hour by one: the next send is the refusal.
+    for (let index = 0; index < BUS_LIMITS.perBotPerHour - BUS_LIMITS.perRoot + 1; index += 1) {
+      await service.busSend('sigil', { to: 'loom', text: `second root ${index}` });
+    }
+
+    const refusal = await service
+      .busSend('sigil', { to: 'loom', text: 'one too many' })
+      .catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(BotBusError);
+    expect((refusal as BotBusError).reason).toContain('last hour');
+
+    service.stop('thread-loom-sigil');
+    service.stop(group.id);
+    await settle(service, 'thread-loom-sigil');
+    await settle(service, group.id);
   });
 });
 
