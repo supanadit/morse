@@ -52,7 +52,17 @@ export interface BotConversationSummary {
  * lets a reader scroll back through every session they ever had with a bot.
  */
 export type BotAuthor =
-  | { role: 'user' }
+  | {
+      role: 'user';
+      /**
+       * Who asked, when the host knows. Absent on every line written before the bus
+       * existed, and read as the host person — which is why it is optional rather
+       * than a migration of the stored transcripts.
+       */
+      personId?: string;
+      /** The person's display name, so a room can show who spoke. */
+      name?: string;
+    }
   | { role: 'bot'; name: string; username?: string; avatar?: string }
   | { role: 'system' }
   | { role: 'discussion' };

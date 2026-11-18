@@ -15,3 +15,4 @@ export * from './interaction.js';
 export * from './identity.js';
 export * from './view.js';
 export * from './bot.js';
+export * from './bot-bus.js';

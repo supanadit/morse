@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BotCreateInput } from './bot.js';
+import type { BotCreateInput, BotTranscriptEntry } from './bot.js';
 import { isClientToHostMessage, isHostToClientMessage } from '../wire.js';
 
 /**
@@ -135,5 +135,30 @@ describe('bot wire messages', () => {
   it('rejects an unknown bot message type in both directions', () => {
     expect(isClientToHostMessage({ type: 'bot/nope', payload: {} })).toBe(false);
     expect(isHostToClientMessage({ type: 'bot/nope', payload: {} })).toBe(false);
+  });
+});
+
+/**
+ * A person's transcript line gained the host's identity so the bus can tell who
+ * asked. It is optional on purpose: every line written before the bus exists
+ * carries only `{ role: 'user' }`, and those lines still read as the host person.
+ */
+describe('bot transcript authors', () => {
+  it('lets an old transcript line carry no person identity', () => {
+    const old: BotTranscriptEntry = {
+      id: 'e1',
+      author: { role: 'user' },
+      text: 'hi',
+      at: 1,
+    };
+    const next: BotTranscriptEntry = {
+      id: 'e2',
+      author: { role: 'user', personId: 'host', name: 'Adit' },
+      text: 'hi',
+      at: 2,
+    };
+
+    expect(old.author.role).toBe('user');
+    expect(next.author).toMatchObject({ personId: 'host' });
   });
 });
