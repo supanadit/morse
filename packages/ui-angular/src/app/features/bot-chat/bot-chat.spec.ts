@@ -639,6 +639,38 @@ describe('BotChat', () => {
     expect(host.querySelector('.partial')).toBeNull();
   });
 
+  it('keeps a long answer on screen when the 2 000-character window slides', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const words = Array.from({ length: 700 }, (_, index) => `word-${index}`).join(' ');
+    const push = (partial: string): void => {
+      morse.bot.onRouting(round(workshop.id, { active: [live({ partial })], queued: [] }));
+      fixture.detectChanges();
+    };
+
+    push(words.slice(0, 2_000));
+    vi.advanceTimersByTime(3_000);
+    fixture.detectChanges();
+    const before = host.querySelector('.acting .partial')?.textContent ?? '';
+    expect(before).toHaveLength(2_000);
+
+    // The host keeps only the tail of an answer, so this push drops the head of
+    // the same turn: what the reader has already read must not start over.
+    push(words.slice(500, 2_500));
+    const kept = host.querySelector('.acting .partial')?.textContent ?? '';
+    expect(kept.length).toBeGreaterThanOrEqual(before.length);
+
+    vi.advanceTimersByTime(50);
+    fixture.detectChanges();
+    const after = host.querySelector('.acting .partial')?.textContent ?? '';
+    expect(after.length).toBeGreaterThanOrEqual(kept.length);
+    // The words are still the answer's own beginning, never a re-revealed tail.
+    expect(words.startsWith(after)).toBe(true);
+    expect(after.startsWith(before)).toBe(true);
+  });
+
   it('goes quiet after twenty seconds without a step, keeping its label and clock', async () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);

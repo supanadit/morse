@@ -83,12 +83,20 @@ interface ActingRow {
 }
 
 /**
- * How much of one bot's live answer is on screen, and the text that was on screen
- * when the cursor was put there — enough to tell a continuation from a new turn.
+ * What one bot has had revealed, and which turn it belongs to.
+ *
+ * The host keeps only the tail of a long answer, so the window a later push
+ * carries can start part-way through words already on screen. The cursor keeps
+ * the revealed text itself, not just an index into the current window, so a
+ * sliding window never makes the answer shrink or start over.
  */
 interface RevealCursor {
+  /** The turn this cursor belongs to; another turn starts the words over. */
+  turnKey: string;
+  /** How many characters of the current partial the on-screen text accounts for. */
   shown: number;
-  text: string;
+  /** What is on screen: the revealed prefix, which never shortens mid-turn. */
+  revealed: string;
 }
 
 /**
@@ -268,8 +276,9 @@ export class BotChat {
   /**
    * How much of each bot's live answer has been revealed, by handle.
    *
-   * Keyed by the bot, not by the row: a row is rebuilt for every step, and the
-   * words must not start over just because the bot moved on to its next tool.
+   * Keyed by the bot, not by the row: the words must not start over just because
+   * the bot moved on to its next tool. The cursor itself remembers the turn, so
+   * only a genuinely new turn resets it.
    */
   private readonly cursors = signal<Readonly<Record<string, RevealCursor>>>({});
   /** The wall clock the live rows read, so their timers move without a push. */
@@ -375,7 +384,7 @@ export class BotChat {
 
   /** The part of a working bot's answer that is on screen, as plain text. */
   protected revealed(row: ActingRow): string {
-    return row.partial.slice(0, this.cursors()[row.username]?.shown ?? 0);
+    return this.cursors()[row.username]?.revealed ?? '';
   }
 
   /** How long the bot has been on this turn, once it is old enough to say. */
@@ -444,24 +453,30 @@ export class BotChat {
   }
 
   /**
-   * Lines this bot's revealed word count up with what the host has sent.
+   * Lines this bot's revealed words up with what the host has sent.
    *
-   * The cursor is clamped to the text that arrived, so a short push never reveals
-   * a word nobody wrote. A new turn for the same bot starts at zero unless its
-   * words still begin with what was already shown — a continuation of the same
-   * answer keeps its place, a different answer does not borrow it.
+   * The cursor belongs to a turn, not to a push. The host keeps only the tail of
+   * a long answer, so every push past 2 000 characters drops its head; the
+   * longest suffix of the on-screen text that is still the head of the new one
+   * is how much both share. The words already shown therefore stay, and only the
+   * text after that overlap is revealed. A different turn starts at nothing, so
+   * an answer never borrows the previous one's place.
    */
   private syncCursors(rows: readonly ActingRow[], advance: boolean): void {
     const previous = this.cursors();
     const next: Record<string, RevealCursor> = {};
     for (const row of rows) {
       const held = previous[row.username];
-      const continues =
-        held !== undefined && row.partial.startsWith(held.text.slice(0, held.shown));
-      const shown = continues ? Math.min(held.shown, row.partial.length) : 0;
+      const sameTurn = held !== undefined && held.turnKey === row.turnKey;
+      // How much of what is on screen is still the head of the text that arrived.
+      const overlap = sameTurn ? overlapWithRevealed(held.revealed, row.partial) : 0;
+      const shown = advance ? revealLength(overlap, row.partial) : overlap;
       next[row.username] = {
-        shown: advance ? revealLength(shown, row.partial) : shown,
-        text: row.partial,
+        turnKey: row.turnKey,
+        shown,
+        revealed: sameTurn
+          ? held.revealed + row.partial.slice(overlap, shown)
+          : row.partial.slice(0, shown),
       };
     }
     this.cursors.set(next);
@@ -730,6 +745,24 @@ function answerFor(
 /** A trace sorts before an entry at the same instant, so a record sits above its line. */
 function itemRank(item: TimelineItem): number {
   return item.trace === undefined ? 1 : 0;
+}
+
+/**
+ * How much of what is on screen is still at the head of the text that arrived.
+ *
+ * The host keeps only the tail of a long answer, so a later push can begin
+ * part-way through words already shown. The longest suffix of the revealed text
+ * that is a prefix of `partial` is what both still share; anything after it is
+ * new. A different answer shares nothing and starts over.
+ */
+function overlapWithRevealed(revealed: string, partial: string): number {
+  const most = Math.min(revealed.length, partial.length);
+  for (let length = most; length > 0; length -= 1) {
+    if (partial.startsWith(revealed.slice(revealed.length - length))) {
+      return length;
+    }
+  }
+  return 0;
 }
 
 /**
