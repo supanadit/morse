@@ -190,6 +190,12 @@ const REPORTED_CHAIN_CAP = 8;
  */
 const CONTEXT_MAX_ENTRIES = 40;
 const CONTEXT_MAX_CHARS = 24_000;
+/**
+ * How often a live host may pay for the terminal-row sweep. Deliveries are pruned
+ * once their day is up, and checking once an hour keeps a long session's files
+ * bounded without walking every conversation on every message.
+ */
+const PRUNE_INTERVAL_MS = 3_600_000;
 
 /** A provider from a layout, in the shape Edit bot reads back. */
 function toProviderConfig(provider: BotProviderRecord): BotProviderConfig {
@@ -392,6 +398,8 @@ export class BotService {
   private readonly idleMs: number;
   private readonly turnTimeoutMs: number;
   private readonly clock: () => number;
+  /** When the terminal-row sweep last ran, so a live host does not repeat it. */
+  private lastPrunedAt: number | undefined;
   /** True once the host is shutting down, so a settling lane starts nothing new. */
   private disposed = false;
 
@@ -1018,6 +1026,9 @@ export class BotService {
     attachments?: BotOutgoingAttachments,
   ): Promise<void> {
     const conversation = this.conversationOrThrow(conversationId);
+    // Housekeeping rides the one path that always runs while the host is alive:
+    // a quiet host keeps its finished rows forever otherwise.
+    this.maybePruneDeliveries();
     const images = attachments?.images ?? [];
     const files = attachments?.files ?? [];
     const entry = this.append(
@@ -1040,6 +1051,9 @@ export class BotService {
     const rootId = newDeliveryId();
     for (const target of targets) {
       this.makeRoomFor(target.username);
+      // A lane already busy elsewhere cannot announce this room's ask itself, so
+      // the send does. When the lane starts here, `pump` is the one that emits.
+      const busy = this.lanes.has(target.username);
       const delivery: BotDelivery = {
         id: newDeliveryId(),
         rootId,
@@ -1058,6 +1072,9 @@ export class BotService {
       this.deliveries.add(delivery);
       this.turnAttachments.set(delivery.id, { images, files });
       this.pump(target.username);
+      if (busy) {
+        this.emitRouting(conversation.id);
+      }
     }
   }
 
@@ -1255,7 +1272,7 @@ export class BotService {
       }
       warm.detach();
       // A turn still waiting on this gateway would hang otherwise; it settles as
-      // aborted and writes that to its delivery.
+      // aborted, and the delivery it was on is requeued below.
       warm.settle?.({ reply: warm.reply, reason: 'aborted' });
     }
     await Promise.all(
@@ -1267,6 +1284,15 @@ export class BotService {
         }
       }),
     );
+    // Every turn this process was on is handed back, not written off: a graceful
+    // quit is the common restart, and the ask it was answering is still owed. The
+    // lanes skipped their own status write (see `runDelivery`) so these rows are
+    // still `running` and this is the one backward move the store allows.
+    try {
+      this.deliveries.requeueRunning();
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to requeue running bot deliveries on shutdown', error);
+    }
     // Gateways first: a factory cannot stop the server a gateway still talks to.
     const factories = [...this.factories.values()];
     this.factories.clear();
@@ -1295,11 +1321,34 @@ export class BotService {
     try {
       this.deliveries.requeueRunning();
       this.deliveries.prune(this.clock(), DELIVERY_TTL_MS);
+      this.lastPrunedAt = this.clock();
     } catch (error: unknown) {
       this.options.logger.warn('Failed to recover queued bot deliveries', error);
     }
     for (const bot of this.registry.bots) {
       this.pump(bot.username);
+    }
+  }
+
+  /**
+   * Drops finished deliveries past their day, at most once an hour, from the
+   * paths that keep a host alive.
+   *
+   * Without this the per-conversation file only ever grows: every status change
+   * rewrites it whole and every presence change re-reads it, so a long-lived host
+   * would pay for every message it ever answered. A broken file is logged and
+   * skipped — pruning is housekeeping, never a reason to fail a send.
+   */
+  private maybePruneDeliveries(): void {
+    const now = this.clock();
+    if (this.lastPrunedAt !== undefined && now - this.lastPrunedAt < PRUNE_INTERVAL_MS) {
+      return;
+    }
+    this.lastPrunedAt = now;
+    try {
+      this.deliveries.prune(now, DELIVERY_TTL_MS);
+    } catch (error: unknown) {
+      this.options.logger.warn('Failed to prune finished bot deliveries', error);
     }
   }
 
@@ -1353,7 +1402,12 @@ export class BotService {
         this.note(conversationId, note);
       }
     } finally {
-      this.deliveries.setStatus(conversationId, delivery.id, status, note);
+      // A graceful shutdown hands this turn back to the queue: writing a status
+      // here would make the ask look finished, and `dispose`'s requeue would then
+      // find nothing to put back.
+      if (!this.disposed) {
+        this.deliveries.setStatus(conversationId, delivery.id, status, note);
+      }
       this.turnAttachments.delete(delivery.id);
       this.finishLane(delivery.to, conversationId);
     }
@@ -1387,7 +1441,7 @@ export class BotService {
     bot: BotRecord,
     delivery: BotDelivery,
   ): Promise<BotDeliveryStatus> {
-    if (!this.isRunning(delivery)) {
+    if (this.disposed || !this.isRunning(delivery)) {
       return 'cancelled';
     }
     // What this bot has not been told yet, pinned to the line this delivery asks
@@ -1419,7 +1473,7 @@ export class BotService {
       }
       return 'failed';
     }
-    if (!this.isRunning(delivery)) {
+    if (this.disposed || !this.isRunning(delivery)) {
       return 'cancelled';
     }
     try {
@@ -1428,7 +1482,9 @@ export class BotService {
       // layout, so the engine applies it exactly as it would for a hand-built
       // agent. Morse sends only what the reader typed, framed by the header.
       const outcome = await this.promptAndWait(warm, promptText, attachments.images);
-      if (!this.isRunning(delivery)) {
+      // A shutdown or a withdrawn ask abandons the turn before its cursor moves:
+      // the line belongs to the next host, not to a session that is going away.
+      if (this.disposed || !this.isRunning(delivery)) {
         return 'cancelled';
       }
       // The engine has the context now, so the next turn only carries what
@@ -1545,6 +1601,11 @@ export class BotService {
         this.turnAttachments.delete(row.id);
       }
     }
+    // Withdrawing is the only state change here that has no turn to tear down: a
+    // room whose asks were all queued behind a bot busy elsewhere would otherwise
+    // keep its presence and its disabled menu entries until something unrelated
+    // happened in it. `emitRouting` suppresses a second clear by itself.
+    this.emitRouting(conversationId);
   }
 
   /** True while this bot has a turn running or work waiting behind it. */

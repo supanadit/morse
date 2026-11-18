@@ -27,6 +27,7 @@ import type { BotCreateInput, BotDelivery, BotMcpServerInput, BotRoutingState, P
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
+import { DELIVERY_TTL_MS } from './deliveries.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
 import type { BotEngineConfig, BotEngineLayout, BotEngineState, BotMcpServer } from './types.js';
 import { BotService } from './service.js';
@@ -543,6 +544,8 @@ interface HarnessOptions {
   hangFirstCreate?: boolean;
   idleMs?: number;
   turnTimeoutMs?: number;
+  /** The clock the service reads, so a test can move a day in one step. */
+  now?: () => number;
   supportsSubagents?: boolean;
   omitSubagentWriter?: boolean;
   thinkingUnsupported?: boolean;
@@ -566,6 +569,7 @@ function serviceOn(root: string, adapter: FakeAdapter, options: HarnessOptions =
     logger: silentLogger,
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
     ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
+    ...(options.now === undefined ? {} : { now: options.now }),
   });
 }
 
@@ -1792,6 +1796,34 @@ describe('BotService rounds', () => {
     expect(newest?.gateways[0]?.prompts).toEqual(['[Launch] You: @sable and now']);
   });
 
+  it('a graceful shutdown requeues the in-flight ask instead of losing it', async () => {
+    const { root, adapter, service } = harness({
+      script: () => ({ text: 'late', hold: true }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    await service.dispose();
+
+    // The turn was abandoned, not answered: its row is waiting for the next host,
+    // and the cursor never moved past the line it did not read.
+    expect(deliveriesOf(root, 'dm-forge').map((row) => row.status)).toEqual(['queued']);
+    expect(loadBotRegistry(root).conversations[0]?.sessions['forge']?.toldUpTo).toBeUndefined();
+
+    const restartedAdapter = new FakeAdapter(() => ({ text: 'answered after restart' }));
+    const restarted = serviceOn(root, restartedAdapter);
+    registerService(restarted);
+    await settle(restarted);
+
+    // The recovered ask still carries the line it was created for.
+    expect(gatewayFor(restartedAdapter, 'forge').prompts).toEqual(['[Forge] You: hi']);
+    expect(restarted.transcript('dm-forge').at(-1)).toMatchObject({
+      author: { role: 'bot', name: 'Forge' },
+      text: 'answered after restart',
+    });
+  });
+
   it('unaddressed group message routes to the lead', async () => {
     const { adapter, service } = harness();
     await twoBots(service);
@@ -1948,6 +1980,81 @@ describe('BotService rounds', () => {
     expect(note).toContain(dropped[0]?.rootId);
     expect(note).toContain('direct');
     gatewayFor(adapter, 'forge').release();
+    await settle(service);
+  });
+
+  it('prunes finished deliveries on a later send, keeping queued and running ones', async () => {
+    let now = 1_000_000;
+    const { root, adapter, service } = harness({
+      now: () => now,
+      script: ({ bot, call }) =>
+        bot === 'forge'
+          ? call === 1
+            ? { text: 'busy', hold: true }
+            : { text: 'ok' }
+          : { text: `sable ${call}` },
+    });
+    await twoBots(service);
+
+    // One finished turn, then a running one with an ask behind it.
+    await service.send('dm-sable', 'first');
+    await settle(service, 'dm-sable');
+    expect(deliveriesOf(root, 'dm-sable').map((row) => row.status)).toEqual(['done']);
+    await service.send('dm-forge', 'held');
+    await gatewayFor(adapter, 'forge').prompted;
+    await service.send('dm-forge', 'waiting');
+
+    // A day later, the next send is the moment a live host pays for housekeeping.
+    now += DELIVERY_TTL_MS + 1;
+    await service.send('dm-sable', 'second');
+    await settle(service, 'dm-sable');
+
+    // The finished row is gone; the two forge rows were never terminal, so they
+    // are still exactly where their lane left them.
+    const sableRows = deliveriesOf(root, 'dm-sable');
+    expect(sableRows).toHaveLength(1);
+    expect(sableRows[0]?.status).toBe('done');
+    expect(deliveriesOf(root, 'dm-forge').map((row) => row.status)).toEqual([
+      'running',
+      'queued',
+    ]);
+
+    gatewayFor(adapter, 'forge').release();
+    await settle(service);
+  });
+
+  it('clearing a room whose only work is queued clears its routing state', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'busy', hold: true }) });
+    await service.createBot(botInput());
+    const group = service.createGroup({ name: 'Launch', members: ['forge'] });
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+
+    // The bot's lane is busy in its DM, so the group's ask waits with no turn of
+    // its own in that room.
+    await service.send('dm-forge', 'hold the lane');
+    await gatewayFor(adapter, 'forge').prompted;
+    await service.send(group.id, '@forge queued');
+    expect(service.routing(group.id)).toMatchObject({ active: [], queued: ['Forge'] });
+    expect(events).toContainEqual({
+      type: 'routing',
+      conversationId: group.id,
+      state: expect.objectContaining({ active: [], queued: ['Forge'] }),
+    });
+
+    await service.clear(group.id);
+
+    // Nothing is running there to tear down, so the clear has to come from the
+    // withdrawal itself — otherwise the row stays "Answering…" and its menu stays
+    // disabled until something unrelated happens in the room.
+    expect(service.routing(group.id)).toBeNull();
+    expect(events).toContainEqual({
+      type: 'routing',
+      conversationId: group.id,
+      state: null,
+    });
+
+    service.stop('dm-forge');
     await settle(service);
   });
 });
