@@ -105,6 +105,55 @@ describe('bot delivery store', () => {
     });
   });
 
+  it('repairs the other conversations when one queue file is unreadable, naming it', () => {
+    const store = new BotDeliveryStore(dir);
+    store.add(delivery({ id: 'a', status: 'running' }));
+    writeFileSync(join(dir, 'dm-broken.json'), '{');
+
+    expect(() => store.requeueRunning()).toThrow('dm-broken.json');
+
+    // The broken file did not stop the sweep: the healthy conversation is repaired.
+    expect(store.all('dm-sigil')[0]?.status).toBe('queued');
+  });
+
+  it('prunes the other conversations when one queue file is unreadable, naming it', () => {
+    const store = new BotDeliveryStore(dir);
+    store.add(delivery({ id: 'old', status: 'done', createdAt: 1 }));
+    store.add(delivery({ id: 'live', status: 'queued', createdAt: 1 }));
+    writeFileSync(join(dir, 'dm-broken.json'), '{');
+
+    expect(() => store.prune(2 + DELIVERY_TTL_MS, DELIVERY_TTL_MS)).toThrow('dm-broken.json');
+
+    expect(store.all('dm-sigil').map((row) => row.id)).toEqual(['live']);
+  });
+
+  it('names a stray non-queue json instead of silently treating it as a queue', () => {
+    const store = new BotDeliveryStore(dir);
+    store.add(delivery({ id: 'a', status: 'running' }));
+    // Sorts before the healthy file, so a sweep that stopped at the first
+    // failure would leave the running delivery stuck.
+    writeFileSync(join(dir, '00 notes.json'), '[]');
+
+    expect(() => store.requeueRunning()).toThrow('00 notes.json');
+
+    expect(store.all('dm-sigil')[0]?.status).toBe('queued');
+  });
+
+  it('refuses a row missing a required field or with an unknown kind', () => {
+    const store = new BotDeliveryStore(dir);
+
+    const missingDepth: Record<string, unknown> = { ...delivery({ id: 'a' }) };
+    delete missingDepth['depth'];
+    writeFileSync(join(dir, 'dm-sigil.json'), JSON.stringify([missingDepth]));
+    expect(() => store.all('dm-sigil')).toThrow('dm-sigil.json');
+
+    writeFileSync(
+      join(dir, 'dm-sigil.json'),
+      JSON.stringify([{ ...delivery({ id: 'a' }), kind: 'shout' }]),
+    );
+    expect(() => store.all('dm-sigil')).toThrow('dm-sigil.json');
+  });
+
   it('never replaces a terminal status and keeps a note when none is passed', () => {
     const store = new BotDeliveryStore(dir);
     store.add(delivery({ id: 'a', status: 'running' }));
