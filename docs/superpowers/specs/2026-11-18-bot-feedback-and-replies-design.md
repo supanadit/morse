@@ -60,18 +60,33 @@ The person chose the shape; these are the calls made while writing it down.
   I'll hand it over"; the person adds the member with the existing control.
 - **A turn's work is stored only when the turn settles.** Deltas never touch disk; the running turn
   lives in memory. This keeps a chatty engine from turning into a write amplifier.
+- **Every shape and sentence in this document is Morse's own.** Nothing here is reproduced from
+  another project, and no file names, identifiers or prose are borrowed from one.
 
 ## The live row
 
-`BotRoutingActive` (`packages/protocol/src/dto/bot.ts`) gains four fields. All are additive.
+`BotRoutingActive` gains four fields, and `BotActivity` gains three optional ones. All additive.
 
 ```ts
+interface BotActivity {
+  kind: 'starting' | 'thinking' | 'writing' | 'tool';
+  label: string;
+  tool?: string;
+  at: number;
+  /** A tool's outcome, once known. Absent while it runs; absent on a thought. */
+  status?: 'running' | 'ok' | 'error';
+  /** What a failed tool said, trimmed to a line the row can open. */
+  error?: string;
+  /** How long a finished tool took, so the record can point at the slow ones. */
+  durationMs?: number;
+}
+
 interface BotRoutingActive {
   target: string;
   username: string;
   activity: BotActivity;      // unchanged: the current step
   startedAt: number;          // when this turn was taken off the queue
-  steps: BotActivity[];       // the last 5, oldest first, including `activity`
+  steps: BotActivity[];       // newest last, capped at 8; `activity` is the last
   handoffs: BotHandoff[];     // bot sends made during this turn
   partial?: string;           // the answer so far, text channel only
 }
@@ -80,24 +95,38 @@ interface BotHandoff {
   username: string;           // the bot asked
   conversationId: string;     // the thread or room it was asked in
   at: number;
-  activity?: BotActivity;     // what that bot is doing there right now, if anything
+  /** Read from the target's delivery: queued→asked, running→working, done→done;
+   *  failed, dropped or cancelled→failed. */
+  state: 'asked' | 'working' | 'done' | 'failed';
+  /** What that bot is doing there right now, when it has a live step. */
+  activity?: BotActivity;
 }
 ```
 
-- **Steps.** The service already receives every event (`onGatewayEvent` → `reportActivity`). Keep
-  the last five in the per-turn record; replace `activity` on each new step and push a routing
-  update on the same cadence as today. `startingActivity` seeds the row only; it is not a recorded
-  step (see the turn record).
-- **Streamed text.** `agent/delta` with `channel === 'text'` accumulates into `partial`. Push at most
-  every ~150 ms and on the last delta before `agent/message`; never write `partial` to disk. Clear it
-  when the message lands, so the row hands off to the message without a flicker.
-- **Handoffs.** `busSend` records `{ username: target, conversationId: room.id, at }` on the *sender's*
-  current turn. `routing()` fills `activity` for a handoff from the target conversation's live
-  activity, so the room can say "Loom is writing (in a thread)".
-- **The row.** `bot-chat.html`'s presence row renders: current label, elapsed from `startedAt`, the
-  last three steps as a compact list, `partial` as muted pre-wrap text (capped for display), and one
-  chip per handoff — `asked @loom · open thread` — which opens that conversation. Existing Stop and
-  ring behaviour is unchanged.
+- **Steps come from what the engine already sends.** `agent/tool-start` opens a step with
+  `status: 'running'`; `agent/tool-update` advances it; `agent/tool-end` closes it with `ok` or
+  `error`, its `durationMs`, and the failure text it already carries. A thought and a written answer
+  are steps too. No engine is asked for anything new, and the case the current mapping drops is the
+  one that matters most: a tool that failed is drawn as failed, with its own text, instead of
+  vanishing into "Thinking it over…".
+- **Silence is the client's to read.** The newest step's `at` is all it needs: at 20 s of quiet the
+  row stops its shimmer and says it is waiting on the model. A `tool` step still running keeps its
+  shimmer however long it runs — a slow command is work, not a stall — and the turn's own deadline
+  is what eventually ends it.
+- **Streamed text is paced, not dumped.** `agent/delta` on the text channel accumulates into
+  `partial`; the service pushes at most every 150 ms and once more before `agent/message`. The
+  client reveals what it received at a rate that rises with the unread backlog and stops on a word
+  boundary, so a burst reads as writing rather than a wall, and a slow trickle is not padded. The
+  reveal uses a transform, not a repainted label.
+- **Handoffs are live.** `busSend` records one entry on the *sender's* current turn. Its `state` is
+  read from the target's delivery whenever the row is drawn, so it moves asked → working → done
+  without another event, and a peer that failed is `failed` on the sender's row rather than only in
+  a note elsewhere. `activity` is the peer's live step in that conversation, when it has one.
+- **The row.** `bot-chat.html`'s presence row draws the current label, elapsed from `startedAt`
+  (hidden under 5 s; minutes after a minute), the newest three steps behind a chevron, `partial` as
+  muted pre-wrap text, and one chip per handoff — `asked @loom · open thread` — which opens that
+  conversation. A failed step opens its error. Existing Stop and ring behaviour is unchanged. The
+  row keeps its `role="status"` with one sentence naming the bot and what it is doing.
 
 ## The turn record
 
@@ -122,7 +151,9 @@ interface BotTurnTrace {
 ```
 
 - Written once, in the lane's settle path, from the in-memory turn record. A cancelled or failed turn
-  is recorded too: "how long it ran, where it stopped" is exactly what the record is for.
+  is recorded too: "how long it ran, where it stopped" is exactly what the record is for. A handoff
+  is stored with the state it ended in, so a delegated ask that failed is visible in the record as
+  well as in the room's note.
 - `startingActivity` seeds the live row but is not stored as a step. A turn that failed or was
   cancelled before its engine sent anything therefore has an empty step list, and the collapsed line
   says so ("could not start" / "stopped") instead of being hidden — a turn that produced nothing is
@@ -144,8 +175,9 @@ interface BotTurnTrace {
   the page it just returned. `replace` means "the page's traces", `prepend` means "older ones". An
   older client ignores the field.
 - **UI.** `bot-chat` merges traces into the entry list by `endedAt` and draws a collapsed line per
-  turn: `Sigil · 38s · read 1 file · asked @loom → thread`. Expanding shows the step list and each
-  handoff link. `name` comes from the trace, never the current roster.
+  turn: `Sigil · 38s · 4 steps · asked @loom → thread`. Expanding shows the steps — each with its
+  outcome, its error when it failed, and its handoff link — and `name` comes from the trace, never
+  the current roster.
 
 ## Answers that come back
 
@@ -205,8 +237,9 @@ the thread while the ask is still running.
 
 ## Wire and migration
 
-- `PROTOCOL_VERSION` 42 → 43: `BotRoutingActive` gains fields, `BotTurnTrace` is new, `BotDelivery`
-  gains `requesterConversationId`, the transcript payload gains `traces`.
+- `PROTOCOL_VERSION` 42 → 43: `BotActivity` gains its optional outcome fields, `BotRoutingActive`
+  gains its four, `BotTurnTrace` is new, `BotDelivery` gains `requesterConversationId`, and the
+  transcript payload gains `traces`.
 - Registry stays version 3. No transcript is rewritten. An old delivery without
   `requesterConversationId` simply never forwards.
 - Traces live in their own directory and are created lazily; no data-layout step is needed, but
@@ -215,13 +248,14 @@ the thread while the ask is still running.
 
 ## What is left to the builder
 
-- The throttle interval for `partial`, and whether to coalesce multiple deltas per push.
+- The exact reveal cadence on the client, and whether one push may carry several deltas (it should).
 - How many steps the row shows (three is the intent) versus how many the record keeps (the turn's
   whole list, capped at a small number).
-- Whether a handoff chip shows the peer's live label at all, or only "asked @loom".
 - The exact collapsed-line grammar.
 - Where the trace store's cap is enforced (write path or sweep) — as long as a room never grows
   without bound.
+- Whether a handoff's `activity` is filled only for a visible room, or for a thread the person is
+  not looking at (it should be, since they own both bots).
 
 ## Verification
 
@@ -233,8 +267,14 @@ the thread while the ask is still running.
 - A person typing in a thread is answered there and nothing is forwarded.
 - Two bots in one room: each has its own row, its own steps, its own ring, and a handoff chip only
   on the sender.
-- A bot's text streams in the row while the answer is being written, and the row is gone the moment
+- A bot's text reveals in the row while the answer is being written, and the row is gone the moment
   the message lands.
+- A tool that fails draws as failed with its own text, and the turn continues; the record keeps that
+  outcome after the turn.
+- A silent engine stops shimmering after 20 s and reads as waiting, while a slow tool keeps
+  shimmering until it ends.
+- A handoff chip moves asked → working → done while the thread runs, without a reload, and shows
+  failed when the peer's turn fails.
 - The record survives a restart, is pruned at the TTL, and never appears in any bot's prompt.
 - Opening a room mid-turn shows the same steps the push was sending.
 - A thread created by a bot appears in the sidebar before the person next reloads.
