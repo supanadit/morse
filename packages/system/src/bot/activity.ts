@@ -23,6 +23,23 @@ import type { BotActivity } from '@morse/protocol';
  */
 export type ActivitySignal = BotActivity | 'clear' | undefined;
 
+/**
+ * What `stepForEvent` says: a step to add to the turn, the outcome of a tool call
+ * already drawn as a step, `clear` when the answer arrived, or nothing at all
+ * when the event says nothing about work in progress.
+ */
+export type StepSignal =
+  | { kind: 'step'; step: BotActivity; toolCallId?: string }
+  | {
+      kind: 'tool';
+      toolCallId: string;
+      status: 'running' | 'ok' | 'error';
+      error?: string;
+      durationMs?: number;
+    }
+  | { kind: 'clear' }
+  | undefined;
+
 /** Before the engine has said anything: starting one can take seconds. */
 const STARTING_LABEL = 'Getting started…';
 /** An engine is working out what to do; thinking tokens included. */
@@ -125,6 +142,58 @@ export function activityForEvent(event: AgentEvent, at: number): ActivitySignal 
 /** The row a round starts with, before its engine has reported any work. */
 export function startingActivity(at: number): BotActivity {
   return { kind: 'starting', label: STARTING_LABEL, at };
+}
+
+/**
+ * One engine event, as one step of the turn it belongs to.
+ *
+ * A turn keeps what it did, so this reader differs from `activityForEvent` in
+ * what it does with a tool call: the start opens a step and the end closes that
+ * same step, which is how a failed tool stays on the row with the text it failed
+ * with instead of being replaced by the next thought. `at` is the host's clock,
+ * and `toolCallId` is what ties the closing event back to the step it opened.
+ */
+export function stepForEvent(event: AgentEvent, at: number): StepSignal {
+  switch (event.type) {
+    case 'agent/run-start':
+      return { kind: 'step', step: { kind: 'thinking', label: THINKING_LABEL, at } };
+    case 'agent/delta':
+      return {
+        kind: 'step',
+        step:
+          event.channel === 'text'
+            ? { kind: 'writing', label: WRITING_LABEL, at }
+            : { kind: 'thinking', label: THINKING_LABEL, at },
+      };
+    case 'agent/tool-start': {
+      const described = describeTool(event.name, event.title, event.input);
+      return {
+        kind: 'step',
+        toolCallId: event.toolCallId,
+        step: { kind: 'tool', tool: described.tool, label: described.label, at, status: 'running' },
+      };
+    }
+    case 'agent/tool-update':
+      // The step is already on the row; a progress report only moves its status,
+      // and one that carries none is still a call in flight.
+      return { kind: 'tool', toolCallId: event.toolCallId, status: event.status ?? 'running' };
+    case 'agent/tool-end':
+      // A failed call keeps what it failed with, so the row can open it; a call
+      // that worked has nothing to add beyond how long it took.
+      return {
+        kind: 'tool',
+        toolCallId: event.toolCallId,
+        status: event.status,
+        ...(event.status === 'error' && event.output !== undefined ? { error: event.output } : {}),
+        ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
+      };
+    case 'agent/message':
+      // The answer is in: the row is what the message replaces, so it goes now
+      // rather than blinking on until run-end.
+      return { kind: 'clear' };
+    default:
+      return undefined;
+  }
 }
 
 /**
