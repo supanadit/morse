@@ -1345,7 +1345,7 @@ export class BotService {
         }
         room = existing;
       } else {
-        room = this.createThread(sender, target);
+        room = this.createThread(sender, target, current.id);
         // The delivery file is written synchronously below, so its room has to be
         // on disk before it: a restart between the two would leave work pointing
         // at a conversation the next host has never heard of.
@@ -1933,10 +1933,13 @@ export class BotService {
   private async runDelivery(delivery: BotDelivery): Promise<void> {
     const conversationId = delivery.conversationId;
     let status: BotDeliveryStatus = 'done';
+    let answer: string | undefined;
     let note: string | undefined;
+    let conversation: ConversationRecord | undefined;
+    let bot: BotRecord | undefined;
     try {
-      const conversation = this.findConversation(conversationId);
-      const bot = this.bot(delivery.to);
+      conversation = this.findConversation(conversationId);
+      bot = this.bot(delivery.to);
       if (conversation === undefined || bot === undefined) {
         status = 'failed';
         note =
@@ -1944,7 +1947,9 @@ export class BotService {
             ? `The bot "${delivery.to}" no longer exists, so this ask could not run.`
             : `The conversation "${conversationId}" no longer exists, so this ask could not run.`;
       } else {
-        status = await this.turn(conversation, bot, delivery);
+        const outcome = await this.turn(conversation, bot, delivery);
+        status = outcome.status;
+        answer = outcome.reply;
       }
     } catch (error: unknown) {
       status = 'failed';
@@ -1966,10 +1971,19 @@ export class BotService {
       // is written from what the tracker actually saw.
       const turn = this.turns.take(delivery.to);
       // The order below is the settle's, and it matters: the status is written,
-      // a graceful shutdown has had its chance to requeue, and only a delivery
-      // that really settled becomes history. The answer's hand-back belongs
-      // between the status and the trace, so a trace records the turn as it
-      // ended — never before the answer it handed out.
+      // a graceful shutdown has had its chance to requeue, then the answer is
+      // handed back, and only a delivery that really settled becomes history.
+      // A relayed answer therefore exists in its parent room before this turn's
+      // trace does, so the trace describes a turn whose work already landed.
+      if (settled && conversation !== undefined && bot !== undefined) {
+        try {
+          this.handBack(conversation, bot, delivery, answer, status);
+        } catch (error: unknown) {
+          // A failed hand-back is not worth a stuck lane: the next ask behind
+          // this one must still run, so it is reported and the lane goes on.
+          this.options.logger.warn("Failed to hand a thread's answer back", error);
+        }
+      }
       try {
         // A room that was deleted while its turn ended has no history to keep:
         // the trace would outlive every page that could show it.
@@ -2025,6 +2039,123 @@ export class BotService {
   }
 
   /**
+   * Hands one thread's answer back to the room it came from.
+   *
+   * A bot opened the thread to ask a peer while the person was waiting in the
+   * room it was answering in. The peer's answer belongs there: one line says
+   * where it came from, and — unless the bot that asked is the bot that just
+   * answered — a `reply` delivery wakes the asker in that room so it can answer
+   * the person. The chain climbs one room at a time: an answer in a thread whose
+   * parent is another thread forwards again, and the last parent is a DM or a
+   * group, which is person-facing and wakes nobody. A thread written before its
+   * origin was recorded answers in place. A failed or cancelled turn is said in
+   * the room that would have received it, naming the bot and the reason.
+   */
+  private handBack(
+    conversation: ConversationRecord,
+    bot: BotRecord,
+    delivery: BotDelivery,
+    answer: string | undefined,
+    status: BotDeliveryStatus,
+  ): void {
+    // A person's line is answered where it was asked. Only a peer's ask opens a
+    // thread whose answer climbs.
+    if (delivery.from.type !== 'bot') {
+      return;
+    }
+    if (conversation.kind !== 'thread') {
+      return;
+    }
+    const parentId = conversation.parentId;
+    // A thread written before its origin was recorded answers in place, and a
+    // parent that names the room itself is not an origin.
+    if (parentId === undefined || parentId === conversation.id) {
+      return;
+    }
+    // The room went while its turn ended: there is no history to answer into,
+    // and a line appended here would outlive every page that could show it.
+    if (this.findConversation(conversation.id) !== conversation) {
+      return;
+    }
+    const parent = this.findConversation(parentId);
+    if (parent === undefined) {
+      // Nothing can forward from a room that is gone, so the thread itself says
+      // so instead of the answer vanishing with its parent.
+      this.note(
+        conversation.id,
+        `${bot.name}'s answer could not be handed back: the conversation it came from no longer exists.`,
+      );
+      return;
+    }
+    const asker = conversation.askedBy ?? delivery.from.username;
+    if (status !== 'done') {
+      // Failure is said, not silent: the room that would have received the
+      // answer learns which bot did not deliver it and how its turn ended.
+      this.note(
+        parent.id,
+        `${bot.name}'s answer could not be handed back: the turn ${
+          status === 'failed' ? 'failed' : 'was cancelled'
+        }.`,
+      );
+      return;
+    }
+    const text = answer?.trim() ?? '';
+    if (text === '') {
+      // A turn that ended without words has no answer to hand back.
+      return;
+    }
+    const depth = delivery.depth + 1;
+    if (depth > BUS_LIMITS.depth) {
+      // The climb is still bounded by the depth cap a bot's own ask obeys.
+      this.note(
+        parent.id,
+        `${bot.name}'s answer was not handed back: the relay is ${depth} hops from its trigger, past the depth limit of ${BUS_LIMITS.depth}.`,
+      );
+      return;
+    }
+
+    const line = this.append(
+      parent.id,
+      botAuthor(bot),
+      `${bot.name}, in a private thread with @${asker}: ${text}`,
+    );
+    // The bot that asked is the bot that just answered: the line is all the room
+    // needs, and waking it would be a self-loop. A parent whose only member is
+    // the answering bot has nobody else to wake either.
+    const askedBy = conversation.askedBy;
+    if (askedBy === undefined || askedBy === bot.username) {
+      return;
+    }
+    if (!parent.members.some((member) => member !== bot.username)) {
+      return;
+    }
+    const wake: BotDelivery = {
+      id: newDeliveryId(),
+      rootId: delivery.rootId,
+      conversationId: parent.id,
+      entryId: line.id,
+      // A fresh object: the bot's record is the registry's, and a stored
+      // delivery must not share a mutable record with it.
+      from: { type: 'bot', username: bot.username },
+      to: askedBy,
+      kind: 'reply',
+      reason: 'bot',
+      depth,
+      createdAt: this.clock(),
+      status: 'queued',
+    };
+    this.makeRoomFor(askedBy);
+    const busy = this.lanes.has(askedBy);
+    this.deliveries.add(wake);
+    this.pump(askedBy);
+    if (busy) {
+      // The asker's lane was already working elsewhere and announced nothing
+      // here, so the parent room's queued answer is pushed instead.
+      this.emitRouting(parent.id);
+    }
+  }
+
+  /**
    * The lane's teardown: clear the running mark, tell the room, and take the
    * bot's next delivery. A failed turn is in here too — a lane that stops after
    * one exception would strand every ask behind it.
@@ -2052,14 +2183,14 @@ export class BotService {
     conversation: ConversationRecord,
     bot: BotRecord,
     delivery: BotDelivery,
-  ): Promise<BotDeliveryStatus> {
+  ): Promise<{ status: BotDeliveryStatus; reply?: string }> {
     if (this.disposed || !this.isRunning(delivery)) {
-      return 'cancelled';
+      return { status: 'cancelled' };
     }
     // What this bot has not been told yet, pinned to the line this delivery asks
     // about: everything anyone said since its last turn, with its own lines left
     // out (those are its own assistant turns in its session already).
-    const context = this.contextFor(conversation, bot, delivery.entryId);
+    const context = this.contextFor(conversation, bot, delivery.entryId, delivery);
     const pieces = [
       this.deliveryHeader(delivery),
       delivery.reason === 'lead' && conversation.kind === 'group'
@@ -2083,10 +2214,10 @@ export class BotService {
       if (this.isRunning(delivery)) {
         this.note(conversation.id, `${bot.name} could not start: ${errorMessage(error)}`);
       }
-      return 'failed';
+      return { status: 'failed' };
     }
     if (this.disposed || !this.isRunning(delivery)) {
-      return 'cancelled';
+      return { status: 'cancelled' };
     }
     try {
       // The bot's plugin reads this to name the room, trigger and hop count it is
@@ -2102,7 +2233,7 @@ export class BotService {
       // A shutdown or a withdrawn ask abandons the turn before its cursor moves:
       // the line belongs to the next host, not to a session that is going away.
       if (this.disposed || !this.isRunning(delivery)) {
-        return 'cancelled';
+        return { status: 'cancelled' };
       }
       // The engine has the context now, so the next turn only carries what
       // happened since. Recorded after the prompt was accepted, never before: a
@@ -2113,7 +2244,7 @@ export class BotService {
         this.append(conversation.id, botAuthor(bot), reply);
       }
       if (outcome.reason === 'aborted') {
-        return 'cancelled';
+        return { status: 'cancelled', reply };
       }
       if (outcome.reason === 'error') {
         if (outcome.noted !== true) {
@@ -2122,16 +2253,16 @@ export class BotService {
             `${bot.name} failed${outcome.error === undefined ? '' : `: ${outcome.error}`}`,
           );
         }
-        return 'failed';
+        return { status: 'failed', reply };
       }
-      return 'done';
+      return { status: 'done', reply };
     } catch (error: unknown) {
       // A withdrawn delivery was abandoned on purpose; only a live one is worth a
       // failure line, and a cleared conversation must not get one resurrected.
       if (this.isRunning(delivery)) {
         this.note(conversation.id, `${bot.name} failed: ${errorMessage(error)}`);
       }
-      return 'failed';
+      return { status: 'failed' };
     } finally {
       // The turn is over however it ended, so its context file goes with it: a
       // stale one is worse than none, because it still names a room.
@@ -2214,11 +2345,17 @@ export class BotService {
   }
 
   /**
-   * Opens the private thread between two bots. The id is the sorted pair, so
-   * either bot asking again lands in the same room, and its title follows that
-   * same member order — a thread is named for the two bots, not for the sender.
+   * Opens the private thread between two bots, recording where it came from: the
+   * room the sender was answering in, and the sender's own handle. The id is the
+   * sorted pair, so either bot asking again lands in the same room, and its title
+   * follows that same member order — a thread is named for the two bots, not for
+   * the sender.
    */
-  private createThread(sender: BotRecord, target: BotRecord): ConversationRecord {
+  private createThread(
+    sender: BotRecord,
+    target: BotRecord,
+    parentId: string,
+  ): ConversationRecord {
     const members =
       sender.username < target.username
         ? [sender.username, target.username]
@@ -2228,6 +2365,8 @@ export class BotService {
       kind: 'thread',
       title: members.map((username) => this.displayNameOf(username)).join(' · '),
       members,
+      parentId,
+      askedBy: sender.username,
       sessions: {},
       updatedAt: this.clock(),
     };
@@ -2991,6 +3130,7 @@ export class BotService {
     conversation: ConversationRecord,
     bot: BotRecord,
     entryId: string,
+    delivery?: BotDelivery,
   ): { text: string; upTo: string | undefined } {
     const ref = conversation.sessions[bot.username];
     const unread = this.transcripts.since(conversation.id, ref?.toldUpTo);
@@ -3001,6 +3141,15 @@ export class BotService {
     // nothing at all.
     const entries = end === -1 ? unread : unread.slice(0, end + 1);
     const upTo = end === -1 ? (entries.at(-1)?.id ?? ref?.toldUpTo) : entryId;
+    // A forwarded answer is the one thing this bot has to act on: the ask it sent
+    // has come back, and the person is still waiting on its room. Saying so first
+    // keeps it from answering the peer and leaving the person unanswered. It is
+    // kept outside the context trim: a long room must never push the instruction
+    // out of view.
+    const lead =
+      delivery?.from.type === 'bot' && delivery.kind === 'reply'
+        ? 'A teammate answered the ask you sent. Use it to answer the person, and do not send it back.'
+        : undefined;
     const lines: string[] = [];
     // The first prompt of a discussion introduces the room: a group's members are
     // addressable by handle, and a bot has no other way to learn them.
@@ -3021,7 +3170,8 @@ export class BotService {
         lines.push(line);
       }
     }
-    return { text: lines.join('\n\n').slice(-CONTEXT_MAX_CHARS), upTo };
+    const context = lines.join('\n\n').slice(-CONTEXT_MAX_CHARS);
+    return { text: lead === undefined ? context : `${lead}\n\n${context}`, upTo };
   }
 
   /** One transcript entry as a bot reads it, or nothing when it should not. */

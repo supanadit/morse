@@ -75,6 +75,18 @@ export interface ConversationRecord {
   /** Member bot usernames; a DM has exactly one. */
   members: string[];
   lead?: string;
+  /**
+   * The conversation the asking bot was working in when it opened this thread.
+   * A thread is the only room whose origin matters: an answer given there climbs
+   * back to the room the person asked in. Absent on every thread written before
+   * this existed, which is why such a thread answers in place and never forwards.
+   */
+  parentId?: string;
+  /**
+   * The bot that opened the thread: the one an answer is handed back to. Absent
+   * with `parentId`, for the same reason — there is no origin to hand it to.
+   */
+  askedBy?: string;
   sessions: Record<string, BotSessionRef>;
   updatedAt: number;
 }

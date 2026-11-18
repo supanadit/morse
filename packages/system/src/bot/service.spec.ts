@@ -3260,9 +3260,13 @@ describe('BotService bus', () => {
   it('reads a handoff state from the delivery it created', async () => {
     const { adapter, service } = harness({
       script: ({ prompt }) =>
-        prompt.startsWith('[From ')
-          ? { text: 'named', hold: true }
-          : { text: 'held', hold: true },
+        // The answer Loom hands back wakes Sigil; that one turn answers so the
+        // room can go quiet without the test releasing it by hand.
+        prompt.includes('answered the ask you sent')
+          ? { text: 'named' }
+          : prompt.startsWith('[From ')
+            ? { text: 'named', hold: true }
+            : { text: 'held', hold: true },
     });
     await busBots(service);
     // Loom's lane is already busy in its own room, so Sigil's ask waits as a
@@ -3773,6 +3777,497 @@ describe('BotService bus', () => {
     service.stop(group.id);
     await settle(service, 'thread-loom-sigil');
     await settle(service, group.id);
+  });
+});
+
+describe('BotService answers', () => {
+  const thread = 'thread-loom-sigil';
+
+  it('hands a peer’s answer back to the room the asker was in', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.includes('answered the ask you sent')
+          ? { text: 'for the person' }
+          : prompt.startsWith('[From ')
+            ? { text: 'the answer' }
+            : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const ask = await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+
+    // Loom answers in the private thread Sigil's ask opened.
+    await settle(service, thread);
+
+    // One line in the room the asker was working in, authored by the peer and
+    // saying where the answer came from.
+    const forwarded = service
+      .transcript('dm-sigil')
+      .find((entry) => entry.author.role === 'bot' && entry.text.includes('private thread'));
+    expect(forwarded).toMatchObject({
+      author: { role: 'bot', name: 'Loom', username: 'loom' },
+      text: 'Loom, in a private thread with @sigil: the answer',
+    });
+
+    // A reply delivery in that same room, pointing at the line it forwards, one
+    // hop deeper and under the trigger the person started.
+    const asked = deliveriesOf(root, thread).find((row) => row.id === ask.deliveryId);
+    const reply = deliveriesOf(root, 'dm-sigil').find((row) => row.kind === 'reply');
+    expect(reply).toMatchObject({
+      conversationId: 'dm-sigil',
+      entryId: forwarded?.id,
+      from: { type: 'bot', username: 'loom' },
+      to: 'sigil',
+      kind: 'reply',
+      reason: 'bot',
+      depth: 2,
+      rootId: asked?.rootId,
+    });
+
+    // The asker's lane wakes on that line, with the lead line that says what to
+    // do with it.
+    held.release();
+    await settle(service, 'dm-sigil');
+    const prompts = gatewayFor(adapter, 'sigil').prompts;
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain('Loom, in a private thread with @sigil: the answer');
+    expect(prompts[1]).toContain('answered the ask you sent');
+    expect(prompts[1]).toContain('do not send it back');
+  });
+
+  it('writes the relayed line before the thread’s turn becomes history', async () => {
+    const { adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.includes('answered the ask you sent')
+          ? { text: 'for the person' }
+          : prompt.startsWith('[From ')
+            ? { text: 'the answer' }
+            : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    await settle(service, thread);
+
+    // The settle's order is status → snapshot → hand-back → trace: the parent
+    // already carries the relayed line when the thread's trace is written.
+    const relayedAt = events.findIndex(
+      (event) =>
+        event.type === 'transcript' &&
+        event.conversationId === 'dm-sigil' &&
+        event.entries.some(
+          (entry) => entry.text === 'Loom, in a private thread with @sigil: the answer',
+        ),
+    );
+    const tracedAt = events.findIndex(
+      (event) =>
+        event.type === 'transcript' &&
+        event.conversationId === thread &&
+        event.traces !== undefined &&
+        event.traces.length > 0,
+    );
+    expect(relayedAt).toBeGreaterThanOrEqual(0);
+    expect(tracedAt).toBeGreaterThan(relayedAt);
+    expect(service.open(thread).traces).toHaveLength(1);
+
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('does not wake a bot that answered in its own thread', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) => {
+        if (bot === 'sigil') {
+          return prompt.startsWith('[From ')
+            ? { text: 'sigil answers' }
+            : { text: 'held', hold: true };
+        }
+        // Loom asks Sigil back, then answers nothing: only Sigil's own answer
+        // can reach the parent room.
+        return { text: '', hold: true };
+      },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'your view?' });
+
+    await waitForTurn(service, 'loom');
+    await service.busSend('loom', { to: 'sigil', text: 'my view' });
+    gatewayFor(adapter, 'loom').release();
+
+    // Sigil's room turn ends, and its lane answers in the thread it opened.
+    held.release();
+    await settle(service, thread);
+    await settle(service, 'dm-sigil');
+
+    // The line is written; the bot that asked is the bot that just answered, so
+    // waking it would be a self-loop.
+    const forwarded = service
+      .transcript('dm-sigil')
+      .filter((entry) => entry.text.includes('private thread'));
+    expect(forwarded).toEqual([
+      expect.objectContaining({
+        author: expect.objectContaining({ role: 'bot', username: 'sigil' }),
+        text: 'Sigil, in a private thread with @sigil: sigil answers',
+      }),
+    ]);
+    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toEqual([]);
+  });
+
+  it('leaves a group answer alone', async () => {
+    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    const held = await holdTurn(service, adapter, group.id, 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'weigh in' });
+    held.release();
+    await settle(service, group.id);
+
+    // A group is person-facing: Loom's answer is a normal line in it, and no
+    // delivery, note or lead line pretends it was a delegated answer.
+    const lines = service.transcript(group.id);
+    expect(lines.some((entry) => entry.author.role === 'bot' && entry.text === 'answered')).toBe(
+      true,
+    );
+    expect(lines.some((entry) => entry.text.includes('private thread'))).toBe(false);
+    expect(deliveriesOf(root, group.id).filter((row) => row.kind === 'reply')).toEqual([]);
+    expect(gatewayFor(adapter, 'loom').prompts[0]).not.toContain('answered the ask you sent');
+  });
+
+  it('answers a person in a thread in place', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'sigil'
+          ? { text: 'held', hold: true }
+          : prompt.startsWith('[From ')
+            ? { text: '' }
+            : { text: 'answered the person' },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'first' });
+    held.release();
+    await settle(service, 'dm-sigil');
+    await settle(service, thread);
+
+    await service.send(thread, '@loom the person asks');
+    await settle(service, thread);
+
+    // A person's line is answered where it was asked: one line in the thread and
+    // nothing waking anyone in the parent.
+    const lines = service.transcript(thread);
+    expect(lines.at(-1)).toMatchObject({
+      author: { role: 'bot', username: 'loom' },
+      text: 'answered the person',
+    });
+    expect(lines.some((entry) => entry.author.role === 'user' && entry.text === '@loom the person asks')).toBe(
+      true,
+    );
+    expect(service.transcript('dm-sigil').some((entry) => entry.text.includes('private thread'))).toBe(
+      false,
+    );
+    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toEqual([]);
+  });
+
+  it('notes a failed thread answer in the room that would have received it', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'sigil'
+          ? { text: 'held', hold: true }
+          : prompt.startsWith('[From ')
+            ? { text: '', hold: true }
+            : { text: 'answered' },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'try' });
+
+    const gateway = gatewayFor(adapter, 'loom');
+    await gateway.prompted;
+    gateway.emit({
+      type: 'agent/run-end',
+      at: 1,
+      reason: 'error',
+      error: 'the engine fell over',
+    });
+    gateway.release();
+    await settle(service, thread);
+
+    // Failure is said, not silent: the room that would have received the answer
+    // names the bot and why it never came, and nobody is woken.
+    const notes = service
+      .transcript('dm-sigil')
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('Loom');
+    expect(notes[0]).toContain('could not be handed back');
+    expect(notes[0]).toContain('failed');
+    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toEqual([]);
+
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('notes a stopped thread answer in the room that would have received it', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'sigil'
+          ? { text: 'held', hold: true }
+          : prompt.startsWith('[From ')
+            ? { text: '', hold: true }
+            : { text: 'answered' },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'try' });
+    await gatewayFor(adapter, 'loom').prompted;
+    const traced = new Promise<void>((resolve) => {
+      service.subscribe((event) => {
+        if (event.type === 'transcript' && event.conversationId === thread && event.traces) {
+          resolve();
+        }
+      });
+    });
+
+    service.stop(thread);
+    await traced;
+
+    // A cancelled answer is as silent as a failed one unless it is said: the
+    // room that would have received it names the bot and the reason.
+    const notes = service
+      .transcript('dm-sigil')
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('Loom');
+    expect(notes[0]).toContain('could not be handed back');
+    expect(notes[0]).toContain('cancelled');
+
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('does not forward when the thread has no parent', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'sigil'
+          ? { text: 'held', hold: !prompt.startsWith('[From ') }
+          : prompt.startsWith('[From ')
+            ? { text: 'first answer' }
+            : { text: 'answered' },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'first' });
+    held.release();
+    await settle(service, 'dm-sigil');
+    await settle(service, thread);
+    // The parent's history is rewritten below, so start it empty: the assertion
+    // must be about what the old thread does now, not what the new one did.
+    await service.clear('dm-sigil');
+    await service.dispose();
+
+    // A registry written before a thread knew its origin: the fields were never
+    // there, and nothing rewrites them.
+    const registry = loadBotRegistry(root);
+    const written = registry.conversations.find((one) => one.id === thread);
+    delete written?.parentId;
+    delete written?.askedBy;
+    saveBotRegistry(root, registry);
+
+    const reopened = serviceOn(root, adapter);
+    registerService(reopened);
+    await reopened.send('dm-sigil', '@sigil hold this turn');
+    await waitForTurn(reopened, 'sigil');
+    // A restart builds a new factory for each bot, so the gateway this turn is
+    // on is the newest one, not the one the first service left behind.
+    const newest = adapter.factories.filter((factory) => basename(factory.botRoot) === 'sigil').at(-1);
+    const again = newest?.gateways[0];
+    if (again === undefined) {
+      throw new Error('the reopened service never started Sigil’s turn');
+    }
+    await reopened.busSend('sigil', { to: 'loom', text: 'again' });
+    await settle(reopened, thread);
+
+    // Old threads answer in place: no line in the parent, no delivery.
+    expect(
+      reopened.transcript('dm-sigil').some((entry) => entry.text.includes('private thread')),
+    ).toBe(false);
+    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toEqual([]);
+    expect(reopened.transcript(thread).at(-1)).toMatchObject({
+      author: { role: 'bot', username: 'loom' },
+      text: 'first answer',
+    });
+    expect(loadBotRegistry(root).conversations.find((one) => one.id === thread)).not.toHaveProperty(
+      'parentId',
+    );
+
+    again.release();
+    await settle(reopened, thread);
+    await settle(reopened, 'dm-sigil');
+  });
+
+  it('notes in the thread when the room it came from is gone', async () => {
+    const { adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.startsWith('[From ') ? { text: 'the answer', hold: true } : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+    await holdTurn(service, adapter, group.id, 'sigil');
+    const ask = await service.busSend('sigil', { to: 'loom', text: 'outside' });
+    expect(ask.conversationId).toBe(thread);
+
+    // The private thread outlives the group it was opened from.
+    const gateway = gatewayFor(adapter, 'loom');
+    await gateway.prompted;
+    await service.deleteGroup(group.id);
+    gateway.release();
+    await settle(service, thread);
+
+    const notes = service
+      .transcript(thread)
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('Loom');
+    expect(notes[0]).toContain('could not be handed back');
+    expect(notes[0]).toContain('no longer exists');
+    expect(service.transcript(thread).some((entry) => entry.text.includes('private thread'))).toBe(
+      false,
+    );
+  });
+
+  it('writes its own answer into its own room and wakes nobody', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'loom'
+          ? prompt.startsWith('[From ')
+            ? { text: 'loom answers' }
+            : { text: 'held', hold: true }
+          : prompt.startsWith('[From ')
+            ? { text: 'sigil answers', hold: true }
+            : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    // Loom opens the thread from its own DM, so that DM is the parent.
+    const held = await holdTurn(service, adapter, 'dm-loom', 'loom');
+    await service.busSend('loom', { to: 'sigil', text: 'your view?' });
+
+    // Sigil answers in the thread and asks Loom back there, then hands its
+    // answer back to the only room it came from.
+    await waitForTurn(service, 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'my view' });
+    gatewayFor(adapter, 'sigil').release();
+    for (
+      let tick = 0;
+      tick < 500 &&
+      !service
+        .transcript('dm-loom')
+        .some((entry) => entry.text.includes('private thread'));
+      tick += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    held.release();
+    await settle(service, 'dm-loom');
+    await settle(service, thread);
+
+    // Sigil's answer reaches Loom's room. Loom's own answer in the thread is
+    // written there too — it is the room Loom asked from — but the bot that
+    // asked is the bot that just answered, so nothing is queued for it.
+    const forwarded = service
+      .transcript('dm-loom')
+      .filter((entry) => entry.text.includes('private thread'));
+    expect(forwarded).toEqual([
+      expect.objectContaining({
+        author: expect.objectContaining({ username: 'sigil' }),
+        text: 'Sigil, in a private thread with @loom: sigil answers',
+      }),
+      expect.objectContaining({
+        author: expect.objectContaining({ username: 'loom' }),
+        text: 'Loom, in a private thread with @loom: loom answers',
+      }),
+    ]);
+    expect(
+      deliveriesOf(root, 'dm-loom').filter(
+        (row) => row.kind === 'reply' && row.from.type === 'bot' && row.from.username === 'loom',
+      ),
+    ).toEqual([]);
+  });
+
+  it('climbs a thread to its parent and then to the person', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, call, prompt }) => {
+        if (bot === 'sigil') {
+          return prompt.startsWith('[From ')
+            ? { text: 'for the person' }
+            : { text: 'held', hold: true };
+        }
+        if (bot === 'loom') {
+          // Loom's first turn is the ask it must answer by asking Sage; the
+          // second is Sage's answer climbing back through it.
+          return call === 1 ? { text: '', hold: true } : { text: 'loom answers sigil' };
+        }
+        return { text: 'sage answers loom' };
+      },
+    });
+    await busBots(service);
+    await service.createBot(
+      botInput({ username: 'sage', name: 'Sage', description: 'Somewhere else' }),
+    );
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+    const held = await holdTurn(service, adapter, group.id, 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'ask loom' });
+
+    // Loom asks Sage from inside the first thread, then answers nothing here.
+    await waitForTurn(service, 'loom');
+    await service.busSend('loom', { to: 'sage', text: 'ask sage' });
+    gatewayFor(adapter, 'loom').release();
+    await settle(service, 'thread-loom-sage');
+
+    // Sage's answer climbs to Loom in the first thread, and on to the group.
+    for (
+      let tick = 0;
+      tick < 500 &&
+      !service
+        .transcript(group.id)
+        .some((entry) => entry.text === 'Loom, in a private thread with @sigil: loom answers sigil');
+      tick += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    held.release();
+    await settle(service, group.id);
+
+    expect(service.transcript(group.id).map((entry) => entry.text)).toEqual(
+      expect.arrayContaining([
+        'Loom, in a private thread with @sigil: loom answers sigil',
+        'for the person',
+      ]),
+    );
+    // Each hop is one deeper, under the trigger the person started.
+    const first = deliveriesOf(root, thread).at(0);
+    const climbed = deliveriesOf(root, thread).find((row) => row.kind === 'reply');
+    expect(climbed).toMatchObject({ to: 'loom', kind: 'reply', depth: 3 });
+    expect(deliveriesOf(root, 'thread-loom-sage').find((row) => row.kind === 'reply')).toBeUndefined();
+    expect(deliveriesOf(root, group.id).find((row) => row.kind === 'reply')).toMatchObject({
+      to: 'sigil',
+      kind: 'reply',
+      depth: 4,
+      rootId: climbed?.rootId,
+    });
+    expect(climbed?.rootId).toBe(first?.rootId);
+    // The middle bot is woken by the peer's answer, with its lead line.
+    expect(gatewayFor(adapter, 'loom').prompts[1]).toContain(
+      'Sage, in a private thread with @loom: sage answers loom',
+    );
+    expect(gatewayFor(adapter, 'loom').prompts[1]).toContain('answered the ask you sent');
   });
 });
 
