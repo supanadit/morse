@@ -214,19 +214,14 @@ export class BotNav {
   }
 
   /**
-   * The handles of the bots this room says are running. Routing names them by
-   * display name (that is what the reader sees), so each member is matched back
-   * to its handle here: display names can repeat, handles cannot, and only a
-   * handle can be stopped. A member the roster cannot name has no handle to stop,
-   * so it is left out rather than guessed at from its display name.
+   * The handles of the bots this room says are running. Routing carries both the
+   * display name and the handle, and only the handle identifies a bot: display
+   * names can repeat, handles cannot. The handles are returned as they arrive —
+   * no matching back through the roster, which is what used to collapse two
+   * same-named bots into the first one.
    */
   protected activeMembers(group: BotConversationSummary): string[] {
-    const active = new Set((this.routing()[group.id]?.active ?? []).map((one) => one.target));
-    const names = this.displayNames();
-    return group.members.filter((member) => {
-      const name = names.get(member);
-      return name !== undefined && active.has(name);
-    });
+    return (this.routing()[group.id]?.active ?? []).map((one) => one.username);
   }
 
   /** The empty line a section shows: nothing yet, still loading, or nothing matching. */

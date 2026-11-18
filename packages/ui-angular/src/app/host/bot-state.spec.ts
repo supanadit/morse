@@ -175,7 +175,7 @@ describe('BotState', () => {
     const route = {
       conversationId: 'group-1',
       active: [
-        { target: 'Forge', activity: { kind: 'thinking' as const, label: 'Wait…', at: 1 } },
+        { target: 'Forge', username: 'forge', activity: { kind: 'thinking' as const, label: 'Wait…', at: 1 } },
       ],
       queued: ['Sable'],
     };
@@ -197,7 +197,7 @@ describe('BotState', () => {
       conversationId: 'group-1',
       state: {
         conversationId: 'group-1',
-        active: [{ target: 'Forge', activity }],
+        active: [{ target: 'Forge', username: 'forge', activity }],
         queued: [],
       },
     });
@@ -205,7 +205,7 @@ describe('BotState', () => {
       conversationId: 'dm-sable',
       state: {
         conversationId: 'dm-sable',
-        active: [{ target: 'Sable', activity }],
+        active: [{ target: 'Sable', username: 'sable', activity }],
         queued: [],
       },
     });
@@ -214,7 +214,7 @@ describe('BotState', () => {
 
     expect(state.routingFor('group-1')).toEqual({
       conversationId: 'group-1',
-      active: [{ target: 'Forge', activity }],
+      active: [{ target: 'Forge', username: 'forge', activity }],
       queued: [],
     });
     expect(state.routingFor('dm-sable')).toBeUndefined();
@@ -227,7 +227,7 @@ describe('BotState', () => {
       conversationId: 'dm-sable',
       state: {
         conversationId: 'dm-sable',
-        active: [{ target: 'Sable', activity }],
+        active: [{ target: 'Sable', username: 'sable', activity }],
         queued: [],
       },
     });
@@ -240,7 +240,7 @@ describe('BotState', () => {
     // room being left, and is drawn again on the way back.
     expect(state.routingFor('dm-sable')).toEqual({
       conversationId: 'dm-sable',
-      active: [{ target: 'Sable', activity }],
+      active: [{ target: 'Sable', username: 'sable', activity }],
       queued: [],
     });
     // Opening reads what is held; the host's replace reconciles it.

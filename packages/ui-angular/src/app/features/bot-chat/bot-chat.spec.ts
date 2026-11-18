@@ -254,6 +254,7 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
           },
         ],
@@ -285,6 +286,7 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
           },
         ],
@@ -299,6 +301,7 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
           },
         ],
@@ -323,10 +326,12 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'starting', label: 'Getting started…', at: 1 },
           },
           {
             target: 'Sable',
+            username: 'sable',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
           },
         ],
@@ -344,6 +349,66 @@ describe('BotChat', () => {
       'Getting started…',
       'Wait, let me think…',
     ]);
+  });
+
+  it('keeps two bots with one display name on separate rows, rings and stops', async () => {
+    const { fixture, host, morse } = await render();
+    // Two bots both called Forge: the reader sees the same heading twice, and
+    // only the handle can tell them apart.
+    const twin: BotSummary = { ...forge, username: 'builder', name: 'Forge', avatar: 'B' };
+    const forgeTwin = { ...workshop, id: 'group-twin', members: ['forge', 'builder'] };
+    morse.bot.onRoster({ bots: [forge, twin], conversations: [forgeTwin] });
+    morse.bot.open(forgeTwin.id);
+    morse.bot.onUsage({
+      conversationId: forgeTwin.id,
+      username: 'forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 21_000, contextWindow: 100_000, percent: 21 },
+    });
+    morse.bot.onUsage({
+      conversationId: forgeTwin.id,
+      username: 'builder',
+      bot: 'Forge',
+      contextUsage: { tokens: 84_000, contextWindow: 200_000, percent: 42 },
+    });
+    morse.bot.onRouting(
+      round(forgeTwin.id, {
+        active: [
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+          },
+          {
+            target: 'Forge',
+            username: 'builder',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+          },
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    const presence = [...host.querySelectorAll('.transcript .acting')] as HTMLElement[];
+    expect(presence.map((row) => row.querySelector('.author')?.textContent?.trim())).toEqual([
+      'Forge',
+      'Forge',
+    ]);
+    // Each row draws its own bot's ring, not the first Forge's twice.
+    expect(
+      presence.map((row) => row.querySelector('morse-usage-indicator .pct')?.textContent?.trim()),
+    ).toEqual(['21.0%', '42.0%']);
+    // Each row's mark comes from its own roster entry.
+    expect(presence.map((row) => row.querySelector('.avatar')?.textContent?.trim())).toEqual([
+      'F',
+      'B',
+    ]);
+
+    // Stop on the second row takes the second handle, not the first bot twice.
+    const stop = vi.spyOn(morse, 'stopBotRound');
+    (presence[1]?.querySelector('.stop') as HTMLButtonElement).click();
+    expect(stop).toHaveBeenCalledWith(forgeTwin.id, 'builder');
   });
 
   it('gives each working bot its own ring, and the composer the last one reported', async () => {
@@ -369,10 +434,12 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
           },
           {
             target: 'Sable',
+            username: 'sable',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
           },
         ],
@@ -418,6 +485,7 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Sable',
+            username: 'sable',
             activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
           },
         ],
@@ -440,6 +508,7 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'starting', label: 'Getting started…', at: 1 },
           },
         ],
@@ -589,6 +658,7 @@ describe('BotChat', () => {
         active: [
           {
             target: 'Forge',
+            username: 'forge',
             activity: { kind: 'writing', label: 'Writing the answer…', at: 5 },
           },
         ],

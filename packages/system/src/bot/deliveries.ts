@@ -9,9 +9,10 @@ import type {
 import { writeJsonAtomic } from './store.js';
 
 /**
- * How long a finished delivery stays on disk: one day of history per
- * conversation, enough for a reader's view to still explain what happened
- * without letting the queue grow forever.
+ * A delivery's day, both ways: finished work stays on disk this long as history,
+ * and a `queued` ask that waits longer than this is dropped as undelivered. One
+ * constant because the store keeps one file per conversation and a reader asks a
+ * single question of it — what happened in the last day.
  */
 export const DELIVERY_TTL_MS = 86_400_000;
 
@@ -126,9 +127,15 @@ export class BotDeliveryStore {
   }
 
   /**
-   * Drops finished work older than `ttlMs`. Only terminal rows are candidates:
-   * a queued or running delivery is still owed a turn, however old it is, so
-   * pruning it would lose work rather than history.
+   * Drops finished work older than `ttlMs`.
+   *
+   * Only terminal rows are candidates here. The undelivered TTL is the service's
+   * job, not this sweep's: a `queued` row past its day must become `dropped` with
+   * a transcript note (`BotService.dropExpiredDeliveries`), which runs after this
+   * sweep precisely so the dropped row stays visible until the next sweep instead
+   * of being deleted in the same pass. A `running` row is never dropped — the turn
+   * timeout owns it, and removing it here would strand the engine session using
+   * it.
    */
   prune(now: number, ttlMs: number): void {
     const cutoff = now - ttlMs;

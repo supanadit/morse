@@ -125,13 +125,19 @@ export interface BotActivity {
 }
 
 /**
- * One bot at work in a conversation: its display name and what it is doing.
+ * One bot at work in a conversation: its display name, its handle and what it is
+ * doing.
  *
- * Names, not usernames: this is presentation, so it reads the way the roster
- * does. Identity travels as `username` everywhere it is a key.
+ * Both identities travel because a display name is a label and may repeat: two
+ * bots can be called "Forge", but only one can be `forge`. A reader is shown
+ * `target`; every key — the row's Angular track, its Stop and its ring — uses
+ * `username`.
  */
 export interface BotRoutingActive {
+  /** The bot's display name, for the row's heading. */
   target: string;
+  /** The bot's handle: unique, and the only thing a stop takes. */
+  username: string;
   activity: BotActivity;
 }
 

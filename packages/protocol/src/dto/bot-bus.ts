@@ -26,7 +26,7 @@ export type BotDeliveryReason = 'mention' | 'all' | 'lead' | 'direct' | 'bot' | 
 
 /**
  * How far a delivery has moved. A status only moves forward; `dropped` is the
- * backstop's verdict (queue overflow, depth cap, a restart that cannot resume)
+ * backstop's verdict (queue overflow, depth or per-root cap, the undelivered TTL)
  * and `failed` is the engine's, so a reader can tell a refusal from a crash.
  */
 export type BotDeliveryStatus =
@@ -58,7 +58,12 @@ export type BotDeliveryOrigin =
  */
 export interface BotDelivery {
   id: string;
-  /** The original trigger this delivery descends from; equal to `id` at depth 0. */
+  /**
+   * The id of the trigger this delivery descends from, shared by every delivery
+   * that trigger caused. A person's message mints one root id for the deliveries
+   * it fans out, so a depth-0 delivery carries that shared id rather than one
+   * equal to its own `id` — the root is the trigger, not any one ask.
+   */
   rootId: string;
   conversationId: string;
   /** The transcript line this delivery asks about. Always present. */

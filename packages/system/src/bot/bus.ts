@@ -12,11 +12,13 @@ import { parseMentions } from './mentions.js';
 
 /**
  * What one delivery may spend. The depth and root caps bound a relay that a bot
- * starts; the queue and hourly caps bound what one bot is asked to absorb, so a
- * noisy sender cannot bury a bot's own work in a backlog nobody reads.
+ * starts; the queue and hourly caps bound what one bot handles, so a noisy
+ * sender cannot bury a bot's own work in a backlog nobody reads.
  *
- * The numbers are per delivery and per bot, not per conversation: a bot's
- * attention is the scarce resource, wherever the asks come from.
+ * The queue cap is what a bot absorbs; the hourly cap is what a bot hands out —
+ * it counts the sender's sends, not the recipient's receipts. All of them are per
+ * delivery and per bot, not per conversation: a bot's attention and its token
+ * budget are the scarce resources, wherever the asks come from.
  */
 export const BUS_LIMITS = {
   depth: 4,
@@ -98,7 +100,7 @@ export interface BusBackstopInput {
   depth: number;
   /** Deliveries already caused by the same trigger. */
   rootCount: number;
-  /** Deliveries the recipient accepted in the last hour. */
+  /** Deliveries the sender has handed out in the last hour. */
   recentCount: number;
 }
 
@@ -114,7 +116,9 @@ export interface BusBackstopInput {
  *   note, so a reader can tell a loop from a bot that stopped talking.
  * - The hourly cap is a refusal: a bot is still holding its turn when it hits it,
  *   so the sentence is returned as a tool error and the sender learns to stop and
- *   say why.
+ *   say why. It counts what the sender has sent, not what the recipient received:
+ *   the cap is on one bot's chatter, so a popular bot is not punished for being
+ *   asked a lot.
  *
  * The queue cap is deliberately absent: it is the lane's, which owns the queue and
  * can drop the oldest queued row with a note. Refusing the newcomer here would be
@@ -137,7 +141,7 @@ export function busRefusal({
     return `This trigger has already caused ${rootCount} deliveries, past its limit of ${BUS_LIMITS.perRoot}, so this one was not queued.`;
   }
   if (recentCount > BUS_LIMITS.perBotPerHour) {
-    return `This bot has been sent ${recentCount} deliveries in the last hour, past its limit of ${BUS_LIMITS.perBotPerHour}, so it was refused.`;
+    return `This bot has sent ${recentCount} deliveries in the last hour, past its limit of ${BUS_LIMITS.perBotPerHour}, so it was refused.`;
   }
   return undefined;
 }

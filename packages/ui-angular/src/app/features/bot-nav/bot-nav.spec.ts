@@ -199,8 +199,8 @@ describe('BotNav', () => {
       state: {
         conversationId: thread.id,
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
-          { target: 'Sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Sable', username: 'sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
         ],
         queued: [],
       },
@@ -402,7 +402,7 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
         ],
         queued: [],
       },
@@ -425,7 +425,7 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
         ],
         queued: [],
       },
@@ -466,7 +466,7 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
         ],
         queued: [],
       },
@@ -548,7 +548,7 @@ describe('BotNav', () => {
       state: {
         conversationId: 'group-workshop',
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
         ],
         queued: [],
       },
@@ -582,8 +582,8 @@ describe('BotNav', () => {
       state: {
         conversationId: 'group-workshop',
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
-          { target: 'Sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Sable', username: 'sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
         ],
         queued: [],
       },
@@ -610,6 +610,44 @@ describe('BotNav', () => {
     expect(host.querySelector('.context-menu')).toBeNull();
   });
 
+  it('stops same-named bots by their own handles, not by the first display name', async () => {
+    const { fixture, host, morse, sent } = await render();
+    const twin: BotSummary = { ...forge, username: 'builder', name: 'Forge', avatar: 'B' };
+    const room: BotConversationSummary = {
+      ...workshop,
+      id: 'group-twin',
+      members: ['forge', 'builder'],
+    };
+    morse.bot.onRoster({ bots: [forge, twin], conversations: [room] });
+    morse.bot.onRouting({
+      conversationId: room.id,
+      state: {
+        conversationId: room.id,
+        active: [
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait…', at: 1 } },
+          { target: 'Forge', username: 'builder', activity: { kind: 'thinking', label: 'Wait…', at: 2 } },
+        ],
+        queued: [],
+      },
+    });
+    fixture.detectChanges();
+
+    rightClick(rows(host, 'group')[0] as HTMLElement);
+    fixture.detectChanges();
+
+    // The handles are taken from routing directly, so both rows survive a shared
+    // display name and each stop names the bot it will actually halt.
+    const items = [...host.querySelectorAll('.context-menu .stop-bot')] as HTMLButtonElement[];
+    expect(items.map((one) => one.textContent?.trim())).toEqual(['Stop @forge', 'Stop @builder']);
+
+    items[1]?.click();
+    fixture.detectChanges();
+    expect(sent.at(-1)).toEqual({
+      type: 'bot/stop',
+      payload: { conversationId: 'group-twin', username: 'builder' },
+    });
+  });
+
   it('offers a plain stop for a DM’s one bot', async () => {
     const { fixture, host, morse, sent } = await render();
     morse.bot.onRoster({ bots: [forge], conversations: [] });
@@ -618,7 +656,7 @@ describe('BotNav', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Forge', username: 'forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
         ],
         queued: [],
       },

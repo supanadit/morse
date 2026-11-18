@@ -114,8 +114,8 @@ export class BotChat {
       name: string;
       mark: string;
       queued: string[];
-      /** The bot's handle, when the roster can name it: the only thing a stop takes. */
-      username?: string;
+      /** The bot's handle: unique, and the only thing a stop takes. */
+      username: string;
       /** This bot's own counters, so its row's ring describes its own window. */
       ring?: BotUsageInputs;
     }[]
@@ -128,12 +128,15 @@ export class BotChat {
     const bots = this.morse.bot.roster()?.bots ?? [];
     return routing.active.map((entry, index) => {
       const activity = entry.activity;
-      const bot = bots.find((one) => one.name === entry.target);
-      const usage =
-        id === null || bot === undefined ? undefined : this.morse.bot.usageFor(id, bot.username);
+      // The handle is the identity: a display name can repeat, and two rows that
+      // both resolved to the first "Forge" would share one key, one ring and one
+      // Stop. The roster only supplies the avatar, so a bot deleted mid-turn
+      // still draws its name and letter.
+      const bot = bots.find((one) => one.username === entry.username);
+      const usage = id === null ? undefined : this.morse.bot.usageFor(id, entry.username);
       const ring = usage === undefined ? undefined : botUsageInputs(usage);
       return {
-        key: `${entry.target}:${activity.kind}:${activity.at}`,
+        key: `${entry.username}:${activity.kind}:${activity.at}`,
         kind: activity.kind,
         label: activity.label,
         name: entry.target,
@@ -141,7 +144,7 @@ export class BotChat {
         // The queue belongs to the room, not to one bot: it is drawn once, under
         // the first row, rather than repeated beside every working member.
         queued: index === 0 ? routing.queued : [],
-        ...(bot === undefined ? {} : { username: bot.username }),
+        username: entry.username,
         // A bot that has not reported yet has nothing to draw, so its row stays
         // ringless rather than showing an empty gauge.
         ...(ring === undefined || !hasBotUsage(ring) ? {} : { ring }),
@@ -346,10 +349,10 @@ export class BotChat {
 
   /**
    * A presence row's own Stop: it halts that bot's turn and its queued work in the
-   * conversation in front, leaving a teammate running. Without a handle — a row
-   * the roster could not name — it falls back to the whole room.
+   * conversation in front, leaving a teammate running. It always names a handle:
+   * the host routes on handles, and a display name may belong to two bots.
    */
-  protected stop(username?: string): void {
+  protected stop(username: string): void {
     this.morse.stopBotRound(this.morse.bot.activeId(), username);
   }
 

@@ -1510,7 +1510,11 @@ describe('BotService rounds', () => {
       state: {
         conversationId: 'dm-forge',
         active: [
-          { target: 'Forge', activity: expect.objectContaining({ kind: 'starting' }) },
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: expect.objectContaining({ kind: 'starting' }),
+          },
         ],
         queued: [],
       },
@@ -1673,6 +1677,35 @@ describe('BotService rounds', () => {
     ).toHaveLength(2);
   });
 
+  it('names each working bot by handle, so two with one display name stay distinct', async () => {
+    const { adapter, service } = harness({
+      script: () => ({ text: 'done', hold: true }),
+    });
+    // A display name is a label, not an identity: two bots can be called Forge.
+    await service.createBot(botInput());
+    await service.createBot(
+      botInput({ username: 'builder', name: 'Forge', description: 'Builds the other half' }),
+    );
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'builder'] });
+
+    await service.send(group.id, '@all go');
+    await Promise.all([
+      gatewayFor(adapter, 'forge').prompted,
+      gatewayFor(adapter, 'builder').prompted,
+    ]);
+
+    // Both rows read "Forge" to the reader, and only the handle tells them apart.
+    expect(service.routing(group.id)?.active.map((one) => one.target)).toEqual(['Forge', 'Forge']);
+    expect(service.routing(group.id)?.active.map((one) => one.username)).toEqual([
+      'forge',
+      'builder',
+    ]);
+
+    gatewayFor(adapter, 'forge').release();
+    gatewayFor(adapter, 'builder').release();
+    await settle(service, group.id);
+  });
+
   it('a message sent while a bot runs becomes a second delivery, not a refusal', async () => {
     const { adapter, service } = harness({
       script: ({ call }) =>
@@ -1686,7 +1719,7 @@ describe('BotService rounds', () => {
 
     // The running delivery is still Forge's; the second waits behind it.
     expect(service.routing('dm-forge')).toMatchObject({
-      active: [{ target: 'Forge' }],
+      active: [{ target: 'Forge', username: 'forge' }],
       queued: ['Forge'],
     });
     gatewayFor(adapter, 'forge').release();
@@ -1844,7 +1877,7 @@ describe('BotService rounds', () => {
     await settle(service, group.id);
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
-      'You are the lead of the group "Launch". Answer or @mention the teammate who should answer.\n\n' +
+      'You are the lead of the group "Launch". Answer, or ask a member with bot_send.\n\n' +
         `${room}\n\n[Launch] You: what next`,
     ]);
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
@@ -1988,6 +2021,15 @@ describe('BotService rounds', () => {
     expect(shopRows.find((row) => row.to === 'loom')?.status).toBe('running');
     expect(sigil.aborted).toBe(true);
     expect(loom.aborted).toBe(false);
+    // The note names the bot that stopped and says the room kept going, instead of
+    // one bare "Stopped." that could mean the whole room.
+    const stopNote = service
+      .transcript(shop.id)
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text)
+      .at(-1);
+    expect(stopNote).toContain('Sigil stopped');
+    expect(stopNote).toContain('was withdrawn');
 
     // The other room's engine is the lane's next gateway; the first one was
     // aborted and holds nothing any more.
@@ -2098,7 +2140,7 @@ describe('BotService rounds', () => {
     await settle(service);
   });
 
-  it('prunes finished deliveries on a later send, keeping queued and running ones', async () => {
+  it('prunes finished deliveries and drops an undelivered ask past the TTL, keeping running ones', async () => {
     let now = 1_000_000;
     const { root, adapter, service } = harness({
       now: () => now,
@@ -2118,24 +2160,50 @@ describe('BotService rounds', () => {
     await service.send('dm-forge', 'held');
     await gatewayFor(adapter, 'forge').prompted;
     await service.send('dm-forge', 'waiting');
+    const waiting = deliveriesOf(root, 'dm-forge').find((row) => row.status === 'queued');
 
     // A day later, the next send is the moment a live host pays for housekeeping.
     now += DELIVERY_TTL_MS + 1;
     await service.send('dm-sable', 'second');
     await settle(service, 'dm-sable');
 
-    // The finished row is gone; the two forge rows were never terminal, so they
-    // are still exactly where their lane left them.
+    // The finished row is gone; the undelivered ask hit its day and was dropped
+    // with a note naming the bot, its root and why it was queued. The running
+    // turn is untouched: only the timeout owns a live turn.
     const sableRows = deliveriesOf(root, 'dm-sable');
-    expect(sableRows).toHaveLength(1);
-    expect(sableRows[0]?.status).toBe('done');
-    expect(deliveriesOf(root, 'dm-forge').map((row) => row.status)).toEqual([
-      'running',
-      'queued',
-    ]);
+    expect(sableRows.map((row) => row.status)).toEqual(['done']);
+    const forgeRows = deliveriesOf(root, 'dm-forge');
+    expect(forgeRows.map((row) => row.status)).toEqual(['running', 'dropped']);
+    const droppedRow = forgeRows.find((row) => row.status === 'dropped');
+    expect(droppedRow?.id).toBe(waiting?.id);
+    const note = service
+      .transcript('dm-forge')
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text)
+      .at(-1);
+    expect(note).toContain('Forge');
+    expect(note).toContain(waiting?.rootId);
+    expect(note).toContain('direct');
+    expect(note).toContain('24 h');
 
     gatewayFor(adapter, 'forge').release();
     await settle(service);
+  });
+
+  it('logs a corrupt queue on the pump instead of rejecting the finished lane', async () => {
+    const { root, adapter, service } = harness({ script: () => ({ text: 'late', hold: true }) });
+    await twoBots(service);
+    await service.send('dm-forge', 'hi');
+    await gatewayFor(adapter, 'forge').prompted;
+
+    // A sibling conversation's queue is corrupt. `finishLane` pumps from a
+    // `finally`, so without a guard this read would surface as an unhandled
+    // rejection — the lane's work would just stop with nothing to point at.
+    writeFileSync(join(root, 'deliveries', 'dm-sable.json'), '{ not a queue');
+    gatewayFor(adapter, 'forge').release();
+    await settle(service, 'dm-forge');
+
+    expect(service.routing('dm-forge')).toBeNull();
   });
 
   it('clearing a room whose only work is queued clears its routing state', async () => {
@@ -2382,10 +2450,10 @@ describe('BotService sessions', () => {
 
     await service.compact('dm-forge');
 
-    // pi compacts by aborting the run in flight, so a round under way means later.
+    // pi compacts by aborting the run in flight, so a live turn means later.
     expect(gatewayFor(adapter, 'forge').compacted).toBe(0);
     expect(service.transcript('dm-forge').map((entry) => entry.text)).toContain(
-      'A round is running in this conversation — compact once it ends.',
+      'A bot is answering in this conversation — compact once its turn ends.',
     );
     service.stop('dm-forge');
     await settle(service);
@@ -3155,6 +3223,11 @@ describe('BotService bus', () => {
       .map((entry) => entry.text);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain(`past the depth limit of ${BUS_LIMITS.depth}`);
+    // The note names the bot that was not asked, the root and the reason, so a
+    // reader can tell a loop from a bot that stopped talking.
+    expect(notes[0]).toContain('Loom');
+    expect(notes[0]).toContain('root ');
+    expect(notes[0]).toContain('reason bot');
   });
 
   it('takes the delivery that reaches the per-root limit and drops the next with a note', async () => {

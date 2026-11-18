@@ -1077,6 +1077,7 @@ export class BotService {
       .filter((row) => row.status === 'running')
       .map((row) => ({
         target: this.displayNameOf(row.to),
+        username: row.to,
         activity:
           this.activities.get(activityKey(conversationId, row.to)) ??
           startingActivity(row.createdAt),
@@ -1169,7 +1170,15 @@ export class BotService {
       recentCount: 0,
     });
     if (refused !== undefined) {
-      this.note(current.id, refused);
+      // A dropped send is never silent, and the note names the bot that was not
+      // asked, the root it belonged to and why it was queued — the same three
+      // facts the queue-overflow note gives, so a reader can tell a loop from a
+      // bot that simply stopped talking.
+      this.note(
+        current.id,
+        `${this.displayNameOf(target.username)}'s ask was dropped — ` +
+          `root ${turn.rootId}, reason bot. ${refused}`,
+      );
       return { deliveryId: '', conversationId: current.id, queued: false };
     }
     const hourly = busRefusal({
@@ -1376,15 +1385,22 @@ export class BotService {
     if (queued.length === 0 && running.length === 0) {
       return;
     }
+    // One sentence for the rows and the room: it says which bot was halted when
+    // the caller named one, because "Stopped." alone cannot tell a reader who
+    // stopped or whether the room's other lanes kept going.
+    const note =
+      username === undefined
+        ? 'Stopped.'
+        : `${this.displayNameOf(username)} stopped — only that bot's work here was withdrawn.`;
     for (const row of queued) {
-      this.deliveries.setStatus(conversationId, row.id, 'cancelled', 'Stopped.');
+      this.deliveries.setStatus(conversationId, row.id, 'cancelled', note);
       this.turnAttachments.delete(row.id);
     }
-    this.note(conversationId, 'Stopped.');
+    this.note(conversationId, note);
     for (const row of running) {
       // Marking it cancelled first means the turn is not waited for: the gateway
       // is aborted, and a turn still starting checks this before it prompts.
-      this.deliveries.setStatus(conversationId, row.id, 'cancelled', 'Stopped.');
+      this.deliveries.setStatus(conversationId, row.id, 'cancelled', note);
       this.turnAttachments.delete(row.id);
       const warm = this.warm.get(warmKey(conversationId, row.to));
       if (warm !== undefined) {
@@ -1499,11 +1515,17 @@ export class BotService {
    */
   async compact(conversationId: string): Promise<void> {
     const conversation = this.conversationOrThrow(conversationId);
-    if (this.routing(conversationId) !== null) {
+    const running = this.routing(conversationId);
+    if (running !== null) {
       // pi compacts by aborting the run in flight, so compacting under a live
-      // round would drop the answer the reader is waiting for. Said, not thrown:
+      // turn would drop the answer the reader is waiting for. Said, not thrown:
       // the reader asked for a gesture, not for an error dialog.
-      this.note(conversationId, 'A round is running in this conversation — compact once it ends.');
+      this.note(
+        conversationId,
+        running.active.length > 0
+          ? 'A bot is answering in this conversation — compact once its turn ends.'
+          : 'Work is queued in this conversation — compact once the lane has taken it.',
+      );
       return;
     }
     const failures: string[] = [];
@@ -1632,6 +1654,12 @@ export class BotService {
    * Drops finished deliveries past their day, at most once an hour, from the
    * paths that keep a host alive.
    *
+   * The same pass is the undelivered-TTL backstop: a `queued` row older than the
+   * TTL is dropped with a transcript note after the store prunes, so a bot that
+   * was never pumped — its queue grew while the host was busy elsewhere — cannot
+   * hold work forever. A `running` row is never dropped here; the turn timeout
+   * owns that one.
+   *
    * Without this the per-conversation file only ever grows: every status change
    * rewrites it whole and every presence change re-reads it, so a long-lived host
    * would pay for every message it ever answered. A broken file is logged and
@@ -1643,10 +1671,55 @@ export class BotService {
       return;
     }
     this.lastPrunedAt = now;
+    // The finished rows go first. Pruning before the TTL pass is deliberate: a
+    // row this pass drops is by definition older than the cutoff, so pruning
+    // after it would delete the very status the note explains. It stays until the
+    // next sweep.
     try {
       this.deliveries.prune(now, DELIVERY_TTL_MS);
     } catch (error: unknown) {
       this.options.logger.warn('Failed to prune finished bot deliveries', error);
+    }
+    this.dropExpiredDeliveries(now);
+  }
+
+  /**
+   * The undelivered TTL: a queued ask that sat past `DELIVERY_TTL_MS` is dropped
+   * with a note naming the bot, its root and why it was queued. Nothing running is
+   * touched — a live turn is the timeout's business, and dropping it would strand
+   * the engine session it is using.
+   */
+  private dropExpiredDeliveries(now: number): void {
+    const cutoff = now - DELIVERY_TTL_MS;
+    for (const conversation of this.registry.conversations) {
+      let rows: BotDelivery[];
+      try {
+        rows = this.deliveries.all(conversation.id);
+      } catch (error: unknown) {
+        // The store's own sweep reports the same file; this pass must not be the
+        // reason a corrupt queue stops every other conversation's housekeeping.
+        this.options.logger.warn(
+          `Failed to read queued bot deliveries in "${conversation.id}"`,
+          error,
+        );
+        continue;
+      }
+      let changed = false;
+      for (const row of rows) {
+        if (row.status !== 'queued' || row.createdAt >= cutoff) {
+          continue;
+        }
+        const note =
+          `${this.displayNameOf(row.to)}'s ask was dropped — it sat undelivered past ` +
+          `${DELIVERY_TTL_MS / 3_600_000} h (root ${row.rootId}, reason ${row.reason}).`;
+        this.deliveries.setStatus(conversation.id, row.id, 'dropped', note);
+        this.turnAttachments.delete(row.id);
+        this.note(conversation.id, note);
+        changed = true;
+      }
+      if (changed) {
+        this.emitRouting(conversation.id);
+      }
     }
   }
 
@@ -1659,17 +1732,35 @@ export class BotService {
     if (this.disposed || this.lanes.has(username)) {
       return;
     }
-    const next = this.oldestQueuedFor(username);
+    let next: BotDelivery | undefined;
+    try {
+      next = this.oldestQueuedFor(username);
+      if (next === undefined) {
+        return;
+      }
+      this.lanes.add(username);
+      this.turns.set(username, { conversationId: next.conversationId, deliveryId: next.id });
+      this.activities.set(
+        activityKey(next.conversationId, username),
+        startingActivity(this.clock()),
+      );
+      this.deliveries.setStatus(next.conversationId, next.id, 'running');
+    } catch (error: unknown) {
+      // A corrupt queue is the store's to report, but this call sits in a
+      // `finally`: an exception here would become an unhandled rejection and the
+      // bot's remaining work would stall with nothing in the log. Release this
+      // lane's provisional claim and leave the file for repair.
+      this.lanes.delete(username);
+      this.turns.delete(username);
+      if (next !== undefined) {
+        this.activities.delete(activityKey(next.conversationId, username));
+      }
+      this.options.logger.warn(`Cannot take ${username}'s next bot delivery`, error);
+      return;
+    }
     if (next === undefined) {
       return;
     }
-    this.lanes.add(username);
-    this.turns.set(username, { conversationId: next.conversationId, deliveryId: next.id });
-    this.activities.set(
-      activityKey(next.conversationId, username),
-      startingActivity(this.clock()),
-    );
-    this.deliveries.setStatus(next.conversationId, next.id, 'running');
     // Announced before the engine is even warm: starting one takes seconds, and a
     // silent chat for those seconds reads as a dropped message.
     this.emitRouting(next.conversationId);
@@ -2947,7 +3038,7 @@ function attachmentSummary(images: number, files: number): string {
 
 /** The brief an unaddressed group message prefixes onto its lead's prompt. */
 function leadBrief(title: string): string {
-  return `You are the lead of the group "${title}". Answer or @mention the teammate who should answer.`;
+  return `You are the lead of the group "${title}". Answer, or ask a member with bot_send.`;
 }
 
 /** The default answer to one engine question. */
