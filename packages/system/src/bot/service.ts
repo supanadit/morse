@@ -1378,26 +1378,19 @@ export class BotService {
       createdAt: this.clock(),
       status: 'queued',
     };
-    // The queue backstop is the lane's: a full queue drops its oldest row with a
-    // note, and the newcomer is always taken.
-    this.makeRoomFor(target.username);
-    const busy = this.lanes.has(target.username);
-    this.deliveries.add(delivery);
-    this.recordSend(username);
-    // Recorded on the sender's own turn: the row reads the target's delivery for
-    // its state, so the chip moves without the sender's engine saying anything.
-    this.turns.handoff(username, {
-      username: target.username,
-      conversationId: room.id,
-      deliveryId: delivery.id,
-      at: this.clock(),
-      state: 'asked',
+    this.queueDelivery(delivery, room.id, () => {
+      this.recordSend(username);
+      // Recorded on the sender's own turn: the row reads the target's delivery
+      // for its state, so the chip moves without the sender's engine saying
+      // anything.
+      this.turns.handoff(username, {
+        username: target.username,
+        conversationId: room.id,
+        deliveryId: delivery.id,
+        at: this.clock(),
+        state: 'asked',
+      });
     });
-    this.pump(target.username);
-    if (busy) {
-      // The target's lane announced nothing: it was already working elsewhere.
-      this.emitRouting(room.id);
-    }
     if (room.id !== current.id) {
       // The sender's room draws the chip even though the ask landed elsewhere.
       this.emitRouting(current.id);
@@ -1485,10 +1478,6 @@ export class BotService {
     });
     const rootId = newDeliveryId();
     for (const target of targets) {
-      this.makeRoomFor(target.username);
-      // A lane already busy elsewhere cannot announce this room's ask itself, so
-      // the send does. When the lane starts here, `pump` is the one that emits.
-      const busy = this.lanes.has(target.username);
       const delivery: BotDelivery = {
         id: newDeliveryId(),
         rootId,
@@ -1504,12 +1493,11 @@ export class BotService {
         createdAt: this.clock(),
         status: 'queued',
       };
-      this.deliveries.add(delivery);
-      this.turnAttachments.set(delivery.id, { images, files });
-      this.pump(target.username);
-      if (busy) {
-        this.emitRouting(conversation.id);
-      }
+      // Attached once the row exists and before the lane can start: the turn
+      // reads this map as soon as it begins.
+      this.queueDelivery(delivery, conversation.id, () => {
+        this.turnAttachments.set(delivery.id, { images, files });
+      });
     }
   }
 
@@ -1975,7 +1963,7 @@ export class BotService {
       // handed back, and only a delivery that really settled becomes history.
       // A relayed answer therefore exists in its parent room before this turn's
       // trace does, so the trace describes a turn whose work already landed.
-      if (settled && conversation !== undefined && bot !== undefined) {
+      if (settled && conversation !== undefined) {
         try {
           this.handBack(conversation, bot, delivery, answer, status);
         } catch (error: unknown) {
@@ -2049,11 +2037,13 @@ export class BotService {
    * parent is another thread forwards again, and the last parent is a DM or a
    * group, which is person-facing and wakes nobody. A thread written before its
    * origin was recorded answers in place. A failed or cancelled turn is said in
-   * the room that would have received it, naming the bot and the reason.
+   * the room that would have received it, naming the bot and the reason. A relay
+   * that would spend a bus cap — depth, the root's total or the bot's hour — is
+   * said in the parent too, and wakes nobody, exactly as a bot's own ask is.
    */
   private handBack(
     conversation: ConversationRecord,
-    bot: BotRecord,
+    bot: BotRecord | undefined,
     delivery: BotDelivery,
     answer: string | undefined,
     status: BotDeliveryStatus,
@@ -2077,26 +2067,25 @@ export class BotService {
     if (this.findConversation(conversation.id) !== conversation) {
       return;
     }
+    // A bot deleted mid-thread has no record left to author a line with, but the
+    // failure it left is still owed a note. Its handle is the name the room knows.
+    const name = bot?.name ?? this.displayNameOf(delivery.to);
+    const ended = status === 'failed' ? 'failed' : 'was cancelled';
     const parent = this.findConversation(parentId);
     if (parent === undefined) {
       // Nothing can forward from a room that is gone, so the thread itself says
       // so instead of the answer vanishing with its parent.
       this.note(
         conversation.id,
-        `${bot.name}'s answer could not be handed back: the conversation it came from no longer exists.`,
+        `${name}'s answer could not be handed back: the conversation it came from no longer exists` +
+          `${status === 'done' ? '' : `, and the turn ${ended}`}.`,
       );
       return;
     }
-    const asker = conversation.askedBy ?? delivery.from.username;
     if (status !== 'done') {
       // Failure is said, not silent: the room that would have received the
       // answer learns which bot did not deliver it and how its turn ended.
-      this.note(
-        parent.id,
-        `${bot.name}'s answer could not be handed back: the turn ${
-          status === 'failed' ? 'failed' : 'was cancelled'
-        }.`,
-      );
+      this.note(parent.id, `${name}'s answer could not be handed back: the turn ${ended}.`);
       return;
     }
     const text = answer?.trim() ?? '';
@@ -2104,29 +2093,48 @@ export class BotService {
       // A turn that ended without words has no answer to hand back.
       return;
     }
-    const depth = delivery.depth + 1;
-    if (depth > BUS_LIMITS.depth) {
-      // The climb is still bounded by the depth cap a bot's own ask obeys.
-      this.note(
-        parent.id,
-        `${bot.name}'s answer was not handed back: the relay is ${depth} hops from its trigger, past the depth limit of ${BUS_LIMITS.depth}.`,
-      );
+    // A record that vanished before its turn settled has no bot to author the
+    // line: the settled status above is the only thing the parent can be told.
+    if (bot === undefined) {
       return;
+    }
+    const asker = conversation.askedBy ?? delivery.from.username;
+    // The bot that asked is the bot that just answered: the line is all the room
+    // needs, and waking it would be a self-loop. A parent whose only member is
+    // the answering bot has nobody else to wake either.
+    const askedBy = conversation.askedBy;
+    const wakeTo =
+      askedBy !== undefined &&
+      askedBy !== bot.username &&
+      parent.members.some((member) => member !== bot.username)
+        ? askedBy
+        : undefined;
+    const depth = delivery.depth + 1;
+    if (wakeTo !== undefined) {
+      // The relay spends the same budget as a bot's own ask: the depth, the
+      // root's total and the sender's hour are one rule, read from one place.
+      const refused = busRefusal({
+        depth,
+        rootCount: this.deliveriesUnderRoot(delivery.rootId) + 1,
+        recentCount: this.recentSendsOf(bot.username) + 1,
+      });
+      if (refused !== undefined) {
+        // A refused relay is said, not silent, and wakes nobody.
+        this.note(
+          parent.id,
+          `${name}'s answer was not handed back — root ${delivery.rootId}, ` +
+            `reason bot. ${refused}`,
+        );
+        return;
+      }
     }
 
     const line = this.append(
       parent.id,
       botAuthor(bot),
-      `${bot.name}, in a private thread with @${asker}: ${text}`,
+      `${name}, in a private thread with @${asker}: ${text}`,
     );
-    // The bot that asked is the bot that just answered: the line is all the room
-    // needs, and waking it would be a self-loop. A parent whose only member is
-    // the answering bot has nobody else to wake either.
-    const askedBy = conversation.askedBy;
-    if (askedBy === undefined || askedBy === bot.username) {
-      return;
-    }
-    if (!parent.members.some((member) => member !== bot.username)) {
+    if (wakeTo === undefined) {
       return;
     }
     const wake: BotDelivery = {
@@ -2137,22 +2145,14 @@ export class BotService {
       // A fresh object: the bot's record is the registry's, and a stored
       // delivery must not share a mutable record with it.
       from: { type: 'bot', username: bot.username },
-      to: askedBy,
+      to: wakeTo,
       kind: 'reply',
       reason: 'bot',
       depth,
       createdAt: this.clock(),
       status: 'queued',
     };
-    this.makeRoomFor(askedBy);
-    const busy = this.lanes.has(askedBy);
-    this.deliveries.add(wake);
-    this.pump(askedBy);
-    if (busy) {
-      // The asker's lane was already working elsewhere and announced nothing
-      // here, so the parent room's queued answer is pushed instead.
-      this.emitRouting(parent.id);
-    }
+    this.queueDelivery(wake, parent.id);
   }
 
   /**
@@ -2300,6 +2300,31 @@ export class BotService {
       .all(delivery.conversationId)
       .find((candidate) => candidate.id === delivery.id);
     return row?.status === 'running';
+  }
+
+  /**
+   * Queues one delivery in its room and starts the recipient's lane.
+   *
+   * One place for the convention every producer shares: make room with the queue
+   * backstop, note whether the lane was already busy (it will not announce this
+   * room itself), add the row, run the caller's own bookkeeping, pump, and — when
+   * the lane is busy elsewhere — push this room's presence by hand. `roomId` is
+   * the room the delivery lands in; `afterAdd` is work that must see the row
+   * before a lane can start on it.
+   */
+  private queueDelivery(delivery: BotDelivery, roomId: string, afterAdd?: () => void): void {
+    // The queue backstop is the lane's: a full queue drops its oldest row with a
+    // note, and the newcomer is always taken.
+    this.makeRoomFor(delivery.to);
+    // A lane already busy elsewhere cannot announce this room's ask itself, so
+    // the queue does. When the lane starts here, `pump` is the one that emits.
+    const busy = this.lanes.has(delivery.to);
+    this.deliveries.add(delivery);
+    afterAdd?.();
+    this.pump(delivery.to);
+    if (busy) {
+      this.emitRouting(roomId);
+    }
   }
 
   /**

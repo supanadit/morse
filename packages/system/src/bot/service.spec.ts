@@ -4070,6 +4070,20 @@ describe('BotService answers', () => {
     await service.clear('dm-sigil');
     await service.dispose();
 
+    // A real reopen keeps the origin. The loader must copy both fields through,
+    // and a public write must put them back on disk whole; only after that is
+    // the older shape simulated.
+    const preserved = serviceOn(root, adapter);
+    registerService(preserved);
+    await preserved.createBot(
+      botInput({ username: 'scribe', name: 'Scribe', description: 'Keeps the record' }),
+    );
+    expect(loadBotRegistry(root).conversations.find((one) => one.id === thread)).toMatchObject({
+      parentId: 'dm-sigil',
+      askedBy: 'sigil',
+    });
+    await preserved.dispose();
+
     // A registry written before a thread knew its origin: the fields were never
     // there, and nothing rewrites them.
     const registry = loadBotRegistry(root);
@@ -4111,7 +4125,7 @@ describe('BotService answers', () => {
   });
 
   it('notes in the thread when the room it came from is gone', async () => {
-    const { adapter, service } = harness({
+    const { root, adapter, service } = harness({
       script: ({ prompt }) =>
         prompt.startsWith('[From ') ? { text: 'the answer', hold: true } : { text: 'held', hold: true },
     });
@@ -4139,6 +4153,47 @@ describe('BotService answers', () => {
     expect(service.transcript(thread).some((entry) => entry.text.includes('private thread'))).toBe(
       false,
     );
+    expect(deliveriesOf(root, thread).filter((row) => row.kind === 'reply')).toEqual([]);
+  });
+
+  it('names the failed turn in the thread when the room it came from is gone', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.startsWith('[From ') ? { text: '', hold: true } : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+    await holdTurn(service, adapter, group.id, 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'outside' });
+
+    const gateway = gatewayFor(adapter, 'loom');
+    await gateway.prompted;
+    await service.deleteGroup(group.id);
+    gateway.emit({
+      type: 'agent/run-end',
+      at: 1,
+      reason: 'error',
+      error: 'the engine fell over',
+    });
+    gateway.release();
+    await settle(service, thread);
+
+    // The note that cannot reach the parent still says which bot failed and how,
+    // so a failure does not disappear with the room it was meant for.
+    const notes = service
+      .transcript(thread)
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(
+      notes.some(
+        (text) =>
+          text.includes('Loom') &&
+          text.includes('could not be handed back') &&
+          text.includes('no longer exists') &&
+          text.includes('failed'),
+      ),
+    ).toBe(true);
+    expect(deliveriesOf(root, thread).filter((row) => row.kind === 'reply')).toEqual([]);
   });
 
   it('writes its own answer into its own room and wakes nobody', async () => {
@@ -4268,6 +4323,71 @@ describe('BotService answers', () => {
       'Sage, in a private thread with @loom: sage answers loom',
     );
     expect(gatewayFor(adapter, 'loom').prompts[1]).toContain('answered the ask you sent');
+  });
+
+  it('refuses a relay one hop past the depth cap and says why', async () => {
+    // One bot per hop, each asking the next from inside its own turn, so every
+    // delivery's depth is the one the host actually queued it with.
+    const asked = new Set<string>();
+    const sends: Promise<unknown>[] = [];
+    const next: Record<string, string | undefined> = {
+      sigil: 'loom',
+      loom: 'sage',
+      sage: 'reed',
+    };
+    const { root, service } = harness({
+      script: ({ bot }) => {
+        const target = next[bot];
+        if (target !== undefined && !asked.has(bot)) {
+          asked.add(bot);
+          sends.push(
+            service
+              .busSend(bot, { to: target, text: `ask ${target}` })
+              .catch(() => undefined),
+          );
+        }
+        return { text: `${bot} answered` };
+      },
+    });
+    await busBots(service);
+    await service.createBot(
+      botInput({ username: 'sage', name: 'Sage', description: 'Somewhere else' }),
+    );
+    await service.createBot(
+      botInput({ username: 'reed', name: 'Reed', description: 'Out past Sage' }),
+    );
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+
+    await service.send(group.id, '@sigil start');
+    const thread = 'thread-loom-sigil';
+    for (let tick = 0; tick < 1000; tick += 1) {
+      if (service.transcript(thread).some((entry) => entry.author.role === 'system')) {
+        break;
+      }
+      await Promise.resolve();
+    }
+    // Every send the chain made settles; a refusal is answered in the room, not
+    // thrown at the bot, so none of them rejects the test.
+    await Promise.all(sends);
+
+    // The allowed relay at the cap reaches Loom at depth 3 and Sage at depth 4;
+    // the next hop would be depth 5, so it is said and nothing is queued.
+    const notes = service
+      .transcript(thread)
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('Sage');
+    expect(notes[0]).toContain('reason bot');
+    expect(notes[0]).toContain('depth limit of 4');
+    const relaid = deliveriesOf(root, thread);
+    expect(relaid.some((row) => row.kind === 'reply' && row.depth === 3)).toBe(true);
+    expect(relaid.some((row) => row.kind === 'reply' && row.depth === 5)).toBe(false);
+    expect(
+      deliveriesOf(root, 'thread-loom-sage').find((row) => row.kind === 'reply'),
+    ).toMatchObject({ to: 'sage', depth: 4 });
+
+    await settle(service, group.id);
   });
 });
 
