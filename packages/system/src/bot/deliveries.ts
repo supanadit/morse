@@ -20,9 +20,10 @@ export const DELIVERY_TTL_MS = 86_400_000;
  * status changes in place and a lane reads the queue as one ordered list; the
  * write is atomic, so a crash leaves the previous queue intact.
  *
- * A row only moves forward — queued, then running, then one terminal status —
- * and a terminal row never changes again. That is what lets a lane read the file
- * without a lock: work that is `done` cannot come back to be run twice.
+ * A row only moves forward, and a terminal row never changes again. A queued row
+ * may be dropped or cancelled without ever running (a full queue, a withdrawn
+ * ask), but no terminal row can come back to be run twice. That is what lets a
+ * lane read the file without a lock.
  */
 export class BotDeliveryStore {
   private readonly dir: string;
@@ -168,14 +169,16 @@ export class BotDeliveryStore {
 }
 
 /**
- * How far a delivery may move. `queued → cancelled` is the one shortcut: a
- * reader who withdraws work before a lane picks it up does not need it to run
- * first to be cancelled. The four terminal statuses go nowhere, which is the
- * invariant every reader relies on.
+ * How far a delivery may move. Two terminal statuses are reachable straight from
+ * `queued`: `cancelled` when a reader withdraws the work, and `dropped` when a
+ * backstop refuses it before it ever ran — a full per-bot queue or a delivery
+ * that sat undelivered past the TTL. Neither needs a running turn first, and
+ * calling it "cancelled" would put the wrong word in the transcript. The four
+ * terminal statuses go nowhere, which is the invariant every reader relies on.
  */
 const NEXT_STATUS: Record<BotDeliveryStatus, readonly BotDeliveryStatus[]> = {
-  queued: ['running', 'cancelled'],
-  running: ['done', 'failed', 'dropped', 'cancelled'],
+  queued: ['running', 'dropped', 'cancelled'],
+  running: ['done', 'failed', 'cancelled'],
   done: [],
   failed: [],
   dropped: [],

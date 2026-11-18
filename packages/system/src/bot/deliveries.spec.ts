@@ -92,6 +92,19 @@ describe('bot delivery store', () => {
     expect(() => store.all('dm-sigil')).toThrow('dm-sigil.json');
   });
 
+  it('drops a queued delivery that never ran and keeps it dropped', () => {
+    const store = new BotDeliveryStore(dir);
+    store.add(delivery({ id: 'a' }));
+
+    store.setStatus('dm-sigil', 'a', 'dropped', 'queue overflow');
+    store.setStatus('dm-sigil', 'a', 'running');
+
+    expect(store.all('dm-sigil')[0]).toMatchObject({
+      status: 'dropped',
+      note: 'queue overflow',
+    });
+  });
+
   it('never replaces a terminal status and keeps a note when none is passed', () => {
     const store = new BotDeliveryStore(dir);
     store.add(delivery({ id: 'a', status: 'running' }));
