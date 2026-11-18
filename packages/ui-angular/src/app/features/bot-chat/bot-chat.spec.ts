@@ -708,6 +708,40 @@ describe('BotChat', () => {
     expect(row.querySelector('.quiet')).toBeNull();
   });
 
+  it('stays at work when the running step is only the current activity', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    // A host that reported the current step as the activity and no history yet:
+    // the activity is still the step the row is on, and a running tool there
+    // means the turn has not gone quiet.
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            activity: {
+              kind: 'tool',
+              label: 'Running the tests…',
+              tool: 'bash',
+              at: 99_000,
+              status: 'running',
+            },
+            steps: [],
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    vi.advanceTimersByTime(60_000);
+    fixture.detectChanges();
+    const row = host.querySelector('.acting') as HTMLElement;
+    expect(row.getAttribute('data-quiet')).toBeNull();
+    expect(row.querySelector('.quiet')).toBeNull();
+  });
+
   it('opens the newest three steps, with a failed step’s error behind its own disclosure', async () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);
@@ -811,6 +845,10 @@ describe('BotChat', () => {
       'dye answered',
       'ash failed',
     ]);
+    // The extra detail is visible, but the chip's name is the state sentence the
+    // row is required to say, without the activity text read on top of it.
+    expect(chips[1]?.getAttribute('aria-label')).toBe('sable is working');
+    expect(chips[1]?.querySelector('.chip-doing')?.getAttribute('aria-hidden')).toBe('true');
 
     const opened = vi.spyOn(morse, 'openBotConversation');
     chips[1]?.click();
@@ -859,6 +897,34 @@ describe('BotChat', () => {
 
     const status = host.querySelector('.acting [role="status"]') as HTMLElement;
     expect(status.textContent?.trim()).toBe('Forge is reading launch-brief.md.');
+  });
+
+  it('keeps an acronym’s capitals when the label starts with one', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          live({
+            activity: {
+              kind: 'tool',
+              label: 'API lookup started…',
+              tool: 'read',
+              at: 99_000,
+            },
+          }),
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    // Only ordinary sentence-start capitalisation is lowered; an acronym is how
+    // the reader knows the thing, not a word that needed a capital.
+    const status = host.querySelector('.acting [role="status"]') as HTMLElement;
+    expect(status.textContent?.trim()).toBe('Forge is API lookup started.');
   });
 
   it('draws one presence row per working bot', async () => {

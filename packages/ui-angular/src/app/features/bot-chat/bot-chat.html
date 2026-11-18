@@ -246,7 +246,10 @@
                 </button>
                 @if (stepsOpen(row.turnKey)) {
                   <div class="live-step-list">
-                    @for (step of row.steps; track $index) {
+                    <!-- Keyed by the step, not its slot: when the newest-three
+                         window slides, a step's node must follow the step, so an
+                         opened error and focus never land on a different row. -->
+                    @for (step of row.steps; track step.at + ':' + $index) {
                       <div class="step" [attr.data-status]="step.status ?? null">
                         <span class="step-label">{{ step.label }}</span>
                         @if (step.status; as status) {
@@ -276,12 +279,13 @@
                     type="button"
                     class="handoff-chip"
                     [attr.data-state]="handoff.state"
+                    [attr.aria-label]="handoffLabel(handoff)"
                     [title]="'Open the conversation with @' + handoff.username"
                     (click)="openHandoff(handoff)"
                   >
                     {{ handoffLabel(handoff) }}
                     @if (handoff.activity; as activity) {
-                      <span class="chip-doing">{{ activity.label }}</span>
+                      <span class="chip-doing" aria-hidden="true">{{ activity.label }}</span>
                     }
                   </button>
                 }

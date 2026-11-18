@@ -251,7 +251,8 @@ export class BotChat {
         username: entry.username,
         startedAt: entry.startedAt,
         lastStepAt: newest.at,
-        runningTool: entry.steps.some((step) => step.status === 'running'),
+        runningTool:
+          entry.steps.some((step) => step.status === 'running') || activity.status === 'running',
         stepCount: entry.steps.length,
         // Three is what a glance can hold; the rest is the finished turn's record.
         steps: entry.steps.slice(-3),
@@ -396,7 +397,7 @@ export class BotChat {
     if (this.quiet(row)) {
       return `${row.name} is waiting on the model.`;
     }
-    const doing = row.label.slice(0, 1).toLowerCase() + row.label.slice(1);
+    const doing = sentenceCase(row.label);
     return `${row.name} is ${doing.replace(/[.…!?]+$/, '')}.`;
   }
 
@@ -729,6 +730,22 @@ function answerFor(
 /** A trace sorts before an entry at the same instant, so a record sits above its line. */
 function itemRank(item: TimelineItem): number {
   return item.trace === undefined ? 1 : 0;
+}
+
+/**
+ * A live label fitted after "Forge is": the sentence's own capital lowered, unless
+ * the first word is not ordinary sentence capitalisation.
+ *
+ * "Reading launch-brief.md…" becomes "reading launch-brief.md"; "API lookup"
+ * keeps its capitals, because they name the thing rather than start a sentence.
+ */
+function sentenceCase(text: string): string {
+  const end = text.search(/\s/);
+  const word = end === -1 ? text : text.slice(0, end);
+  if (!/^[A-Z]/.test(word) || word.slice(1) !== word.slice(1).toLowerCase()) {
+    return text;
+  }
+  return word.slice(0, 1).toLowerCase() + text.slice(1);
 }
 
 /**
