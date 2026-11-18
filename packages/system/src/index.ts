@@ -22,6 +22,7 @@ export * from './logger.js';
 export * from './data/layout.js';
 
 export * from './bot/types.js';
+export * from './bot/instruction.js';
 export * from './bot/store.js';
 export * from './bot/deliveries.js';
 export * from './bot/providers.js';

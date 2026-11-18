@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BotEngineConfig } from '@morse/system';
+import { BOT_BUS_INSTRUCTION, type BotEngineConfig } from '@morse/system';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   piAgentDir,
@@ -284,6 +284,39 @@ describe('piBotLayout', () => {
     expect(settings['$schema']).toBe('https://pi.dev/schemas/settings.schema.json');
     expect(Object.keys(settings)[0]).toBe('$schema');
     expect(settings['theme']).toBe('dark');
+  });
+
+  it('writes the bot-bus instruction where pi appends to its system prompt', () => {
+    writePiBotConfig(botRoot, config);
+
+    // `APPEND_SYSTEM.md` appends to the system prompt, and it is wholly Morse's:
+    // the persona is SYSTEM.md and the workspace document is the workspace
+    // AGENTS.md, so neither a persona edit nor a workspace edit can erase it.
+    expect(readFileSync(join(botRoot, 'config', 'APPEND_SYSTEM.md'), 'utf8')).toContain('bot_list');
+    expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('You are News Finder.\n');
+  });
+
+  it('keeps the instruction through a persona edit', () => {
+    writePiBotConfig(botRoot, config);
+    writePiBotConfig(botRoot, { ...config, persona: 'You are someone else.' });
+
+    // A persona edit owns SYSTEM.md; the habit is not part of the character and
+    // must not be copied there or dropped from its own file.
+    expect(readFileSync(join(botRoot, 'config', 'APPEND_SYSTEM.md'), 'utf8')).toBe(
+      `${BOT_BUS_INSTRUCTION}\n`,
+    );
+    expect(readFileSync(piSystemPromptPath(botRoot), 'utf8')).toBe('You are someone else.\n');
+  });
+
+  it('puts the instruction back when it was deleted', () => {
+    writePiBotConfig(botRoot, config);
+    rmSync(join(botRoot, 'config', 'APPEND_SYSTEM.md'));
+
+    piBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(join(botRoot, 'config', 'APPEND_SYSTEM.md'), 'utf8')).toBe(
+      `${BOT_BUS_INSTRUCTION}\n`,
+    );
   });
 
   it('replaces a settings schema that is not pi when the wizard writes', () => {

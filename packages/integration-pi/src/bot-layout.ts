@@ -16,6 +16,7 @@ import type {
   BotProviderApi,
   BotProviderRecord,
 } from '@morse/system';
+import { BOT_BUS_INSTRUCTION } from '@morse/system';
 import type { ModelInput } from '@morse/agent';
 import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
 
@@ -41,6 +42,9 @@ import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js
  *   store the MCP panel uses — there is no bot-only copy of that codec.
  * - `SYSTEM.md` — **replaces** pi's own system prompt: the bot's persona, in the
  *   one file pi reserves for it.
+ * - `APPEND_SYSTEM.md` — appends to that system prompt. It carries Morse's own
+ *   instruction about working with other bots, which is not the reader's text: a
+ *   persona edit rewrites `SYSTEM.md` and must never take the habit with it.
  * - `<botRoot>/workspace/AGENTS.md` — the workspace document, which pi reads as a
  *   context file from the directory it runs in.
  *
@@ -70,6 +74,12 @@ const MCP_FILE = 'mcp.json';
 const PI_SETTINGS_SCHEMA = 'https://pi.dev/schemas/settings.schema.json';
 /** pi's system-prompt file: it *replaces* the default prompt. */
 const SYSTEM_FILE = 'SYSTEM.md';
+/**
+ * pi's appended system prompt. The whole file is Morse's: the persona is
+ * `SYSTEM.md` and the workspace document is the workspace `AGENTS.md`, so no
+ * marker is needed to tell whose text this is.
+ */
+const APPEND_SYSTEM_FILE = 'APPEND_SYSTEM.md';
 /**
  * Where the persona was written before this layout: pi's agent-dir instructions,
  * which it treats as appended context rather than the system prompt. Kept only so
@@ -298,6 +308,10 @@ export function writePiBotConfig(botRoot: string, config: BotEngineConfig): void
   // workspace document goes to the workspace, where pi picks it up as a context
   // file from the directory it runs in.
   writePrivateText(join(agentDir, SYSTEM_FILE), config.persona);
+  // APPEND_SYSTEM.md — Morse's own instruction about the bot bus. Appended to
+  // the system prompt, never folded into the persona: the habit is Morse's and a
+  // persona edit must not be able to change or erase it.
+  writePrivateText(join(agentDir, APPEND_SYSTEM_FILE), BOT_BUS_INSTRUCTION);
   if ((config.agentsMd ?? '').trim().length > 0) {
     writePrivateText(piWorkspacePath(botRoot), config.agentsMd as string);
   }
@@ -374,6 +388,13 @@ export const piBotLayout: BotEngineLayout = {
    */
   repair(botRoot: string): void {
     const agentDir = piAgentDir(botRoot);
+    // The bot-bus instruction is Morse's file, so a missing or edited copy is
+    // rewritten here rather than trusted: a bot from before it existed, or one
+    // whose file was deleted, gets it on the next host start.
+    const instructionPath = join(agentDir, APPEND_SYSTEM_FILE);
+    if (readText(instructionPath) !== `${BOT_BUS_INSTRUCTION}\n`) {
+      writePrivateText(instructionPath, BOT_BUS_INSTRUCTION);
+    }
     // settings.json existed before pi published a schema, so an older bot's file
     // has no `$schema`. Seeded rather than written: the file is only touched when
     // it is already there, and every other key is kept.

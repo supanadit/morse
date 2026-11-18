@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BotEngineConfig } from '@morse/system';
+import { BOT_BUS_INSTRUCTION, type BotEngineConfig } from '@morse/system';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   OPENCODE_BOT_AGENT,
   openCodeBotLayout,
   openCodeConfigPath,
+  openCodeInstructionPath,
   openCodeLegacyPersonaPath,
   writeOpenCodeBotConfig,
 } from './bot-layout.js';
@@ -73,6 +74,7 @@ describe('openCodeBotLayout', () => {
       mode: 'primary',
       description: 'Finds the news',
       system: 'You are News Finder.',
+      instructions: [openCodeInstructionPath(botRoot)],
     });
   });
 
@@ -229,6 +231,70 @@ describe('openCodeBotLayout', () => {
     );
   });
 
+  it('adds the bot-bus instruction to the agent, and leaves the persona alone', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+      instructions: string[];
+    };
+    // The habit is the agent's own instruction file, so it is named on the agent
+    // rather than at the top level, where the workspace document lives.
+    expect(file.agents['morse']?.['instructions']).toEqual([openCodeInstructionPath(botRoot)]);
+    expect(file.agents['morse']?.['system']).toBe('You are News Finder.');
+    expect(readFileSync(openCodeInstructionPath(botRoot), 'utf8')).toBe(`${BOT_BUS_INSTRUCTION}\n`);
+    expect(file.instructions).toEqual([join(botRoot, 'workspace', 'AGENTS.md')]);
+  });
+
+  it('keeps the agent instructions it already had, and adds only one copy', () => {
+    // A reader's own instruction on the bot agent: a rewrite must carry it over,
+    // and a second save must not leave two names for the same habit.
+    const path = openCodeConfigPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        agents: {
+          morse: {
+            mode: 'primary',
+            system: 'You are News Finder.',
+            instructions: ['/reader/notes.md'],
+          },
+        },
+      }),
+    );
+
+    writeOpenCodeBotConfig(botRoot, config);
+    writeOpenCodeBotConfig(botRoot, config);
+
+    const file = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, string[]>;
+    };
+    expect(file.agents['morse']?.['instructions']).toEqual([
+      '/reader/notes.md',
+      openCodeInstructionPath(botRoot),
+    ]);
+  });
+
+  it('puts the instruction file and its entry back after a repair', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+    const path = openCodeConfigPath(botRoot);
+    const file = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    delete file.agents['morse']!['instructions'];
+    writeFileSync(path, JSON.stringify(file));
+    rmSync(join(botRoot, 'config', 'opencode', 'instructions'), { recursive: true, force: true });
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    const repaired = JSON.parse(readFileSync(path, 'utf8')) as {
+      agents: Record<string, Record<string, unknown>>;
+    };
+    expect(readFileSync(openCodeInstructionPath(botRoot), 'utf8')).toBe(`${BOT_BUS_INSTRUCTION}\n`);
+    expect(repaired.agents['morse']?.['instructions']).toEqual([openCodeInstructionPath(botRoot)]);
+  });
+
   it('keeps the keys in OpenCode own auth store inside the bot data dir', () => {
     writeOpenCodeBotConfig(botRoot, config);
 
@@ -262,7 +328,12 @@ describe('openCodeBotLayout', () => {
     expect(second['providers']).toEqual({});
     // Only the subagent goes; the bot's own agent entry stays.
     expect(second['agents']).toEqual({
-      morse: { mode: 'primary', description: 'Finds the news', system: '' },
+      morse: {
+        mode: 'primary',
+        description: 'Finds the news',
+        system: '',
+        instructions: [openCodeInstructionPath(botRoot)],
+      },
     });
     expect(second['model']).toBeUndefined();
     expect(second['instructions']).toEqual([join(botRoot, 'workspace', 'AGENTS.md')]);
@@ -271,6 +342,7 @@ describe('openCodeBotLayout', () => {
       mode: 'primary',
       description: 'Finds the news',
       system: '',
+      instructions: [openCodeInstructionPath(botRoot)],
     });
     // The keys were not part of that edit, so they survive.
     expect(
@@ -347,6 +419,7 @@ describe('openCodeBotLayout', () => {
         { action: 'shell', resource: '*', effect: 'allow' },
         { action: 'external_directory', resource: '*', effect: 'allow' },
       ],
+      instructions: [openCodeInstructionPath(botRoot)],
     });
   });
 
@@ -427,6 +500,7 @@ describe('openCodeBotLayout', () => {
           { action: 'shell', resource: '*', effect: 'allow' },
           { action: 'external_directory', resource: '*', effect: 'allow' },
         ],
+        instructions: [openCodeInstructionPath(botRoot)],
       },
     });
   });

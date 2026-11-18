@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { ModelInput } from '@morse/agent';
 import type { ConfigDocument, EngineInstance } from '@morse/engine-config';
 import type {
@@ -9,6 +9,7 @@ import type {
   BotProviderModel,
   BotProviderRecord,
 } from '@morse/system';
+import { BOT_BUS_INSTRUCTION, BOT_BUS_INSTRUCTION_FILE } from '@morse/system';
 import { OpenCodeEngineDefinition } from './engine/open-code-engine.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
 import { writeBotUserSpacePlugin } from './bot-user-space.js';
@@ -28,6 +29,10 @@ import { writeBotUserSpacePlugin } from './bot-user-space.js';
  *   base prompt for that agent, while project instructions are still added).
  * - `<botRoot>/workspace/AGENTS.md` — the workspace document, which OpenCode
  *   reads from the project root on its own; `instructions` names it explicitly.
+ * - `<botRoot>/config/opencode/instructions/morse-bot-bus.md` — Morse's own
+ *   instruction about working with other bots, named by the bot agent's
+ *   `instructions[]`. It is not the persona and not the reader's text, so a
+ *   persona edit cannot erase it.
  * - `<botRoot>/sessions/opencode/auth.json` — the keys, in OpenCode's own auth
  *   store inside the bot's data dir (its `XDG_DATA_HOME` is `<botRoot>/sessions`).
  * - `<botRoot>/config/opencode/plugins/morse-user-space.ts` — the plugin that
@@ -85,6 +90,31 @@ export function openCodeWorkspacePath(botRoot: string): string {
 }
 
 /**
+ * Morse's own instruction about the bot bus, as a file the bot agent names in
+ * `instructions[]`. Absolute by construction: OpenCode reads it from the bot's
+ * config tree, and a relative name would depend on the directory its server runs
+ * in.
+ */
+export function openCodeInstructionPath(botRoot: string): string {
+  return join(botRoot, 'config', 'opencode', 'instructions', BOT_BUS_INSTRUCTION_FILE);
+}
+
+/**
+ * An agent's `instructions` list with Morse's file in it.
+ *
+ * Entries already on the agent are kept — a reader may name their own notes — and
+ * Morse's is matched by basename, so a rewrite cannot leave two names for the
+ * same instruction, and a tree that moved gets its new path rather than both.
+ */
+function instructionEntries(existing: unknown, path: string): string[] {
+  const name = basename(path);
+  const kept = (Array.isArray(existing) ? existing : []).filter(
+    (entry): entry is string => typeof entry === 'string' && basename(entry) !== name,
+  );
+  return [...kept, path];
+}
+
+/**
  * Writes a bot's whole OpenCode configuration.
  *
  * The file is merged, not replaced: MCP servers, plugins and any key the reader
@@ -133,6 +163,12 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     instructions.push(openCodeWorkspacePath(botRoot));
   }
 
+  // Morse's bot-bus instruction: a file of its own, named on the bot agent. It is
+  // not named at the top level, where the workspace document lives, because it
+  // belongs to the agent rather than to the project.
+  const instructionPath = openCodeInstructionPath(botRoot);
+  writePrivateText(instructionPath, BOT_BUS_INSTRUCTION);
+
   const next: Record<string, unknown> = {
     ...base,
     $schema: CONFIG_SCHEMA,
@@ -142,7 +178,7 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
     default_agent: MORSE_AGENT,
     // Only what Morse owns is replaced; `plugins` and friends survive.
     providers: providersBlock(config, asRecord(file['providers']) ?? {}),
-    agents: agentsBlock(config),
+    agents: agentsBlock(config, base['agents'], instructionPath),
     instructions,
   };
   // `null` is an explicit clear; `undefined` means the caller does not know the
@@ -493,13 +529,23 @@ const AGENT_DESCRIPTION_MAX = 80;
  * `agents`: the bot itself as OpenCode's default primary agent — its `system` is
  * the persona, which replaces the provider's base prompt — plus one entry per
  * subagent the reader defined.
+ *
+ * The bot agent also carries Morse's bot-bus instruction in `instructions[]`.
+ * That list is the agent's, not the file's: the workspace document stays at the
+ * top level, and anything the reader already put on the agent is kept.
  */
-function agentsBlock(config: BotEngineConfig): Record<string, unknown> {
+function agentsBlock(
+  config: BotEngineConfig,
+  existing: unknown,
+  instructionPath: string,
+): Record<string, unknown> {
+  const own = asRecord(asRecord(existing)?.[MORSE_AGENT]);
   const written: Record<string, unknown> = {
     [MORSE_AGENT]: {
       mode: 'primary',
       ...(config.description.trim().length > 0 ? { description: config.description } : {}),
       system: config.persona,
+      instructions: instructionEntries(own?.['instructions'], instructionPath),
       // OpenCode expresses tool access as a `permissions` ruleset on the agent:
       // deny everything, then allow the tools the reader chose. An empty list
       // leaves just the deny, which is "no tools".
@@ -597,6 +643,8 @@ export const openCodeBotLayout: BotEngineLayout = {
    * - a ruleset it generated with the wizard's tool names is translated to the
    *   permission actions OpenCode 2 checks, so `bash` becomes `shell` and a file
    *   tool also gets `external_directory`;
+   * - the bot-bus instruction is written and named on the bot agent, so a bot
+   *   from before the habit existed gets it without a trip through the wizard;
    * - the user-space shell plugin is installed, which is what lets a bot's
    *   commands reach the reader's real XDG roots.
    *
@@ -685,16 +733,34 @@ export const openCodeBotLayout: BotEngineLayout = {
     if (migratePermissions(file)) {
       changed = true;
     }
-    // 4. The shell plugin, whether or not the config needed a migration.
+    // 4. Morse's bot-bus instruction: the file is Morse's, so a missing or edited
+    //    copy is rewritten, and the bot agent names it. The agent entry is only
+    //    touched when it already exists: a repair must not invent an agent with
+    //    no persona, mode or ruleset.
+    const instructionPath = openCodeInstructionPath(botRoot);
+    if (readText(instructionPath) !== `${BOT_BUS_INSTRUCTION}\n`) {
+      writePrivateText(instructionPath, BOT_BUS_INSTRUCTION);
+    }
+    const ownAgent = asRecord(asRecord(file['agents'])?.[MORSE_AGENT]);
+    if (ownAgent !== undefined) {
+      const current = ownAgent['instructions'];
+      const next = instructionEntries(current, instructionPath);
+      if (JSON.stringify(current) !== JSON.stringify(next)) {
+        ownAgent['instructions'] = next;
+        changed = true;
+      }
+    }
+    // 5. The shell plugin, whether or not the config needed a migration.
     writeBotUserSpacePlugin(botRoot);
-    // 5. One write for everything above.
+    // 6. One write for everything above.
     if (changed) {
       writeJsonAtomic(path, file);
     }
-    // 6. Only once the folded persona is in the config may its old file go.
+    // 7. Only once the folded persona is in the config may its old file go. The
+    //    directory stays: it also holds Morse's bot-bus instruction, which this
+    //    pass may have just written.
     if (legacyPersona !== undefined) {
       rmSync(legacyPersonaPath, { force: true });
-      rmSync(join(botRoot, 'config', 'opencode', 'instructions'), { recursive: true, force: true });
     }
   },
 };
