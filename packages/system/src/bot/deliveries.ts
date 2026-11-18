@@ -1,12 +1,10 @@
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import type {
   BotDelivery,
   BotDeliveryKind,
   BotDeliveryReason,
   BotDeliveryStatus,
 } from '@morse/protocol';
-import { writeJsonAtomic } from './store.js';
+import { ConversationFiles, failIfAny } from './conversation-files.js';
 
 /**
  * A delivery's day, both ways: finished work stays on disk this long as history,
@@ -28,7 +26,9 @@ export const DELIVERY_TTL_MS = 86_400_000;
  *
  * The directory is this store's own: the sweeps read every `*.json` in it as a
  * conversation queue, so it must not be shared with the registry or any other
- * JSON.
+ * JSON. The file plumbing itself is shared with the trace store
+ * (`ConversationFiles`), so the id rule and the read contract cannot drift
+ * between the two; what differs here is the row validator and the sweep policy.
  *
  * A row only moves forward, and a terminal row never changes again. A queued row
  * may be dropped or cancelled without ever running (a full queue, a withdrawn
@@ -36,10 +36,10 @@ export const DELIVERY_TTL_MS = 86_400_000;
  * lane read the file without a lock.
  */
 export class BotDeliveryStore {
-  private readonly dir: string;
+  private readonly files: ConversationFiles<BotDelivery>;
 
   constructor(dir: string) {
-    this.dir = dir;
+    this.files = new ConversationFiles<BotDelivery>(dir, 'a list of bot deliveries', isDelivery);
   }
 
   /**
@@ -49,12 +49,12 @@ export class BotDeliveryStore {
    * mistaken for an empty one and then overwritten by the next add.
    */
   all(conversationId: string): BotDelivery[] {
-    return this.read(conversationId);
+    return this.files.all(conversationId);
   }
 
   /** The work waiting for one bot, in the order it was queued. */
   queued(conversationId: string, to: string): BotDelivery[] {
-    return this.read(conversationId).filter((row) => row.to === to && row.status === 'queued');
+    return this.files.all(conversationId).filter((row) => row.to === to && row.status === 'queued');
   }
 
   /**
@@ -63,14 +63,14 @@ export class BotDeliveryStore {
    * identity of the work, so a duplicate would be two rows for one turn.
    */
   add(delivery: BotDelivery): void {
-    const rows = this.read(delivery.conversationId);
+    const rows = this.files.all(delivery.conversationId);
     const at = rows.findIndex((row) => row.id === delivery.id);
     if (at === -1) {
       rows.push(delivery);
     } else {
       rows[at] = delivery;
     }
-    this.write(delivery.conversationId, rows);
+    this.files.write(delivery.conversationId, rows);
   }
 
   /**
@@ -81,7 +81,7 @@ export class BotDeliveryStore {
    * nothing to add leaves the explanation in place.
    */
   setStatus(conversationId: string, id: string, status: BotDeliveryStatus, note?: string): void {
-    const rows = this.read(conversationId);
+    const rows = this.files.all(conversationId);
     const row = rows.find((one) => one.id === id);
     if (row === undefined || !NEXT_STATUS[row.status].includes(status)) {
       return;
@@ -90,7 +90,7 @@ export class BotDeliveryStore {
     if (note !== undefined) {
       row.note = note;
     }
-    this.write(conversationId, rows);
+    this.files.write(conversationId, rows);
   }
 
   /**
@@ -101,14 +101,14 @@ export class BotDeliveryStore {
    */
   requeueRunning(): void {
     const failures: string[] = [];
-    for (const conversationId of this.conversations()) {
+    for (const conversationId of this.files.conversations()) {
       // One unreadable file must not stop the rest from being repaired: at boot
       // this is the pass that unsticks work a crash left running, and refusing
       // to run it for every conversation because one is corrupt is worse than
       // finishing the sweep and reporting that one file. The failure is still
       // loud — it is collected here and thrown once the loop is done.
       try {
-        const rows = this.read(conversationId);
+        const rows = this.files.all(conversationId);
         let changed = false;
         for (const row of rows) {
           if (row.status === 'running') {
@@ -117,13 +117,13 @@ export class BotDeliveryStore {
           }
         }
         if (changed) {
-          this.write(conversationId, rows);
+          this.files.write(conversationId, rows);
         }
       } catch (error) {
-        failures.push(this.describeFailure(conversationId, error));
+        failures.push(this.files.failure(conversationId, error));
       }
     }
-    failIfAny('re-queue running deliveries', failures);
+    failIfAny('re-queue running deliveries', failures, 'delivery');
   }
 
   /**
@@ -140,76 +140,25 @@ export class BotDeliveryStore {
   prune(now: number, ttlMs: number): void {
     const cutoff = now - ttlMs;
     const failures: string[] = [];
-    for (const conversationId of this.conversations()) {
+    for (const conversationId of this.files.conversations()) {
       // As in `requeueRunning`: a broken file is reported, not allowed to stop
       // the other conversations from being pruned.
       try {
-        const rows = this.read(conversationId);
+        const rows = this.files.all(conversationId);
         const kept = rows.filter((row) => !isTerminal(row.status) || row.createdAt >= cutoff);
         if (kept.length !== rows.length) {
-          this.write(conversationId, kept);
+          this.files.write(conversationId, kept);
         }
       } catch (error) {
-        failures.push(this.describeFailure(conversationId, error));
+        failures.push(this.files.failure(conversationId, error));
       }
     }
-    failIfAny('prune deliveries', failures);
+    failIfAny('prune deliveries', failures, 'delivery');
   }
 
   /** Removes a conversation's queue, for a conversation that no longer exists. */
   forget(conversationId: string): void {
-    rmSync(this.pathFor(conversationId), { force: true });
-  }
-
-  /** Every conversation this store holds a queue for. */
-  private conversations(): string[] {
-    if (!existsSync(this.dir)) {
-      return [];
-    }
-    return readdirSync(this.dir)
-      .filter((name) => name.endsWith('.json'))
-      .map((name) => name.slice(0, -'.json'.length));
-  }
-
-  /** A sweep failure, named by the file it could not handle. */
-  private describeFailure(conversationId: string, error: unknown): string {
-    return `${this.filePath(conversationId)}: ${(error as Error).message}`;
-  }
-
-  /** Where a queue would live, even when its id is too unsafe to read. */
-  private filePath(conversationId: string): string {
-    return join(this.dir, `${conversationId}.json`);
-  }
-
-  private pathFor(conversationId: string): string {
-    // The id comes from Morse's own registry (a DM's username or a generated
-    // group id), but it is still validated here: this value becomes a path.
-    if (!/^[A-Za-z0-9_-][A-Za-z0-9_-]*$/.test(conversationId)) {
-      throw new Error(`"${conversationId}" is not a usable conversation id.`);
-    }
-    return this.filePath(conversationId);
-  }
-
-  private read(conversationId: string): BotDelivery[] {
-    const path = this.pathFor(conversationId);
-    if (!existsSync(path)) {
-      return [];
-    }
-    const raw = readFileSync(path, 'utf8');
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      throw new Error(`Cannot read ${path}: ${(error as Error).message}`, { cause: error });
-    }
-    if (!Array.isArray(parsed) || !parsed.every(isDelivery)) {
-      throw new Error(`Cannot read ${path}: expected a list of bot deliveries.`);
-    }
-    return parsed;
-  }
-
-  private write(conversationId: string, rows: BotDelivery[]): void {
-    writeJsonAtomic(this.pathFor(conversationId), rows);
+    this.files.forget(conversationId);
   }
 }
 
@@ -243,21 +192,6 @@ const REASONS: readonly BotDeliveryReason[] = [
   'bot',
   'trigger',
 ];
-
-/**
- * Reports every file a sweep could not handle, after the sweep has finished.
- * Failing loudly is deliberate — a corrupt queue must be repaired, not ignored —
- * but it must not be all-or-nothing: one bad file should not leave the other
- * conversations' work stuck running or unpruned.
- */
-function failIfAny(action: string, failures: string[]): void {
-  if (failures.length === 0) {
-    return;
-  }
-  throw new Error(
-    `Cannot ${action}: ${failures.length} delivery file(s) failed — ${failures.join(' | ')}`,
-  );
-}
 
 /**
  * The minimum a stored row must carry for a lane to use it. Deliberately not a

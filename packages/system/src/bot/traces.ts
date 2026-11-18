@@ -1,7 +1,5 @@
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import type { BotTurnTrace } from '@morse/protocol';
-import { writeJsonAtomic } from './store.js';
+import { ConversationFiles, failIfAny } from './conversation-files.js';
 
 /** How long a finished turn stays readable: a week of a room's history. */
 export const TRACE_TTL_MS = 604_800_000;
@@ -26,13 +24,16 @@ export const TRACE_LIMIT = 100;
  *
  * The directory is this store's own: a sweep reads every `*.json` in it as a
  * conversation's history, so it must not be shared with the registry, the
- * delivery store or any other JSON.
+ * delivery store or any other JSON. The file plumbing itself is shared with the
+ * delivery store (`ConversationFiles`), so the id rule and the read contract
+ * cannot drift between the two; what differs here is the row validator and the
+ * TTL/cap policy.
  */
 export class BotTraceStore {
-  private readonly dir: string;
+  private readonly files: ConversationFiles<BotTurnTrace>;
 
   constructor(dir: string) {
-    this.dir = dir;
+    this.files = new ConversationFiles<BotTurnTrace>(dir, 'a list of bot turn traces', isTrace);
   }
 
   /**
@@ -42,7 +43,7 @@ export class BotTraceStore {
    * mistaken for an empty one and then overwritten by the next add.
    */
   all(conversationId: string): BotTurnTrace[] {
-    return this.read(conversationId);
+    return this.files.all(conversationId);
   }
 
   /**
@@ -54,7 +55,7 @@ export class BotTraceStore {
    * in the order it happened even when a turn finishes out of order.
    */
   add(trace: BotTurnTrace): void {
-    const rows = this.read(trace.conversationId);
+    const rows = this.files.all(trace.conversationId);
     const at = rows.findIndex((row) => row.id === trace.id);
     if (at === -1) {
       rows.push(trace);
@@ -62,12 +63,12 @@ export class BotTraceStore {
       rows[at] = trace;
     }
     rows.sort((left, right) => left.endedAt - right.endedAt);
-    this.write(trace.conversationId, rows);
+    this.files.write(trace.conversationId, rows);
   }
 
   /** Removes a conversation's history, for a conversation that no longer exists. */
   forget(conversationId: string): void {
-    rmSync(this.pathFor(conversationId), { force: true });
+    this.files.forget(conversationId);
   }
 
   /**
@@ -83,9 +84,9 @@ export class BotTraceStore {
   prune(now: number): void {
     const cutoff = now - TRACE_TTL_MS;
     const failures: string[] = [];
-    for (const conversationId of this.conversations()) {
+    for (const conversationId of this.files.conversations()) {
       try {
-        const rows = this.read(conversationId);
+        const rows = this.files.all(conversationId);
         // The filter hands out a fresh array, so sorting it cannot reorder the
         // rows read above; the same row objects make the change test below a
         // reference comparison.
@@ -94,64 +95,13 @@ export class BotTraceStore {
           .sort((left, right) => left.endedAt - right.endedAt)
           .slice(-TRACE_LIMIT);
         if (kept.length !== rows.length || kept.some((row, index) => row !== rows[index])) {
-          this.write(conversationId, kept);
+          this.files.write(conversationId, kept);
         }
       } catch (error) {
-        failures.push(this.describeFailure(conversationId, error));
+        failures.push(this.files.failure(conversationId, error));
       }
     }
-    failIfAny('prune bot traces', failures);
-  }
-
-  /** Every conversation this store holds a history for. */
-  private conversations(): string[] {
-    if (!existsSync(this.dir)) {
-      return [];
-    }
-    return readdirSync(this.dir)
-      .filter((name) => name.endsWith('.json'))
-      .map((name) => name.slice(0, -'.json'.length));
-  }
-
-  /** A sweep failure, named by the file it could not handle. */
-  private describeFailure(conversationId: string, error: unknown): string {
-    return `${this.filePath(conversationId)}: ${(error as Error).message}`;
-  }
-
-  /** Where a history would live, even when its id is too unsafe to read. */
-  private filePath(conversationId: string): string {
-    return join(this.dir, `${conversationId}.json`);
-  }
-
-  private pathFor(conversationId: string): string {
-    // The id comes from Morse's own registry (a DM's username or a generated
-    // group id), but it is still validated here: this value becomes a path.
-    if (!/^[A-Za-z0-9_-][A-Za-z0-9_-]*$/.test(conversationId)) {
-      throw new Error(`"${conversationId}" is not a usable conversation id.`);
-    }
-    return this.filePath(conversationId);
-  }
-
-  private read(conversationId: string): BotTurnTrace[] {
-    const path = this.pathFor(conversationId);
-    if (!existsSync(path)) {
-      return [];
-    }
-    const raw = readFileSync(path, 'utf8');
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      throw new Error(`Cannot read ${path}: ${(error as Error).message}`, { cause: error });
-    }
-    if (!Array.isArray(parsed) || !parsed.every(isTrace)) {
-      throw new Error(`Cannot read ${path}: expected a list of bot turn traces.`);
-    }
-    return parsed;
-  }
-
-  private write(conversationId: string, rows: BotTurnTrace[]): void {
-    writeJsonAtomic(this.pathFor(conversationId), rows);
+    failIfAny('prune bot traces', failures, 'trace');
   }
 }
 
@@ -180,20 +130,5 @@ function isTrace(value: unknown): value is BotTurnTrace {
     STATUSES.includes(row['status'] as BotTurnTrace['status']) &&
     Array.isArray(row['steps']) &&
     Array.isArray(row['handoffs'])
-  );
-}
-
-/**
- * Reports every file a sweep could not handle, after the sweep has finished.
- * Failing loudly is deliberate — a corrupt history must be repaired, not
- * ignored — but it must not be all-or-nothing: one bad file should not leave
- * every other room's history unpruned.
- */
-function failIfAny(action: string, failures: string[]): void {
-  if (failures.length === 0) {
-    return;
-  }
-  throw new Error(
-    `Cannot ${action}: ${failures.length} trace file(s) failed — ${failures.join(' | ')}`,
   );
 }
