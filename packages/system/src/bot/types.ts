@@ -33,15 +33,13 @@ export interface BotRecord {
 
 /**
  * A named set of bots a reader talks to in one conversation. `lead` answers
- * messages that mention nobody, and `chainCap` bounds how many bot-to-bot
- * replies one human message may set off. Members are bot usernames.
+ * messages that mention nobody. Members are bot usernames.
  */
 export interface GroupRecord {
   id: string;
   name: string;
   members: string[];
   lead?: string;
-  chainCap: number;
 }
 
 /**
@@ -89,8 +87,11 @@ export interface ConversationRecord {
  * instead of guessing at its shape.
  */
 export interface BotRegistryFile {
-  /** 2 added `username` to every bot; a 1 file is migrated as it is read. */
-  version: 2;
+  /**
+   * 2 added `username` to every bot; 3 dropped a group's `chainCap`. A 1 or 2
+   * file is migrated as it is read.
+   */
+  version: 3;
   bots: BotRecord[];
   groups: GroupRecord[];
   conversations: ConversationRecord[];

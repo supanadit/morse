@@ -16,6 +16,7 @@ import {
   newGroupId,
   readBotIdentity,
   saveBotRegistry,
+  withRegistryWrite,
   writeBotIdentity,
 } from './store.js';
 import type { BotRecord, BotRegistryFile } from './types.js';
@@ -57,7 +58,7 @@ describe('bot store', () => {
 
   function registry(): BotRegistryFile {
     return {
-      version: 2,
+      version: 3,
       bots: [bot],
       groups: [
         {
@@ -65,7 +66,6 @@ describe('bot store', () => {
           name: 'Launch',
           members: ['forge', 'sable'],
           lead: 'forge',
-          chainCap: 8,
         },
       ],
       conversations: [
@@ -101,6 +101,41 @@ describe('bot store', () => {
     // The file is plain JSON, not an envelope: later readers and hand edits
     // see exactly the registry the service saved.
     expect(readFileSync(join(dir, 'registry.json'), 'utf8')).toBe(JSON.stringify(saved));
+  });
+
+  it('reads a version 2 registry as version 3 and drops the chain cap', () => {
+    writeFileSync(
+      join(dir, 'registry.json'),
+      JSON.stringify({
+        version: 2,
+        bots: [],
+        groups: [{ id: 'g1', name: 'Shop', members: ['sigil'], chainCap: 8 }],
+        conversations: [],
+      }),
+    );
+
+    const registry = loadBotRegistry(dir);
+
+    expect(registry.version).toBe(3);
+    expect(registry.groups[0]).toEqual({ id: 'g1', name: 'Shop', members: ['sigil'] });
+  });
+
+  it('serialises two registry writes so the second cannot clobber the first', async () => {
+    const order: string[] = [];
+
+    await Promise.all([
+      withRegistryWrite(async () => {
+        order.push('a-start');
+        await Promise.resolve();
+        order.push('a-end');
+      }),
+      withRegistryWrite(async () => {
+        order.push('b-start');
+        order.push('b-end');
+      }),
+    ]);
+
+    expect(order).toEqual(['a-start', 'a-end', 'b-start', 'b-end']);
   });
 
   it('migrates a version 1 registry: usernames, directories and DMs move with it', () => {
@@ -155,27 +190,29 @@ describe('bot store', () => {
 
     const migrated = loadBotRegistry(dir);
 
-    expect(migrated.version).toBe(2);
+    expect(migrated.version).toBe(3);
     // The free-text name survives as the label; the username is derived (sluggish,
     // lowercase, spaces gone) and becomes the identity.
     expect(migrated.bots.map((one) => one.name)).toEqual(['Forge', 'News Finder']);
     expect(migrated.bots.map((one) => one.username)).toEqual(['forge', 'news-finder']);
     expect(migrated.groups[0]?.members).toEqual(['forge', 'news-finder']);
     expect(migrated.groups[0]?.lead).toBe('forge');
+    // The cap was a v1 group field; v3 has none, so the migration does not carry it.
+    expect(migrated.groups[0]).not.toHaveProperty('chainCap');
     expect(migrated.conversations[0]?.id).toBe('dm-forge');
     expect(migrated.conversations[0]?.title).toBe('Forge');
     expect(migrated.conversations[0]?.sessions).toEqual({ forge: { engineSessionId: 'sess-1' } });
     expect(migrated.conversations[1]?.members).toEqual(['forge', 'news-finder']);
-    // The directories moved with the usernames, and the file was saved back as v2.
+    // The directories moved with the usernames, and the file was saved back as v3.
     expect(existsSync(join(dir, 'forge'))).toBe(true);
     expect(existsSync(join(dir, 'news-finder'))).toBe(true);
     expect(existsSync(join(dir, 'News Finder'))).toBe(false);
     const saved = JSON.parse(readFileSync(join(dir, 'registry.json'), 'utf8')) as { version: number };
-    expect(saved.version).toBe(2);
+    expect(saved.version).toBe(3);
   });
 
-  it('reads a missing registry as an empty v2 registry', () => {
-    expect(loadBotRegistry(dir)).toEqual({ version: 2, bots: [], groups: [], conversations: [] });
+  it('reads a missing registry as an empty v3 registry', () => {
+    expect(loadBotRegistry(dir)).toEqual({ version: 3, bots: [], groups: [], conversations: [] });
   });
 
   it('reports an unreadable-but-present registry instead of treating it as missing', () => {
@@ -235,9 +272,9 @@ describe('bot store', () => {
 
   it('replaces the registry and leaves no temp file behind', () => {
     saveBotRegistry(dir, registry());
-    saveBotRegistry(dir, { version: 1, bots: [], groups: [], conversations: [] });
+    saveBotRegistry(dir, { version: 3, bots: [], groups: [], conversations: [] });
 
-    expect(loadBotRegistry(dir)).toEqual({ version: 2, bots: [], groups: [], conversations: [] });
+    expect(loadBotRegistry(dir)).toEqual({ version: 3, bots: [], groups: [], conversations: [] });
     expect(readdirSync(dir)).toEqual(['registry.json']);
   });
 

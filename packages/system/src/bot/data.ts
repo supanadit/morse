@@ -80,7 +80,30 @@ export function botDataMigrations(): DataMigration[] {
       name: 're-check every engine layout after the agent-based persona move',
       run: (context) => repairEngineFiles(context as BotDataContext),
     },
+    {
+      // The registry's own version, not the layout's: version 3 dropped each
+      // group's chain cap. `loadBotRegistry` reads a v2 file forward already, so
+      // this step only makes what is on disk match what this build writes.
+      to: 5,
+      name: 'rewrite the bot registry as version 3',
+      run: (context) => stampRegistryVersion(context as BotDataContext),
+    },
   ];
+}
+
+/**
+ * Rewrites an older `registry.json` in the shape this build saves: every group
+ * without a chain cap. A save is enough because the reader already knows how to
+ * read both versions; the file is backed up first, like every other step that
+ * rewrites the registry.
+ */
+function stampRegistryVersion(context: BotDataContext): void {
+  const botDir = join(context.root, BOT_DIR);
+  if (!existsSync(join(botDir, REGISTRY_FILE))) {
+    return;
+  }
+  context.backup([join(BOT_DIR, REGISTRY_FILE)], 'registry-v3');
+  saveBotRegistry(botDir, loadBotRegistry(botDir));
 }
 
 /**

@@ -26,7 +26,7 @@ import type { MorseLogger } from '../logger.js';
  */
 
 /** The layout version this build writes and understands. */
-export const CURRENT_DATA_LAYOUT = 4;
+export const CURRENT_DATA_LAYOUT = 5;
 
 /** The file that records which layout a data directory is at. */
 const VERSION_FILE = 'version.json';

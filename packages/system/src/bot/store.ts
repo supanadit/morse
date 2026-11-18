@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { BotRecord, BotRegistryFile } from './types.js';
+import type { BotRecord, BotRegistryFile, GroupRecord } from './types.js';
 
 /** Morse's index of bots, groups and the conversations between them. */
 const REGISTRY_FILE = 'registry.json';
@@ -10,7 +10,7 @@ const IDENTITY_FILE = 'engine.json';
 
 /**
  * Reads the whole registry. A missing file is a fresh install, not an error:
- * every caller starts from an empty v1 registry, and the first save creates it.
+ * every caller starts from an empty registry, and the first save creates it.
  * A present-but-unreadable or malformed file throws instead, so a broken
  * registry is never mistaken for an empty one and then overwritten.
  */
@@ -18,7 +18,7 @@ export function loadBotRegistry(root: string): BotRegistryFile {
   const path = join(root, REGISTRY_FILE);
   const raw = readOptional(path);
   if (raw === undefined) {
-    return { version: 2, bots: [], groups: [], conversations: [] };
+    return { version: 3, bots: [], groups: [], conversations: [] };
   }
   const parsed = parseJson(path, raw);
   // A version 1 file is migrated as it is read: its bots' names doubled as
@@ -27,9 +27,9 @@ export function loadBotRegistry(root: string): BotRegistryFile {
     return migrateV1(root, parsed);
   }
   if (!isRegistryFile(parsed)) {
-    throw new Error(`Cannot read ${path}: expected a bot registry (version 1 or 2).`);
+    throw new Error(`Cannot read ${path}: expected a bot registry (version 1, 2 or 3).`);
   }
-  return parsed;
+  return toVersion3(parsed);
 }
 
 /** A version 1 registry: bots had only a name, which was also their directory. */
@@ -38,6 +38,38 @@ interface RegistryV1 {
   bots: Array<BotRecord & { username?: string }>;
   groups: Array<{ id: string; name: string; members: string[]; lead?: string; chainCap: number }>;
   conversations: BotRegistryFile['conversations'];
+}
+
+/** A group as an older registry wrote it: the cap is read and then dropped. */
+type RegistryGroup = GroupRecord & { chainCap?: number };
+
+/**
+ * The registry as version 2 wrote it. A group still carried a `chainCap` there;
+ * version 3 dropped it, so the field is read and discarded, never written back.
+ */
+interface RegistryV2 {
+  version: 2;
+  bots: BotRecord[];
+  groups: RegistryGroup[];
+  conversations: BotRegistryFile['conversations'];
+}
+
+/**
+ * Brings an older registry to the shape this build writes. Version 3 dropped a
+ * group's `chainCap`, a per-group ceiling the chain no longer has; a v2 file is
+ * read through here, so an upgrade needs no separate conversion.
+ */
+function toVersion3(file: {
+  bots: BotRecord[];
+  groups: RegistryGroup[];
+  conversations: BotRegistryFile['conversations'];
+}): BotRegistryFile {
+  return {
+    version: 3,
+    bots: file.bots,
+    groups: file.groups.map(({ chainCap, ...group }) => group),
+    conversations: file.conversations,
+  };
 }
 
 /**
@@ -61,9 +93,9 @@ function migrateV1(root: string, old: RegistryV1): BotRegistryFile {
   const displayName = (username: string): string =>
     bots.find((one) => one.username === username)?.name ?? username;
   const migrated: BotRegistryFile = {
-    version: 2,
+    version: 3,
     bots,
-    groups: old.groups.map((group) => ({
+    groups: old.groups.map(({ chainCap, ...group }) => ({
       ...group,
       members: group.members.map(rename),
       ...(group.lead === undefined ? {} : { lead: rename(group.lead) }),
@@ -123,6 +155,24 @@ function uniqueUsername(base: string, taken: Set<string>): string {
  */
 export function saveBotRegistry(root: string, registry: BotRegistryFile): void {
   writeJsonAtomic(join(root, REGISTRY_FILE), registry);
+}
+
+/**
+ * Runs a registry write after every earlier one has finished.
+ *
+ * A save rewrites the whole file, so two lanes finishing a turn at the same
+ * moment would each write the registry they started with and one would silently
+ * lose the other's changes. The queue is a module-level chain rather than a
+ * lock: every call appends to the tail, awaits it, then runs its action.
+ */
+let registryWriteChain: Promise<unknown> = Promise.resolve();
+
+export function withRegistryWrite<T>(action: () => T | Promise<T>): Promise<T> {
+  // The chain is cut even when an action throws, so one failed save cannot wedge
+  // every write after it; the caller still sees its own error.
+  const write = registryWriteChain.then(action, action);
+  registryWriteChain = write.catch(() => undefined);
+  return write;
 }
 
 /**
@@ -201,13 +251,13 @@ function parseJson(path: string, raw: string): unknown {
   }
 }
 
-function isRegistryFile(value: unknown): value is BotRegistryFile {
+function isRegistryFile(value: unknown): value is RegistryV2 | BotRegistryFile {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
   return (
-    candidate['version'] === 2 &&
+    (candidate['version'] === 2 || candidate['version'] === 3) &&
     Array.isArray(candidate['bots']) &&
     candidate['bots'].every(isRegistryBot) &&
     Array.isArray(candidate['groups']) &&

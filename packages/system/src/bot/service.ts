@@ -47,6 +47,7 @@ import {
   loadBotRegistry,
   newGroupId,
   saveBotRegistry,
+  withRegistryWrite,
   writeBotIdentity,
 } from './store.js';
 import type {
@@ -493,7 +494,7 @@ export class BotService {
     this.factories.set(record.username, factory);
     this.registry.bots.push(record);
     this.upsertDm(record);
-    saveBotRegistry(this.options.root, this.registry);
+    await this.saveRegistry();
     this.emit({ type: 'roster' });
   }
 
@@ -559,7 +560,7 @@ export class BotService {
     for (const id of emptiedGroups) {
       this.transcripts.forget(id);
     }
-    saveBotRegistry(this.options.root, this.registry);
+    await this.saveRegistry();
     this.emit({ type: 'roster' });
   }
 
@@ -696,7 +697,7 @@ export class BotService {
         this.touched(conversation);
       }
     }
-    saveBotRegistry(this.options.root, this.registry);
+    await this.saveRegistry();
     const gateways = [...this.warm.values()].filter((warm) => warm.username === bot.username);
     await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
     const factory = this.factories.get(bot.username);
@@ -721,13 +722,11 @@ export class BotService {
       throw new Error(`The lead "${input.lead}" is not a member of the group.`);
     }
     const id = newGroupId(input.name);
-    const chainCap = input.chainCap ?? this.chainCap;
     const group: GroupRecord = {
       id,
       name: input.name,
       members: [...input.members],
       ...(input.lead === undefined ? {} : { lead: input.lead }),
-      chainCap,
     };
     const conversation: ConversationRecord = {
       id,
@@ -735,13 +734,15 @@ export class BotService {
       title: input.name,
       members: [...input.members],
       ...(input.lead === undefined ? {} : { lead: input.lead }),
-      chainCap,
+      // The cap is the conversation's now, not a group setting: it bounds one
+      // round's relays, and a v3 group record has no field for it.
+      chainCap: input.chainCap ?? this.chainCap,
       sessions: {},
       updatedAt: this.clock(),
     };
     this.registry.groups.push(group);
     this.registry.conversations.push(conversation);
-    saveBotRegistry(this.options.root, this.registry);
+    this.saveRegistrySoon();
     this.emit({ type: 'roster' });
     return this.summarize(conversation);
   }
@@ -769,7 +770,6 @@ export class BotService {
 
     const removed = conversation.members.filter((member) => !input.members.includes(member));
     const added = input.members.filter((member) => !conversation.members.includes(member));
-    const chainCap = input.chainCap ?? this.chainCap;
 
     // A round already speaking for the old room must not deliver to a member that
     // just left. The UI also blocks this, but the service is the authority.
@@ -782,7 +782,6 @@ export class BotService {
     } else {
       group.lead = input.lead;
     }
-    group.chainCap = chainCap;
 
     conversation.title = input.name.trim();
     conversation.members = [...input.members];
@@ -791,7 +790,7 @@ export class BotService {
     } else {
       conversation.lead = input.lead;
     }
-    conversation.chainCap = chainCap;
+    conversation.chainCap = input.chainCap ?? this.chainCap;
 
     for (const member of [...removed, ...added]) {
       delete conversation.sessions[member];
@@ -827,7 +826,7 @@ export class BotService {
     this.registry.conversations = this.registry.conversations.filter(
       (candidate) => candidate.id !== id,
     );
-    saveBotRegistry(this.options.root, this.registry);
+    await this.saveRegistry();
     this.emit({ type: 'roster' });
   }
 
@@ -1051,7 +1050,7 @@ export class BotService {
     conversation.sessions = Object.fromEntries(
       conversation.members.map((member) => [member, { toldUpTo: divider.id }]),
     );
-    saveBotRegistry(this.options.root, this.registry);
+    this.saveRegistrySoon();
   }
 
   /**
@@ -1855,7 +1854,26 @@ export class BotService {
   /** Every mutation of a conversation's place in the roster rewrites the registry. */
   private touched(conversation: ConversationRecord): void {
     conversation.updatedAt = this.clock();
-    saveBotRegistry(this.options.root, this.registry);
+    this.saveRegistrySoon();
+  }
+
+  /**
+   * Writes the registry through the single-writer queue, so a save that started in
+   * another lane finishes before this one rewrites the file.
+   */
+  private saveRegistry(): Promise<void> {
+    return withRegistryWrite(() => saveBotRegistry(this.options.root, this.registry));
+  }
+
+  /**
+   * Saves from a method that stays synchronous — `createGroup` returns the new
+   * room, `newDiscussion` nothing. Nothing there can await the queue, so a failed
+   * write is reported instead of becoming an unhandled rejection.
+   */
+  private saveRegistrySoon(): void {
+    void this.saveRegistry().catch((error: unknown) => {
+      this.options.logger.error('Failed to save the bot registry', error);
+    });
   }
 
   /** Creates the DM conversation for a bot, or repairs a kept one after a recreate. */

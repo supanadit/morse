@@ -743,7 +743,7 @@ describe('BotService creation', () => {
   });
 
   it('createGroup lists the group with its members, lead and chain cap', async () => {
-    const { service } = harness();
+    const { service, root } = harness();
     await twoBots(service);
 
     const group = service.createGroup({
@@ -763,6 +763,15 @@ describe('BotService creation', () => {
       updatedAt: expect.any(Number) as number,
     });
     expect(service.roster().conversations).toContainEqual(group);
+    // The group record itself carries no cap any more: it is a setting of the
+    // conversation, which the round loop reads.
+    await flush();
+    expect(loadBotRegistry(root).groups[0]).toEqual({
+      id: group.id,
+      name: 'Launch',
+      members: ['forge', 'sable'],
+      lead: 'forge',
+    });
   });
 
   it('updateGroup rewrites the room and clears only the removed member session', async () => {

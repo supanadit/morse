@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BotEngineConfig, BotEngineState } from './types.js';
@@ -77,7 +77,7 @@ describe('bot data maintenance', () => {
     mkdirSync(join(botDir, 'forge', 'workspace'), { recursive: true });
     writeFileSync(join(botDir, 'forge', 'engine.json'), JSON.stringify(legacyBot));
     saveBotRegistry(botDir, {
-      version: 2,
+      version: 3,
       bots: [legacyBot],
       groups: [],
       conversations: [],
@@ -141,7 +141,7 @@ describe('bot data maintenance', () => {
 
   it('still warns about a bot with no engine configuration when the read is an empty mcpServers', () => {
     saveBotRegistry(botDir, {
-      version: 2,
+      version: 3,
       bots: [
         {
           username: 'forge',
@@ -201,7 +201,7 @@ describe('bot data maintenance', () => {
   it("does not let one bot's broken engine config stop the others being repaired", () => {
     seedLegacy();
     saveBotRegistry(botDir, {
-      version: 2,
+      version: 3,
       bots: [
         {
           username: 'forge',
@@ -277,9 +277,41 @@ describe('bot data maintenance', () => {
     expect(second.writes).toHaveLength(0);
   });
 
+  it('rewrites a version 2 registry as version 3, without its group chain caps', () => {
+    writeFileSync(
+      join(botDir, 'registry.json'),
+      JSON.stringify({
+        version: 2,
+        bots: [],
+        groups: [{ id: 'grp-shop-a1b2', name: 'Shop', members: ['forge'], chainCap: 8 }],
+        conversations: [],
+      }),
+    );
+
+    const result = maintainData({
+      root,
+      logger: silentLogger,
+      migrations: botDataMigrations(),
+      extra: { adapters: {} },
+    });
+
+    expect(result.applied).toContain('rewrite the bot registry as version 3');
+    const onDisk = JSON.parse(readFileSync(join(botDir, 'registry.json'), 'utf8')) as {
+      version: number;
+      groups: Array<Record<string, unknown>>;
+    };
+    expect(onDisk.version).toBe(3);
+    // A cap is no longer a group setting: it is dropped, not carried along.
+    expect(onDisk.groups[0]).not.toHaveProperty('chainCap');
+    // The file it replaced is recoverable by hand, like every other registry rewrite.
+    expect(
+      readdirSync(join(root, 'backups')).some((name) => name.startsWith('registry-v3-')),
+    ).toBe(true);
+  });
+
   it('reports a bot whose engine configuration went missing instead of inventing one', () => {
     saveBotRegistry(botDir, {
-      version: 2,
+      version: 3,
       bots: [
         {
           username: 'forge',
@@ -313,7 +345,7 @@ describe('bot data maintenance', () => {
 
   it('never writes over a configuration it could not read', () => {
     saveBotRegistry(botDir, {
-      version: 2,
+      version: 3,
       bots: [
         {
           username: 'forge',
@@ -351,7 +383,7 @@ describe('bot data maintenance', () => {
 
   it('never overwrites an engine configuration that is already there', () => {
     saveBotRegistry(botDir, {
-      version: 2,
+      version: 3,
       bots: [
         {
           username: 'forge',
@@ -390,7 +422,7 @@ describe('bot data maintenance', () => {
   });
 
   it('reports a bot directory no record claims, and leaves it alone', () => {
-    saveBotRegistry(botDir, { version: 2, bots: [], groups: [], conversations: [] });
+    saveBotRegistry(botDir, { version: 3, bots: [], groups: [], conversations: [] });
     mkdirSync(join(botDir, 'orphan', 'workspace'), { recursive: true });
     const warn = vi.fn();
 
