@@ -1,8 +1,15 @@
 import { Module } from '@nestjs/common';
 import { createPiRpcAdapter, type PiRpcAdapter } from '@morse/integration-pi';
-import { AgentRouter, SessionRegistry, type BotService, type MorseLogger } from '@morse/system';
+import {
+  AgentRouter,
+  SessionRegistry,
+  type BotBusPort,
+  type BotService,
+  type MorseLogger,
+} from '@morse/system';
 import type { ProjectPolicy } from '@morse/system';
 import { SessionTranscriptStore } from '@morse/system';
+import { BotBusController } from './internal/http/bot-bus.controller.js';
 import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
@@ -18,6 +25,7 @@ import { MorseSessionFactory } from './internal/ws/session-factory.service.js';
 import { loadConfig, type MorseServerConfig } from './app/config.js';
 import {
   MORSE_AGENT_ROUTER,
+  MORSE_BOT_BUS,
   MORSE_BOT_SERVICE,
   MORSE_CONFIG,
   MORSE_LOGGER,
@@ -36,7 +44,7 @@ import {
  * controller is created and disposed with the WebSocket.
  */
 @Module({
-  controllers: [HealthController],
+  controllers: [HealthController, BotBusController],
   providers: [
     {
       provide: MORSE_CONFIG,
@@ -104,6 +112,14 @@ import {
       useFactory: (config: MorseServerConfig, logger: MorseLogger): BotService | undefined =>
         createBotService(config, logger),
       inject: [MORSE_CONFIG, MORSE_LOGGER],
+    },
+    {
+      // The bus endpoint gets the port, not the service: transport code cannot
+      // reach a lane, a transcript or a registry write through this token, and a
+      // host without bot mode hands it `undefined` like the service itself.
+      provide: MORSE_BOT_BUS,
+      useFactory: (bot: BotService | undefined): BotBusPort | undefined => bot,
+      inject: [MORSE_BOT_SERVICE],
     },
     MorseRegistryLifecycle,
     ServerTerminalBackend,

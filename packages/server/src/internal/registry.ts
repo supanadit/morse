@@ -173,6 +173,11 @@ export function createBotService(
       // A bot's own workspace is under its root, but the host still supplies the
       // display name and the fallback directory a probe borrows.
       defaultWorkspace: config.workspace,
+      // The endpoint is served by this same process on the host's own port, and
+      // its peer check accepts loopback only. `MORSE_HOST` defaults to 127.0.0.1
+      // (and 0.0.0.0 still answers on loopback), so the URL a bot's engine is
+      // handed names loopback rather than the configured host.
+      busEndpoint: `http://127.0.0.1:${config.port}`,
       logger,
     });
   } catch (error: unknown) {
