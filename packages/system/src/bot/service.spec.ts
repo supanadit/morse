@@ -3342,6 +3342,42 @@ describe('BotService bus', () => {
     await settle(service, 'thread-loom-sigil');
   });
 
+  it('announces a thread the moment a bot opens one', async () => {
+    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    // What each roster push says the sidebar would now read: the rooms the saved
+    // file holds, so a push that arrives before the write is caught here.
+    const announced: string[][] = [];
+    service.subscribe((event) => {
+      if (event.type !== 'roster') {
+        return;
+      }
+      const saved = JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8')) as {
+        conversations: { id: string }[];
+      };
+      announced.push(saved.conversations.map((one) => one.id));
+    });
+
+    const result = await service.busSend('sigil', { to: 'loom', text: 'outside' });
+
+    expect(announced).toHaveLength(1);
+    expect(announced[0]).toContain(result.conversationId);
+    expect(service.roster().conversations.some((one) => one.id === result.conversationId)).toBe(
+      true,
+    );
+
+    // The room already exists the second time, so there is nothing new to push.
+    await service.busSend('sigil', { to: 'loom', text: 'again' });
+    expect(announced).toHaveLength(1);
+
+    service.stop('dm-sigil');
+    service.stop('thread-loom-sigil');
+    await settle(service, 'dm-sigil');
+    await settle(service, 'thread-loom-sigil');
+  });
+
   it('refuses a thread id that already belongs to another pair', async () => {
     const { adapter, service } = harness({ script: holdsPersonTurns });
     // Hyphenated usernames make the id ambiguous: these two different pairs both

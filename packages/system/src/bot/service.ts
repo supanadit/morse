@@ -1359,6 +1359,10 @@ export class BotService {
         if (this.bot(target.username) === undefined || this.findConversation(room.id) !== room) {
           throw new BotBusError(`unknown bot "${input.to}"`);
         }
+        // The room is in the registry file now, so the sidebar can be told about
+        // it: a client that reads the roster in answer to this event finds the
+        // thread, not the roster it had before the ask.
+        this.emit({ type: 'roster' });
       }
     }
 

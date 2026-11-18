@@ -18,6 +18,10 @@ describe('BOT_BUS_INSTRUCTION', () => {
     expect(BOT_BUS_INSTRUCTION).toMatch(/describe|descriptions/i);
   });
 
+  it('teaches the invite in words', () => {
+    expect(BOT_BUS_INSTRUCTION).toContain('ask the person to add it here');
+  });
+
   it('exposes the file name OpenCode names the instruction by', () => {
     expect(BOT_BUS_INSTRUCTION_FILE).toBe('morse-bot-bus.md');
   });
