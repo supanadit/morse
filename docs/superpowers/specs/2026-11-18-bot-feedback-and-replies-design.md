@@ -94,8 +94,9 @@ interface BotRoutingActive {
 interface BotHandoff {
   username: string;           // the bot asked
   conversationId: string;     // the thread or room it was asked in
+  deliveryId: string;         // the ask it created, so its state is read exactly
   at: number;
-  /** Read from the target's delivery: queued→asked, running→working, done→done;
+  /** Read from that delivery: queued→asked, running→working, done→done;
    *  failed, dropped or cancelled→failed. */
   state: 'asked' | 'working' | 'done' | 'failed';
   /** What that bot is doing there right now, when it has a live step. */
@@ -181,27 +182,27 @@ interface BotTurnTrace {
 
 ## Answers that come back
 
-`BotDelivery` gains `requesterConversationId?: string`: the conversation the asking bot was answering
-in when it made the ask, recorded by `busSend` from the live delivery. It is the *immediate* asker's
-room, not the person's — that is what lets a chain climb one hop per answer instead of dead-ending
-after two.
+A thread records where it came from. `ConversationRecord` (kind `'thread'`) gains two optional
+fields, written when the thread is created: `parentId` — the conversation the asking bot was working
+in — and `askedBy` — that bot's handle. Nothing is added to the delivery: the thread knows its own
+origin, which is what lets an answer climb more than one hop.
 
 A bot's answer is always a transcript line in the conversation it answered in. On settle, in the
 lane:
 
 - **Forward when all hold:** `delivery.from.type === 'bot'` (a person speaking in a thread is never
-  forwarded), the conversation it answered in is a `thread`, and `requesterConversationId` names a
-  different conversation that still exists.
-- **What the host writes.** One line in the asker's room, authored by the answering bot, saying
-  where it came from: `Loom, in a private thread with @sigil: <answer>`. Then a delivery to the
-  *asking* bot in that same room, `kind: 'reply'`, `reason: 'bot'`, `depth + 1`, pointing at that
-  line — unless the asker is no longer a member of that room, in which case the line is still
-  written (the person sees the answer) and nobody is woken.
-- **The chain climbs.** A woken turn runs in the asker's own room, in that room's engine session. If
-  that room is itself a thread, its answer forwards one hop further by the same rule. It terminates
-  where it must: the last answer lands in a `dm` or `group`, which is person-facing, so it is a
-  normal bot message and wakes nobody. Depth still increments per hop and the existing depth cap
-  (4) remains the runaway bound.
+  forwarded), the conversation it answered in is a `thread` with a `parentId` that still exists and
+  is not itself, and the answering bot is not the parent's only member.
+- **What the host writes.** One line in the parent conversation, authored by the answering bot,
+  saying where it came from: `Loom, in a private thread with @sigil: <answer>`. The parent then gets
+  a delivery to its `askedBy` bot, `kind: 'reply'`, `reason: 'bot'`, `depth + 1`, pointing at that
+  line — unless the answering bot *is* `askedBy`, in which case the line is written and nobody is
+  woken (the bot that asked is the bot that just answered; waking it would be a self-loop).
+- **The chain climbs.** A woken turn runs in the parent conversation's own engine session. If that
+  parent is itself a thread, its answer forwards one hop further by the same rule, so a two-hop chain
+  walks back thread by thread to the person's room. It terminates where it must: the last parent is a
+  `dm` or `group`, which is person-facing, so the answer is a normal bot message and wakes nobody.
+  Depth still increments per hop and the existing depth cap (4) remains the runaway bound.
 - **Person-facing answers wake nobody.** A bot answering in a `dm` or `group` was asked *in* that
   room; the person saw it, and a bot's in-room reply queues nothing, as today.
 - **No `kind` terminator.** Whether a send is `message`, `assign` or `reply` changes its label, not
@@ -212,10 +213,13 @@ lane:
   send it back. The host mints those deliveries with `kind: 'reply'`, so the header keys off that —
   and a bot's own `reply` to another bot is framed the same way, which is correct: it is an answer to
   that bot's ask.
-- **Failure is said, not silent.** A failed or cancelled turn in a thread whose ask came from a bot
-  writes a note in the asker's room naming the bot and the reason, and wakes nobody.
-- **Edge: the asker's room is gone.** Nothing is forwarded; the thread gets a note saying the answer
-  could not be handed back. The answering lane still settles and moves on.
+- **Failure is said, not silent.** A failed or cancelled turn in a thread whose answer could not be
+  forwarded writes a note in the room that would have received it, naming the bot and the reason,
+  and wakes nobody.
+- **Edge: the parent is gone.** Nothing is forwarded; the thread gets a note saying the answer could
+  not be handed back. The answering lane still settles and moves on.
+- **Threads older than this change** have no `parentId` and never forward; their answers stay in the
+  thread, which is where they already were.
 
 The person's own room remains the only place they are spoken to: no bot writes into a DM it was not
 asked in, and no peer answers the person directly.
@@ -238,10 +242,9 @@ the thread while the ask is still running.
 ## Wire and migration
 
 - `PROTOCOL_VERSION` 42 → 43: `BotActivity` gains its optional outcome fields, `BotRoutingActive`
-  gains its four, `BotTurnTrace` is new, `BotDelivery` gains `requesterConversationId`, and the
-  transcript payload gains `traces`.
-- Registry stays version 3. No transcript is rewritten. An old delivery without
-  `requesterConversationId` simply never forwards.
+  gains its four, `BotTurnTrace` is new, and the transcript payload gains `traces`.
+- Registry stays version 3. A thread's `parentId`/`askedBy` are registry-only (no wire field): a
+  thread written before this change has neither and never forwards. No transcript is rewritten.
 - Traces live in their own directory and are created lazily; no data-layout step is needed, but
   `docs/DATA-COMPATIBILITY.md` names the new directory.
 - `docs/STATUS.md` describes the live row, the record and the answer path.
