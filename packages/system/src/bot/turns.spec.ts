@@ -31,6 +31,23 @@ describe('bot turn tracker', () => {
     expect(turn?.startedAt).toBe(0);
   });
 
+  it('moves the newest step instead of growing the turn for a repeat', () => {
+    const tracker = new BotTurnTracker(() => 0);
+    tracker.start('sigil', 'dm-sigil');
+    const started = tracker.get('sigil')?.steps;
+    expect(started).toHaveLength(1);
+
+    tracker.touch('sigil', 7);
+    expect(tracker.get('sigil')?.steps).toHaveLength(1);
+    expect(tracker.get('sigil')?.steps.at(-1)?.at).toBe(7);
+
+    tracker.step('sigil', { kind: 'writing', label: 'Writing the answer…', at: 10 });
+    tracker.touch('sigil', 42);
+    const steps = tracker.get('sigil')?.steps ?? [];
+    expect(steps).toHaveLength(2);
+    expect(steps.at(-1)).toMatchObject({ kind: 'writing', at: 42 });
+  });
+
   it('closes the step a tool call opened', () => {
     const tracker = new BotTurnTracker(() => 0);
     tracker.start('sigil', 'dm-sigil');

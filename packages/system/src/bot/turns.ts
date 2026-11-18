@@ -107,6 +107,20 @@ export class BotTurnTracker {
     trimSteps(turn);
   }
 
+  /**
+   * Moves the newest step to a new time without adding one: a thought or a
+   * written word that repeats is the same line continuing, not another line, so
+   * a turn keeps the history it took instead of losing it to a token stream. A
+   * bot with no record, or a record with no step, is left alone.
+   */
+  touch(username: string, at: number): void {
+    const step = this.turns.get(username)?.steps.at(-1);
+    if (step === undefined) {
+      return;
+    }
+    step.at = at;
+  }
+
   /** Moves the step a tool call opened, while that step is still on the turn. */
   toolStatus(
     username: string,

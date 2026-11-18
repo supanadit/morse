@@ -440,6 +440,11 @@ export class BotService {
   /** When each bot's streamed step was last pushed, for the pacing of `PARTIAL_PUSH_MS`. */
   private readonly deltaPushedAt = new Map<string, number>();
   /**
+   * Bots whose newest delta was held back by that pacing, so the answer landing
+   * can flush the row once more instead of letting the last words go unsent.
+   */
+  private readonly deltaHeld = new Set<string>();
+  /**
    * The reader's attachments for a delivery, kept in memory only until its turn.
    *
    * The bytes are the reader's message, not a bot's: every delivery a line creates
@@ -1704,6 +1709,7 @@ export class BotService {
     }
     this.running.clear();
     this.deltaPushedAt.clear();
+    this.deltaHeld.clear();
     this.turnAttachments.clear();
     this.announced.clear();
     // Credentials die with the process that handed them out.
@@ -1828,6 +1834,7 @@ export class BotService {
       // seconds, and the row a reader sees first is the starting step.
       this.turns.start(username, next.conversationId);
       this.deltaPushedAt.delete(username);
+      this.deltaHeld.delete(username);
       this.deliveries.setStatus(next.conversationId, next.id, 'running');
     } catch (error: unknown) {
       // A corrupt queue is the store's to report, but this call sits in a
@@ -1838,6 +1845,7 @@ export class BotService {
       this.running.delete(username);
       this.turns.clear(username);
       this.deltaPushedAt.delete(username);
+      this.deltaHeld.delete(username);
       this.options.logger.warn(`Cannot take ${username}'s next bot delivery`, error);
       return;
     }
@@ -1896,6 +1904,7 @@ export class BotService {
     this.lanes.delete(username);
     this.running.delete(username);
     this.deltaPushedAt.delete(username);
+    this.deltaHeld.delete(username);
     this.emitRouting(conversationId);
     this.pump(username);
   }
@@ -2597,8 +2606,12 @@ export class BotService {
     }
     // The answer landing is not a step: the row goes when the delivery settles, a
     // moment after this, so keeping the last words until then reads as the engine
-    // still finishing rather than blinking to nothing.
+    // still finishing rather than blinking to nothing. A delta the pacing held
+    // back is flushed first, so a client watching a burst receives its tail.
     if (signal.kind === 'clear') {
+      if (this.deltaHeld.delete(warm.username)) {
+        this.emitRouting(warm.conversationId);
+      }
       return;
     }
     if (signal.kind === 'tool') {
@@ -2610,7 +2623,18 @@ export class BotService {
       this.emitRouting(warm.conversationId);
       return;
     }
-    this.turns.step(warm.username, signal.step, signal.toolCallId);
+    // A repeat of the line already at the end of the record — a thought, or a
+    // word of the answer — moves that line's time instead of appending another,
+    // so a token stream cannot flush the history behind it. A tool always appends.
+    const newest = this.turns.get(warm.username)?.steps.at(-1);
+    const repeats =
+      (newest?.kind === 'thinking' || newest?.kind === 'writing') &&
+      signal.step.kind === newest.kind;
+    if (repeats) {
+      this.turns.touch(warm.username, signal.step.at);
+    } else {
+      this.turns.step(warm.username, signal.step, signal.toolCallId);
+    }
     if (event.type === 'agent/delta') {
       if (event.channel === 'text') {
         this.turns.appendPartial(warm.username, event.delta);
@@ -2621,9 +2645,11 @@ export class BotService {
       const now = this.clock();
       const last = this.deltaPushedAt.get(warm.username);
       if (last !== undefined && now - last < PARTIAL_PUSH_MS) {
+        this.deltaHeld.add(warm.username);
         return;
       }
       this.deltaPushedAt.set(warm.username, now);
+      this.deltaHeld.delete(warm.username);
     }
     this.emitRouting(warm.conversationId);
   }

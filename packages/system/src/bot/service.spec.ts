@@ -1655,6 +1655,84 @@ describe('BotService rounds', () => {
     await settle(service);
   });
 
+  it('keeps the steps it took while the answer streams', async () => {
+    let now = 5_000;
+    const { adapter, service } = harness({
+      now: () => now,
+      script: () => ({ text: 'Tally is the name', hold: true }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'name a bot');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+
+    gateway.emit({
+      type: 'agent/tool-start',
+      at: 1,
+      toolCallId: 't1',
+      name: 'read',
+      title: 'brief.md',
+    });
+    gateway.emit({
+      type: 'agent/tool-end',
+      at: 2,
+      toolCallId: 't1',
+      status: 'error',
+      output: 'no such file',
+    });
+    now += 10;
+    gateway.emit({ type: 'agent/delta', at: 3, channel: 'text', delta: 'Tally ' });
+    now += 10;
+    gateway.emit({ type: 'agent/delta', at: 4, channel: 'text', delta: 'is ' });
+    now += 10;
+    gateway.emit({ type: 'agent/delta', at: 5, channel: 'text', delta: 'the name' });
+
+    const steps = service.routing('dm-forge')?.active[0]?.steps ?? [];
+    // The failed tool the turn took is still on the row, and the streamed answer
+    // is one line whose time follows the newest word, not one step per token.
+    expect(steps.some((step) => step.kind === 'tool' && step.status === 'error')).toBe(true);
+    expect(steps.filter((step) => step.kind === 'writing')).toHaveLength(1);
+    expect(steps.at(-1)).toMatchObject({ kind: 'writing', at: now });
+
+    service.stop('dm-forge');
+    await settle(service);
+  });
+
+  it('flushes a held-back answer before the row lands', async () => {
+    let now = 2_000;
+    const { adapter, service } = harness({
+      now: () => now,
+      script: () => ({ text: 'one two', hold: true }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'write it');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+    const pushed: BotRoutingState[] = [];
+    service.subscribe((event) => {
+      if (event.type === 'routing' && event.state !== null) {
+        pushed.push(event.state);
+      }
+    });
+
+    gateway.emit({ type: 'agent/delta', at: 0, channel: 'text', delta: 'one ' });
+    now += 50;
+    gateway.emit({ type: 'agent/delta', at: 0, channel: 'text', delta: 'two' });
+    // The second word is inside the window, so the row still shows the first.
+    expect(pushed).toHaveLength(1);
+
+    gateway.emit({ type: 'agent/message', at: 0, text: 'one two', thinking: '' });
+    // One last row carries the held-back words before the answer replaces it.
+    expect(pushed).toHaveLength(2);
+    expect(pushed[1]?.active[0]?.partial).toBe('one two');
+    // Nothing else follows for this turn: the flush happens once.
+    await Promise.resolve();
+    expect(pushed).toHaveLength(2);
+
+    service.stop('dm-forge');
+    await settle(service);
+  });
+
   it('gives the addressed bot the images, and its workspace the files', async () => {
     const { root, adapter, service } = harness({ script: () => ({ text: 'Read it.' }) });
     await service.createBot(botInput());
