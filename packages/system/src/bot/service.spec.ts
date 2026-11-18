@@ -2440,6 +2440,19 @@ describe('BotService rounds', () => {
     });
   });
 
+  it('keeps the synthetic starting step out of a settled turn', async () => {
+    const { service } = harness({ script: () => ({ text: 'done' }) });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'hi');
+    await settle(service);
+
+    // The live row opens with a placeholder so a cold engine has a line to show;
+    // it is not work the turn did, so the record begins with the first real step.
+    const steps = service.open('dm-forge').traces[0]?.steps ?? [];
+    expect(steps.map((step) => step.kind)).toEqual(['thinking']);
+    expect(steps.some((step) => step.kind === 'starting')).toBe(false);
+  });
+
   it('forgets a room’s traces with its transcript', async () => {
     const { root, service } = harness({ script: () => ({ text: 'done' }) });
     await service.createBot(botInput());
@@ -2602,6 +2615,44 @@ describe('BotService rounds', () => {
     // and the lane is free for the next one.
     expect(service.transcript('dm-forge').at(-1)).toMatchObject({ text: 'done' });
     expect(service.routing('dm-forge')).toBeNull();
+    // The broken file is left for repair instead of being written over, so its
+    // history is not replaced by whatever this turn happened to record.
+    expect(readFileSync(join(root, 'traces', 'dm-forge.json'), 'utf8')).toBe('{ not history');
+
+    // One unreadable room does not cost the others their history either.
+    await service.createBot(
+      botInput({ username: 'sable', name: 'Sable', description: 'Reads the fine print' }),
+    );
+    await service.send('dm-sable', 'hi');
+    await settle(service, 'dm-sable');
+    expect(service.open('dm-sable').traces).toHaveLength(1);
+  });
+
+  it('opens a room whose finished turns cannot be read', async () => {
+    const spy = vi.spyOn(silentLogger, 'warn');
+    try {
+      const { root, service } = harness({ script: () => ({ text: 'done' }) });
+      await service.createBot(botInput());
+      await service.send('dm-forge', 'hi');
+      await settle(service);
+      const path = join(root, 'traces', 'dm-forge.json');
+      writeFileSync(path, '{ not history');
+
+      // The transcript is the room; the turns beside it are history. A broken
+      // record is reported and read as none, so the person can still open the
+      // room and tell someone what happened.
+      const page = service.open('dm-forge');
+      expect(page.entries.map((entry) => entry.text)).toEqual(['hi', 'done']);
+      expect(page.traces).toEqual([]);
+      const reported = spy.mock.calls.map(
+        ([message, detail]) => `${message} ${(detail as Error).message}`,
+      );
+      expect(reported.some((line) => line.includes(path))).toBe(true);
+      // Paging an older page degrades the same way rather than refusing the room.
+      expect(service.history('dm-forge', undefined).traces).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('writes no trace when a shutdown hands the delivery back', async () => {
@@ -4500,6 +4551,58 @@ describe('BotService answers', () => {
     loom.release();
     await settle(service, ask.conversationId);
     await settle(service, 'dm-sigil');
+  });
+
+  it('records the asking turn even when the asked room’s queue cannot be read', async () => {
+    const spy = vi.spyOn(silentLogger, 'warn');
+    try {
+      const { root, adapter, service } = harness({
+        script: ({ bot, prompt }) =>
+          bot === 'loom'
+            ? prompt.startsWith('[From ')
+              ? { text: 'the answer' }
+              : { text: 'held', hold: true }
+            : prompt.includes('answered the ask you sent')
+              ? { text: 'for the person' }
+              : { text: 'held', hold: true },
+      });
+      await busBots(service);
+      const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+      const ask = await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+      await settle(service, ask.conversationId);
+
+      // The asked room's queue goes bad while the asker is still working. The
+      // trace is this turn's own history, so one unreadable room must not cost
+      // it the record: the ask keeps the state the turn wrote.
+      const queue = join(root, 'deliveries', `${ask.conversationId}.json`);
+      const good = readFileSync(queue, 'utf8');
+      writeFileSync(queue, '{ not a queue');
+      const traced = new Promise<void>((resolve) => {
+        service.subscribe((event) => {
+          if (
+            event.type === 'transcript' &&
+            event.conversationId === 'dm-sigil' &&
+            event.traces !== undefined
+          ) {
+            resolve();
+          }
+        });
+      });
+
+      held.release();
+      await traced;
+
+      expect(service.open('dm-sigil').traces.at(-1)?.handoffs).toEqual([
+        expect.objectContaining({ username: 'loom', deliveryId: ask.deliveryId, state: 'asked' }),
+      ]);
+      const reported = spy.mock.calls.map(
+        ([message, detail]) => `${message} ${(detail as Error).message}`,
+      );
+      expect(reported.some((line) => line.includes(queue))).toBe(true);
+      writeFileSync(queue, good);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

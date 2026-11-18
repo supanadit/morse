@@ -1133,12 +1133,20 @@ export class BotService {
     if (oldest === undefined) {
       return [];
     }
-    return this.traces
-      .all(conversationId)
-      .filter(
-        (trace) =>
-          trace.endedAt >= oldest.at && (beforeAt === undefined || trace.endedAt < beforeAt),
-      );
+    try {
+      return this.traces
+        .all(conversationId)
+        .filter(
+          (trace) =>
+            trace.endedAt >= oldest.at && (beforeAt === undefined || trace.endedAt < beforeAt),
+        );
+    } catch (error: unknown) {
+      // A room's transcript is the room; the turns beside it are history. A file
+      // that cannot be read is reported and read as no history, so the person can
+      // still open the room — and the store keeps refusing to write over it.
+      this.options.logger.warn(`Cannot read ${conversationId}'s finished turns`, error);
+      return [];
+    }
   }
 
   /**
@@ -2018,7 +2026,10 @@ export class BotService {
       startedAt: turn.startedAt,
       endedAt: this.clock(),
       status: traceStatus(status),
-      steps: turn.steps,
+      // The placeholder a live row opens with is not work the turn did: a turn
+      // that never got going records no steps, and its line says so rather than
+      // counting a step the engine never took.
+      steps: turn.steps.filter((step) => step.kind !== 'starting'),
       handoffs: this.tracedHandoffs(turn.handoffs),
     };
     this.traces.add(trace);
@@ -2051,7 +2062,16 @@ export class BotService {
       if (cached !== undefined) {
         return cached;
       }
-      const rows = this.deliveries.all(conversationId);
+      let rows: BotDelivery[];
+      try {
+        rows = this.deliveries.all(conversationId);
+      } catch (error: unknown) {
+        // This trace is the settling turn's own history, so one unreadable room
+        // must not cost it the record: that room's asks keep the state the turn
+        // wrote, and the room is reported instead.
+        this.options.logger.warn(`Cannot read ${conversationId}'s bot deliveries`, error);
+        rows = [];
+      }
       byRoom.set(conversationId, rows);
       return rows;
     };
