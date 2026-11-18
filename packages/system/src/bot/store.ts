@@ -347,9 +347,10 @@ function isRegistryFileV1(value: unknown): value is RegistryV1 {
 /**
  * Writes JSON through a temp file in the target's own directory: a rename on the
  * same filesystem is atomic, so a crash leaves either the old file or the new
- * one, never a truncated mix.
+ * one, never a truncated mix. Shared with the delivery store, which rewrites a
+ * whole conversation file the same way.
  */
-function writeJsonAtomic(path: string, value: unknown): void {
+export function writeJsonAtomic(path: string, value: unknown): void {
   const serialized = JSON.stringify(value);
   const temp = `${path}.${process.pid}.tmp`;
   mkdirSync(dirname(path), { recursive: true });
