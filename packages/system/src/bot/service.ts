@@ -2094,7 +2094,8 @@ export class BotService {
    * parent is another thread forwards again, and the last parent is a DM or a
    * group, which is person-facing and wakes nobody. A thread written before its
    * origin was recorded answers in place. A failed or cancelled turn is said in
-   * the room that would have received it, naming the bot and the reason. A relay
+   * the room that would have received it, naming the bot and the reason; a done
+   * turn with no words is said the same way, as an empty answer. A relay
    * that would spend a bus cap — depth, the root's total or the bot's hour — is
    * said in the parent too, and wakes nobody, exactly as a bot's own ask is.
    */
@@ -2146,24 +2147,22 @@ export class BotService {
       return;
     }
     const text = answer?.trim() ?? '';
-    if (text === '') {
-      // A turn that ended without words has no answer to hand back.
-      return;
-    }
+    // A turn that ended without words is an outcome the person is waiting on,
+    // not silence: the parent is told the answer came back empty, and the asker
+    // wakes on that note to answer the person.
+    const empty = text === '';
     // A record that vanished before its turn settled has no bot to author the
     // line: the settled status above is the only thing the parent can be told.
     if (bot === undefined) {
       return;
     }
     const asker = conversation.askedBy ?? delivery.from.username;
-    // The bot that asked is the bot that just answered: the line is all the room
-    // needs, and waking it would be a self-loop. A parent whose only member is
-    // the answering bot has nobody else to wake either.
+    // The bot that asked is the bot that just answered — waking it would be a
+    // self-loop — and an asker that has left the parent has no work waiting
+    // there. Either way the line is written and nobody is woken.
     const askedBy = conversation.askedBy;
     const wakeTo =
-      askedBy !== undefined &&
-      askedBy !== bot.username &&
-      parent.members.some((member) => member !== bot.username)
+      askedBy !== undefined && askedBy !== bot.username && parent.members.includes(askedBy)
         ? askedBy
         : undefined;
     const depth = delivery.depth + 1;
@@ -2186,11 +2185,13 @@ export class BotService {
       }
     }
 
-    const line = this.append(
-      parent.id,
-      botAuthor(bot),
-      `${name}, in a private thread with @${asker}: ${text}`,
-    );
+    const line = empty
+      ? this.note(parent.id, `${name}'s answer came back empty.`)
+      : this.append(
+          parent.id,
+          botAuthor(bot),
+          `${name}, in a private thread with @${asker}: ${text}`,
+        );
     if (wakeTo === undefined) {
       return;
     }
@@ -2932,8 +2933,8 @@ export class BotService {
   }
 
   /** A routing note: Morse speaking, not a bot. */
-  private note(conversationId: string, text: string): void {
-    this.append(conversationId, { role: 'system' }, text);
+  private note(conversationId: string, text: string): BotTranscriptEntry {
+    return this.append(conversationId, { role: 'system' }, text);
   }
 
   /**
@@ -3247,7 +3248,15 @@ export class BotService {
       lines.push(`(${entries.length - recent.length} earlier message(s) not repeated here.)`);
     }
     for (const entry of recent) {
-      const line = this.contextLine(entry, bot, conversation.title);
+      const own = this.contextLine(entry, bot, conversation.title);
+      // The line this ask is about always reaches it, even when Morse wrote it:
+      // a relayed answer that came back empty is a note, and the woken bot needs
+      // it to tell the person rather than leaving them waiting.
+      const line =
+        own ??
+        (entry.id === delivery?.entryId && entry.author.role === 'system'
+          ? relayLine(conversation.title, 'Morse', entry.text)
+          : undefined);
       if (line !== undefined) {
         lines.push(line);
       }

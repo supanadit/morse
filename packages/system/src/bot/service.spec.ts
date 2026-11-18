@@ -3986,8 +3986,8 @@ describe('BotService answers', () => {
             ? { text: 'sigil answers' }
             : { text: 'held', hold: true };
         }
-        // Loom asks Sigil back, then answers nothing: only Sigil's own answer
-        // can reach the parent room.
+        // Loom asks Sigil back, then fails without answering: only Sigil's own
+        // answer can reach the parent room.
         return { text: '', hold: true };
       },
     });
@@ -3997,7 +3997,9 @@ describe('BotService answers', () => {
 
     await waitForTurn(service, 'loom');
     await service.busSend('loom', { to: 'sigil', text: 'my view' });
-    gatewayFor(adapter, 'loom').release();
+    const loom = gatewayFor(adapter, 'loom');
+    loom.emit({ type: 'agent/run-end', at: 1, reason: 'error', error: 'the engine fell over' });
+    loom.release();
 
     // Sigil's room turn ends, and its lane answers in the thread it opened.
     held.release();
@@ -4044,12 +4046,18 @@ describe('BotService answers', () => {
         bot === 'sigil'
           ? { text: 'held', hold: true }
           : prompt.startsWith('[From ')
-            ? { text: '' }
+            ? { text: '', hold: true }
             : { text: 'answered the person' },
     });
     await busBots(service);
     const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
     await service.busSend('sigil', { to: 'loom', text: 'first' });
+    // The peer's own turn fails, so the thread exists without a relayed answer
+    // to distract from the person's line below.
+    const loom = await waitForGateway(adapter, 'loom');
+    await loom.prompted;
+    loom.emit({ type: 'agent/run-end', at: 1, reason: 'error', error: 'the engine fell over' });
+    loom.release();
     held.release();
     await settle(service, 'dm-sigil');
     await settle(service, thread);
@@ -4381,10 +4389,12 @@ describe('BotService answers', () => {
     const held = await holdTurn(service, adapter, group.id, 'sigil');
     await service.busSend('sigil', { to: 'loom', text: 'ask loom' });
 
-    // Loom asks Sage from inside the first thread, then answers nothing here.
+    // Loom asks Sage from inside the first thread, then fails without answering.
     await waitForTurn(service, 'loom');
     await service.busSend('loom', { to: 'sage', text: 'ask sage' });
-    gatewayFor(adapter, 'loom').release();
+    const loom = gatewayFor(adapter, 'loom');
+    loom.emit({ type: 'agent/run-end', at: 1, reason: 'error', error: 'the engine fell over' });
+    loom.release();
     await settle(service, 'thread-loom-sage');
 
     // Sage's answer climbs to Loom in the first thread, and on to the group.
@@ -4551,6 +4561,98 @@ describe('BotService answers', () => {
     loom.release();
     await settle(service, ask.conversationId);
     await settle(service, 'dm-sigil');
+  });
+
+  it('wakes nobody when the asker has left the room it came from', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) => {
+        if (bot === 'sigil') {
+          return { text: 'held', hold: true };
+        }
+        return prompt.startsWith('[From ') ? { text: 'the answer', hold: true } : { text: 'idle' };
+      },
+    });
+    await busBots(service);
+    await service.createBot(
+      botInput({ username: 'sage', name: 'Sage', description: 'Somewhere else' }),
+    );
+    await service.createBot(
+      botInput({ username: 'reed', name: 'Reed', description: 'Outside the room' }),
+    );
+    const group = service.createGroup({
+      name: 'Launch',
+      members: ['sigil', 'loom', 'sage'],
+      lead: 'sigil',
+    });
+    const held = await holdTurn(service, adapter, group.id, 'sigil');
+    await service.busSend('sigil', { to: 'reed', text: 'outside' });
+    held.release();
+    await settle(service, group.id);
+
+    // The asker leaves the group while the peer is still answering in the thread
+    // it opened from there.
+    const peer = await waitForGateway(adapter, 'reed');
+    await peer.prompted;
+    await service.updateGroup({
+      id: group.id,
+      name: 'Launch',
+      members: ['loom', 'sage'],
+      lead: 'loom',
+    });
+    peer.release();
+
+    const forwarded = 'Reed, in a private thread with @sigil: the answer';
+    for (
+      let tick = 0;
+      tick < 500 && !service.transcript(group.id).some((entry) => entry.text === forwarded);
+      tick += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    // The line still lands in the room, but a bot removed from it has no work
+    // queued there and its engine is not woken for a room it left.
+    expect(service.transcript(group.id).some((entry) => entry.text === forwarded)).toBe(true);
+    expect(deliveriesOf(root, group.id).filter((row) => row.kind === 'reply')).toEqual([]);
+    expect(gatewayFor(adapter, 'sigil').prompts).toHaveLength(1);
+  });
+
+  it('says a peer’s empty answer in the parent and wakes the asker for it', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'sigil'
+          ? prompt.includes('answered the ask you sent')
+            ? { text: 'loom had nothing to say' }
+            : { text: 'held', hold: true }
+          : prompt.startsWith('[From ')
+            ? { text: '' }
+            : { text: 'answered' },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const ask = await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    await settle(service, ask.conversationId);
+
+    // A turn that ends without words is an outcome the person is waiting on, not
+    // silence: the room it would have answered in says so, and the asker wakes
+    // on that line to answer the person.
+    const note = service
+      .transcript('dm-sigil')
+      .find((entry) => entry.author.role === 'system' && entry.text.includes('empty'));
+    expect(note?.text).toBe("Loom's answer came back empty.");
+    const reply = deliveriesOf(root, 'dm-sigil').find((row) => row.kind === 'reply');
+    expect(reply).toMatchObject({
+      entryId: note?.id,
+      to: 'sigil',
+      from: { type: 'bot', username: 'loom' },
+      kind: 'reply',
+    });
+
+    held.release();
+    await settle(service, 'dm-sigil');
+    const prompts = gatewayFor(adapter, 'sigil').prompts;
+    expect(prompts[1]).toContain("Loom's answer came back empty.");
+    expect(prompts[1]).toContain('answered the ask you sent');
   });
 
   it('records the asking turn even when the asked room’s queue cannot be read', async () => {
