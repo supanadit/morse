@@ -34,11 +34,15 @@ export interface BotConversationSummary {
   id: string;
   kind: 'dm' | 'group';
   title: string;
-  /** Member bot usernames; a mention-less group round addresses them in this order. */
+  /** Member bot usernames; an unaddressed group fan-out asks them in this order. */
   members: string[];
   /** The bot that answers when nothing is addressed, by username. */
   lead?: string;
-  /** Bot-to-bot relays allowed per user message; the round stops here with a note. */
+  /**
+   * Legacy, and no longer a setting: lanes have no chain, so a bot's reply queues
+   * nothing by itself. The field stays on the wire until the group dialog stops
+   * reading it, and a host reports a constant for it.
+   */
   chainCap: number;
   updatedAt: number;
 }
@@ -116,19 +120,31 @@ export interface BotActivity {
   at: number;
 }
 
-/** The round in flight on one conversation: whom the host asks, and whom it queued. */
+/**
+ * One bot at work in a conversation: its display name and what it is doing.
+ *
+ * Names, not usernames: this is presentation, so it reads the way the roster
+ * does. Identity travels as `username` everywhere it is a key.
+ */
+export interface BotRoutingActive {
+  target: string;
+  activity: BotActivity;
+}
+
+/**
+ * The work in flight on one conversation: every bot answering now, and every
+ * delivery still waiting.
+ *
+ * A room can have more than one bot working at once — lanes are per bot, so one
+ * bot's turn never holds another's — which is why `active` is a list rather than
+ * the single target the host-scheduled round used to have.
+ */
 export interface BotRoutingState {
   conversationId: string;
-  /**
-   * The bot answering now, by display name — this strip is presentation, so it
-   * reads the way the roster does. Identity travels as `username` everywhere it
-   * is a key; an absent target means the round has not started or has settled.
-   */
-  target?: string;
-  /** Bots addressed after the current one, in the order they will speak. */
+  /** Every bot answering right now, in the order their turns started. */
+  active: BotRoutingActive[];
+  /** Deliveries still queued, by display name, oldest first. */
   queued: string[];
-  /** What the target is doing right now; absent until it reports, and after it says. */
-  activity?: BotActivity;
 }
 
 /**
@@ -345,7 +361,7 @@ export interface BotUpdateInput {
   mcpServers?: BotMcpServerInput[];
 }
 
-/** What the New group dialog sends; `chainCap` defaults to the service's cap. */
+/** What the New group dialog sends. `chainCap` is accepted and ignored. */
 export interface BotGroupCreateInput {
   name: string;
   members: string[];
@@ -357,9 +373,10 @@ export interface BotGroupCreateInput {
  * What Edit group sends: the same room, with what the reader changed.
  *
  * The fields are a patch, not a merge: an absent `lead` clears the lead (the
- * room then only answers @mentions) and an absent `chainCap` resets the cap to
- * the service default, rather than keeping the stored value. The dialog always
- * sends the current form state, so what the reader sees is what is stored.
+ * room then answers every member) and an absent `chainCap` clears the legacy
+ * field's recorded value. The dialog always sends the current form state, so what
+ * the reader sees is what is stored. A lane has no chain, so `chainCap` is
+ * accepted and ignored.
  */
 export interface BotGroupUpdateInput {
   /** The group being edited; its id never changes. */

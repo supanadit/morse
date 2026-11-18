@@ -94,11 +94,12 @@ export class BotChat {
   });
 
   /**
-   * The one line of presence the chat shows while a bot works — "Reading
-   * launch-brief.md" — where its answer will appear.
+   * One line of presence per bot working right now — "Reading launch-brief.md" —
+   * where its answer will appear.
    *
-   * A chat has presence, not a trace: the row is replaced as the bot moves on and
-   * gone when the answer lands, so it never enters the transcript the host keeps.
+   * A chat has presence, not a trace: a row is replaced as its bot moves on and
+   * gone when its turn ends, so it never enters the transcript the host keeps.
+   * A room can have several bots working at once, which is why this is a list:
    * `key` changes with every new activity, which is what makes Angular rebuild the
    * node and replay the animation instead of quietly swapping the words.
    */
@@ -113,24 +114,24 @@ export class BotChat {
     }[]
   >(() => {
     const routing = this.routing();
-    const name = routing?.target;
-    if (routing === null || name === undefined) {
+    if (routing === null) {
       return [];
     }
-    const activity = routing.activity;
-    const bot = this.morse.bot.roster()?.bots.find((one) => one.name === name);
-    return [
-      {
-        key: activity === undefined ? `waiting:${name}` : `${activity.kind}:${activity.at}`,
-        kind: activity?.kind ?? 'starting',
-        // No activity yet means the engine is still being started, which is its
-        // own kind of waiting and worth saying rather than showing nothing.
-        label: activity?.label ?? 'Getting started…',
-        name,
-        mark: bot?.avatar ?? name.slice(0, 1).toUpperCase(),
-        queued: routing.queued,
-      },
-    ];
+    const bots = this.morse.bot.roster()?.bots ?? [];
+    return routing.active.map((entry, index) => {
+      const activity = entry.activity;
+      const bot = bots.find((one) => one.name === entry.target);
+      return {
+        key: `${entry.target}:${activity.kind}:${activity.at}`,
+        kind: activity.kind,
+        label: activity.label,
+        name: entry.target,
+        mark: bot?.avatar ?? entry.target.slice(0, 1).toUpperCase(),
+        // The queue belongs to the room, not to one bot: it is drawn once, under
+        // the first row, rather than repeated beside every working member.
+        queued: index === 0 ? routing.queued : [],
+      };
+    });
   });
 
   constructor() {

@@ -334,7 +334,13 @@ describe('BotNav', () => {
     // only place a reader can see that the bot still runs.
     morse.bot.onRouting({
       conversationId: 'dm-forge',
-      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+      state: {
+        conversationId: 'dm-forge',
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+        ],
+        queued: [],
+      },
     });
     fixture.detectChanges();
 
@@ -351,7 +357,13 @@ describe('BotNav', () => {
     morse.bot.onRoster({ bots: [forge], conversations: [] });
     morse.bot.onRouting({
       conversationId: 'dm-forge',
-      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+      state: {
+        conversationId: 'dm-forge',
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+        ],
+        queued: [],
+      },
     });
     fixture.detectChanges();
 
@@ -386,7 +398,13 @@ describe('BotNav', () => {
     morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
     morse.bot.onRouting({
       conversationId: 'dm-forge',
-      state: { conversationId: 'dm-forge', target: 'Forge', queued: [] },
+      state: {
+        conversationId: 'dm-forge',
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+        ],
+        queued: [],
+      },
     });
     fixture.detectChanges();
 
@@ -462,7 +480,13 @@ describe('BotNav', () => {
     morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop] });
     morse.bot.onRouting({
       conversationId: 'group-workshop',
-      state: { conversationId: 'group-workshop', target: 'Forge', queued: [] },
+      state: {
+        conversationId: 'group-workshop',
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+        ],
+        queued: [],
+      },
     });
     fixture.detectChanges();
 

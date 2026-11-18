@@ -343,12 +343,12 @@ describe('MorseSessionFactory bot wiring', () => {
     bot.emit({
       type: 'routing',
       conversationId: 'dm-x',
-      state: { conversationId: 'dm-x', queued: [] },
+      state: { conversationId: 'dm-x', active: [], queued: [] },
     });
     const sent = (socket.send as unknown as { mock: { calls: [string][] } }).mock.calls;
     expect(JSON.parse(sent.at(-1)?.[0] ?? '{}')).toMatchObject({
       type: 'bot/routing',
-      payload: { conversationId: 'dm-x', state: { conversationId: 'dm-x', queued: [] } },
+      payload: { conversationId: 'dm-x', state: { conversationId: 'dm-x', active: [], queued: [] } },
     });
 
     // A turn's counters ride the same feed, keyed by the conversation they belong

@@ -251,9 +251,13 @@ describe('BotChat', () => {
 
     morse.bot.onRouting(
       round(workshop.id, {
-        target: 'Forge',
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
+          },
+        ],
         queued: ['Sable'],
-        activity: { kind: 'tool', label: 'Reading launch-brief.md…', tool: 'read', at: 10 },
       }),
     );
     fixture.detectChanges();
@@ -278,9 +282,13 @@ describe('BotChat', () => {
 
     morse.bot.onRouting(
       round(workshop.id, {
-        target: 'Forge',
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
+          },
+        ],
         queued: [],
-        activity: { kind: 'thinking', label: 'Wait, let me think…', at: 20 },
       }),
     );
     fixture.detectChanges();
@@ -288,9 +296,13 @@ describe('BotChat', () => {
 
     morse.bot.onRouting(
       round(workshop.id, {
-        target: 'Forge',
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
+          },
+        ],
         queued: [],
-        activity: { kind: 'writing', label: 'Writing the answer…', at: 21 },
       }),
     );
     fixture.detectChanges();
@@ -302,16 +314,36 @@ describe('BotChat', () => {
     expect(second).not.toBe(first);
   });
 
-  it('says a bot is getting started before its engine reports anything', async () => {
+  it('draws one presence row per working bot', async () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);
 
-    morse.bot.onRouting(round(workshop.id, { target: 'Sable', queued: [] }));
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'starting', label: 'Getting started…', at: 1 },
+          },
+          {
+            target: 'Sable',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+          },
+        ],
+        queued: [],
+      }),
+    );
     fixture.detectChanges();
 
-    expect(host.querySelector('.acting .doing-label')?.textContent?.trim()).toBe(
+    // Two lanes, two rooms' worth of work at once: the room shows both members.
+    expect([...host.querySelectorAll('.acting .author')].map((one) => one.textContent?.trim())).toEqual([
+      'Forge',
+      'Sable',
+    ]);
+    expect([...host.querySelectorAll('.acting .doing-label')].map((one) => one.textContent?.trim())).toEqual([
       'Getting started…',
-    );
+      'Wait, let me think…',
+    ]);
   });
 
   it('does not draw another conversation’s round', async () => {
@@ -320,9 +352,13 @@ describe('BotChat', () => {
 
     morse.bot.onRouting(
       round(workshop.id, {
-        target: 'Sable',
+        active: [
+          {
+            target: 'Sable',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
+          },
+        ],
         queued: [],
-        activity: { kind: 'thinking', label: 'Wait, let me think…', at: 30 },
       }),
     );
     fixture.detectChanges();
@@ -336,7 +372,17 @@ describe('BotChat', () => {
     fixture.detectChanges();
     expect(host.querySelector('.stop')).toBeNull();
 
-    morse.bot.onRouting(round(workshop.id, { target: 'Forge', queued: [] }));
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'starting', label: 'Getting started…', at: 1 },
+          },
+        ],
+        queued: [],
+      }),
+    );
     fixture.detectChanges();
     const stop = vi.spyOn(morse, 'stopBotRound');
 
@@ -474,9 +520,13 @@ describe('BotChat', () => {
     open(morse, workshop, []);
     morse.bot.onRouting(
       round(workshop.id, {
-        target: 'Forge',
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'writing', label: 'Writing the answer…', at: 5 },
+          },
+        ],
         queued: [],
-        activity: { kind: 'writing', label: 'Writing the answer…', at: 5 },
       }),
     );
     fixture.detectChanges();

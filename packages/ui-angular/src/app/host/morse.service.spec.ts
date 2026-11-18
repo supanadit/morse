@@ -240,7 +240,13 @@ describe('MorseService bot mode', () => {
   it("sets and clears one conversation's routing state from bot/routing", () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
-    const route = { conversationId: 'group-1', target: 'forge', queued: ['sable'] };
+    const route = {
+      conversationId: 'group-1',
+      active: [
+        { target: 'forge', activity: { kind: 'thinking' as const, label: 'Wait…', at: 1 } },
+      ],
+      queued: ['sable'],
+    };
 
     transport.toClient({
       type: 'bot/routing',
@@ -289,7 +295,13 @@ describe('MorseService bot mode', () => {
       type: 'bot/routing',
       payload: {
         conversationId: 'dm-sable',
-        state: { conversationId: 'dm-sable', target: 'sable', queued: [] },
+        state: {
+          conversationId: 'dm-sable',
+          active: [
+            { target: 'sable', activity: { kind: 'thinking', label: 'Wait…', at: 1 } },
+          ],
+          queued: [],
+        },
       },
     });
 
@@ -300,7 +312,7 @@ describe('MorseService bot mode', () => {
     // not the window's, so it is still set for the room being left.
     expect(morse.bot.routingFor('dm-sable')).toEqual({
       conversationId: 'dm-sable',
-      target: 'sable',
+      active: [{ target: 'sable', activity: { kind: 'thinking', label: 'Wait…', at: 1 } }],
       queued: [],
     });
     expect(lastFrame(transport)).toEqual({

@@ -23,7 +23,7 @@ import type {
   ThinkingLevel,
   WorkspaceRef,
 } from '@morse/agent';
-import type { BotCreateInput, BotMcpServerInput, BotRoutingState, PromptImage } from '@morse/protocol';
+import type { BotCreateInput, BotDelivery, BotMcpServerInput, BotRoutingState, PromptImage } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
@@ -502,6 +502,31 @@ async function flush(): Promise<void> {
 }
 
 /**
+ * Waits until every lane with work in one conversation has run out of it.
+ *
+ * Lanes run in the background now — `send` resolves when the work is queued, not
+ * when it is answered — so a test that reads the answer gives the lane its turn
+ * first. The fakes below settle on microtasks, so draining those is enough; a
+ * held turn is released by the test itself.
+ */
+async function settle(service: BotService, conversationId = 'dm-forge'): Promise<void> {
+  for (let tick = 0; tick < 500; tick += 1) {
+    if (service.routing(conversationId) === null) {
+      await flush();
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`The lanes in "${conversationId}" never settled.`);
+}
+
+/** The delivery rows the service persisted for one conversation. */
+function deliveriesOf(root: string, conversationId: string): BotDelivery[] {
+  const path = join(root, 'deliveries', `${conversationId}.json`);
+  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as BotDelivery[]) : [];
+}
+
+/**
  * Makes the next registry save fail for real: the path `registry.json` must be is
  * a directory, so both the atomic rename and the in-place fallback refuse it.
  */
@@ -518,7 +543,6 @@ interface HarnessOptions {
   hangFirstCreate?: boolean;
   idleMs?: number;
   turnTimeoutMs?: number;
-  chainCap?: number;
   supportsSubagents?: boolean;
   omitSubagentWriter?: boolean;
   thinkingUnsupported?: boolean;
@@ -542,7 +566,6 @@ function serviceOn(root: string, adapter: FakeAdapter, options: HarnessOptions =
     logger: silentLogger,
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
     ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
-    ...(options.chainCap === undefined ? {} : { defaultChainCap: options.chainCap }),
   });
 }
 
@@ -751,7 +774,7 @@ describe('BotService creation', () => {
     expect(service.roster().bots.map((bot) => bot.name)).toEqual(['News Finder', 'News Finder']);
   });
 
-  it('createGroup lists the group with its members, lead and chain cap', async () => {
+  it('createGroup lists the group with its members and lead, and ignores a chain cap', async () => {
     const { service, root } = harness();
     await twoBots(service);
 
@@ -759,6 +782,8 @@ describe('BotService creation', () => {
       name: 'Launch',
       members: ['forge', 'sable'],
       lead: 'forge',
+      // The dialog still sends it, but a lane has no chain to cap: the value is
+      // ignored rather than stored, and the summary reports the wire's constant.
       chainCap: 3,
     });
 
@@ -768,12 +793,12 @@ describe('BotService creation', () => {
       title: 'Launch',
       members: ['forge', 'sable'],
       lead: 'forge',
-      chainCap: 3,
+      chainCap: 8,
       updatedAt: expect.any(Number) as number,
     });
     expect(service.roster().conversations).toContainEqual(group);
-    // The group record itself carries no cap any more: it is a setting of the
-    // conversation, which the round loop reads.
+    // Neither the group record nor the conversation carries a cap any more: a
+    // bot's reply queues nothing by itself.
     await flush();
     expect(loadBotRegistry(root).groups[0]).toEqual({
       id: group.id,
@@ -781,6 +806,7 @@ describe('BotService creation', () => {
       members: ['forge', 'sable'],
       lead: 'forge',
     });
+    expect(loadBotRegistry(root).conversations[2]).not.toHaveProperty('chainCap');
   });
 
   it('updateGroup rewrites the room and clears only the removed member session', async () => {
@@ -794,6 +820,7 @@ describe('BotService creation', () => {
       lead: 'forge',
     });
     await service.send(group.id, '@forge @sable hello');
+    await settle(service, group.id);
 
     const before = loadBotRegistry(root).conversations.find((one) => one.id === group.id);
     expect(before?.sessions['forge']?.engineSessionId).toBeDefined();
@@ -805,14 +832,12 @@ describe('BotService creation', () => {
       name: 'Launch, revised',
       members: ['sable'],
       lead: 'sable',
-      chainCap: 2,
     });
 
     expect(updated).toMatchObject({
       title: 'Launch, revised',
       members: ['sable'],
       lead: 'sable',
-      chainCap: 2,
     });
     const after = loadBotRegistry(root).conversations.find((one) => one.id === group.id);
     expect(after?.sessions['forge']).toBeUndefined();
@@ -873,6 +898,7 @@ describe('BotService creation', () => {
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     await service.send(group.id, '@forge @sable hello');
+    await settle(service, group.id);
 
     const stored = loadBotRegistry(root).conversations.find((one) => one.id === group.id);
     const forgeSession = stored?.sessions['forge']?.engineSessionId;
@@ -1047,6 +1073,7 @@ describe('BotService bot deletion cleanup', () => {
       lead: 'forge',
     });
     await service.send(group.id, '@forge @sable hello');
+    await settle(service, group.id);
 
     await service.deleteBot('forge');
 
@@ -1371,6 +1398,7 @@ describe('BotService edits', () => {
     const { root, adapter, service } = harness({ script: () => ({ text: 'ok' }) });
     await service.createBot(botInput());
     await service.send('dm-forge', 'hi');
+    await settle(service);
     expect(gatewayFor(adapter, 'forge').prompts[0]).not.toContain('You are Forge');
 
     await service.updateBot({
@@ -1384,6 +1412,7 @@ describe('BotService edits', () => {
     // The stored session id is what would have resumed the old engine session.
     expect(loadBotRegistry(root).conversations[0]?.sessions).toEqual({});
     await service.send('dm-forge', 'again');
+    await settle(service);
     // The edited bot gets a fresh gateway (the old one went with its factory), and
     // the persona it now runs under is the one written into the engine's files.
     const gateways = adapter.factories
@@ -1437,18 +1466,24 @@ describe('BotService edits', () => {
 });
 
 describe('BotService rounds', () => {
-  it('dm send relays and records the reply', async () => {
+  it('dm send queues the turn and records the reply', async () => {
     const { adapter, service } = harness({ script: () => ({ text: 'Done.' }) });
     await service.createBot(botInput());
     const events: BotEvent[] = [];
     service.subscribe((event) => events.push(event));
 
     await service.send('dm-forge', 'hi');
+    await settle(service);
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Forge] You: hi']);
     const entries = service.transcript('dm-forge');
     expect(entries).toHaveLength(2);
-    expect(entries[0]).toMatchObject({ author: { role: 'user' }, text: 'hi' });
+    // The person's own line names the host person, so a stored delivery's origin
+    // and the transcript it points at agree on who asked.
+    expect(entries[0]).toMatchObject({
+      author: { role: 'user', personId: 'host' },
+      text: 'hi',
+    });
     expect(entries[1]).toMatchObject({ author: { role: 'bot', name: 'Forge' }, text: 'Done.' });
     // Opening a conversation answers with its newest page, not the whole file.
     expect(service.open('dm-forge')).toEqual({ entries, hasMore: false });
@@ -1463,12 +1498,13 @@ describe('BotService rounds', () => {
       conversationId: 'dm-forge',
       state: {
         conversationId: 'dm-forge',
-        target: 'Forge',
+        active: [
+          { target: 'Forge', activity: expect.objectContaining({ kind: 'starting' }) },
+        ],
         queued: [],
-        activity: expect.objectContaining({ kind: 'starting' }),
       },
     });
-    // The round ends on the conversation it ran in: a clear names its room, so a
+    // The turn ends on the conversation it ran in: a clear names its room, so a
     // chat the reader is not looking at keeps the row it still has.
     expect(events.at(-1)).toEqual({
       type: 'routing',
@@ -1496,19 +1532,21 @@ describe('BotService rounds', () => {
     });
 
     await service.send('dm-forge', 'plan the launch');
+    await settle(service);
 
     // One line of presence, replaced as the bot moves on: started, thinking,
-    // each tool in turn (thinking between them), then gone before the answer.
-    expect(routing.map((state) => state.activity?.label)).toEqual([
+    // each tool in turn (thinking between them), then gone with the answer.
+    expect(routing.map((state) => state.active[0]?.activity.label)).toEqual([
       'Getting started…',
       'Wait, let me think…',
       'Reading launch-brief.md…',
       'Thinking it over…',
       'Running npm run test:fast…',
       'Thinking it over…',
-      undefined,
     ]);
-    expect(routing.every((state) => state.target === 'Forge')).toBe(true);
+    expect(routing.every((state) => state.active.length === 1)).toBe(true);
+    expect(routing.every((state) => state.active[0]?.target === 'Forge')).toBe(true);
+    expect(service.routing('dm-forge')).toBeNull();
     // The trace is not history: the transcript holds the question and the answer.
     expect(service.transcript('dm-forge').map((entry) => entry.text)).toEqual([
       'plan the launch',
@@ -1534,6 +1572,7 @@ describe('BotService rounds', () => {
         },
       ],
     });
+    await settle(service);
 
     const gateway = gatewayFor(adapter, 'forge');
     // Images are prompt content, exactly as a code session sends them.
@@ -1552,54 +1591,30 @@ describe('BotService rounds', () => {
     });
   });
 
-  it('tells a chained teammate what was attached, since it only sees relay text', async () => {
-    const { adapter, service } = harness({
-      script: ({ bot }) => ({ text: bot === 'forge' ? '@sable over to you' : 'got it' }),
-    });
-    await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
-    const image: PromptImage = { data: 'aGk=', mimeType: 'image/png' };
-
-    await service.send(group.id, '@forge look at this', {
-      images: [image],
-      files: [{ name: 'brief.md', mimeType: 'text/markdown', data: 'aGk=' }],
-    });
-
-    const sable = gatewayFor(adapter, 'sable');
-    // The relay text says what came with the message, so a teammate that was not
-    // addressed is not answering a message whose picture it was never told about.
-    expect(sable.prompts[0]).toContain('[attached: 1 image, 1 file]');
-    // The image is part of the human message, so it reaches every prompt in the round.
-    expect(sable.imagesSent[0]).toEqual([image]);
-  });
-
-  it('group explicit mentions answer in order, each seeing prior replies', async () => {
+  it('gives every bot the reader’s images and says what was attached', async () => {
     const { adapter, service } = harness({
       script: ({ bot }) => ({ text: `${bot} here` }),
     });
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const image: PromptImage = { data: 'aGk=', mimeType: 'image/png' };
 
-    await service.send(group.id, '@sable @forge go');
+    await service.send(group.id, '@forge @sable look at this', {
+      images: [image],
+      files: [{ name: 'brief.md', mimeType: 'text/markdown', data: 'aGk=' }],
+    });
+    await settle(service, group.id);
 
-    // The first prompt of a discussion introduces the room, because a bot can only
-    // address a teammate by handle and has no other way to learn it.
-    expect(gatewayFor(adapter, 'sable').prompts).toEqual([
-      `${room}\n\n[Launch] You: @sable @forge go`,
-    ]);
-    // Forge is second, so it also gets what Sable just said.
-    expect(gatewayFor(adapter, 'forge').prompts).toEqual([
-      `${room}\n\n[Launch] You: @sable @forge go\n\n[Launch] Sable: sable here`,
-    ]);
-    const entries = service.transcript(group.id);
-    expect(entries.map((entry) => entry.author)).toEqual([
-      { role: 'user' },
-      { role: 'bot', name: 'Sable', username: 'sable' },
-      { role: 'bot', name: 'Forge', username: 'forge' },
-    ]);
+    const sable = gatewayFor(adapter, 'sable');
+    // The relay text says what came with the message, so a bot that was not the
+    // first addressee is not answering a message whose picture it was never told
+    // about.
+    expect(sable.prompts[0]).toContain('[attached: 1 image, 1 file]');
+    // The image is part of the human message, so every delivery from it carries it.
+    expect(sable.imagesSent[0]).toEqual([image]);
   });
 
-  it('@all answers every member sequentially', async () => {
+  it('answers every member at once, each reading the line it was asked about', async () => {
     const { adapter, service } = harness({
       script: ({ bot }) => ({ text: `${bot} here` }),
     });
@@ -1607,11 +1622,12 @@ describe('BotService rounds', () => {
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
 
     await service.send(group.id, '@all standup');
+    await settle(service, group.id);
 
+    // Two lanes, two turns: neither reads the other's answer, because each slice
+    // is pinned to the person's line the delivery asks about.
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${room}\n\n[Launch] You: @all standup`]);
-    expect(gatewayFor(adapter, 'sable').prompts).toEqual([
-      `${room}\n\n[Launch] You: @all standup\n\n[Launch] Forge: forge here`,
-    ]);
+    expect(gatewayFor(adapter, 'sable').prompts).toEqual([`${room}\n\n[Launch] You: @all standup`]);
     expect(
       service
         .transcript(group.id)
@@ -1623,6 +1639,59 @@ describe('BotService rounds', () => {
     ]);
   });
 
+  it('queues two bots in one room at the same time', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot }) => ({ text: `${bot} done`, hold: true }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+
+    await service.send(group.id, '@forge @sable build it');
+    // Both turns started before either finished: the lanes are per bot.
+    await Promise.all([gatewayFor(adapter, 'forge').prompted, gatewayFor(adapter, 'sable').prompted]);
+    expect(service.routing(group.id)?.active.map((one) => one.target)).toEqual([
+      'Forge',
+      'Sable',
+    ]);
+
+    gatewayFor(adapter, 'forge').release();
+    gatewayFor(adapter, 'sable').release();
+    await settle(service, group.id);
+    expect(
+      service.transcript(group.id).filter((entry) => entry.author.role === 'bot'),
+    ).toHaveLength(2);
+  });
+
+  it('a message sent while a bot runs becomes a second delivery, not a refusal', async () => {
+    const { adapter, service } = harness({
+      script: ({ call }) =>
+        call === 1 ? { text: 'one done', hold: true } : { text: 'two done' },
+    });
+    await service.createBot(botInput());
+
+    await service.send('dm-forge', 'one');
+    await gatewayFor(adapter, 'forge').prompted;
+    await service.send('dm-forge', 'two');
+
+    // The running delivery is still Forge's; the second waits behind it.
+    expect(service.routing('dm-forge')).toMatchObject({
+      active: [{ target: 'Forge' }],
+      queued: ['Forge'],
+    });
+    gatewayFor(adapter, 'forge').release();
+    await settle(service);
+
+    expect(
+      service.transcript('dm-forge').filter((entry) => entry.author.role === 'bot'),
+    ).toHaveLength(2);
+    // Both turns happened, in arrival order; the second slice starts after the
+    // line the first turn was told, so nothing is repeated.
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([
+      '[Forge] You: one',
+      '[Forge] You: two',
+    ]);
+  });
+
   it('catches a bot up on the rounds it sat out, and never repeats itself', async () => {
     const { adapter, service } = harness({
       script: ({ bot, call }) => ({ text: `${bot} reply ${call}` }),
@@ -1630,20 +1699,23 @@ describe('BotService rounds', () => {
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
 
-    // Round one: only Forge is asked.
+    // First message: only Forge is asked.
     await service.send(group.id, '@forge first');
-    // Round two: only Sable. It has never been prompted, so it is handed the whole
+    await settle(service, group.id);
+    // Second: only Sable. It has never been prompted, so it is handed the whole
     // discussion — including the reply that was relayed to nobody else.
     await service.send(group.id, '@sable second');
+    await settle(service, group.id);
     const sable = gatewayFor(adapter, 'sable');
     expect(sable.prompts[0]).toBe(
       `${room}\n\n[Launch] You: @forge first\n\n[Launch] Forge: forge reply 1\n\n` +
         '[Launch] You: @sable second',
     );
 
-    // Round three: Forge again. It already knows what it said itself, so its own
-    // words are not repeated back to it as though someone else had said them.
+    // Third: Forge again. It already knows what it said itself, so its own words
+    // are not repeated back to it as though someone else had said them.
     await service.send(group.id, '@forge third');
+    await settle(service, group.id);
     const forge = gatewayFor(adapter, 'forge');
     expect(forge.prompts[1]).toBe(
       '[Launch] You: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] You: @forge third',
@@ -1660,9 +1732,12 @@ describe('BotService rounds', () => {
     const research = service.createGroup({ name: 'Research', members: ['forge'] });
 
     await service.send('dm-forge', 'hello in the dm');
+    await settle(service);
     // A group answers when it is addressed (or has a lead), so each line names it.
     await service.send(launch.id, '@forge hello in launch');
+    await settle(service, launch.id);
     await service.send(research.id, '@forge hello in research');
+    await settle(service, research.id);
 
     // One gateway per (conversation, bot): the dm, then each group in the order
     // they were opened.
@@ -1680,8 +1755,10 @@ describe('BotService rounds', () => {
     const { adapter, service } = harness({ script: () => ({ text: 'noted' }) });
     await service.createBot(botInput());
     await service.send('dm-forge', 'old line');
+    await settle(service);
     service.newDiscussion('dm-forge');
     await service.send('dm-forge', 'new line');
+    await settle(service);
 
     // A new discussion drops the warm gateway, so the second turn is a new one.
     const after = gatewayFor(adapter, 'forge', 1);
@@ -1696,12 +1773,14 @@ describe('BotService rounds', () => {
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     await service.send(group.id, '@sable only this');
+    await settle(service, group.id);
     await service.dispose();
 
     // A second host opening the same data dir continues where the first left.
     const again = serviceOn(root, adapter);
     registerService(again);
     await again.send(group.id, '@sable and now');
+    await settle(again, group.id);
     // A host restart ends the gateway, so the second host built its own factory and
     // gateway — and the mark it read from disk meant the new line was added to what
     // Sable already knew, rather than the whole discussion being replayed.
@@ -1723,6 +1802,7 @@ describe('BotService rounds', () => {
     });
 
     await service.send(group.id, 'what next');
+    await settle(service, group.id);
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
       'You are the lead of the group "Launch". Answer or @mention the teammate who should answer.\n\n' +
@@ -1731,109 +1811,86 @@ describe('BotService rounds', () => {
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });
 
-  it('no lead means silence', async () => {
-    const { adapter, service } = harness();
+  it('no lead means every member answers, not silence', async () => {
+    const { adapter, service } = harness({ script: ({ bot }) => ({ text: `${bot} here` }) });
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
-    const events: BotEvent[] = [];
-    service.subscribe((event) => events.push(event));
 
     await service.send(group.id, 'hello?');
+    await settle(service, group.id);
 
-    expect(service.transcript(group.id).map((entry) => entry.author)).toEqual([{ role: 'user' }]);
-    expect(events.filter((event) => event.type === 'routing')).toEqual([]);
-    expect(factoryFor(adapter, 'forge').gateways).toHaveLength(0);
-    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
-  });
-
-  it('chain stops at the cap and records a capped note', async () => {
-    const { adapter, service } = harness({
-      script: ({ bot }) => ({ text: bot === 'forge' ? '@sable ping' : '@forge pong' }),
-    });
-    await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'], chainCap: 2 });
-
-    await service.send(group.id, '@forge go');
-
-    const entries = service.transcript(group.id);
-    expect(entries.filter((entry) => entry.author.role === 'bot')).toHaveLength(3);
-    const notes = entries
-      .filter((entry) => entry.author.role === 'system')
-      .map((entry) => entry.text);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toBe('Chain capped after 2 hops');
-    expect(gatewayFor(adapter, 'forge').prompts).toHaveLength(2);
+    expect(gatewayFor(adapter, 'forge').prompts).toHaveLength(1);
     expect(gatewayFor(adapter, 'sable').prompts).toHaveLength(1);
+    expect(
+      service
+        .transcript(group.id)
+        .filter((entry) => entry.author.role === 'bot')
+        .map((entry) => entry.author),
+    ).toEqual([
+      { role: 'bot', name: 'Forge', username: 'forge' },
+      { role: 'bot', name: 'Sable', username: 'sable' },
+    ]);
   });
 
-  it('unknown and self mentions are ignored with a note', async () => {
+  it('a bot’s reply queues nothing and writes no chain note', async () => {
     const { adapter, service } = harness({
-      script: () => ({ text: '@forge @nobody hello' }),
+      script: ({ bot }) => ({ text: bot === 'forge' ? '@sable take over' : 'Sable here' }),
     });
     await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    const group = service.createGroup({
+      name: 'Launch',
+      members: ['forge', 'sable'],
+      lead: 'forge',
+    });
 
-    await service.send(group.id, '@forge go');
+    await service.send(group.id, 'go');
+    await settle(service, group.id);
 
-    const notes = service
-      .transcript(group.id)
-      .filter((entry) => entry.author.role === 'system')
-      .map((entry) => entry.text);
-    expect(notes).toEqual([
-      'Ignored mention of @forge: a bot does not relay to itself.',
-      'Ignored mention of @nobody: not a member of this conversation.',
-    ]);
+    // The mention is text now: a bot that wants a teammate calls `bot_send`.
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
+    expect(
+      service
+        .transcript(group.id)
+        .filter((entry) => entry.author.role === 'system')
+        .map((entry) => entry.text),
+    ).toEqual([]);
+    expect(service.routing(group.id)).toBeNull();
   });
 
-  it('send during a round is refused with a system note', async () => {
-    const { adapter, service } = harness({ script: () => ({ text: 'late', hold: true }) });
+  it('stop aborts the running turn and cancels the queue behind it', async () => {
+    const { root, adapter, service } = harness({
+      script: () => ({ text: 'late', hold: true }),
+    });
     await service.createBot(botInput());
-    const first = service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'one');
+    await service.send('dm-forge', 'two');
     const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
-
-    const second = service.send('dm-forge', 'again');
-
-    await expect(second).rejects.toThrow('A round is already running in this conversation.');
-    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
-      author: { role: 'system' },
-      text: 'A round is already running in this conversation.',
-    });
-    gateway.release();
-    await first;
-    expect(service.transcript('dm-forge').at(-1)).toMatchObject({
-      author: { role: 'bot', name: 'Forge' },
-      text: 'late',
-    });
-  });
-
-  it('stop aborts and clears the queue', async () => {
-    const { adapter, service } = harness({
-      script: () => ({ text: '@sable take over', hold: true }),
-    });
-    await twoBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    expect(service.routing('dm-forge')?.queued).toEqual(['Forge']);
     const events: BotEvent[] = [];
     service.subscribe((event) => events.push(event));
-    const first = service.send(group.id, '@forge go');
-    const gateway = gatewayFor(adapter, 'forge');
-    await gateway.prompted;
 
-    service.stop(group.id);
-    await first;
+    service.stop('dm-forge');
+    await settle(service);
 
     expect(gateway.aborted).toBe(true);
-    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
-    expect(service.transcript(group.id).map((entry) => entry.author)).toEqual([
-      { role: 'user' },
-      { role: 'system' },
+    // A stop is not a teardown: the engine stays warm for the next message.
+    expect(gateway.disposed).toBe(false);
+    expect(service.transcript('dm-forge').filter((entry) => entry.author.role === 'bot')).toEqual(
+      [],
+    );
+    expect(service.transcript('dm-forge').at(-1)).toMatchObject({ text: 'Stopped.' });
+    // Both deliveries are withdrawn: the running one as aborted, the queued one
+    // without ever starting.
+    expect(deliveriesOf(root, 'dm-forge').map((row) => row.status)).toEqual([
+      'cancelled',
+      'cancelled',
     ]);
-    expect(service.transcript(group.id).at(-1)).toMatchObject({ text: 'Stopped.' });
-    // The round's own teardown is the only place the routing state is cleared.
+    // The clear is emitted once, by the turn's own teardown.
     expect(events.filter((event) => event.type === 'routing' && event.state === null)).toHaveLength(
       1,
     );
+    expect(service.routing('dm-forge')).toBeNull();
   });
 
   it('stop settles a turn whose engine never reports run-end', async () => {
@@ -1841,15 +1898,15 @@ describe('BotService rounds', () => {
       script: ({ call }) => (call === 1 ? { hold: true, abortSilently: true } : { text: 'ok' }),
     });
     await service.createBot(botInput());
-    const first = service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'hi');
     const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
 
     service.stop('dm-forge');
+    await settle(service);
 
-    // The abort resolved without a run-end; the round still has to settle,
-    // otherwise every later send is refused forever.
-    await expect(first).resolves.toBeUndefined();
+    // The abort resolved without a run-end; the lane still has to settle,
+    // otherwise every later delivery would wait behind it forever.
     expect(gateway.aborted).toBe(true);
     expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'system' },
@@ -1857,10 +1914,41 @@ describe('BotService rounds', () => {
     });
 
     await service.send('dm-forge', 'again');
+    await settle(service);
     expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'ok',
     });
+  });
+
+  it('drops a bot’s oldest queued ask when its queue is full, and keeps the newcomer', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ call }) => (call === 1 ? { text: 'late', hold: true } : { text: 'ok' }),
+    });
+    await service.createBot(botInput());
+    // One held turn, then enough sends to fill the queue to its cap.
+    await service.send('dm-forge', 'running');
+    await gatewayFor(adapter, 'forge').prompted;
+    for (let index = 0; index < 33; index += 1) {
+      await service.send('dm-forge', `queued ${index}`);
+    }
+
+    // The newcomer was taken, and the oldest queued row gave way with a note that
+    // names the bot, its root and the reason the row was waiting for.
+    const rows = deliveriesOf(root, 'dm-forge');
+    expect(rows.filter((row) => row.status === 'queued')).toHaveLength(32);
+    const dropped = rows.filter((row) => row.status === 'dropped');
+    expect(dropped).toHaveLength(1);
+    const note = service
+      .transcript('dm-forge')
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text)
+      .at(-1);
+    expect(note).toContain('Forge');
+    expect(note).toContain(dropped[0]?.rootId);
+    expect(note).toContain('direct');
+    gatewayFor(adapter, 'forge').release();
+    await settle(service);
   });
 });
 
@@ -1869,6 +1957,7 @@ describe('BotService sessions', () => {
     const { root, service } = harness({ script: () => ({ text: 'ok' }) });
     await service.createBot(botInput());
     await service.send('dm-forge', 'hi');
+    await settle(service);
     const stored = loadBotRegistry(root).conversations[0]?.sessions['forge']?.engineSessionId;
     expect(stored).toBe('forge-session-1');
 
@@ -1880,6 +1969,7 @@ describe('BotService sessions', () => {
     const restarted = serviceOn(root, restartedAdapter);
     registerService(restarted);
     await restarted.send('dm-forge', 'again');
+    await settle(restarted);
 
     const resumed = factoryFor(restartedAdapter, 'forge');
     expect(resumed.createCalls).toHaveLength(1);
@@ -1891,7 +1981,9 @@ describe('BotService sessions', () => {
     await twoBots(service);
 
     await service.send('dm-forge', 'hi');
+    await settle(service);
     await service.send('dm-sable', 'hi');
+    await settle(service, 'dm-sable');
 
     const forge = factoryFor(adapter, 'forge');
     const sable = factoryFor(adapter, 'sable');
@@ -1908,7 +2000,9 @@ describe('BotService sessions', () => {
     await service.createBot(botInput({ persona: 'You are Forge, the builder.' }));
 
     await service.send('dm-forge', 'hi');
+    await settle(service);
     await service.send('dm-forge', 'again');
+    await settle(service);
 
     // The persona is not prefixed onto a prompt: it goes into the engine's own
     // instruction file (pi's agent-dir AGENTS.md, OpenCode's `instructions`), so
@@ -1925,6 +2019,7 @@ describe('BotService sessions', () => {
     await service.createBot(botInput({ thinkingLevel: 'medium' }));
 
     await service.send('dm-forge', 'hi');
+    await settle(service);
 
     const gateway = gatewayFor(adapter, 'forge');
     expect(gateway.levelsApplied).toEqual([]);
@@ -1942,6 +2037,7 @@ describe('BotService sessions', () => {
     const { root, adapter, service } = harness({ script: () => ({ text: 'kept for now' }) });
     await service.createBot(botInput());
     await service.send('dm-forge', 'hi');
+    await settle(service);
     const events: BotEvent[] = [];
     service.subscribe((event) => events.push(event));
 
@@ -1973,14 +2069,14 @@ describe('BotService sessions', () => {
   it('clear ends a round in flight before the file goes', async () => {
     const { adapter, service } = harness({ script: () => ({ text: 'still talking', hold: true }) });
     await service.createBot(botInput());
-    const round = service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'hi');
     await gatewayFor(adapter, 'forge').prompted;
 
     await service.clear('dm-forge');
-    await round;
+    await settle(service);
 
-    // The relay queued behind the held turn cannot append to a transcript that no
-    // longer exists, and the note is not resurrected into it.
+    // The turn in flight cannot append to a transcript that no longer exists, and
+    // neither can a note it would have written.
     expect(service.transcript('dm-forge')).toEqual([]);
     expect(service.routing('dm-forge')).toBeNull();
   });
@@ -2007,7 +2103,9 @@ describe('BotService sessions', () => {
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     // Both members answer once, so both have a session with something in it.
     await service.send(group.id, '@forge hello');
+    await settle(service, group.id);
     await service.send(group.id, '@sable hello');
+    await settle(service, group.id);
     const before = factoryFor(adapter, 'forge').gateways[0];
     expect(before?.compacted).toBe(0);
 
@@ -2028,6 +2126,7 @@ describe('BotService sessions', () => {
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     await service.send(group.id, '@forge hello');
+    await settle(service, group.id);
     // Sable never answered, so the engine session it would compact does not exist.
 
     await service.compact(group.id);
@@ -2052,7 +2151,7 @@ describe('BotService sessions', () => {
   it('compact waits for a quiet conversation instead of dropping the answer', async () => {
     const { adapter, service } = harness({ script: () => ({ text: 'busy', hold: true }) });
     await service.createBot(botInput());
-    const round = service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'hi');
     await gatewayFor(adapter, 'forge').prompted;
 
     await service.compact('dm-forge');
@@ -2063,7 +2162,7 @@ describe('BotService sessions', () => {
       'A round is running in this conversation — compact once it ends.',
     );
     service.stop('dm-forge');
-    await round;
+    await settle(service);
   });
 
   it('an engine that cannot compact is noted, and the round is not failed', async () => {
@@ -2074,6 +2173,7 @@ describe('BotService sessions', () => {
     await service.createBot(botInput());
     // A session to compact: the engine's refusal is what this test is about.
     await service.send('dm-forge', 'hi');
+    await settle(service);
 
     await expect(service.compact('dm-forge')).resolves.toBeUndefined();
 
@@ -2095,6 +2195,7 @@ describe('BotService sessions', () => {
     await service.createBot(botInput());
     await service.send('dm-forge', 'hi');
     await gatewayFor(adapter, 'forge').prompted;
+    await settle(service);
 
     // The counters belong to a bot's engine session, so the push names it: a
     // group's ring says whose window it is drawing.
@@ -2112,10 +2213,12 @@ describe('BotService sessions', () => {
     const { root, adapter, service } = harness();
     await service.createBot(botInput());
     await service.send('dm-forge', 'hi');
+    await settle(service);
     const before = loadBotRegistry(root).conversations[0]?.sessions['forge']?.engineSessionId;
 
     service.newDiscussion('dm-forge');
     await service.send('dm-forge', 'again');
+    await settle(service);
 
     const factory = factoryFor(adapter, 'forge');
     expect(factory.createCalls).toHaveLength(2);
@@ -2126,32 +2229,39 @@ describe('BotService sessions', () => {
     expect(after).toBe('forge-session-2');
   });
 
-  it('newDiscussion during a queued round stops the round', async () => {
-    const { adapter, service } = harness({
+  it('newDiscussion withdraws the queued asks and starts fresh sessions', async () => {
+    const { root, adapter, service } = harness({
       script: ({ bot }) =>
-        bot === 'forge' ? { text: '@sable take over', hold: true } : { text: 'Sable here' },
+        bot === 'forge' ? { text: 'late', hold: true } : { text: 'Sable here' },
     });
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
-    const first = service.send(group.id, '@forge go');
+    await service.send(group.id, '@forge go');
+    await service.send(group.id, '@forge again');
     const forge = gatewayFor(adapter, 'forge');
     await forge.prompted;
 
     service.newDiscussion(group.id);
-    await first;
+    await settle(service, group.id);
 
-    // The queued relay must not be delivered on the sessions just abandoned.
+    // The queued ask must not be delivered on the sessions just abandoned.
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
     expect(forge.prompts).toHaveLength(1);
     expect(forge.disposed).toBe(true);
+    expect(deliveriesOf(root, group.id).map((row) => row.status)).toEqual([
+      'cancelled',
+      'cancelled',
+    ]);
     // The boundary is a divider in the same transcript, so one chat reads as the
     // sequence of engine sessions it is.
-    expect(service.transcript(group.id).map((entry) => entry.author)).toEqual([
-      { role: 'user' },
-      { role: 'discussion' },
+    expect(service.transcript(group.id).map((entry) => entry.author.role)).toEqual([
+      'user',
+      'user',
+      'discussion',
     ]);
     expect(service.transcript(group.id).map((entry) => entry.text)).toEqual([
       '@forge go',
+      '@forge again',
       'New discussion',
     ]);
   });
@@ -2162,6 +2272,7 @@ describe('BotService sessions', () => {
     registerService(first);
     await first.createBot(botInput());
     await first.send('dm-forge', 'hi');
+    await settle(first);
     first.newDiscussion('dm-forge');
     await first.dispose();
 
@@ -2195,6 +2306,7 @@ describe('BotService sessions', () => {
     await service.createBot(botInput());
 
     await service.send('dm-forge', 'hi');
+    await settle(service);
     const gateway = gatewayFor(adapter, 'forge');
     expect(service.roster().bots[0]?.warm).toBe(true);
 
@@ -2202,6 +2314,7 @@ describe('BotService sessions', () => {
     expect(gateway.disposed).toBe(false);
 
     await service.send('dm-forge', 'again');
+    await settle(service);
     await vi.advanceTimersByTimeAsync(999);
     expect(gateway.disposed).toBe(false);
 
@@ -2223,12 +2336,12 @@ describe('BotService liveness', () => {
       },
     });
     await service.createBot(botInput());
-    const pending = service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'hi');
     const gateway = gatewayFor(adapter, 'forge');
     await gateway.prompted;
 
     await vi.advanceTimersByTimeAsync(1_000);
-    await pending;
+    await settle(service);
 
     expect(
       service
@@ -2240,6 +2353,7 @@ describe('BotService liveness', () => {
     expect(service.roster().bots[0]?.warm).toBe(false);
 
     await service.send('dm-forge', 'again');
+    await settle(service);
     expect(service.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'ok',
@@ -2251,10 +2365,10 @@ describe('BotService liveness', () => {
     const { adapter, service } = harness({ turnTimeoutMs: 1_000, hangFirstCreate: true });
     await service.createBot(botInput());
 
-    const pending = service.send('dm-forge', 'hi');
+    await service.send('dm-forge', 'hi');
     await flush();
     await vi.advanceTimersByTimeAsync(1_000);
-    await pending;
+    await settle(service);
 
     expect(
       service
@@ -2265,6 +2379,7 @@ describe('BotService liveness', () => {
     expect(factoryFor(adapter, 'forge').createCalls).toHaveLength(1);
 
     await service.send('dm-forge', 'again');
+    await settle(service);
     expect(factoryFor(adapter, 'forge').createCalls).toHaveLength(2);
   });
 });
@@ -2315,6 +2430,7 @@ describe('BotService interactions', () => {
     await service.createBot(botInput());
 
     await service.send('dm-forge', 'go');
+    await settle(service);
 
     const gateway = gatewayFor(adapter, 'forge');
     expect(gateway.responses).toEqual([

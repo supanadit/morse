@@ -177,9 +177,10 @@ export class BotNav {
     return group.members.map((member) => this.displayNames().get(member) ?? member).join(', ');
   }
 
-  /** True while this conversation is answering, when acting on it would strand a turn. */
+  /** True while this conversation has a bot answering, when acting on it would strand a turn. */
   protected routingForConversation(id: string): boolean {
-    return this.routing()[id] !== undefined;
+    const state = this.routing()[id];
+    return state !== undefined && (state.active.length > 0 || state.queued.length > 0);
   }
 
   /** True while this bot's own DM is answering, when deleting it would strand a turn. */

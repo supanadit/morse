@@ -24,6 +24,9 @@ export const BOT_DIR = 'bot';
 const REGISTRY_FILE = 'registry.json';
 const IDENTITY_FILE = 'engine.json';
 
+/** Directories under the bot root that Morse itself writes, not a lost bot. */
+const MORSE_DIRS = new Set(['backups', 'transcripts', 'deliveries']);
+
 /** What a reconcile needs: the bot tree and the engines this host can run. */
 export interface BotDataContext extends DataContext {
   adapters: Record<string, BotEngineAdapter>;
@@ -338,7 +341,6 @@ export function reconcileBotData(context: BotDataContext): void {
         kind: 'dm',
         title: bot.name,
         members: [bot.username],
-        chainCap: registry.conversations[0]?.chainCap ?? 8,
         sessions: {},
         updatedAt: context.now().getTime(),
       });
@@ -348,7 +350,7 @@ export function reconcileBotData(context: BotDataContext): void {
   }
 
   for (const entry of readdirSync(botDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === 'backups') {
+    if (!entry.isDirectory() || MORSE_DIRS.has(entry.name)) {
       continue;
     }
     if (!registry.bots.some((bot) => bot.username === entry.name)) {

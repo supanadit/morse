@@ -74,7 +74,6 @@ export interface ConversationRecord {
   /** Member bot usernames; a DM has exactly one. */
   members: string[];
   lead?: string;
-  chainCap: number;
   sessions: Record<string, BotSessionRef>;
   updatedAt: number;
 }
