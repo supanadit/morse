@@ -47,6 +47,11 @@ export {
   openCodeLegacyPersonaPath,
   OPENCODE_BOT_AGENT,
 } from './bot-layout.js';
+export {
+  OPENCODE_BUS_PLUGIN_FILE,
+  openCodeBusPluginPath,
+  openCodeBusPluginSource,
+} from './bot-bus-plugin.js';
 
 export {
   OpenCodeEngineDefinition,

@@ -11,6 +11,12 @@ import {
   openCodeLegacyPersonaPath,
   writeOpenCodeBotConfig,
 } from './bot-layout.js';
+import {
+  OPENCODE_BUS_PLUGIN_FILE,
+  OPENCODE_BUS_PLUGIN_START,
+  openCodeBusPluginPath,
+  openCodeBusPluginSource,
+} from './bot-bus-plugin.js';
 import { botUserSpacePluginPath } from './bot-user-space.js';
 
 /**
@@ -82,6 +88,71 @@ describe('openCodeBotLayout', () => {
     writeOpenCodeBotConfig(botRoot, config);
 
     expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
+  });
+
+  it('installs the bot-bus plugin where OpenCode discovers it', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+
+    // A direct `.ts` file in the plugins directory is discovered by OpenCode, so
+    // the asset is the file itself — there is no entry to add to `opencode.json`.
+    expect(openCodeBusPluginPath(botRoot)).toBe(
+      join(botRoot, 'config', 'opencode', 'plugins', OPENCODE_BUS_PLUGIN_FILE),
+    );
+    expect(readFileSync(openCodeBusPluginPath(botRoot), 'utf8')).toBe(openCodeBusPluginSource());
+  });
+
+  it('adds no plugins entry to a config that had none', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+
+    const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    // A bare file path in `plugins` is skipped by OpenCode; the discovery of the
+    // plugins directory is what loads Morse's asset, so the key must stay absent.
+    expect(file['plugins']).toBeUndefined();
+  });
+
+  it('leaves a reader’s own plugins entry alone', () => {
+    // The reader configured a plugin of their own before the wizard ran: the save
+    // must keep every path exactly as it was and add none.
+    const path = openCodeConfigPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(path, JSON.stringify({ plugins: ['@acme/opencode-plugin'] }));
+
+    writeOpenCodeBotConfig(botRoot, config);
+
+    const file = JSON.parse(readFileSync(path, 'utf8')) as { plugins: string[] };
+    expect(file.plugins).toEqual(['@acme/opencode-plugin']);
+    expect(
+      existsSync(join(botRoot, 'config', 'opencode', 'plugins', OPENCODE_BUS_PLUGIN_FILE)),
+    ).toBe(true);
+  });
+
+  it('writes the bot-bus plugin idempotently across saves', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+    const first = readFileSync(openCodeBusPluginPath(botRoot), 'utf8');
+
+    writeOpenCodeBotConfig(botRoot, config);
+
+    expect(readFileSync(openCodeBusPluginPath(botRoot), 'utf8')).toBe(first);
+  });
+
+  it('never touches another plugin in the plugins directory', () => {
+    // The plugins directory is also where the reader puts their own plugins; the
+    // generated file says so. A save and a repair write Morse's file and only it.
+    const plugins = join(botRoot, 'config', 'opencode', 'plugins');
+    mkdirSync(plugins, { recursive: true });
+    const own = join(plugins, 'reader-tools.ts');
+    writeFileSync(own, 'export default Plugin.define({ id: "reader.tools" })\n');
+
+    writeOpenCodeBotConfig(botRoot, config);
+    openCodeBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(own, 'utf8')).toBe(
+      'export default Plugin.define({ id: "reader.tools" })\n',
+    );
+    expect(readFileSync(openCodeBusPluginPath(botRoot), 'utf8')).toBe(openCodeBusPluginSource());
   });
 
   it('writes providers in the schema shape: package, settings, models, limits', () => {
@@ -293,6 +364,43 @@ describe('openCodeBotLayout', () => {
     };
     expect(readFileSync(openCodeInstructionPath(botRoot), 'utf8')).toBe(`${BOT_BUS_INSTRUCTION}\n`);
     expect(repaired.agents['morse']?.['instructions']).toEqual([openCodeInstructionPath(botRoot)]);
+  });
+
+  it('puts the bus plugin back when it was deleted', () => {
+    writeOpenCodeBotConfig(botRoot, config);
+    rmSync(openCodeBusPluginPath(botRoot));
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    // Repair is what a bot from before the plugin existed goes through on the next
+    // host start, so a missing asset is regenerated without a trip to the wizard.
+    expect(readFileSync(openCodeBusPluginPath(botRoot), 'utf8')).toBe(openCodeBusPluginSource());
+  });
+
+  it('replaces a markerless file at the bus plugin path, because the path is Morse’s', () => {
+    // The plugins directory also holds the reader's own plugins, but this file is
+    // Morse's: a reader who edited it, or wrote a plugin under its name, gets a
+    // fresh copy — their own plugin belongs in a separate file.
+    const path = openCodeBusPluginPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode', 'plugins'), { recursive: true });
+    writeFileSync(path, 'export default Plugin.define({ id: "mine" })\n');
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(path, 'utf8')).toBe(openCodeBusPluginSource());
+  });
+
+  it('refreshes a bus plugin whose version is not the one this code writes', () => {
+    const path = openCodeBusPluginPath(botRoot);
+    mkdirSync(join(botRoot, 'config', 'opencode', 'plugins'), { recursive: true });
+    writeFileSync(
+      path,
+      `${OPENCODE_BUS_PLUGIN_START.replace('v1', 'v0')}\nexport default {};\n// morse-bot-bus:end\n`,
+    );
+
+    openCodeBotLayout.repair?.(botRoot);
+
+    expect(readFileSync(path, 'utf8')).toBe(openCodeBusPluginSource());
   });
 
   it('keeps the keys in OpenCode own auth store inside the bot data dir', () => {
@@ -721,7 +829,11 @@ describe('openCodeBotLayout', () => {
         cwd: '/tmp',
         enabled: false,
       },
-      web: { type: 'remote', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer x' } },
+      web: {
+        type: 'remote',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer x' },
+      },
     });
     expect(openCodeBotLayout.read(botRoot).mcpServers).toEqual([
       {
@@ -794,7 +906,10 @@ describe('openCodeBotLayout', () => {
 
     // An empty list clears the block entirely, leaving the rest of the file.
     writeOpenCodeBotConfig(botRoot, { ...config, mcpServers: [] });
-    const third = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as Record<string, unknown>;
+    const third = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(third['mcp']).toBeUndefined();
     expect(third['$schema']).toBe('https://opencode.ai/config.json');
   });

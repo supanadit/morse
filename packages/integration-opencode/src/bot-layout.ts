@@ -12,6 +12,11 @@ import type {
 import { BOT_BUS_INSTRUCTION, BOT_BUS_INSTRUCTION_FILE } from '@morse/system';
 import { OpenCodeEngineDefinition } from './engine/open-code-engine.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
+import {
+  isOpenCodeBusPlugin,
+  openCodeBusPluginPath,
+  writeOpenCodeBusPlugin,
+} from './bot-bus-plugin.js';
 import { writeBotUserSpacePlugin } from './bot-user-space.js';
 
 /**
@@ -38,6 +43,11 @@ import { writeBotUserSpacePlugin } from './bot-user-space.js';
  * - `<botRoot>/config/opencode/plugins/morse-user-space.ts` — the plugin that
  *   hands the host's real XDG roots back to the shell commands a bot runs, and
  *   to nothing else (see `bot-user-space.ts`).
+ * - `<botRoot>/config/opencode/plugins/morse-bot-bus.ts` — the plugin that gives
+ *   a bot `bot_list` and `bot_send`, the tools Morse's bot-bus instruction names
+ *   (see `bot-bus-plugin.ts`). Both plugins live in that directory because
+ *   OpenCode discovers direct files there; neither is named in `opencode.json`,
+ *   where a bare file path would be skipped.
  *
  * There is no Morse-specific configuration in any of it, and no copy kept
  * elsewhere: `read` answers the wizard from these same files.
@@ -151,6 +161,11 @@ export function writeOpenCodeBotConfig(botRoot: string, config: BotEngineConfig)
   // a checkout — while the server above keeps reading its own. Installed before
   // the workspace document: a failed plugin write must not leave AGENTS.md changed.
   writeBotUserSpacePlugin(botRoot);
+
+  // The bot-bus tools, beside the shell plugin in the directory OpenCode
+  // discovers. No `plugins` entry is written: a bare file path there is skipped,
+  // and a reader's own entries are theirs to keep.
+  writeOpenCodeBusPlugin(botRoot);
 
   // The workspace document is the project's instructions; the persona is the
   // agent's system prompt, below. OpenCode discovers AGENTS.md from the project
@@ -648,9 +663,9 @@ export const openCodeBotLayout: BotEngineLayout = {
    * - the user-space shell plugin is installed, which is what lets a bot's
    *   commands reach the reader's real XDG roots.
    *
-   * A config with nothing to migrate is not rewritten; the plugin is, because
-   * rewriting the same source is harmless and its absence is exactly what a bot
-   * from before it existed has.
+   * A config with nothing to migrate is not rewritten; the plugins are, because
+   * rewriting the same source is harmless and their absence is exactly what a bot
+   * from before they existed has.
    */
   repair(botRoot: string): void {
     const engine = botInstance(botRoot);
@@ -750,8 +765,14 @@ export const openCodeBotLayout: BotEngineLayout = {
         changed = true;
       }
     }
-    // 5. The shell plugin, whether or not the config needed a migration.
+    // 5. The plugins, whether or not the config needed a migration. The shell
+    //    plugin is rewritten unconditionally; the bus plugin only when the file is
+    //    missing or is not this code's version, because that is the only case in
+    //    which a rewrite would change anything.
     writeBotUserSpacePlugin(botRoot);
+    if (!isOpenCodeBusPlugin(readText(openCodeBusPluginPath(botRoot)))) {
+      writeOpenCodeBusPlugin(botRoot);
+    }
     // 6. One write for everything above.
     if (changed) {
       writeJsonAtomic(path, file);
