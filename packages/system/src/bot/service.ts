@@ -641,6 +641,10 @@ export class BotService {
         // whole, with its history, rather than becoming a one-sided conversation
         // nobody can answer in. An emptied group has nothing left to name either.
         emptiedGroups.push(conversation.id);
+      } else {
+        // The room survives without this member, so only its ring goes: leaving it
+        // would keep the composer labelled with a bot whose session was destroyed.
+        this.forgetUsage(conversation.id, bot.username);
       }
       conversation.updatedAt = this.clock();
     }
@@ -668,8 +672,13 @@ export class BotService {
     for (const id of emptiedGroups) {
       this.transcripts.forget(id);
       this.deliveries.forget(id);
+      this.forgetRoomUsage(id);
     }
-    this.deliveries.forget(dmConversationId(bot.username));
+    const dm = dmConversationId(bot.username);
+    this.deliveries.forget(dm);
+    // The DM is gone with its bot, so every counter it held goes with it: nothing
+    // can open that conversation again to push a stale ring.
+    this.forgetRoomUsage(dm);
     await this.saveRegistry();
     this.emit({ type: 'roster' });
   }
@@ -904,6 +913,11 @@ export class BotService {
       if (warm !== undefined) {
         await this.dropWarm(warm, true);
       }
+      // A removed member's counters describe a session that just went; an added
+      // member starts fresh, so any leftover from an earlier membership is wrong
+      // too. Either way the room's ring must not name a bot that is not (or is no
+      // longer) answering with those numbers.
+      this.forgetUsage(conversation.id, member);
     }
     await this.touchedAndSaved(conversation);
     this.emit({ type: 'roster' });
@@ -929,6 +943,8 @@ export class BotService {
     }
     this.transcripts.forget(id);
     this.deliveries.forget(id);
+    // The room is gone whole, so its counters go with it rather than outliving it.
+    this.forgetRoomUsage(id);
     this.registry.groups = this.registry.groups.filter((candidate) => candidate.id !== id);
     this.registry.conversations = this.registry.conversations.filter(
       (candidate) => candidate.id !== id,
@@ -1458,11 +1474,8 @@ export class BotService {
     // describe a session that no longer exists. The client learns which rings to
     // drop from a payload naming each bot.
     const forgotten = new Set<string>(conversation.members);
-    for (const [key, usage] of [...this.usageByBot]) {
-      if (usage.conversationId === conversationId) {
-        forgotten.add(usage.username);
-        this.usageByBot.delete(key);
-      }
+    for (const username of this.forgetRoomUsage(conversationId)) {
+      forgotten.add(username);
     }
     await this.touchedAndSaved(conversation);
     // `replace` with nothing in it is the one way to tell a client that the chat
@@ -2441,6 +2454,39 @@ export class BotService {
     }
     this.announced.add(conversationId);
     this.emit({ type: 'routing', conversationId, state });
+  }
+
+  /**
+   * Drops one bot's counters for one room and tells the clients to drop that ring.
+   *
+   * A member that leaves a group, or a bot that is deleted, takes the engine session
+   * its numbers described with it. Keeping the entry would leave the composer's
+   * single ring labelled with a bot that no longer exists — and `bot/open` would
+   * push it again on the next reload.
+   */
+  private forgetUsage(conversationId: string, username: string): void {
+    if (!this.usageByBot.delete(activityKey(conversationId, username))) {
+      return;
+    }
+    this.emit({ type: 'usage', usage: { conversationId, username } });
+  }
+
+  /**
+   * Drops every bot's counters for one room, returning who had any.
+   *
+   * For a room that is going away whole (a deleted group, an emptied thread, a
+   * deleted bot's DM) no per-bot prune is emitted: the roster push that removes the
+   * conversation is what tells the client, and a cleared room sends its own prunes.
+   */
+  private forgetRoomUsage(conversationId: string): string[] {
+    const forgotten: string[] = [];
+    for (const [key, usage] of [...this.usageByBot]) {
+      if (usage.conversationId === conversationId) {
+        forgotten.push(usage.username);
+        this.usageByBot.delete(key);
+      }
+    }
+    return forgotten;
   }
 
   /**

@@ -93,7 +93,8 @@ describe('BotGroupDialog', () => {
     expect(host.textContent).toContain('Without a lead, every member answers.');
   });
 
-  it('limits the lead list to the members chosen so far', async () => {    const { fixture, host, morse } = await render();
+  it('limits the lead list to the members chosen so far', async () => {
+    const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable, ember], conversations: [] });
     fixture.detectChanges();
 

@@ -919,6 +919,8 @@ describe('BotService creation', () => {
 
     expect(service.roster().conversations.some((one) => one.id === group.id)).toBe(false);
     expect(service.transcript(group.id)).toEqual([]);
+    // The room is gone, so its counters are gone rather than outliving it.
+    expect(service.usages(group.id)).toEqual([]);
     expect(factoryFor(adapter, 'forge').removedSessions).toEqual([forgeSession]);
     expect(factoryFor(adapter, 'sable').removedSessions).toEqual([sableSession]);
     expect(forgeGateway.disposed).toBe(true);
@@ -2449,6 +2451,54 @@ describe('BotService sessions', () => {
       ['forge', 'Forge'],
       ['sable', 'Sable'],
     ]);
+  });
+
+  it('deleteBot drops only the deleted bot’s counters in a group that survives', async () => {
+    const { service } = harness({ script: ({ bot }) => ({ text: `${bot} here` }) });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, 'hello both');
+    await settle(service, group.id);
+    await service.send('dm-sable', 'your own room');
+    await settle(service, 'dm-sable');
+    expect(service.usages('dm-sable')).toHaveLength(1);
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+
+    await service.deleteBot('sable');
+
+    // The room survives without Sable, so Forge's numbers survive with it. Sable's
+    // described an engine session that was destroyed: keeping them would leave the
+    // composer's one ring labelled with a bot that no longer exists, and `bot/open`
+    // would push them back after a reload.
+    expect(service.usages(group.id).map((one) => one.username)).toEqual(['forge']);
+    expect(events).toContainEqual({
+      type: 'usage',
+      usage: { conversationId: group.id, username: 'sable' },
+    });
+
+    // The bot's own DM went with it, counters included.
+    expect(service.usages('dm-sable')).toEqual([]);
+  });
+
+  it('updateGroup drops a removed member’s counters and keeps the rest', async () => {
+    const { service } = harness({ script: ({ bot }) => ({ text: `${bot} here` }) });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, 'hello both');
+    await settle(service, group.id);
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+
+    await service.updateGroup({ id: group.id, name: 'Launch', members: ['forge'] });
+
+    // A member that left the room took its engine session with it; its ring goes
+    // too, while the members still in the room keep their own.
+    expect(service.usages(group.id).map((one) => one.username)).toEqual(['forge']);
+    expect(events).toContainEqual({
+      type: 'usage',
+      usage: { conversationId: group.id, username: 'sable' },
+    });
   });
 
   it('newDiscussion starts fresh sessions', async () => {
