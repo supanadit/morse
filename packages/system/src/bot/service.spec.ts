@@ -2441,14 +2441,20 @@ describe('BotService rounds', () => {
   });
 
   it('forgets a room’s traces with its transcript', async () => {
-    const { service } = harness({ script: () => ({ text: 'done' }) });
+    const { root, service } = harness({ script: () => ({ text: 'done' }) });
     await service.createBot(botInput());
     await service.send('dm-forge', 'hi');
     await settle(service);
     expect(service.open('dm-forge').traces).toHaveLength(1);
+    // Read the store, not just the page: an emptied transcript has no entries,
+    // and a page with no window hides every trace whether or not it is still on
+    // disk. Only the file can tell a forgotten trace from an unreadable one.
+    const traces = new BotTraceStore(join(root, 'traces'));
+    expect(traces.all('dm-forge')).toHaveLength(1);
 
     await service.clear('dm-forge');
 
+    expect(traces.all('dm-forge')).toEqual([]);
     expect(service.open('dm-forge').traces).toEqual([]);
   });
 
@@ -2529,7 +2535,7 @@ describe('BotService rounds', () => {
   });
 
   it('forgets the traces of a deleted bot and a deleted group', async () => {
-    const { service } = harness({ script: () => ({ text: 'done' }) });
+    const { root, service } = harness({ script: () => ({ text: 'done' }) });
     await twoBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
     await service.send('dm-forge', 'hi');
@@ -2538,10 +2544,20 @@ describe('BotService rounds', () => {
     await settle(service, group.id);
     expect(service.open('dm-forge').traces).toHaveLength(1);
     expect(service.open(group.id).traces).toHaveLength(1);
+    const traces = new BotTraceStore(join(root, 'traces'));
+    expect(traces.all('dm-forge')).toHaveLength(1);
+    expect(traces.all(group.id)).toHaveLength(1);
 
     await service.deleteBot('forge');
+
+    // The deleted bot's DM goes with it, on disk; the group it left behind keeps
+    // the history of the room the other member still reads.
+    expect(traces.all('dm-forge')).toEqual([]);
+    expect(traces.all(group.id)).toHaveLength(1);
+
     await service.deleteGroup(group.id);
 
+    expect(traces.all(group.id)).toEqual([]);
     expect(service.open('dm-forge').traces).toEqual([]);
     expect(service.open(group.id).traces).toEqual([]);
   });
@@ -2599,9 +2615,16 @@ describe('BotService rounds', () => {
     await service.createBot(botInput());
     await service.send('dm-forge', 'name a bot');
     await gatewayFor(adapter, 'forge').prompted;
+    const pushed: BotEvent[] = [];
+    service.subscribe((event) => pushed.push(event));
 
     await service.dispose();
 
+    // Nor did it tell the room a turn had landed: a requeue is not a settle, and
+    // an empty append with a trace would be the same claim as a written file.
+    expect(
+      pushed.filter((event) => event.type === 'transcript' && event.traces !== undefined),
+    ).toEqual([]);
     // The turn was handed back, not written off: nothing calls it history yet,
     // and the next host owns the ask.
     expect(new BotTraceStore(join(root, 'traces')).all('dm-forge')).toEqual([]);
