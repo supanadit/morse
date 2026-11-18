@@ -3978,7 +3978,7 @@ describe('BotService answers', () => {
     await settle(service, 'dm-sigil');
   });
 
-  it('does not wake a bot that answered in its own thread', async () => {
+  it('leaves an ask a bot made inside the thread in the thread', async () => {
     const { root, adapter, service } = harness({
       script: ({ bot, prompt }) => {
         if (bot === 'sigil') {
@@ -4006,18 +4006,13 @@ describe('BotService answers', () => {
     await settle(service, thread);
     await settle(service, 'dm-sigil');
 
-    // The line is written; the bot that asked is the bot that just answered, so
-    // waking it would be a self-loop.
-    const forwarded = service
-      .transcript('dm-sigil')
-      .filter((entry) => entry.text.includes('private thread'));
-    expect(forwarded).toEqual([
-      expect.objectContaining({
-        author: expect.objectContaining({ role: 'bot', username: 'sigil' }),
-        text: 'Sigil, in a private thread with @sigil: sigil answers',
-      }),
-    ]);
+    // The ask Loom made back was made inside the thread, so Sigil's answer
+    // belongs there and there is nothing to hand back to the DM.
+    expect(
+      service.transcript('dm-sigil').filter((entry) => entry.text.includes('private thread')),
+    ).toEqual([]);
     expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toEqual([]);
+    expect(service.transcript(thread).map((entry) => entry.text)).toContain('sigil answers');
   });
 
   it('leaves a group answer alone', async () => {
@@ -4160,7 +4155,7 @@ describe('BotService answers', () => {
     await settle(service, 'dm-sigil');
   });
 
-  it('does not forward when the thread has no parent', async () => {
+  it('hands an old thread’s answer to the room the ask was made from', async () => {
     const { root, adapter, service } = harness({
       script: ({ bot, prompt }) =>
         bot === 'sigil'
@@ -4216,15 +4211,27 @@ describe('BotService answers', () => {
     await reopened.busSend('sigil', { to: 'loom', text: 'again' });
     await settle(reopened, thread);
 
-    // Old threads answer in place: no line in the parent, no delivery.
+    // The ask carries the room it was made from, so its answer lands there even
+    // though the thread itself has no recorded origin — and the asker wakes on
+    // that line to answer the person.
     expect(
-      reopened.transcript('dm-sigil').some((entry) => entry.text.includes('private thread')),
-    ).toBe(false);
-    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toEqual([]);
-    expect(reopened.transcript(thread).at(-1)).toMatchObject({
-      author: { role: 'bot', username: 'loom' },
-      text: 'first answer',
-    });
+      reopened
+        .transcript('dm-sigil')
+        .filter((entry) => entry.text.includes('private thread')),
+    ).toEqual([
+      expect.objectContaining({
+        author: expect.objectContaining({ username: 'loom' }),
+        text: 'Loom, in a private thread with @sigil: first answer',
+      }),
+    ]);
+    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toMatchObject([
+      {
+        conversationId: 'dm-sigil',
+        from: { type: 'bot', username: 'loom' },
+        to: 'sigil',
+      },
+    ]);
+    // Nothing invents an origin for the old thread: the room is on the ask.
     expect(loadBotRegistry(root).conversations.find((one) => one.id === thread)).not.toHaveProperty(
       'parentId',
     );
@@ -4232,6 +4239,57 @@ describe('BotService answers', () => {
     again.release();
     await settle(reopened, thread);
     await settle(reopened, 'dm-sigil');
+  });
+
+  it('hands a reused thread’s answer to the room this ask was made from', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'sigil'
+          ? { text: 'held', hold: !prompt.startsWith('[From ') }
+          : prompt.startsWith('[From ')
+            ? { text: 'the answer' }
+            : { text: 'answered' },
+    });
+    await busBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+
+    // The first ask opens the thread from the group, so that is the thread's one
+    // recorded origin.
+    const first = await holdTurn(service, adapter, group.id, 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'from the group' });
+    first.release();
+    await settle(service, thread);
+    await settle(service, group.id);
+    await service.clear(group.id);
+
+    // The same thread is reused from a DM. A thread is never deleted, so a pair
+    // that has talked before always reuses one — this is the normal case.
+    await service.send('dm-sigil', '@sigil hold this turn');
+    const { turnFile } = service.botBusPaths('sigil');
+    for (let tick = 0; tick < 500; tick += 1) {
+      const live =
+        existsSync(turnFile) &&
+        (JSON.parse(readFileSync(turnFile, 'utf8')) as { conversationId: string }).conversationId ===
+          'dm-sigil';
+      if (live) {
+        break;
+      }
+      await Promise.resolve();
+    }
+    const second = gatewayFor(adapter, 'sigil', 1);
+    await service.busSend('sigil', { to: 'loom', text: 'from the DM' });
+    second.release();
+    await settle(service, thread);
+    await settle(service, 'dm-sigil');
+
+    // The answer belongs where this ask was made, not where the thread was
+    // opened the first time.
+    const relayed = 'Loom, in a private thread with @sigil: the answer';
+    expect(service.transcript('dm-sigil').map((entry) => entry.text)).toContain(relayed);
+    expect(service.transcript(group.id).map((entry) => entry.text)).not.toContain(relayed);
+    expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toMatchObject([
+      { to: 'sigil', from: { type: 'bot', username: 'loom' } },
+    ]);
   });
 
   it('notes in the thread when the room it came from is gone', async () => {
@@ -4342,9 +4400,9 @@ describe('BotService answers', () => {
     await settle(service, 'dm-loom');
     await settle(service, thread);
 
-    // Sigil's answer reaches Loom's room. Loom's own answer in the thread is
-    // written there too — it is the room Loom asked from — but the bot that
-    // asked is the bot that just answered, so nothing is queued for it.
+    // Sigil's answer reaches Loom's room — the room Loom was in when it asked.
+    // Loom's answer to the ask Sigil made back *inside* the thread stays in the
+    // thread: that ask was made there, so there is nothing to hand back.
     const forwarded = service
       .transcript('dm-loom')
       .filter((entry) => entry.text.includes('private thread'));
@@ -4352,10 +4410,6 @@ describe('BotService answers', () => {
       expect.objectContaining({
         author: expect.objectContaining({ username: 'sigil' }),
         text: 'Sigil, in a private thread with @loom: sigil answers',
-      }),
-      expect.objectContaining({
-        author: expect.objectContaining({ username: 'loom' }),
-        text: 'Loom, in a private thread with @loom: loom answers',
       }),
     ]);
     expect(

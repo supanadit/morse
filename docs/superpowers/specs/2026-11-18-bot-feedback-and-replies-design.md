@@ -184,25 +184,33 @@ interface BotTurnTrace {
 
 A thread records where it came from. `ConversationRecord` (kind `'thread'`) gains two optional
 fields, written when the thread is created: `parentId` — the conversation the asking bot was working
-in — and `askedBy` — that bot's handle. Nothing is added to the delivery: the thread knows its own
-origin, which is what lets an answer climb more than one hop.
+in — and `askedBy` — that bot's handle.
+
+A thread is one long-lived room per pair of bots: every later ask between them reuses it, from
+whichever room the sender happens to be answering in, and a thread is never deleted. So the room an
+answer belongs in is recorded per ask, not per thread: `BotDelivery` gains an optional `originId`, the
+room the sender was working in, set by `busSend`. The thread's `parentId`/`askedBy` remain what the
+relay's own wake-up uses, because an answer has no ask of its own — that is what lets a chain climb more
+than one hop.
 
 A bot's answer is always a transcript line in the conversation it answered in. On settle, in the
 lane:
 
 - **Forward when all hold:** `delivery.from.type === 'bot'` (a person speaking in a thread is never
-  forwarded), the conversation it answered in is a `thread` with a `parentId` that still exists and
-  is not itself, and the answering bot is not the parent's only member.
-- **What the host writes.** One line in the parent conversation, authored by the answering bot,
-  saying where it came from: `Loom, in a private thread with @sigil: <answer>`. The parent then gets
-  a delivery to its `askedBy` bot, `kind: 'reply'`, `reason: 'bot'`, `depth + 1`, pointing at that
-  line — unless the answering bot *is* `askedBy`, in which case the line is written and nobody is
-  woken (the bot that asked is the bot that just answered; waking it would be a self-loop).
-- **The chain climbs.** A woken turn runs in the parent conversation's own engine session. If that
-  parent is itself a thread, its answer forwards one hop further by the same rule, so a two-hop chain
-  walks back thread by thread to the person's room. It terminates where it must: the last parent is a
-  `dm` or `group`, which is person-facing, so the answer is a normal bot message and wakes nobody.
-  Depth still increments per hop and the existing depth cap (4) remains the runaway bound.
+  forwarded), the conversation it answered in is a `thread`, and the room to hand it back to — the
+  delivery's `originId`, or the thread's `parentId` when the delivery is the relay's wake-up — still
+  exists and is not the thread itself.
+- **What the host writes.** One line in that room, authored by the answering bot, saying where it came
+  from: `Loom, in a private thread with @sigil: <answer>`. The room then gets a delivery to the bot
+  that asked — the delivery's sender, or the thread's `askedBy` for a wake-up — `kind: 'reply'`,
+  `reason: 'bot'`, `depth + 1`, pointing at that line — unless the answering bot *is* that bot, in
+  which case the line is written and nobody is woken (the bot that asked is the bot that just
+  answered; waking it would be a self-loop).
+- **The chain climbs.** A woken turn runs in the room's own engine session. If that room is itself a
+  thread, its answer forwards one hop further by the same rule, so a two-hop chain walks back thread by
+  thread to the person's room. It terminates where it must: the last room is a `dm` or `group`, which
+  is person-facing, so the answer is a normal bot message and wakes nobody. Depth still increments per
+  hop and the existing depth cap (4) remains the runaway bound.
 - **Person-facing answers wake nobody.** A bot answering in a `dm` or `group` was asked *in* that
   room; the person saw it, and a bot's in-room reply queues nothing, as today.
 - **No `kind` terminator.** Whether a send is `message`, `assign` or `reply` changes its label, not
@@ -218,8 +226,9 @@ lane:
   and wakes nobody.
 - **Edge: the parent is gone.** Nothing is forwarded; the thread gets a note saying the answer could
   not be handed back. The answering lane still settles and moves on.
-- **Threads older than this change** have no `parentId` and never forward; their answers stay in the
-  thread, which is where they already were.
+- **Threads older than this change** have no `parentId`, and nothing backfills one. Their direct asks
+  still come home — the ask carries its own room — but a wake-up inside one has nowhere to climb, so
+  the answer stays in the thread, which is where it already was.
 
 The person's own room remains the only place they are spoken to: no bot writes into a DM it was not
 asked in, and no peer answers the person directly.
@@ -244,7 +253,9 @@ the thread while the ask is still running.
 - `PROTOCOL_VERSION` 42 → 43: `BotActivity` gains its optional outcome fields, `BotRoutingActive`
   gains its four, `BotTurnTrace` is new, and the transcript payload gains `traces`.
 - Registry stays version 3. A thread's `parentId`/`askedBy` are registry-only (no wire field): a
-  thread written before this change has neither and never forwards. No transcript is rewritten.
+  thread written before this change has neither, and only its wake-ups cannot climb. No transcript is
+  rewritten. `BotDelivery.originId` is optional and internal to the host's bus (deliveries never cross
+  the wire), so no protocol bump: a build that does not know the field ignores it.
 - Traces live in their own directory and are created lazily; no data-layout step is needed, but
   `docs/DATA-COMPATIBILITY.md` names the new directory.
 - `docs/STATUS.md` describes the live row, the record and the answer path.

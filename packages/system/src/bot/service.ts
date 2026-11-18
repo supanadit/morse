@@ -1384,6 +1384,11 @@ export class BotService {
       // delivery must not share a mutable record with it.
       from: { type: 'bot', username },
       to: target.username,
+      // The room this bot is answering in: where the peer's answer belongs, and
+      // the only place the asker can be woken to speak to the person. Recorded
+      // per ask because the thread between two bots outlives the room that
+      // opened it — every later ask reuses the same thread.
+      originId: current.id,
       kind: input.kind ?? 'message',
       reason: 'bot',
       depth,
@@ -2090,14 +2095,23 @@ export class BotService {
    * room it was answering in. The peer's answer belongs there: one line says
    * where it came from, and — unless the bot that asked is the bot that just
    * answered — a `reply` delivery wakes the asker in that room so it can answer
-   * the person. The chain climbs one room at a time: an answer in a thread whose
-   * parent is another thread forwards again, and the last parent is a DM or a
-   * group, which is person-facing and wakes nobody. A thread written before its
-   * origin was recorded answers in place. A failed or cancelled turn is said in
-   * the room that would have received it, naming the bot and the reason; a done
-   * turn with no words is said the same way, as an empty answer. A relay
-   * that would spend a bus cap — depth, the root's total or the bot's hour — is
-   * said in the parent too, and wakes nobody, exactly as a bot's own ask is.
+   * the person.
+   *
+   * The room is the ask's, not the thread's: a private thread is one room per
+   * pair of bots, reused by every ask between them, so `delivery.originId` — the
+   * room the sender was answering in — is what says where this answer goes. The
+   * thread's own recorded origin is the fallback for the relay's own wake-up,
+   * which has no ask of its own; that is how a chain climbs one room at a time,
+   * an answer in a thread whose parent is another thread forwarding again, until
+   * the last parent is a DM or a group, which is person-facing and wakes nobody.
+   * A thread written before its origin was recorded still hands a direct ask
+   * back — that ask carries the room itself — and only its wake-ups cannot climb.
+   *
+   * A failed or cancelled turn is said in the room that would have received it,
+   * naming the bot and the reason; a done turn with no words is said the same
+   * way, as an empty answer. A relay that would spend a bus cap — depth, the
+   * root's total or the bot's hour — is said in the parent too, and wakes nobody,
+   * exactly as a bot's own ask is.
    */
   private handBack(
     conversation: ConversationRecord,
@@ -2114,10 +2128,11 @@ export class BotService {
     if (conversation.kind !== 'thread') {
       return;
     }
-    const parentId = conversation.parentId;
-    // A thread written before its origin was recorded answers in place, and a
-    // parent that names the room itself is not an origin.
-    if (parentId === undefined || parentId === conversation.id) {
+    const askedIn = delivery.originId;
+    const originId = askedIn ?? conversation.parentId;
+    // An origin that names the room itself is not one, and a delivery with
+    // neither has nowhere to hand the answer: it is already where it belongs.
+    if (originId === undefined || originId === conversation.id) {
       return;
     }
     // The room went while its turn ended: there is no history to answer into,
@@ -2129,7 +2144,7 @@ export class BotService {
     // failure it left is still owed a note. Its handle is the name the room knows.
     const name = bot?.name ?? this.displayNameOf(delivery.to);
     const ended = status === 'failed' ? 'failed' : 'was cancelled';
-    const parent = this.findConversation(parentId);
+    const parent = this.findConversation(originId);
     if (parent === undefined) {
       // Nothing can forward from a room that is gone, so the thread itself says
       // so instead of the answer vanishing with its parent.
@@ -2156,14 +2171,16 @@ export class BotService {
     if (bot === undefined) {
       return;
     }
-    const asker = conversation.askedBy ?? delivery.from.username;
+    // A direct ask names its own asker. The relay's wake-up has no ask of its
+    // own, so it can only use the origin the thread recorded — which an older
+    // thread may not have, and then the line is written and nobody is woken.
+    const asker = askedIn === undefined ? conversation.askedBy : delivery.from.username;
     // The bot that asked is the bot that just answered — waking it would be a
     // self-loop — and an asker that has left the parent has no work waiting
     // there. Either way the line is written and nobody is woken.
-    const askedBy = conversation.askedBy;
     const wakeTo =
-      askedBy !== undefined && askedBy !== bot.username && parent.members.includes(askedBy)
-        ? askedBy
+      asker !== undefined && asker !== bot.username && parent.members.includes(asker)
+        ? asker
         : undefined;
     const depth = delivery.depth + 1;
     if (wakeTo !== undefined) {
@@ -2190,7 +2207,7 @@ export class BotService {
       : this.append(
           parent.id,
           botAuthor(bot),
-          `${name}, in a private thread with @${asker}: ${text}`,
+          `${name}, in a private thread with @${asker ?? delivery.from.username}: ${text}`,
         );
     if (wakeTo === undefined) {
       return;
@@ -2432,7 +2449,8 @@ export class BotService {
    * room the sender was answering in, and the sender's own handle. The id is the
    * sorted pair, so either bot asking again lands in the same room, and its title
    * follows that same member order — a thread is named for the two bots, not for
-   * the sender.
+   * the sender. The recorded origin is the first one only; each later ask carries
+   * its own room, so the origin here is what a wake-up inside the thread climbs.
    */
   private createThread(
     sender: BotRecord,

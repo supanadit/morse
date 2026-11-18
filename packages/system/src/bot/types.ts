@@ -77,14 +77,19 @@ export interface ConversationRecord {
   lead?: string;
   /**
    * The conversation the asking bot was working in when it opened this thread.
-   * A thread is the only room whose origin matters: an answer given there climbs
-   * back to the room the person asked in. Absent on every thread written before
-   * this existed, which is why such a thread answers in place and never forwards.
+   *
+   * A thread is one long-lived room per pair of bots, so it no longer says where
+   * a particular answer goes — each ask records its own room on the delivery. It
+   * is still what lets the relay's wake-up climb: a bot woken inside this thread
+   * answers one room further out, up to the person's DM or group. Absent on every
+   * thread written before this existed, which is why such a thread's wake-ups
+   * stay where they are; a direct ask still comes back, because the ask carries
+   * the room itself.
    */
   parentId?: string;
   /**
-   * The bot that opened the thread: the one an answer is handed back to. Absent
-   * with `parentId`, for the same reason — there is no origin to hand it to.
+   * The bot that opened the thread: the one a wake-up inside it answers. Absent
+   * with `parentId`, for the same reason — there is no origin to climb to.
    */
   askedBy?: string;
   sessions: Record<string, BotSessionRef>;

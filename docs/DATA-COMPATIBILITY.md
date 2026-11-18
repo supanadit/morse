@@ -70,11 +70,13 @@ build already writes:
   `*.json` in it as one conversation's history — so no other `*.json` may be written there, and removing a
   conversation's file is how a room's history is forgotten. A build that predates the directory never reads
   it, and nothing in it is engine context, so an older Morse loses nothing by ignoring it.
-- **A thread's origin.** `parentId` (the room the asking bot was working in) and `askedBy` (the bot that opened
-  the thread) are optional on a thread, and the registry stays version 3: no step and no
-  `CURRENT_DATA_LAYOUT` bump. A thread written before this change has neither, so it answers in place and
-  forwards nothing — exactly what it did before — and there is nothing to backfill. The registry validator
-  requires neither field, so a build that does not know them still reads every conversation.
+- **A thread's origin, and an ask's room.** `parentId` (the room the asking bot was working in, recorded when
+  the thread was opened) and `askedBy` (the bot that opened it) are optional on a thread, and the registry
+  stays version 3: no step and no `CURRENT_DATA_LAYOUT` bump. A thread written before this change has
+  neither, and nothing backfills it — a direct ask carries its own room on the delivery (`originId`), so an
+  old thread's answer still comes home; only a wake-up inside it cannot climb further. The registry validator
+  requires neither field, so a build that does not know them still reads every conversation, and a build that
+  predates `originId` simply answers old-style in place.
 
 ## Engine layouts may need repair, not just rewriting
 

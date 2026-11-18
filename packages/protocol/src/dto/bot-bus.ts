@@ -73,6 +73,18 @@ export interface BotDelivery {
   from: BotDeliveryOrigin;
   /** The recipient's username: the only key a lane and a client index use. */
   to: string;
+  /**
+   * The room the sender was working in when it asked. A bot's answer is handed
+   * back there, one line quoting it, and the sender is woken there to answer the
+   * person.
+   *
+   * Recorded per ask rather than per thread because a private thread is one
+   * long-lived room per pair of bots: every ask between them reuses it, from
+   * whichever room the sender happened to be answering in. Absent on deliveries
+   * written before this was recorded, and on the wake-up delivery the relay
+   * sends back — an answer has no ask of its own.
+   */
+  originId?: string;
   kind: BotDeliveryKind;
   reason: BotDeliveryReason;
   /** Bot-to-bot hops from the root; the host refuses past its cap. */
