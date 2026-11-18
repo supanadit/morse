@@ -187,7 +187,10 @@ export class BotTurnTracker {
   }
 }
 
-/** One turn as readers see it: fresh arrays, so a reader cannot reshape the record. */
+/**
+ * One turn as readers see it: fresh arrays, so a reader cannot add or drop
+ * entries. The step objects themselves are still the record's own.
+ */
 function snapshotOf(turn: TurnRecord): TurnSnapshot {
   return {
     username: turn.username,
