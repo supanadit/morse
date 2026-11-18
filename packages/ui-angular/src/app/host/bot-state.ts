@@ -55,12 +55,15 @@ export class BotState {
    */
   readonly routing = signal<Record<string, BotRoutingState>>({});
   /**
-   * The counters each conversation's last answer reported, keyed by conversation.
+   * The counters each bot in a conversation last reported, per conversation and
+   * then per bot, oldest report first.
    *
-   * Bot mode has one engine session per bot, so this is whichever member spoke
-   * last; the composer's ring draws it and says whose it is.
+   * Bot mode has one engine session per bot, so usage is per `(conversation, bot)`
+   * and a room can hold two windows at once. The composer's single ring reads the
+   * last entry (the bot that reported most recently); a presence row reads its own
+   * bot's, which is why this is keyed rather than one value per conversation.
    */
-  readonly usage = signal<Record<string, BotUsage>>({});
+  readonly usage = signal<Record<string, BotUsage[]>>({});
   /** The models each `bot/probeModels` request answered with, keyed by its id. */
   readonly models = signal<Record<string, ModelOption[]>>({});
   /**
@@ -164,8 +167,28 @@ export class BotState {
   }
 
   /**
-   * What one conversation's last answer cost. An id with no counters (a pruned
-   * conversation) drops the ring rather than leaving the old number behind.
+   * What one bot in one conversation last reported, or `undefined` when it has
+   * not answered there. This is what a presence row's own ring draws.
+   */
+  usageFor(conversationId: string, username: string): BotUsage | undefined {
+    return this.usage()[conversationId]?.find((one) => one.username === username);
+  }
+
+  /**
+   * The most recently reported bot in one conversation, for the composer's single
+   * ring: the session the reader just watched work, named by what it reports.
+   */
+  latestUsage(conversationId: string): BotUsage | undefined {
+    return this.usage()[conversationId]?.at(-1);
+  }
+
+  /**
+   * One bot's counters, as the host reported them.
+   *
+   * A payload with no counters is a prune — the engine session is gone — and drops
+   * that bot alone; the room's entry goes when its last bot does. A report for a
+   * bot already held moves it to the end, so `latestUsage` means "reported most
+   * recently" rather than "first seen".
    */
   onUsage(usage: BotUsage): void {
     this.usage.update((held) => {
@@ -176,15 +199,19 @@ export class BotState {
         usage.counts === undefined &&
         usage.speed === undefined &&
         usage.costUsd === undefined;
-      if (!empty) {
-        return { ...held, [usage.conversationId]: usage };
+      const others = (held[usage.conversationId] ?? []).filter(
+        (one) => one.username !== usage.username,
+      );
+      const next = empty ? others : [...others, usage];
+      if (next.length === 0) {
+        if (held[usage.conversationId] === undefined) {
+          return held;
+        }
+        const rooms = { ...held };
+        delete rooms[usage.conversationId];
+        return rooms;
       }
-      if (held[usage.conversationId] === undefined) {
-        return held;
-      }
-      const next = { ...held };
-      delete next[usage.conversationId];
-      return next;
+      return { ...held, [usage.conversationId]: next };
     });
   }
 

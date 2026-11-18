@@ -278,23 +278,35 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   own state in the bot's tree — config in `<bot>/config`, auth, database, sessions and logs in
   `<bot>/sessions` — and gives each bot its own workspace; that is placement, not a boundary between bots.
   There is no OS-level sandbox behind it ([CONFIGURATION.md](CONFIGURATION.md)).
-- **Talking.** Direct messages and groups, with `@mentions`, a lead that answers an unaddressed message, and a
-  capped relay chain between members. A round can be stopped; a send during a round is refused with a line in the
-  transcript rather than queued invisibly.
-- **Editable rooms.** A group can be renamed, re-membered, re-led and re-capped. Removing a
-  member clears only that bot's pointer to the room's session, so adding it back starts fresh;
-  deleting a group removes its transcript and each member's session for it. Deleting a bot
-  removes everything of its own and leaves every group it shared otherwise intact — a group is
-  deleted only when that bot was its last member.
-- **Presence, not a trace.** While a bot works, one line says what it is doing (`Wait, let me think…`,
-  `Reading launch-brief.md…`, `Running npm test…`) where its answer will land, and the answer replaces it.
-  Tool activity never enters the transcript. A round belongs to its conversation, so reading another room never
-  hides one still working — every conversation keeps its own row until its own round ends, and the sidebar's
-  dot breathes on the rows that are answering, in front or not.
-- **A budget you can see.** Each conversation's composer carries the same context ring as code mode, drawn from
-  the counters the member that answered last reported, and named, so a group's ring says whose window it is.
-  Clicking it opens the same popup, in its bot form: spent and remaining tokens, because a bot's message counts,
-  cache, speed and cost belong to one engine session and are not a run of the reader's work.
+- **Talking.** Direct messages and groups, with `@mentions`, `@all`, and a lead that answers an unaddressed
+  message; a room with no lead fans the line out to every member. Each bot runs its own lane, so one bot's
+  turn never holds another's and a room can have two bots answering at once; a line sent while they work
+  queues per bot and the presence row says who is still waiting.
+- **A roster bots can read.** A bot's description is its capability signal: `bot_list` returns every bot this
+  Morse runs with its state and whether it is in the same room, and `bot_send` hands work to one of them. The
+  habit is Morse's own instruction, written into the slot each engine already reads (pi's
+  `APPEND_SYSTEM.md`, OpenCode's `instructions[]`), so a persona or `AGENTS.md` edit cannot break it. Sending
+  to a bot outside the room opens a private thread instead of dropping work into someone else's conversation.
+- **Threads.** A bot-to-bot conversation is a row under *Threads*, between the bots and the groups: readable,
+  openable, and stoppable per bot like any room. It has no group record behind it, so the room dialog does not
+  manage it.
+- **Stopping one bot.** A turn belongs to a bot in a conversation, not to the room: the menu's stop cancels
+  that bot's turn and its queued deliveries there, leaving its teammates and its other rooms untouched.
+  Without a handle the whole room stops; either way the engine sessions stay warm.
+- **Editable rooms.** A group can be renamed, re-membered and re-led. Removing a member clears only that bot's
+  pointer to the room's session, so adding it back starts fresh; deleting a group removes its transcript and
+  each member's session for it. Deleting a bot removes everything of its own and leaves every group it shared
+  otherwise intact — a group is deleted only when that bot was its last member.
+- **Presence, not a trace.** While a bot works, one line per running bot says what it is doing (`Wait, let me
+  think…`, `Reading launch-brief.md…`, `Running npm test…`) where its answer will land, and the answer replaces
+  it. Tool activity never enters the transcript. A lane belongs to a bot in a conversation, so reading another
+  room never hides one still working — each keeps its row until its own turn ends, and the sidebar's dot
+  breathes on the rows that are answering, in front or not.
+- **A budget you can see.** Usage and context are per bot per conversation: while a bot runs, its presence row
+  carries that bot's own ring, and a room with nobody running shows none. The composer keeps one ring, for the
+  bot that reported most recently, named so a group's ring says whose window it is. Clicking a ring opens the
+  same popup in its bot form: spent and remaining tokens, because a bot's message counts, cache, speed and
+  cost belong to one engine session and are not a run of the reader's work.
 - **Shrinking and forgetting.** *Compact* asks the members that have answered to summarise what they hold — the
   transcript keeps every line, since compaction is about the engine's context, not the reader's history; a
   conversation where nobody has answered yet says so rather than starting a session to compact nothing.
@@ -309,8 +321,8 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
 - **Transcripts that survive.** One append-only JSONL per conversation, paged from the end, with "new
   discussion" as a divider rather than a lost history.
 - **Coming back to where you were.** The `Code`/`Bot` tab and the conversation that was in front are the
-  reader's, so they survive a reload: bot mode reopens the last DM or group, and forgets one the host no longer
-  lists (`state/mode-prefs.ts`).
+  reader's, so they survive a reload: bot mode reopens the last DM, group or thread, and forgets one the host
+  no longer lists (`state/mode-prefs.ts`).
 - **Data upgrades.** `.morse/` carries a layout version; migrations and an additive reconcile run on `morse start`
   (see [DATA-COMPATIBILITY.md](DATA-COMPATIBILITY.md)).
 

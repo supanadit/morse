@@ -3728,7 +3728,7 @@ describe('HostSessionController bot messages', () => {
       clear: async () => undefined,
       compact: async () => undefined,
       routing: () => null,
-      usage: () => undefined,
+      usages: () => [],
       ...overrides,
     };
   }

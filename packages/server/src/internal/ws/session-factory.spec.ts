@@ -69,7 +69,7 @@ function fakeBot() {
     clear: vi.fn(() => Promise.resolve()),
     compact: vi.fn(() => Promise.resolve()),
     routing: vi.fn(() => null),
-    usage: vi.fn(() => undefined),
+    usages: vi.fn(() => []),
   };
   return {
     service: service as unknown as BotService,
@@ -294,7 +294,9 @@ describe('MorseSessionFactory bot wiring', () => {
       type: 'bot/stop',
       payload: { conversationId: 'dm-x' },
     });
-    expect(bot.calls.stop).toHaveBeenCalledWith('dm-x');
+    // No handle: the controller passes the payload through, so the service reads
+    // `undefined` as "every bot in this conversation".
+    expect(bot.calls.stop).toHaveBeenCalledWith('dm-x', undefined);
     expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: bot.roster });
 
     await controller.handleClientMessage({
@@ -357,13 +359,14 @@ describe('MorseSessionFactory bot wiring', () => {
       type: 'usage',
       usage: {
         conversationId: 'dm-x',
+        username: 'forge',
         bot: 'Forge',
         contextUsage: { tokens: 1000, contextWindow: 200_000, percent: 0.5 },
       },
     });
     expect(JSON.parse(sent.at(-1)?.[0] ?? '{}')).toMatchObject({
       type: 'bot/usage',
-      payload: { conversationId: 'dm-x', bot: 'Forge' },
+      payload: { conversationId: 'dm-x', username: 'forge', bot: 'Forge' },
     });
 
     gateway.handleDisconnect(socket);

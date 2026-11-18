@@ -47,6 +47,7 @@ import { WorkspaceFiles } from '../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs, type FileTab } from '../../state/workspace-tabs';
 import { noteLivesInFile } from '../../ui/code-editor/pins';
+import { botUsageInputs } from './bot-usage';
 
 /** What `getEditorContext` answers: the editor in front, as the composer pins it. */
 interface EditorSnapshot {
@@ -360,18 +361,9 @@ export class ChatComposer {
     sessionTitle?: string;
   }>(() => {
     if (this.variant === 'bot') {
-      const bot = this.botUsageState();
-      const title = bot?.bot;
-      return {
-        ...(bot?.usage === undefined ? {} : { usage: bot.usage }),
-        ...(bot?.lastUsage === undefined ? {} : { lastUsage: bot.lastUsage }),
-        ...(bot?.costUsd === undefined ? {} : { costUsd: bot.costUsd }),
-        ...(bot?.contextUsage === undefined ? {} : { contextUsage: bot.contextUsage }),
-        ...(bot?.counts === undefined ? {} : { counts: bot.counts }),
-        ...(bot?.speed === undefined ? {} : { speed: bot.speed }),
-        ...(bot?.model === undefined ? {} : { model: bot.model }),
-        ...(title === undefined ? {} : { sessionTitle: title }),
-      };
+      // One mapping for both rings: the composer's and a presence row's read the
+      // same `BotUsage`, so neither can show a field the other drops.
+      return botUsageInputs(this.botUsageState());
     }
     const state = this.morse.state();
     return {

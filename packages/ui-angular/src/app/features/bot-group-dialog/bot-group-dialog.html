@@ -47,29 +47,13 @@
     <label class="field">
       <span class="field-label">Lead <span class="optional">optional · members only</span></span>
       <select name="lead" [disabled]="members().length === 0" (change)="setLead($event)">
-        <option value="" [selected]="lead() === ''">No lead — only @mentions answer</option>
+        <option value="" [selected]="lead() === ''">No lead — every member answers</option>
         @for (member of members(); track member) {
           <option [value]="member" [selected]="lead() === member">{{ label(member) }}</option>
         }
       </select>
       <span class="field-note">
-        The lead answers a message that names nobody. Without one, the bots stay quiet until someone
-        is addressed.
-      </span>
-    </label>
-
-    <label class="field">
-      <span class="field-label">Chain cap</span>
-      <input
-        name="chainCap"
-        type="number"
-        min="1"
-        step="1"
-        [value]="chainCap()"
-        (input)="setChainCap($event)"
-      />
-      <span class="field-note">
-        How many bot-to-bot replies one message may set off before the round stops with a note.
+        The lead answers a message that names nobody. Without a lead, every member answers.
       </span>
     </label>
 

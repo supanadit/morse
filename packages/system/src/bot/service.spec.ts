@@ -2283,7 +2283,9 @@ describe('BotService sessions', () => {
       entries: [],
       replace: true,
     });
-    expect(service.usage('dm-forge')).toBeUndefined();
+    // Both rings have nothing left to describe: the page a client holds is wrong,
+    // and so is every bot's counter for it.
+    expect(service.usages('dm-forge')).toEqual([]);
   });
 
   it('clear ends a round in flight before the file goes', async () => {
@@ -2296,9 +2298,11 @@ describe('BotService sessions', () => {
     await settle(service);
 
     // The turn in flight cannot append to a transcript that no longer exists, and
-    // neither can a note it would have written.
+    // neither can a note it would have written. Its counters must not come back
+    // either: the session they described is gone.
     expect(service.transcript('dm-forge')).toEqual([]);
     expect(service.routing('dm-forge')).toBeNull();
+    expect(service.usages('dm-forge')).toEqual([]);
   });
 
   it('clear of an unknown conversation is refused rather than silent', async () => {
@@ -2402,7 +2406,7 @@ describe('BotService sessions', () => {
     );
   });
 
-  it('pushes what a turn cost, per conversation, and remembers it for an open', async () => {
+  it('pushes what a turn cost, per bot, and remembers it for an open', async () => {
     const { adapter, service } = harness({
       sessionUsage: {
         usage: { inputTokens: 900, outputTokens: 100, totalTokens: 1000 },
@@ -2417,16 +2421,34 @@ describe('BotService sessions', () => {
     await gatewayFor(adapter, 'forge').prompted;
     await settle(service);
 
-    // The counters belong to a bot's engine session, so the push names it: a
-    // group's ring says whose window it is drawing.
-    expect(service.usage('dm-forge')).toMatchObject({
+    // The counters belong to a bot's engine session, so the push names it by
+    // handle and by name: a room's ring says whose window it is drawing.
+    expect(service.usages('dm-forge')).toHaveLength(1);
+    expect(service.usages('dm-forge')[0]).toMatchObject({
       conversationId: 'dm-forge',
+      username: 'forge',
       bot: 'Forge',
       usage: { totalTokens: 1000 },
       contextUsage: { percent: 0.5 },
       costUsd: 0.02,
       model: MODEL,
     });
+  });
+
+  it('keeps each bot’s counters for a room, not only the last answer', async () => {
+    const { service } = harness({ script: ({ bot }) => ({ text: `${bot} here` }) });
+    await twoBots(service);
+    // No lead: an unaddressed line fans out to both lanes, so both report.
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+    await service.send(group.id, 'hello both');
+    await settle(service, group.id);
+
+    // Per (conversation, bot): the second answer must not overwrite the first, or
+    // the other bot's presence row would draw somebody else's window.
+    expect(service.usages(group.id).map((one) => [one.username, one.bot])).toEqual([
+      ['forge', 'Forge'],
+      ['sable', 'Sable'],
+    ]);
   });
 
   it('newDiscussion starts fresh sessions', async () => {

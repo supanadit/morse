@@ -711,8 +711,8 @@ export class HostSessionController {
           type: 'bot/routing',
           payload: { conversationId, state: routing },
         });
-        const usage = bot.usage(conversationId);
-        if (usage !== undefined) {
+        const usages = bot.usages(conversationId);
+        for (const usage of usages) {
           this.options.emit({ type: 'bot/usage', payload: usage });
         }
         return;

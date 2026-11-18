@@ -261,18 +261,20 @@ describe('MorseService bot mode', () => {
     expect(morse.bot.routingFor('group-1')).toBeUndefined();
   });
 
-  it('records the counters a turn reported, per conversation', () => {
+  it('records the counters a turn reported, per conversation and bot', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
     const usage = {
       conversationId: 'dm-forge',
+      username: 'forge',
       bot: 'Forge',
       contextUsage: { tokens: 21_000, contextWindow: 200_000, percent: 10.5 },
     };
 
     transport.toClient({ type: 'bot/usage', payload: usage });
 
-    expect(morse.bot.usage()['dm-forge']).toEqual(usage);
+    expect(morse.bot.usageFor('dm-forge', 'forge')).toEqual(usage);
+    expect(morse.bot.latestUsage('dm-forge')).toEqual(usage);
   });
 
   it('records probed models under their request id', () => {
@@ -453,7 +455,6 @@ describe('MorseService bot mode', () => {
       name: 'builders',
       members: ['forge', 'sable'],
       lead: 'sable',
-      chainCap: 3,
     };
 
     morse.updateGroup(input);

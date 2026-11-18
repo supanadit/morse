@@ -43,8 +43,9 @@ export interface BotConversationSummary {
   lead?: string;
   /**
    * Legacy, and no longer a setting: lanes have no chain, so a bot's reply queues
-   * nothing by itself. The field stays on the wire until the group dialog stops
-   * reading it, and a host reports a constant for it.
+   * nothing by itself. Nothing reads it — the group dialog stopped at protocol 41
+   * — and a host reports a constant for it. It stays on the summary until a later
+   * cleanup takes it off the wire with every fixture that still names it.
    */
   chainCap: number;
   updatedAt: number;
@@ -151,17 +152,21 @@ export interface BotRoutingState {
 }
 
 /**
- * What one conversation's last answer cost, in the terms the composer's context
- * ring shows: how full the model's window is and what the engine session spent.
+ * What one bot in one conversation last reported, in the terms the composer's
+ * context ring shows: how full the model's window is and what the engine session
+ * spent.
  *
  * A bot answers from its own engine session, so these are one bot's counters and
- * not the conversation's. A group therefore reports the member that answered
- * last — the session the reader just watched work — and names it, so a ring that
- * jumps between members says whose it is.
+ * not the conversation's: usage is keyed by `(conversation, bot)`, `username`
+ * always names the bot they belong to, and a room with two members holds two
+ * sets. The composer draws the one that reported most recently; each presence row
+ * draws its own bot's.
  */
 export interface BotUsage {
   conversationId: string;
-  /** The bot whose engine session these counters belong to, by display name. */
+  /** The bot whose engine session these counters belong to, by handle. */
+  username: string;
+  /** The same bot by display name, for a ring that says whose window it draws. */
   bot?: string;
   usage?: TokenUsage;
   lastUsage?: TokenUsage;
@@ -364,22 +369,19 @@ export interface BotUpdateInput {
   mcpServers?: BotMcpServerInput[];
 }
 
-/** What the New group dialog sends. `chainCap` is accepted and ignored. */
+/** What the New group dialog sends. */
 export interface BotGroupCreateInput {
   name: string;
   members: string[];
   lead?: string;
-  chainCap?: number;
 }
 
 /**
  * What Edit group sends: the same room, with what the reader changed.
  *
  * The fields are a patch, not a merge: an absent `lead` clears the lead (the
- * room then answers every member) and an absent `chainCap` clears the legacy
- * field's recorded value. The dialog always sends the current form state, so what
- * the reader sees is what is stored. A lane has no chain, so `chainCap` is
- * accepted and ignored.
+ * room then fans an unaddressed message out to every member). The dialog always
+ * sends the current form state, so what the reader sees is what is stored.
  */
 export interface BotGroupUpdateInput {
   /** The group being edited; its id never changes. */
@@ -387,5 +389,4 @@ export interface BotGroupUpdateInput {
   name: string;
   members: string[];
   lead?: string;
-  chainCap?: number;
 }

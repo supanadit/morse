@@ -55,6 +55,12 @@ describe('BotState', () => {
       conversationId: 'dm-forge',
       state: { conversationId: 'dm-forge', active: [], queued: [] },
     });
+    state.onUsage({
+      conversationId: 'dm-forge',
+      username: 'forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 1200, contextWindow: 200_000, percent: 0.6 },
+    });
 
     // The bot was deleted: its conversation is gone from the roster, so the
     // workspace must not keep pointing at it — a prompt typed now would be sent
@@ -64,6 +70,7 @@ describe('BotState', () => {
     expect(state.activeId()).toBeNull();
     expect(state.transcripts()['dm-forge']).toBeUndefined();
     expect(state.routing()['dm-forge']).toBeUndefined();
+    expect(state.usage()['dm-forge']).toBeUndefined();
   });
 
   it('keeps the open conversation when a pushed roster still lists it', () => {
@@ -240,24 +247,52 @@ describe('BotState', () => {
     expect(state.transcripts()['dm-forge']).toEqual([line('a', 'hi')]);
   });
 
-  it("drops a conversation's counters when it is cleared, and keeps the rest", () => {
+  it("keeps one bot's counters per conversation, and drops one bot without the other", () => {
     const state = new BotState();
     state.onUsage({
-      conversationId: 'dm-forge',
+      conversationId: 'group-workshop',
+      username: 'forge',
       bot: 'Forge',
       contextUsage: { tokens: 1200, contextWindow: 200_000, percent: 0.6 },
     });
     state.onUsage({
-      conversationId: 'dm-sable',
+      conversationId: 'group-workshop',
+      username: 'sable',
       bot: 'Sable',
       contextUsage: { tokens: 300, contextWindow: 100_000, percent: 0.3 },
     });
+    state.onUsage({
+      conversationId: 'dm-sable',
+      username: 'sable',
+      bot: 'Sable',
+      contextUsage: { tokens: 400, contextWindow: 100_000, percent: 0.4 },
+    });
 
-    // A prune sends the id alone: there is nothing left for the ring to describe.
-    state.onUsage({ conversationId: 'dm-forge' });
+    // Each lane has its own engine session, so each bot keeps its own numbers.
+    expect(state.usageFor('group-workshop', 'forge')?.contextUsage?.percent).toBe(0.6);
+    expect(state.usageFor('group-workshop', 'sable')?.contextUsage?.percent).toBe(0.3);
+    expect(state.usageFor('dm-sable', 'sable')?.contextUsage?.percent).toBe(0.4);
+    // The composer's single ring is the bot that reported most recently.
+    expect(state.latestUsage('group-workshop')?.username).toBe('sable');
 
-    expect(state.usage()['dm-forge']).toBeUndefined();
-    expect(state.usage()['dm-sable']?.bot).toBe('Sable');
+    state.onUsage({
+      conversationId: 'group-workshop',
+      username: 'forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 1500, contextWindow: 200_000, percent: 0.8 },
+    });
+    expect(state.latestUsage('group-workshop')?.username).toBe('forge');
+
+    // A prune names the bot whose engine went away: only its ring goes.
+    state.onUsage({ conversationId: 'group-workshop', username: 'sable' });
+    expect(state.usageFor('group-workshop', 'sable')).toBeUndefined();
+    expect(state.usageFor('group-workshop', 'forge')?.contextUsage?.percent).toBe(0.8);
+    expect(state.latestUsage('group-workshop')?.username).toBe('forge');
+
+    // The last bot leaving drops the room, so a cleared conversation holds nothing.
+    state.onUsage({ conversationId: 'group-workshop', username: 'forge' });
+    expect(state.usage()['group-workshop']).toBeUndefined();
+    expect(state.usage()['dm-sable']).toBeDefined();
   });
 
   it('records probed models per request, keeping earlier answers', () => {

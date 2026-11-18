@@ -81,8 +81,19 @@ describe('BotGroupDialog', () => {
     expect(members).toEqual(['Forge', 'Sable', 'Ember']);
   });
 
-  it('limits the lead list to the members chosen so far', async () => {
-    const { fixture, host, morse } = await render();
+  it('has no chain cap field and says what a room without a lead does', async () => {
+    const { fixture, host } = await render();
+    fixture.detectChanges();
+
+    // A lane has no chain, so there is no per-message ceiling left to set.
+    expect(host.querySelector('input[name="chainCap"]')).toBeNull();
+    expect(host.textContent).not.toContain('Chain cap');
+    // And the hint has to be true: without a lead the room fans out, it does not
+    // fall silent.
+    expect(host.textContent).toContain('Without a lead, every member answers.');
+  });
+
+  it('limits the lead list to the members chosen so far', async () => {    const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable, ember], conversations: [] });
     fixture.detectChanges();
 
@@ -95,7 +106,7 @@ describe('BotGroupDialog', () => {
     // The value is the identity (a username); the label is what the reader knows.
     expect([...lead.options].map((option) => option.value)).toEqual(['', 'forge', 'sable']);
     expect([...lead.options].map((option) => option.textContent?.trim())).toEqual([
-      'No lead — only @mentions answer',
+      'No lead — every member answers',
       'Forge',
       'Sable',
     ]);
@@ -147,7 +158,6 @@ describe('BotGroupDialog', () => {
       name: 'The workshop',
       members: ['forge', 'sable'],
       lead: 'sable',
-      chainCap: 8,
     });
   });
 
@@ -169,7 +179,6 @@ describe('BotGroupDialog', () => {
     expect(create).toHaveBeenCalledWith({
       name: 'The workshop',
       members: ['forge', 'sable'],
-      chainCap: 8,
     });
   });
 
@@ -198,7 +207,6 @@ describe('BotGroupDialog', () => {
       name: 'Launch',
       members: ['forge', 'sable'],
       lead: 'forge',
-      chainCap: 4,
     });
     expect(morse.ui.groupOpen()).toBe(false);
     expect(morse.ui.groupTarget()).toBeNull();
@@ -229,7 +237,6 @@ describe('BotGroupDialog', () => {
       id: ghosted.id,
       name: 'Launch',
       members: ['forge'],
-      chainCap: 4,
     });
   });
 

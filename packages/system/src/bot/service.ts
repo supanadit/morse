@@ -178,7 +178,7 @@ export type BotControllerPort = Pick<
   | 'clear'
   | 'compact'
   | 'routing'
-  | 'usage'
+  | 'usages'
 >;
 
 /**
@@ -211,9 +211,9 @@ const DEFAULT_TURN_TIMEOUT_MS = 300_000;
  * The value the roster summary still reports for a `chainCap`.
  *
  * Lanes have no chain: nothing a bot says queues anything by itself, so there is
- * no per-message ceiling for a conversation to carry. The protocol's summary
- * shape keeps the field until the UI stops reading it, and it reads as this
- * constant rather than as a stale per-room number nobody can change.
+ * no per-message ceiling for a conversation to carry. The summary shape keeps the
+ * field, which nothing reads after protocol 41, and it reads as this constant
+ * rather than as a stale per-room number nobody can change.
  */
 const REPORTED_CHAIN_CAP = 8;
 /**
@@ -439,14 +439,16 @@ export class BotService {
   /** Conversations with a routing state out, so an idle one emits no clear. */
   private readonly announced = new Set<string>();
   /**
-   * The last counters each conversation reported, per conversation.
+   * The last counters each bot in each conversation reported, keyed by
+   * `(conversation, bot)`.
    *
    * Held here rather than on the gateway because a warm gateway is retired when
-   * a bot goes idle, and the composer's context ring must not go blank with it:
-   * the number it showed is the last thing the engine said, and it stays said
-   * until the engine says otherwise.
+   * a bot goes idle, and a context ring must not go blank with it: the number it
+   * showed is the last thing that engine said, and it stays said until the engine
+   * says otherwise. Insertion order is report order, which is what the client reads
+   * as "the last ring".
    */
-  private readonly usageByConversation = new Map<string, BotUsage>();
+  private readonly usageByBot = new Map<string, BotUsage>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
   /**
    * The bus token each bot's engine was started with, in both directions: a
@@ -587,11 +589,11 @@ export class BotService {
   async deleteBot(username: string): Promise<void> {
     const bot = this.botOrThrow(username);
     // Any turn speaking for this bot is over, including one it is answering in a
-    // group whose other members remain. A conversation-wide stop is the right
-    // gesture in this task; per-bot stop arrives with the lane controls.
+    // group whose other members remain. Only this bot's work stops: a room-wide
+    // stop would also cancel a teammate's turn for no reason.
     for (const conversation of this.registry.conversations) {
       if (conversation.members.includes(bot.username)) {
-        this.stop(conversation.id);
+        this.stop(conversation.id, bot.username);
       }
     }
     // A delivery to a bot that is about to disappear has nobody to run it. They
@@ -1073,11 +1075,18 @@ export class BotService {
   }
 
   /**
-   * The counters one conversation last reported, or `undefined` before its first
-   * answer. A read: an unknown conversation is simply empty.
+   * The counters each bot in one conversation last reported, oldest report first,
+   * or an empty list before anyone answers. A read: an unknown conversation is
+   * simply empty.
+   *
+   * Keyed per `(conversation, bot)` because a lane is per bot: a room can have two
+   * engine sessions with two windows, and reporting only the last answer would
+   * leave the other bot's ring describing nothing.
    */
-  usage(conversationId: string): BotUsage | undefined {
-    return this.usageByConversation.get(conversationId);
+  usages(conversationId: string): BotUsage[] {
+    return [...this.usageByBot.values()].filter(
+      (usage) => usage.conversationId === conversationId,
+    );
   }
 
   /**
@@ -1445,13 +1454,24 @@ export class BotService {
     this.transcripts.forget(conversationId);
     this.deliveries.forget(conversationId);
     conversation.sessions = {};
-    this.usageByConversation.delete(conversationId);
+    // Every bot's counters go, not just the last answer's: a stale ring would
+    // describe a session that no longer exists. The client learns which rings to
+    // drop from a payload naming each bot.
+    const forgotten = new Set<string>(conversation.members);
+    for (const [key, usage] of [...this.usageByBot]) {
+      if (usage.conversationId === conversationId) {
+        forgotten.add(usage.username);
+        this.usageByBot.delete(key);
+      }
+    }
     await this.touchedAndSaved(conversation);
     // `replace` with nothing in it is the one way to tell a client that the chat
     // it holds is wrong: an append of zero lines would leave every line standing.
     this.emit({ type: 'transcript', conversationId, entries: [], replace: true });
-    // The ring has nothing left to describe, so it goes with the lines.
-    this.emit({ type: 'usage', usage: { conversationId } });
+    // The rings have nothing left to describe, so they go with the lines.
+    for (const username of forgotten) {
+      this.emit({ type: 'usage', usage: { conversationId, username } });
+    }
   }
 
   /**
@@ -2432,6 +2452,12 @@ export class BotService {
    * exited.
    */
   private async reportUsage(warm: WarmGateway): Promise<void> {
+    // A session that was retired — cleared, restarted, or its bot deleted — must not
+    // put a ring back onto a room the reader just emptied. Its counters described a
+    // gateway nothing holds any more.
+    if (this.warm.get(warmKey(warm.conversationId, warm.username)) !== warm) {
+      return;
+    }
     let state: AgentSessionState;
     try {
       state = await warm.gateway.state();
@@ -2442,6 +2468,7 @@ export class BotService {
     const bot = this.bot(warm.username);
     const usage: BotUsage = {
       conversationId: warm.conversationId,
+      username: warm.username,
       ...(bot === undefined ? {} : { bot: bot.name }),
       ...(state.usage === undefined ? {} : { usage: state.usage }),
       ...(state.lastUsage === undefined ? {} : { lastUsage: state.lastUsage }),
@@ -2451,7 +2478,11 @@ export class BotService {
       ...(state.speed === undefined ? {} : { speed: state.speed }),
       ...(state.model === undefined ? {} : { model: state.model }),
     };
-    this.usageByConversation.set(warm.conversationId, usage);
+    // Delete first so the map's insertion order is report order: a bot that answers
+    // again becomes the newest, which is what a client reads as "the last ring".
+    const key = activityKey(warm.conversationId, warm.username);
+    this.usageByBot.delete(key);
+    this.usageByBot.set(key, usage);
     this.emit({ type: 'usage', usage });
   }
 

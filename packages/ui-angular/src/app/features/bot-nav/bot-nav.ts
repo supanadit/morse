@@ -29,11 +29,13 @@ interface MenuAnchor {
 type NavMenu =
   | (MenuAnchor & { kind: 'create' })
   | (MenuAnchor & { kind: 'bot'; bot: BotSummary; confirming: boolean })
+  // A `group` menu also serves a thread row: the row affordances are the same, and
+  // the template hides the group-only management items for a thread.
   | (MenuAnchor & { kind: 'group'; group: BotConversationSummary; confirming: boolean });
 
 /**
- * Bot mode's sidebar: the roster of isolated bots, the groups they talk in, and
- * one place to add either.
+ * Bot mode's sidebar: the roster of isolated bots, the threads they opened between
+ * themselves, the groups they talk in, and one place to add a bot or a group.
  *
  * It owns no state of its own — the roster, the conversation in front and the
  * creation dialogs all live behind `MorseService` — so it is the same shape as
@@ -57,6 +59,16 @@ export class BotNav {
   protected readonly groups = computed(() =>
     (this.morse.bot.roster()?.conversations ?? []).filter(
       (conversation) => conversation.kind === 'group',
+    ),
+  );
+  /**
+   * Side work two bots did between themselves. A thread is a real conversation the
+   * reader may open and read; it simply has no group record behind it, so the
+   * dialog that manages rooms does not apply.
+   */
+  protected readonly threads = computed(() =>
+    (this.morse.bot.roster()?.conversations ?? []).filter(
+      (conversation) => conversation.kind === 'thread',
     ),
   );
   /** The conversation in front, so its row reads as the open one. */
@@ -112,6 +124,19 @@ export class BotNav {
     );
   });
 
+  /** The threads the search keeps: title or a member's name, as a room is found. */
+  protected readonly threadMatches = computed(() => {
+    const needle = this.query().trim().toLowerCase();
+    if (needle.length === 0) {
+      return this.threads();
+    }
+    return this.threads().filter(
+      (thread) =>
+        thread.title.toLowerCase().includes(needle) ||
+        thread.members.some((member) => member.toLowerCase().includes(needle)),
+    );
+  });
+
   protected readonly filtering = computed(() => this.query().trim().length > 0);
 
   protected readonly createOpen = computed(() => this.menu()?.kind === 'create');
@@ -159,9 +184,9 @@ export class BotNav {
     return bot.avatar ?? bot.name.slice(0, 1).toUpperCase();
   }
 
-  /** A group's mark is the same letter idea, from its title. */
-  protected groupMark(group: BotConversationSummary): string {
-    return group.title.slice(0, 1).toUpperCase();
+  /** A room's mark is the same letter idea, from its title. */
+  protected roomMark(room: BotConversationSummary): string {
+    return room.title.slice(0, 1).toUpperCase();
   }
 
   /** The second line of a bot row: what it is for, or failing that its handle. */
@@ -169,12 +194,12 @@ export class BotNav {
     return bot.description.trim().length > 0 ? bot.description : `@${bot.username}`;
   }
 
-  /** The second line of a group row: who is in it, by display name. */
-  protected groupSubtitle(group: BotConversationSummary): string {
-    if (group.members.length === 0) {
+  /** The second line of a room row: who is in it, by display name. */
+  protected roomSubtitle(room: BotConversationSummary): string {
+    if (room.members.length === 0) {
       return 'No members';
     }
-    return group.members.map((member) => this.displayNames().get(member) ?? member).join(', ');
+    return room.members.map((member) => this.displayNames().get(member) ?? member).join(', ');
   }
 
   /** True while this conversation has a bot answering, when acting on it would strand a turn. */
@@ -192,12 +217,16 @@ export class BotNav {
    * The handles of the bots this room says are running. Routing names them by
    * display name (that is what the reader sees), so each member is matched back
    * to its handle here: display names can repeat, handles cannot, and only a
-   * handle can be stopped.
+   * handle can be stopped. A member the roster cannot name has no handle to stop,
+   * so it is left out rather than guessed at from its display name.
    */
   protected activeMembers(group: BotConversationSummary): string[] {
     const active = new Set((this.routing()[group.id]?.active ?? []).map((one) => one.target));
     const names = this.displayNames();
-    return group.members.filter((member) => active.has(names.get(member) ?? member));
+    return group.members.filter((member) => {
+      const name = names.get(member);
+      return name !== undefined && active.has(name);
+    });
   }
 
   /** The empty line a section shows: nothing yet, still loading, or nothing matching. */
@@ -213,6 +242,13 @@ export class BotNav {
       return 'No groups match.';
     }
     return this.loaded() ? 'No groups yet.' : 'Loading groups…';
+  }
+
+  protected threadsEmpty(): string {
+    if (this.filtering()) {
+      return 'No threads match.';
+    }
+    return 'No threads yet.';
   }
 
   protected setQuery(event: Event): void {
@@ -341,8 +377,8 @@ export class BotNav {
     this.open(`dm-${bot.username}`);
   }
 
-  protected openGroup(group: BotConversationSummary): void {
-    this.open(group.id);
+  protected openRoom(room: BotConversationSummary): void {
+    this.open(room.id);
   }
 
   private open(id: string): void {

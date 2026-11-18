@@ -346,6 +346,69 @@ describe('BotChat', () => {
     ]);
   });
 
+  it('gives each working bot its own ring, and the composer the last one reported', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, workshop, []);
+
+    // Two engine sessions, so two sets of counters: the room must not paint both
+    // rows with whichever bot answered last.
+    morse.bot.onUsage({
+      conversationId: workshop.id,
+      username: 'forge',
+      bot: 'Forge',
+      contextUsage: { tokens: 21_000, contextWindow: 100_000, percent: 21 },
+    });
+    morse.bot.onUsage({
+      conversationId: workshop.id,
+      username: 'sable',
+      bot: 'Sable',
+      contextUsage: { tokens: 84_000, contextWindow: 200_000, percent: 42 },
+    });
+    morse.bot.onRouting(
+      round(workshop.id, {
+        active: [
+          {
+            target: 'Forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+          },
+          {
+            target: 'Sable',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 },
+          },
+        ],
+        queued: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    const presence = [...host.querySelectorAll('.transcript .acting')] as HTMLElement[];
+    expect(
+      presence.map((row) => row.querySelector('morse-usage-indicator .pct')?.textContent?.trim()),
+    ).toEqual(['21.0%', '42.0%']);
+
+    // The composer keeps one ring, and it belongs to the bot that reported most
+    // recently — the session the reader just watched work.
+    expect(
+      host.querySelector('.composer-host morse-usage-indicator .pct')?.textContent?.trim(),
+    ).toBe('42.0%');
+
+    // A row's ring opens that bot's own budget, named, not the room's.
+    (presence[1]?.querySelector('morse-usage-indicator .mini') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(presence[1]?.querySelector('morse-usage-indicator .subtitle')?.textContent).toContain(
+      'Sable',
+    );
+
+    // Presence goes, rings go with it: a room with nobody running shows none, while
+    // the composer keeps the last answer's counters.
+    morse.bot.onRouting(round(workshop.id, null));
+    fixture.detectChanges();
+    expect(host.querySelectorAll('.transcript morse-usage-indicator')).toHaveLength(0);
+    expect(
+      host.querySelector('.composer-host morse-usage-indicator .pct')?.textContent?.trim(),
+    ).toBe('42.0%');
+  });
+
   it('does not draw another conversation’s round', async () => {
     const { fixture, host, morse } = await render();
     open(morse, dm, []);
@@ -388,7 +451,9 @@ describe('BotChat', () => {
 
     (host.querySelector('.stop') as HTMLButtonElement).click();
 
-    expect(stop).toHaveBeenCalledTimes(1);
+    // The row belongs to one bot, so its Stop halts that bot alone: the room's
+    // other lane keeps running, and its menu names handles, not display names.
+    expect(stop).toHaveBeenCalledWith(workshop.id, 'forge');
   });
 
   it('asks before starting a new discussion, then resets the sessions', async () => {
@@ -497,6 +562,7 @@ describe('BotChat', () => {
 
     morse.bot.onUsage({
       conversationId: dm.id,
+      username: 'forge',
       bot: 'Forge',
       contextUsage: { tokens: 42_000, contextWindow: 200_000, percent: 21 },
     });

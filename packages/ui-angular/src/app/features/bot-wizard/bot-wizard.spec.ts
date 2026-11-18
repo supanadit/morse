@@ -234,6 +234,14 @@ describe('BotWizard', () => {
     vi.restoreAllMocks();
   });
 
+  it('tells the reader who reads the description', async () => {
+    const { host } = await render();
+
+    // The description is no longer a note for the reader alone: it is the roster
+    // label another bot matches work against.
+    expect(host.textContent).toContain('What other bots see when they look for help.');
+  });
+
   it('probes the catalog on arriving at Connect and holds Next until a model is picked', async () => {
     const { fixture, host, morse } = await render();
 

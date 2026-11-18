@@ -8,8 +8,8 @@ import { Dialog } from '../../ui/dialog/dialog';
  *
  * Members come from the roster — there is nothing else to pick from — and the
  * lead is deliberately limited to the members chosen here: a bot that is not in
- * the room cannot answer for it. No lead is a real choice: a message that
- * mentions nobody then gets silence rather than an invented speaker.
+ * the room cannot answer for it. No lead is a real choice, and not silence: the
+ * room fans an unaddressed message out to every member.
  *
  * The same form edits an existing group: the shell names it in
  * `ui.groupTarget`, and the roster already carries its summary, so the fields
@@ -46,8 +46,6 @@ export class BotGroupDialog {
   protected readonly lead = signal(
     this.kept.includes(this.initial?.lead ?? '') ? (this.initial?.lead ?? '') : '',
   );
-  /** Bot-to-bot relays one human message may set off; the service's own default. */
-  protected readonly chainCap = signal(this.initial?.chainCap ?? 8);
   protected readonly ready = computed(
     () => this.name().trim().length > 0 && this.members().length > 0,
   );
@@ -96,11 +94,6 @@ export class BotGroupDialog {
     this.lead.set((event.target as HTMLSelectElement).value);
   }
 
-  protected setChainCap(event: Event): void {
-    const parsed = Number.parseInt((event.target as HTMLInputElement).value, 10);
-    this.chainCap.set(Number.isFinite(parsed) && parsed >= 1 ? parsed : 1);
-  }
-
   protected submit(): void {
     if (!this.ready()) {
       return;
@@ -110,7 +103,6 @@ export class BotGroupDialog {
       name: this.name().trim(),
       members: [...this.members()],
       ...(lead.length > 0 ? { lead } : {}),
-      chainCap: this.chainCap(),
     };
     if (this.initial === undefined) {
       this.morse.createGroup(input);

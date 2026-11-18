@@ -12,7 +12,7 @@
     <header class="head">
       <div class="titles">
         <span class="eyebrow">
-          {{ conversation.kind === 'group' ? 'Group' : 'Direct message' }}
+          {{ conversation.kind === 'group' ? 'Group' : conversation.kind === 'thread' ? 'Thread' : 'Direct message' }}
         </span>
         <h2 class="title">{{ conversation.title }}</h2>
         <span class="members">{{ memberNames(conversation) }}</span>
@@ -46,9 +46,9 @@
     </header>
 
     <!--
-      The round in flight draws itself where the answer will land: see the
-      presence row at the end of the transcript. The Stop there is the one control
-      that belongs to the round.
+      The work in flight draws itself where the answer will land: see the presence
+      rows at the end of the transcript. Each row carries that bot's own Stop, since
+      each lane can be halted without disturbing its teammates.
     -->
     <!--
       The transcript scrolls one conversation across every engine session it has
@@ -150,7 +150,30 @@
               }
             </span>
           </div>
-          <button type="button" class="stop" title="Stop this round" (click)="stop()">Stop</button>
+          <!-- Each lane has its own engine session, so each row draws that bot's
+               own window. A bot that has not reported yet has none. -->
+          @if (row.ring; as ring) {
+            <morse-usage-indicator
+              class="row-usage"
+              [variant]="'context'"
+              [usage]="ring.usage"
+              [lastUsage]="ring.lastUsage"
+              [costUsd]="ring.costUsd"
+              [contextUsage]="ring.contextUsage"
+              [counts]="ring.counts"
+              [speed]="ring.speed"
+              [model]="ring.model"
+              [sessionTitle]="ring.sessionTitle"
+            />
+          }
+          <button
+            type="button"
+            class="stop"
+            [title]="'Stop ' + row.name + ' in this conversation'"
+            (click)="stop(row.username)"
+          >
+            Stop
+          </button>
         </div>
       }
     </div>

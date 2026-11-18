@@ -64,7 +64,6 @@ const CLIENT_BOT_MESSAGES = [
       name: 'Launch, revised',
       members: ['forge', 'scout'],
       lead: 'scout',
-      chainCap: 4,
     },
   },
   { type: 'bot/groupDelete', payload: { id: 'grp-launch-ab12' } },
@@ -82,6 +81,7 @@ const HOST_BOT_MESSAGES = [
     type: 'bot/usage',
     payload: {
       conversationId: 'dm-forge',
+      username: 'forge',
       bot: 'Forge',
       contextUsage: { tokens: 21_000, contextWindow: 200_000, percent: 10.5 },
     },

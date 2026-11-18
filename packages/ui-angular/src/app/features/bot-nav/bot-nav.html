@@ -1,6 +1,7 @@
 <!--
-  One sidebar with two sections, the way the session list groups its projects:
-  first the bots themselves (each row is its DM), then the groups they talk in.
+  One sidebar with three sections, the way the session list groups its projects:
+  first the bots themselves (each row is its DM), then the threads two bots opened
+  between themselves, then the groups a person made.
 
   The head is a search box and one `+`: the roster scrolls away from the creation
   actions once there are a few bots, and a search is what a long roster needs
@@ -116,6 +117,61 @@
     }
   </section>
 
+  <!-- Threads appear once they exist: two bots open one on their own, so an
+       always-empty section would be a row nobody asked for. -->
+  @if (threads().length > 0) {
+    <section class="section">
+      <div class="section-head">
+        <span class="section-label">Threads</span>
+        <span class="count">{{ threadMatches().length }}</span>
+      </div>
+      @if (threadMatches().length > 0) {
+        <ul>
+          @for (thread of threadMatches(); track thread.id) {
+            <li class="thread-row">
+              <button
+                type="button"
+                class="row thread"
+                [class.active]="activeId() === thread.id"
+                [attr.aria-current]="activeId() === thread.id ? 'true' : null"
+                [title]="'Open ' + thread.title"
+                (click)="openRoom(thread)"
+                (contextmenu)="openRowMenu($event, thread)"
+              >
+                <span class="tile thread-mark" aria-hidden="true">{{ roomMark(thread) }}</span>
+                <span class="body">
+                  <span class="name">{{ thread.title }}</span>
+                  <span class="description">{{ roomSubtitle(thread) }}</span>
+                </span>
+                <!-- A thread has no engine of its own either: its dot means a bot
+                     is answering there, and it is readable whether or not it is
+                     the conversation in front. -->
+                <span
+                  class="presence acting"
+                  [class.quiet]="!routingForConversation(thread.id)"
+                  [attr.title]="routingForConversation(thread.id) ? 'Answering…' : null"
+                  aria-hidden="true"
+                ></span>
+              </button>
+              <button
+                type="button"
+                class="row-more"
+                [attr.aria-label]="'Actions for ' + thread.title"
+                [title]="'Actions for ' + thread.title"
+                aria-haspopup="menu"
+                (click)="openMoreMenu($event, thread)"
+              >
+                ⋯
+              </button>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="empty">{{ threadsEmpty() }}</p>
+      }
+    </section>
+  }
+
   <section class="section">
     <div class="section-head">
       <span class="section-label">Groups</span>
@@ -131,13 +187,13 @@
               [class.active]="activeId() === group.id"
               [attr.aria-current]="activeId() === group.id ? 'true' : null"
               [title]="'Open ' + group.title"
-              (click)="openGroup(group)"
+              (click)="openRoom(group)"
               (contextmenu)="openRowMenu($event, group)"
             >
-              <span class="tile group-mark" aria-hidden="true">{{ groupMark(group) }}</span>
+              <span class="tile group-mark" aria-hidden="true">{{ roomMark(group) }}</span>
               <span class="body">
                 <span class="name">{{ group.title }}</span>
-                <span class="description">{{ groupSubtitle(group) }}</span>
+                <span class="description">{{ roomSubtitle(group) }}</span>
               </span>
               <!-- A group has no engine of its own, so its dot only ever means
                    one thing: a member is answering in it, or work is waiting. -->
@@ -275,7 +331,7 @@
         } @else {
           <button type="button" class="context-menu-item"
             role="menuitem"
-            (click)="openGroup(open.group)">
+            (click)="openRoom(open.group)">
             Open
           </button>
           <button type="button" class="context-menu-item"
@@ -288,41 +344,45 @@
               type="button"
               class="context-menu-item stop-bot"
               role="menuitem"
-              [attr.data-username]="member"
               [title]="'Stop @' + member + ' in this room'"
               (click)="stopBot(open.group.id, member)"
             >
               Stop @{{ member }}
             </button>
           }
-          <button
-            type="button"
-            class="context-menu-item edit-group"
-            role="menuitem"
-            [disabled]="routingForConversation(open.group.id)"
-            [title]="
-              routingForConversation(open.group.id)
-                ? 'This group is answering — wait for the turn to end'
-                : 'Edit ' + open.group.title
-            "
-            (click)="editGroup(open.group)"
-          >
-            Edit group…
-          </button>
-          <button
-            type="button"
-            class="context-menu-item danger delete-group"
-            role="menuitem"
-            [disabled]="routingForConversation(open.group.id)"
-            [title]="
-              routingForConversation(open.group.id)
-                ? 'This group is answering — wait for the turn to end'
-                : 'Delete ' + open.group.title
-            "
-            (click)="askDeleteGroup(open.group)"
-          >
-            Delete group…
-          </button>
+          <!-- A group is a record the dialog can rewrite and the host can delete.
+               A thread is not: it is a conversation two bots opened, so offering
+               the management controls here would only produce a refusal. -->
+          @if (open.group.kind === 'group') {
+            <button
+              type="button"
+              class="context-menu-item edit-group"
+              role="menuitem"
+              [disabled]="routingForConversation(open.group.id)"
+              [title]="
+                routingForConversation(open.group.id)
+                  ? 'This group is answering — wait for the turn to end'
+                  : 'Edit ' + open.group.title
+              "
+              (click)="editGroup(open.group)"
+            >
+              Edit group…
+            </button>
+            <button
+              type="button"
+              class="context-menu-item danger delete-group"
+              role="menuitem"
+              [disabled]="routingForConversation(open.group.id)"
+              [title]="
+                routingForConversation(open.group.id)
+                  ? 'This group is answering — wait for the turn to end'
+                  : 'Delete ' + open.group.title
+              "
+              (click)="askDeleteGroup(open.group)"
+            >
+              Delete group…
+            </button>
+          }
         }
       }
     }

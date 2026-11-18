@@ -164,7 +164,8 @@ ul {
 
 /* A row is one conversation: tile, name over description, and its actions. */
 .bot-row,
-.group-row {
+.group-row,
+.thread-row {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -172,12 +173,14 @@ ul {
 }
 
 .bot-row:hover,
-.group-row:hover {
+.group-row:hover,
+.thread-row:hover {
   background: var(--morse-hover);
 }
 
 .bot-row:has(.row.active),
-.group-row:has(.row.active) {
+.group-row:has(.row.active),
+.thread-row:has(.row.active) {
   background: var(--morse-active);
 }
 
@@ -223,7 +226,8 @@ ul {
   line-height: 1;
 }
 
-.group-mark {
+.group-mark,
+.thread-mark {
   color: var(--morse-fg-muted);
 }
 
@@ -338,6 +342,7 @@ ul {
 
 .bot-row:hover .row-more,
 .group-row:hover .row-more,
+.thread-row:hover .row-more,
 .row.active ~ .row-more,
 .row-more:focus-visible {
   opacity: 1;

@@ -37,6 +37,14 @@ const research: BotConversationSummary = {
   chainCap: 8,
   updatedAt: 2,
 };
+const thread: BotConversationSummary = {
+  id: 'thread-sigil-loom',
+  kind: 'thread',
+  title: 'Sigil · Loom',
+  members: ['forge', 'sable'],
+  chainCap: 8,
+  updatedAt: 3,
+};
 
 /** The mock host, plus everything the frontend asked it to do. */
 class RecordingHost extends MemoryHostTransport {
@@ -82,15 +90,20 @@ interface RenderOptions {
   rememberedConversation?: string;
 }
 
-function rows(host: HTMLElement, kind: 'bot' | 'group'): HTMLButtonElement[] {
+function rows(host: HTMLElement, kind: 'bot' | 'group' | 'thread'): HTMLButtonElement[] {
   return [...host.querySelectorAll(`.row.${kind}`)] as HTMLButtonElement[];
 }
 
 /** The names a section is showing, in order. */
-function names(host: HTMLElement, kind: 'bot' | 'group'): (string | undefined)[] {
+function names(host: HTMLElement, kind: 'bot' | 'group' | 'thread'): (string | undefined)[] {
   return [...host.querySelectorAll(`.row.${kind} .name`)].map(
     (one) => one.textContent?.trim() ?? '',
   );
+}
+
+/** The section headers, in the order the sidebar draws them. */
+function sections(host: HTMLElement): (string | undefined)[] {
+  return [...host.querySelectorAll('.section-label')].map((one) => one.textContent?.trim());
 }
 
 /** Right-clicks a row, the way a reader reaches its actions. */
@@ -158,6 +171,58 @@ describe('BotNav', () => {
     rows(host, 'group')[0]?.click();
 
     expect(open).toHaveBeenCalledWith('group-workshop');
+  });
+
+  it('lists a bot-to-bot conversation under Threads, not Groups', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [workshop, thread] });
+    fixture.detectChanges();
+
+    // Threads sit between the bots and the rooms a person opened, because that is
+    // what they are: side work two bots did between themselves.
+    expect(sections(host)).toEqual(['Bots', 'Threads', 'Groups']);
+    expect(names(host, 'thread')).toEqual(['Sigil · Loom']);
+    expect(names(host, 'group')).toEqual(['The workshop']);
+    // A thread has no GroupRecord behind it, so the group management controls are
+    // absent rather than offered and refused.
+    rightClick(rows(host, 'thread')[0] as HTMLElement);
+    fixture.detectChanges();
+    expect(host.querySelector('.context-menu .edit-group')).toBeNull();
+    expect(host.querySelector('.context-menu .delete-group')).toBeNull();
+  });
+
+  it('opens a thread and stops each of its two bots on its own', async () => {
+    const { fixture, host, morse, sent } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [thread] });
+    morse.bot.onRouting({
+      conversationId: thread.id,
+      state: {
+        conversationId: thread.id,
+        active: [
+          { target: 'Forge', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 } },
+          { target: 'Sable', activity: { kind: 'thinking', label: 'Wait, let me think…', at: 2 } },
+        ],
+        queued: [],
+      },
+    });
+    fixture.detectChanges();
+    const open = vi.spyOn(morse, 'openBotConversation');
+
+    rows(host, 'thread')[0]?.click();
+    expect(open).toHaveBeenCalledWith('thread-sigil-loom');
+
+    // The row is openable and carries the same per-bot stop a group does: a
+    // thread is exactly two bots, and either one can be halted alone.
+    rightClick(rows(host, 'thread')[0] as HTMLElement);
+    fixture.detectChanges();
+    const stops = [...host.querySelectorAll('.context-menu .stop-bot')] as HTMLButtonElement[];
+    expect(stops.map((one) => one.textContent?.trim())).toEqual(['Stop @forge', 'Stop @sable']);
+
+    stops[1]?.click();
+    expect(sent.at(-1)).toEqual({
+      type: 'bot/stop',
+      payload: { conversationId: 'thread-sigil-loom', username: 'sable' },
+    });
   });
 
   it('writes the open conversation down, so a reload can come back to it', async () => {

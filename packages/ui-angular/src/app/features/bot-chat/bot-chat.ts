@@ -22,7 +22,9 @@ import { ComposerDrafts } from '../../state/composer-drafts';
 import { CopyButton } from '../../ui/copy-button/copy-button';
 import { Markdown } from '../../ui/markdown/markdown';
 import { ChatComposer, type BotComposerSend } from '../composer/composer';
+import { botUsageInputs, hasBotUsage, type BotUsageInputs } from '../composer/bot-usage';
 import type { MentionCandidate } from '../mention-picker/mention-picker';
+import { UsageIndicator } from '../usage/usage-indicator';
 
 /**
  * Bot mode's conversation: the lines of the DM or group in front, who said
@@ -30,7 +32,7 @@ import type { MentionCandidate } from '../mention-picker/mention-picker';
  *
  * It owns no state of its own. The transcript, the open conversation and the
  * route live in `BotState`, behind `MorseService`, so this is a view of those
- * signals with one gesture each: send a line, stop the round, start a new
+ * signals with one gesture each: send a line, stop a bot's turn, start a new
  * discussion. It reuses the same markdown renderer as the code transcript and
  * the same composer — with the session's machinery switched off — so a reader
  * does not learn a second chat.
@@ -38,7 +40,7 @@ import type { MentionCandidate } from '../mention-picker/mention-picker';
 @Component({
   selector: 'morse-bot-chat',
   templateUrl: './bot-chat.html',
-  imports: [Markdown, ChatComposer, CopyButton],
+  imports: [Markdown, ChatComposer, CopyButton, UsageIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './bot-chat.css',
 })
@@ -85,12 +87,13 @@ export class BotChat {
   });
 
   /**
-   * What the open conversation's last answer cost, for the composer's context
-   * ring; `undefined` until a bot has answered there.
+   * What the open conversation's most recent answer cost, for the composer's one
+   * context ring; `undefined` until a bot has answered there. The room's other
+   * bots report their own counters, which their presence rows draw.
    */
   protected readonly usage = computed<BotUsage | undefined>(() => {
     const id = this.morse.bot.activeId();
-    return id === null ? undefined : this.morse.bot.usage()[id];
+    return id === null ? undefined : this.morse.bot.latestUsage(id);
   });
 
   /**
@@ -111,16 +114,24 @@ export class BotChat {
       name: string;
       mark: string;
       queued: string[];
+      /** The bot's handle, when the roster can name it: the only thing a stop takes. */
+      username?: string;
+      /** This bot's own counters, so its row's ring describes its own window. */
+      ring?: BotUsageInputs;
     }[]
   >(() => {
     const routing = this.routing();
     if (routing === null) {
       return [];
     }
+    const id = this.morse.bot.activeId();
     const bots = this.morse.bot.roster()?.bots ?? [];
     return routing.active.map((entry, index) => {
       const activity = entry.activity;
       const bot = bots.find((one) => one.name === entry.target);
+      const usage =
+        id === null || bot === undefined ? undefined : this.morse.bot.usageFor(id, bot.username);
+      const ring = usage === undefined ? undefined : botUsageInputs(usage);
       return {
         key: `${entry.target}:${activity.kind}:${activity.at}`,
         kind: activity.kind,
@@ -130,6 +141,10 @@ export class BotChat {
         // The queue belongs to the room, not to one bot: it is drawn once, under
         // the first row, rather than repeated beside every working member.
         queued: index === 0 ? routing.queued : [],
+        ...(bot === undefined ? {} : { username: bot.username }),
+        // A bot that has not reported yet has nothing to draw, so its row stays
+        // ringless rather than showing an empty gauge.
+        ...(ring === undefined || !hasBotUsage(ring) ? {} : { ring }),
       };
     });
   });
@@ -329,8 +344,13 @@ export class BotChat {
     this.morse.clearBotMessages(id);
   }
 
-  /** The round's Stop: aborts the turn in flight and drops the queued relays. */ protected stop(): void {
-    this.morse.stopBotRound();
+  /**
+   * A presence row's own Stop: it halts that bot's turn and its queued work in the
+   * conversation in front, leaving a teammate running. Without a handle — a row
+   * the roster could not name — it falls back to the whole room.
+   */
+  protected stop(username?: string): void {
+    this.morse.stopBotRound(this.morse.bot.activeId(), username);
   }
 
   /**
