@@ -15,7 +15,6 @@ import type {
   WorkspaceRef,
 } from '@morse/agent';
 import type {
-  BotActivity,
   BotAuthor,
   BotBusSendInput,
   BotBusSendResult,
@@ -27,11 +26,13 @@ import type {
   BotCreateInput,
   BotGroupCreateInput,
   BotGroupUpdateInput,
+  BotHandoff,
   BotMcpServerInput,
   BotOutgoingAttachments,
   BotProviderConfig,
   BotProviderCredentialInput,
   BotRosterEntry,
+  BotRoutingActive,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
@@ -42,12 +43,13 @@ import type {
 import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
-import { activityForEvent, startingActivity } from './activity.js';
+import { startingActivity, stepForEvent } from './activity.js';
 import { writeBotAttachments } from './attachments.js';
 import { addressedBots, busRefusal, BUS_LIMITS } from './bus.js';
 import { BotDeliveryStore, DELIVERY_TTL_MS } from './deliveries.js';
 import { HOST_PERSON_ID, hostPerson } from './person.js';
 import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
+import { BotTurnTracker } from './turns.js';
 import { discoverOpenAiCompatibleModels } from './providers.js';
 import type { BotProviderModel } from './types.js';
 import {
@@ -236,6 +238,12 @@ const PRUNE_INTERVAL_MS = 3_600_000;
  * that forgets an hour of chatter is cheaper than persisting it for every bot.
  */
 const BUS_SEND_WINDOW_MS = 3_600_000;
+/**
+ * How often one bot's answer may be pushed while it is written. Text arrives in
+ * bursts, and a row that repaints on every token is one a slow client cannot
+ * follow; the record still keeps every word, so a read draws all of it.
+ */
+const PARTIAL_PUSH_MS = 150;
 
 /** A provider from a layout, in the shape Edit bot reads back. */
 function toProviderConfig(provider: BotProviderRecord): BotProviderConfig {
@@ -358,11 +366,6 @@ function assertMcpServers(servers: readonly BotMcpServerInput[]): void {
   }
 }
 
-/** Whether two activities would draw the same row, so no update is sent for them. */
-function sameActivity(a: BotActivity | undefined, b: BotActivity): boolean {
-  return a !== undefined && a.kind === b.kind && a.label === b.label && a.tool === b.tool;
-}
-
 /** A run is in flight: the answer it is waiting on and what it has said so far. */
 interface PromptOutcome {
   reply: string;
@@ -423,10 +426,19 @@ export class BotService {
    * is `running`, which is what makes two turns for the same bot impossible.
    */
   private readonly lanes = new Set<string>();
-  /** What each running bot is doing, keyed by conversation and username. */
-  private readonly activities = new Map<string, BotActivity>();
-  /** The delivery each running bot is on, so a late engine event can be ignored. */
-  private readonly turns = new Map<string, { conversationId: string; deliveryId: string }>();
+  /**
+   * The delivery each running bot is on, so a late engine event — and a bus call
+   * from inside the turn — can be checked against the turn it claims to be in.
+   */
+  private readonly running = new Map<string, { conversationId: string; deliveryId: string }>();
+  /**
+   * What each running bot is doing, by handle: the steps it took, the asks it
+   * handed to peers and the answer as it is written. One record per lane,
+   * started when the lane takes work and taken when it settles.
+   */
+  private readonly turns: BotTurnTracker;
+  /** When each bot's streamed step was last pushed, for the pacing of `PARTIAL_PUSH_MS`. */
+  private readonly deltaPushedAt = new Map<string, number>();
   /**
    * The reader's attachments for a delivery, kept in memory only until its turn.
    *
@@ -476,6 +488,7 @@ export class BotService {
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
     this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.clock = options.now ?? Date.now;
+    this.turns = new BotTurnTracker(this.clock);
     this.recoverDeliveries();
   }
 
@@ -1069,19 +1082,25 @@ export class BotService {
    * Read by the host when a conversation opens: a client that arrives — or
    * returns — mid-turn must see every bot still working, since the service only
    * pushes a state when it changes. Built from the delivery file plus the live
-   * activities, so the answer to an opening read and a push cannot disagree.
+   * turn records, so the answer to an opening read and a push cannot disagree.
    */
   routing(conversationId: string): BotRoutingState | null {
     const rows = this.deliveries.all(conversationId);
+    // A row's asks point at deliveries in other rooms (the thread a bot opened),
+    // so each room is read once per push however many asks point into it.
+    const byRoom = new Map<string, BotDelivery[]>([[conversationId, rows]]);
+    const rowsOf = (id: string): BotDelivery[] => {
+      const cached = byRoom.get(id);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const read = this.deliveries.all(id);
+      byRoom.set(id, read);
+      return read;
+    };
     const active = rows
       .filter((row) => row.status === 'running')
-      .map((row) => ({
-        target: this.displayNameOf(row.to),
-        username: row.to,
-        activity:
-          this.activities.get(activityKey(conversationId, row.to)) ??
-          startingActivity(row.createdAt),
-      }));
+      .map((row) => this.activeRow(row, rowsOf));
     const queued = rows
       .filter((row) => row.status === 'queued')
       .map((row) => this.displayNameOf(row.to));
@@ -1089,6 +1108,54 @@ export class BotService {
       return null;
     }
     return { conversationId, active, queued };
+  }
+
+  /**
+   * One running delivery as the row draws it: the turn record when the lane has
+   * one, and a one-step starting row when a delivery was re-queued and no
+   * record survived. `activity` is always the newest step, so a row cannot show a
+   * line its own step list does not carry.
+   */
+  private activeRow(
+    row: BotDelivery,
+    rowsOf: (conversationId: string) => BotDelivery[],
+  ): BotRoutingActive {
+    const turn = this.turns.get(row.to);
+    const record =
+      turn !== undefined && turn.conversationId === row.conversationId ? turn : undefined;
+    const startedAt = record?.startedAt ?? row.createdAt;
+    const steps = record?.steps ?? [startingActivity(startedAt)];
+    return {
+      target: this.displayNameOf(row.to),
+      username: row.to,
+      activity: steps.at(-1) ?? startingActivity(startedAt),
+      startedAt,
+      steps,
+      handoffs: (record?.handoffs ?? []).map((handoff) => this.handoffRow(handoff, rowsOf)),
+      ...(record === undefined || record.partial === '' ? {} : { partial: record.partial }),
+    };
+  }
+
+  /**
+   * One ask as its sender's row draws it: its state read from the delivery it
+   * created, so it moves asked → working → done without the sender's engine
+   * saying anything else, and the peer's live step when its turn is in that room.
+   */
+  private handoffRow(
+    handoff: BotHandoff,
+    rowsOf: (conversationId: string) => BotDelivery[],
+  ): BotHandoff {
+    const delivery = rowsOf(handoff.conversationId).find((row) => row.id === handoff.deliveryId);
+    const target = this.turns.get(handoff.username);
+    const activity =
+      target !== undefined && target.conversationId === handoff.conversationId
+        ? target.steps.at(-1)
+        : undefined;
+    return {
+      ...handoff,
+      ...(delivery === undefined ? {} : { state: handoffState(delivery.status) }),
+      ...(activity === undefined ? {} : { activity }),
+    };
   }
 
   /**
@@ -1252,9 +1319,23 @@ export class BotService {
     const busy = this.lanes.has(target.username);
     this.deliveries.add(delivery);
     this.recordSend(username);
+    // Recorded on the sender's own turn: the row reads the target's delivery for
+    // its state, so the chip moves without the sender's engine saying anything.
+    this.turns.handoff(username, {
+      username: target.username,
+      conversationId: room.id,
+      deliveryId: delivery.id,
+      at: this.clock(),
+      state: 'asked',
+    });
     this.pump(target.username);
     if (busy) {
+      // The target's lane announced nothing: it was already working elsewhere.
       this.emitRouting(room.id);
+    }
+    if (room.id !== current.id) {
+      // The sender's room draws the chip even though the ask landed elsewhere.
+      this.emitRouting(current.id);
     }
     return { deliveryId: delivery.id, conversationId: room.id, queued: true };
   }
@@ -1618,8 +1699,11 @@ export class BotService {
       ),
     );
     this.lanes.clear();
-    this.activities.clear();
-    this.turns.clear();
+    for (const username of this.running.keys()) {
+      this.turns.clear(username);
+    }
+    this.running.clear();
+    this.deltaPushedAt.clear();
     this.turnAttachments.clear();
     this.announced.clear();
     // Credentials die with the process that handed them out.
@@ -1739,11 +1823,11 @@ export class BotService {
         return;
       }
       this.lanes.add(username);
-      this.turns.set(username, { conversationId: next.conversationId, deliveryId: next.id });
-      this.activities.set(
-        activityKey(next.conversationId, username),
-        startingActivity(this.clock()),
-      );
+      this.running.set(username, { conversationId: next.conversationId, deliveryId: next.id });
+      // The record starts before the announcement: starting an engine takes
+      // seconds, and the row a reader sees first is the starting step.
+      this.turns.start(username, next.conversationId);
+      this.deltaPushedAt.delete(username);
       this.deliveries.setStatus(next.conversationId, next.id, 'running');
     } catch (error: unknown) {
       // A corrupt queue is the store's to report, but this call sits in a
@@ -1751,10 +1835,9 @@ export class BotService {
       // bot's remaining work would stall with nothing in the log. Release this
       // lane's provisional claim and leave the file for repair.
       this.lanes.delete(username);
-      this.turns.delete(username);
-      if (next !== undefined) {
-        this.activities.delete(activityKey(next.conversationId, username));
-      }
+      this.running.delete(username);
+      this.turns.clear(username);
+      this.deltaPushedAt.delete(username);
       this.options.logger.warn(`Cannot take ${username}'s next bot delivery`, error);
       return;
     }
@@ -1798,19 +1881,21 @@ export class BotService {
         this.deliveries.setStatus(conversationId, delivery.id, status, note);
       }
       this.turnAttachments.delete(delivery.id);
+      // The turn is history now; whoever writes that history reads it here.
+      this.turns.take(delivery.to);
       this.finishLane(delivery.to, conversationId);
     }
   }
 
   /**
-   * The lane's teardown: clear the running mark and what it was doing, tell the
-   * room, and take the bot's next delivery. A failed turn is in here too — a
-   * lane that stops after one exception would strand every ask behind it.
+   * The lane's teardown: clear the running mark, tell the room, and take the
+   * bot's next delivery. A failed turn is in here too — a lane that stops after
+   * one exception would strand every ask behind it.
    */
   private finishLane(username: string, conversationId: string): void {
     this.lanes.delete(username);
-    this.turns.delete(username);
-    this.activities.delete(activityKey(conversationId, username));
+    this.running.delete(username);
+    this.deltaPushedAt.delete(username);
     this.emitRouting(conversationId);
     this.pump(username);
   }
@@ -2097,7 +2182,7 @@ export class BotService {
     if (context === undefined || context.expiresAt <= this.clock()) {
       return undefined;
     }
-    const running = this.turns.get(username);
+    const running = this.running.get(username);
     if (
       running === undefined ||
       running.deliveryId !== context.deliveryId ||
@@ -2373,7 +2458,7 @@ export class BotService {
   /** Everything a gateway reports: idle bookkeeping, replies, prompts, completion. */
   private onGatewayEvent(warm: WarmGateway, event: AgentEvent): void {
     this.touch(warm);
-    this.reportActivity(warm, activityForEvent(event, this.clock()));
+    this.reportActivity(warm, event);
     switch (event.type) {
       case 'agent/message':
         // The last assistant message before run-end is the turn's reply;
@@ -2493,38 +2578,53 @@ export class BotService {
   }
 
   /**
-   * Shows what a bot is doing in the chat, replacing the line it showed before.
+   * Keeps what a bot is doing on its turn's record: a step the engine reported,
+   * a tool call's outcome, or the words of the answer as they are written.
    *
-   * A chat has presence, not a trace: nothing here reaches the transcript, so the
-   * row is dropped the moment the turn's delivery settles. Events from a gateway
-   * that is no longer the one being asked — a late report from a session a stop
-   * abandoned — are ignored, so a finished lane never resurrects a row in a
-   * conversation that moved on.
+   * Nothing here reaches the transcript, so the row is dropped the moment the
+   * turn's delivery settles. Events from a gateway that is no longer the one being
+   * asked — a late report from a session a stop abandoned — are ignored, so a
+   * finished lane never resurrects a row in a conversation that moved on.
    */
-  private reportActivity(warm: WarmGateway, signal: ReturnType<typeof activityForEvent>): void {
+  private reportActivity(warm: WarmGateway, event: AgentEvent): void {
+    const running = this.running.get(warm.username);
+    if (running === undefined || running.conversationId !== warm.conversationId) {
+      return;
+    }
+    const signal = stepForEvent(event, this.clock());
     if (signal === undefined) {
       return;
     }
-    const turn = this.turns.get(warm.username);
-    if (turn === undefined || turn.conversationId !== warm.conversationId) {
+    // The answer landing is not a step: the row goes when the delivery settles, a
+    // moment after this, so keeping the last words until then reads as the engine
+    // still finishing rather than blinking to nothing.
+    if (signal.kind === 'clear') {
       return;
     }
-    const key = activityKey(warm.conversationId, warm.username);
-    const previous = this.activities.get(key);
-    if (previous === undefined) {
+    if (signal.kind === 'tool') {
+      this.turns.toolStatus(warm.username, signal.toolCallId, {
+        status: signal.status,
+        ...(signal.error === undefined ? {} : { error: signal.error }),
+        ...(signal.durationMs === undefined ? {} : { durationMs: signal.durationMs }),
+      });
+      this.emitRouting(warm.conversationId);
       return;
     }
-    // `clear` marks the answer landing: the row goes when the delivery settles,
-    // a moment after this, so keeping the last words until then reads as the
-    // engine still finishing rather than blinking to nothing.
-    if (signal === 'clear') {
-      return;
+    this.turns.step(warm.username, signal.step, signal.toolCallId);
+    if (event.type === 'agent/delta') {
+      if (event.channel === 'text') {
+        this.turns.appendPartial(warm.username, event.delta);
+      }
+      // A token stream is paced — the answer or the reasoning behind it. The
+      // record keeps every word; only the push waits, so a burst does not repaint
+      // the row faster than a client can follow it.
+      const now = this.clock();
+      const last = this.deltaPushedAt.get(warm.username);
+      if (last !== undefined && now - last < PARTIAL_PUSH_MS) {
+        return;
+      }
+      this.deltaPushedAt.set(warm.username, now);
     }
-    const next = { ...signal, at: this.clock() };
-    if (sameActivity(previous, next)) {
-      return;
-    }
-    this.activities.set(key, next);
     this.emitRouting(warm.conversationId);
   }
 
@@ -2556,7 +2656,7 @@ export class BotService {
    * push it again on the next reload.
    */
   private forgetUsage(conversationId: string, username: string): void {
-    if (!this.usageByBot.delete(activityKey(conversationId, username))) {
+    if (!this.usageByBot.delete(usageKey(conversationId, username))) {
       return;
     }
     this.emit({ type: 'usage', usage: { conversationId, username } });
@@ -2617,7 +2717,7 @@ export class BotService {
     };
     // Delete first so the map's insertion order is report order: a bot that answers
     // again becomes the newest, which is what a client reads as "the last ring".
-    const key = activityKey(warm.conversationId, warm.username);
+    const key = usageKey(warm.conversationId, warm.username);
     this.usageByBot.delete(key);
     this.usageByBot.set(key, usage);
     this.emit({ type: 'usage', usage });
@@ -2968,12 +3068,31 @@ export class BotService {
 }
 
 /**
- * What a bot is doing, keyed by the room as well as the bot: one bot may be warm
- * in several conversations, and the presence row belongs to the one it is
- * working in.
+ * One bot's counters in one room, keyed by the room as well as the bot: one bot
+ * may be warm in several conversations, and each ring describes one of them.
  */
-function activityKey(conversationId: string, username: string): string {
+function usageKey(conversationId: string, username: string): string {
   return `${conversationId}\u0000${username}`;
+}
+
+/**
+ * One delivery's own status as the handoff that created it reads it: a waiting
+ * ask is still `asked`, a running turn is `working`, and every terminal end that
+ * is not an answer — a failure, a drop, a cancel — is `failed`.
+ */
+function handoffState(status: BotDeliveryStatus): BotHandoff['state'] {
+  switch (status) {
+    case 'queued':
+      return 'asked';
+    case 'running':
+      return 'working';
+    case 'done':
+      return 'done';
+    case 'failed':
+    case 'dropped':
+    case 'cancelled':
+      return 'failed';
+  }
 }
 
 /**

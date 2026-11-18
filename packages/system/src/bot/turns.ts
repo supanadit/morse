@@ -12,6 +12,7 @@
  */
 
 import type { BotActivity, BotHandoff } from '@morse/protocol';
+import { startingActivity } from './activity.js';
 
 /** How many steps a turn carries: enough for the row's detail, cheap to push. */
 export const TURN_STEPS_MAX = 8;
@@ -21,9 +22,6 @@ export const TURN_HANDOFFS_MAX = 8;
 export const TURN_PARTIAL_MAX = 2_000;
 /** How much of a failed tool's output the step keeps for the row to open. */
 export const TURN_ERROR_MAX = 300;
-
-/** The row before the engine has said anything: starting one can take seconds. */
-const STARTING_LABEL = 'Getting started…';
 
 /** One turn as its readers see it. */
 export interface TurnSnapshot {
@@ -79,7 +77,7 @@ export class BotTurnTracker {
       username,
       conversationId,
       startedAt,
-      steps: [startingStep(startedAt)],
+      steps: [startingActivity(startedAt)],
       toolSteps: new Map(),
       handoffs: [],
       partial: '',
@@ -173,11 +171,6 @@ export class BotTurnTracker {
   clear(username: string): void {
     this.turns.delete(username);
   }
-}
-
-/** The row a turn starts with, before its engine has reported any work. */
-function startingStep(at: number): BotActivity {
-  return { kind: 'starting', label: STARTING_LABEL, at };
 }
 
 /** One turn as readers see it: fresh arrays, so a reader cannot reshape the record. */

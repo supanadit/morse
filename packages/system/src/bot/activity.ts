@@ -1,11 +1,12 @@
 /**
  * Turning what an engine reports into what a reader sees while it works.
  *
- * A bot conversation has no trace to scroll: the chat shows one line of presence
- * ("Reading launch-brief.md") where the answer will appear, and it is replaced as
- * the bot moves on and dropped when the answer lands. So this module's whole job
- * is wording — an engine names its tools and hands over raw JSON arguments, and
- * a reader should be told *what is being done to what*, in the bot's voice.
+ * A bot conversation has no trace to scroll: the chat shows a row of presence
+ * ("Reading launch-brief.md") that grows the steps the bot took, keeps a failed
+ * tool with the text it failed with, and disappears when the answer lands. So
+ * this module's whole job is wording — an engine names its tools and hands over
+ * raw JSON arguments, and a reader should be told *what is being done to what*,
+ * in the bot's voice.
  *
  * Kept out of the service so it can be read and tested on its own: the mapping is
  * the only place a tool name becomes English, and it is deliberately forgiving —
@@ -15,13 +16,6 @@
 
 import type { AgentEvent } from '@morse/agent';
 import type { BotActivity } from '@morse/protocol';
-
-/**
- * What `activityForEvent` says: a new activity, `clear` when the answer arrived
- * (so the row goes), or nothing at all when the event says nothing about work in
- * progress (a state change, a ready report, a fatal error's own handling).
- */
-export type ActivitySignal = BotActivity | 'clear' | undefined;
 
 /**
  * What `stepForEvent` says: a step to add to the turn, the outcome of a tool call
@@ -46,8 +40,6 @@ const STARTING_LABEL = 'Getting started…';
 const THINKING_LABEL = 'Wait, let me think…';
 /** The answer itself is being written, so the row is about to become a message. */
 const WRITING_LABEL = 'Writing the answer…';
-/** A tool came back and the engine is deciding what to do with it. */
-const REVIEWING_LABEL = 'Thinking it over…';
 
 /**
  * The verb a reader expects for a tool. Extensions bring their own names, so the
@@ -110,36 +102,7 @@ const DETAIL_KEYS = [
 /** How much of a command or path a one-line presence can hold. */
 const DETAIL_MAX = 72;
 
-/**
- * One engine event, as the line a chat shows. `at` is the host's clock, so a
- * changed timestamp restarts the row's animation even when the words repeat.
- */
-export function activityForEvent(event: AgentEvent, at: number): ActivitySignal {
-  switch (event.type) {
-    case 'agent/run-start':
-      return { kind: 'thinking', label: THINKING_LABEL, at };
-    case 'agent/delta':
-      // Thinking and writing are both "the bot is busy", but a reader watching an
-      // empty row for a long think deserves to be told which one it is.
-      return event.channel === 'text'
-        ? { kind: 'writing', label: WRITING_LABEL, at }
-        : { kind: 'thinking', label: THINKING_LABEL, at };
-    case 'agent/tool-start': {
-      const described = describeTool(event.name, event.title, event.input);
-      return { kind: 'tool', tool: described.tool, label: described.label, at };
-    }
-    case 'agent/tool-end':
-      return { kind: 'thinking', label: REVIEWING_LABEL, at };
-    case 'agent/message':
-      // The answer is in: the row is what the message replaces, so it goes now
-      // rather than blinking on until run-end.
-      return 'clear';
-    default:
-      return undefined;
-  }
-}
-
-/** The row a round starts with, before its engine has reported any work. */
+/** The row a turn starts with, before its engine has reported any work. */
 export function startingActivity(at: number): BotActivity {
   return { kind: 'starting', label: STARTING_LABEL, at };
 }
@@ -147,11 +110,11 @@ export function startingActivity(at: number): BotActivity {
 /**
  * One engine event, as one step of the turn it belongs to.
  *
- * A turn keeps what it did, so this reader differs from `activityForEvent` in
- * what it does with a tool call: the start opens a step and the end closes that
- * same step, which is how a failed tool stays on the row with the text it failed
- * with instead of being replaced by the next thought. `at` is the host's clock,
- * and `toolCallId` is what ties the closing event back to the step it opened.
+ * A turn keeps what it did, so a tool call is not replaced by the next thought:
+ * the start opens a step and the end closes that same step, which is how a
+ * failed tool stays on the row with the text it failed with. `at` is the host's
+ * clock, and `toolCallId` is what ties the closing event back to the step it
+ * opened.
  */
 export function stepForEvent(event: AgentEvent, at: number): StepSignal {
   switch (event.type) {

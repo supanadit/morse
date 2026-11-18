@@ -230,7 +230,8 @@ class FakeGateway implements AgentGateway {
     this.releaseHold = undefined;
   }
 
-  private emit(event: AgentEvent): void {
+  /** Reports one engine event mid-turn, the way a live engine does while it works. */
+  emit(event: AgentEvent): void {
     for (const listener of [...this.listeners]) {
       listener(event);
     }
@@ -1504,6 +1505,8 @@ describe('BotService rounds', () => {
       entries: [expect.objectContaining({ text: 'hi' })],
       replace: false,
     });
+    // The row that opened the turn carries the record's first step, its start
+    // time and an empty ask list; the answer is not sent until it is written.
     expect(events).toContainEqual({
       type: 'routing',
       conversationId: 'dm-forge',
@@ -1514,6 +1517,9 @@ describe('BotService rounds', () => {
             target: 'Forge',
             username: 'forge',
             activity: expect.objectContaining({ kind: 'starting' }),
+            startedAt: expect.any(Number),
+            steps: [expect.objectContaining({ kind: 'starting', label: 'Getting started…' })],
+            handoffs: [],
           },
         ],
         queued: [],
@@ -1549,15 +1555,25 @@ describe('BotService rounds', () => {
     await service.send('dm-forge', 'plan the launch');
     await settle(service);
 
-    // One line of presence, replaced as the bot moves on: started, thinking,
-    // each tool in turn (thinking between them), then gone with the answer.
-    expect(routing.map((state) => state.active[0]?.activity.label)).toEqual([
-      'Getting started…',
-      'Wait, let me think…',
-      'Reading launch-brief.md…',
-      'Thinking it over…',
-      'Running npm run test:fast…',
-      'Thinking it over…',
+    // One record, replaced as the bot moves on: started, thinking, each tool in
+    // turn — kept rather than overwritten — then gone with the answer.
+    expect(routing.map((state) => state.active[0]?.steps.map((step) => step.label))).toEqual([
+      ['Getting started…'],
+      ['Getting started…', 'Wait, let me think…'],
+      ['Getting started…', 'Wait, let me think…', 'Reading launch-brief.md…'],
+      ['Getting started…', 'Wait, let me think…', 'Reading launch-brief.md…'],
+      [
+        'Getting started…',
+        'Wait, let me think…',
+        'Reading launch-brief.md…',
+        'Running npm run test:fast…',
+      ],
+      [
+        'Getting started…',
+        'Wait, let me think…',
+        'Reading launch-brief.md…',
+        'Running npm run test:fast…',
+      ],
     ]);
     expect(routing.every((state) => state.active.length === 1)).toBe(true);
     expect(routing.every((state) => state.active[0]?.target === 'Forge')).toBe(true);
@@ -1567,6 +1583,76 @@ describe('BotService rounds', () => {
       'plan the launch',
       'Brief read, plan written.',
     ]);
+  });
+
+  it('shows the steps of a running turn and the answer as it is written', async () => {
+    const { adapter, service } = harness({
+      script: () => ({ text: 'Tally is the name', hold: true }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'name a bot');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+
+    gateway.emit({
+      type: 'agent/tool-start',
+      at: 1,
+      toolCallId: 't1',
+      name: 'read',
+      title: 'brief.md',
+    });
+    gateway.emit({ type: 'agent/tool-end', at: 2, toolCallId: 't1', status: 'ok', durationMs: 12 });
+    gateway.emit({ type: 'agent/delta', at: 3, channel: 'text', delta: 'Tally is' });
+
+    const row = service.routing('dm-forge')?.active[0];
+    // The lane opened a starting step, the engine's run added its thought, then
+    // the tool call and the answer being written: none of them replaced another.
+    expect(row?.steps.map((step) => step.kind)).toEqual([
+      'starting',
+      'thinking',
+      'tool',
+      'writing',
+    ]);
+    expect(row?.steps[2]).toMatchObject({ status: 'ok', durationMs: 12 });
+    expect(row?.partial).toBe('Tally is');
+
+    service.stop('dm-forge');
+    await settle(service);
+  });
+
+  it('pushes a partial answer no more than once every 150 ms', async () => {
+    let now = 1_000;
+    const { adapter, service } = harness({
+      now: () => now,
+      script: () => ({ text: 'one two three', hold: true }),
+    });
+    await service.createBot(botInput());
+    await service.send('dm-forge', 'write it');
+    const gateway = gatewayFor(adapter, 'forge');
+    await gateway.prompted;
+    // Subscribed after the lane announced itself, so only the answer's pushes count.
+    const pushes: BotRoutingState[] = [];
+    service.subscribe((event) => {
+      if (event.type === 'routing' && event.state !== null) {
+        pushes.push(event.state);
+      }
+    });
+
+    gateway.emit({ type: 'agent/delta', at: 0, channel: 'text', delta: 'one ' });
+    now += 100;
+    gateway.emit({ type: 'agent/delta', at: 0, channel: 'text', delta: 'two ' });
+    now += 200;
+    gateway.emit({ type: 'agent/delta', at: 0, channel: 'text', delta: 'three' });
+
+    // Two pushes for three deltas: the one inside the window is held back.
+    expect(pushes).toHaveLength(2);
+    expect(pushes[0]?.active[0]?.partial).toBe('one ');
+    expect(pushes[1]?.active[0]?.partial).toBe('one two three');
+    // Nothing is lost: a read still draws the whole answer.
+    expect(service.routing('dm-forge')?.active[0]?.partial).toBe('one two three');
+
+    service.stop('dm-forge');
+    await settle(service);
   });
 
   it('gives the addressed bot the images, and its workspace the files', async () => {
@@ -2823,6 +2909,51 @@ describe('BotService bus', () => {
 
     held.release();
     await settle(service, group.id);
+  });
+
+  it('reads a handoff state from the delivery it created', async () => {
+    const { adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.startsWith('[From ')
+          ? { text: 'named', hold: true }
+          : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    // Loom's lane is already busy in its own room, so Sigil's ask waits as a
+    // queued delivery — the state the row draws as `asked`.
+    const busy = await holdTurn(service, adapter, 'dm-loom', 'loom');
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const ask = await service.busSend('sigil', { to: 'loom', text: 'name the bot' });
+
+    const row = service.routing('dm-sigil')?.active[0];
+    expect(row?.handoffs).toEqual([
+      expect.objectContaining({
+        username: 'loom',
+        conversationId: 'thread-loom-sigil',
+        deliveryId: ask.deliveryId,
+        state: 'asked',
+      }),
+    ]);
+
+    // Loom finishes its own room and takes the ask: the same handoff reads its
+    // delivery's state and shows what Loom is doing in that thread.
+    busy.release();
+    for (let tick = 0; tick < 200 && factoryFor(adapter, 'loom').gateways.length < 2; tick += 1) {
+      await Promise.resolve();
+    }
+    const thread = gatewayFor(adapter, 'loom', 1);
+    await thread.prompted;
+    const working = service.routing('dm-sigil')?.active[0]?.handoffs[0];
+    expect(working).toMatchObject({ state: 'working' });
+    expect(working?.activity?.kind).toBe('thinking');
+
+    thread.release();
+    await settle(service, 'thread-loom-sigil');
+    expect(service.routing('dm-sigil')?.active[0]?.handoffs[0]?.state).toBe('done');
+
+    held.release();
+    await settle(service, 'dm-sigil');
   });
 
   it('opens a thread when the target is not in the caller’s room', async () => {
