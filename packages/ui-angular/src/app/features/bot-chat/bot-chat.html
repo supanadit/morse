@@ -12,7 +12,13 @@
     <header class="head">
       <div class="titles">
         <span class="eyebrow">
-          {{ conversation.kind === 'group' ? 'Group' : conversation.kind === 'thread' ? 'Thread' : 'Direct message' }}
+          {{
+            conversation.kind === 'group'
+              ? 'Group'
+              : conversation.kind === 'thread'
+                ? 'Thread'
+                : 'Direct message'
+          }}
         </span>
         <h2 class="title">{{ conversation.title }}</h2>
         <span class="members">{{ memberNames(conversation) }}</span>
@@ -79,7 +85,9 @@
                 class="turn-line"
                 [attr.aria-expanded]="isExpanded(trace.id)"
                 [title]="
-                  isExpanded(trace.id) ? 'Hide the steps of this turn' : 'Show the steps of this turn'
+                  isExpanded(trace.id)
+                    ? 'Hide the steps of this turn'
+                    : 'Show the steps of this turn'
                 "
                 (click)="toggleTurn(trace.id)"
               >
@@ -95,10 +103,10 @@
               </button>
               @if (isExpanded(trace.id)) {
                 <div class="turn-steps">
-                  @if (trace.steps.length === 0) {
+                  @if (recordSteps(trace).length === 0) {
                     <p class="turn-none">No steps were recorded.</p>
                   }
-                  @for (step of trace.steps; track $index) {
+                  @for (step of recordSteps(trace); track $index) {
                     <div class="step" [attr.data-status]="step.status ?? null">
                       <span class="step-label">{{ step.label }}</span>
                       @if (stepOutcome(step.status, true); as outcome) {
@@ -169,7 +177,72 @@
               <div class="entry bot" [attr.data-entry-id]="entry.id">
                 <span class="avatar" aria-hidden="true">{{ mark(entry.author) }}</span>
                 <div class="body">
-                  <span class="author">{{ entry.author.name }}</span>
+                  <div class="who">
+                    <span class="author">{{ entry.author.name }}</span>
+                    <!--
+                      The turns that produced this line, beside its author rather
+                      than as a second block repeating who spoke. Several records
+                      can land on one answer, so each is its own toggle.
+                    -->
+                    @for (trace of item.traces ?? []; track trace.id) {
+                      <button
+                        type="button"
+                        class="turn-line"
+                        [attr.data-trace-id]="trace.id"
+                        [attr.data-status]="trace.status"
+                        [attr.aria-expanded]="isExpanded(trace.id)"
+                        [title]="
+                          isExpanded(trace.id)
+                            ? 'Hide the steps of this turn'
+                            : 'Show the steps of this turn'
+                        "
+                        (click)="toggleTurn(trace.id)"
+                      >
+                        <span class="turn-summary">{{ turnDetail(trace) }}</span>
+                        @if (turnStatus(trace); as status) {
+                          <!-- Failure is in the step outcomes and the tint; a reader who
+                               cannot see the tint still needs the word. -->
+                          <span class="visually-hidden">{{ status }}</span>
+                        }
+                        <span class="turn-caret" aria-hidden="true">{{
+                          isExpanded(trace.id) ? '▾' : '▸'
+                        }}</span>
+                      </button>
+                    }
+                  </div>
+                  <!-- A record opens where the turn is named, above the answer it
+                       produced — the same place the standalone record sits. -->
+                  @for (trace of item.traces ?? []; track trace.id) {
+                    @if (isExpanded(trace.id)) {
+                      <div class="turn-steps">
+                        @if (recordSteps(trace).length === 0) {
+                          <p class="turn-none">No steps were recorded.</p>
+                        }
+                        @for (step of recordSteps(trace); track $index) {
+                          <div class="step" [attr.data-status]="step.status ?? null">
+                            <span class="step-label">{{ step.label }}</span>
+                            @if (stepOutcome(step.status, true); as outcome) {
+                              <span class="step-outcome">{{ outcome }}</span>
+                            }
+                            @if (step.error; as error) {
+                              <span class="step-error">{{ error }}</span>
+                            }
+                          </div>
+                        }
+                        @for (handoff of trace.handoffs; track handoff.deliveryId) {
+                          <button
+                            type="button"
+                            class="handoff"
+                            [title]="'Open the conversation with @' + handoff.username"
+                            (click)="openHandoff(handoff)"
+                          >
+                            {{ '@' + handoff.username }}
+                            <span class="handoff-state">{{ handoff.state }}</span>
+                          </button>
+                        }
+                      </div>
+                    }
+                  }
                   <div class="text"><morse-markdown [text]="entry.text" /></div>
                   <div class="line-meta">
                     <time
@@ -218,6 +291,24 @@
               <span class="doing-label" [title]="row.label">{{ row.label }}</span>
               @if (elapsed(row); as since) {
                 <span class="elapsed" title="How long this turn has run">{{ since }}</span>
+              }
+              @if (row.ring; as ring) {
+                <!-- Each lane has its own engine session, so each row draws
+                     that bot's own window. A bot that has not reported yet has
+                     none, and the gauge rides the status line, beside the clock
+                     it works by — not floating at the row's edge. -->
+                <morse-usage-indicator
+                  class="row-usage"
+                  [variant]="'context'"
+                  [usage]="ring.usage"
+                  [lastUsage]="ring.lastUsage"
+                  [costUsd]="ring.costUsd"
+                  [contextUsage]="ring.contextUsage"
+                  [counts]="ring.counts"
+                  [speed]="ring.speed"
+                  [model]="ring.model"
+                  [sessionTitle]="ring.sessionTitle"
+                />
               }
               @if (row.queued.length > 0) {
                 <span class="queued">then {{ row.queued.join(', ') }}</span>
@@ -302,22 +393,8 @@
               </div>
             }
           </div>
-          <!-- Each lane has its own engine session, so each row draws that bot's
-               own window. A bot that has not reported yet has none. -->
-          @if (row.ring; as ring) {
-            <morse-usage-indicator
-              class="row-usage"
-              [variant]="'context'"
-              [usage]="ring.usage"
-              [lastUsage]="ring.lastUsage"
-              [costUsd]="ring.costUsd"
-              [contextUsage]="ring.contextUsage"
-              [counts]="ring.counts"
-              [speed]="ring.speed"
-              [model]="ring.model"
-              [sessionTitle]="ring.sessionTitle"
-            />
-          }
+          <!-- Each lane has its own Stop, since each lane can be halted without
+               disturbing its teammates. -->
           <button
             type="button"
             class="stop"

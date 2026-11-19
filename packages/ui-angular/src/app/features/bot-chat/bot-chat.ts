@@ -46,7 +46,13 @@ interface TimelineItem {
   /** When it belongs in the conversation: a line's `at`, a trace's `endedAt`. */
   at: number;
   entry?: BotTranscriptEntry;
+  /** A turn with no answer line of its own: drawn as its own record row. */
   trace?: BotTurnTrace;
+  /**
+   * Turns anchored to `entry`, the answer they produced: drawn inside that
+   * line, beside its author, rather than as a second block repeating who spoke.
+   */
+  traces?: BotTurnTrace[];
 }
 
 /**
@@ -146,9 +152,10 @@ export class BotChat {
    * stamped the trace: the answer is appended when the engine finishes and the
    * trace is written after it, with I/O in between, so `endedAt` usually follows
    * the answer's `at`. The anchor is the earliest bot line by that turn's own
-   * handle falling between `startedAt` and `endedAt`; the record is placed right
-   * before it. A turn with no such line — cancelled or failed before writing, or
-   * its answer outside the loaded window — keeps its place by `endedAt`.
+   * handle falling between `startedAt` and `endedAt`; the record is drawn
+   * inside that line, beside its author. A turn with no such line — cancelled
+   * or failed before writing, or its answer outside the loaded window — keeps
+   * its place by `endedAt` as its own row.
    */
   protected readonly timeline = computed<TimelineItem[]>(() => {
     const id = this.morse.bot.activeId();
@@ -170,20 +177,15 @@ export class BotChat {
     }
     const items: TimelineItem[] = [
       ...loose,
-      ...entries.map((entry) => ({ key: `entry:${entry.id}`, at: entry.at, entry })),
+      ...entries.map((entry) => {
+        const anchoredTraces = anchored.get(entry.id);
+        return anchoredTraces === undefined
+          ? { key: `entry:${entry.id}`, at: entry.at, entry }
+          : { key: `entry:${entry.id}`, at: entry.at, entry, traces: anchoredTraces };
+      }),
     ];
     items.sort((left, right) => left.at - right.at || itemRank(left) - itemRank(right));
-    const ordered: TimelineItem[] = [];
-    for (const item of items) {
-      const { entry } = item;
-      if (entry !== undefined) {
-        for (const trace of anchored.get(entry.id) ?? []) {
-          ordered.push({ key: `trace:${trace.id}`, at: entry.at, trace });
-        }
-      }
-      ordered.push(item);
-    }
-    return ordered;
+    return items;
   });
   /** Whether the host said older entries exist before the ones held. */
   protected readonly hasOlder = computed(() => {
@@ -247,6 +249,10 @@ export class BotChat {
       const usage = id === null ? undefined : this.morse.bot.usageFor(id, entry.username);
       const ring = usage === undefined ? undefined : botUsageInputs(usage);
       const newest = entry.steps.at(-1) ?? activity;
+      // The reader is shown the work, not the model's thinking: a thought keeps
+      // the row's presence alive (its clock and its shimmer) but no list or
+      // count names it, so the chevron only promises steps a reader can check.
+      const shownSteps = visibleSteps(entry.steps);
       // The handle and the start time are the turn: steps arrive under the same
       // pair, and a new turn is the only thing that changes it.
       const turnKey = `${entry.username}:${entry.startedAt}`;
@@ -265,9 +271,9 @@ export class BotChat {
         lastStepAt: newest.at,
         runningTool:
           entry.steps.some((step) => step.status === 'running') || activity.status === 'running',
-        stepCount: entry.steps.length,
+        stepCount: shownSteps.length,
         // Three is what a glance can hold; the rest is the finished turn's record.
-        steps: entry.steps.slice(-3),
+        steps: shownSteps.slice(-3),
         partial: entry.partial ?? '',
         handoffs: entry.handoffs,
         // A bot that has not reported yet has nothing to draw, so its row stays
@@ -574,11 +580,31 @@ export class BotChat {
    * counting a placeholder step as work.
    */
   protected turnSummary(trace: BotTurnTrace): string {
-    const parts = [trace.name, turnDuration(trace.endedAt - trace.startedAt)];
+    return [trace.name, this.turnWork(trace)].join(' · ');
+  }
+
+  /**
+   * The same record without the name, for a toggle sitting beside the answer it
+   * produced: the author line already says who worked, so repeating it would be
+   * the doubled row this replaces.
+   */
+  protected turnDetail(trace: BotTurnTrace): string {
+    return this.turnWork(trace);
+  }
+
+  /** The recorded steps a reader is shown, in the order they happened. */
+  protected recordSteps(trace: BotTurnTrace): BotActivity[] {
+    return visibleSteps(trace.steps);
+  }
+
+  /** What the turn did, minus whose turn it was: time, work, and the asks. */
+  private turnWork(trace: BotTurnTrace): string {
+    const steps = visibleSteps(trace.steps);
+    const parts = [turnDuration(trace.endedAt - trace.startedAt)];
     if (trace.status === 'cancelled') {
-      parts.push(trace.steps.length === 0 ? 'could not start' : 'stopped');
+      parts.push(steps.length === 0 ? 'could not start' : 'stopped');
     } else {
-      parts.push(trace.steps.length === 1 ? '1 step' : `${trace.steps.length} steps`);
+      parts.push(steps.length === 1 ? '1 step' : `${steps.length} steps`);
     }
     if (trace.handoffs.length > 0) {
       parts.push(`asked ${trace.handoffs.map((handoff) => `@${handoff.username}`).join(', ')}`);
@@ -778,6 +804,15 @@ function answerFor(
 /** A trace sorts before an entry at the same instant, so a record sits above its line. */
 function itemRank(item: TimelineItem): number {
   return item.trace === undefined ? 1 : 0;
+}
+
+/**
+ * The steps a reader is shown: the model's thinking stays private to the turn.
+ * Thoughts still drive the live row's presence — its clock and its shimmer —
+ * but they are not work a reader can check, so no list or count names them.
+ */
+function visibleSteps(steps: readonly BotActivity[]): BotActivity[] {
+  return steps.filter((step) => step.kind !== 'thinking');
 }
 
 /**

@@ -297,10 +297,20 @@
   color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
   font-size: 11.5px;
 }
-/* The round's one control: quiet until pointed at, never a permanent button bar. */
+/* The bot's gauge rides the status line: it reads as part of what is happening
+   now, beside the clock it works by, not as a float between the row's edges. */
 .row-usage {
   flex: none;
   align-self: center;
+}
+/* The gauge sits near the row's start, so its panel opens toward the room:
+   anchored at the right it would lay its 320px across the transcript's edge
+   and come out cut. The viewport guard keeps the same from happening on the
+   other side in a narrow webview. */
+.row-usage .panel {
+  right: auto;
+  left: 0;
+  max-width: min(320px, calc(100vw - 48px));
 }
 .stop {
   flex: none;
@@ -474,6 +484,18 @@
   font-size: 12px;
   font-weight: 600;
 }
+/*
+ * The who-line of a bot's answer: the name and, beside it, the toggles for the
+ * turns that produced the line. One row says who spoke and what the work cost,
+ * where two stacked rows used to repeat the name and the mark.
+ */
+.who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
 /* When a line was said: muted, under its words, right-aligned for the reader
    and left-aligned for a bot, so the side still says who spoke. */
 .entry .when {
@@ -551,10 +573,14 @@
   font-size: 10px;
   opacity: 0.7;
 }
-/* A turn that did not finish cleanly says so on its own mark, without a badge. */
+/* A turn that did not finish cleanly says so on its own mark, without a badge.
+   Beside an answer, the toggle's own words carry the tint instead. */
 .entry.turn[data-status='failed'] .avatar,
 .entry.turn[data-status='cancelled'] .avatar {
   background: color-mix(in srgb, var(--morse-danger, #e5484d) 12%, transparent);
+}
+.turn-line[data-status='failed'] .turn-summary {
+  color: var(--morse-danger, #e5484d);
 }
 .turn-steps {
   display: flex;

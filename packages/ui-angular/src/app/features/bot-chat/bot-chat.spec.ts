@@ -190,7 +190,7 @@ describe('BotChat', () => {
     expect(system.textContent).toContain('Round stopped.');
   });
 
-  it('draws a finished turn above its answer', async () => {
+  it('draws a finished turn beside its answer, not as a second row', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [dm] });
     morse.bot.open(dm.id);
@@ -237,39 +237,42 @@ describe('BotChat', () => {
     });
     fixture.detectChanges();
 
-    // The line is one gesture, named by the name the turn was written with — Sigil
-    // is not in this roster, so resolving the roster would draw nothing.
-    const turnRow = host.querySelector('.turn') as HTMLElement;
-    const summary = turnRow.querySelector('.turn-line') as HTMLButtonElement;
-    expect(turnRow.querySelector('.turn-summary')?.textContent?.trim()).toBe(
-      'Sigil · 0s · 2 steps · asked @loom',
+    // The record shares the answer's own row: the toggle sits beside the author,
+    // and drops the name — the who-line above it already says who worked.
+    const answer = host.querySelector('.entry.bot') as HTMLElement;
+    const summary = answer.querySelector('.turn-line') as HTMLButtonElement;
+    expect(summary.getAttribute('data-trace-id')).toBe('delivery-1');
+    expect(answer.querySelector('.turn-summary')?.textContent?.trim()).toBe(
+      '0s · 1 step · asked @loom',
     );
     expect(summary.getAttribute('aria-expanded')).toBe('false');
+    // The mark and the name are the answer's alone: no second row repeats them.
+    expect(host.querySelectorAll('.transcript > .entry .avatar').length).toBe(1);
 
-    // The turn sits above the answer it produced, not after it: the reader sees
-    // how the work went before reading what it wrote.
+    // The record rides the answer's place in the conversation, not a row of its
+    // own, so the transcript's order is the lines' order.
     const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
-      one.classList.contains('turn')
-        ? one.getAttribute('data-trace-id')
-        : one.getAttribute('data-entry-id'),
+      one.getAttribute('data-entry-id'),
     );
-    expect(order).toEqual(['u1', 'delivery-1', 'a1']);
+    expect(order).toEqual(['u1', 'a1']);
 
-    // Expanding opens the record: each step's words and outcome, the failure's own
-    // text, and the ask as a link back to the conversation it happened in.
+    // Expanding opens the record above the answer: the work a reader can check,
+    // the failure's own text, and the ask as a link back to the conversation it
+    // happened in. The model's thinking is not the reader's to read, so no step
+    // names it — the count is the work's count, not the turn's whole breath.
     summary.click();
     fixture.detectChanges();
     expect(summary.getAttribute('aria-expanded')).toBe('true');
-    expect(turnRow.textContent).toContain('Reading the brief…');
+    expect(answer.textContent).not.toContain('Reading the brief…');
     // The wire says `ok`/`error`; the record says what happened in words.
     expect(
-      [...turnRow.querySelectorAll('.step-outcome')].map((one) => one.textContent?.trim()),
-    ).toEqual(['done', 'failed']);
-    expect(turnRow.textContent).toContain('Running the tests…');
-    expect(turnRow.querySelector('.step-error')?.textContent?.trim()).toBe('exit code 1');
+      [...answer.querySelectorAll('.step-outcome')].map((one) => one.textContent?.trim()),
+    ).toEqual(['failed']);
+    expect(answer.textContent).toContain('Running the tests…');
+    expect(answer.querySelector('.step-error')?.textContent?.trim()).toBe('exit code 1');
 
     const open = vi.spyOn(morse, 'openBotConversation');
-    (turnRow.querySelector('.handoff') as HTMLButtonElement).click();
+    (answer.querySelector('.handoff') as HTMLButtonElement).click();
     expect(open).toHaveBeenCalledWith('thread-sigil-loom');
   });
 
@@ -294,12 +297,16 @@ describe('BotChat', () => {
     });
     fixture.detectChanges();
 
+    // Each answer carries its own record inside its row, in the conversation's
+    // order; no record is a row of its own.
     const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
-      one.classList.contains('turn')
-        ? one.getAttribute('data-trace-id')
-        : one.getAttribute('data-entry-id'),
+      one.getAttribute('data-entry-id'),
     );
-    expect(order).toEqual(['turn-1', 'a1', 'u2', 'turn-2', 'a2']);
+    expect(order).toEqual(['a1', 'u2', 'a2']);
+    const records = [...host.querySelectorAll('.turn-line')].map((one) =>
+      one.getAttribute('data-trace-id'),
+    );
+    expect(records).toEqual(['turn-1', 'turn-2']);
   });
 
   it('keeps a turn with no answer in place by when it ended', async () => {
@@ -377,13 +384,16 @@ describe('BotChat', () => {
     });
     fixture.detectChanges();
 
-    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe('Sigil · 0s · stopped');
+    // The record sits beside the answer, so the name is the who-line's job.
+    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe('0s · stopped');
     (host.querySelector('.turn-line') as HTMLButtonElement).click();
     fixture.detectChanges();
-    // A step still marked running in a finished record has no outcome to report.
+    // The thought is not the reader's to read; the step that is left, still
+    // marked running in a finished record, has no outcome to report.
+    expect(host.querySelector('.turn-steps')?.textContent).toContain('Running the tests…');
     expect(
-      [...host.querySelectorAll('.turn .step-outcome')].map((one) => one.textContent?.trim()),
-    ).toEqual(['done']);
+      [...host.querySelectorAll('.turn-steps .step-outcome')].map((one) => one.textContent?.trim()),
+    ).toEqual([]);
   });
 
   it('says a failed turn failed in words, not only in its colour', async () => {
@@ -883,8 +893,9 @@ describe('BotChat', () => {
     const toggle = host.querySelector('.acting .steps-toggle') as HTMLButtonElement;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     // A long turn shows what a glance holds, and says so rather than claiming
-    // five steps are on screen.
-    expect(toggle.querySelector('.steps-label')?.textContent?.trim()).toBe('Latest 3 of 5 steps');
+    // every step is on screen. The thought between the tools is not the list's
+    // to show, so four steps are what the count names.
+    expect(toggle.querySelector('.steps-label')?.textContent?.trim()).toBe('Latest 3 of 4 steps');
     expect(host.querySelector('.acting .live-step-list')).toBeNull();
     toggle.click();
     fixture.detectChanges();
