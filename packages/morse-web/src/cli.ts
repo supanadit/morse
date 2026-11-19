@@ -337,9 +337,19 @@ function sleep(ms: number): Promise<void> {
 // --- commands ----------------------------------------------------------------
 
 async function start(options: Options): Promise<number> {
+  const envPort = process.env.MORSE_PORT ? Number.parseInt(process.env.MORSE_PORT, 10) : NaN;
   const existing = readState();
   if (existing && (await isServerRunning(existing))) {
-    if (!options.force) {
+    // An explicit host/port that differs from the one this Morse is on is a request
+    // to move it, not a no-op: silently ignoring `--host` left a LAN user stuck on
+    // loopback with no hint why. `--force` restarts regardless.
+    const wantedHost = options.lan
+      ? '0.0.0.0'
+      : (options.host ?? process.env.MORSE_HOST ?? existing.host);
+    const wantedPort = options.port ?? (Number.isInteger(envPort) ? envPort : undefined) ?? existing.port;
+    const moves =
+      displayHost(wantedHost) !== displayHost(existing.host) || wantedPort !== existing.port;
+    if (!options.force && !moves) {
       console.log(`${yellow('Morse is already running')} (PID ${existing.pid})`);
       console.log(`  visit: ${cyan(existing.url)}`);
       console.log(`  stop:  ${dim(`morse stop`)}`);
@@ -361,7 +371,6 @@ async function start(options: Options): Promise<number> {
     throw new Error(`Workspace does not exist: ${workspace}`);
   }
 
-  const envPort = process.env.MORSE_PORT ? Number.parseInt(process.env.MORSE_PORT, 10) : NaN;
   // An explicit flag wins, then the environment, then the port this Morse had
   // before, then the default. Only the last of those has to hunt for a free one.
   const remembered = previous?.port;
