@@ -318,16 +318,26 @@
       }
       @case ('group') {
         @if (open.confirming) {
-          <p class="context-menu-question">Delete group?</p>
+          <p class="context-menu-question">
+            {{ open.group.kind === 'thread' ? 'Delete thread?' : 'Delete group?' }}
+          </p>
           <p class="context-menu-title">{{ open.group.title }}</p>
           <button type="button" class="context-menu-item"
             role="menuitem"
             (click)="closeMenu()">Cancel</button>
-          <button type="button" class="context-menu-item danger"
-            role="menuitem"
-            (click)="deleteGroupNow(open.group)">
-            Delete group
-          </button>
+          @if (open.group.kind === 'thread') {
+            <button type="button" class="context-menu-item danger"
+              role="menuitem"
+              (click)="deleteThreadNow(open.group)">
+              Delete thread
+            </button>
+          } @else {
+            <button type="button" class="context-menu-item danger"
+              role="menuitem"
+              (click)="deleteGroupNow(open.group)">
+              Delete group
+            </button>
+          }
         } @else {
           <button type="button" class="context-menu-item"
             role="menuitem"
@@ -351,8 +361,8 @@
             </button>
           }
           <!-- A group is a record the dialog can rewrite and the host can delete.
-               A thread is not: it is a conversation two bots opened, so offering
-               the management controls here would only produce a refusal. -->
+               A thread is a conversation two bots opened, so it can be opened,
+               restarted and deleted, but not renamed or re-membered. -->
           @if (open.group.kind === 'group') {
             <button
               type="button"
@@ -381,6 +391,19 @@
               (click)="askDeleteGroup(open.group)"
             >
               Delete group…
+            </button>
+          } @else {
+            <!-- A thread's turn is stopped by the delete itself, so the item is
+                 offered even while a peer is answering: a room the person cannot
+                 remove is worse than one turn cut short. -->
+            <button
+              type="button"
+              class="context-menu-item danger delete-thread"
+              role="menuitem"
+              [title]="'Delete ' + open.group.title + ' and its history'"
+              (click)="askDeleteThread(open.group)"
+            >
+              Delete thread…
             </button>
           }
         }

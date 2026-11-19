@@ -325,6 +325,21 @@ export class BotNav {
     this.shell.closeNavigation();
   }
 
+  /** A thread's delete asks the same way: it takes the room and its history. */
+  protected askDeleteThread(thread: BotConversationSummary): void {
+    const open = this.menu();
+    if (open === undefined) {
+      return;
+    }
+    this.menu.set({ ...open, kind: 'group', group: thread, confirming: true });
+  }
+
+  protected deleteThreadNow(thread: BotConversationSummary): void {
+    this.closeMenu();
+    this.morse.deleteThread(thread.id);
+    this.shell.closeNavigation();
+  }
+
   protected startDiscussion(conversationId: string): void {
     this.closeMenu();
     this.morse.newBotDiscussion(conversationId);

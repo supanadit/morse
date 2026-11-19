@@ -187,11 +187,18 @@ fields, written when the thread is created: `parentId` — the conversation the 
 in — and `askedBy` — that bot's handle.
 
 A thread is one long-lived room per pair of bots: every later ask between them reuses it, from
-whichever room the sender happens to be answering in, and a thread is never deleted. So the room an
-answer belongs in is recorded per ask, not per thread: `BotDelivery` gains an optional `originId`, the
-room the sender was working in, set by `busSend`. The thread's `parentId`/`askedBy` remain what the
-relay's own wake-up uses, because an answer has no ask of its own — that is what lets a chain climb more
-than one hop.
+whichever room the sender happens to be answering in, and it stays until the person deletes it. So the
+room an answer belongs in is recorded per ask, not per thread: `BotDelivery` gains an optional
+`originId`, the room the sender was working in, set by `busSend`. The thread's
+`parentId`/`askedBy` remain what the relay's own wake-up uses, because an answer has no ask of its
+own — that is what lets a chain climb more than one hop.
+
+A thread is deleted like a room, not like a group: it has no name to rewrite and no membership to
+change, so its menu offers only Open, New discussion, the per-bot stops and Delete. Deleting stops a
+turn in flight, removes the transcript, the deliveries and the turn history, and asks each bot's
+engine to drop its session for it; the next ask opens a fresh thread. The room that was waiting on it
+is re-pushed, so its *Waiting for replies* row goes at once, and no "could not be handed back" line
+is left behind: the person ended that work themselves.
 
 A bot's answer is always a transcript line in the conversation it answered in. On settle, in the
 lane:

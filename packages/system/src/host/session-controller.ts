@@ -652,6 +652,9 @@ export class HostSessionController {
       case 'bot/groupDelete':
         await this.runBotAction(() => bot.deleteGroup(message.payload.id));
         return;
+      case 'bot/threadDelete':
+        await this.runBotAction(() => bot.deleteThread(message.payload.id));
+        return;
       case 'bot/probeModels': {
         const { requestId, kind } = message.payload;
         const result = await this.guardBot(() =>

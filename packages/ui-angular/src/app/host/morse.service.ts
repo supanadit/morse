@@ -616,6 +616,14 @@ export class MorseService {
   }
 
   /**
+   * Deletes a private thread, its transcript, its asks and its members' sessions
+   * for it. The next ask between the two bots opens a fresh one.
+   */
+  deleteThread(id: string): void {
+    this.transport.send({ type: 'bot/threadDelete', payload: { id } });
+  }
+
+  /**
    * Switches the bot workspace to one conversation and asks for its transcript.
    * The host answers with `bot/transcript` (`replace: true`), so the lines held
    * for that conversation are reconciled rather than trusted.

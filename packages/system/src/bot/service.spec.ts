@@ -4042,6 +4042,71 @@ describe('BotService answers', () => {
     expect(service.transcript('dm-sigil').map((entry) => entry.text)).not.toContain('the answer');
   });
 
+  it('deletes a thread with its lines, records, asks and sessions', async () => {
+    const { root, adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.startsWith('[From ') ? { text: 'the answer' } : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    await settle(service, thread);
+    held.release();
+    await settle(service, 'dm-sigil');
+
+    const stored = loadBotRegistry(root).conversations.find((one) => one.id === thread);
+    const loomSession = stored?.sessions['loom']?.engineSessionId;
+    expect(loomSession).toBeDefined();
+    expect(service.transcript(thread).length).toBeGreaterThan(0);
+    expect(service.open(thread).traces.length).toBeGreaterThan(0);
+
+    await service.deleteThread(thread);
+
+    // The room, its history, its asks and every session a bot held for it.
+    expect(service.roster().conversations.some((one) => one.id === thread)).toBe(false);
+    expect(service.transcript(thread)).toEqual([]);
+    expect(service.open(thread).traces).toEqual([]);
+    expect(existsSync(join(root, 'transcripts', `${thread}.json`))).toBe(false);
+    expect(existsSync(join(root, 'deliveries', `${thread}.json`))).toBe(false);
+    expect(existsSync(join(root, 'traces', `${thread}.json`))).toBe(false);
+    expect(factoryFor(adapter, 'loom').removedSessions).toEqual([loomSession]);
+  });
+
+  it('deletes a thread while a peer is answering, without a note in the room that asked', async () => {
+    const { root, service, adapter } = harness({
+      script: () => ({ text: 'the answer', hold: true }),
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    await waitForTurn(service, 'loom');
+    expect(service.routing('dm-sigil')?.waiting).toHaveLength(1);
+
+    await service.deleteThread(thread);
+
+    // The turn in flight stops, and the room that was waiting is told there is
+    // nothing left to wait for.
+    expect(gatewayFor(adapter, 'loom').disposed).toBe(true);
+    expect(service.routing('dm-sigil')?.waiting ?? []).toEqual([]);
+    // Deleting the work is the person's own choice: the room they spoke in gets no
+    // "could not be handed back" line for a turn they ended.
+    expect(
+      service.transcript('dm-sigil').filter((entry) => entry.author.role === 'system'),
+    ).toEqual([]);
+
+    held.release();
+    await settle(service, 'dm-sigil');
+    // After the delete, asking the peer again opens a fresh thread.
+    await service.send('dm-sigil', '@sigil hold this turn');
+    await waitForTurn(service, 'sigil');
+    const again = gatewayFor(adapter, 'sigil');
+    const reopened = await service.busSend('sigil', { to: 'loom', text: 'again' });
+    expect(reopened.conversationId).toBe(thread);
+    expect(service.roster().conversations.some((one) => one.id === thread)).toBe(true);
+    again.release();
+    await settle(service, 'dm-sigil');
+  });
+
   it('leaves an ask a bot made inside the thread in the thread', async () => {
     const { root, adapter, service } = harness({
       script: ({ bot, prompt }) => {

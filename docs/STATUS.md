@@ -295,8 +295,10 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   Without a handle the whole room stops; either way the engine sessions stay warm.
 - **Editable rooms.** A group can be renamed, re-membered and re-led. Removing a member clears only that bot's
   pointer to the room's session, so adding it back starts fresh; deleting a group removes its transcript and
-  each member's session for it. Deleting a bot removes everything of its own and leaves every group it shared
-  otherwise intact — a group is deleted only when that bot was its last member.
+  each member's session for it. A private thread two bots opened can be deleted too — its transcript, its
+  asks, its turn history and both bots' sessions go with it, and the next ask between the pair opens a fresh
+  one. Deleting a bot removes everything of its own and leaves every group it shared otherwise intact — a
+  group is deleted only when that bot was its last member.
 - **Presence, not a trace.** While a bot works, one line per running bot says what it is doing (`Wait, let me
   think…`, `Reading launch-brief.md…`, `Running npm test…`) where its answer will land, and the answer appears
   under it as it is written rather than in one block when the turn ends. Tool activity never enters the

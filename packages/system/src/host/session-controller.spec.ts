@@ -3721,6 +3721,7 @@ describe('HostSessionController bot messages', () => {
       createGroup: () => group,
       updateGroup: async () => group,
       deleteGroup: async () => undefined,
+      deleteThread: async () => undefined,
       probeModels: async () => [],
       open: () => [],
       send: () => Promise.resolve(),
@@ -3918,6 +3919,28 @@ describe('HostSessionController bot messages', () => {
       type: 'bot/roster',
       payload: { bots: [], conversations: [] },
     });
+  });
+
+  it('deletes a thread through the bot port', async () => {
+    const messages: HostToClientMessage[] = [];
+    const removed: string[] = [];
+    const controller = botController(
+      messages,
+      fakePort({
+        deleteThread: async (id) => {
+          removed.push(id);
+        },
+      }),
+    );
+
+    await controller.handleClientMessage({
+      type: 'bot/threadDelete',
+      payload: { id: 'thread-loom-sigil' },
+    });
+
+    expect(removed).toEqual(['thread-loom-sigil']);
+    // The sidebar reads the roster, so its next push is what makes the row go.
+    expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: { bots: [], conversations: [] } });
   });
 
   it('reports a refused send as a notice instead of throwing at the socket', async () => {

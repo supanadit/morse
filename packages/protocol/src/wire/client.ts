@@ -436,6 +436,16 @@ export interface BotGroupDeleteMessage extends ClientMessageBase {
   payload: { id: string };
 }
 
+/**
+ * Deletes one private thread, its transcript, its asks and every member's session
+ * for it. A thread is opened by a bot and reused for later asks, so this is the
+ * only way to take one away; the next ask opens a fresh one.
+ */
+export interface BotThreadDeleteMessage extends ClientMessageBase {
+  type: 'bot/threadDelete';
+  payload: { id: string };
+}
+
 /** Frontend -> host. */
 export type ClientToHostMessage =
   | ClientReadyMessage
@@ -486,4 +496,5 @@ export type ClientToHostMessage =
   | BotCompactMessage
   | BotGroupCreateMessage
   | BotGroupUpdateMessage
-  | BotGroupDeleteMessage;
+  | BotGroupDeleteMessage
+  | BotThreadDeleteMessage;

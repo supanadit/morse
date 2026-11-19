@@ -183,6 +183,7 @@ export type BotControllerPort = Pick<
   | 'createGroup'
   | 'updateGroup'
   | 'deleteGroup'
+  | 'deleteThread'
   | 'probeModels'
   | 'discoverModels'
   | 'open'
@@ -992,6 +993,66 @@ export class BotService {
       (candidate) => candidate.id !== id,
     );
     await this.saveRegistry();
+    this.emit({ type: 'roster' });
+  }
+
+  /**
+   * Deletes one private thread: its lines, its asks, its turn history and each
+   * bot's engine session for it.
+   *
+   * A thread is opened by a bot, not by a person, and is reused for every later
+   * ask between the same pair, so nothing else would ever take one away. The next
+   * ask opens a fresh one: each ask carries the room it was made from, so no
+   * thread has to be kept for the answers to find their way home.
+   *
+   * A turn in flight is stopped first, which is what makes a delete possible while
+   * a peer is still answering. The rooms those asks came from are re-pushed, so a
+   * waiting panel drops the peer it can no longer wait for. Threads opened *from*
+   * this one are other pairs' rooms and stay: their own asks still name the room
+   * they were made in, and only a wake-up inside them stops climbing.
+   */
+  async deleteThread(id: string): Promise<void> {
+    const conversation = this.registry.conversations.find(
+      (candidate) => candidate.id === id && candidate.kind === 'thread',
+    );
+    if (conversation === undefined) {
+      throw new Error(`No bot thread "${id}".`);
+    }
+    const rows = this.deliveries.all(id);
+    const origins = new Set(
+      rows
+        .map((row) => row.originId)
+        .filter((originId): originId is string => originId !== undefined && originId !== id),
+    );
+    // The room leaves the registry before any of its turns is stopped: a stopped
+    // turn settles in between, and its hand-back must not tell the room that
+    // asked that the answer was lost — the person deleted the work on purpose.
+    this.registry.conversations = this.registry.conversations.filter(
+      (candidate) => candidate.id !== id,
+    );
+    for (const row of rows) {
+      if (row.status === 'queued' || row.status === 'running') {
+        this.deliveries.setStatus(id, row.id, 'cancelled', 'The thread was deleted.');
+        this.turnAttachments.delete(row.id);
+      }
+    }
+    const gateways = [...this.warm.values()].filter((warm) => warm.conversationId === id);
+    await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
+    for (const member of conversation.members) {
+      const sessionId = conversation.sessions[member]?.engineSessionId;
+      if (sessionId !== undefined) {
+        await this.removeEngineSession(member, sessionId);
+      }
+    }
+    this.transcripts.forget(id);
+    this.deliveries.forget(id);
+    this.traces.forget(id);
+    this.forgetRoomUsage(id);
+    await this.saveRegistry();
+    // A room that was waiting on this thread has nothing to wait for any more.
+    for (const originId of origins) {
+      this.emitRouting(originId);
+    }
     this.emit({ type: 'roster' });
   }
 

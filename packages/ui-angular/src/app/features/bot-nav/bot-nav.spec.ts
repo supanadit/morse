@@ -184,11 +184,12 @@ describe('BotNav', () => {
     expect(names(host, 'thread')).toEqual(['Sigil · Loom']);
     expect(names(host, 'group')).toEqual(['The workshop']);
     // A thread has no GroupRecord behind it, so the group management controls are
-    // absent rather than offered and refused.
+    // absent rather than offered and refused — but the room itself can be deleted.
     rightClick(rows(host, 'thread')[0] as HTMLElement);
     fixture.detectChanges();
     expect(host.querySelector('.context-menu .edit-group')).toBeNull();
     expect(host.querySelector('.context-menu .delete-group')).toBeNull();
+    expect(host.querySelector('.context-menu .delete-thread')).not.toBeNull();
   });
 
   it('opens a thread and stops each of its two bots on its own', async () => {
@@ -554,6 +555,56 @@ describe('BotNav', () => {
       ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(remove).toHaveBeenCalledWith('group-workshop');
+  });
+
+  it('deletes a thread through the menu, naming it in the confirmation', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [thread] });
+    fixture.detectChanges();
+    const remove = vi.spyOn(morse, 'deleteThread');
+
+    rightClick(rows(host, 'thread')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'delete-thread').click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.context-menu-question')?.textContent).toContain('Delete thread?');
+    expect(host.querySelector('.context-menu-title')?.textContent).toContain('Sigil · Loom');
+    expect(remove).not.toHaveBeenCalled();
+
+    [...host.querySelectorAll('.context-menu-item')]
+      .find((one) => one.textContent?.trim() === 'Delete thread')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(remove).toHaveBeenCalledWith('thread-sigil-loom');
+  });
+
+  it('offers the thread delete even while a peer is answering', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [thread] });
+    morse.bot.onRouting({
+      conversationId: thread.id,
+      state: {
+        conversationId: thread.id,
+        active: [
+          {
+            target: 'Forge',
+            username: 'forge',
+            activity: { kind: 'thinking', label: 'Wait, let me think…', at: 1 },
+            startedAt: 1,
+            steps: [{ kind: 'thinking', label: 'Wait, let me think…', at: 1 }],
+            handoffs: [],
+          },
+        ],
+        queued: [],
+      },
+    });
+    fixture.detectChanges();
+
+    // The delete stops the turn itself, so it is never refused for a busy room.
+    rightClick(rows(host, 'thread')[0] as HTMLElement);
+    fixture.detectChanges();
+    expect(menuItem(host, 'delete-thread').disabled).toBe(false);
   });
 
   it('cancels the group delete from the confirmation', async () => {
