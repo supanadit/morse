@@ -13,42 +13,19 @@ import {
   type OutputEmitterRef,
   type Type,
 } from '@angular/core';
-import { DomSanitizer } from '@angular/platform-browser';
 import {
   addedFileDiff,
-  highlightCode,
   parseUnifiedDiff,
   pinRangeLabel,
-  splitRows,
   statusByPath,
-  unifiedRows,
-  type DiffRow,
-  type SplitRow,
-  type UnifiedRow,
 } from '@morse/ui-runtime';
-import type { PopoverAnchor } from '@morse/ui-runtime';
 import { AttachmentStore } from '../../state/attachments';
 import { DisplayPrefs, type DiffView } from '../../state/display-prefs';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs, type FileTab } from '../../state/workspace-tabs';
-import { PinActions } from '../../ui/pin-annotation/pin-actions';
-import { PinAnnotation, type AnnotationTarget } from '../../ui/pin-annotation/pin-annotation';
 import { CODE_EDITOR_LOADER, type CodeEditorLoader } from '../../ui/code-editor/code-editor-loader';
 import { editorPins, type EditorPin } from '../../ui/code-editor/pins';
 import type { PinRequest } from '../../ui/code-editor/pin-selection';
-
-/**
- * What the annotation editor needs from whatever carries a note: the pin's id,
- * the note itself, and the range for its header.
- */
-interface AnnotationPinRef {
-  id: string;
-  note?: string;
-  startLine?: number;
-  endLine?: number;
-  startColumn?: number;
-  endColumn?: number;
-}
 
 /** The editor's outputs, seen from the feature that mounts it lazily. */
 interface EditorOutputs {
@@ -61,21 +38,32 @@ interface EditorOutputs {
   clearSelection(): void;
 }
 
-/** The outputs and inputs the feature drives on the mounted editor. */
-type MountedEditor = ComponentRef<unknown> & { instance: EditorOutputs };
-
-/** A diff row's label, through the one shared formatter (`L14-23`). */
-function rangeText(range: { start: number; end: number } | undefined): string {
-  if (range === undefined) {
-    return '';
-  }
-  return pinRangeLabel({ startLine: range.start, endLine: range.end });
+/**
+ * The inputs this feature drives, by name. Written down so a rename in the editor is a
+ * compile error here rather than an input that silently never arrives.
+ */
+interface EditorInputs {
+  readonly mode: DiffView;
+  readonly diff: string | undefined;
+  readonly text: string;
+  readonly path: string;
+  readonly line: number | undefined;
+  readonly pins: readonly EditorPin[];
 }
 
+/** The outputs and inputs the feature drives on the mounted editor. */
+type MountedEditor = ComponentRef<unknown> & {
+  instance: EditorOutputs;
+  setInput<K extends keyof EditorInputs>(name: K, value: EditorInputs[K]): void;
+};
+
 /**
- * A file opened from the Explorer: its diff (unified or split), or its text in a
- * read-only CodeMirror editor, with each pinned range tinted where it sits and its
- * note on that band's own chip.
+ * A file opened from the Explorer: its text, or its changes — unified or split.
+ *
+ * The surface itself is `morse-code-editor`, the same component either way: a diff is
+ * one of its documents, not a second renderer. What is left here is the file's own
+ * chrome (path, commit, mode switch, stats, pins) and the store wiring — the one place
+ * that gets a component with no inputs bound to it.
  *
  * The editor is CodeMirror and it is large, so it is loaded as its own chunk and
  * mounted through `CODE_EDITOR_LOADER` — the same seam specs replace with a fake,
@@ -85,7 +73,6 @@ function rangeText(range: { start: number; end: number } | undefined): string {
   selector: 'morse-file-preview',
   templateUrl: './file-preview.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PinAnnotation, PinActions],
   styleUrl: './file-preview.css',
 })
 export class FilePreview {
@@ -95,7 +82,6 @@ export class FilePreview {
   private readonly attachments = inject(AttachmentStore);
   private readonly display = inject(DisplayPrefs);
   private readonly workspaceStore = inject(WorkspaceFilesStore);
-  private readonly sanitizer = inject(DomSanitizer);
   private readonly loader = inject<CodeEditorLoader>(CODE_EDITOR_LOADER);
 
   protected readonly language = computed(() => this.tab().language ?? 'text');
@@ -128,8 +114,8 @@ export class FilePreview {
     return this.display.diffView();
   });
 
-  /** The diff to parse: the host's, or the whole content of an untracked file. */
-  private readonly diffText = computed(() => {
+  /** The diff to hand the editor: the host's, or the whole content of an untracked file. */
+  protected readonly diffText = computed(() => {
     const tab = this.tab();
     if (tab.diff !== undefined && tab.diff.trim().length > 0) {
       return tab.diff;
@@ -140,41 +126,8 @@ export class FilePreview {
     return tab.diff ?? '';
   });
 
+  /** Read for the header's counts and the "nothing changed" verdict, not to draw. */
   protected readonly parsed = computed(() => parseUnifiedDiff(this.diffText()));
-  protected readonly unified = computed<UnifiedRow[]>(() => unifiedRows(this.parsed()));
-  protected readonly split = computed<SplitRow[]>(() => splitRows(this.parsed()));
-
-  /**
-   * The diff rows with their syntax colouring. Highlighted line by line: a diff
-   * is a slice of a file, so a multi-line construct can read imperfectly, but the
-   * alternative — no colour at all — loses far more.
-   */
-  protected readonly unifiedView = computed(() => {
-    const language = this.language();
-    return this.unified().map((row) => ({
-      ...row,
-      html:
-        row.kind === 'hunk'
-          ? ''
-          : this.sanitizer.bypassSecurityTrustHtml(highlightCode(row.text, language).html),
-    }));
-  });
-
-  protected readonly splitView = computed(() => {
-    const language = this.language();
-    const line = (row: DiffRow | undefined) =>
-      row === undefined
-        ? undefined
-        : {
-            ...row,
-            html: this.sanitizer.bypassSecurityTrustHtml(highlightCode(row.text, language).html),
-          };
-    return this.split().map((pair) => ({
-      hunk: pair.hunk,
-      left: line(pair.left),
-      right: line(pair.right),
-    }));
-  });
 
   protected readonly diffStats = computed(() => {
     const parsed = this.parsed();
@@ -189,7 +142,7 @@ export class FilePreview {
    * than as a pill over the code, so the lines it is about stay readable.
    */
   protected readonly pendingPin = signal<PinRequest | null>(null);
-  /** The `L14-23` label the header's pin button and the diff rows share. */
+  /** The `L14-23` label the header's pin button and the editor share. */
   protected readonly pinRangeLabel = pinRangeLabel;
   /** Where the header's pin chip last sent the reader, so the next click moves on. */
   private readonly revealedPinLine = signal(0);
@@ -219,80 +172,6 @@ export class FilePreview {
     this.tabs.revealLine(this.tab().id, next.startLine);
   }
 
-  /**
-   * The row each pin's Notes/Cancel pair belongs to: the bottom of its band.
-   *
-   * Matching the anchor alone is not enough. Every row of a deletion block maps
-   * to the same new-file line, so a pin ending there would paint a pair on
-   * every deleted row; the last changed row on that line is the one corner the
-   * pair belongs on.
-   */
-  protected readonly unifiedPairRows = computed(() => {
-    const rows = this.unified();
-    const out = new Map<number, EditorPin>();
-    for (const pin of this.pins()) {
-      const end = pin.endLine ?? pin.startLine;
-      let last = -1;
-      let lastChange = -1;
-      rows.forEach((row, i) => {
-        if (row.kind === 'hunk' || row.newAnchor !== end) {
-          return;
-        }
-        last = i;
-        if (row.kind === 'add' || row.kind === 'del') {
-          lastChange = i;
-        }
-      });
-      const index = lastChange >= 0 ? lastChange : last;
-      if (index >= 0) {
-        out.set(index, pin);
-      }
-    }
-    return out;
-  });
-
-  /** The split view's version: the pair rides the side the band ends on. */
-  protected readonly splitPairRows = computed(() => {
-    const rows = this.split();
-    const left = new Map<number, EditorPin>();
-    const right = new Map<number, EditorPin>();
-    for (const pin of this.pins()) {
-      const end = pin.endLine ?? pin.startLine;
-      let rightAdd = -1;
-      let leftDel = -1;
-      let rightLast = -1;
-      let leftLast = -1;
-      rows.forEach((pair, i) => {
-        const next = pair.right;
-        if (next !== undefined && next.newAnchor === end) {
-          rightLast = i;
-          if (next.kind === 'add') {
-            rightAdd = i;
-          }
-        }
-        const old = pair.left;
-        if (old !== undefined && old.newAnchor === end) {
-          leftLast = i;
-          if (old.kind === 'del') {
-            leftDel = i;
-          }
-        }
-      });
-      // An addition (or a context line) ends on the new side; a deletion that
-      // leaves no added row behind ends on the old side, where it is drawn.
-      if (rightAdd >= 0) {
-        right.set(rightAdd, pin);
-      } else if (leftDel >= 0) {
-        left.set(leftDel, pin);
-      } else if (rightLast >= 0) {
-        right.set(rightLast, pin);
-      } else if (leftLast >= 0) {
-        left.set(leftLast, pin);
-      }
-    }
-    return { left, right };
-  });
-
   // --- the editor -----------------------------------------------------------
 
   /** The lazily-loaded editor class, and whether loading it failed. */
@@ -308,29 +187,12 @@ export class FilePreview {
     read: ViewContainerRef,
   });
 
-  // --- the range annotations ------------------------------------------------
-
-  /**
-   * The pin whose annotation editor is open, and where the ✎ that opened it sits
-   * on screen — the card is anchored there, wherever the trigger happened to be.
-   */
-  protected readonly annotationPin = signal<AnnotationPinRef | undefined>(undefined);
-  protected readonly annotationAnchor = signal<PopoverAnchor | undefined>(undefined);
-
-  /** What the editor's header names: this file, and the range being annotated. */
-  protected readonly annotationTarget = computed<AnnotationTarget | undefined>(() => {
-    const pin = this.annotationPin();
-    return pin === undefined ? undefined : { path: this.tab().path, range: this.rangeOf(pin) };
-  });
-
-  /** The markdown the editor opens with (the pin's own note, if it has one). */
-  protected readonly annotationNote = computed(() => this.annotationPin()?.note ?? '');
-
   constructor() {
-    // Load the editor only while a file is actually shown: the chunk is large,
-    // and `@defer` would put its runtime in the initial bundle instead.
+    // Load the editor only while something is actually shown: the chunk is large,
+    // and `@defer` would put its runtime in the initial bundle instead. A diff is the
+    // same component, so it needs the chunk too.
     effect(() => {
-      if (this.mode() !== 'file' || this.tab().binary === true) {
+      if (this.tab().binary === true) {
         return;
       }
       untracked(() => this.loadEditor());
@@ -369,25 +231,25 @@ export class FilePreview {
       const editor = this.mounted();
       const tab = this.tab();
       const pins = this.pins();
+      const mode = this.mode();
+      const diff = this.diffText();
       untracked(() => {
         if (editor === undefined) {
           return;
         }
+        editor.setInput('mode', mode);
+        editor.setInput('diff', diff);
         editor.setInput('text', tab.content ?? '');
         editor.setInput('path', tab.path);
         editor.setInput('line', tab.line);
         editor.setInput('pins', pins);
       });
     });
-    // A different file starts with no annotation editor open: it described the
-    // file that was in front.
+    // A different file starts with no selection offered: it described the file that
+    // was in front.
     effect(() => {
       this.tab();
-      untracked(() => {
-        this.annotationPin.set(undefined);
-        this.annotationAnchor.set(undefined);
-        this.pendingPin.set(null);
-      });
+      untracked(() => this.pendingPin.set(null));
     });
     // A diff view pulls the file's diff the first time it is shown.
     effect(() => {
@@ -411,7 +273,7 @@ export class FilePreview {
     );
   }
 
-  /** A range came back from the editor: pin it to the next prompt. */
+  /** A range came back from the editor — a dragged one, or a clicked change block. */
   private pinSelection(request: PinRequest): void {
     this.attachments.pin({ path: this.tab().path, ...request });
     this.attachments.say(
@@ -420,116 +282,9 @@ export class FilePreview {
     );
   }
 
-  // --- diff interactions ----------------------------------------------------
-
   /** Switches the preview between the file and the two diff layouts. */
   protected setMode(view: DiffView): void {
     this.display.setDiffView(view);
-  }
-
-  protected diffSign(row: UnifiedRow | DiffRow | undefined): string {
-    if (row === undefined) {
-      return '';
-    }
-    switch (row.kind) {
-      case 'add':
-        return '+';
-      case 'del':
-        return '−';
-      case 'context':
-        return ' ';
-      default:
-        return '';
-    }
-  }
-
-  /** Whether the pins already cover the new-file line a diff row sits on. */
-  protected isChangePinned(anchor: number | undefined): boolean {
-    if (anchor === undefined) {
-      return false;
-    }
-    const path = this.tab().path;
-    return this.attachments
-      .pins()
-      .some(
-        (pin) =>
-          pin.path === path &&
-          pin.startLine !== undefined &&
-          anchor >= pin.startLine &&
-          anchor <= (pin.endLine ?? pin.startLine),
-      );
-  }
-
-  /**
-   * Clicking a change block pins its new-file range to the next prompt — the
-   * diff view's stand-in for dragging line numbers. A block a pin already
-   * covers is left alone: like the file preview's band, the highlight is not a
-   * control, and the pair's Cancel is the way to unpin.
-   */
-  protected pinChange(row: UnifiedRow | DiffRow | undefined): void {
-    const change = row !== undefined && row.kind !== 'hunk' ? row.change : undefined;
-    if (change === undefined) {
-      return;
-    }
-    const path = this.tab().path;
-    const covering = this.attachments
-      .pins()
-      .find(
-        (pin) =>
-          pin.path === path &&
-          pin.startLine !== undefined &&
-          pin.startLine <= change.start &&
-          (pin.endLine ?? pin.startLine) >= change.end,
-      );
-    if (covering !== undefined) {
-      return;
-    }
-    this.attachments.pin({
-      path,
-      startLine: change.start,
-      endLine: change.end > change.start ? change.end : undefined,
-    });
-    this.attachments.say(
-      'info',
-      `Pinned ${this.tab().title} ${rangeText(change)} to this message.`,
-    );
-  }
-
-  /** The ✎ on a diff row: open the annotation editor anchored to that button. */
-  protected openAnnotation(pin: AnnotationPinRef, button: HTMLElement): void {
-    const rect = button.getBoundingClientRect();
-    this.annotationAnchor.set({
-      top: rect.top,
-      left: rect.left,
-      width: rect.width,
-      height: rect.height,
-    });
-    this.annotationPin.set(pin);
-  }
-
-  /** The pair's Cancel: unpin the range the row stands for. */
-  protected unpinPin(pin: AnnotationPinRef): void {
-    this.attachments.removePin(pin.id);
-  }
-
-  /** The editor saved: the markdown (an empty one clears) goes onto the pin. */
-  protected onAnnotationSave(note: string): void {
-    const pin = this.annotationPin();
-    if (pin !== undefined) {
-      this.attachments.setPinNote(pin.id, note);
-    }
-    this.closeAnnotation();
-  }
-
-  protected closeAnnotation(): void {
-    this.annotationPin.set(undefined);
-    this.annotationAnchor.set(undefined);
-  }
-
-  /** The `L30-31` label the editor's header shows (absent for a whole-file pin). */
-  private rangeOf(pin: AnnotationPinRef): string | undefined {
-    const label = pinRangeLabel(pin);
-    return label.length === 0 ? undefined : label;
   }
 
   protected reload(): void {
@@ -546,4 +301,3 @@ function formatBytes(bytes: number): string {
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-

@@ -222,9 +222,13 @@ Code, where there is no editor tab, the composer chip keeps its annotation butto
 - A file the working tree reports as changed (the same `gitStatus` map) also gets a **File / Unified /
   Split** switch in the preview: `gitDiff` (`{ path }` → `{ path, diff }`) supplies the unified diff,
   `@morse/ui-runtime` (`git/diff.ts`) parses it into hunks and pairs the two sides for split view, and an untracked file
-  has its content rendered as all-added. A change block in either diff layout is clickable: one click pins
-  its new-file range to the next prompt, and clicking it again unpins — no drag needed. The chosen mode is
-  remembered (`DisplayPrefs.diffView`).
+  has its content rendered as all-added. All three modes are drawn by the **same CodeMirror component**
+  (`ui/code-editor/`): a diff is one of its documents, with its own old/new number columns, a sign column, hunk
+  captions and the added/removed tints — so a change to how code looks reaches the file and the diff in one edit.
+  A change block in either diff layout is clickable: one click pins its new-file range to the next prompt, and a
+  block a pin already covers is inert (the band's own **Notes**/**Cancel** pair is the way out). The chosen mode
+  is remembered (`DisplayPrefs.diffView`); a side-by-side diff does not soft-wrap, because its two panes are two
+  independent scrollers and wrapping one would break the row pairing.
 - A session tab is navigation, not a second transcript: selecting it sends `session/activate` and the host
   replays that session, exactly as the sidebar does. Nothing is cached frontend-side, so there is still one
   source of truth for a conversation. `session/new` is only a draft with no session id, so the frontend opens

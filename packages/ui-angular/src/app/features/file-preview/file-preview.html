@@ -75,157 +75,35 @@
   </div>
 </header>
 
-@if (mode() !== 'file') {
-  @if (tab().diffLoading && diffText().length === 0) {
-    <p class="hint">Reading the changes…</p>
-  } @else if (tab().diffError; as message) {
-    <p class="hint error">{{ message }}</p>
-  } @else if (parsed().binary) {
-    <p class="hint">Binary file · {{ size() }} · no textual diff.</p>
-  } @else if (parsed().hunks.length === 0) {
-    <p class="hint">
-      {{ tab().commitHash ? 'This commit did not change this file.' : 'No changes against HEAD.' }}
-    </p>
-  } @else if (mode() === 'split') {
-    <div class="diff split">
-      @for (pair of splitView(); track $index) {
-        @if (pair.hunk; as header) {
-          <div class="drow hunk"><span class="dtext">{{ header }}</span></div>
-        } @else {
-          <div class="srow">
-            <div
-              class="side"
-              [class.del]="pair.left?.kind === 'del'"
-              [class.clickable]="pair.left?.change !== undefined && !isChangePinned(pair.left?.newAnchor)"
-              [class.pinned]="isChangePinned(pair.left?.newAnchor)"
-              [attr.title]="
-                pair.left?.change !== undefined && !isChangePinned(pair.left?.newAnchor)
-                  ? 'Click to pin this change to your next message'
-                  : null
-              "
-              (click)="pinChange(pair.left)"
-            >
-              <span class="dnum">{{ pair.left?.oldLine ?? '' }}</span>
-              <span class="dsign">{{ diffSign(pair.left) }}</span>
-              <span class="dtext" [innerHTML]="pair.left?.html"></span>
-              <!-- Deletion blocks whose line the new file no longer has live
-                   only on the old side; the affordance falls back here when the
-                   new-file side has no row to carry it. -->
-              @if (splitPairRows().left.get($index); as noted) {
-                <morse-pin-actions
-                  [note]="noted.note"
-                  [target]="'this change of ' + tab().title"
-                  (edit)="openAnnotation(noted, $event)"
-                  (cancel)="unpinPin(noted)"
-                />
-              }
-            </div>
-            <div
-              class="side"
-              [class.add]="pair.right?.kind === 'add'"
-              [class.clickable]="pair.right?.change !== undefined && !isChangePinned(pair.right?.newAnchor)"
-              [class.pinned]="isChangePinned(pair.right?.newAnchor)"
-              [attr.title]="
-                pair.right?.change !== undefined && !isChangePinned(pair.right?.newAnchor)
-                  ? 'Click to pin this change to your next message'
-                  : null
-              "
-              (click)="pinChange(pair.right)"
-            >
-              <span class="dnum">{{ pair.right?.newLine ?? '' }}</span>
-              <span class="dsign">{{ diffSign(pair.right) }}</span>
-              <span class="dtext" [innerHTML]="pair.right?.html"></span>
-              <!-- The annotation affordance lives on the new-file side, where a
-                   pin's lines point; the old side only when it must. -->
-              @if (splitPairRows().right.get($index); as noted) {
-                <morse-pin-actions
-                  [note]="noted.note"
-                  [target]="'this change of ' + tab().title"
-                  (edit)="openAnnotation(noted, $event)"
-                  (cancel)="unpinPin(noted)"
-                />
-              }
-            </div>
-          </div>
-        }
-      }
-    </div>
-  } @else {
-    <div class="diff">
-      @for (row of unifiedView(); track $index) {
-        @if (row.kind === 'hunk') {
-          <div class="drow hunk"><span class="dtext">{{ row.text }}</span></div>
-        } @else {
-          <div
-            class="drow"
-            [class.add]="row.kind === 'add'"
-            [class.del]="row.kind === 'del'"
-            [class.clickable]="row.change !== undefined && !isChangePinned(row.newAnchor)"
-            [class.pinned]="isChangePinned(row.newAnchor)"
-            [attr.title]="
-              row.change !== undefined && !isChangePinned(row.newAnchor)
-                ? 'Click to pin this change to your next message'
-                : null
-            "
-            (click)="pinChange(row)"
-          >
-            <span class="dnum">{{ row.oldLine ?? '' }}</span>
-            <span class="dnum">{{ row.newLine ?? '' }}</span>
-            <span class="dsign">{{ diffSign(row) }}</span>
-            <span class="dtext" [innerHTML]="row.html"></span>
-            <!--
-              The row a pinned range ends on carries the same note/Cancel pair
-              the file preview uses: ✎ opens the annotation editor, Cancel
-              unpins. The pair stops its own clicks, so the row's pin/unpin
-              behaviour is untouched around it.
-            -->
-            @if (unifiedPairRows().get($index); as noted) {
-              <morse-pin-actions
-                [note]="noted.note"
-                [target]="'this change of ' + tab().title"
-                (edit)="openAnnotation(noted, $event)"
-                (cancel)="unpinPin(noted)"
-              />
-            }
-          </div>
-        }
-      }
-    </div>
-  }
-} @else if (tab().loading) {
-  <p class="hint">Reading {{ tab().title }}…</p>
-} @else if (tab().error; as error) {
-  <p class="hint error">{{ error }}</p>
-} @else if (tab().binary) {
-  <p class="hint">Binary file · {{ size() }} · no text preview.</p>
-} @else {
-  @if (editorClass()) {
-    @if (tab().truncated) {
-      <p class="hint">Showing the first 512 KB of {{ size() }}.</p>
-    }
-    <ng-container #editorHost></ng-container>
-  } @else {
-    <!-- While the editor's chunk loads, and for a file the editor cannot show. -->
-    <pre class="source-plain">{{ tab().content }}</pre>
-    @if (editorFailed()) {
-      <button type="button" class="editor-retry" (click)="loadEditor()">Reload the editor</button>
-    }
-  }
-}
-
 <!--
-  The annotation editor, anchored to the note button that opened it (a diff
-  row's ✎, or a card's). It lives outside the code pane so a row's overflow
-  never clips the card.
+  One surface for every mode: the editor draws the file's text, and it draws the diff
+  as one of its own documents. What is left here is which of the two it is showing.
 -->
-@if (annotationTarget(); as target) {
-  @if (annotationAnchor(); as anchor) {
-    <morse-pin-annotation
-      [anchor]="anchor"
-      [target]="target"
-      [note]="annotationNote()"
-      (save)="onAnnotationSave($event)"
-      (cancel)="closeAnnotation()"
-    />
+@if (mode() !== 'file' && tab().diffLoading && diffText().length === 0) {
+  <p class="hint">Reading the changes…</p>
+} @else if (mode() !== 'file' && tab().diffError; as message) {
+  <p class="hint error">{{ message }}</p>
+} @else if (mode() !== 'file' && parsed().binary) {
+  <p class="hint">Binary file · {{ size() }} · no textual diff.</p>
+} @else if (mode() !== 'file' && parsed().hunks.length === 0) {
+  <p class="hint">
+    {{ tab().commitHash ? 'This commit did not change this file.' : 'No changes against HEAD.' }}
+  </p>
+} @else if (mode() === 'file' && tab().loading) {
+  <p class="hint">Reading {{ tab().title }}…</p>
+} @else if (mode() === 'file' && tab().error; as error) {
+  <p class="hint error">{{ error }}</p>
+} @else if (mode() === 'file' && tab().binary) {
+  <p class="hint">Binary file · {{ size() }} · no text preview.</p>
+} @else if (editorClass()) {
+  @if (mode() === 'file' && tab().truncated) {
+    <p class="hint">Showing the first 512 KB of {{ size() }}.</p>
+  }
+  <ng-container #editorHost></ng-container>
+} @else {
+  <!-- While the editor's chunk loads: the text, or the diff, as it is. -->
+  <pre class="source-plain">{{ mode() === 'file' ? tab().content : diffText() }}</pre>
+  @if (editorFailed()) {
+    <button type="button" class="editor-retry" (click)="loadEditor()">Reload the editor</button>
   }
 }

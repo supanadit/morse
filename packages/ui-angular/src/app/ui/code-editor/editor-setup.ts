@@ -37,6 +37,11 @@ export interface EditorSetupOptions {
   readonly sticky?: boolean;
   /** Soft wrap on (default) or off. */
   readonly wrap?: boolean;
+  /**
+   * The line-number and fold gutters. A diff brings its own two number columns and
+   * a sign column, so it turns these off rather than stacking a third.
+   */
+  readonly gutters?: boolean;
 }
 
 // --- caret row -------------------------------------------------------------
@@ -337,8 +342,8 @@ export function editorExtensions(options: EditorSetupOptions = {}): Extension {
     highlightActiveLineGutter(),
     // The numbers are not decoration: dragging them pins whole lines (see
     // `CodeEditor.startGutterDrag`), which needs this gutter to exist.
-    lineNumbers(),
-    foldGutter(),
+    options.gutters === false ? [] : lineNumbers(),
+    options.gutters === false ? [] : foldGutter(),
     keymap.of([...defaultKeymap, ...searchKeymap, ...foldKeymap]),
     search({ top: true }),
     scrollPastEnd(),

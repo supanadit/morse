@@ -1,10 +1,18 @@
 /**
- * A read-only CodeMirror editor for a file tab.
+ * The code surface: a file's text, or its changes.
  *
- * The view is created once and then follows the inputs: `text` replaces the
- * document, `path` swaps the grammar (each grammar is its own lazy chunk),
- * `line` reveals and flashes, `pins` feeds the note rail. Nothing here edits the
- * document — this is a reader, and the product has no write path.
+ * One component draws both. A diff used to be a second renderer — plain Angular
+ * tables with highlight.js output injected as HTML — which meant every change to how
+ * code looks, selects, searches or is pinned had to be made twice, and the two drifted.
+ * Here a diff is just another document in the same CodeMirror: its own gutters (old
+ * number, new number, sign), its own tints, its hunk headers as block widgets, and the
+ * same `morse-pin-actions` band pairs over it.
+ *
+ * The document is created once and then follows the inputs: `text` replaces the file's
+ * document, `mode`/`diff` rebuild it as a diff (a side-by-side diff is two views of the
+ * same length, scroll-synced), `path` swaps the grammar (each grammar is its own lazy
+ * chunk), `line` reveals and flashes, `pins` feeds the tints and the band pairs.
+ * Nothing here edits a document — this is a reader, and the product has no write path.
  */
 import {
   ChangeDetectionStrategy,
@@ -13,6 +21,7 @@ import {
   ElementRef,
   ViewEncapsulation,
   afterNextRender,
+  computed,
   effect,
   inject,
   input,
@@ -20,12 +29,30 @@ import {
   signal,
   untracked,
   viewChild,
-  computed,
 } from '@angular/core';
-import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Range } from '@codemirror/state';
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  StateEffect,
+  StateField,
+  type Extension,
+  type Range,
+} from '@codemirror/state';
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
 import { foldedRanges } from '@codemirror/language';
+import { parseUnifiedDiff, pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
+import type { DiffView } from '../../state/display-prefs';
 import { pinAtLine } from './bands';
+import {
+  bandCandidates,
+  documentText,
+  revealDocLine,
+  splitDocuments,
+  unifiedDocument,
+  type DiffDocument,
+} from './diff-document';
+import { diffExtensions, repinDiff, type DiffSide } from './diff-extensions';
 import { editorExtensions } from './editor-setup';
 import { loadLanguage } from './languages';
 import type { EditorPin } from './pins';
@@ -33,7 +60,6 @@ import { pinFromText, type PinRequest } from './pin-selection';
 import { clearFlash, flashExtension, revealLine } from './scroll';
 import { PinActions } from '../pin-annotation/pin-actions';
 import { PinAnnotation, type AnnotationTarget } from '../pin-annotation/pin-annotation';
-import { pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
 
 /** How long a jumped-to line stays lit. */
 const FLASH_MS = 900;
@@ -41,12 +67,20 @@ const FLASH_MS = 900;
 interface BandAction {
   readonly pin: EditorPin;
   readonly top: number;
+  /** Which pane of a side-by-side diff the band sits in. */
+  readonly pane: 'left' | 'right';
 }
 
 /** The card whose note is open in the annotation editor. */
 interface NoteEditor {
   readonly pin: EditorPin;
   readonly anchor: PopoverAnchor;
+}
+
+/** One live editor and the diff side it draws (`undefined` for the file's text). */
+interface Surface {
+  readonly view: EditorView;
+  readonly document: DiffDocument | undefined;
 }
 
 /** Replace the pinned ranges' line tints. */
@@ -77,10 +111,12 @@ const pinTintField = StateField.define<DecorationSet>({
   // it; the stylesheet scopes every selector to the host element instead, and
   // `conventions.spec.ts` holds that line.
   encapsulation: ViewEncapsulation.None,
-  host: { '[attr.aria-label]': "'File ' + path()" },
+  host: {
+    '[attr.aria-label]': "mode() === 'file' ? 'File ' + path() : 'Changes to ' + path()",
+  },
 })
 export class CodeEditor {
-  /** The file's text, as the tab store read it. */
+  /** The file's text, as the tab store read it. Only a `file` surface draws it. */
   readonly text = input.required<string>();
   /** The file's path: the grammar's key, and the accessible name. */
   readonly path = input.required<string>();
@@ -88,6 +124,13 @@ export class CodeEditor {
   readonly line = input<number | undefined>(undefined);
   /** This file's ranges; the editor tints each and floats its note pair on it. */
   readonly pins = input<readonly EditorPin[]>([]);
+  /**
+   * What this surface is: the file's own text, or its changes in one of the two diff
+   * layouts. The same component, the same stylesheet, the same pin gestures.
+   */
+  readonly mode = input<DiffView>('file');
+  /** The file's unified diff, drawn when `mode` is not `file`. */
+  readonly diff = input<string | undefined>(undefined);
 
   readonly pinRequested = output<PinRequest>();
   readonly noteEdited = output<{ id: string; note: string }>();
@@ -97,11 +140,14 @@ export class CodeEditor {
    *
    * The affordance itself lives in the file's header, not floating over the code: a
    * pill pinned to the selection's head sat on top of the very lines it was about,
-   * and stayed there after the pin was made.
+   * and stayed there after the pin was made. A diff has no selection pill: a click
+   * on a change block is that surface's one gesture.
    */
   readonly selectionChanged = output<PinRequest | null>();
 
-  private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
+  private readonly host = viewChild<ElementRef<HTMLElement>>('host');
+  /** The right pane, which exists only for a side-by-side diff. */
+  private readonly rightHost = viewChild<ElementRef<HTMLElement>>('rightHost');
   private readonly bandTrack = viewChild<ElementRef<HTMLElement>>('bandTrack');
   private readonly language = new Compartment();
   /**
@@ -113,16 +159,15 @@ export class CodeEditor {
    * already holds.
    */
   protected readonly bandActions = signal<readonly BandAction[]>([]);
-  /** The line the pointer is on, while it is over the code. */
-  private readonly pointerLine = signal<number | undefined>(undefined);
   /** A pair the reader has just used, so it steps aside instead of sitting there. */
   protected readonly dismissed = signal(false);
   /**
-   * The band the pointer is over: the only one whose pair is on screen. Its id, not
-   * the pin, because the store hands over fresh objects for the same ranges — a note
-   * being saved must not re-arm a pair the reader already put away.
+   * The pin whose band the pointer is over: the only one whose pair is on screen.
+   *
+   * Held by id, not by pin, because the store hands over fresh objects for the same
+   * ranges — a note being saved must not re-arm a pair the reader already put away.
    */
-  protected readonly hoveredPinId = computed(() => pinAtLine(this.pins(), this.pointerLine())?.id);
+  protected readonly hoveredPinId = signal<string | undefined>(undefined);
   /** The range label the band pair and the annotation header both show. */
   protected readonly pinRangeLabel = pinRangeLabel;
 
@@ -135,15 +180,37 @@ export class CodeEditor {
       ? undefined
       : { path: this.path(), range: pinRangeLabel(editing.pin) };
   });
-  private view: EditorView | undefined;
+
+  /** The file's view, or a diff's new side. The side a pin points at. */
+  private mainView: EditorView | undefined;
+  /** A side-by-side diff's old side. */
+  private leftView: EditorView | undefined;
+  /** What `mainView` draws as a diff; `undefined` when it draws the file. */
+  private document: DiffDocument | undefined;
+  /** What `leftView` draws, in a side-by-side diff. */
+  private leftDocument: DiffDocument | undefined;
+  /** The mode + diff the live views were built for, so a no-op effect does no work. */
+  private shape = '';
   private loadedPath: string | undefined;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
   /** The last selection reported up, so an unchanged one is not re-emitted. */
   private reportedSelection: string | null = null;
   private readonly onScroll = () => this.syncTrack();
+  private readonly onLeftScroll = () => this.syncScroll(this.leftView, this.mainView);
+  private readonly onRightScroll = () => this.syncScroll(this.mainView, this.leftView);
 
   constructor() {
-    afterNextRender(() => this.mount());
+    afterNextRender(() => this.rebuild());
+    // The surface follows the mode and the diff text: a different document, not a
+    // patch of the current one. A late right pane re-runs this, which is why the
+    // hosts are read here.
+    effect(() => {
+      this.mode();
+      this.diff();
+      this.host();
+      this.rightHost();
+      untracked(() => this.rebuild());
+    });
     effect(() => {
       const text = this.text();
       untracked(() => this.replaceText(text));
@@ -182,84 +249,237 @@ export class CodeEditor {
       if (this.flashTimer !== undefined) {
         clearTimeout(this.flashTimer);
       }
-      this.view?.scrollDOM.removeEventListener('scroll', this.onScroll);
-      this.view?.destroy();
+      this.destroyViews();
     });
   }
 
-  private mount(): void {
-    this.view = new EditorView({
-      parent: this.host().nativeElement,
-      state: EditorState.create({
-        doc: this.text(),
-        extensions: [
-          editorExtensions(),
-          flashExtension,
-          pinTintField,
-          this.language.of([]),
-          EditorView.updateListener.of((update) => {
-            if (update.selectionSet || update.docChanged || update.geometryChanged) {
-              this.reportSelection(update.view);
-            }
-            if (update.docChanged || update.viewportChanged || update.geometryChanged) {
-              this.refreshBands(update.view);
-            }
-          }),
-          EditorView.domEventHandlers({
-            mousedown: (event, view) => this.startGutterDrag(event, view),
-          }),
-        ],
-      }),
-    });
-    this.view?.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
-    void this.applyLanguage(this.path());
+  // --- building the surface --------------------------------------------------
+
+  /**
+   * Build the view(s) this mode and diff ask for, once.
+   *
+   * A diff is not a patch of the previous document: line numbering, gutters and the
+   * meaning of a line all change, so the state is replaced rather than updated.
+   */
+  private rebuild(): void {
+    const mode = this.mode();
+    const diff = this.diff() ?? '';
+    const host = this.host()?.nativeElement;
+    const rightHost = this.rightHost()?.nativeElement;
+    if (host === undefined) {
+      return;
+    }
+    if (mode === 'split' && rightHost === undefined) {
+      // The right pane renders with the mode; this runs again when it exists.
+      this.shape = '';
+      return;
+    }
+    const shape = `${mode}\u0000${mode === 'file' ? '' : diff}`;
+    if (shape === this.shape && this.mainView !== undefined) {
+      return;
+    }
+    this.shape = shape;
+    this.destroyViews();
+    if (mode === 'file') {
+      this.mainView = this.create(host, 'file', this.text(), []);
+    } else {
+      const parsed = parseUnifiedDiff(diff);
+      if (mode === 'split') {
+        const { left, right } = splitDocuments(parsed);
+        this.document = right;
+        this.leftDocument = left;
+        this.leftView = this.create(host, 'old', documentText(left), this.diffExtensionsOf(left, 'old'));
+        this.mainView = this.create(rightHost!, 'new', documentText(right), this.diffExtensionsOf(right, 'new'));
+      } else {
+        this.document = unifiedDocument(parsed);
+        this.mainView = this.create(host, 'both', documentText(this.document), this.diffExtensionsOf(this.document, 'both'));
+      }
+    }
+    this.applyPins();
     const line = this.line();
     if (line !== undefined) {
       this.reveal(line);
     }
-    this.applyPins();
   }
+
+  /** The diff's own extensions: gutters, tints, hunk headers, click-to-pin. */
+  private diffExtensionsOf(document: DiffDocument, side: DiffSide): Extension[] {
+    return [
+      diffExtensions({
+        document,
+        side,
+        pins: this.pins(),
+        onPin: (request) => this.pinRequested.emit(request),
+      }),
+    ];
+  }
+
+  /**
+   * Mount one view.
+   *
+   * `role` says what it draws: the file's text (which owns the pin tints and the
+   * gutter-drag gesture), or one side of a diff (which brings its own).
+   */
+  private create(host: HTMLElement, role: 'file' | 'both' | 'old' | 'new', doc: string, extra: Extension[]): EditorView {
+    const file = role === 'file';
+    const view = new EditorView({
+      parent: host,
+      state: EditorState.create({
+        doc,
+        extensions: [
+          editorExtensions({
+            // A diff carries its own two number columns and its own sign column.
+            gutters: file,
+            // Declarations do not survive a hunk boundary, so no sticky band there.
+            sticky: file,
+            // The two sides of a split are two scrollers: wrapping one would break
+            // the row pairing, so a long line scrolls instead.
+            wrap: file || role === 'both',
+          }),
+          flashExtension,
+          this.language.of([]),
+          ...(file ? [pinTintField] : []),
+          EditorView.updateListener.of((update) => {
+            if (file && (update.selectionSet || update.docChanged || update.geometryChanged)) {
+              this.reportSelection(update.view);
+            }
+            if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+              this.refreshBands();
+            }
+          }),
+          ...(file
+            ? [
+                EditorView.domEventHandlers({
+                  mousedown: (event, current) => this.startGutterDrag(event, current),
+                }),
+              ]
+            : []),
+          ...extra,
+        ],
+      }),
+    });
+    view.scrollDOM.addEventListener('scroll', this.onScroll, { passive: true });
+    view.scrollDOM.addEventListener(
+      'scroll',
+      role === 'old' ? this.onLeftScroll : this.onRightScroll,
+      { passive: true },
+    );
+    return view;
+  }
+
+  /** Every live editor, the side a pin points at first. */
+  private surfaces(): Surface[] {
+    const surfaces: Surface[] = [];
+    if (this.mainView !== undefined) {
+      surfaces.push({ view: this.mainView, document: this.document });
+    }
+    if (this.leftView !== undefined) {
+      surfaces.push({ view: this.leftView, document: this.leftDocument });
+    }
+    return surfaces;
+  }
+
+  private destroyViews(): void {
+    for (const view of [this.mainView, this.leftView]) {
+      if (view === undefined) {
+        continue;
+      }
+      view.scrollDOM.removeEventListener('scroll', this.onScroll);
+      view.scrollDOM.removeEventListener('scroll', this.onLeftScroll);
+      view.scrollDOM.removeEventListener('scroll', this.onRightScroll);
+      view.destroy();
+    }
+    this.mainView = undefined;
+    this.leftView = undefined;
+    this.document = undefined;
+    this.leftDocument = undefined;
+    // The grammar belongs to the views that just went away.
+    this.loadedPath = undefined;
+  }
+
+  /** Keep the two sides of a split on the same line. */
+  private syncScroll(from: EditorView | undefined, to: EditorView | undefined): void {
+    if (from === undefined || to === undefined) {
+      return;
+    }
+    if (Math.abs(to.scrollDOM.scrollTop - from.scrollDOM.scrollTop) < 1) {
+      return;
+    }
+    to.scrollDOM.scrollTop = from.scrollDOM.scrollTop;
+  }
+
+  // --- pins ------------------------------------------------------------------
 
   /** Tint every line a pin covers, and place its card. */
   private applyPins(): void {
-    const view = this.view;
-    if (view === undefined) {
-      return;
-    }
-    const doc = view.state.doc;
-    const ranges: Range<Decoration>[] = [];
-    for (const pin of this.pins()) {
-      const first = Math.min(Math.max(1, pin.startLine), doc.lines);
-      const last = Math.min(Math.max(first, pin.endLine ?? first), doc.lines);
-      for (let number = first; number <= last; number += 1) {
-        ranges.push(pinTint.range(doc.line(number).from));
+    const pins = this.pins();
+    if (this.mode() === 'file') {
+      const view = this.mainView;
+      if (view !== undefined) {
+        const doc = view.state.doc;
+        const ranges: Range<Decoration>[] = [];
+        for (const pin of pins) {
+          const first = Math.min(Math.max(1, pin.startLine), doc.lines);
+          const last = Math.min(Math.max(first, pin.endLine ?? first), doc.lines);
+          for (let number = first; number <= last; number += 1) {
+            ranges.push(pinTint.range(doc.line(number).from));
+          }
+        }
+        view.dispatch({ effects: setPinTints.of(Decoration.set(ranges, true)) });
+      }
+    } else {
+      for (const surface of this.surfaces()) {
+        repinDiff(surface.view, pins);
       }
     }
-    view.dispatch({ effects: setPinTints.of(Decoration.set(ranges, true)) });
-    this.refreshBands(view);
+    this.refreshBands();
   }
 
   /**
    * Place each pin's `Notes`/`Cancel` pair on the bottom edge of its band, in document
    * coordinates: the band track is translated by the scroll offset, so a pair moves
    * with its lines and is placed once per measure rather than once per scroll pixel.
+   *
+   * A diff's band is not a line number but a row: the pin's range is in the new file's
+   * line space, and the document maps it back to the row it sits on. A side-by-side
+   * diff ranks both sides, so a deletion keeps its pair on the deleted row rather than
+   * beside the unchanged line that followed it, and an addition rides the new side.
    */
-  private refreshBands(view: EditorView): void {
-    const doc = view.state.doc;
-    const folded = foldedRanges(view.state);
-    // Each pin's pair sits on the bottom edge of its band's last line — the
-    // corner the file preview's band used, now over the code itself.
+  private refreshBands(): void {
+    const surfaces = this.surfaces();
+    const pins = this.pins();
     const bands: BandAction[] = [];
-    for (const pin of this.pins()) {
-      const number = Math.min(Math.max(1, pin.endLine ?? pin.startLine), doc.lines);
-      const line = doc.line(number);
+    for (const pin of pins) {
+      let best: { surface: Surface; line: number; rank: number } | undefined;
+      for (const surface of surfaces) {
+        const candidates =
+          surface.document === undefined
+            ? [{ line: pin.endLine ?? pin.startLine, rank: 0 }]
+            : bandCandidates(surface.document, pin);
+        for (const candidate of candidates) {
+          if (best === undefined || candidate.rank < best.rank) {
+            best = { surface, line: candidate.line, rank: candidate.rank };
+          }
+        }
+      }
+      if (best === undefined) {
+        continue;
+      }
+      const doc = best.surface.view.state.doc;
+      const from = doc.line(Math.min(Math.max(1, best.line), doc.lines)).from;
+      const folded = foldedRanges(best.surface.view.state);
       let hidden = false;
-      folded.between(line.from, line.from, () => {
+      folded.between(from, from, () => {
         hidden = true;
         return false;
       });
       if (!hidden) {
-        bands.push({ pin, top: view.lineBlockAt(line.from).bottom });
+        bands.push({
+          pin,
+          top: best.surface.view.lineBlockAt(from).bottom,
+          // A pair belongs over the pane it describes, not on the far edge of both.
+          pane: best.surface.view === this.leftView ? 'left' : 'right',
+        });
       }
     }
     this.bandActions.set(bands);
@@ -268,8 +488,8 @@ export class CodeEditor {
 
   /** The line under the pointer, which decides whose pair is on screen. */
   protected trackPointer(event: PointerEvent): void {
-    const view = this.view;
-    if (view === undefined) {
+    const surface = this.surfaceAt(event.target);
+    if (surface === undefined) {
       return;
     }
     const target = event.target;
@@ -277,18 +497,31 @@ export class CodeEditor {
     if (target instanceof Element && target.closest('morse-pin-actions') !== null) {
       return;
     }
+    const view = surface.view;
     const block = view.lineBlockAtHeight(event.clientY - view.documentTop);
-    this.pointerLine.set(view.state.doc.lineAt(block.from).number);
+    const number = view.state.doc.lineAt(block.from).number;
+    // A diff row is not a line of the new file: its anchor is.
+    const row = surface.document?.lines[number - 1];
+    const line = row === undefined ? number : (row.newAnchor ?? row.oldLine ?? number);
+    this.hoveredPinId.set(pinAtLine(this.pins(), line)?.id);
   }
 
   /** Leaving the code — for the pair, a popover or another pane — puts the pairs away. */
   protected clearPointer(): void {
-    this.pointerLine.set(undefined);
+    this.hoveredPinId.set(undefined);
+  }
+
+  /** The editor whose DOM holds the event, if any. */
+  private surfaceAt(target: EventTarget | null): Surface | undefined {
+    if (!(target instanceof Node)) {
+      return undefined;
+    }
+    return this.surfaces().find((surface) => surface.view.dom.contains(target));
   }
 
   /** Keep the band pairs beside their lines while the editor scrolls. */
   private syncTrack(): void {
-    const view = this.view;
+    const view = this.mainView;
     if (view === undefined) {
       return;
     }
@@ -326,11 +559,17 @@ export class CodeEditor {
     this.unpinned.emit({ id: pin.id });
   }
 
+  // --- the document ----------------------------------------------------------
+
   /**
    * Report the selection a pin could be made from, so the file's header can offer it.
-   * A drag on the line numbers is a pin in progress, not a selection to offer.
+   * A drag on the line numbers is a pin in progress, not a selection to offer, and a
+   * diff offers nothing: its gesture is a click on a change block.
    */
   private reportSelection(view: EditorView): void {
+    if (this.mode() !== 'file') {
+      return;
+    }
     const range = view.state.selection.main;
     const request = range.empty ? null : pinFromText(view.state.doc, range.from, range.to);
     const key = request === null ? null : JSON.stringify(request);
@@ -347,7 +586,7 @@ export class CodeEditor {
    * only looks like an unfinished edit.
    */
   clearSelection(): void {
-    const view = this.view;
+    const view = this.mainView;
     if (view === undefined || view.state.selection.main.empty) {
       return;
     }
@@ -368,6 +607,9 @@ export class CodeEditor {
    * Dragging the line numbers pins whole lines: the range forms live as a
    * selection, and release hands it to the feature. Selecting text, by contrast,
    * offers the header's pin button — selecting is also how a reader copies.
+   *
+   * A diff has no line numbers of its own (it shows the two files' instead), so the
+   * gesture does not exist there: its rows are pinned by clicking a change block.
    */
   private startGutterDrag(event: MouseEvent, view: EditorView): boolean {
     const target = event.target as HTMLElement | null;
@@ -410,8 +652,8 @@ export class CodeEditor {
   }
 
   private replaceText(text: string): void {
-    const view = this.view;
-    if (view === undefined || view.state.doc.toString() === text) {
+    const view = this.mainView;
+    if (this.mode() !== 'file' || view === undefined || view.state.doc.toString() === text) {
       return;
     }
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
@@ -430,20 +672,37 @@ export class CodeEditor {
     if (this.loadedPath !== path) {
       return;
     }
-    this.view?.dispatch({ effects: this.language.reconfigure(language ?? []) });
+    for (const surface of this.surfaces()) {
+      surface.view.dispatch({ effects: this.language.reconfigure(language ?? []) });
+    }
   }
 
+  /**
+   * Reveal a line: the new file's where the surface shows it, the old file's when
+   * only that side has it (a deletion), and the plain line number for a file.
+   */
   private reveal(line: number): void {
-    const view = this.view;
-    if (view === undefined) {
-      return;
+    for (const surface of this.surfaces()) {
+      const target =
+        surface.document === undefined ? line : revealDocLine(surface.document, line);
+      if (target !== undefined) {
+        this.flash(surface.view, target);
+        return;
+      }
     }
+    if (this.mainView !== undefined) {
+      this.flash(this.mainView, line);
+    }
+  }
+
+  private flash(view: EditorView, line: number): void {
     revealLine(view, line);
     if (this.flashTimer !== undefined) {
       clearTimeout(this.flashTimer);
     }
     this.flashTimer = setTimeout(() => {
-      this.view?.dispatch({ effects: clearFlash.of(null) });
+      this.mainView?.dispatch({ effects: clearFlash.of(null) });
+      this.leftView?.dispatch({ effects: clearFlash.of(null) });
     }, FLASH_MS);
   }
 }

@@ -1,16 +1,28 @@
-<!-- The CodeMirror view owns the host div; the band pairs are Angular's. -->
+<!--
+  The CodeMirror views own the host divs; the band pairs are Angular's.
+
+  A side-by-side diff is the same component twice: two documents of identical length,
+  scroll-synced, each with its own file's number column. Nothing else about them is
+  different from the file view, which is the point.
+-->
 <div
   class="morse-code-area"
   (pointermove)="trackPointer($event)"
   (pointerleave)="clearPointer()"
 >
-  <div class="morse-editor-host" #host></div>
+  <div class="morse-diff-panes" [class.split]="mode() === 'split'">
+    <div class="morse-editor-host" #host></div>
+    @if (mode() === 'split') {
+      <div class="morse-editor-host" #rightHost></div>
+    }
+  </div>
   @if (bandActions().length) {
     <div class="morse-band-track" #bandTrack>
       @for (action of bandActions(); track action.pin.id) {
         <morse-pin-actions
           class="morse-band-actions"
           [class.shown]="!dismissed() && hoveredPinId() === action.pin.id"
+          [class.pane-left]="action.pane === 'left'"
           [style.top.px]="action.top"
           [note]="action.pin.note"
           [target]="'range ' + pinRangeLabel(action.pin) + ' of ' + path()"

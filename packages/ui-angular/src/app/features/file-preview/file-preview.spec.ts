@@ -24,6 +24,8 @@ class FakeEditor {
   readonly path = input('');
   readonly line = input<number | undefined>(undefined);
   readonly pins = input<readonly EditorPin[]>([]);
+  readonly mode = input<string>('file');
+  readonly diff = input<string | undefined>(undefined);
   readonly pinRequested = output<PinRequest>();
   readonly noteEdited = output<{ id: string; note: string }>();
   readonly unpinned = output<{ id: string }>();
@@ -67,7 +69,10 @@ function render(
   TestBed.configureTestingModule({
     imports: [FilePreview],
     providers: [
-      { provide: WorkspaceTabs, useValue: { reload: vi.fn(), loadDiff: vi.fn() } },
+      {
+        provide: WorkspaceTabs,
+        useValue: { reload: vi.fn(), loadDiff: vi.fn(), revealLine: vi.fn() },
+      },
       { provide: AttachmentStore, useValue: attachments },
       {
         provide: WorkspaceFilesStore,
@@ -212,46 +217,67 @@ describe('FilePreview', () => {
     expect(attachments.removePin).toHaveBeenCalledWith('p1');
   });
 
-  it('shows a unified diff for a changed file, and a split one on request', () => {
-    const { fixture } = render(
-      {
-        content: 'const a = 2;\n',
-        diff:
-          'diff --git a/a b/a\nindex 111..222 100644\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n const b = 3;\n',
-      },
+  it('hands a changed file\u2019s diff to the same editor, unified then split', async () => {
+    const diff =
+      'diff --git a/a b/a\nindex 111..222 100644\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n const b = 3;\n';
+    const { fixture } = await mount(
+      { content: 'const a = 2;\n', diff },
       { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
     );
     const host = fixture.nativeElement as HTMLElement;
 
-    // The default view is the unified diff: one removed, one added line, both
-    // syntax-highlighted like the file view.
-    expect(host.querySelectorAll('.diff .drow.add')).toHaveLength(1);
-    expect(host.querySelectorAll('.diff .drow.del')).toHaveLength(1);
-    expect(host.querySelector('.diff .drow.add .hljs-keyword')).not.toBeNull();
+    // The default view is the unified diff: the editor draws it, so it is handed the
+    // mode and the diff text — the preview has no renderer of its own any more.
+    expect(editorOf(fixture)?.mode()).toBe('unified');
+    expect(editorOf(fixture)?.diff()).toBe(diff);
+    expect(host.querySelector('.meta .stat')?.textContent).toContain('+1 \u22121');
 
     host.querySelector<HTMLButtonElement>('.modes button[title="Side-by-side diff"]')?.click();
     fixture.detectChanges();
-    // One change pair (del/add) plus one context pair.
-    expect(host.querySelectorAll('.diff.split .srow')).toHaveLength(2);
+
+    expect(editorOf(fixture)?.mode()).toBe('split');
+    expect(editorOf(fixture)?.diff()).toBe(diff);
   });
 
-  it('shows a commit tab as a diff, without the working-tree File view', () => {
-    const { fixture } = render({
+  it('shows a commit tab as a diff, without the working-tree File view', async () => {
+    const { fixture } = await mount({
       id: 'commit:abc123:src/main.ts',
       path: 'src/main.ts',
       commitHash: 'abc123',
       commitSubject: 'A commit',
-      diff:
-        'diff --git a/a b/a\nindex 111..222 100644\n--- a/a\n+++ b/a\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n const b = 3;\n',
+      diff: '@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n const b = 3;\n',
     });
-    setDiffMode(fixture, 'Unified diff');
     const host = fixture.nativeElement as HTMLElement;
+    setDiffMode(fixture, 'Unified diff');
 
-    // The diff renders even though the working tree reports no status for it.
-    expect(host.querySelectorAll('.diff .drow.add')).toHaveLength(1);
+    // The diff is drawn even though the working tree reports no status for it.
+    expect(editorOf(fixture)?.mode()).toBe('unified');
     // A commit has no honest "File" view (the disk content is not the commit's).
     expect(host.querySelector('.modes button[title="The file\'s content"]')).toBeNull();
     expect(host.querySelector('.commit-ref')?.textContent).toContain('abc123');
+  });
+
+  it('shows the file itself in the File view of a changed file', async () => {
+    const { fixture } = await mount(
+      { content: 'const a = 2;\n', diff: '@@ -1 +1 @@\n-const a = 1;\n+const a = 2;\n' },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    setDiffMode(fixture, "The file's content");
+
+    expect(editorOf(fixture)?.mode()).toBe('file');
+    expect(editorOf(fixture)?.text()).toBe('const a = 2;\n');
+  });
+
+  it('says nothing changed rather than drawing an empty diff', async () => {
+    const { fixture } = await mount(
+      { content: 'const a = 2;\n', diff: '' },
+      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
+    );
+    setDiffMode(fixture, 'Unified diff');
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('.hint')?.textContent).toContain('No changes against HEAD');
+    expect(editorOf(fixture)).toBeUndefined();
   });
 
   it('says a truncated file was cut short', async () => {
@@ -283,145 +309,55 @@ describe('FilePreview', () => {
   });
 });
 
-describe('FilePreview annotations', () => {
+describe('FilePreview pins', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('sits the file preview’s Notes and Cancel on the diff row the pin ends on', () => {
-    const { fixture, pins, attachments } = render(
-      {
-        content: 'const a = 1;\nconst b = 3;\nconst c = 4;\n',
-        diff: '@@ -1,2 +1,3 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n',
-      },
-      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
-    );
-    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 3, note: 'the block' }]);
-    fixture.detectChanges();
-    setDiffMode(fixture, 'Unified diff');
-
-    // Last add row of the block carries the pair the file preview uses.
-    const actions = fixture.nativeElement.querySelectorAll('.drow.add morse-pin-actions');
-    expect(actions).toHaveLength(1);
-    const note = actions[0]?.querySelector('button.note');
-    // A written note is its own label, so the row says what the note says.
-    expect(note?.textContent?.trim()).toBe('the block');
-    expect(note?.classList.contains('has-note')).toBe(true);
-    expect(actions[0]?.querySelector('button.cancel')?.textContent).toContain('Cancel');
-
-    // Opening the note must not read as “unpin this block”.
-    note?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    fixture.detectChanges();
-    expect(attachments.removePin).not.toHaveBeenCalled();
-    const host = fixture.nativeElement as HTMLElement;
-    const card = host.querySelector('morse-pin-annotation') as HTMLElement;
-    expect(card).not.toBeNull();
-    expect(card.querySelector('.range')?.textContent).toContain('L2-3');
-  });
-
-  it('unpins the range from the diff row’s Cancel, exactly once', () => {
-    const { fixture, pins, attachments } = render(
+  it('hands a diff-mode pin to the store, exactly once per report', async () => {
+    const { fixture, attachments } = await mount(
       {
         content: 'const a = 1;\nconst b = 3;\n',
         diff: '@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 3;\n',
       },
       { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
     );
-    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
-    fixture.detectChanges();
-    setDiffMode(fixture, 'Unified diff');
 
-    const cancel = fixture.nativeElement.querySelector('.drow.add morse-pin-actions button.cancel');
-    cancel?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    // A click on a change block reaches the feature as the editor's `pinRequested`,
+    // the same output a dragged range uses: one path, one message.
+    editorOf(fixture)?.pinRequested.emit({ startLine: 2, endLine: 3 });
     fixture.detectChanges();
 
-    // The pair is the only way out: one press, one removal.
-    expect(attachments.removePin).toHaveBeenCalledTimes(1);
-    expect(attachments.removePin).toHaveBeenCalledWith('p1');
-  });
-
-  it('pins a changed block when its diff row is clicked', () => {
-    const { fixture, attachments } = render(
-      {
-        content: 'const a = 1;\nconst b = 3;\n',
-        diff: '@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 3;\n',
-      },
-      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
-    );
-    setDiffMode(fixture, 'Unified diff');
-
-    const row = fixture.nativeElement.querySelector('.drow.add');
-    row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    fixture.detectChanges();
-
+    expect(attachments.pin).toHaveBeenCalledTimes(1);
     expect(attachments.pin).toHaveBeenCalledWith({
       path: 'src/main.ts',
       startLine: 2,
-      endLine: undefined,
+      endLine: 3,
     });
+    expect(attachments.say).toHaveBeenCalledWith(
+      'info',
+      'Pinned main.ts L2-3 to this message.',
+    );
   });
 
-  it('leaves an already-pinned change alone when its row is clicked', () => {
-    const { fixture, pins, attachments } = render(
+  it('counts this file\u2019s ranges in the header and reveals the next one', async () => {
+    const { fixture, pins } = await mount(
       {
         content: 'const a = 1;\nconst b = 3;\n',
         diff: '@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 3;\n',
       },
       { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
     );
-    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
-    fixture.detectChanges();
-    setDiffMode(fixture, 'Unified diff');
-
-    const row = fixture.nativeElement.querySelector('.drow.add');
-    row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    pins.set([
+      { id: 'p1', path: 'src/main.ts', startLine: 2 },
+      { id: 'p2', path: 'src/main.ts', startLine: 5 },
+    ]);
     fixture.detectChanges();
 
-    // Like the file preview's band: the highlight is not a control.
-    expect(attachments.removePin).not.toHaveBeenCalled();
-    expect(attachments.pin).not.toHaveBeenCalled();
-  });
+    const chip = (fixture.nativeElement as HTMLElement).querySelector('button.range');
+    expect(chip?.textContent?.trim()).toBe('2 ranges');
 
-  it('puts one pair on a deleted block, on its last row', () => {
-    const { fixture, pins } = render(
-      {
-        content: 'const a = 1;\nconst c = 3;\n',
-        diff: '@@ -1,4 +1,2 @@\n const a = 1;\n-const b = 2;\n-const b2 = 2;\n const c = 3;\n',
-      },
-      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
-    );
-    // Every deleted row maps to the same new-file line, so matching the anchor
-    // alone would paint a pair on each of them.
-    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
-    fixture.detectChanges();
-    setDiffMode(fixture, 'Unified diff');
-
-    const rows = fixture.nativeElement.querySelectorAll('.drow.del');
-    expect(rows).toHaveLength(2);
-    expect(fixture.nativeElement.querySelectorAll('.drow.del morse-pin-actions')).toHaveLength(1);
-    expect(rows[rows.length - 1]?.querySelector('morse-pin-actions')).not.toBeNull();
-    expect(rows[0]?.querySelector('morse-pin-actions')).toBeNull();
-  });
-
-  it('hosts the deletion pin’s note and Cancel on the old side when there is no new row', () => {
-    const { fixture, pins } = render(
-      {
-        content: 'const a = 1;\nconst c = 3;\n',
-        diff: '@@ -1,3 +1,2 @@\n const a = 1;\n-const b = 2;\n const c = 3;\n',
-      },
-      { isRepo: true, files: [{ path: 'src/main.ts', status: ' M' }] },
-    );
-    // The deletion at the end of its hunk: in the split view the new side never
-    // shows line 2, so the old (deleted) side hosts the affordance instead.
-    pins.set([{ id: 'p1', path: 'src/main.ts', startLine: 2, endLine: 2 }]);
+    chip?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     fixture.detectChanges();
 
-    // Unified diff first: the row is the deletion itself, so it carries it.
-    setDiffMode(fixture, 'Unified diff');
-    expect(fixture.nativeElement.querySelectorAll('.drow.del morse-pin-actions')).toHaveLength(1);
-
-    // Side by side: the new side has rows only for lines 1 and 3 — the pair falls
-    // to the old side's last deleted row, never alongside the new side's.
-    setDiffMode(fixture, 'Side-by-side diff');
-    expect(fixture.nativeElement.querySelectorAll('.side.add morse-pin-actions')).toHaveLength(0);
-    expect(fixture.nativeElement.querySelectorAll('.side.del morse-pin-actions')).toHaveLength(1);
+    expect(editorOf(fixture)?.pins().map((pin) => pin.id)).toEqual(['p1', 'p2']);
   });
 });

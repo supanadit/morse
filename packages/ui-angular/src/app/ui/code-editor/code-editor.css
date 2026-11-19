@@ -31,6 +31,8 @@ morse-code-editor {
   --morse-number-width: 46px;
   --morse-fold-width: 14px;
   --morse-line-pad: 14px;
+  /* A diff row's own left pad: its numbers and sign already hold the code off. */
+  --morse-diff-pad: 6px;
   background: var(--morse-editor-bg, var(--morse-code-bg));
   color: var(--morse-fg);
   font-family: var(--morse-font-mono);
@@ -46,6 +48,30 @@ morse-code-editor .morse-code-area {
 
 morse-code-editor .morse-editor-host {
   height: 100%;
+}
+
+/*
+ * The panes a surface is made of: one editor for a file or a unified diff, two for a
+ * side-by-side one. They are flex siblings so the divider is a border, not a component.
+ */
+morse-code-editor .morse-diff-panes {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+}
+
+morse-code-editor .morse-diff-panes .morse-editor-host {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+morse-code-editor .morse-diff-panes.split .morse-editor-host {
+  flex: 1 1 50%;
+}
+
+morse-code-editor .morse-diff-panes.split .morse-editor-host + .morse-editor-host {
+  border-left: 1px solid var(--morse-border);
 }
 
 /* The band pairs ride above the code, on the same scroll as the text. */
@@ -73,6 +99,16 @@ morse-code-editor .morse-band-actions.shown,
 morse-code-editor .morse-band-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
+}
+
+/*
+ * A side-by-side diff puts a pair over the pane it describes: a deletion's pair rides
+ * the old side, and the right edge of the whole surface would be the wrong file.
+ */
+morse-code-editor .morse-band-actions.pane-left {
+  right: auto;
+  left: calc(50% - 8px);
+  transform: translate(-100%, -50%);
 }
 
 morse-code-editor .morse-editor-host .cm-editor {
@@ -309,6 +345,123 @@ morse-code-editor .morse-editor-host .morse-line-flash {
 
 morse-code-editor .morse-editor-host .morse-pin-line {
   background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+
+/*
+ * A diff row — the same surface, a different document.
+ *
+ * The added/removed tints, the pinned tint and the hunk caption are the diff's whole
+ * look, and they live here rather than in the preview so a change to how code looks
+ * reaches a file and a diff in one edit (that was the point of one component).
+ */
+morse-code-editor .morse-editor-host .morse-diff-line.morse-diff-add {
+  background: color-mix(in srgb, var(--morse-success) 14%, transparent);
+}
+
+morse-code-editor .morse-editor-host .morse-diff-line.morse-diff-del {
+  background: color-mix(in srgb, var(--morse-error) 14%, transparent);
+}
+
+/* A change block is clickable: one click pins its new-file range. */
+morse-code-editor .morse-editor-host .morse-diff-line.morse-diff-clickable {
+  cursor: pointer;
+}
+
+morse-code-editor .morse-editor-host .morse-diff-line.morse-diff-clickable:hover {
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+}
+
+/*
+ * A pinned block, in the file view's exactly: the same tint and the same 2px rule, so
+ * a range reads the same whether the reader is looking at the file or its changes —
+ * and in neither is the highlight itself a control.
+ */
+morse-code-editor .morse-editor-host .morse-diff-line.morse-diff-pinned {
+  background: color-mix(in srgb, var(--morse-accent) 8%, transparent);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+
+/* A hunk's `@@ … @@`: a caption above the line it introduces, not a line of a file. */
+morse-code-editor .morse-editor-host .morse-diff-hunk {
+  margin: 6px 0 2px;
+  padding: 2px 0 2px var(--morse-diff-pad);
+  background: var(--morse-code-head, var(--morse-hover));
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+  white-space: pre;
+  user-select: none;
+}
+
+/*
+ * A diff row is one band, numbers included: the code's own left padding shrinks so the
+ * text sits against its sign, and the gutter cells take the row's tint below. A diff
+ * spends its width on what changed, not on the margin a file view can afford.
+ */
+morse-code-editor .morse-editor-host .cm-line.morse-diff-line {
+  padding-left: var(--morse-diff-pad);
+}
+
+/* The diff's own three columns: the old file's numbers, the new file's, the sign. */
+morse-code-editor .morse-editor-host .morse-diff-gutter .cm-gutterElement {
+  padding: 0 3px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+morse-code-editor .morse-editor-host .morse-diff-gutter-old .cm-gutterElement,
+morse-code-editor .morse-editor-host .morse-diff-gutter-new .cm-gutterElement {
+  min-width: 24px;
+  padding: 0 5px 0 3px;
+  text-align: right;
+  /* No `opacity` here: it would dim the row tint these cells share with the code. */
+}
+
+morse-code-editor .morse-editor-host .morse-diff-gutter-sign {
+  min-width: 10px;
+}
+
+morse-code-editor .morse-editor-host .morse-diff-sign {
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+}
+
+morse-code-editor .morse-editor-host .morse-diff-sign-add {
+  color: var(--morse-success);
+}
+
+morse-code-editor .morse-editor-host .morse-diff-sign-del {
+  color: var(--morse-error);
+}
+
+/*
+ * The numbers keep the row's tint, so a changed line reads as one band edge to edge.
+ * Mixed over the code surface — not over the gutter's own panel — so the tint beside
+ * the code is the same tint as the code.
+ */
+morse-code-editor .morse-editor-host .cm-gutterElement.morse-diff-row-add {
+  background: color-mix(
+    in srgb,
+    var(--morse-success) 14%,
+    var(--morse-code-bg, var(--morse-bg))
+  );
+}
+
+morse-code-editor .morse-editor-host .cm-gutterElement.morse-diff-row-del {
+  background: color-mix(
+    in srgb,
+    var(--morse-error) 14%,
+    var(--morse-code-bg, var(--morse-bg))
+  );
+}
+
+morse-code-editor .morse-editor-host .cm-gutterElement.morse-diff-row-pinned {
+  background: color-mix(
+    in srgb,
+    var(--morse-accent) 8%,
+    var(--morse-code-bg, var(--morse-bg))
+  );
   box-shadow: inset 2px 0 0 var(--morse-accent);
 }
 
