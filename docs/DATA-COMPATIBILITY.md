@@ -69,7 +69,9 @@ build already writes:
   seven days and keeps a room's newest hundred. The directory is the store's own — a sweep reads every
   `*.json` in it as one conversation's history — so no other `*.json` may be written there, and removing a
   conversation's file is how a room's history is forgotten. A build that predates the directory never reads
-  it, and nothing in it is engine context, so an older Morse loses nothing by ignoring it.
+  it, and nothing in it is engine context, so an older Morse loses nothing by ignoring it. A trace also
+  carries the optional `reply` a wake-up was woken by (the peer's words and who said them); a trace without
+  one is a turn nobody answered, and an older build ignores the field.
 - **A thread's origin, and an ask's room.** `parentId` (the room the asking bot was working in, recorded when
   the thread was opened) and `askedBy` (the bot that opened it) are optional on a thread, and the registry
   stays version 3: no step and no `CURRENT_DATA_LAYOUT` bump. A thread written before this change has

@@ -13,6 +13,33 @@
       <span>Ask Morse…</span>
     </button>
   } @else {
+  @if (variant === 'bot' && waitingAsks().length) {
+    <!-- A bot room's own queue of asks: the peers are working elsewhere, so the
+         room says who and how far, in the same panel a session uses for its
+         follow-ups. Clicking a row opens the thread it is waiting in. -->
+    <div class="queue waiting" role="region" aria-label="Waiting for replies">
+      <div class="queue-head">
+        <span class="queue-glyph" aria-hidden="true">⏲</span>
+        <span class="queue-title">Waiting for replies</span>
+        <span class="queue-count">{{ waitingAsks().length }}</span>
+      </div>
+      <div class="queue-list">
+        @for (ask of waitingAsks(); track ask.deliveryId) {
+          <button
+            type="button"
+            class="queue-row waiting-row"
+            [title]="'Open the conversation with ' + ask.target"
+            (click)="openWaitingAsk(ask)"
+          >
+            <span class="waiting-name">{{ ask.target }}</span>
+            <span class="waiting-state" [title]="ask.activity?.label ?? null">{{
+              ask.state === 'working' ? 'Working' : 'Queued'
+            }}</span>
+          </button>
+        }
+      </div>
+    </div>
+  }
   @if (queuedMessages().length && variant !== 'bot') {
     <div class="queue" role="region" aria-label="Queued follow-up messages">
       <div class="queue-head">

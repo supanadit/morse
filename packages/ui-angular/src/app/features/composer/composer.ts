@@ -16,6 +16,7 @@ import {
 import type {
   BotFileInput,
   BotUsage,
+  BotWaitingAsk,
   CommandOption,
   ContextUsage,
   ModelOption,
@@ -416,6 +417,24 @@ export class ChatComposer {
    * never shows another session's messages.
    */
   protected readonly queuedMessages = computed(() => this.queue.forOwner(this.tabs.composerKey()));
+
+  /**
+   * The asks this bot room's bots have handed to peers elsewhere, for the block
+   * above the composer. A peer works in its own thread, so this room has nothing
+   * to show for it until it answers.
+   */
+  protected readonly waitingAsks = computed<BotWaitingAsk[]>(() => {
+    if (this.variant !== 'bot') {
+      return [];
+    }
+    const id = this.morse.bot.activeId();
+    return id === null ? [] : (this.morse.bot.routingFor(id)?.waiting ?? []);
+  });
+
+  /** Opens the thread a peer is working in, so a waiting row leads somewhere. */
+  protected openWaitingAsk(ask: BotWaitingAsk): void {
+    this.morse.openBotConversation(ask.conversationId);
+  }
 
   /**
    * Clicking a pinned chip re-opens its file in the browser preview, where the

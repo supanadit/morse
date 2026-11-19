@@ -16,6 +16,7 @@ import type {
   BotConversationSummary,
   BotHandoff,
   BotTranscriptEntry,
+  BotTurnReply,
   BotTurnTrace,
   BotUsage,
   PromptImage,
@@ -196,6 +197,8 @@ export class BotChat {
   protected readonly loadingOlder = signal(false);
   /** The finished turns the reader has opened; a closed one is one line. */
   protected readonly expandedTurns = signal<ReadonlySet<string>>(new Set<string>());
+  /** The peers' messages the reader has opened, by the turn that received them. */
+  private readonly openPeers = signal<ReadonlySet<string>>(new Set<string>());
 
   /**
    * The round in flight, and only when it belongs to the conversation in front:
@@ -649,6 +652,43 @@ export class BotChat {
       }
       return next;
     });
+  }
+
+  /** Whether the reader has opened the peer's message a turn was woken by. */
+  protected isPeerOpen(traceId: string): boolean {
+    return this.openPeers().has(traceId);
+  }
+
+  /** Opens or closes one peer's message; the others keep their own state. */
+  protected togglePeer(traceId: string): void {
+    this.openPeers.update((open) => {
+      const next = new Set(open);
+      if (!next.delete(traceId)) {
+        next.add(traceId);
+      }
+      return next;
+    });
+  }
+
+  /**
+   * The peer's answer this timeline item is the reply to, with the turn that
+   * received it.
+   *
+   * It hangs on a trace, because that is where the wake-up recorded it: the room
+   * itself holds only the bot's own words. A row with several records takes the
+   * first that was woken by a peer; one item is one line, and one line is one
+   * answer.
+   */
+  protected peerReply(
+    item: TimelineItem,
+  ): { traceId: string; reply: BotTurnReply } | undefined {
+    for (const trace of item.traces ?? []) {
+      if (trace.reply !== undefined) {
+        return { traceId: trace.id, reply: trace.reply };
+      }
+    }
+    const single = item.trace;
+    return single?.reply === undefined ? undefined : { traceId: single.id, reply: single.reply };
   }
 
   /** Follows a handoff to the conversation the ask happened in. */

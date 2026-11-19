@@ -112,7 +112,9 @@ const STATUSES: readonly BotTurnTrace['status'][] = ['done', 'failed', 'cancelle
  * a full step-by-step schema: a `null` or a missing required field would fail
  * later, while the page is being read, so the file is refused here with its path
  * instead. `steps` and `handoffs` are checked as lists because a row without
- * them still type-checks as a trace and would break the reader mid-render.
+ * them still type-checks as a trace and would break the reader mid-render; a
+ * `reply` is checked whole for the same reason — the page prints its words and
+ * its time, and half a reply would throw inside the render.
  */
 function isTrace(value: unknown): value is BotTurnTrace {
   if (typeof value !== 'object' || value === null) {
@@ -129,6 +131,23 @@ function isTrace(value: unknown): value is BotTurnTrace {
     typeof row['status'] === 'string' &&
     STATUSES.includes(row['status'] as BotTurnTrace['status']) &&
     Array.isArray(row['steps']) &&
-    Array.isArray(row['handoffs'])
+    Array.isArray(row['handoffs']) &&
+    isReply(row['reply'])
+  );
+}
+
+function isReply(value: unknown): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row['username'] === 'string' &&
+    typeof row['name'] === 'string' &&
+    typeof row['at'] === 'number' &&
+    typeof row['text'] === 'string'
   );
 }

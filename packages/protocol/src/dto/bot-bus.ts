@@ -114,6 +114,25 @@ export interface BotDelivery {
 export type BotTurnTraceStatus = 'done' | 'failed' | 'cancelled';
 
 /**
+ * The peer's answer a turn was woken by.
+ *
+ * Kept on the trace rather than written into the room: the person messaged their
+ * own bot, so the peer never speaks there. It is still history — a reader can open
+ * it under the line that says the bot messaged that peer, which is where the
+ * answer came from — and the words are shown only when asked for.
+ */
+export interface BotTurnReply {
+  /** The bot that answered, by handle. */
+  username: string;
+  /** Its display name at settle time: handles are reusable, a trace keeps its own. */
+  name: string;
+  /** Epoch milliseconds the answer was handed back. */
+  at: number;
+  /** What it said; empty when its turn ended without words. */
+  text: string;
+}
+
+/**
  * One finished turn, kept as the conversation's record of it.
  *
  * Written once when the turn settles, never while it runs. A trace is history for
@@ -140,6 +159,11 @@ export interface BotTurnTrace {
   steps: BotActivity[];
   /** The asks this turn handed to other bots, with the state each ended in. */
   handoffs: BotHandoff[];
+  /**
+   * The peer's answer this turn was woken by — a turn that ran because a bot it
+   * asked has answered. Absent on every turn nobody was waiting for.
+   */
+  reply?: BotTurnReply;
 }
 
 /**

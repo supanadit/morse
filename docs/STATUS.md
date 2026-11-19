@@ -315,9 +315,11 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   scrolling back finds the work behind an answer without the transcript ever growing a tool log.
 - **A delegated answer comes home.** A bot that asks a peer in a private thread is woken in the room the person
   spoke in, with the peer's answer in hand, and answers the person itself: the person sees their own bot's
-  words, never another bot joining the chat. If the bot that asked can no longer be woken there, Morse says
-  what came back instead of dropping it. A delegated turn that failed or was cancelled is said in that room
-  too, naming the bot and how it ended.
+  words, never another bot joining the chat. The room still shows the delegation: a folded `Messaged <bot>`
+  line above the answer it produced opens to the peer's own message, and while the peer works the composer
+  carries a *Waiting for replies* block, one row per peer, which opens its thread. If the bot that asked can no
+  longer be woken there, Morse says what came back instead of dropping it. A delegated turn that failed or was
+  cancelled is said in that room too, naming the bot and how it ended.
 - **A budget you can see.** Usage and context are per bot per conversation: while a bot runs, its presence row
   carries that bot's own ring, and a room with nobody running shows none. The composer keeps one ring, for the
   bot that reported most recently, named so a group's ring says whose window it is. Clicking a ring opens the

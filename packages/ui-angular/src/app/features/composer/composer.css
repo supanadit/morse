@@ -201,6 +201,40 @@
   background: var(--morse-hover);
   color: var(--morse-fg);
 }
+
+/*
+ * A bot room waiting on a peer: the queue's own panel and rows, without the
+ * controls a person's follow-up queue has. A row is a link to the thread the
+ * peer is working in, so the block is a place to look, not a place to edit.
+ */
+.queue.waiting .waiting-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.queue.waiting .waiting-row:hover {
+  background: var(--morse-hover);
+}
+
+.waiting-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.waiting-state {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
 .toolbar {
   display: flex;
   align-items: center;

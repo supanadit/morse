@@ -1051,6 +1051,71 @@ describe('BotChat', () => {
     expect(opened).toHaveBeenCalledWith('thread-forge-sable');
   });
 
+  it('folds the peer’s answer under the line that says who was messaged', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, [
+      entry('u1', { role: 'user' }, 'ask Loom how many', 50),
+      entry(
+        'a1',
+        { role: 'bot', name: 'Forge', username: 'forge', avatar: 'F' },
+        'Loom says twelve.',
+        120,
+      ),
+    ]);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [],
+      replace: false,
+      traces: [
+        turn({
+          conversationId: dm.id,
+          username: 'forge',
+          name: 'Forge',
+          startedAt: 90,
+          endedAt: 130,
+          reply: { username: 'loom', name: 'Loom', at: 100, text: 'It is **twelve**.' },
+        }),
+      ],
+    });
+    fixture.detectChanges();
+
+    // Folded by default: the room says which peer was messaged, and the peer's
+    // words are not a line of chat in it.
+    const separator = host.querySelector('.entry.peer') as HTMLElement;
+    expect(separator.textContent?.replace(/\s+/g, ' ').trim()).toContain('Messaged Loom');
+    expect(separator.querySelector('.peer-message')).toBeNull();
+
+    (separator.querySelector('.peer-line') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const message = host.querySelector('.peer-message') as HTMLElement;
+    expect(message.querySelector('.peer-author')?.textContent?.trim()).toBe('Loom');
+    expect(message.querySelector('.peer-text strong')?.textContent).toBe('twelve');
+  });
+
+  it('says a peer came back empty under its own line', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, []);
+    morse.bot.onTranscript({
+      conversationId: dm.id,
+      entries: [],
+      replace: false,
+      traces: [
+        turn({
+          conversationId: dm.id,
+          username: 'forge',
+          name: 'Forge',
+          reply: { username: 'loom', name: 'Loom', at: 100, text: '' },
+        }),
+      ],
+    });
+    fixture.detectChanges();
+
+    (host.querySelector('.peer-line') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.peer-empty')?.textContent?.trim()).toBe('Loom came back empty.');
+  });
+
   it('draws no words until the bot has written some', async () => {
     const { fixture, host, morse } = await render();
     open(morse, workshop, []);

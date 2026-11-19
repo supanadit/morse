@@ -516,7 +516,10 @@ async function flush(): Promise<void> {
  */
 async function settle(service: BotService, conversationId = 'dm-forge'): Promise<void> {
   for (let tick = 0; tick < 500; tick += 1) {
-    if (service.routing(conversationId) === null) {
+    const state = service.routing(conversationId);
+    // A room waiting on a peer elsewhere has no lane here: that work is another
+    // room's, and a test waiting for this one is done as soon as it is idle.
+    if (state === null || (state.active.length === 0 && state.queued.length === 0)) {
       await flush();
       return;
     }
@@ -3975,6 +3978,68 @@ describe('BotService answers', () => {
 
     held.release();
     await settle(service, 'dm-sigil');
+  });
+
+  it('reports the ask the room is waiting on, and drops it when it is answered', async () => {
+    const { adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.startsWith('[From ') ? { text: 'the answer' } : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    await waitForTurn(service, 'loom');
+
+    // The peer works in its own thread, so nothing in the DM moves: the room says
+    // who it is waiting on instead, and the push reaches it even though no line
+    // here changed.
+    expect(service.routing('dm-sigil')?.waiting).toMatchObject([
+      {
+        username: 'loom',
+        target: 'Loom',
+        conversationId: 'thread-loom-sigil',
+        state: 'working',
+      },
+    ]);
+    const pushed = events.filter(
+      (event) => event.type === 'routing' && event.conversationId === 'dm-sigil',
+    );
+    expect(pushed.at(-1)).toMatchObject({ state: { waiting: [{ username: 'loom' }] } });
+
+    gatewayFor(adapter, 'loom').release();
+    await settle(service, thread);
+
+    // The answer comes back to this room, so the wait is over: the room has its
+    // own work again instead of a peer to wait for.
+    expect(service.routing('dm-sigil')?.waiting ?? []).toEqual([]);
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('keeps the peer’s answer on the turn it woke, not in the room', async () => {
+    const { adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.includes('answered the ask you sent')
+          ? { text: 'for the person' }
+          : prompt.startsWith('[From ')
+            ? { text: 'the answer' }
+            : { text: 'held', hold: true },
+    });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    await settle(service, thread);
+    held.release();
+    await settle(service, 'dm-sigil');
+
+    // The wake-up's record carries the words it was woken by, so a reader can
+    // open them; the room's own line stays the bot speaking.
+    const woken = service.open('dm-sigil').traces.find((trace) => trace.reply !== undefined);
+    expect(woken?.reply).toMatchObject({ username: 'loom', name: 'Loom', text: 'the answer' });
+    expect(woken?.reply?.at).toBeGreaterThan(0);
+    expect(service.transcript('dm-sigil').map((entry) => entry.text)).not.toContain('the answer');
   });
 
   it('leaves an ask a bot made inside the thread in the thread', async () => {

@@ -239,6 +239,29 @@ lane:
 The person's own room remains the only place they are spoken to: no bot writes into a DM it was not
 asked in, and no peer answers the person directly.
 
+### What the room shows
+
+Silence would be wrong the other way: the person asked for work and must see that it was handed on,
+without ever seeing the peer as a participant.
+
+- **The answer that came back.** A wake-up's trace carries the peer's words in an optional `reply`
+  (handle, display name, when it was handed back, and the text — empty when the peer ended without
+  words). Above the answer that turn produced, the transcript draws one folded, centred line:
+  `Messaged <name> · <time>`. Opening it shows the peer's message, attributed and rendered as
+  markdown, or `came back empty`. It is folded by default and is never a chat line; the turn's own
+  record still says what the turn did.
+- **Waiting on a peer.** `BotRoutingState` gains an optional `waiting`: one row per ask a bot in this
+  room made elsewhere and has not been answered on. The rows come from the thread's delivery file by
+  `originId`, so a client opening the room late and one watching a push draw the same list; each row
+  carries the peer, `asked` or `working`, the step it is on when it has one, and the thread to open.
+  The bot composer draws it in the panel a session already uses for queued follow-ups — *Waiting for
+  replies*, one row per peer, a click opens that thread — and a routing push reaches the asking room
+  when the peer's delivery starts or settles, so the block appears, moves and disappears on its own.
+  An ask answered in the same room is not listed: the peer is already visible there.
+
+Both are additive wire fields read defensively (`waiting ?? []`), so no protocol bump: an older
+frontend ignores them, and a newer one against an older host shows neither block.
+
 ## Bots outside the room
 
 No new tool and no new control. Two things change:
@@ -263,6 +286,9 @@ the thread while the ask is still running.
   rewritten. `BotDelivery.originId` and `BotDelivery.answer` are optional and internal to the host's
   bus (deliveries never cross the wire), so no protocol bump: a build that does not know the fields
   ignores them, and its older rows simply have no answer to carry.
+- `BotTurnTrace.reply` and `BotRoutingState.waiting` are additive wire fields; the protocol version
+  stays 43 because neither changes a shape a peer must understand: `waiting` is read as `?? []`, and a
+  trace without `reply` draws no folded peer line.
 - Traces live in their own directory and are created lazily; no data-layout step is needed, but
   `docs/DATA-COMPATIBILITY.md` names the new directory.
 - `docs/STATUS.md` describes the live row, the record and the answer path.

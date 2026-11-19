@@ -195,8 +195,32 @@ export interface BotRoutingActive {
 }
 
 /**
- * The work in flight on one conversation: every bot answering now, and every
- * delivery still waiting.
+ * One ask this room is waiting on, made by a bot working here.
+ *
+ * The peer is somewhere else — a private thread, usually — so nothing in this
+ * room moves while it works. This is the row that says so, above the composer:
+ * who was asked, what they are doing, and where to look.
+ */
+export interface BotWaitingAsk {
+  /** The peer that was asked, by handle. */
+  username: string;
+  /** Its display name, for the row's heading. */
+  target: string;
+  /** The conversation the ask landed in, so the row can open it. */
+  conversationId: string;
+  /** The delivery the ask created: where `state` is read from. */
+  deliveryId: string;
+  /** Queued at the peer, or already working on it. */
+  state: 'asked' | 'working';
+  /** Epoch milliseconds the ask was made. */
+  at: number;
+  /** What that bot is doing there right now. Absent while the ask is still queued. */
+  activity?: BotActivity;
+}
+
+/**
+ * The work in flight on one conversation: every bot answering now, every delivery
+ * still waiting, and every peer this room's bots have asked elsewhere.
  *
  * A room can have more than one bot working at once — lanes are per bot, so one
  * bot's turn never holds another's — which is why `active` is a list rather than
@@ -208,6 +232,12 @@ export interface BotRoutingState {
   active: BotRoutingActive[];
   /** Deliveries still queued, by display name, oldest first. */
   queued: string[];
+  /**
+   * Asks a bot here handed to a peer elsewhere, oldest first. An ask answered in
+   * this room is not here: the peer is already visible in it. Absent when nothing
+   * is outstanding.
+   */
+  waiting?: BotWaitingAsk[];
 }
 
 /**

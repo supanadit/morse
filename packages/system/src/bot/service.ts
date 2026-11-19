@@ -39,6 +39,7 @@ import type {
   BotTurnTrace,
   BotUpdateInput,
   BotUsage,
+  BotWaitingAsk,
   PromptImage,
 } from '@morse/protocol';
 import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
@@ -1158,7 +1159,14 @@ export class BotService {
    * turn records, so the answer to an opening read and a push cannot disagree.
    */
   routing(conversationId: string): BotRoutingState | null {
-    const rows = this.deliveries.all(conversationId);
+    return this.routingFrom(conversationId, this.deliveries.all(conversationId));
+  }
+
+  /** One room's state, from rows the caller already read. */
+  private routingFrom(
+    conversationId: string,
+    rows: BotDelivery[],
+  ): BotRoutingState | null {
     // A row's asks point at deliveries in other rooms (the thread a bot opened),
     // so each room is read once per push however many asks point into it.
     const byRoom = new Map<string, BotDelivery[]>([[conversationId, rows]]);
@@ -1177,10 +1185,63 @@ export class BotService {
     const queued = rows
       .filter((row) => row.status === 'queued')
       .map((row) => this.displayNameOf(row.to));
-    if (active.length === 0 && queued.length === 0) {
+    const waiting = this.waitingAsks(conversationId);
+    if (active.length === 0 && queued.length === 0 && waiting.length === 0) {
       return null;
     }
-    return { conversationId, active, queued };
+    return {
+      conversationId,
+      active,
+      queued,
+      ...(waiting.length === 0 ? {} : { waiting }),
+    };
+  }
+
+  /**
+   * The asks this room's bots have made elsewhere and not been answered on.
+   *
+   * A peer works in its own thread, so nothing in this room moves while it does.
+   * The rows come from the delivery files — the ask names the room it was made
+   * from — which is what lets a client that opens the room late and one watching
+   * a push draw the same list. Only threads are read: an ask to a bot already in
+   * this room is visible here, answering, and needs no row of its own.
+   */
+  private waitingAsks(roomId: string): BotWaitingAsk[] {
+    const asks: BotWaitingAsk[] = [];
+    for (const conversation of this.registry.conversations) {
+      if (conversation.id === roomId || conversation.kind !== 'thread') {
+        continue;
+      }
+      let rows: BotDelivery[];
+      try {
+        rows = this.deliveries.all(conversation.id);
+      } catch (error: unknown) {
+        // One unreadable queue must not cost the room its presence: the wait it
+        // holds is unknown, not the whole row. It is reported like every other
+        // broken file, and the next push tries again.
+        this.options.logger.warn(`Failed to read the deliveries in "${conversation.id}"`, error);
+        continue;
+      }
+      for (const row of rows) {
+        if (row.originId !== roomId || (row.status !== 'queued' && row.status !== 'running')) {
+          continue;
+        }
+        const turn = this.turns.get(row.to);
+        const activity =
+          turn !== undefined && turn.conversationId === conversation.id ? turn.steps.at(-1) : undefined;
+        asks.push({
+          username: row.to,
+          target: this.displayNameOf(row.to),
+          conversationId: conversation.id,
+          deliveryId: row.id,
+          state: row.status === 'running' ? 'working' : 'asked',
+          at: row.createdAt,
+          ...(activity === undefined ? {} : { activity }),
+        });
+      }
+    }
+    // Insertion order breaks a same-millisecond tie, so two asks never swap.
+    return asks.sort((left, right) => left.at - right.at);
   }
 
   /**
@@ -2013,7 +2074,9 @@ export class BotService {
    * keeps the name it was written with. Each ask is resolved against its delivery
    * at this moment, so the trace says how far the ask had got when this turn
    * settled rather than the `asked` its record was opened with — a peer can
-   * answer after the asker's turn is over.
+   * answer after the asker's turn is over. A turn that ran because a peer
+   * answered keeps that answer's words, not its line: the room shows the bot
+   * speaking, and the peer's message is there for whoever opens it.
    *
    * The push appends no lines and replaces nothing: the transcript is unchanged,
    * and a room that already shows the answer only learns what history it now has.
@@ -2036,6 +2099,20 @@ export class BotService {
       // counting a step the engine never took.
       steps: turn.steps.filter((step) => step.kind !== 'starting'),
       handoffs: this.tracedHandoffs(turn.handoffs),
+      // The answer the turn was woken by is kept here, not in the transcript:
+      // it is history a reader can open, never a peer speaking in this room.
+      ...(delivery.kind === 'reply' &&
+      delivery.from.type === 'bot' &&
+      delivery.answer !== undefined
+        ? {
+            reply: {
+              username: delivery.from.username,
+              name: this.displayNameOf(delivery.from.username),
+              at: delivery.createdAt,
+              text: delivery.answer,
+            },
+          }
+        : {}),
     };
     this.traces.add(trace);
     this.emit({
@@ -3065,17 +3142,31 @@ export class BotService {
    * Derived from the delivery file every time, so a client that arrives late and
    * the push sent on a change can never disagree. A conversation that never
    * announced anything emits no clear.
+   *
+   * A room whose bot asked elsewhere is pushed too: the peer working in its
+   * thread moves that room's waiting list, though nothing in the room itself
+   * changed. `seen` stops a chain of asks from looping back on itself.
    */
-  private emitRouting(conversationId: string): void {
-    const state = this.routing(conversationId);
+  private emitRouting(conversationId: string, seen: Set<string> = new Set()): void {
+    if (seen.has(conversationId)) {
+      return;
+    }
+    seen.add(conversationId);
+    const rows = this.deliveries.all(conversationId);
+    const state = this.routingFrom(conversationId, rows);
     if (state === null) {
       if (this.announced.delete(conversationId)) {
         this.emit({ type: 'routing', conversationId, state: null });
       }
-      return;
+    } else {
+      this.announced.add(conversationId);
+      this.emit({ type: 'routing', conversationId, state });
     }
-    this.announced.add(conversationId);
-    this.emit({ type: 'routing', conversationId, state });
+    for (const row of rows) {
+      if (row.originId !== undefined && row.originId !== conversationId) {
+        this.emitRouting(row.originId, seen);
+      }
+    }
   }
 
   /**

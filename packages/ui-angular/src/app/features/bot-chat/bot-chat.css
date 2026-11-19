@@ -685,6 +685,93 @@
   opacity: 0.7;
 }
 
+/*
+ * The peer's answer: a folded line where the bot's reply to it now sits, because
+ * the person messaged their own bot and nobody else may read as a participant in
+ * this room. Opening it is the only way the peer's words appear, and they appear
+ * as a quoted block, never as a line of chat.
+ */
+.entry.peer {
+  flex-direction: column;
+  align-self: center;
+  align-items: center;
+  max-width: min(100%, 680px);
+  margin: 10px 0 2px;
+  gap: 6px;
+}
+
+.peer-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.peer-line:hover {
+  border-color: color-mix(in srgb, var(--morse-fg) 35%, var(--morse-border));
+  color: var(--morse-fg);
+}
+
+.peer-avatar {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--morse-hover);
+  color: var(--morse-fg-muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.peer-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-line time {
+  flex: none;
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+
+.peer-message {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.peer-author {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.peer-empty {
+  margin: 0;
+  color: var(--morse-fg-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
 /* The lazy-load row: a quiet hint until the host answers it. */
 .older {
   align-self: center;

@@ -71,6 +71,46 @@
         <p class="empty-note">No messages yet. Say hello to {{ conversation.title }}.</p>
       }
       @for (item of timeline(); track item.key) {
+        @if (peerReply(item); as peer) {
+          <!--
+            The answer this line came from: the bot messaged a peer, so the room
+            says which one and the peer's words stay folded under that line. The
+            person messaged their own bot — nothing here may read as a second
+            participant in the chat.
+          -->
+          <div class="entry peer" [attr.data-open]="isPeerOpen(peer.traceId) ? 'true' : null">
+            <button
+              type="button"
+              class="peer-line"
+              [attr.aria-expanded]="isPeerOpen(peer.traceId)"
+              [title]="
+                isPeerOpen(peer.traceId)
+                  ? 'Hide what ' + peer.reply.name + ' answered'
+                  : 'Show what ' + peer.reply.name + ' answered'
+              "
+              (click)="togglePeer(peer.traceId)"
+            >
+              <span class="peer-avatar" aria-hidden="true">{{ initial(peer.reply.name) }}</span>
+              <span class="peer-title">Messaged {{ peer.reply.name }}</span>
+              <time [attr.datetime]="stamp(peer.reply.at)" [title]="fullStamp(peer.reply.at)">{{
+                clock(peer.reply.at)
+              }}</time>
+              <span class="turn-caret" aria-hidden="true">{{
+                isPeerOpen(peer.traceId) ? '▾' : '▸'
+              }}</span>
+            </button>
+            @if (isPeerOpen(peer.traceId)) {
+              <div class="peer-message">
+                <span class="peer-author">{{ peer.reply.name }}</span>
+                @if (peer.reply.text.length > 0) {
+                  <div class="peer-text"><morse-markdown [text]="peer.reply.text" /></div>
+                } @else {
+                  <p class="peer-empty">{{ peer.reply.name }} came back empty.</p>
+                }
+              </div>
+            }
+          </div>
+        }
         @if (item.trace; as trace) {
           <!--
             A finished turn: one line above the answer it produced, saying who ran

@@ -80,6 +80,18 @@ describe('bot trace store', () => {
     expect(() => store.all('dm-sigil')).toThrow(/dm-sigil\.json/);
   });
 
+  it('refuses a trace whose reply cannot be drawn', () => {
+    const store = new BotTraceStore(dir);
+    // Half a reply — a reader would print its time and its words, and both are
+    // missing — so the file is refused rather than drawn broken.
+    writeFileSync(
+      join(dir, 'dm-sigil.json'),
+      `${JSON.stringify([{ ...trace({ id: 'b' }), reply: { username: 'loom' } }])}\n`,
+    );
+
+    expect(() => store.all('dm-sigil')).toThrow(/dm-sigil\.json/);
+  });
+
   it('leaves every other room readable when one file is bad', () => {
     const store = new BotTraceStore(dir);
     store.add({ ...trace({ id: 'a', endedAt: 1 }), conversationId: 'dm-loom' });

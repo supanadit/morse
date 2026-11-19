@@ -1,7 +1,13 @@
 import { TestBed } from '@angular/core/testing';
-import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
+import {
+  PROTOCOL_VERSION,
+  type BotConversationSummary,
+  type BotWaitingAsk,
+  type ClientToHostMessage,
+} from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MorseService } from '../../host/morse.service';
 import { QueuedPrompts } from '../../state/queued-prompts';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
@@ -126,5 +132,105 @@ describe('ChatComposer queued messages', () => {
     fixture.detectChanges();
 
     expect(rows(host)).toEqual(['second', 'first']);
+  });
+});
+
+describe('ChatComposer waiting for replies', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  /**
+   * A bot room's asks are working elsewhere, so the composer shows them in the
+   * same panel a session uses for follow-ups — one row per peer, which opens the
+   * thread it is working in.
+   */
+  it('lists the peers the room is waiting on, and opens their thread', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const morse = TestBed.inject(MorseService);
+    const conversation: BotConversationSummary = {
+      id: 'dm-forge',
+      kind: 'dm',
+      title: 'Forge',
+      members: ['forge'],
+      chainCap: 8,
+      updatedAt: 1,
+    };
+    const waiting: BotWaitingAsk[] = [
+      {
+        username: 'loom',
+        target: 'Loom',
+        conversationId: 'thread-forge-loom',
+        deliveryId: 'd1',
+        state: 'working',
+        at: 10,
+        activity: { kind: 'tool', label: 'Reading the brief', at: 20, status: 'running' },
+      },
+      {
+        username: 'sable',
+        target: 'Sable',
+        conversationId: 'thread-forge-sable',
+        deliveryId: 'd2',
+        state: 'asked',
+        at: 30,
+      },
+    ];
+    morse.bot.onRoster({ bots: [], conversations: [conversation] });
+    morse.bot.open(conversation.id);
+    morse.bot.onRouting({
+      conversationId: conversation.id,
+      state: { conversationId: conversation.id, active: [], queued: [], waiting },
+    });
+    fixture.detectChanges();
+
+    const panel = host.querySelector('.queue.waiting') as HTMLElement;
+    expect(panel.textContent?.replace(/\s+/g, ' ')).toContain('Waiting for replies');
+    expect(panel.textContent?.replace(/\s+/g, ' ')).toContain('Loom');
+    expect(panel.textContent?.replace(/\s+/g, ' ')).toContain('Working');
+    expect(panel.textContent?.replace(/\s+/g, ' ')).toContain('Queued');
+
+    const opened = vi.spyOn(morse, 'openBotConversation');
+    (panel.querySelectorAll('.waiting-row')[0] as HTMLButtonElement).click();
+    expect(opened).toHaveBeenCalledWith('thread-forge-loom');
+  });
+
+  it('shows nothing over a session, even when a bot room is waiting', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const morse = TestBed.inject(MorseService);
+    morse.bot.open('dm-forge');
+    morse.bot.onRouting({
+      conversationId: 'dm-forge',
+      state: {
+        conversationId: 'dm-forge',
+        active: [],
+        queued: [],
+        waiting: [
+          {
+            username: 'loom',
+            target: 'Loom',
+            conversationId: 'thread-forge-loom',
+            deliveryId: 'd1',
+            state: 'working',
+            at: 10,
+          },
+        ],
+      },
+    });
+    fixture.detectChanges();
+
+    expect(host.querySelector('.queue.waiting')).toBeNull();
   });
 });
