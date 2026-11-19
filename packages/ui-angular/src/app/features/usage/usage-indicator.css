@@ -73,7 +73,7 @@
 .panel {
   position: absolute;
   z-index: 31;
-  right: 0;
+  left: 0;
   bottom: calc(100% + 8px);
   width: 320px;
   max-height: 70vh;

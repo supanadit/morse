@@ -36,6 +36,37 @@ function cellValue(host: HTMLElement, label: string): string {
   return cell?.querySelector('.v')?.textContent?.trim() ?? '';
 }
 
+describe('UsageIndicator placement', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  /**
+   * A trigger inside a scrolling pane is clipped by that pane, so the panel must
+   * be placed against it rather than hanging off the trigger's left edge, which
+   * is what ran it under the sidebar.
+   */
+  it('places the panel inside the pane instead of hanging off it', () => {
+    const { fixture, host } = setup({ variant: 'context' });
+    (host.querySelector('.mini') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const panel = host.querySelector('.panel') as HTMLElement;
+    expect(panel.style.left).not.toBe('');
+    expect(panel.style.maxWidth).toBe('320px');
+    expect(panel.style.maxHeight).not.toBe('');
+  });
+
+  it('takes its scrim and panel away when the trigger is pressed again', () => {
+    const { fixture, host } = setup({ variant: 'context' });
+    (host.querySelector('.mini') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.panel')).not.toBeNull();
+
+    (host.querySelector('.mini') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.panel')).toBeNull();
+  });
+});
+
 describe('UsageIndicator session totals', () => {
   afterEach(() => TestBed.resetTestingModule());
 

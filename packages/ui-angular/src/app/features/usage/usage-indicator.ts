@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import type { ContextUsage, ModelOption, SessionCounts, SessionSpeed, TokenUsage } from '@morse/protocol';
 import {
   cacheHitRate,
@@ -8,6 +17,7 @@ import {
   formatUsage,
   formatUsageValue,
 } from '@morse/ui-runtime';
+import { placeUsagePanel, type Box } from './usage-panel';
 
 const RADIUS = 15.5;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
@@ -51,6 +61,24 @@ export class UsageIndicator {
 
   protected readonly open = signal(false);
   protected readonly circumference = CIRCUMFERENCE;
+
+  /** Where the panel sits, in px from the trigger's own left edge. */
+  protected readonly panelLeft = signal(0);
+  /** The most the panel may be wide and tall, so it stays in the pane it is in. */
+  protected readonly panelWidth = signal(320);
+  protected readonly panelHeight = signal(320);
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  /** A panel anchored to a trigger that scrolls away follows it, or closes. */
+  private readonly onScroll = (): void => this.place();
+  private readonly onResize = (): void => this.place();
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      window.removeEventListener('scroll', this.onScroll, true);
+      window.removeEventListener('resize', this.onResize);
+    });
+  }
 
   private readonly percent = computed(() => this.contextUsage()?.percent ?? undefined);
 
@@ -170,10 +198,69 @@ export class UsageIndicator {
   }
 
   protected toggle(): void {
-    this.open.update((value) => !value);
+    if (this.open()) {
+      this.close();
+      return;
+    }
+    // Placed before the first render, so the panel never draws in the old spot and
+    // then jumps: the maths needs the trigger, which is already laid out.
+    this.place();
+    this.open.set(true);
+    window.addEventListener('scroll', this.onScroll, true);
+    window.addEventListener('resize', this.onResize);
   }
 
   protected close(): void {
+    if (!this.open()) {
+      return;
+    }
     this.open.set(false);
+    window.removeEventListener('scroll', this.onScroll, true);
+    window.removeEventListener('resize', this.onResize);
+  }
+
+  /**
+   * Puts the panel inside the pane that can actually show it.
+   *
+   * The trigger can sit inside a scrolling region — a bot's live row in the
+   * transcript — and a popup hung to its left lands on the pane's very edge
+   * there, right where the sidebar begins, and reads as clipped by it. So the
+   * pane is measured and the panel is placed against it: centred over the ring
+   * when that fits, hanging left when it does not, and always inside.
+   */
+  private place(): void {
+    const anchor = this.host.nativeElement.getBoundingClientRect();
+    const clip = this.clipBox();
+    // The trigger itself left what can show the panel (its row scrolled away):
+    // there is nothing left to point at, so it closes instead of floating at an
+    // edge with no origin.
+    if (anchor.bottom < clip.top || anchor.top > clip.bottom) {
+      this.close();
+      return;
+    }
+    const placed = placeUsagePanel(
+      { left: anchor.left, right: anchor.right, top: anchor.top, bottom: anchor.bottom },
+      clip,
+    );
+    this.panelLeft.set(placed.left);
+    this.panelWidth.set(placed.width);
+    this.panelHeight.set(placed.height);
+  }
+
+  /**
+   * The box the panel may occupy: the nearest ancestor that clips its content,
+   * or the window. The panel is absolutely positioned, so an ancestor with
+   * `overflow` is what would cut it off.
+   */
+  private clipBox(): Box {
+    for (let node = this.host.nativeElement.parentElement; node !== null; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      const clips = (value: string): boolean => value !== '' && value !== 'visible';
+      if (clips(style.overflowX) || clips(style.overflowY)) {
+        const rect = node.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      }
+    }
+    return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
   }
 }

@@ -28,7 +28,14 @@
 
 @if (open()) {
   <button class="scrim" type="button" aria-label="Close usage" (click)="close()"></button>
-  <div class="panel" role="dialog" aria-label="Context usage">
+  <div
+    class="panel"
+    role="dialog"
+    aria-label="Context usage"
+    [style.left.px]="panelLeft()"
+    [style.max-width.px]="panelWidth()"
+    [style.max-height.px]="panelHeight()"
+  >
     <header>
       <h3>Context</h3>
       <button class="close" type="button" aria-label="Close" (click)="close()">×</button>
