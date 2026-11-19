@@ -384,7 +384,9 @@ morse-code-editor .morse-editor-host .morse-diff-line.morse-diff-pinned {
 
 /* A hunk's `@@ … @@`: a caption above the line it introduces, not a line of a file. */
 morse-code-editor .morse-editor-host .morse-diff-hunk {
-  margin: 6px 0 2px;
+  /* Padding, not margin: a block widget's margin collapses outside the line height
+     CodeMirror measures, so the gutter rail drifts away from the code. */
+  padding: 6px 0 2px;
   padding: 2px 0 2px var(--morse-diff-pad);
   background: var(--morse-code-head, var(--morse-hover));
   color: var(--morse-fg-muted);
@@ -462,7 +464,8 @@ morse-code-editor .morse-editor-host .cm-gutterElement.morse-diff-row-pinned {
     var(--morse-accent) 8%,
     var(--morse-code-bg, var(--morse-bg))
   );
-  box-shadow: inset 2px 0 0 var(--morse-accent);
+  /* No inset rule here: every cell of a row would draw one, and the rail read as
+     several bold bars. The rule lives on the code line alone. */
 }
 
 @keyframes morse-line-flash {
