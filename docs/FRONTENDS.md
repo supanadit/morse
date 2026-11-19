@@ -173,7 +173,12 @@ VS Code has an Explorer and a text editor, so its host leaves `filePreview` off 
 The browser host has neither, so `filePreview: true` gives the frontend an Explorer in the sidebar and a tab
 strip above the conversation, where sessions and files open side by side. A file opens in a **read-only
 CodeMirror editor** — syntax highlighting, line numbers, folding, find, sticky scrolled declarations — loaded as its own
-lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. Dragging
+lazy chunk; there is no language server, no completion and no diagnostics, and no way to save. The grammars cover
+TypeScript/JavaScript, JSON, HTML (and Vue/Svelte templates), CSS/SCSS/Sass/Less, Markdown, Python, Rust, Go,
+Java/Kotlin, C/C++, C#, PHP, Dart, Ruby, Swift, SQL, YAML, XML, TOML, Lua, shell, and `Dockerfile` — each in its own
+chunk, chosen by the path's extension (or its name, where that is what says it: `Dockerfile.dev`). Those without a
+Lezer grammar (Dart, C#, Ruby, Swift, shell, TOML, Lua, Dockerfile) use the CodeMirror 5 stream parsers, so they
+colour but do not fold. Dragging
 the line numbers pins whole lines, and selecting text offers `⧉ Pin L12-14` in the file's header (nothing floats
 over the code, and the selection clears once the pin exists). A pin is a
 tinted band, and the **Notes**/**Cancel** pair at its bottom-right corner appears only for the band the pointer is
