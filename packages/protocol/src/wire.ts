@@ -94,6 +94,7 @@ export const CLIENT_MESSAGE_TYPES = [
   'bot/groupCreate',
   'bot/groupUpdate',
   'bot/groupDelete',
+  'bot/threadDelete',
 ] as const;
 
 export function encodeWireMessage(message: WireMessage): string {

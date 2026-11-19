@@ -72,6 +72,7 @@ const CLIENT_BOT_MESSAGES = [
     },
   },
   { type: 'bot/groupDelete', payload: { id: 'grp-launch-ab12' } },
+  { type: 'bot/threadDelete', payload: { id: 'thread-loom-sigil' } },
 ] as const;
 
 /** Every bot message the host pushes, with the payload it pushes. */

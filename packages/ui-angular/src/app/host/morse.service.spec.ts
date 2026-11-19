@@ -497,6 +497,18 @@ describe('MorseService bot mode', () => {
     });
   });
 
+  it('deletes a private thread by id', () => {
+    const transport = new ScriptedTransport();
+    const morse = mount(transport);
+
+    morse.deleteThread('thread-loom-sigil');
+
+    expect(lastFrame(transport)).toEqual({
+      type: 'bot/threadDelete',
+      payload: { id: 'thread-loom-sigil' },
+    });
+  });
+
   it('stops the round in flight on the open conversation', () => {
     const transport = new ScriptedTransport();
     const morse = mount(transport);
