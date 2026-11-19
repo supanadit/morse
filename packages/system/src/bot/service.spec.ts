@@ -3885,7 +3885,7 @@ describe('BotService bus', () => {
 describe('BotService answers', () => {
   const thread = 'thread-loom-sigil';
 
-  it('hands a peer’s answer back to the room the asker was in', async () => {
+  it('hands a peer’s answer to the room the asker was in without speaking there', async () => {
     const { root, adapter, service } = harness({
       script: ({ prompt }) =>
         prompt.includes('answered the ask you sent')
@@ -3901,43 +3901,48 @@ describe('BotService answers', () => {
     // Loom answers in the private thread Sigil's ask opened.
     await settle(service, thread);
 
-    // One line in the room the asker was working in, authored by the peer and
-    // saying where the answer came from.
-    const forwarded = service
-      .transcript('dm-sigil')
-      .find((entry) => entry.author.role === 'bot' && entry.text.includes('private thread'));
-    expect(forwarded).toMatchObject({
-      author: { role: 'bot', name: 'Loom', username: 'loom' },
-      text: 'Loom, in a private thread with @sigil: the answer',
-    });
-
-    // A reply delivery in that same room, pointing at the line it forwards, one
-    // hop deeper and under the trigger the person started.
+    // The peer's answer is not a line in the asker's room: a delegated bot never
+    // speaks there, so the person never sees one join the chat. It rides the
+    // wake-up delivery instead, which asks about the room as it stands.
+    expect(
+      service
+        .transcript('dm-sigil')
+        .filter((entry) => entry.author.role === 'bot' && entry.author.username === 'loom'),
+    ).toEqual([]);
     const asked = deliveriesOf(root, thread).find((row) => row.id === ask.deliveryId);
     const reply = deliveriesOf(root, 'dm-sigil').find((row) => row.kind === 'reply');
     expect(reply).toMatchObject({
       conversationId: 'dm-sigil',
-      entryId: forwarded?.id,
       from: { type: 'bot', username: 'loom' },
       to: 'sigil',
       kind: 'reply',
       reason: 'bot',
+      answer: 'the answer',
       depth: 2,
       rootId: asked?.rootId,
     });
+    // The wake asks about the room as it stands: the newest line already there,
+    // so the answer arrives with the conversation, not in place of it.
+    expect(reply?.entryId).toBe(service.transcript('dm-sigil').at(-1)?.id);
 
-    // The asker's lane wakes on that line, with the lead line that says what to
-    // do with it.
+    // The asker's lane wakes on it with the words themselves, the lead line that
+    // says what to do with them, and the peer's own answer left out of the room.
     held.release();
     await settle(service, 'dm-sigil');
     const prompts = gatewayFor(adapter, 'sigil').prompts;
     expect(prompts).toHaveLength(2);
-    expect(prompts[1]).toContain('Loom, in a private thread with @sigil: the answer');
+    expect(prompts[1]).toContain('Loom answered:\n\nthe answer');
     expect(prompts[1]).toContain('answered the ask you sent');
     expect(prompts[1]).toContain('do not send it back');
+    const said = service
+      .transcript('dm-sigil')
+      .filter((entry) => entry.author.role === 'bot')
+      .map((entry) => entry.text);
+    expect(said).toEqual(['held', 'for the person']);
+    expect(service.open(thread).traces).toHaveLength(1);
   });
 
-  it('writes the relayed line before the thread’s turn becomes history', async () => {
+  it('hands the answer back before the thread’s turn becomes history', async () => {
     const { adapter, service } = harness({
       script: ({ prompt }) =>
         prompt.includes('answered the ask you sent')
@@ -3948,20 +3953,15 @@ describe('BotService answers', () => {
     });
     await busBots(service);
     const events: BotEvent[] = [];
-    service.subscribe((event) => events.push(event));
     const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
     await service.busSend('sigil', { to: 'loom', text: 'how many?' });
+    service.subscribe((event) => events.push(event));
     await settle(service, thread);
 
-    // The settle's order is status → snapshot → hand-back → trace: the parent
-    // already carries the relayed line when the thread's trace is written.
-    const relayedAt = events.findIndex(
-      (event) =>
-        event.type === 'transcript' &&
-        event.conversationId === 'dm-sigil' &&
-        event.entries.some(
-          (entry) => entry.text === 'Loom, in a private thread with @sigil: the answer',
-        ),
+    // The settle's order is status → snapshot → hand-back → trace: the asker is
+    // already queued in the room when the thread's turn becomes history.
+    const wokenAt = events.findIndex(
+      (event) => event.type === 'routing' && event.conversationId === 'dm-sigil',
     );
     const tracedAt = events.findIndex(
       (event) =>
@@ -3970,9 +3970,8 @@ describe('BotService answers', () => {
         event.traces !== undefined &&
         event.traces.length > 0,
     );
-    expect(relayedAt).toBeGreaterThanOrEqual(0);
-    expect(tracedAt).toBeGreaterThan(relayedAt);
-    expect(service.open(thread).traces).toHaveLength(1);
+    expect(wokenAt).toBeGreaterThanOrEqual(0);
+    expect(tracedAt).toBeGreaterThan(wokenAt);
 
     held.release();
     await settle(service, 'dm-sigil');
@@ -4211,24 +4210,20 @@ describe('BotService answers', () => {
     await reopened.busSend('sigil', { to: 'loom', text: 'again' });
     await settle(reopened, thread);
 
-    // The ask carries the room it was made from, so its answer lands there even
-    // though the thread itself has no recorded origin — and the asker wakes on
-    // that line to answer the person.
+    // The ask carries the room it was made from, so its answer comes home even
+    // though the thread itself has no recorded origin — and the asker wakes with
+    // the words instead of the peer speaking in the person's room.
     expect(
       reopened
         .transcript('dm-sigil')
-        .filter((entry) => entry.text.includes('private thread')),
-    ).toEqual([
-      expect.objectContaining({
-        author: expect.objectContaining({ username: 'loom' }),
-        text: 'Loom, in a private thread with @sigil: first answer',
-      }),
-    ]);
+        .filter((entry) => entry.author.role === 'bot' && entry.author.username === 'loom'),
+    ).toEqual([]);
     expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toMatchObject([
       {
         conversationId: 'dm-sigil',
         from: { type: 'bot', username: 'loom' },
         to: 'sigil',
+        answer: 'first answer',
       },
     ]);
     // Nothing invents an origin for the old thread: the room is on the ask.
@@ -4283,13 +4278,15 @@ describe('BotService answers', () => {
     await settle(service, 'dm-sigil');
 
     // The answer belongs where this ask was made, not where the thread was
-    // opened the first time.
-    const relayed = 'Loom, in a private thread with @sigil: the answer';
-    expect(service.transcript('dm-sigil').map((entry) => entry.text)).toContain(relayed);
-    expect(service.transcript(group.id).map((entry) => entry.text)).not.toContain(relayed);
+    // opened the first time: the reply delivery in the DM carries it there, and
+    // the group neither sees the words nor is woken for them.
     expect(deliveriesOf(root, 'dm-sigil').filter((row) => row.kind === 'reply')).toMatchObject([
-      { to: 'sigil', from: { type: 'bot', username: 'loom' } },
+      { to: 'sigil', from: { type: 'bot', username: 'loom' }, answer: 'the answer' },
     ]);
+    expect(deliveriesOf(root, group.id).filter((row) => row.kind === 'reply')).toEqual([]);
+    expect(service.transcript('dm-sigil').some((entry) => entry.text.includes('the answer'))).toBe(
+      false,
+    );
   });
 
   it('notes in the thread when the room it came from is gone', async () => {
@@ -4364,7 +4361,7 @@ describe('BotService answers', () => {
     expect(deliveriesOf(root, thread).filter((row) => row.kind === 'reply')).toEqual([]);
   });
 
-  it('writes its own answer into its own room and wakes nobody', async () => {
+  it('wakes an asker with the answer and nothing of the peer in its room', async () => {
     const { root, adapter, service } = harness({
       script: ({ bot, prompt }) =>
         bot === 'loom'
@@ -4388,9 +4385,7 @@ describe('BotService answers', () => {
     for (
       let tick = 0;
       tick < 500 &&
-      !service
-        .transcript('dm-loom')
-        .some((entry) => entry.text.includes('private thread'));
+      !deliveriesOf(root, 'dm-loom').some((row) => row.kind === 'reply');
       tick += 1
     ) {
       await Promise.resolve();
@@ -4400,18 +4395,22 @@ describe('BotService answers', () => {
     await settle(service, 'dm-loom');
     await settle(service, thread);
 
-    // Sigil's answer reaches Loom's room — the room Loom was in when it asked.
+    // Sigil's answer reaches Loom in the room Loom asked from, as a wake-up with
+    // the words on it: no line in that room is authored by Sigil.
+    expect(
+      service
+        .transcript('dm-loom')
+        .filter((entry) => entry.author.role === 'bot' && entry.author.username === 'sigil'),
+    ).toEqual([]);
+    expect(deliveriesOf(root, 'dm-loom').filter((row) => row.kind === 'reply')).toMatchObject([
+      {
+        to: 'loom',
+        from: { type: 'bot', username: 'sigil' },
+        answer: 'sigil answers',
+      },
+    ]);
     // Loom's answer to the ask Sigil made back *inside* the thread stays in the
     // thread: that ask was made there, so there is nothing to hand back.
-    const forwarded = service
-      .transcript('dm-loom')
-      .filter((entry) => entry.text.includes('private thread'));
-    expect(forwarded).toEqual([
-      expect.objectContaining({
-        author: expect.objectContaining({ username: 'sigil' }),
-        text: 'Sigil, in a private thread with @loom: sigil answers',
-      }),
-    ]);
     expect(
       deliveriesOf(root, 'dm-loom').filter(
         (row) => row.kind === 'reply' && row.from.type === 'bot' && row.from.username === 'loom',
@@ -4451,13 +4450,11 @@ describe('BotService answers', () => {
     loom.release();
     await settle(service, 'thread-loom-sage');
 
-    // Sage's answer climbs to Loom in the first thread, and on to the group.
+    // Sage's answer climbs to Loom in the first thread, and on to the group: the
+    // person's room only ever sees its own bot speak.
     for (
       let tick = 0;
-      tick < 500 &&
-      !service
-        .transcript(group.id)
-        .some((entry) => entry.text === 'Loom, in a private thread with @sigil: loom answers sigil');
+      tick < 500 && !deliveriesOf(root, group.id).some((row) => row.kind === 'reply');
       tick += 1
     ) {
       await Promise.resolve();
@@ -4467,10 +4464,10 @@ describe('BotService answers', () => {
     await settle(service, group.id);
 
     expect(service.transcript(group.id).map((entry) => entry.text)).toEqual(
-      expect.arrayContaining([
-        'Loom, in a private thread with @sigil: loom answers sigil',
-        'for the person',
-      ]),
+      expect.arrayContaining(['for the person']),
+    );
+    expect(service.transcript(group.id).some((entry) => entry.text.includes('private thread'))).toBe(
+      false,
     );
     // Each hop is one deeper, under the trigger the person started.
     const first = deliveriesOf(root, thread).at(0);
@@ -4484,10 +4481,9 @@ describe('BotService answers', () => {
       rootId: climbed?.rootId,
     });
     expect(climbed?.rootId).toBe(first?.rootId);
-    // The middle bot is woken by the peer's answer, with its lead line.
-    expect(gatewayFor(adapter, 'loom').prompts[1]).toContain(
-      'Sage, in a private thread with @loom: sage answers loom',
-    );
+    // The middle bot is woken by the peer's answer, with the words on the
+    // wake-up rather than a line in the room it asked from.
+    expect(gatewayFor(adapter, 'loom').prompts[1]).toContain('Sage answered:\n\nsage answers loom');
     expect(gatewayFor(adapter, 'loom').prompts[1]).toContain('answered the ask you sent');
   });
 
@@ -4655,23 +4651,28 @@ describe('BotService answers', () => {
     });
     peer.release();
 
-    const forwarded = 'Reed, in a private thread with @sigil: the answer';
+    // Nothing in the room can speak the answer — the bot that asked left it — so
+    // Morse says what came back rather than letting it vanish, and nobody is
+    // woken for a room they are no longer in.
     for (
       let tick = 0;
-      tick < 500 && !service.transcript(group.id).some((entry) => entry.text === forwarded);
+      tick < 500 &&
+      !service.transcript(group.id).some((entry) => entry.author.role === 'system');
       tick += 1
     ) {
       await Promise.resolve();
     }
-
-    // The line still lands in the room, but a bot removed from it has no work
-    // queued there and its engine is not woken for a room it left.
-    expect(service.transcript(group.id).some((entry) => entry.text === forwarded)).toBe(true);
+    expect(
+      service
+        .transcript(group.id)
+        .filter((entry) => entry.author.role === 'system')
+        .map((entry) => entry.text),
+    ).toContain("Reed's answer came back: the answer");
     expect(deliveriesOf(root, group.id).filter((row) => row.kind === 'reply')).toEqual([]);
     expect(gatewayFor(adapter, 'sigil').prompts).toHaveLength(1);
   });
 
-  it('says a peer’s empty answer in the parent and wakes the asker for it', async () => {
+  it('tells the asker a peer’s empty answer and wakes it for it', async () => {
     const { root, adapter, service } = harness({
       script: ({ bot, prompt }) =>
         bot === 'sigil'
@@ -4687,20 +4688,19 @@ describe('BotService answers', () => {
     const ask = await service.busSend('sigil', { to: 'loom', text: 'how many?' });
     await settle(service, ask.conversationId);
 
-    // A turn that ends without words is an outcome the person is waiting on, not
-    // silence: the room it would have answered in says so, and the asker wakes
-    // on that line to answer the person.
-    const note = service
-      .transcript('dm-sigil')
-      .find((entry) => entry.author.role === 'system' && entry.text.includes('empty'));
-    expect(note?.text).toBe("Loom's answer came back empty.");
+    // A turn that ended without words is an outcome the person is waiting on, not
+    // silence: the asker wakes on an empty answer and says so itself. Nothing is
+    // written into its room for it — not even a note.
     const reply = deliveriesOf(root, 'dm-sigil').find((row) => row.kind === 'reply');
     expect(reply).toMatchObject({
-      entryId: note?.id,
       to: 'sigil',
       from: { type: 'bot', username: 'loom' },
       kind: 'reply',
+      answer: '',
     });
+    expect(service.transcript('dm-sigil').filter((entry) => entry.author.role === 'system')).toEqual(
+      [],
+    );
 
     held.release();
     await settle(service, 'dm-sigil');

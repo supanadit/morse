@@ -74,9 +74,8 @@ export interface BotDelivery {
   /** The recipient's username: the only key a lane and a client index use. */
   to: string;
   /**
-   * The room the sender was working in when it asked. A bot's answer is handed
-   * back there, one line quoting it, and the sender is woken there to answer the
-   * person.
+   * The room the sender was working in when it asked. The sender is woken there
+   * with the peer's answer, and it is the sender that answers the person.
    *
    * Recorded per ask rather than per thread because a private thread is one
    * long-lived room per pair of bots: every ask between them reuses it, from
@@ -85,6 +84,19 @@ export interface BotDelivery {
    * sends back — an answer has no ask of its own.
    */
   originId?: string;
+  /**
+   * The peer's words a wake-up carries, for the bot that asked to say in its own
+   * voice.
+   *
+   * A peer's answer is never a transcript line in the room the ask came from:
+   * the person messaged their bot, and a delegated bot appearing there — even
+   * quoted — would read as a second person in the room. So the relay hands the
+   * words to the asker's prompt instead, and the asker answers the person with
+   * them. An empty string is a real value: the peer's turn ended without words,
+   * and the person is still waiting to be told. Absent on every delivery that is
+   * not a relay's wake-up.
+   */
+  answer?: string;
   kind: BotDeliveryKind;
   reason: BotDeliveryReason;
   /** Bot-to-bot hops from the root; the host refuses past its cap. */

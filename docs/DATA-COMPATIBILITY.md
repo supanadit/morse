@@ -76,7 +76,9 @@ build already writes:
   neither, and nothing backfills it — a direct ask carries its own room on the delivery (`originId`), so an
   old thread's answer still comes home; only a wake-up inside it cannot climb further. The registry validator
   requires neither field, so a build that does not know them still reads every conversation, and a build that
-  predates `originId` simply answers old-style in place.
+  predates `originId` simply answers old-style in place. A delivery's `answer` — the peer's words carried to
+  the wake-up instead of written into the room — is optional too, and lives in `deliveries/<id>.json`: a row
+  without it is a wake-up from before the field, and the asker is prompted as it was then.
 
 ## Engine layouts may need repair, not just rewriting
 

@@ -196,35 +196,41 @@ than one hop.
 A bot's answer is always a transcript line in the conversation it answered in. On settle, in the
 lane:
 
-- **Forward when all hold:** `delivery.from.type === 'bot'` (a person speaking in a thread is never
+- **Hand back when all hold:** `delivery.from.type === 'bot'` (a person speaking in a thread is never
   forwarded), the conversation it answered in is a `thread`, and the room to hand it back to — the
   delivery's `originId`, or the thread's `parentId` when the delivery is the relay's wake-up — still
   exists and is not the thread itself.
-- **What the host writes.** One line in that room, authored by the answering bot, saying where it came
-  from: `Loom, in a private thread with @sigil: <answer>`. The room then gets a delivery to the bot
-  that asked — the delivery's sender, or the thread's `askedBy` for a wake-up — `kind: 'reply'`,
-  `reason: 'bot'`, `depth + 1`, pointing at that line — unless the answering bot *is* that bot, in
-  which case the line is written and nobody is woken (the bot that asked is the bot that just
-  answered; waking it would be a self-loop).
+- **What the host does.** The peer's answer is not written into that room: the person messaged *their*
+  bot, and a delegated bot speaking there — even quoted — would read as somebody else joining the
+  chat. The room instead gets a delivery to the bot that asked — the delivery's sender, or the
+  thread's `askedBy` for a wake-up — `kind: 'reply'`, `reason: 'bot'`, `depth + 1`, pointing at the
+  room's newest line, with the peer's words on an optional `answer` field. The asker's prompt carries
+  them (a `reply` wake gets the lead line that says to answer the person and not send it back), and
+  the asker replies in its own words. Unless the answering bot *is* that bot, in which case nobody is
+  woken: the bot that asked is the bot that just answered, and waking it would be a self-loop.
+- **An empty answer.** A peer that ended without words still wakes the asker, with `answer: ''`; the
+  prompt says the answer came back empty, and the asker tells the person.
+- **Nobody to speak it.** If the asker left the room, or the thread never recorded one, no wake is
+  possible and Morse writes the answer into the room as a routing note instead of dropping it.
 - **The chain climbs.** A woken turn runs in the room's own engine session. If that room is itself a
-  thread, its answer forwards one hop further by the same rule, so a two-hop chain walks back thread by
-  thread to the person's room. It terminates where it must: the last room is a `dm` or `group`, which
-  is person-facing, so the answer is a normal bot message and wakes nobody. Depth still increments per
-  hop and the existing depth cap (4) remains the runaway bound.
+  thread, its answer is handed back one hop further by the same rule, so a two-hop chain walks back
+  thread by thread to the person's room. It terminates where it must: the last room is a `dm` or
+  `group`, which is person-facing, so the answer is a normal bot message and wakes nobody. Depth still
+  increments per hop and the existing depth cap (4) remains the runaway bound.
 - **Person-facing answers wake nobody.** A bot answering in a `dm` or `group` was asked *in* that
   room; the person saw it, and a bot's in-room reply queues nothing, as today.
 - **No `kind` terminator.** Whether a send is `message`, `assign` or `reply` changes its label, not
   whether its answer comes back — a bot that answers an `assign` with `reply` (the documented use)
-  must still be relayed.
-- **Header.** A delivery whose sender is a bot and whose line is a forwarded answer gets its own lead
+  must still be handed back.
+- **Header.** A delivery whose sender is a bot and whose line is a handed-back answer gets its own lead
   line in `contextFor`: a teammate answered the ask you sent; use it to answer the person, and do not
   send it back. The host mints those deliveries with `kind: 'reply'`, so the header keys off that —
   and a bot's own `reply` to another bot is framed the same way, which is correct: it is an answer to
   that bot's ask.
 - **Failure is said, not silent.** A failed or cancelled turn in a thread whose answer could not be
-  forwarded writes a note in the room that would have received it, naming the bot and the reason,
+  handed back writes a note in the room that would have received it, naming the bot and the reason,
   and wakes nobody.
-- **Edge: the parent is gone.** Nothing is forwarded; the thread gets a note saying the answer could
+- **Edge: the parent is gone.** Nothing is handed back; the thread gets a note saying the answer could
   not be handed back. The answering lane still settles and moves on.
 - **Threads older than this change** have no `parentId`, and nothing backfills one. Their direct asks
   still come home — the ask carries its own room — but a wake-up inside one has nowhere to climb, so
@@ -254,8 +260,9 @@ the thread while the ask is still running.
   gains its four, `BotTurnTrace` is new, and the transcript payload gains `traces`.
 - Registry stays version 3. A thread's `parentId`/`askedBy` are registry-only (no wire field): a
   thread written before this change has neither, and only its wake-ups cannot climb. No transcript is
-  rewritten. `BotDelivery.originId` is optional and internal to the host's bus (deliveries never cross
-  the wire), so no protocol bump: a build that does not know the field ignores it.
+  rewritten. `BotDelivery.originId` and `BotDelivery.answer` are optional and internal to the host's
+  bus (deliveries never cross the wire), so no protocol bump: a build that does not know the fields
+  ignores them, and its older rows simply have no answer to carry.
 - Traces live in their own directory and are created lazily; no data-layout step is needed, but
   `docs/DATA-COMPATIBILITY.md` names the new directory.
 - `docs/STATUS.md` describes the live row, the record and the answer path.
