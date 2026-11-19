@@ -53,7 +53,7 @@ describe('MorseGateway message handling', () => {
       ...silentLogger,
       error: (message: string) => errors.push(message),
     };
-    const gateway = new MorseGateway(sessions, logger);
+    const gateway = new MorseGateway(sessions, logger, {});
     const { client, handlers: socketHandlers, send } = socket();
 
     gateway.handleConnection(client);

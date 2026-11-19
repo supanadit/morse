@@ -100,6 +100,8 @@ Then open <http://127.0.0.1:4399/>. The server keeps running in the background; 
 MORSE_HOME             Data directory (default: ~/.morse)
 MORSE_PORT             Default port
 MORSE_HOST             Default bind address
+MORSE_AUTH_PASSWORD    Password (HTTP Basic) required to open the UI; empty = no gate
+MORSE_AUTH_USERNAME    Optional user name required with MORSE_AUTH_PASSWORD
 MORSE_WORKSPACE        Workspace the agent runs in
 MORSE_PROJECTS         Roots the agent may open
 MORSE_HOT_SESSIONS     How many pi processes stay alive (default: 4)
@@ -114,8 +116,10 @@ The full list, including the terminal and upload knobs, is in
 
 ## Security
 
-`morse start` binds `127.0.0.1` by default. `--lan` exposes an **unauthenticated** chat UI to your network: only
-do it on a trusted network, or put a TLS reverse proxy with auth in front of it.
+`morse start` binds `127.0.0.1` by default. `--lan` exposes the chat UI to your network; set `MORSE_AUTH_PASSWORD`
+to put it behind an HTTP Basic login prompt (every route except the CLI health probe and the bot bus, which has
+its own loopback + token check). Without it a LAN-exposed host is unauthenticated — only do that on a trusted
+network, or put a TLS reverse proxy with auth in front of it.
 
 One-click self-update is **off** unless you start the host with `MORSE_SELF_UPDATE=1`, and even then it only
 answers a caller on `127.0.0.1`/`::1` and only when the running copy is a writable npm-global install. A `--lan`

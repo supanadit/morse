@@ -336,7 +336,7 @@ describe('MorseSessionFactory bot wiring', () => {
 
   it('pushes a finished turn into every open room', () => {
     const bot = fakeBot();
-    const gateway = new MorseGateway(factoryWith(bot.service), silentLogger);
+    const gateway = new MorseGateway(factoryWith(bot.service), silentLogger, {});
     const socket = fakeSocket();
     gateway.handleConnection(socket);
     const trace = {
@@ -372,7 +372,7 @@ describe('MorseSessionFactory bot wiring', () => {
   it('broadcasts routing state and forgets the feed when the socket disconnects', () => {
     const bot = fakeBot();
     const factory = factoryWith(bot.service);
-    const gateway = new MorseGateway(factory, silentLogger);
+    const gateway = new MorseGateway(factory, silentLogger, {});
     const socket = fakeSocket();
 
     gateway.handleConnection(socket);

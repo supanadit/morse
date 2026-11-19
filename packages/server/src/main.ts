@@ -6,6 +6,7 @@ import { WsAdapter } from '@nestjs/platform-ws';
 import { DEFAULT_WS_PATH } from '@morse/protocol';
 import { AppModule } from './app.module.js';
 import { MORSE_CONFIG } from './app/tokens.js';
+import { basicAuthMiddleware } from './internal/http/basic-auth.js';
 import type { MorseServerConfig } from './app/config.js';
 
 /**
@@ -17,6 +18,9 @@ async function bootstrap(): Promise<void> {
   const config = app.get<MorseServerConfig>(MORSE_CONFIG);
 
   app.useWebSocketAdapter(new WsAdapter(app));
+  // Gate every browser-facing route (frontend, /api, /ws upgrade) behind HTTP
+  // Basic auth when MORSE_AUTH_PASSWORD is set; health and the bot bus stay open.
+  app.use(basicAuthMiddleware(config.authPassword, config.authUsername));
   // Serves the built Angular frontend. No SPA fallback is registered, so
   // /api/* and /ws keep working.
   app.useStaticAssets(config.uiDir);
@@ -32,6 +36,9 @@ async function bootstrap(): Promise<void> {
   logger.log(`Morse server listening on http://${config.host}:${config.port}`);
   logger.log(`WebSocket endpoint: ws://${config.host}:${config.port}${DEFAULT_WS_PATH}`);
   logger.log(`Frontend served from ${config.uiDir}`);
+  if (config.authPassword !== undefined) {
+    logger.log('HTTP Basic auth enabled (MORSE_AUTH_PASSWORD)');
+  }
   logger.log(`Workspace: ${config.workspace.cwd} (override with MORSE_WORKSPACE)`);
 }
 

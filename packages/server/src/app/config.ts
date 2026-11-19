@@ -73,6 +73,19 @@ export interface MorseServerConfig {
    */
   instance?: string;
   /**
+   * Password protecting every browser-facing route with HTTP Basic auth
+   * (`MORSE_AUTH_PASSWORD`). Undefined means no gate: the default loopback host
+   * needs none, and a LAN-exposed host opts in deliberately. The CLI health
+   * probe and the bot bus (which carries its own peer + bearer check) stay open
+   * so `morse stop` and bot engines keep working untouched.
+   */
+  authPassword?: string;
+  /**
+   * User name required alongside `authPassword` (`MORSE_AUTH_USERNAME`).
+   * Undefined means any user name is accepted; the password alone gates.
+   */
+  authUsername?: string;
+  /**
    * The bundle this host serves, as its own manifest declares it. Relayed to
    * clients in `host/ready`, so a frontend can name itself (the About dialog) and
    * the host log says which build is talking. Undefined when the directory has no
@@ -125,6 +138,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
     selfUpdate: isOn(env.MORSE_SELF_UPDATE),
     instance: env.MORSE_INSTANCE?.trim() || undefined,
+    authPassword: env.MORSE_AUTH_PASSWORD?.trim() || undefined,
+    authUsername: env.MORSE_AUTH_USERNAME?.trim() || undefined,
   };
 }
 

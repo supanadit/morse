@@ -14,7 +14,8 @@ import {
 } from '@morse/protocol';
 import { HostSessionController } from '@morse/system';
 import type { MorseLogger } from '@morse/system';
-import { MORSE_LOGGER } from '../../app/tokens.js';
+import { MORSE_CONFIG, MORSE_LOGGER } from '../../app/tokens.js';
+import { isAuthorized } from '../http/basic-auth.js';
 import { MorseSessionFactory } from './session-factory.service.js';
 
 /**
@@ -34,9 +35,18 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     @Inject(MorseSessionFactory) private readonly sessions: MorseSessionFactory,
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
+    @Inject(MORSE_CONFIG) private readonly config: { authPassword?: string; authUsername?: string },
   ) {}
 
   handleConnection(client: WebSocket, request?: IncomingMessage): void {
+    // Browsers replay the Basic credentials from the page load on a same-origin
+    // upgrade; anything that arrives without them never reaches a session.
+    if (this.config.authPassword !== undefined &&
+        (request === undefined ||
+         !isAuthorized(request, this.config.authPassword, this.config.authUsername))) {
+      client.close(1008, 'unauthorized');
+      return;
+    }
     const emit = (message: HostToClientMessage): void => {
       if (client.readyState === 1) {
         client.send(encodeWireMessage(message));

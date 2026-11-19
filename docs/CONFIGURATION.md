@@ -30,6 +30,8 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, Morse's session index (`sessions/`), the saved shell layout (`workbench.json`), the per-tab composer drafts (`drafts.json`) and the terminal scrollback (`terminals/`) |
 | `MORSE_WORKSPACE` | current directory | Directory the agent works in |
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
+| `MORSE_AUTH_PASSWORD` | unset | When set, every browser-facing route needs this password over HTTP Basic (the browser shows its native login prompt; the WebSocket upgrade reuses the same credentials). The CLI health probe and the bot bus stay open — the latter has its own loopback + token check |
+| `MORSE_AUTH_USERNAME` | unset | Optional user name required alongside `MORSE_AUTH_PASSWORD`; unset means any user name is accepted and the password alone gates |
 | `MORSE_ENGINE` | `pi` | Engine new sessions start in: `pi` or `opencode` (an unreachable engine falls back to pi) |
 | `MORSE_OPENCODE_URL` | unset | Attach to a running OpenCode server instead of spawning one |
 | `MORSE_OPENCODE_PASSWORD` | unset | The password that server printed; required with a URL |
