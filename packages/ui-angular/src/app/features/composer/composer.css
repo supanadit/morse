@@ -1036,6 +1036,18 @@ textarea:focus-visible {
   min-height: 22px;
   max-height: min(40vh, 320px);
 }
+/*
+ * A browser that cannot size the box to its words falls back to `rows`, which
+ * leaves an empty line under the placeholder and drops the round buttons below
+ * the words. Pinned to one line here (border-box, so this is the line plus its
+ * padding) and scrolling past it: the messenger row stays level everywhere.
+ */
+@supports not (field-sizing: content) {
+  :host(.bot) textarea {
+    height: 28px;
+    overflow-y: auto;
+  }
+}
 :host(.bot) .usage-host {
   order: 3;
   /*

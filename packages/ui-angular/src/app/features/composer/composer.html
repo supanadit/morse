@@ -97,8 +97,11 @@
     </div>
   }
   <div class="box">
-  <!-- Drag the top edge to size the prompt by hand. -->
-  <div class="resize" title="Drag to resize the prompt" (pointerdown)="onResizeStart($event)"></div>
+  <!-- Drag the top edge to size the prompt by hand. A bot's row sizes itself to
+       its words, so there is nothing to drag there. -->
+  @if (variant !== 'bot') {
+    <div class="resize" title="Drag to resize the prompt" (pointerdown)="onResizeStart($event)"></div>
+  }
   <!--
        The session's toolbar — attach, mention and command hints, throughput,
        folding and maximizing. A bot conversation keeps only the attach button:
@@ -420,10 +423,10 @@
   <morse-markdown-view [value]="text()" [viewMode]="markdownViewMode()">
     <textarea
       #promptInput
-      rows="2"
+      [attr.rows]="variant === 'bot' ? 1 : 2"
       aria-label="Prompt"
       [value]="text()"
-      [style.height.px]="maximized() ? null : dragHeight()"
+      [style.height.px]="maximized() || variant === 'bot' ? null : dragHeight()"
       [disabled]="!canType()"
       [placeholder]="variant === 'bot' ? (placeholder ?? 'Message…') : sessionPlaceholder()"
       (input)="onInput($event)"

@@ -102,6 +102,24 @@ describe('ChatComposer sizing', () => {
     expect(textarea.style.height).toBe('180px');
   });
 
+  it('keeps the bot row one line high, whatever the session prompt was dragged to', async () => {
+    const { fixture, host } = await mount();
+    const grip = host.querySelector('.resize') as HTMLElement;
+    press(grip, 'pointerdown', 300);
+    press(grip, 'pointermove', 180);
+    press(grip, 'pointerup', 180);
+    fixture.detectChanges();
+
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+
+    // A chat's row sizes itself to its words: no grip, no inherited height, one row.
+    expect(host.querySelector('.resize')).toBeNull();
+    const textarea = host.querySelector('textarea') as HTMLElement;
+    expect(textarea.style.height).toBe('');
+    expect(textarea.getAttribute('rows')).toBe('1');
+  });
+
   it('writes a new line on Enter while maximized, and sends on Shift+Enter', async () => {
     const { fixture, host, transport } = await mount();
     (host.querySelector('button[aria-pressed="false"]') as HTMLButtonElement).click();
