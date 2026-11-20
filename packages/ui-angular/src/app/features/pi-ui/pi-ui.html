@@ -8,10 +8,14 @@
       </div>
     }
     @if (statuses().length > 0) {
+      <!-- One track, so the narrow layout can slide it: a strip that wraps changes
+           height every time pi replaces a line, which is the bounce a phone shows. -->
       <div class="status">
-        @for (status of statuses(); track status.key) {
-          <span class="entry" [title]="status.key">{{ status.text }}</span>
-        }
+        <div class="track">
+          @for (status of statuses(); track status.key) {
+            <span class="entry" [title]="status.key">{{ status.text }}</span>
+          }
+        </div>
       </div>
     }
   </section>

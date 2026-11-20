@@ -20,12 +20,77 @@
   overflow-wrap: anywhere;
 }
 .status {
+  margin-top: 4px;
+}
+.track {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
-  margin-top: 4px;
 }
 .entry {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/*
+ * A phone's footer is one line that slides, for two reasons. A wrapping strip
+ * changes height every time pi replaces a status, and the reader sees the bar
+ * bounce. And a full-bleed line sits under the rounded screen edge, so the first
+ * and last characters are cut off — sliding brings them in.
+ *
+ * The pan is `min(0px, container − track)`: a strip that already fits translates
+ * by 0 and does not move at all, so nothing needs to measure it in script.
+ * `alternate` returns instead of jumping, which reads better than a loop.
+ */
+@media (max-width: 759px) {
+  .status {
+    overflow: hidden;
+    container-type: inline-size;
+    /* Faded ends rather than a hard cut under the curve; the rest scrolls in. */
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+  }
+  .track {
+    flex-wrap: nowrap;
+    /* Its own content width, so `100%` in the pan is the whole line, not the bar. */
+    width: max-content;
+    /* The inset keeps the first and last characters off the rounded edge at rest. */
+    padding: 0 16px;
+    animation: status-pan 9s ease-in-out infinite alternate;
+  }
+  .entry {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  @keyframes status-pan {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(min(0px, calc(100cqw - 100%)));
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @media (max-width: 759px) {
+    .track {
+      animation: none;
+      /* A swipe still reaches the end for a reader who asked for no motion. */
+      overflow-x: auto;
+    }
+  }
 }
