@@ -123,6 +123,7 @@ interface RevealCursor {
   imports: [Markdown, ChatComposer, CopyButton, UsageIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './bot-chat.css',
+  host: { '(document:click)': 'onDocumentClick($event)' },
 })
 export class BotChat {
   protected readonly morse = inject(MorseService);
@@ -199,6 +200,33 @@ export class BotChat {
   protected readonly expandedTurns = signal<ReadonlySet<string>>(new Set<string>());
   /** The peers' messages the reader has opened, by the turn that received them. */
   private readonly openPeers = signal<ReadonlySet<string>>(new Set<string>());
+  /**
+   * The header's overflow menu, open on a phone: where Compact, New discussion
+   * and Clear messages live when the room-wide buttons do not fit beside the
+   * title. Desktop keeps the row and never opens this.
+   */
+  protected readonly menuOpen = signal(false);
+
+  private readonly element = inject(ElementRef);
+
+  /** A click anywhere outside this component closes the phone's overflow menu. */
+  protected onDocumentClick(event: Event): void {
+    if (this.menuOpen() && !this.element.nativeElement.contains(event.target)) {
+      this.menuOpen.set(false);
+    }
+  }
+
+  /** The header's avatar: the DM bot's own mark, else the conversation's initial. */
+  protected headAvatar(conversation: BotConversationSummary): string {
+    if (conversation.kind === 'dm') {
+      const member = conversation.members[0];
+      const bot = this.morse.bot.roster()?.bots.find((candidate) => candidate.username === member);
+      if (bot !== undefined) {
+        return bot.avatar ?? bot.name.slice(0, 1).toUpperCase();
+      }
+    }
+    return conversation.title.slice(0, 1).toUpperCase();
+  }
 
   /**
    * The round in flight, and only when it belongs to the conversation in front:

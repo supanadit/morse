@@ -121,7 +121,11 @@ export interface BotComposerSend {
     CdkDragHandle,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.folded]': 'folded()', '[class.maximized]': 'maximized()' },
+  host: {
+    '[class.folded]': 'folded()',
+    '[class.maximized]': 'maximized()',
+    '[class.bot]': "variant === 'bot'",
+  },
   styleUrl: './composer.css',
 })
 export class ChatComposer {

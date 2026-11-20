@@ -982,3 +982,98 @@ textarea:focus-visible {
     text-overflow: ellipsis;
   }
 }
+
+/*
+ * Bot variant: one messenger row, the way a chat composes. The toolbar, status
+ * row and controls dissolve (`display: contents`), and their children reorder
+ * into `[+] [prompt] [context ring] [send]` on one line, with attachment chips
+ * taking the line above only when there is something to attach. The hint line
+ * stays in the DOM (it names the model's text-only limit for tests) but a chat
+ * reads its guidance from the placeholder, not from a caption row.
+ */
+:host(.bot) .box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+}
+:host(.bot) .toolbar.bot,
+:host(.bot) .status-row,
+:host(.bot) .status-end,
+:host(.bot) .controls {
+  display: contents;
+}
+:host(.bot) .toolbar .hint {
+  display: none;
+}
+:host(.bot) .attachments,
+:host(.bot) .reload-warning,
+:host(.bot) .reload-error {
+  order: 0;
+  flex-basis: 100%;
+}
+/* Round, thumb-sized controls at the row's ends, like a chat's. */
+:host(.bot) .toolbar .icon {
+  order: 1;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 15px;
+}
+:host(.bot) morse-markdown-view {
+  order: 2;
+  flex: 1 1 10ch;
+  min-width: 0;
+}
+/*
+ * The prompt sizes to its words, the way a chat's does: an empty or one-line
+ * draft stands level with the round `+` and send buttons instead of riding the
+ * top of a taller empty box, and the box grows as the draft does (the paint
+ * layer syncs scroll, so a capped, scrolling draft stays aligned).
+ */
+:host(.bot) textarea {
+  field-sizing: content;
+  min-height: 22px;
+  max-height: min(40vh, 320px);
+}
+:host(.bot) .usage-host {
+  order: 3;
+  /*
+   * The same 30px as the round buttons, with the mini ring centered inside:
+   * bottom-anchoring alone left the ring's centre a few pixels above the
+   * buttons', which read as a circle floating above the row.
+   */
+  align-self: flex-end;
+  height: 30px;
+  align-items: center;
+  margin: 0;
+}
+:host(.bot) .controls-actions {
+  order: 4;
+}
+:host(.bot) .icon.send {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+/* Maximized stays a page: the prompt fills it, the row gathers at the foot. */
+:host(.bot.maximized) .box {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+:host(.bot.maximized) morse-markdown-view {
+  order: 1;
+  flex: 1 1 auto;
+}
+:host(.bot.maximized) .toolbar .icon {
+  order: 2;
+}
+:host(.bot.maximized) .usage-host {
+  order: 3;
+  margin: 0;
+  align-self: center;
+}
+:host(.bot.maximized) .controls-actions {
+  order: 4;
+}

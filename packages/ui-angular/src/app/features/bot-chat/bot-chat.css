@@ -14,14 +14,28 @@
   flex-direction: column;
 }
 
-/* Who this is, and the room-wide gestures beside it. */
+/* Who this is, and the room-wide gestures beside it: one bar, like a chat's. */
 .head {
   flex: none;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px 8px;
+  gap: 10px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--morse-border);
+}
+.head-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--morse-accent) 16%, transparent);
+  color: var(--morse-fg);
+  font-size: 14px;
+  font-weight: 600;
 }
 .titles {
   flex: 1;
@@ -30,18 +44,12 @@
   flex-direction: column;
   gap: 1px;
 }
-.eyebrow {
-  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
 .title {
   margin: 0;
   color: var(--morse-fg);
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -59,19 +67,29 @@
   gap: 6px;
   flex: none;
 }
-/* A narrow window stacks the gestures under the title rather than hiding them:
- * a destructive action that silently disappears on a phone is worse than a
- * second row. */
-@media (max-width: 720px) {
-  .head {
-    flex-wrap: wrap;
-  }
-  .titles {
-    flex-basis: 100%;
-  }
-  .actions {
-    margin-left: auto;
-  }
+/* The overflow toggle: invisible where the buttons fit, the whole menu on a phone. */
+.head-toggle {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+.head-toggle:hover,
+.head-toggle[aria-expanded='true'] {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
 }
 .head-action {
   flex: none;
@@ -94,6 +112,46 @@
 .head-action.danger:hover {
   background: color-mix(in srgb, var(--morse-danger, #e5484d) 16%, transparent);
   color: var(--morse-danger, #e5484d);
+}
+/*
+ * A phone: the bar keeps [avatar, title, ⋯] and the three gestures fold into a
+ * card under the toggle — every one still reachable, none of them silently
+ * hidden, and none of them three buttons the width of the room.
+ */
+@media (max-width: 720px) {
+  .head {
+    padding: 8px 12px;
+    gap: 9px;
+  }
+  .head-toggle {
+    display: inline-flex;
+  }
+  .actions {
+    display: none;
+  }
+  .actions[data-open='true'] {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 10px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 200px;
+    padding: 5px;
+    border: 1px solid var(--morse-border);
+    border-radius: var(--morse-radius-lg);
+    background: var(--morse-panel, var(--morse-bg));
+    box-shadow: 0 12px 32px rgb(0 0 0 / 40%);
+  }
+  .actions[data-open='true'] .head-action {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: var(--morse-radius-md);
+    background: transparent;
+    text-align: left;
+    font-size: 12.5px;
+  }
 }
 
 /*
@@ -409,8 +467,10 @@
   max-width: min(680px, 82%);
   padding: 8px 12px;
   border: 1px solid var(--morse-border);
+  /* The tailed corner, the same bubble the code transcript draws. */
   border-radius: var(--morse-radius-lg);
-  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+  border-bottom-right-radius: 4px;
+  background: var(--morse-bubble);
   overflow-wrap: anywhere;
 }
 /* What the reader attached, above their words: thumbnails, then file chips. */
@@ -463,12 +523,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
   color: var(--morse-fg);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   line-height: 1;
 }
@@ -483,6 +543,22 @@
   color: var(--morse-fg);
   font-size: 12px;
   font-weight: 600;
+}
+/*
+ * The answer's own bubble: the incoming side of the exchange, mirrored tail
+ * toward the avatar. Steps and records stay outside it — they are history,
+ * not speech.
+ */
+.entry.bot .text {
+  width: fit-content;
+  max-width: min(680px, 100%);
+  margin-top: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-lg);
+  border-bottom-left-radius: 4px;
+  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+  overflow-wrap: anywhere;
 }
 /*
  * The who-line of a bot's answer: the name and, beside it, the toggles for the
@@ -525,10 +601,6 @@
   display: block;
   margin-top: 0;
   text-align: right;
-}
-.entry.bot .text {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 /*
  * A finished turn: one quiet line above the answer it produced, which opens into
@@ -829,4 +901,21 @@
   margin: 0;
   color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
   font-size: 12.5px;
+}
+
+/*
+ * A phone: the conversation owns every pixel — tighter rails and air, bubbles
+ * wide enough to read prose in, and a dock that stops crowding the last line.
+ */
+@media (max-width: 720px) {
+  .transcript {
+    gap: 12px;
+    padding: 12px 12px calc(8px + var(--morse-dock-height, 0px));
+  }
+  .entry.user .bubble {
+    max-width: 88%;
+  }
+  .entry {
+    gap: 8px;
+  }
 }

@@ -1489,6 +1489,18 @@ describe('BotChat', () => {
     });
   });
 
+  it('wears the conversation avatar in the header: the DM bot mark, else the title initial', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, []);
+    fixture.detectChanges();
+    expect(host.querySelector('.head-avatar')?.textContent?.trim()).toBe('F');
+
+    // A group has no single bot to wear, so it wears the conversation's own initial.
+    open(morse, workshop, []);
+    fixture.detectChanges();
+    expect(host.querySelector('.head-avatar')?.textContent?.trim()).toBe('T');
+  });
+
   it('copies a line, and shows the tick on the control that did it', async () => {
     const { fixture, host, morse } = await render();
     const writeText = vi.fn(() => Promise.resolve());

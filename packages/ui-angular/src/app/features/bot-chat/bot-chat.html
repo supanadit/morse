@@ -10,8 +10,10 @@
     [style.--morse-dock-height]="dockHeight() + 'px'"
   >
     <header class="head">
+      <span class="head-avatar" aria-hidden="true">{{ headAvatar(conversation) }}</span>
       <div class="titles">
-        <span class="eyebrow">
+        <h2 class="title">{{ conversation.title }}</h2>
+        <span class="members">
           {{
             conversation.kind === 'group'
               ? 'Group'
@@ -19,16 +21,19 @@
                 ? 'Thread'
                 : 'Direct message'
           }}
+          · {{ memberNames(conversation) }}
         </span>
-        <h2 class="title">{{ conversation.title }}</h2>
-        <span class="members">{{ memberNames(conversation) }}</span>
       </div>
-      <div class="actions">
+      <!--
+        The room-wide gestures. On a phone they fold into the ⋯ menu beside
+        them, the way a messenger keeps destructive actions out of the bar.
+      -->
+      <div class="actions" [attr.data-open]="menuOpen() ? 'true' : null">
         <button
           type="button"
           class="head-action compact"
           title="Ask every bot's engine to summarise what it holds, keeping this history"
-          (click)="compact()"
+          (click)="compact(); menuOpen.set(false)"
         >
           Compact
         </button>
@@ -36,7 +41,7 @@
           type="button"
           class="head-action danger clear-messages"
           title="Delete this conversation's transcript and every bot's session for it"
-          (click)="clearMessages()"
+          (click)="clearMessages(); menuOpen.set(false)"
         >
           Clear messages
         </button>
@@ -44,11 +49,21 @@
           type="button"
           class="head-action new-discussion"
           title="Start every bot on a fresh engine session, keeping this history"
-          (click)="newDiscussion()"
+          (click)="newDiscussion(); menuOpen.set(false)"
         >
           New discussion
         </button>
       </div>
+      <button
+        type="button"
+        class="head-toggle"
+        title="Conversation actions"
+        aria-label="Conversation actions"
+        [attr.aria-expanded]="menuOpen()"
+        (click)="menuOpen.set(!menuOpen())"
+      >
+        ⋯
+      </button>
     </header>
 
     <!--

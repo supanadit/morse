@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.30.0 — 20 November 2026
+
+## 🚀 New Features
+
+- **A redesigned bot chat** — compact header, chat bubbles and a one-row composer
+- **Bots can message each other** — @ a teammate bot and the answer lands back in your room
+- **Watch a bot work** — its steps stream live, and finished turns keep their record
+- **Stop one bot** without stopping the rest of the room
+- **Reload agent configuration** from the composer, with a warning while sessions run
+- **Delete a bot thread** with everything it held
+- **Password-protect the browser app** with `MORSE_AUTH_PASSWORD`
+- **Color syntax for ten more languages** — PHP, Dart, C/C++, C#, Ruby, Swift, shell, TOML, Lua, Dockerfile
+- **OpenCode sessions name their model** before you send
+- The bot wizard offers the full provider catalog and OpenCode 2 tool names
+- A phone-sized window gets a real phone layout instead of a squeezed desktop
+
+## 🐛 Bug Fixes
+
+- `morse` applies a new --host/--port to a running instance instead of ignoring it
+- Git notices branches another client made without a manual refresh
+- A long answer stays on screen while its window slides
+- Bot answers arrive only in the room that asked for them
+- Failed config reloads say so instead of leaving stale notices
+- The usage panel stays inside the pane that shows it
+- The diff rail stays aligned with the code it marks
+
+## 🔧 Improvements
+
+- Diffs draw with the code editor, not beside it
+- Bot replies run on lanes, so one slow bot no longer holds up the room
+- The composer input grows with your message and lines up with its buttons
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.29.0...v0.30.0`](https://github.com/supanadit/morse/compare/v0.29.0...v0.30.0)
+
 ## 0.29.0 — 15 November 2026
 
 ## 🚀 New Features
