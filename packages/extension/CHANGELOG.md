@@ -7,6 +7,7 @@
 - **A redesigned bot chat** — compact header, chat bubbles and a one-row composer
 - **Bots can message each other** — @ a teammate bot and the answer lands back in your room
 - **Watch a bot work** — its steps stream live, and finished turns keep their record
+- **A context ring for each bot room** — what its session spent and has left
 - **Stop one bot** without stopping the rest of the room
 - **Reload agent configuration** from the composer, with a warning while sessions run
 - **Delete a bot thread** with everything it held
