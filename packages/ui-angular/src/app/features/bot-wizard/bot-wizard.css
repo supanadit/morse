@@ -1,14 +1,16 @@
 /*
- * The bot wizard, in the app's own control language.
+ * The bot editor, in the app's own control language.
  *
- * Two rules keep it consistent with every other surface:
+ * Colours come from tokens only (`--morse-accent` is near-white in the browser
+ * host and VS Code blue inside the editor, so text on it must be
+ * `--morse-accent-fg`), and controls share one scale with bot-nav and the
+ * dialogs: 30px actions, 12px/500 labels, 12.5px values, muted 11px notes.
  *
- * 1. Colours come from tokens only. `--morse-accent` is near-white in the
- *    browser host and VS Code blue inside the editor, so text on it must be
- *    `--morse-accent-fg` — hardcoding #fff painted white on white here.
- * 2. Controls share one scale with bot-nav and the dialogs: 30px tall actions,
- *    12px/500 labels, 12.5px values, `--morse-radius-md`, muted-at-11px notes.
+ * One page for both directions. A new bot and an existing one read the same:
+ * a face and a name, the line it should help with, then rows — each opening in
+ * place — for how it runs. Nothing is behind a step and nothing is hidden.
  */
+
 :host {
   display: block;
   height: 100%;
@@ -16,168 +18,6 @@
   overflow: hidden;
   background: var(--morse-bg);
   color: var(--morse-fg);
-}
-
-.wizard {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
-/* Head: the title block, and one quiet close action. */
-.wizard-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 24px 10px;
-}
-
-.wizard-titles h2 {
-  margin: 0 0 4px;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.wizard-sub {
-  margin: 0;
-  max-width: 640px;
-  color: var(--morse-fg-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.wizard-close {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--morse-radius-md);
-  background: transparent;
-  color: var(--morse-fg-muted);
-  font: inherit;
-  font-size: 17px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
-}
-
-.wizard-close:hover {
-  background: var(--morse-hover);
-  color: var(--morse-fg);
-}
-
-/*
- * Steps as tabs, matching the session strip and the panel bar: flush, no box,
- * no pill. The active step is marked by the accent line under it, so the label
- * stays readable in light and dark hosts alike. A step already answered gets a
- * checkmark and is its own button, so the reader can jump straight back to it.
- */
-.wizard-rail {
-  flex: none;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  height: 34px;
-  margin: 0;
-  padding: 0 24px;
-  list-style: none;
-  border-bottom: 1px solid var(--morse-border);
-}
-
-.wizard-step {
-  display: inline-flex;
-  align-items: stretch;
-  color: color-mix(in srgb, var(--morse-fg-muted) 80%, transparent);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.wizard-step.done {
-  color: var(--morse-fg-muted);
-}
-
-.wizard-step.on {
-  color: var(--morse-fg);
-  box-shadow: inset 0 -2px 0 var(--morse-accent);
-}
-
-.wizard-step-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  cursor: default;
-}
-
-/* A pass has a tick, drawn rather than typed so the label stays the whole name. */
-.wizard-step.done .wizard-step-button {
-  cursor: pointer;
-}
-
-.wizard-step.done .wizard-step-button::before {
-  content: '✓';
-  font-size: 11px;
-  opacity: 0.8;
-}
-
-.wizard-step-button:hover:not(:disabled),
-.wizard-step-button:not(:disabled) {
-  background: none;
-  color: var(--morse-fg);
-}
-
-/* The global button reset dims a disabled control; a locked step is not "off". */
-.wizard-step-button:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
-.wizard-step-button:focus-visible {
-  outline: 1px solid var(--morse-focus);
-  outline-offset: -2px;
-}
-
-/* Body: content scrolls, the summary column stays put. */
-.wizard-body {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 232px;
-  gap: 24px;
-  padding: 16px 24px 20px;
-  overflow: hidden;
-}
-
-.wizard-content {
-  min-width: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.wizard-content h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.3;
 }
 
 .group-title {
@@ -224,9 +64,11 @@
   font-weight: 600;
 }
 
-.field small {
+.field small,
+.field > span em {
   color: var(--morse-fg-muted);
   font-size: 11px;
+  font-style: normal;
   font-weight: 400;
 }
 
@@ -257,32 +99,20 @@
   line-height: 1.5;
 }
 
-/* A field an edit cannot change (the bot's name): legible, visibly read-only. */
+
 .field input:disabled {
   background: color-mix(in srgb, var(--morse-fg) 2%, transparent);
   color: var(--morse-fg-muted);
   cursor: default;
 }
 
-/* The tool checklist: what this bot may do on its own, in its engine's names. */
+
 .tools {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin: 0 0 14px;
   max-width: 520px;
-}
-
-.tools-label {
-  color: var(--morse-fg);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.tools-label small {
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  font-weight: 400;
 }
 
 .tools-grid {
@@ -319,12 +149,6 @@
   white-space: nowrap;
 }
 
-.tools-note {
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 .field-note {
   display: block;
   margin-top: 4px;
@@ -333,12 +157,12 @@
   line-height: 1.5;
 }
 
-/* A field that blocks Next says why in the error colour, not just muted grey. */
+
 .field-note.error-note {
   color: var(--morse-error);
 }
 
-/* Engine choices: cards of one size, so a short label never shrinks a target. */
+
 .choices {
   display: flex;
   flex-wrap: wrap;
@@ -380,18 +204,13 @@
   font-weight: 600;
 }
 
-.choice-hint {
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-}
-
 .keykind {
   display: flex;
   gap: 6px;
   margin: 0 0 12px;
 }
 
-/* The same card language, collapsed to one 30px row. */
+
 .choice.small {
   flex-direction: row;
   align-items: center;
@@ -407,8 +226,7 @@
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 6px;
   max-width: 620px;
-  /* pi's catalog is ~35 providers; scroll rather than push the rest of the
-     step below the fold. */
+  
   max-height: 244px;
   overflow-y: auto;
   padding: 1px 4px 1px 1px;
@@ -533,7 +351,7 @@
   color: var(--morse-fg);
 }
 
-/* Dashed, because it adds a row rather than submitting the form. */
+
 .ghost {
   display: inline-flex;
   align-items: center;
@@ -611,12 +429,7 @@
   font-size: 12px;
 }
 
-/*
- * One model row: its id on the left, then the capability fields a listing often
- * cannot answer — context window, output cap, images — so a wrong or missing
- * discovery result is correctable here instead of in the engine's file by hand.
- * The two controls share their box, so the shared declarations are written once.
- */
+
 .model-id {
   flex: 1;
   min-width: 0;
@@ -663,7 +476,7 @@
   outline: none;
   border-color: var(--morse-accent);
 }
-/* Three states in one control: on = takes images, off = says text only. */
+
 .cap-toggle {
   padding: 0 8px;
   background: transparent;
@@ -714,11 +527,7 @@
   border-top: 1px solid var(--morse-border);
 }
 
-/*
- * Actions: one 30px scale everywhere in the wizard — footer, draft, dialogs.
- * Scoped class selectors beat the global `:where(button)` reset, so the
- * padding and radius are set here rather than inherited by accident.
- */
+
 .primary,
 .secondary {
   display: inline-flex;
@@ -781,7 +590,7 @@
   border-color: var(--morse-fg-muted);
 }
 
-/* Search and its reload action: one row, the field taking the room. */
+
 .model-tools {
   display: flex;
   align-items: center;
@@ -849,6 +658,11 @@
   font-size: 11px;
 }
 
+
+.needs-key {
+  color: var(--morse-warning, #d7a13b);
+}
+
 .subagent {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr) auto;
@@ -875,98 +689,304 @@
   line-height: 1.5;
 }
 
-.review {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  gap: 6px 14px;
-  max-width: 640px;
-  margin: 0 0 16px;
-  font-size: 12.5px;
-}
-
-.review dt {
-  color: var(--morse-fg-muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.review dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.review dd.persona {
-  white-space: pre-wrap;
-}
-
-/* Summary: a quiet rail of the values the reader has chosen so far. */
-.wizard-summary {
-  align-self: start;
-  position: sticky;
-  top: 0;
-  min-width: 0;
-  padding-left: 16px;
-  border-left: 1px solid var(--morse-border);
-  font-size: 12px;
-}
-
-.wizard-summary h4 {
-  margin: 0 0 8px;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.wizard-summary dl {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 5px 10px;
-  margin: 0;
-}
-
-.wizard-summary dt {
-  color: var(--morse-fg-muted);
-  font-size: 11.5px;
-}
-
-.wizard-summary dd {
-  margin: 0;
-  overflow: hidden;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wizard-foot {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border-top: 1px solid var(--morse-border);
-}
-
 .foot-spacer {
   flex: 1;
 }
 
-/* Narrow hosts (a split editor, a phone): the summary drops under the form. */
+
+
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.field.narrow {
+  max-width: 34ch;
+}
+
+
+.foot-hint {
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+
+
 @media (max-width: 860px) {
-  .wizard-body {
+  .field-row {
     grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
   }
 
-  .wizard-summary {
-    position: static;
-    padding: 12px 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--morse-border);
+  .field.narrow {
+    max-width: none;
   }
 
-  .wizard-summary dl {
-    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+
+  .choice,
+  .preset-chip,
+  .model-option,
+  .ghost {
+    min-height: 36px;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    font-size: 16px;
+    max-width: none;
+  }
+
+  .foot-hint {
+    order: 3;
+    flex: 1 0 100%;
+  }
+}
+/* The page: one column, a face, two fields and rows. */
+.board {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.board-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 6px;
+}
+
+.board-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.board-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.board-close:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.board-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 20px 20px;
+}
+
+.board-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--morse-border);
+}
+
+/*
+ * The face. A square with the bot's own colour wash, the emoji row beside it:
+ * one click to a recognisable bot, and a letter for a bot nobody dressed.
+ */
+.avatar-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0 0 16px;
+}
+
+.avatar-preview {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid color-mix(in srgb, var(--morse-accent) 30%, var(--morse-border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--morse-accent) 10%, transparent);
+  font-size: 30px;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-tools {
+  flex: 1;
+  min-width: 0;
+}
+
+.emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.emoji {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.emoji:hover {
+  background: var(--morse-hover);
+}
+
+.emoji.on {
+  border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+}
+
+.avatar-url {
+  width: 100%;
+  max-width: 320px;
+  margin-top: 6px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* Rows: every expert answer, closed by default and opened where it stands. */
+.rows {
+  margin-top: 8px;
+  border-top: 1px solid var(--morse-border);
+}
+
+.row {
+  border-bottom: 1px solid var(--morse-border);
+}
+
+.row > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 2px;
+  cursor: pointer;
+  font-size: 12.5px;
+  list-style: none;
+}
+
+.row > summary::-webkit-details-marker {
+  display: none;
+}
+
+.row-label {
+  flex: none;
+  min-width: 120px;
+  color: var(--morse-fg);
+  font-weight: 600;
+}
+
+.row-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--morse-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-chev {
+  flex: none;
+  color: var(--morse-fg-muted);
+  transition: transform 140ms ease;
+}
+
+.row[open] > summary .row-chev {
+  transform: rotate(90deg);
+}
+
+.row > summary:hover .row-label {
+  color: var(--morse-fg);
+}
+
+.row > summary:hover .row-chev {
+  color: var(--morse-fg);
+}
+
+.row-panel {
+  padding: 2px 2px 14px;
+}
+
+.row-note {
+  margin: 0 0 10px;
+  max-width: 62ch;
+  color: var(--morse-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/*
+ * A phone. One column, full-width fields, and 16px inputs so tapping one does
+ * not zoom the page. The footer keeps its actions on one line and drops the
+ * hint that repeats what the rows already say.
+ */
+@media (max-width: 860px) {
+  .board-head {
+    padding: 12px 14px 4px;
+  }
+
+  .board-body {
+    padding: 4px 14px 16px;
+  }
+
+  .board-foot {
+    padding: 10px 14px;
+  }
+
+  .row-label {
+    min-width: 96px;
+  }
+
+  .avatar-preview {
+    width: 56px;
+    height: 56px;
+    font-size: 26px;
+  }
+
+  .board-foot .foot-hint {
+    display: none;
+  }
+
+  .board-foot .primary,
+  .board-foot .secondary {
+    flex: 1;
+    min-height: 38px;
   }
 }

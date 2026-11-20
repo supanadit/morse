@@ -1,137 +1,204 @@
-<div class="wizard">
-  <header class="wizard-head">
-    <div class="wizard-titles">
-      <h2>{{ editing() ? 'Edit bot' : 'New bot' }}</h2>
-      <p class="wizard-sub">
-        @if (editing()) {
-          Change what this bot is and what it runs on. Its name and engine stay put — the name is
-          its directory and its @mention, and the engine owns the config already written there.
-        } @else {
-          A bot is an agent of its own: its engine, its credentials, its providers, its workspace.
-          Nothing is copied from your own configuration.
-        }
-      </p>
-    </div>
-    <button type="button" class="wizard-close" (click)="cancel()" aria-label="Cancel the wizard">×</button>
+<!--
+  One bot, one page, in both directions: a new bot and an existing one are the
+  same three things — a face and a name, what it should help with, and the rows
+  that say how it runs. Nothing is behind a step; the expert rows are folded.
+-->
+<div class="board">
+  <header class="board-head">
+    <h2>{{ editing() ? 'Bot settings' : 'New bot' }}</h2>
+    <button type="button" class="board-close" (click)="cancel()" aria-label="Close the bot editor">
+      ×
+    </button>
   </header>
 
-  <ol class="wizard-rail" aria-label="Wizard steps">
-    @for (entry of steps(); track entry) {
-      <li
-        class="wizard-step"
-        [class.on]="labels[entry] === labels[step()]"
-        [class.done]="isDone(entry)"
-        [aria-current]="labels[entry] === labels[step()] ? 'step' : undefined"
-      >
-        <button
-          type="button"
-          class="wizard-step-button"
-          [disabled]="!canGoTo(entry)"
-          [attr.title]="canGoTo(entry) ? 'Go to ' + labels[entry] : null"
-          (click)="goToStep(entry)"
-        >
-          {{ labels[entry] }}
-        </button>
-      </li>
-    }
-  </ol>
-
-  <div class="wizard-body">
-    <section class="wizard-content">
-      @switch (step()) {
-        @case ('identity') {
-          <h3>Identity</h3>
-          <label class="field">
-            <span>Name</span>
-            <input
-              type="text"
-              [value]="name()"
-              (input)="setText('name', $event)"
-              placeholder="News Finder"
-              autocomplete="off"
-            />
-            <small class="field-note">
-              Anything you like: spaces, punctuation, emoji. This is only what you see.
-            </small>
-          </label>
-          <label class="field">
-            <span>Username</span>
-            <input
-              type="text"
-              [value]="username()"
-              (input)="setUsername($event)"
-              placeholder="news-finder"
-              autocomplete="off"
-              spellcheck="false"
-              [disabled]="editing()"
-            />
-            @if (usernameError(); as problem) {
-              <small class="field-note error-note">{{ problem }}</small>
-            } @else if (editing()) {
-              <small class="field-note">
-                A username is the bot's directory and its @mention, so it cannot change here.
-              </small>
-            } @else {
-              <small class="field-note">
-                Lowercase letters, digits, dashes and underscores — its directory and its @mention.
-                Follows the name until you edit it.
-              </small>
-            }
-          </label>
-          <label class="field">
-            <span>Description</span>
-            <input type="text" [value]="description()" (input)="setText('description', $event)" placeholder="Builds things" autocomplete="off" />
-            <small class="field-note">What other bots see when they look for help.</small>
-          </label>
-          <label class="field">
-            <span>Avatar <small>(optional emoji or URL)</small></span>
-            <input type="text" [value]="avatar()" (input)="setText('avatar', $event)" placeholder="🔧" autocomplete="off" />
-          </label>
+  <div class="board-body">
+    <!-- The face: a bot is picked out of a list by its avatar. -->
+    <div class="avatar-pick">
+      <div class="avatar-preview" aria-hidden="true">
+        @if (avatarIsImage()) {
+          <img [src]="avatar()" alt="" />
+        } @else {
+          <span>{{ avatarFace() }}</span>
         }
-        @case ('engine') {
-          <h3>Engine</h3>
-          <p class="note">The agent runtime this bot runs on. Its config, sessions and workspace live inside the bot's own directory.</p>
-          @if (editing()) {
-            <p class="note">
-              The engine owns the config already in this bot's directory, so switching it here would
-              half-migrate a bot. Create a new bot to run on another engine.
-            </p>
+      </div>
+      <div class="avatar-tools">
+        <div class="emoji-grid" role="listbox" aria-label="Pick an avatar">
+          @for (emoji of emojiChoices; track emoji) {
+            <button
+              type="button"
+              class="emoji"
+              role="option"
+              [class.on]="avatar() === emoji"
+              [attr.aria-selected]="avatar() === emoji"
+              (click)="pickAvatar(emoji)"
+            >
+              {{ emoji }}
+            </button>
           }
-          <div class="choices" role="radiogroup" aria-label="Engine">
-            @for (engine of engines(); track engine.kind) {
-              <button
-                type="button"
-                class="choice"
-                [class.on]="engineKind() === engine.kind"
-                [disabled]="editing()"
-                (click)="chooseEngine(engine.kind)"
-              >
-                <span class="choice-name">{{ engine.label }}</span>
-                @if (engine.kind.toLowerCase() !== engine.label.toLowerCase()) {
-                  <span class="choice-hint">{{ engine.kind }}</span>
-                }
-              </button>
+        </div>
+        <input
+          class="avatar-url"
+          type="text"
+          [value]="avatarIsImage() ? avatar() : ''"
+          (input)="setText('avatar', $event)"
+          placeholder="…or paste an image URL"
+          autocomplete="off"
+          aria-label="Avatar image URL"
+        />
+      </div>
+    </div>
+
+    <div class="field-row">
+      <label class="field">
+        <span>Name</span>
+        <input
+          type="text"
+          [value]="name()"
+          (input)="setText('name', $event)"
+          placeholder="News Finder"
+          autocomplete="off"
+        />
+      </label>
+      <label class="field">
+        <span>Handle</span>
+        <input
+          type="text"
+          [value]="username()"
+          (input)="setUsername($event)"
+          placeholder="news-finder"
+          autocomplete="off"
+          spellcheck="false"
+          [disabled]="editing()"
+        />
+        @if (usernameError(); as problem) {
+          <small class="field-note error-note">{{ problem }}</small>
+        } @else {
+          <small class="field-note">Its folder and its &#64;mention.</small>
+        }
+      </label>
+    </div>
+
+    <label class="field">
+      <span>What should this bot help with?</span>
+      <textarea
+        rows="2"
+        [value]="description()"
+        (input)="setText('description', $event)"
+        placeholder="Compare options, draft replies, and say what changed and why it matters."
+      ></textarea>
+      <small class="field-note">What other bots read when they look for help — and the seed of its instructions.</small>
+    </label>
+
+    <div class="rows">
+      <!-- The one row a beginner needs: what it thinks with. -->
+      <details class="row">
+        <summary>
+          <span class="row-label">Model</span>
+          <span class="row-value">{{ modelLabel() }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
+          <div class="field">
+            <span>Engine</span>
+            <div class="choices" role="radiogroup" aria-label="Engine">
+              @for (engine of engines(); track engine.kind) {
+                <button
+                  type="button"
+                  class="choice"
+                  [class.on]="engineKind() === engine.kind"
+                  [disabled]="editing()"
+                  (click)="chooseEngine(engine.kind)"
+                >
+                  <span class="choice-name">{{ engine.label }}</span>
+                </button>
+              }
+            </div>
+            @if (editing()) {
+              <small class="field-note">
+                The engine owns the config already in this directory, so it cannot be switched here.
+              </small>
             }
           </div>
-        }
-        @case ('connect') {
-          <h3>Connect providers & pick a model</h3>
-          <p class="note">
-            Everything here is written into this bot's own config — never yours.
-            You can skip a key entirely where the engine offers free models, and add a model by hand at any time.
-          </p>
-          @if (editing()) {
-            <p class="note">
-              Stored keys are the engine's, and Morse never reads them back. Leave this alone to keep
-              them; paste a key to replace them.
-            </p>
-          }
 
-          <h4 class="group-title">Catalog providers</h4>
-          <!-- A key field only for the chips this bot already holds a key for; the
-               list scrolls because pi's catalog is long. -->
+          <div class="field">
+            <span>Model</span>
+            @if (allModels().length > 0) {
+              <div class="model-tools">
+                <input
+                  type="text"
+                  class="model-search"
+                  [value]="modelFilter()"
+                  (input)="setText('modelFilter', $event)"
+                  placeholder="Search {{ allModels().length }} models…"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  class="ghost"
+                  (click)="probeCatalog(true)"
+                  [disabled]="!probeReady()"
+                >
+                  {{ probeReady() ? 'Reload' : 'Loading…' }}
+                </button>
+              </div>
+              <div class="model-list" role="listbox" aria-label="Models">
+                @for (option of visibleModels(); track modelOptionKey(option)) {
+                  <button
+                    type="button"
+                    class="model-option"
+                    role="option"
+                    [class.on]="modelOptionKey(option) === modelKey()"
+                    [attr.aria-selected]="modelOptionKey(option) === modelKey()"
+                    (click)="pickModel(modelOptionKey(option))"
+                  >
+                    <span class="model-name">{{ option.name }}</span>
+                    <span class="model-provider"
+                      >{{ option.provider }}@if (needsKey(option.provider)) {
+                        <span class="needs-key">· needs key</span>
+                      }</span
+                    >
+                  </button>
+                }
+              </div>
+            }
+            @if (catalogError(); as failure) {
+              <p class="error" role="alert">{{ failure }}</p>
+              <button type="button" class="ghost" (click)="probeCatalog(true)">Try again</button>
+            }
+            @if (modelBlocker(); as blocker) {
+              <small class="field-note">{{ blocker }}</small>
+            }
+          </div>
+
+          <label class="field narrow">
+            <span>Thinking level</span>
+            <select (change)="pickThinking($event)">
+              <option value="" [selected]="thinking() === ''">Engine default</option>
+              @for (level of thinkingLevels; track level) {
+                <option [value]="level" [selected]="thinking() === level">{{ level }}</option>
+              }
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <!-- Keys, and the providers a catalog does not carry. -->
+      <details class="row">
+        <summary>
+          <span class="row-label">Keys &amp; providers</span>
+          <span class="row-value">{{ keySummary() }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
+          <p class="row-note">
+            A key is stored in this bot's own config and never read back. An engine with free
+            models works without one.
+          </p>
           <div class="presets">
-            @for (preset of orderedPresets(); track preset.engines.join(',') + ':' + preset.credential) {
+            @for (
+              preset of orderedPresets();
+              track preset.engines.join(',') + ':' + preset.credential
+            ) {
               <div class="preset" [class.on]="hasPreset(preset.credential)">
                 <button type="button" class="preset-chip" (click)="choosePreset(preset.credential)">
                   {{ preset.label }}
@@ -152,44 +219,50 @@
           </div>
 
           @if (editing()) {
-            <!-- The providers its engine config already declares, read back with the
-                 model fields a reader can correct: a context window or an output cap
-                 discovery could not know (or got wrong), and whether the model takes
-                 images. Editing them rewrites the engine's own file around its keys. -->
-            <h4 class="group-title">Providers & model limits</h4>
+            <h4 class="group-title">Providers &amp; model limits</h4>
             @if (engineProviders().length === 0) {
-              <p class="note">
-                This bot's engine config declares no providers of its own: its model comes from
-                the engine's catalog. Its keys are above.
+              <p class="row-note">
+                No providers of its own: the model comes from the engine's catalog.
               </p>
             } @else {
-              <p class="note">
-                Read from this bot's own {{ engineKind() }} config. A blank limit leaves the
-                engine's default in place — correct these when discovery could not know them.
+              <p class="row-note">
+                Read from this bot's config. A blank limit leaves the engine's default.
               </p>
               @for (provider of engineProviders(); track provider.id) {
                 <div class="provider-card">
                   <div class="provider-line">
                     <strong>{{ provider.label }}</strong>
-                    <span class="provider-meta">{{ provider.id + (provider.api ? ' · ' + provider.api : '') + (provider.baseUrl ? ' · ' + provider.baseUrl : '') }}</span>
+                    <span class="provider-meta">{{
+                      provider.id +
+                        (provider.api ? ' · ' + provider.api : '') +
+                        (provider.baseUrl ? ' · ' + provider.baseUrl : '')
+                    }}</span>
                   </div>
                   @for (model of provider.models; track model.id) {
                     <div class="model-row">
                       <span class="model-id">{{ model.id }}</span>
                       <div class="model-caps">
-                        <label class="cap" title="Context window in tokens. Empty leaves the engine's own default.">
+                        <label
+                          class="cap"
+                          title="Context window in tokens. Empty leaves the engine's own default."
+                        >
                           <span>context</span>
                           <input
                             type="number"
                             min="1"
                             inputmode="numeric"
                             [value]="model.contextWindow ?? ''"
-                            (input)="setKnownModelField(provider.id, model.id, 'contextWindow', $event)"
+                            (input)="
+                              setKnownModelField(provider.id, model.id, 'contextWindow', $event)
+                            "
                             placeholder="default"
                             [attr.aria-label]="'Context window for ' + model.id"
                           />
                         </label>
-                        <label class="cap" title="Maximum output tokens. Empty leaves the engine's own default.">
+                        <label
+                          class="cap"
+                          title="Maximum output tokens. Empty leaves the engine's own default."
+                        >
                           <span>max out</span>
                           <input
                             type="number"
@@ -207,9 +280,11 @@
                           [class.on]="model.input?.includes('image') === true"
                           (click)="toggleKnownModelImage(provider.id, model.id)"
                           [attr.aria-pressed]="model.input?.includes('image') === true"
-                          [title]="model.input?.includes('image') === true
-                            ? 'This model takes images: press to say it does not'
-                            : 'This model takes text only: press to allow images'"
+                          [title]="
+                            model.input?.includes('image') === true
+                              ? 'This model takes images: press to say it does not'
+                              : 'This model takes text only: press to allow images'
+                          "
                         >
                           image
                         </button>
@@ -220,248 +295,363 @@
               }
             }
           } @else {
-          <h4 class="group-title">Custom providers</h4>
-          @for (provider of providers(); track provider.id) {
-            <div class="provider-card">
-              <div class="provider-line">
-                <strong>{{ provider.label }}</strong>
-                <span class="provider-meta">{{ provider.api + (provider.baseUrl ? ' · ' + provider.baseUrl : '') }}</span>
-                <button type="button" class="provider-remove" (click)="removeProvider(provider.id)" aria-label="Remove provider">Remove</button>
+            <h4 class="group-title">A provider of your own</h4>
+            @for (provider of providers(); track provider.id) {
+              <div class="provider-card">
+                <div class="provider-line">
+                  <strong>{{ provider.label }}</strong>
+                  <span class="provider-meta">{{
+                    provider.api + (provider.baseUrl ? ' · ' + provider.baseUrl : '')
+                  }}</span>
+                  <button
+                    type="button"
+                    class="provider-remove"
+                    (click)="removeProvider(provider.id)"
+                    aria-label="Remove provider"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <span class="provider-models">
+                  {{ provider.models.length }} model{{
+                    provider.models.length === 1 ? '' : 's'
+                  }}: {{ provider.models.map((m) => m.id).join(', ') }}
+                </span>
               </div>
-              <span class="provider-models">{{ provider.models.length }} model{{ provider.models.length === 1 ? '' : 's' }}:
-                {{ provider.models.map((m) => m.id).join(', ') }}</span>
-            </div>
-          }
-          @if (!addingProvider()) {
-            <button type="button" class="ghost" (click)="openAddProvider()">+ Add provider</button>
-          }
-          @if (addingProvider()) {
-            <div class="draft">
-              <label class="field">
-                <span>Provider ID <small>(config key; model refs become id/model)</small></span>
-                <input type="text" [value]="draftId()" (input)="setDraft('id', $event)" placeholder="acme" autocomplete="off" />
-              </label>
-              <label class="field">
-                <span>Display name <small>(optional)</small></span>
-                <input type="text" [value]="draftLabel()" (input)="setDraft('label', $event)" placeholder="Acme AI" autocomplete="off" />
-              </label>
-              <label class="field">
-                <span>API type</span>
-                <select (change)="setDraftApi($event)">
-                  @for (api of providerApis; track api.value) {
-                    <option [value]="api.value" [selected]="draftApi() === api.value">{{ api.label }}</option>
-                  }
-                </select>
-                <small class="field-note">{{ providerApis.find((a) => a.value === draftApi())?.hint }}</small>
-              </label>
-              <label class="field">
-                <span>Base URL</span>
-                <input type="text" [value]="draftBaseUrl()" (input)="setDraft('baseUrl', $event)" placeholder="https://api.example.com/v1" autocomplete="off" />
-              </label>
-              <div class="keykind" role="radiogroup" aria-label="Credential source">
-                <button type="button" class="choice small" [class.on]="draftKeyKind() === 'stored'" (click)="setDraftKeyKind('stored')">Paste key</button>
-                <button type="button" class="choice small" [class.on]="draftKeyKind() === 'env'" (click)="setDraftKeyKind('env')">Env variable</button>
-              </div>
-              @if (draftKeyKind() === 'stored') {
+            }
+            @if (!addingProvider()) {
+              <button type="button" class="ghost add-provider" (click)="openAddProvider()">
+                + Add a provider manually
+              </button>
+            }
+            @if (addingProvider()) {
+              <div class="draft">
+                <div class="field-row">
+                  <label class="field">
+                    <span>Provider ID <em>config key</em></span>
+                    <input
+                      type="text"
+                      [value]="draftId()"
+                      (input)="setDraft('id', $event)"
+                      placeholder="acme"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>Display name <em>optional</em></span>
+                    <input
+                      type="text"
+                      [value]="draftLabel()"
+                      (input)="setDraft('label', $event)"
+                      placeholder="Acme AI"
+                      autocomplete="off"
+                    />
+                  </label>
+                </div>
                 <label class="field">
-                  <span>API key</span>
-                  <input type="password" [value]="draftApiKey()" (input)="setDraft('apiKey', $event)" autocomplete="off" />
+                  <span>API type</span>
+                  <select (change)="setDraftApi($event)">
+                    @for (api of providerApis; track api.value) {
+                      <option [value]="api.value" [selected]="draftApi() === api.value">
+                        {{ api.label }}
+                      </option>
+                    }
+                  </select>
+                  <small class="field-note">{{
+                    providerApis.find((a) => a.value === draftApi())?.hint
+                  }}</small>
                 </label>
-              } @else {
                 <label class="field">
-                  <span>Environment variable name</span>
-                  <input type="text" [value]="draftEnvName()" (input)="setDraft('envName', $event)" placeholder="ACME_API_KEY" autocomplete="off" />
+                  <span>Base URL</span>
+                  <input
+                    type="text"
+                    [value]="draftBaseUrl()"
+                    (input)="setDraft('baseUrl', $event)"
+                    placeholder="https://api.example.com/v1"
+                    autocomplete="off"
+                  />
                 </label>
-              }
-              <div class="draft-discover">
-                <button type="button" class="ghost" (click)="discoverDraft()" [disabled]="draftBaseUrl().trim().length === 0 || draftProbing()">
-                  @if (draftProbing()) { Discovering… } @else { Discover models }
-                </button>
-                <span class="field-note">{{ 'GET ' + (draftBaseUrl() || '(base url)') + '/models' }}</span>
-              </div>
-              @if (draftError()) {
-                <p class="error" role="alert">{{ draftError() }}</p>
-              }
-              @if (draftModels().length > 0) {
-                <p class="ok">✓ {{ draftModels().length }} models discovered</p>
-              }
-              <div class="manual-models">
-                <span>Models <small>(add by hand any time)</small></span>
-                @for (model of draftModels(); track model.id) {
-                  <div class="model-row">
-                    <span class="model-id">{{ model.id }}</span>
-                    <div class="model-caps">
-                      <label class="cap" title="Context window in tokens. Empty leaves the engine's own default.">
-                        <span>context</span>
-                        <input
-                          type="number"
-                          min="1"
-                          inputmode="numeric"
-                          [value]="model.contextWindow ?? ''"
-                          (input)="setModelField($index, 'contextWindow', $event)"
-                          placeholder="default"
-                          [attr.aria-label]="'Context window for ' + model.id"
-                        />
-                      </label>
-                      <label class="cap" title="Maximum output tokens. Empty leaves the engine's own default.">
-                        <span>max out</span>
-                        <input
-                          type="number"
-                          min="1"
-                          inputmode="numeric"
-                          [value]="model.maxTokens ?? ''"
-                          (input)="setModelField($index, 'maxTokens', $event)"
-                          placeholder="default"
-                          [attr.aria-label]="'Maximum output tokens for ' + model.id"
-                        />
-                      </label>
+                <div class="keykind" role="radiogroup" aria-label="Credential source">
+                  <button
+                    type="button"
+                    class="choice small"
+                    [class.on]="draftKeyKind() === 'stored'"
+                    (click)="setDraftKeyKind('stored')"
+                  >
+                    Paste key
+                  </button>
+                  <button
+                    type="button"
+                    class="choice small"
+                    [class.on]="draftKeyKind() === 'env'"
+                    (click)="setDraftKeyKind('env')"
+                  >
+                    Env variable
+                  </button>
+                </div>
+                @if (draftKeyKind() === 'stored') {
+                  <label class="field">
+                    <span>API key</span>
+                    <input
+                      type="password"
+                      [value]="draftApiKey()"
+                      (input)="setDraft('apiKey', $event)"
+                      autocomplete="off"
+                    />
+                  </label>
+                } @else {
+                  <label class="field">
+                    <span>Environment variable name</span>
+                    <input
+                      type="text"
+                      [value]="draftEnvName()"
+                      (input)="setDraft('envName', $event)"
+                      placeholder="ACME_API_KEY"
+                      autocomplete="off"
+                    />
+                  </label>
+                }
+                <div class="draft-discover">
+                  <button
+                    type="button"
+                    class="ghost"
+                    (click)="discoverDraft()"
+                    [disabled]="draftBaseUrl().trim().length === 0 || draftProbing()"
+                  >
+                    @if (draftProbing()) {
+                      Discovering…
+                    } @else {
+                      Discover models
+                    }
+                  </button>
+                  <span class="field-note">{{
+                    'GET ' + (draftBaseUrl() || '(base url)') + '/models'
+                  }}</span>
+                </div>
+                @if (draftError()) {
+                  <p class="error" role="alert">{{ draftError() }}</p>
+                }
+                @if (draftModels().length > 0) {
+                  <p class="ok">✓ {{ draftModels().length }} models discovered</p>
+                }
+                <div class="manual-models">
+                  <span>Models</span>
+                  @for (model of draftModels(); track model.id) {
+                    <div class="model-row">
+                      <span class="model-id">{{ model.id }}</span>
+                      <div class="model-caps">
+                        <label
+                          class="cap"
+                          title="Context window in tokens. Empty leaves the engine's own default."
+                        >
+                          <span>context</span>
+                          <input
+                            type="number"
+                            min="1"
+                            inputmode="numeric"
+                            [value]="model.contextWindow ?? ''"
+                            (input)="setModelField($index, 'contextWindow', $event)"
+                            placeholder="default"
+                            [attr.aria-label]="'Context window for ' + model.id"
+                          />
+                        </label>
+                        <label
+                          class="cap"
+                          title="Maximum output tokens. Empty leaves the engine's own default."
+                        >
+                          <span>max out</span>
+                          <input
+                            type="number"
+                            min="1"
+                            inputmode="numeric"
+                            [value]="model.maxTokens ?? ''"
+                            (input)="setModelField($index, 'maxTokens', $event)"
+                            placeholder="default"
+                            [attr.aria-label]="'Maximum output tokens for ' + model.id"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          class="cap-toggle"
+                          [class.on]="modelTakesImages(model)"
+                          (click)="toggleModelImage($index)"
+                          [attr.aria-pressed]="modelTakesImages(model)"
+                          [title]="
+                            modelTakesImages(model)
+                              ? 'This model takes images: press to say it does not'
+                              : 'This model takes text only: press to allow images'
+                          "
+                        >
+                          image
+                        </button>
+                      </div>
                       <button
                         type="button"
-                        class="cap-toggle"
-                        [class.on]="modelTakesImages(model)"
-                        (click)="toggleModelImage($index)"
-                        [attr.aria-pressed]="modelTakesImages(model)"
-                        [title]="modelTakesImages(model)
-                          ? 'This model takes images: press to say it does not'
-                          : 'This model takes text only: press to allow images'"
+                        class="model-remove"
+                        (click)="removeDraftModel($index)"
+                        aria-label="Remove model"
                       >
-                        image
+                        −
                       </button>
                     </div>
-                    <button type="button" class="model-remove" (click)="removeDraftModel($index)" aria-label="Remove model">−</button>
+                  }
+                  <div class="model-add">
+                    <input
+                      type="text"
+                      [value]="draftModelId()"
+                      (input)="setDraft('draftModelId', $event)"
+                      placeholder="model-id"
+                      autocomplete="off"
+                    />
+                    <button type="button" class="ghost" (click)="addDraftModel()">Add</button>
                   </div>
-                }
-                <div class="model-add">
-                  <input type="text" [value]="draftModelId()" (input)="setDraft('draftModelId', $event)" placeholder="model-id" autocomplete="off" />
-                  <button type="button" class="ghost" (click)="addDraftModel()">Add</button>
+                </div>
+                <div class="draft-actions">
+                  <button type="button" class="secondary" (click)="cancelAddProvider()">
+                    Discard
+                  </button>
+                  <button
+                    type="button"
+                    class="primary"
+                    (click)="saveDraft()"
+                    [disabled]="draftId().trim().length === 0"
+                  >
+                    Save provider
+                  </button>
                 </div>
               </div>
-              <div class="draft-actions">
-                <button type="button" class="secondary" (click)="cancelAddProvider()">Discard</button>
-                <button type="button" class="primary" (click)="saveDraft()" [disabled]="draftId().trim().length === 0">Save provider</button>
-              </div>
-            </div>
+            }
           }
+        </div>
+      </details>
 
-          }
-
-          <h4 class="group-title">Model</h4>
-          @if (allModels().length > 0) {
-            <div class="model-tools">
-              <input
-                type="text"
-                class="model-search"
-                [value]="modelFilter()"
-                (input)="setText('modelFilter', $event)"
-                placeholder="Search {{ allModels().length }} models…"
-                autocomplete="off"
-              />
-              <button
-                type="button"
-                class="ghost"
-                (click)="probeCatalog(true)"
-                [disabled]="!probeReady()"
-              >
-                {{ probeReady() ? 'Reload models' : 'Loading…' }}
-              </button>
-            </div>
-            <div class="model-list" role="listbox" aria-label="Models">
-              @for (option of visibleModels(); track modelOptionKey(option)) {
-                <button
-                  type="button"
-                  class="model-option"
-                  role="option"
-                  [class.on]="modelOptionKey(option) === modelKey()"
-                  [attr.aria-selected]="modelOptionKey(option) === modelKey()"
-                  (click)="pickModel(modelOptionKey(option))"
-                >
-                  <span class="model-name">{{ option.name }}</span>
-                  <span class="model-provider">{{ option.provider }}</span>
-                </button>
-              }
-            </div>
-          }
-          @if (catalogError(); as failure) {
-            <p class="error" role="alert">{{ failure }}</p>
-            <button type="button" class="ghost" (click)="probeCatalog(true)">Try again</button>
-          }
-          @if (modelBlocker(); as blocker) {
-            <p class="note">{{ blocker }}</p>
-          }
-          @if (model(); as chosen) {
-            <p class="note">Runs on {{ chosen.provider }}/{{ chosen.id }}.</p>
-            <label class="field">
-              <span>Thinking level</span>
-              <select (change)="pickThinking($event)">
-                <option value="" [selected]="thinking() === ''">Engine default</option>
-                @for (level of thinkingLevels; track level) {
-                  <option [value]="level" [selected]="thinking() === level">{{ level }}</option>
-                }
-              </select>
-            </label>
-          }
-        }
-        @case ('persona') {
-          <h3>Persona</h3>
-          <p class="note">The system prompt this bot opens every session with. Required — it is the bot's character.</p>
+      <!-- The instructions themselves: seeded from the line above, editable here. -->
+      <details class="row">
+        <summary>
+          <span class="row-label">Instructions</span>
+          <span class="row-value">{{ persona().trim().length > 0 ? 'system prompt' : 'not set' }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
+          <p class="row-note">
+            The prompt this bot opens every session with. It starts from the name and the line
+            above, so you only have to write here if you want more.
+          </p>
           <label class="field">
             <span>System prompt</span>
-            <textarea rows="7" [value]="persona()" (input)="setText('persona', $event)" placeholder="You are Forge. You build things and keep your diffs small."></textarea>
+            <textarea
+              rows="7"
+              [value]="persona()"
+              (input)="setText('persona', $event)"
+              placeholder="You are Forge. You build things and keep your diffs small."
+            ></textarea>
           </label>
-        }
-        @case ('mcp') {
-          <h3>MCP servers</h3>
-          <p class="note">
-            Optional. Each server is written into this bot's own config — never yours — and
-            the next edit reads it back.
+          <button type="button" class="ghost starter-persona" (click)="useStarterPersona()">
+            Start again from the name and the line above
+          </button>
+        </div>
+      </details>
+
+      <details class="row">
+        <summary>
+          <span class="row-label">Tools</span>
+          <span class="row-value">{{ tools().length }} of {{ engineTools().length }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
+          <div class="tools-grid">
+            @for (tool of engineTools(); track tool.name) {
+              <label class="tool">
+                <input
+                  type="checkbox"
+                  [attr.data-tool]="tool.name"
+                  [checked]="hasTool(tool.name)"
+                  (change)="toggleTool(tool.name, $any($event.target).checked)"
+                />
+                <span class="tool-name">{{ tool.name }}</span>
+                @if (tool.hint) {
+                  <span class="tool-hint">{{ tool.hint }}</span>
+                }
+              </label>
+            }
+          </div>
+          <p class="row-note">
+            The engine's own built-in tools. All off gives a bot that only talks.
+            @if (engineKind() === 'pi') {
+              pi has no built-in web tool — give it an MCP server for that.
+            }
+            A bot runs as you: its file tools reach your home directory and its shell can run any
+            command.
           </p>
+        </div>
+      </details>
+
+      <details class="row">
+        <summary>
+          <span class="row-label">MCP servers</span>
+          <span class="row-value">{{
+            mcpServers().length === 0 ? 'none' : mcpServers().length + ' connected'
+          }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
           <morse-bot-mcp-step
             [servers]="mcpServers()"
             [engineKind]="engineKind()"
             (serversChange)="mcpServers.set($event)"
           />
-        }
-        @case ('advanced') {
-          <h3>Advanced</h3>
+        </div>
+      </details>
+
+      <details class="row">
+        <summary>
+          <span class="row-label">AGENTS.md</span>
+          <span class="row-value">{{ agentsMd().trim().length > 0 ? 'written' : 'none' }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
           <label class="field">
-            <span>AGENTS.md <small>(optional — written into the bot's workspace)</small></span>
-            <textarea rows="5" [value]="agentsMd()" (input)="setText('agentsMd', $event)" placeholder="# Forge workspace"></textarea>
+            <span>Workspace file <em>written into its own folder</em></span>
+            <textarea
+              rows="5"
+              [value]="agentsMd()"
+              (input)="setText('agentsMd', $event)"
+              placeholder="# Forge workspace"
+            ></textarea>
           </label>
-          <div class="tools">
-            <span class="tools-label">Tools <small>(what this bot may do on its own)</small></span>
-            <div class="tools-grid">
-              @for (tool of engineTools(); track tool.name) {
-                <label class="tool">
-                  <input
-                    type="checkbox"
-                    [attr.data-tool]="tool.name"
-                    [checked]="hasTool(tool.name)"
-                    (change)="toggleTool(tool.name, $any($event.target).checked)"
-                  />
-                  <span class="tool-name">{{ tool.name }}</span>
-                  @if (tool.hint) {
-                    <span class="tool-hint">{{ tool.hint }}</span>
-                  }
-                </label>
-              }
-            </div>
-            <span class="tools-note">
-              These are the engine's own built-in tools. Turning them all off gives a bot that only
-              talks — which is also what stops a provider that emulates tools by asking for JSON from
-              printing tool calls as chat.
-              @if (engineKind() === 'pi') {
-                pi has no built-in web tool: for that, give the bot an MCP server.
-              }
-              A bot runs as you: its file tools reach your home directory and its shell can run any
-              command. Its engine config, auth and sessions stay in its own folder.
-            </span>
-          </div>
+        </div>
+      </details>
+
+      <details class="row">
+        <summary>
+          <span class="row-label">Environment</span>
+          <span class="row-value">{{ envVars() || 'inherited' }}</span>
+          <span class="row-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="row-panel">
           <label class="field">
-            <span>Environment variables <small>(comma separated — inherited from this host)</small></span>
-            <input type="text" [value]="envVars()" (input)="setText('envVars', $event)" placeholder="ANTHROPIC_API_KEY, OPENAI_API_KEY" autocomplete="off" />
+            <span>Variables <em>comma separated, inherited from this host</em></span>
+            <input
+              type="text"
+              [value]="envVars()"
+              (input)="setText('envVars', $event)"
+              placeholder="ANTHROPIC_API_KEY, OPENAI_API_KEY"
+              autocomplete="off"
+            />
           </label>
-          @if (engineKind() === 'opencode') {
-            <h4 class="group-title">Subagents</h4>
+        </div>
+      </details>
+
+      @if (engineKind() === 'opencode') {
+        <details class="row">
+          <summary>
+            <span class="row-label">Subagents</span>
+            <span class="row-value">{{
+              namedSubagents().length === 0 ? 'none' : namedSubagents().length
+            }}</span>
+            <span class="row-chev" aria-hidden="true">›</span>
+          </summary>
+          <div class="row-panel">
             @for (row of subagents(); track $index) {
               <div class="subagent">
                 <input
@@ -473,76 +663,48 @@
                   title="Start with a letter, digit or underscore; letters, digits, dashes and underscores only"
                   autocomplete="off"
                 />
-                <textarea rows="2" [value]="row.prompt" (input)="setSubagent($index, 'prompt', $event)" placeholder="Its own system prompt"></textarea>
-                <button type="button" class="model-remove" (click)="removeSubagent($index)" aria-label="Remove subagent">−</button>
+                <textarea
+                  rows="2"
+                  [value]="row.prompt"
+                  (input)="setSubagent($index, 'prompt', $event)"
+                  placeholder="Its own system prompt"
+                ></textarea>
+                <button
+                  type="button"
+                  class="model-remove"
+                  (click)="removeSubagent($index)"
+                  aria-label="Remove subagent"
+                >
+                  −
+                </button>
               </div>
             }
-            <button type="button" class="ghost" (click)="addSubagent()">+ Add subagent</button>
-          }
-        }
-        @case ('review') {
-          <h3>Review</h3>
-          <dl class="review">
-            <dt>Name</dt><dd>{{ name() }}</dd>
-            <dt>Username</dt><dd>&#64;{{ username() }}</dd>
-            @if (description().trim()) { <dt>Description</dt><dd>{{ description() }}</dd> }
-            @if (avatar().trim()) { <dt>Avatar</dt><dd>{{ avatar() }}</dd> }
-            <dt>Engine</dt><dd>{{ engineKind() }}</dd>
-            <dt>Keys</dt><dd>{{ collectedCredentials().length }} stored, env: {{ envVars() || '—' }}</dd>
-            @if (collectedProviders().length > 0) {
-              <dt>Custom providers</dt>
-              <dd>{{ collectedProviders().map((p) => p.id + ' (' + p.models.length + ' models)').join(', ') }}</dd>
-            }
-            <dt>Model</dt><dd>{{ model() ? model()!.provider + '/' + model()!.id : '—' }}</dd>
-            <dt>Thinking</dt><dd>{{ thinking() === '' ? 'engine default' : thinking() }}</dd>
-            <dt>Persona</dt><dd class="persona">{{ persona() }}</dd>
-            @if (agentsMd().trim()) { <dt>AGENTS.md</dt><dd class="persona">{{ agentsMd() }}</dd> }
-            @if (mcpServers().length > 0) {
-              <dt>MCP</dt>
-              <dd>{{ mcpServers().map((server) => server.name).join(', ') }}</dd>
-            }
-            @if (engineKind() === 'opencode' && namedSubagents().length > 0) {
-              <dt>Subagents</dt><dd>{{ subagentNames() }}</dd>
-            }
-          </dl>
-          @if (pending()) {
-            <p class="note">Creating {{ pending() }} — waiting for the roster to name it…</p>
-          }
-          @if (createError()) {
-            <p class="error" role="alert">{{ createError() }}</p>
-          }
-        }
+            <button type="button" class="ghost add-subagent" (click)="addSubagent()">
+              + Add subagent
+            </button>
+          </div>
+        </details>
       }
-    </section>
+    </div>
 
-    <aside class="wizard-summary" aria-label="Summary">
-      <h4>Summary</h4>
-      <dl>
-        <dt>Bot</dt><dd>{{ name().trim() || '—' }}</dd>
-        <dt>Handle</dt><dd>{{ username() ? '@' + username() : '—' }}</dd>
-        <dt>Engine</dt><dd>{{ engineKind() || '—' }}</dd>
-        <dt>Keys</dt><dd>{{ collectedCredentials().length }}</dd>
-        <dt>Providers</dt><dd>{{ collectedProviders().length }}</dd>
-        <dt>Model</dt><dd>{{ model() ? model()!.id : '—' }}</dd>
-        <dt>Thinking</dt><dd>{{ thinking() === '' ? 'default' : thinking() }}</dd>
-      </dl>
-    </aside>
+    @if (pending()) {
+      <p class="note">{{ pending() }} — waiting for the roster to name it…</p>
+    }
+    @if (createError()) {
+      <p class="error" role="alert">{{ createError() }}</p>
+    }
   </div>
 
-  <footer class="wizard-foot">
-    <button type="button" class="secondary" (click)="back()" [disabled]="step() === 'identity'">Back</button>
+  <footer class="board-foot">
+    <span class="foot-hint">{{ engineKind() || 'no engine' }} · {{ modelLabel() }}</span>
     <span class="foot-spacer"></span>
     <button type="button" class="secondary" (click)="cancel()">Cancel</button>
-    @if (step() !== 'review') {
-      <button type="button" class="primary" (click)="next()" [disabled]="!canAdvance()">Next</button>
-    } @else {
-      <button type="button" class="primary" (click)="submit()" [disabled]="!canSubmit()">
-        @if (pending()) {
-          {{ editing() ? 'Saving…' : 'Creating…' }}
-        } @else {
-          {{ editing() ? 'Save bot' : 'Create bot' }}
-        }
-      </button>
-    }
+    <button type="button" class="primary" (click)="submit()" [disabled]="!canSubmit()">
+      @if (pending()) {
+        {{ editing() ? 'Saving…' : 'Creating…' }}
+      } @else {
+        {{ editing() ? 'Save bot' : 'Create bot' }}
+      }
+    </button>
   </footer>
 </div>

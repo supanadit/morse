@@ -180,6 +180,14 @@ user-controlled version of the fresh-session instinct, without losing continuity
 The wizard is a **full-page view** (never a modal): step rail at top, live summary panel right,
 large content area. It replaces the modal entirely for bot creation.
 
+**Creation and editing are one page** (revised 2026-11-20, owner-directed). The step rail is gone:
+there is no wizard to walk. A bot is created on a single page — an avatar (an emoji row, or an image
+URL), name and handle, the line it helps with (its description, and the seed of its instructions),
+then rows that open in place: *Model* (engine, catalog models, thinking level), *Keys & providers*,
+*Instructions*, *Tools*, *MCP servers*, *AGENTS.md*, *Environment*, *Subagents*. The footer saves from
+anywhere, which is also how editing works: same page, one Save, no steps and no Review. Editing locks
+only what the bot's directory already answers — its handle and its engine.
+
 The Connect step is a **provider manager over the bot's isolated config** — the UI equivalent of
 hand-editing `~/.config/opencode/opencode.json[c]` or `~/.pi/agent/models.json`, scoped to
 `~/.morse/bot/<name>/`:

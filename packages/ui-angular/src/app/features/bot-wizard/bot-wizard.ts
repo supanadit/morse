@@ -7,6 +7,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import type {
   BotConfig,
   BotCreateInput,
@@ -22,9 +23,6 @@ import type {
 import type { BotProviderModel } from '@morse/system';
 import { MorseService } from '../../host/morse.service';
 import { BotMcpStep } from './bot-mcp-step';
-
-/** The wizard's steps, in the order the spec pins them. */
-type Step = 'identity' | 'engine' | 'connect' | 'persona' | 'mcp' | 'advanced' | 'review';
 
 /** One OpenCode subagent the reader defined: a name and its own system prompt. */
 interface SubagentRow {
@@ -139,15 +137,15 @@ const THINKING_LEVELS: ThinkingLevel[] = [
   'max',
 ];
 
-const STEP_LABELS: Record<Step, string> = {
-  identity: 'Identity',
-  engine: 'Engine',
-  connect: 'Connect',
-  persona: 'Persona',
-  mcp: 'MCP',
-  advanced: 'Advanced',
-  review: 'Review',
-};
+/**
+ * The emoji a bot may wear, as one row of choices: a bot with no avatar shows
+ * the first letter of its name, and a face is faster to recognise in a list.
+ */
+const EMOJI_CHOICES: readonly string[] = [
+  '🤖', '🐴', '🔧', '🛠️', '📚', '🔍', '🧭', '📊',
+  '🧪', '🧠', '🦉', '🦊', '🐙', '🐝', '🚀', '⚙️',
+  '📝', '🎨', '🧵', '🗺️', '💡', '🧮', '🛰️', '🌱',
+];
 
 /** A wizard-local request id for probes; the host echoes it whole. */
 let wizardRequests = 0;
@@ -217,27 +215,28 @@ function parseEnvVars(value: string): string[] {
 }
 
 /**
- * The wizard that creates one isolated bot — a full page, not a modal.
+ * One bot's page: it creates a new bot and edits an existing one, and it is the
+ * same page both ways — a face, a name, the line it helps with, then rows for
+ * how it runs.
  *
- * The order is the point: identity, engine, then Connect, where the reader adds
- * providers the way they would hand-edit the engine's config — a preset chip and
- * key for catalog providers, an "Add provider" form (wire protocol, base URL,
- * key) for everything else, with models discovered from the endpoint where it
- * can list them. The model picker searches everything Connect found. The
- * persona, the optional MCP servers, and Advanced follow; Review shows exactly
- * what will be sent.
+ * The rows are the design. A beginner answers two fields and one row (the model,
+ * which is open on the engine's own catalog and needs a key only for a vendor
+ * that asks for one); everything an expert wants — keys and custom providers,
+ * instructions, tools, MCP servers, AGENTS.md, environment, subagents — is one
+ * click away in a row rather than a step in a sequence. Editing is the same
+ * page with nothing locked except the name and the engine, which the bot's
+ * directory already answers.
  */
 @Component({
   selector: 'morse-bot-wizard',
   templateUrl: './bot-wizard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BotMcpStep],
+  imports: [BotMcpStep, NgTemplateOutlet],
   styleUrl: './bot-wizard.css',
 })
 export class BotWizard {
   private readonly morse = inject(MorseService);
 
-  protected readonly step = signal<Step>('identity');
   protected readonly name = signal('');
   /**
    * The bot's handle: what names its directory, its DM and its `@mention`. It is
@@ -292,6 +291,8 @@ export class BotWizard {
    */
   private readonly toolsEdited = signal(false);
   protected readonly persona = signal('');
+  /** Whether the reader has written instructions of their own. */
+  private readonly personaEdited = signal(false);
   protected readonly agentsMd = signal('');
   protected readonly subagents = signal<SubagentRow[]>([]);
   /** The MCP servers this bot carries; written into its own engine config. */
@@ -328,8 +329,8 @@ export class BotWizard {
 
   protected readonly engines = this.morse.engines;
   protected readonly thinkingLevels = THINKING_LEVELS;
-  protected readonly labels = STEP_LABELS;
   protected readonly providerApis = PROVIDER_APIS;
+  protected readonly emojiChoices = EMOJI_CHOICES;
 
   /** Why the username is unusable, or empty when it is fine. */
   protected readonly usernameError = computed(() => {
@@ -354,82 +355,6 @@ export class BotWizard {
   /** The bot being edited, or `null` while creating a new one. */
   protected readonly editTarget = this.morse.ui.wizardTarget;
   protected readonly editing = computed(() => this.editTarget() !== null);
-
-  protected readonly steps = computed<Step[]>(() => [
-    'identity',
-    'engine',
-    'connect',
-    'persona',
-    'mcp',
-    'advanced',
-    'review',
-  ]);
-
-  /**
-   * The steps the reader has stood on. A tick only shows on one of these, so an
-   * optional step never looks answered before it has been seen.
-   */
-  private readonly reached = signal<ReadonlySet<Step>>(new Set<Step>(['identity']));
-
-  /**
-   * A step is done the moment its own form is satisfied — no Next needed. The
-   * tick is derived, never latched: deselect the engine or clear the name and
-   * that step's tick goes away by itself.
-   */
-  protected isDone(entry: Step): boolean {
-    return entry !== 'review' && this.reached().has(entry) && this.isStepComplete(entry);
-  }
-
-  /**
-   * Whether the rail may jump to this step: it, and everything before it, must
-   * already be satisfied — so a jump never skips a requirement, in either
-   * direction.
-   */
-  protected canGoTo(entry: Step): boolean {
-    if (entry === this.step()) {
-      return false;
-    }
-    const steps = this.steps();
-    const index = steps.indexOf(entry);
-    // Review has nothing of its own to satisfy, so only the steps before it count.
-    const required = entry === 'review' ? steps.slice(0, index) : steps.slice(0, index + 1);
-    return required.every((one) => this.isStepComplete(one));
-  }
-
-  /** Jumps anywhere already satisfied, keeping every answer. */
-  protected goToStep(entry: Step): void {
-    if (this.canGoTo(entry)) {
-      this.step.set(entry);
-    }
-  }
-
-  /**
-   * One step's own answers, independent of where the reader is standing. Only
-   * what the step needs to be considered configured: a name, an engine, a model,
-   * a persona. Advanced carries nothing required.
-   */
-  private isStepComplete(entry: Step): boolean {
-    switch (entry) {
-      case 'identity':
-        return this.name().trim().length > 0 && this.usernameError().length === 0;
-      case 'engine':
-        return this.engines().some((engine) => engine.kind === this.engineKind());
-      case 'connect':
-        // A model is not optional: the bot runs on the one chosen here, so an
-        // empty list leaves Next refused until a key or a provider supplies one.
-        return this.model() !== undefined;
-      case 'persona':
-        return this.persona().trim().length > 0;
-      case 'mcp':
-        // Optional: a bot with no servers is the normal case, so this never
-        // blocks Next or a jump to a later step.
-        return true;
-      case 'advanced':
-        return true;
-      case 'review':
-        return false;
-    }
-  }
 
   /** The tools this engine can offer, so the form never invents one. */
   protected readonly engineTools = computed(() => ENGINE_TOOLS[this.engineKind()] ?? []);
@@ -548,7 +473,7 @@ export class BotWizard {
       return "Loading this engine's catalog…";
     }
     if (this.allModels().length === 0) {
-      return 'This engine listed no models. Paste a key above or add a custom provider with at least one model — a bot must be given a model to run on.';
+      return 'This engine listed no models. Paste a key in Provider keys below, or add a provider with at least one model — a bot must be given a model to run on.';
     }
     return 'Pick a model to continue.';
   });
@@ -680,13 +605,11 @@ export class BotWizard {
         this.draftError.set(notice.text);
       });
     });
-    // Arriving at Connect asks the catalog immediately: the model list is the
-    // step's whole point, so it is already there when the step opens instead of
-    // appearing only after walking past it and coming back.
+    // The model row is the page's first question, so its list is asked for as
+    // soon as there is an engine to ask about. The signature keeps it to one
+    // request per engine and key set.
     effect(() => {
-      if (this.step() !== 'connect') {
-        return;
-      }
+      this.engineKind();
       untracked(() => this.probeCatalog());
     });
     // A catalog probe can fail too (a refused key, an unreachable engine). The
@@ -718,16 +641,14 @@ export class BotWizard {
       }
       untracked(() => this.fillFromConfig(config));
     });
-    // A step counts as seen the moment it opens, so its tick is already able to
-    // appear while the reader is standing on it — no Next required.
+    // A new bot opens on an engine rather than on a question: the engine is a
+    // detail for most readers, and its catalog is what fills the model row.
     effect(() => {
-      const entry = this.step();
-      untracked(() => {
-        if (this.reached().has(entry)) {
-          return;
-        }
-        this.reached.update((current) => new Set([...current, entry]));
-      });
+      const engines = this.engines();
+      if (this.editing() || this.engineKind().length > 0 || engines.length === 0) {
+        return;
+      }
+      untracked(() => this.chooseEngine(engines[0]!.kind));
     });
   }
 
@@ -750,14 +671,17 @@ export class BotWizard {
         if (!this.usernameEdited() && !this.editing()) {
           this.username.set(usernameFrom(value));
         }
+        this.seedPersona();
         return;
       case 'description':
         this.description.set(value);
+        this.seedPersona();
         return;
       case 'avatar':
         this.avatar.set(value);
         return;
       case 'persona':
+        this.personaEdited.set(true);
         this.persona.set(value);
         return;
       case 'agentsMd':
@@ -792,6 +716,9 @@ export class BotWizard {
       // than carrying names it does not have.
       this.tools.set([...(DEFAULT_TOOLS[kind] ?? [])]);
       this.toolsEdited.set(false);
+      // The catalog belongs to the engine, and the model step sits right below
+      // the choice: ask at once rather than on the next visit.
+      this.probeCatalog(true);
     }
   }
 
@@ -812,9 +739,7 @@ export class BotWizard {
    * both slow and pointless.
    */
   protected refreshCatalog(): void {
-    if (this.step() === 'connect') {
-      this.probeCatalog();
-    }
+    this.probeCatalog();
   }
 
   protected hasPreset(credential: string): boolean {
@@ -1072,10 +997,6 @@ export class BotWizard {
     );
   }
 
-  protected canAdvance(): boolean {
-    return this.isStepComplete(this.step());
-  }
-
   /**
    * Asks the engine's catalog what the current keys unlock, under a fresh
    * request id. Called on arriving at Connect — the reader must never have to
@@ -1083,6 +1004,11 @@ export class BotWizard {
    * keys change underneath it.
    */
   protected probeCatalog(force = false): void {
+    // Nothing to ask yet: the engine is chosen in this same step, and an empty
+    // one would be a host error rather than an empty list.
+    if (this.engineKind().length === 0) {
+      return;
+    }
     const signature = JSON.stringify([
       this.engineKind(),
       this.collectedCredentials(),
@@ -1104,26 +1030,6 @@ export class BotWizard {
     );
   }
 
-  protected next(): void {
-    if (!this.canAdvance()) {
-      return;
-    }
-    const steps = this.steps();
-    const following = steps[steps.indexOf(this.step()) + 1];
-    if (following === undefined) {
-      return;
-    }
-    this.step.set(following);
-  }
-
-  protected back(): void {
-    const steps = this.steps();
-    const index = steps.indexOf(this.step());
-    if (index > 0) {
-      this.step.set(steps[index - 1] as Step);
-    }
-  }
-
   protected cancel(): void {
     this.close();
   }
@@ -1135,9 +1041,8 @@ export class BotWizard {
   }
 
   /**
-   * Fills the form from the bot's own record. Every step counts as reached and
-   * satisfied, so the rail reads as a checklist of what is already configured and
-   * any step can be jumped to directly.
+   * Fills the form from the bot's own record: every section is on the page, so
+   * there is nothing to unlock and nothing to walk through.
    */
   private fillFromConfig(config: BotConfig): void {
     this.username.set(config.username);
@@ -1150,6 +1055,7 @@ export class BotWizard {
     this.credentials.set([]);
     this.envVars.set(config.envVars.join(', '));
     this.persona.set(config.persona);
+    this.personaEdited.set(true);
     this.agentsMd.set(config.agentsMd ?? '');
     this.subagents.set((config.subagents ?? []).map((row) => ({ ...row })));
     // A server list is read back whole, and `mcpLoaded` remembers whether the
@@ -1167,11 +1073,104 @@ export class BotWizard {
     this.toolsEdited.set(config.tools !== undefined);
     this.pinnedModel.set(config.model);
     this.modelKey.set(config.model === undefined ? '' : this.modelOptionKey(config.model));
-    this.reached.set(new Set(this.steps()));
+    // An edit is one page, not a walk onto a step: the catalog has to be asked
+    // here, or the model list would hold nothing but the model already saved.
+    this.probeCatalog(true);
   }
 
   protected canSubmit(): boolean {
-    return this.step() === 'review' && this.pending() === null;
+    if (this.pending() !== null) {
+      return false;
+    }
+    // A bot needs who it is and what it runs on. An edit keeps its model even
+    // when the catalog cannot list it, so only a new bot has to pick one.
+    const needsModel = !this.editing();
+    return (
+      this.name().trim().length > 0 &&
+      this.usernameError().length === 0 &&
+      this.persona().trim().length > 0 &&
+      (!needsModel || this.model() !== undefined)
+    );
+  }
+
+  /** Whether using this model still needs a key the form does not hold. */
+  protected needsKey(provider: string): boolean {
+    // An edited bot's keys are the engine's and are never read back, so a tag
+    // claiming one is missing would be a guess.
+    if (this.editing()) {
+      return false;
+    }
+    return (
+      this.knownProviders().some((preset) => preset.credential === provider) &&
+      !this.hasPreset(provider)
+    );
+  }
+
+  /** What this bot will have to spend, in one line: the keys, or the lack of them. */
+  protected readonly keySummary = computed(() => {
+    const providers = this.collectedCredentials().map((row) => row.provider);
+    if (providers.length === 0) {
+      return this.editing() ? "the engine's own keys" : 'no key yet — free models still work';
+    }
+    return `${providers.join(', ')} (${providers.length})`;
+  });
+
+  /** The row's answer: the chosen model, or the one the engine falls back to. */
+  protected readonly modelLabel = computed(() => {
+    const model = this.model();
+    if (model === undefined) {
+      return 'Choose a model';
+    }
+    return `${model.name} · ${this.thinking() === '' ? 'engine default' : this.thinking()}`;
+  });
+
+  /** The avatar's face: the emoji or URL, else the letter the roster would show. */
+  protected readonly avatarFace = computed(() => {
+    const avatar = this.avatar().trim();
+    return avatar.length > 0 ? avatar : (this.name().trim().slice(0, 1).toUpperCase() || '🤖');
+  });
+
+  /** Whether the avatar is an image rather than one character. */
+  protected readonly avatarIsImage = computed(() => /^(https?:|data:)/.test(this.avatar().trim()));
+
+  protected pickAvatar(emoji: string): void {
+    this.avatar.set(this.avatar().trim() === emoji ? '' : emoji);
+  }
+
+  /**
+   * Writes a first system prompt from what the reader already typed, so the
+   * required field is a starting point rather than a blank page.
+   */
+  protected useStarterPersona(): void {
+    this.personaEdited.set(true);
+    this.persona.set(this.starterPersona());
+  }
+
+  /**
+   * The instructions a bot gets until its reader writes their own: its name and
+   * its one-line purpose, in the voice every bot of this app speaks in. A form
+   * that opens on a blank required textarea is a form that stops a beginner.
+   */
+  private seedPersona(): void {
+    if (this.personaEdited()) {
+      return;
+    }
+    this.persona.set(this.starterPersona());
+  }
+
+  /** The instructions a bot gets for free: its name, its purpose, its voice. */
+  private starterPersona(): string {
+    const name = this.name().trim() || 'this bot';
+    const doing = this.description().trim();
+    return [
+      `You are ${name}.`,
+      doing.length > 0 ? `${doing}.` : '',
+      '',
+      'Answer in your own voice: short unless the question needs length, plain unless it needs',
+      'jargon. Say what you did, and say when you are unsure rather than guessing.',
+    ]
+      .filter((line) => line.length > 0)
+      .join('\n');
   }
 
   protected submit(): void {

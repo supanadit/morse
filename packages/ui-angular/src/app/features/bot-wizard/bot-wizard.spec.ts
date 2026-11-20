@@ -42,11 +42,14 @@ class ScriptedHost extends MemoryHostTransport {
   }
 }
 
+let lastProbe: ProbeSpy | undefined;
+
 async function render(): Promise<{
   fixture: ComponentFixture<BotWizard>;
   host: HTMLElement;
   morse: MorseService;
   transport: ScriptedHost;
+  probe: ProbeSpy;
 }> {
   TestBed.resetTestingModule();
   const transport = new ScriptedHost();
@@ -54,13 +57,18 @@ async function render(): Promise<{
     imports: [BotWizard],
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
   }).compileComponents();
+  const morse = TestBed.inject(MorseService);
+  // Before the first render: a page with an engine answers its catalog at once.
+  const probe = vi.spyOn(morse, 'probeModels');
   const fixture = TestBed.createComponent(BotWizard);
   fixture.detectChanges();
+  lastProbe = probe;
   return {
     fixture,
     host: fixture.nativeElement as HTMLElement,
-    morse: TestBed.inject(MorseService),
+    morse,
     transport,
+    probe,
   };
 }
 
@@ -74,11 +82,6 @@ function button(host: HTMLElement, selector: string): HTMLButtonElement {
 
 function buttonOrNull(host: HTMLElement, selector: string): HTMLButtonElement | null {
   return host.querySelector(selector) as HTMLButtonElement | null;
-}
-
-/** The wizard's active step, per the rail's aria-current marker. */
-function currentStep(host: HTMLElement): string | null | undefined {
-  return host.querySelector('.wizard-step[aria-current="step"]')?.textContent?.trim();
 }
 
 function fill(host: HTMLElement, selector: string, value: string): void {
@@ -108,28 +111,26 @@ interface ProbeSpy {
   mock: { calls: [string, string[], { provider: string; apiKey: string }[], string][] };
 }
 
-/** Identity → engine → connect, stopping on Connect with the catalog answered. */
+/**
+ * A new bot with its name, the line it helps with, and an engine: one page means
+ * one fill, and the probe fires the moment the engine is picked.
+ */
 function walkToConnect(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
-  morse: MorseService,
+  _morse: MorseService,
   kind: string,
 ): { probe: ProbeSpy } {
-  const probe = vi.spyOn(morse, 'probeModels');
   fill(host, 'input[placeholder="News Finder"]', 'Forge');
-  fill(host, 'input[placeholder="Builds things"]', 'Keeps the forge hot');
+  fill(host, 'textarea[placeholder^="Compare options"]', 'Keeps the forge hot');
+  // Written by the test, not seeded: the assertions below compare the payload.
+  fill(host, 'textarea[placeholder^="You are Forge"]', 'You are Forge.');
   tick(fixture);
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  expect(currentStep(host)).toBe('Engine');
   const engineButtons = [...host.querySelectorAll('.choice')] as HTMLButtonElement[];
   const match = engineButtons.find((one) => one.textContent?.toLowerCase().includes(kind));
   match?.click();
   tick(fixture);
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  expect(currentStep(host)).toBe('Connect');
-  return { probe };
+  return { probe: lastProbe as ProbeSpy };
 }
 
 /** Answers the catalog probe the wizard already sent, then picks the first model. */
@@ -140,9 +141,11 @@ function pickCatalogModel(
   probe: ProbeSpy,
   model: ModelOption = claude,
 ): void {
+  const call = probe.mock.calls.at(-1);
   morse.bot.onModels({
-    requestId: probe.mock.calls.at(-1)?.[3] ?? '',
-    kind: 'opencode',
+    requestId: call?.[3] ?? '',
+    // The answer belongs to the engine that was asked for it.
+    kind: call?.[0] ?? 'pi',
     models: [model],
   });
   tick(fixture);
@@ -150,22 +153,12 @@ function pickCatalogModel(
   tick(fixture);
 }
 
-/**
- * Connect → Persona → MCP → Advanced → Review, when the test already left
- * Connect. The MCP step is optional: only a walk that asks adds a server there.
- */
-function finishFromConnect(
+/** The expert rows a test may want filled — on the page, opened or not. */
+function fillAdvanced(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
-  options: { persona?: string; mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
+  options: { mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
 ): void {
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  fill(host, 'textarea[placeholder^="You are Forge"]', options.persona ?? 'You are Forge.');
-  tick(fixture);
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  expect(currentStep(host)).toBe('MCP');
   if (options.mcp === true) {
     fill(host, 'input[placeholder="filesystem"]', 'filesystem');
     fill(host, 'input[placeholder="npx"]', 'npx');
@@ -173,38 +166,26 @@ function finishFromConnect(
     button(host, '.mcp-add').click();
     tick(fixture);
   }
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  expect(currentStep(host)).toBe('Advanced');
   if (options.agentsMd !== undefined) {
     fill(host, 'textarea[placeholder="# Forge workspace"]', options.agentsMd);
     tick(fixture);
   }
   if (options.subagent === true) {
-    button(host, '.ghost').click();
+    button(host, '.add-subagent').click();
     tick(fixture);
     fill(host, '.subagent input', 'reviewer');
     fill(host, '.subagent textarea', 'Read the diff and report risks.');
     tick(fixture);
   }
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  expect(currentStep(host)).toBe('Review');
 }
 
-/** Connect → Persona, stopping on the MCP step so a test can build its list. */
-function walkToMcp(
+/** The same, under the name the older tests call it by. */
+function finishFromConnect(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
-  options: { persona?: string } = {},
+  options: { mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
 ): void {
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  fill(host, 'textarea[placeholder^="You are Forge"]', options.persona ?? 'You are Forge.');
-  tick(fixture);
-  button(host, '.wizard-foot .primary').click();
-  tick(fixture);
-  expect(currentStep(host)).toBe('MCP');
+  fillAdvanced(fixture, host, options);
 }
 
 /** Fill a field the way a browser does on blur: input, then change. */
@@ -215,17 +196,17 @@ function fillAndCommit(host: HTMLElement, selector: string, value: string): void
   field.dispatchEvent(new Event('change'));
 }
 
-/** The whole walk, from Identity. */
+/** A filled page, ready to submit: the name, the engine, a model and its rows. */
 function walkToReview(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
   morse: MorseService,
   kind: string,
-  options: { persona?: string; mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
+  options: { mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
 ): void {
   const { probe } = walkToConnect(fixture, host, morse, kind);
   pickCatalogModel(fixture, host, morse, probe);
-  finishFromConnect(fixture, host, options);
+  fillAdvanced(fixture, host, options);
 }
 
 describe('BotWizard', () => {
@@ -234,60 +215,132 @@ describe('BotWizard', () => {
     vi.restoreAllMocks();
   });
 
+  it('writes the instructions from the name and the line above', async () => {
+    const { fixture, host } = await render();
+    const persona = (): string =>
+      (host.querySelector('textarea[placeholder^="You are Forge"]') as HTMLTextAreaElement).value;
+
+    fill(host, 'input[placeholder="News Finder"]', 'Forge');
+    fill(host, 'textarea[placeholder^="Compare options"]', 'Keeps the forge hot');
+    tick(fixture);
+
+    // A required textarea that opens blank is where a beginner stops.
+    expect(persona()).toContain('You are Forge.');
+    expect(persona()).toContain('Keeps the forge hot.');
+
+    // Written over by the reader, then seeded again on request.
+    fill(host, 'textarea[placeholder^="You are Forge"]', 'You are Forge, and you are terse.');
+    tick(fixture);
+    fill(host, 'input[placeholder="News Finder"]', 'Sigil');
+    tick(fixture);
+    expect(persona()).toBe('You are Forge, and you are terse.');
+
+    button(host, '.starter-persona').click();
+    tick(fixture);
+    expect(persona()).toContain('You are Sigil.');
+  });
+
+  it('holds Create until the bot has a name, a handle, instructions and a model', async () => {
+    const { fixture, host, morse } = await render();
+    const create = (): HTMLButtonElement => button(host, '.board-foot .primary');
+
+    expect(create().disabled).toBe(true);
+
+    fill(host, 'input[placeholder="News Finder"]', 'Forge');
+    fill(host, 'textarea[placeholder^="Compare options"]', 'Keeps the forge hot');
+    tick(fixture);
+    // Name, handle and instructions are there — the model is not.
+    expect(create().disabled).toBe(true);
+
+    const probe = lastProbe as ProbeSpy;
+    const requestId = probe.mock.calls.at(-1)?.[3] ?? '';
+    morse.bot.onModels({ requestId, kind: 'pi', models: [claude] });
+    tick(fixture);
+    expect(create().disabled).toBe(true);
+
+    button(host, '.model-option').click();
+    tick(fixture);
+    expect(create().disabled).toBe(false);
+
+    // A handle the host would refuse closes the button again.
+    const handle = host.querySelector('input[placeholder="news-finder"]') as HTMLInputElement;
+    handle.value = 'News Finder';
+    handle.dispatchEvent(new Event('input'));
+    tick(fixture);
+    expect(create().disabled).toBe(true);
+  });
+
+  it('saves an edit from the footer, with no rail and no review to walk to', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.ui.wizardTarget.set('forge');
+    morse.ui.wizardOpen.set(true);
+    fixture.detectChanges();
+    morse.bot.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Keeps the forge hot',
+      engineKind: 'pi',
+      model: claude,
+      persona: 'You are Forge.',
+      envVars: [],
+    });
+    fixture.detectChanges();
+
+    // One page: every section is a row on it, and nothing is behind a step.
+    expect(host.querySelector('.rows')).not.toBeNull();
+    expect(host.querySelectorAll('.row').length).toBeGreaterThanOrEqual(6);
+    expect(button(host, '.board-foot .primary').textContent?.trim()).toBe('Save bot');
+
+    // Change one field in the middle section and save straight away.
+    const description = host.querySelector(
+      'textarea[placeholder^="Compare options"]',
+    ) as HTMLInputElement;
+    description.value = 'Keeps the forge warm';
+    description.dispatchEvent(new Event('input'));
+    tick(fixture);
+
+    const update = vi.spyOn(morse, 'updateBot');
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0]?.[0]?.description).toBe('Keeps the forge warm');
+  });
+
   it('tells the reader who reads the description', async () => {
     const { host } = await render();
 
     // The description is no longer a note for the reader alone: it is the roster
     // label another bot matches work against.
-    expect(host.textContent).toContain('What other bots see when they look for help.');
+    expect(host.textContent).toContain('What other bots read when they look for help');
   });
 
-  it('probes the catalog on arriving at Connect and holds Next until a model is picked', async () => {
-    const { fixture, host, morse } = await render();
+  it('asks the catalog on open, and holds Create until a model is picked', async () => {
+    const { fixture, host, morse, probe } = await render();
 
-    expect(currentStep(host)).toBe('Identity');
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(true);
+    // An engine is chosen for the reader, so the question the model row asks is
+    // already answered with a list.
+    const firstCall = probe.mock.calls[0];
+    expect(firstCall?.[0]).toBe('pi');
+    expect(firstCall?.[2]).toEqual([]);
+    expect(host.querySelector('.board-body')?.textContent).toContain('Loading');
 
-    fill(host, 'input[placeholder="News Finder"]', 'Forge');
-    tick(fixture);
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
-
-    button(host, '.wizard-foot .primary').click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Engine');
-    const names = [...host.querySelectorAll('.choice .choice-name')].map((one) =>
-      one.textContent?.trim(),
-    );
-    expect(names.map((name) => name?.toLowerCase())).toEqual(['pi', 'opencode']);
-
-    const probe = vi.spyOn(morse, 'probeModels');
-    const engineButtons = [...host.querySelectorAll('.choice')] as HTMLButtonElement[];
-    engineButtons.find((one) => one.textContent?.toLowerCase().includes('pi'))?.click();
-    tick(fixture);
-    button(host, '.wizard-foot .primary').click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Connect');
-
-    // The step asks the catalog itself: nothing has to be walked past first.
-    expect(probe).toHaveBeenCalledTimes(1);
-    expect(probe.mock.calls[0]?.[0]).toBe('pi');
-    expect(probe.mock.calls[0]?.[2]).toEqual([]);
-
-    // No model, no next step — a bot cannot fall back to a default model.
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(true);
-    expect(host.querySelector('.wizard-content')?.textContent).toContain('Loading');
-
-    // The answer lands and the list is right there on the same step.
-    const requestId = probe.mock.calls[0]?.[3] ?? '';
+    const requestId = firstCall?.[3] ?? '';
     morse.bot.onModels({ requestId, kind: 'pi', models: [claude] });
     tick(fixture);
     expect(host.querySelector('.model-list')).not.toBeNull();
-    expect(host.querySelector('.wizard-content')?.textContent).toContain('Pick a model');
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(true);
+    expect(host.querySelector('.board-body')?.textContent).toContain('Pick a model');
+    expect(button(host, '.board-foot .primary').disabled).toBe(true);
+
+    fill(host, 'input[placeholder="News Finder"]', 'Forge');
+    fill(host, 'textarea[placeholder^="Compare options"]', 'Keeps the forge hot');
+    tick(fixture);
+    expect(button(host, '.board-foot .primary').disabled).toBe(true);
 
     button(host, '.model-option').click();
     tick(fixture);
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
+    expect(button(host, '.board-foot .primary').disabled).toBe(false);
   });
 
   it('offers pi\'s own catalog providers, OpenCode among them, and probes the id it chips', async () => {
@@ -329,13 +382,13 @@ describe('BotWizard', () => {
     const { fixture, host, morse } = await render();
     const { probe } = walkToConnect(fixture, host, morse, 'opencode');
 
-    // The arrival probe ran with no keys and listed nothing.
-    expect(probe).toHaveBeenCalledTimes(1);
-    expect(probe.mock.calls[0]?.[2]).toEqual([]);
-    morse.bot.onModels({ requestId: probe.mock.calls[0]?.[3] ?? '', kind: 'opencode', models: [] });
+    // The probe for the chosen engine ran with no keys and listed nothing.
+    const firstCall = probe.mock.calls.at(-1);
+    expect(firstCall?.[2]).toEqual([]);
+    morse.bot.onModels({ requestId: firstCall?.[3] ?? '', kind: 'opencode', models: [] });
     tick(fixture);
-    expect(host.querySelector('.wizard-content')?.textContent).toContain('listed no models');
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(true);
+    expect(host.querySelector('.board-body')?.textContent).toContain('listed no models');
+    expect(button(host, '.board-foot .primary').disabled).toBe(true);
 
     // Pick the OpenCode preset chip, paste a key and commit it (blur).
     const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
@@ -344,17 +397,18 @@ describe('BotWizard', () => {
     fillAndCommit(host, '.preset-key', 'oc_sk_test');
     tick(fixture);
 
-    expect(probe).toHaveBeenCalledTimes(2);
-    expect(probe.mock.calls[1]?.[0]).toBe('opencode');
-    expect(probe.mock.calls[1]?.[2]).toEqual([{ provider: 'opencode', apiKey: 'oc_sk_test' }]);
+    const afterKey = probe.mock.calls.at(-1);
+    expect(afterKey?.[0]).toBe('opencode');
+    expect(afterKey?.[2]).toEqual([{ provider: 'opencode', apiKey: 'oc_sk_test' }]);
 
     // The host answers under this wizard's request id and the list appears inline.
-    const requestId = probe.mock.calls[1]?.[3] ?? '';
+    const requestId = afterKey?.[3] ?? '';
     morse.bot.onModels({ requestId, kind: 'opencode', models: [claude] });
     tick(fixture);
-    expect(currentStep(host)).toBe('Connect');
     const options = [...host.querySelectorAll('.model-option')];
-    expect(options.map((one) => one.textContent?.trim())).toContain('Claude Sonnet 4anthropic');
+    expect(options.map((one) => one.querySelector('.model-name')?.textContent?.trim())).toContain(
+      'Claude Sonnet 4',
+    );
 
     // A foreign answer does not unlock anything: it is not this wizard's list.
     morse.bot.onModels({
@@ -370,7 +424,7 @@ describe('BotWizard', () => {
     const { fixture, host, morse } = await render();
     walkToConnect(fixture, host, morse, 'pi');
 
-    button(host, '.ghost').click();
+    button(host, '.add-provider').click();
     tick(fixture);
     fill(host, 'input[placeholder="acme"]', 'acme');
     fill(host, 'input[placeholder="Acme AI"]', 'Acme AI');
@@ -412,7 +466,7 @@ describe('BotWizard', () => {
     tick(fixture);
     finishFromConnect(fixture, host);
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
     const submitted = create.mock.calls[0]?.[0] as BotCreateInput & { requestId: string };
     expect(submitted.providers).toEqual([
@@ -435,7 +489,7 @@ describe('BotWizard', () => {
     const { fixture, host, morse } = await render();
     walkToConnect(fixture, host, morse, 'pi');
 
-    button(host, '.ghost').click();
+    button(host, '.add-provider').click();
     tick(fixture);
     fill(host, 'input[placeholder="acme"]', 'acme');
     fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
@@ -486,7 +540,7 @@ describe('BotWizard', () => {
     tick(fixture);
     finishFromConnect(fixture, host);
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     const submitted = create.mock.calls[0]?.[0] as BotCreateInput;
@@ -515,7 +569,7 @@ describe('BotWizard', () => {
     const { fixture, host, morse } = await render();
     walkToConnect(fixture, host, morse, 'pi');
 
-    button(host, '.ghost').click();
+    button(host, '.add-provider').click();
     tick(fixture);
     fill(host, 'input[placeholder="acme"]', 'acme');
     fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
@@ -548,100 +602,13 @@ describe('BotWizard', () => {
     tick(fixture);
     finishFromConnect(fixture, host);
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     const submitted = create.mock.calls[0]?.[0] as BotCreateInput;
     expect(submitted.providers?.[0]?.models).toEqual([
       { id: 'acme-chat', name: 'Acme Chat', maxTokens: 4096 },
     ]);
-  });
-
-  it('ticks a step the moment its form is satisfied, without pressing Next', async () => {
-    const { fixture, host } = await render();
-    const ticked = (): boolean[] =>
-      [...host.querySelectorAll('.wizard-step')].map((one) => one.classList.contains('done'));
-
-    // Nothing filled, nothing ticked.
-    expect(ticked()).toEqual([false, false, false, false, false, false, false]);
-
-    // Typing the name ticks Identity while the cursor is still on it.
-    fill(host, 'input[placeholder="News Finder"]', 'Forge');
-    tick(fixture);
-    expect(ticked()).toEqual([true, false, false, false, false, false, false]);
-
-    // Choosing an engine ticks Engine straight away — no Next involved.
-    button(host, '.wizard-foot .primary').click();
-    tick(fixture);
-    const choices = [...host.querySelectorAll('.choice')] as HTMLButtonElement[];
-    choices.find((one) => one.textContent?.toLowerCase().includes('pi'))?.click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Engine');
-    expect(ticked()[1]).toBe(true);
-
-    // Switching the choice keeps it satisfied — the requirement is "an engine".
-    choices.find((one) => one.textContent?.toLowerCase().includes('opencode'))?.click();
-    tick(fixture);
-    expect(ticked()[1]).toBe(true);
-
-    // Clearing the name drops only Identity's tick. The tick is the form state.
-    const identityStep = host.querySelectorAll('.wizard-step')[0]?.querySelector('button');
-    (identityStep as HTMLButtonElement).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Identity');
-    fill(host, 'input[placeholder="News Finder"]', '   ');
-    tick(fixture);
-    expect(ticked()).toEqual([false, true, false, false, false, false, false]);
-
-    // Restoring it brings the tick back with no navigation at all.
-    fill(host, 'input[placeholder="News Finder"]', 'Forge');
-    tick(fixture);
-    expect(ticked()).toEqual([true, true, false, false, false, false, false]);
-  });
-
-  it('keeps a satisfied step ticked and reachable as the cursor moves', async () => {
-    const { fixture, host, morse } = await render();
-    walkToReview(fixture, host, morse, 'pi');
-
-    const ticked = (): boolean[] =>
-      [...host.querySelectorAll('.wizard-step')].map((one) => one.classList.contains('done'));
-    const stepButton = (at: number): HTMLButtonElement =>
-      host.querySelectorAll('.wizard-step')[at]?.querySelector('button') as HTMLButtonElement;
-
-    expect(ticked()).toEqual([true, true, true, true, true, true, false]);
-
-    // Jumping back to Identity keeps every other tick: their forms still hold.
-    stepButton(0).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Identity');
-    expect((host.querySelector('input[placeholder="News Finder"]') as HTMLInputElement).value).toBe(
-      'Forge',
-    );
-    expect(ticked()).toEqual([true, true, true, true, true, true, false]);
-
-    // And a satisfied step is reachable forward again, in one click.
-    stepButton(2).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Connect');
-  });
-
-  it('refuses to jump to a step whose form is not satisfied', async () => {
-    const { fixture, host } = await render();
-
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    expect(rail.map((one) => (one.querySelector('button') as HTMLButtonElement).disabled)).toEqual([
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-    ]);
-    // Even MCP — satisfied on its own — is refused while earlier steps are not.
-    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Identity');
   });
 
   it('shows the subagent editor for opencode only', async () => {
@@ -651,12 +618,9 @@ describe('BotWizard', () => {
 
     const opencode = await render();
     walkToReview(opencode.fixture, opencode.host, opencode.morse, 'opencode');
-    const back = button(opencode.host, '.wizard-foot .secondary');
-    back.click();
-    tick(opencode.fixture);
-    expect(currentStep(opencode.host)).toBe('Advanced');
+    // The subagent row is on the page for an engine that has them.
     expect(opencode.host.textContent).toContain('Subagents');
-    button(opencode.host, '.ghost').click();
+    button(opencode.host, '.add-subagent').click();
     tick(opencode.fixture);
     const nameInput = opencode.host.querySelector('.subagent input') as HTMLInputElement;
     expect(nameInput.pattern).toBe('[\\p{L}\\p{N}_][\\p{L}\\p{N}_\\-]*');
@@ -677,19 +641,17 @@ describe('BotWizard', () => {
     tick(fixture);
     button(host, '.model-option').click();
     tick(fixture);
-    choose(host, '.wizard-content select', 'high');
+    choose(host, '.row-panel select', 'high');
     tick(fixture);
 
     finishFromConnect(fixture, host, {
-      persona: 'You are Forge, the builder.',
       agentsMd: '# Forge workspace\n',
       subagent: true,
     });
-    expect(host.querySelector('.review')?.textContent).toContain('reviewer');
 
     const create = vi.spyOn(morse, 'createBot');
     const list = vi.spyOn(morse, 'listBots');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     const expected: BotCreateInput & { requestId: string } = {
@@ -699,7 +661,7 @@ describe('BotWizard', () => {
       engineKind: 'opencode',
       credentials: [{ provider: 'anthropic', apiKey: 'sk-ant-123' }],
       envVars: [],
-      persona: 'You are Forge, the builder.',
+      persona: 'You are Forge.',
       model: claude,
       thinkingLevel: 'high',
       // The checklist was never touched, but OpenCode needs an explicit
@@ -711,19 +673,18 @@ describe('BotWizard', () => {
     };
     expect(create).toHaveBeenCalledWith(expected);
     expect(list).toHaveBeenCalledTimes(1);
-    expect(host.querySelector('.note')?.textContent).toContain('Creating Forge');
-    expect(host.textContent).not.toContain('## Subagents');
+    expect(host.querySelector('.note')?.textContent).toContain('Forge — waiting for the roster');
+    expect(host.querySelector('.row-label')?.textContent).toBeTruthy();
   });
 
   it('adds an MCP server and sends it on create', async () => {
     const { fixture, host, morse } = await render();
     const { probe } = walkToConnect(fixture, host, morse, 'pi');
     pickCatalogModel(fixture, host, morse, probe);
-    walkToMcp(fixture, host);
 
     // Optional from the first moment: an empty list never holds Next back.
     expect(host.querySelector('.mcp-empty')?.textContent).toContain('No servers yet');
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
+    expect(button(host, '.board-foot .primary').disabled).toBe(false);
 
     fill(host, 'input[placeholder="filesystem"]', 'filesystem');
     fill(host, 'input[placeholder="npx"]', 'npx');
@@ -733,17 +694,8 @@ describe('BotWizard', () => {
     tick(fixture);
     expect(host.querySelector('.mcp-server')?.textContent).toContain('filesystem');
 
-    button(host, '.wizard-foot .primary').click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Advanced');
-    button(host, '.wizard-foot .primary').click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Review');
-    // Review names the servers, not just their count.
-    expect(host.querySelector('.review')?.textContent).toContain('filesystem');
-
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
     expect(create.mock.calls[0]?.[0]?.mcpServers).toEqual([
       {
@@ -761,7 +713,7 @@ describe('BotWizard', () => {
     morse.ui.wizardOpen.set(true);
     walkToReview(fixture, host, morse, 'pi');
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
     const submitted = create.mock.calls[0]?.[0] as BotCreateInput;
     expect(submitted).not.toHaveProperty('thinkingLevel');
@@ -808,9 +760,9 @@ describe('BotWizard', () => {
     const { fixture, host, morse, transport } = await render();
     morse.ui.wizardOpen.set(true);
     walkToReview(fixture, host, morse, 'pi');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
-    expect(host.textContent).toContain('Creating Forge');
+    expect(host.textContent).toContain('Forge — waiting for the roster to name it');
 
     transport.toClient({
       type: 'notice',
@@ -821,7 +773,7 @@ describe('BotWizard', () => {
     expect(host.textContent).not.toContain('Creating Forge');
     expect(host.querySelector('.error')?.textContent).toContain('no bot engine');
     expect(morse.ui.wizardOpen()).toBe(true);
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
+    expect(button(host, '.board-foot .primary').disabled).toBe(false);
   });
 
   it('fills the whole form from the bot being edited and saves an update', async () => {
@@ -834,7 +786,8 @@ describe('BotWizard', () => {
 
     // The wizard asks the host for the record, and fills itself when it arrives.
     expect(inspect).toHaveBeenCalledWith('forge');
-    expect(host.querySelector('h2')?.textContent?.trim()).toBe('Edit bot');
+    // Before the record lands the bot has no name to show.
+    expect(host.querySelector('.board-head h2')?.textContent?.trim()).toBe('Bot settings');
 
     morse.bot.onConfig({
       username: 'forge',
@@ -861,18 +814,13 @@ describe('BotWizard', () => {
     const handle = host.querySelector('input[placeholder="news-finder"]') as HTMLInputElement;
     expect(handle.value).toBe('forge');
     expect(handle.disabled).toBe(true);
-    // Every step is already satisfied, so the rail is a checklist.
-    expect(host.querySelectorAll('.wizard-step.done').length).toBe(6);
-
-    // Jump straight to Review: nothing has to be re-answered.
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Review');
-    expect(host.querySelector('.review')?.textContent).toContain('anthropic/claude-sonnet-4');
+    // No rail and no Review: an edit is one form, saved from the footer.
+    expect(host.querySelector('.wizard-rail')).toBeNull();
+    expect(host.querySelectorAll('.row').length).toBeGreaterThanOrEqual(6);
+    expect(host.querySelector('.model-option.on')?.textContent).toContain('Claude Sonnet 4');
 
     const update = vi.spyOn(morse, 'updateBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     // An untouched form sends no credentials: the engine keeps the stored ones.
@@ -911,19 +859,11 @@ describe('BotWizard', () => {
     });
     fixture.detectChanges();
 
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('MCP');
+    // The servers are in the Advanced card, on the page already.
     expect(host.querySelector('.mcp-server')?.textContent).toContain('filesystem');
 
-    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Review');
-    expect(host.querySelector('.review')?.textContent).toContain('filesystem');
-
     const update = vi.spyOn(morse, 'updateBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
     // Read back and sent unchanged: an edit rewrites the same list.
     expect(update.mock.calls[0]?.[0]?.mcpServers).toEqual([filesystemServer]);
@@ -947,19 +887,14 @@ describe('BotWizard', () => {
     });
     fixture.detectChanges();
 
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[4]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
     expect(host.querySelectorAll('.mcp-server').length).toBe(1);
 
     button(host, '.mcp-remove').click();
     tick(fixture);
     expect(host.querySelectorAll('.mcp-server').length).toBe(0);
 
-    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
     const update = vi.spyOn(morse, 'updateBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
     // A list the reader emptied is a decision, so it goes as an empty array.
     expect(update.mock.calls[0]?.[0]?.mcpServers).toEqual([]);
@@ -993,12 +928,8 @@ describe('BotWizard', () => {
     });
     fixture.detectChanges();
 
-    // Straight to Connect, where the bot's own providers are shown with their
-    // limits — the fields discovery could not know for this endpoint.
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[2]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-
+    // The bot's own providers are on the page with their limits — the fields
+    // discovery could not know for this endpoint.
     const card = [...host.querySelectorAll('.provider-card')].at(-1) as HTMLElement;
     expect(card.textContent).toContain('llm-eigen');
     expect(card.querySelector('.model-id')?.textContent?.trim()).toBe('deepseek-v4-flash');
@@ -1010,9 +941,7 @@ describe('BotWizard', () => {
     tick(fixture);
 
     const update = vi.spyOn(morse, 'updateBot');
-    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     const sent = update.mock.calls[0]?.[0] as { providers?: unknown; credentials?: unknown };
@@ -1055,30 +984,28 @@ describe('BotWizard', () => {
     });
     fixture.detectChanges();
 
-    // Arriving at Connect probes with no keys (Morse cannot read them back), and
-    // the catalog comes back empty.
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[2]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
-    expect(currentStep(host)).toBe('Connect');
+    // The edit probes with no keys (Morse cannot read them back), and the catalog
+    // comes back empty.
     morse.bot.onModels({ requestId: probe.mock.calls.at(-1)?.[3] ?? '', kind: 'pi', models: [] });
     tick(fixture);
 
     // Nothing listed, yet the bot's own model stays chosen and the step passes.
     expect(host.querySelector('.model-option.on')?.textContent).toContain('Claude Sonnet 4');
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(false);
+    expect(button(host, '.board-foot .primary').disabled).toBe(false);
   });
 
   it('derives the username from the name and validates it live', async () => {
     const { fixture, host } = await render();
-    const next = (): HTMLButtonElement => button(host, '.wizard-foot .primary');
+    const next = (): HTMLButtonElement => button(host, '.board-foot .primary');
 
     // Typing a free-text name fills the handle too: 'News Finder' → 'news-finder'.
     fill(host, 'input[placeholder="News Finder"]', 'News Finder');
+    fill(host, 'textarea[placeholder^="You are Forge"]', 'You are Forge.');
     tick(fixture);
     const handle = host.querySelector('input[placeholder="news-finder"]') as HTMLInputElement;
     expect(handle.value).toBe('news-finder');
-    expect(next().disabled).toBe(false);
+    // The handle is fine; the model is the only thing still missing.
+    expect(host.querySelector('.error-note')).toBeNull();
 
     // Free text in the label never leaks into the handle.
     fill(host, 'input[placeholder="News Finder"]', 'News Finder ✨ (v2)');
@@ -1095,13 +1022,13 @@ describe('BotWizard', () => {
     fill(host, 'input[placeholder="News Finder"]', 'Something Else');
     tick(fixture);
     expect(handle.value).toBe('news finder');
-    expect(next().disabled).toBe(true);
 
     handle.value = 'news-finder';
     handle.dispatchEvent(new Event('input'));
     tick(fixture);
     expect(host.querySelector('.error-note')).toBeNull();
-    expect(next().disabled).toBe(false);
+    // Nothing about the handle holds the button back any more.
+    expect(next().disabled).toBe(true);
   });
 
   it('refuses a username the roster already holds', async () => {
@@ -1113,7 +1040,7 @@ describe('BotWizard', () => {
     tick(fixture);
     // The handle follows the label, and the label matches an existing bot's.
     expect(host.querySelector('.error-note')?.textContent).toContain('taken');
-    expect(button(host, '.wizard-foot .primary').disabled).toBe(true);
+    expect(button(host, '.board-foot .primary').disabled).toBe(true);
   });
 
   it('offers the engine built-in tools, and sends the chosen ones', async () => {
@@ -1121,11 +1048,6 @@ describe('BotWizard', () => {
     const { probe } = walkToConnect(fixture, host, morse, 'pi');
     pickCatalogModel(fixture, host, morse, probe);
     finishFromConnect(fixture, host);
-
-    // The checklist lives on Advanced, which the walk already passed: go back.
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
 
     const boxes = [...host.querySelectorAll('.tool input[type="checkbox"]')] as HTMLInputElement[];
     // pi's own four, all on by default: a coding harness with no `read` is useless.
@@ -1143,10 +1065,8 @@ describe('BotWizard', () => {
     bash.dispatchEvent(new Event('change'));
     tick(fixture);
 
-    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     // Only a changed selection is written: pi's default stays pi's default.
@@ -1160,7 +1080,7 @@ describe('BotWizard', () => {
     finishFromConnect(fixture, host);
 
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     // A bot created without touching the checklist has the same *shape* as
@@ -1173,7 +1093,7 @@ describe('BotWizard', () => {
     const { fixture, host, morse } = await render();
     walkToReview(fixture, host, morse, 'opencode');
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     // OpenCode expresses tool access as a generated `permissions` ruleset, so
@@ -1185,9 +1105,6 @@ describe('BotWizard', () => {
   it('offers OpenCode 2 tool names, with shell on by default', async () => {
     const { fixture, host, morse } = await render();
     walkToReview(fixture, host, morse, 'opencode');
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
 
     const boxes = [...host.querySelectorAll('.tool input[type="checkbox"]')] as HTMLInputElement[];
     expect(boxes.map((box) => box.getAttribute('data-tool'))).toEqual([
@@ -1213,9 +1130,6 @@ describe('BotWizard', () => {
   it('sends shell, not bash or list, when the OpenCode checklist changes', async () => {
     const { fixture, host, morse } = await render();
     walkToReview(fixture, host, morse, 'opencode');
-    const rail = [...host.querySelectorAll('.wizard-step')] as HTMLElement[];
-    (rail[5]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
 
     const websearch = [...host.querySelectorAll('.tool input[type="checkbox"]')].find(
       (box) => box.getAttribute('data-tool') === 'websearch',
@@ -1224,10 +1138,8 @@ describe('BotWizard', () => {
     websearch.dispatchEvent(new Event('change'));
     tick(fixture);
 
-    (rail[6]?.querySelector('button') as HTMLButtonElement).click();
-    tick(fixture);
     const create = vi.spyOn(morse, 'createBot');
-    button(host, '.wizard-foot .primary').click();
+    button(host, '.board-foot .primary').click();
     tick(fixture);
 
     expect(create.mock.calls[0]?.[0]).toMatchObject({
@@ -1240,7 +1152,7 @@ describe('BotWizard', () => {
     morse.ui.wizardOpen.set(true);
     const create = vi.spyOn(morse, 'createBot');
 
-    buttonOrNull(host, '.wizard-close')?.click();
+    buttonOrNull(host, '.board-close')?.click();
     tick(fixture);
 
     expect(create).not.toHaveBeenCalled();
