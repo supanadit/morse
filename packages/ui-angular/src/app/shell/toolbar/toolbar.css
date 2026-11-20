@@ -303,6 +303,19 @@
    */
   .bar {
     align-content: start;
+    margin-top: 6px;
+  }
+  /*
+   * Bot mode has no command centre, so its bar is one short strip rather than a row
+   * of controls with air left underneath it: the web host's 46px height is sized for
+   * names and a command box, and with neither on screen it reads as a gap. Height
+   * comes from the content, and the 6px below matches the margin above, so the chrome
+   * floats as one line with equal air on both sides.
+   */
+  .bar.bot {
+    min-height: 0;
+    padding: 3px 10px;
+    margin-bottom: 6px;
   }
 }
 @media (min-width: 760px) {
