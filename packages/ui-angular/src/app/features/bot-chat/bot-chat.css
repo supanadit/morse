@@ -449,6 +449,12 @@
   font-size: 12.5px;
 }
 
+/* A DM has one voice and its face is in the header, so the lines carry none.
+   A peer's face stays: it is a different bot answering in the room. */
+.transcript.dm .avatar {
+  display: none;
+}
+
 .entry {
   display: flex;
   gap: 10px;

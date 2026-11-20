@@ -222,12 +222,19 @@ export class BotChat {
   }
 
   /**
-   * What the header face is computed from: the bot's handle, so a DM wears the
-   * same face as its roster tile. A group has no single bot, so it uses its title.
+   * What the header face is computed from: the DM bot's handle, so the header
+   * wears the same face as its roster tile.
    */
   protected headSeed(conversation: BotConversationSummary): string {
     return this.headBot(conversation)?.username ?? conversation.title;
   }
+
+  /**
+   * A DM is one bot talking to one reader, and its face is in the header: a
+   * face on every line repeats the same picture all the way down. A room keeps
+   * them, because there the avatar is what says who spoke.
+   */
+  protected readonly isDm = computed(() => this.conversation()?.kind === 'dm');
 
   /** The header's face: the DM bot's own avatar when it has one. */
   protected headAvatarValue(conversation: BotConversationSummary): string {

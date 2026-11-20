@@ -10,14 +10,19 @@
     [style.--morse-dock-height]="dockHeight() + 'px'"
   >
     <header class="head">
-      <span class="head-avatar head-face" aria-hidden="true">
-        <morse-bot-face
-          [value]="headAvatarValue(conversation)"
-          [seed]="headSeed(conversation)"
-          [mood]="headMood()"
-          [size]="30"
-        />
-      </span>
+      <!-- A DM is one bot, and its face is what the room is. A group and a
+           thread are named by their title and their members, so a face drawn
+           from the title would be a picture of nothing. -->
+      @if (isDm()) {
+        <span class="head-avatar head-face" aria-hidden="true">
+          <morse-bot-face
+            [value]="headAvatarValue(conversation)"
+            [seed]="headSeed(conversation)"
+            [mood]="headMood()"
+            [size]="30"
+          />
+        </span>
+      }
       <div class="titles">
         <h2 class="title">{{ conversation.title }}</h2>
         <span class="members">
@@ -83,7 +88,7 @@
       had. Scrolling to the top asks the host for the page before what is held, so
       history is lazy: the chat opens at the end and grows backwards.
     -->
-    <div class="transcript" role="log" #scroll (scroll)="onScroll($event)">
+    <div class="transcript" role="log" [class.dm]="isDm()" #scroll (scroll)="onScroll($event)">
       @if (hasOlder()) {
         <p class="older" data-loading-older>
           {{ loadingOlder() ? 'Loading earlier messages…' : 'Scroll up for earlier messages' }}

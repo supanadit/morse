@@ -1501,17 +1501,37 @@ describe('BotChat', () => {
     });
   });
 
-  it('wears a face in the header: the DM bot, and one drawn from the title', async () => {
+  it('leaves the per-line face off a DM, where the header already wears it', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, [
+      entry('1', { role: 'user' }, 'hello'),
+      entry('2', { role: 'bot', name: 'Forge', username: 'forge' }, 'hi'),
+    ]);
+    fixture.detectChanges();
+
+    // The face is still there in the markup; the DM simply does not draw it.
+    expect(host.querySelector('.transcript.dm')).not.toBeNull();
+
+    // A room keeps its faces: there, the avatar is what says who spoke.
+    open(morse, workshop, [
+      entry('1', { role: 'bot', name: 'Forge', username: 'forge' }, 'one'),
+      entry('2', { role: 'bot', name: 'Sable', username: 'sable' }, 'two'),
+    ]);
+    fixture.detectChanges();
+    expect(host.querySelector('.transcript.dm')).toBeNull();
+  });
+
+  it('wears a face in a DM header, and none in a room named by its title', async () => {
     const { fixture, host, morse } = await render();
     open(morse, dm, []);
     fixture.detectChanges();
     expect(host.querySelector('.head-avatar morse-bot-face svg')).not.toBeNull();
 
-    // A group has no single bot to wear, so its face comes from the title.
+    // A group is named by its title and its members, so a face there would be a
+    // picture of nothing.
     open(morse, workshop, []);
     fixture.detectChanges();
-    expect(host.querySelector('.head-avatar morse-bot-face svg')).not.toBeNull();
-    expect(host.querySelector('.head-avatar')?.textContent?.trim()).toBe('');
+    expect(host.querySelector('.head-avatar')).toBeNull();
   });
 
   it('copies a line, and shows the tick on the control that did it', async () => {
