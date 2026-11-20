@@ -18,8 +18,14 @@ describe('BOT_BUS_INSTRUCTION', () => {
     expect(BOT_BUS_INSTRUCTION).toMatch(/describe|descriptions/i);
   });
 
-  it('teaches the invite in words', () => {
-    expect(BOT_BUS_INSTRUCTION).toContain('ask the person to add it here');
+  it('sends an absent bot to a thread, never to an invite a personal chat cannot make', () => {
+    expect(BOT_BUS_INSTRUCTION).toMatch(/asked in a private thread/i);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/never ask anyone to add a bot to a personal chat/i);
+    expect(BOT_BUS_INSTRUCTION).not.toMatch(/add it here/i);
+  });
+
+  it('asks for a new delivery every time, not the same text again', () => {
+    expect(BOT_BUS_INSTRUCTION).toMatch(/never re-send text you have already sent/i);
   });
 
   it('exposes the file name OpenCode names the instruction by', () => {

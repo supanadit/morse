@@ -3440,8 +3440,28 @@ export class BotService {
         ? 'A teammate answered the ask you sent. Use it to answer the person, and do not send it back.'
         : undefined;
     const lines: string[] = [];
-    // The first prompt of a discussion introduces the room: a group's members are
-    // addressable by handle, and a bot has no other way to learn them.
+    // Every prompt says what kind of room this is, because what a bot may ask for
+    // differs by it: a personal chat holds nobody else, and a thread is not read
+    // by the person at all. A model told neither invents an invite that cannot
+    // happen, or writes a report nobody asked for into a private exchange.
+    if (conversation.kind === 'dm') {
+      lines.push(
+        'Personal chat: only the person and you are here, and nobody can be added to it. ' +
+          'Another bot is asked with `bot_send` in a private thread, and its answer comes ' +
+          'back to you to pass on in your own words.',
+      );
+    }
+    if (conversation.kind === 'thread') {
+      const peer = conversation.members.find((member) => member !== bot.username);
+      lines.push(
+        `Private thread with ${peer === undefined ? 'one other bot' : `@${peer}`}: the person ` +
+          'does not read it, and nobody else is here. Answer your peer. Whatever the person ' +
+          'needs is relayed for you by the bot that asked, in the room it came from — so say ' +
+          'what it must know, not a status report.',
+      );
+    }
+    // The first prompt of a discussion also introduces the room: a group's members
+    // are addressable by handle, and a bot has no other way to learn them.
     if (ref?.engineSessionId === undefined && conversation.kind === 'group') {
       const members = conversation.members.map((username) => {
         const member = this.bot(username);

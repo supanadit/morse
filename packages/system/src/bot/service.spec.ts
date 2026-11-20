@@ -634,6 +634,17 @@ afterEach(async () => {
 /** The line a group's first prompt opens with: who is in the room, by handle. */
 const room = 'Group "Launch" — members: Forge (@forge), Sable (@sable).';
 
+/**
+ * The line every personal chat prompt opens with. A DM holds nobody else, so the
+ * bot is told that up front — otherwise it asks the person to invite a bot to a
+ * room that cannot hold one.
+ */
+const personal = (bot: string) =>
+  'Personal chat: only the person and you are here, and nobody can be added to it. ' +
+  'Another bot is asked with `bot_send` in a private thread, and its answer comes ' +
+  'back to you to pass on in your own words.\n\n' +
+  `[${bot}] You: `;
+
 function botInput(overrides: Partial<BotCreateInput> = {}): BotCreateInput {
   return {
     username: 'forge',
@@ -1438,7 +1449,9 @@ describe('BotService edits', () => {
     expect(adapter.layout.read(join(root, 'forge')).persona).toBe('You are Forge.');
     // An edit drops the session id, so the next turn starts a fresh engine session
     // — and is handed the conversation so far rather than continuing blind.
-    expect(gateways.at(-1)?.prompts.at(-1)).toBe('[Forge] You: hi\n\n[Forge] You: again');
+    expect(gateways.at(-1)?.prompts.at(-1)).toBe(
+      `${personal('Forge')}hi\n\n[Forge] You: again`,
+    );
   });
 
   it('refuses to edit a bot that is answering', async () => {
@@ -1491,7 +1504,7 @@ describe('BotService rounds', () => {
     await service.send('dm-forge', 'hi');
     await settle(service);
 
-    expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Forge] You: hi']);
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${personal('Forge')}hi`]);
     const entries = service.transcript('dm-forge');
     expect(entries).toHaveLength(2);
     // The person's own line names the host person, so a stored delivery's origin
@@ -1911,8 +1924,8 @@ describe('BotService rounds', () => {
     // Both turns happened, in arrival order; the second slice starts after the
     // line the first turn was told, so nothing is repeated.
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
-      '[Forge] You: one',
-      '[Forge] You: two',
+      `${personal('Forge')}one`,
+      `${personal('Forge')}two`,
     ]);
   });
 
@@ -1968,7 +1981,7 @@ describe('BotService rounds', () => {
     const [dmGate, launchGate, researchGate] = factoryFor(adapter, 'forge').gateways;
     // A conversation's context is its own: the dm line never shows up in a group,
     // and a group's lines never show up in the dm.
-    expect(dmGate?.prompts).toEqual(['[Forge] You: hello in the dm']);
+    expect(dmGate?.prompts).toEqual([`${personal('Forge')}hello in the dm`]);
     expect(launchGate?.prompts[0]).toContain('hello in launch');
     expect(launchGate?.prompts[0]).not.toContain('hello in the dm');
     expect(researchGate?.prompts[0]).toContain('hello in research');
@@ -1988,7 +2001,7 @@ describe('BotService rounds', () => {
     const after = gatewayFor(adapter, 'forge', 1);
     // The divider is the boundary: the fresh session is not re-fed what the reader
     // deliberately walked away from.
-    expect(after.prompts[0]).toBe('[Forge] You: new line');
+    expect(after.prompts[0]).toBe(`${personal('Forge')}new line`);
     expect(after.prompts[0]).not.toContain('old line');
   });
 
@@ -2037,7 +2050,7 @@ describe('BotService rounds', () => {
     await settle(restarted);
 
     // The recovered ask still carries the line it was created for.
-    expect(gatewayFor(restartedAdapter, 'forge').prompts).toEqual(['[Forge] You: hi']);
+    expect(gatewayFor(restartedAdapter, 'forge').prompts).toEqual([`${personal('Forge')}hi`]);
     expect(restarted.transcript('dm-forge').at(-1)).toMatchObject({
       author: { role: 'bot', name: 'Forge' },
       text: 'answered after restart',
@@ -2767,8 +2780,8 @@ describe('BotService sessions', () => {
     expect(forge.botRoot).toBe(join(root, 'forge'));
     expect(sable.botRoot).toBe(join(root, 'sable'));
     expect(forge.gateways[0]).not.toBe(sable.gateways[0]);
-    expect(forge.gateways[0]?.prompts).toEqual(['[Forge] You: hi']);
-    expect(sable.gateways[0]?.prompts).toEqual(['[Sable] You: hi']);
+    expect(forge.gateways[0]?.prompts).toEqual([`${personal('Forge')}hi`]);
+    expect(sable.gateways[0]?.prompts).toEqual([`${personal('Sable')}hi`]);
   });
 
   it('sends only what the reader typed: the persona is the engine own file', async () => {
@@ -2783,7 +2796,12 @@ describe('BotService sessions', () => {
     // The persona is not prefixed onto a prompt: it goes into the engine's own
     // instruction file (pi's agent-dir AGENTS.md, OpenCode's `instructions`), so
     // the engine applies it exactly as it would for a hand-built agent.
-    expect(gatewayFor(adapter, 'forge').prompts).toEqual(['[Forge] You: hi', '[Forge] You: again']);
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([
+      `${personal('Forge')}hi`,
+      // The room's shape is told once per turn, not once per session: a bot that
+      // runs long must still know what kind of room it is answering in.
+      `${personal('Forge')}again`,
+    ]);
     expect(adapter.layout.writes[0]?.config.persona).toBe('You are Forge, the builder.');
   });
 
@@ -3404,6 +3422,27 @@ describe('BotService bus', () => {
     expect(
       service.transcript('thread-loom-sigil').find((entry) => entry.id === sent?.entryId),
     ).toMatchObject({ text: '@loom outside' });
+
+    service.stop('dm-sigil');
+    service.stop('thread-loom-sigil');
+    await settle(service, 'dm-sigil');
+    await settle(service, 'thread-loom-sigil');
+  });
+
+  it('tells a bot in a thread who reads it, so it neither invites nor reports', async () => {
+    const { root, adapter, service } = harness({ script: ({ bot }) => ({ text: `${bot} ok` }) });
+    await busBots(service);
+    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    await service.busSend('sigil', { to: 'loom', text: 'draft the prompt' });
+    await settle(service, 'thread-loom-sigil');
+
+    // The peer's own prompt says the person is not here: nobody is invited to a
+    // personal chat, and a thread is not a place to report to.
+    const prompt = gatewayFor(adapter, 'loom').prompts.at(-1) ?? '';
+    expect(prompt).toContain('Private thread with @sigil');
+    expect(prompt).toContain('the person does not read it');
+    expect(prompt).not.toContain('Personal chat:');
 
     service.stop('dm-sigil');
     service.stop('thread-loom-sigil');
