@@ -1320,7 +1320,7 @@ export class ChatComposer {
     // dialog itself: images become prompt content, the rest becomes bytes the
     // host writes into the bot's own workspace.
     if (this.variant === 'bot') {
-      this.fileInput()?.nativeElement.click();
+      this.openFileDialog();
       return;
     }
     if (this.canPickFiles()) {
@@ -1328,10 +1328,18 @@ export class ChatComposer {
       return;
     }
     if (this.canUpload()) {
-      this.fileInput()?.nativeElement.click();
+      this.openFileDialog();
       return;
     }
     this.attachSelection();
+  }
+
+  /**
+   * The OS file dialog, shared by bot `+` and the code session's upload button —
+   * the one way to attach a file where the browser cannot paste or drop one.
+   */
+  protected openFileDialog(): void {
+    this.fileInput()?.nativeElement.click();
   }
 
   /**

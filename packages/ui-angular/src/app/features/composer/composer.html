@@ -150,6 +150,24 @@
       +
     </button>
     <input #fileInput type="file" multiple hidden (change)="onFilesChosen($event)" />
+    @if (canUpload()) {
+      <!--
+           A phone's browser can neither paste a file into the prompt nor drop
+           one on it, so the upload needs a button of its own: `+` stays the
+           path picker above.
+      -->
+      <button
+        type="button"
+        class="icon upload"
+        title="Upload a file from this device"
+        aria-label="Upload a file from this device"
+        (click)="openFileDialog()"
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M8 11V2.5M4.5 6 8 2.5 11.5 6M2.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" />
+        </svg>
+      </button>
+    }
     @if (canAttachSelection()) {
       <button
         type="button"

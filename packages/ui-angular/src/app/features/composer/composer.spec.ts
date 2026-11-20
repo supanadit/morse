@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import type { ClientToHostMessage } from '@morse/protocol';
 import { MemoryHostTransport, cacheHitRate, formatTokens, formatUsage } from '@morse/ui-runtime';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { AttachmentStore } from '../../state/attachments';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
@@ -583,5 +583,38 @@ describe('ChatComposer bot variant', () => {
 
     expect(emitted).toEqual([]);
     expect(transport.sent.some((message) => message.type === 'chat/prompt')).toBe(true);
+  });
+});
+
+/**
+ * A phone's browser can neither paste a file into the prompt nor drop one on it,
+ * and `+` is the workspace path picker — so a code session needs a button that
+ * opens the file dialog itself.
+ */
+describe('ChatComposer upload button', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('opens the file dialog from its own button', async () => {
+    const { fixture, host } = await mountComposer();
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    const dialog = vi.fn();
+    input.click = dialog;
+
+    const upload = host.querySelector('.toolbar button.upload') as HTMLButtonElement;
+    expect(upload).not.toBeNull();
+    upload.click();
+    fixture.detectChanges();
+
+    expect(dialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('attaches an image picked from the dialog', async () => {
+    const { fixture, host } = await mountComposer();
+
+    chooseFile(host, 'shot.png', 'image/png');
+
+    await waitFor(fixture, () =>
+      expect(host.querySelector('.attachments .chip img')).not.toBeNull(),
+    );
   });
 });
