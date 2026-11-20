@@ -58,12 +58,25 @@ export class PopoverFit {
     });
 
     inject(DestroyRef).onDestroy(() => this.observer?.disconnect());
+    const viewport = typeof window === 'undefined' ? null : window.visualViewport;
+    if (viewport) {
+      viewport.addEventListener('resize', this.onViewportResize);
+      inject(DestroyRef).onDestroy(() =>
+        viewport.removeEventListener('resize', this.onViewportResize),
+      );
+    }
   }
 
   @HostListener('window:resize')
   protected onWindowResize(): void {
     this.fit();
   }
+
+  /**
+   * A phone keyboard shrinks the visual viewport without a window resize in some
+   * browsers, and the room above the anchor shrinks with it.
+   */
+  private readonly onViewportResize = () => this.fit();
 
   private anchor(): HTMLElement | null {
     const element = this.host.nativeElement;

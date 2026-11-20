@@ -318,7 +318,9 @@
 
 html,
 body {
-  height: 100%;
+  /* The visual viewport, so a phone keyboard shrinks the app instead of covering
+     the composer (`host/viewport-height.ts`). */
+  height: var(--morse-vv-height, 100%);
   margin: 0;
   /*
    * VS Code injects `body { padding: 0 20px }` via `@layer vscode-default` into

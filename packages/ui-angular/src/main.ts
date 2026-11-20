@@ -1,6 +1,7 @@
 import { bootstrapApplication, createApplication } from '@angular/platform-browser';
 import { appConfig } from './app/routing/app.config';
 import { DEFAULT_ROUTE, resolveAppRoute } from './app/routing/routes';
+import { followVisualViewport } from './app/host/viewport-height';
 
 /**
  * One bundle, several surfaces. The route table (`app/routing/routes.ts`) maps a URL
@@ -12,6 +13,9 @@ import { DEFAULT_ROUTE, resolveAppRoute } from './app/routing/routes';
  * The host sets the hash before this module runs (`renderWebviewHtml({ route })`).
  */
 async function bootstrap(): Promise<void> {
+  // Before the first paint: a keyboard that opens onto a full-height layout would
+  // hide the composer until the next resize.
+  followVisualViewport();
   const route = resolveAppRoute(typeof location !== 'undefined' ? location.hash : '');
   const component = route.component ?? (route.load !== undefined ? await route.load() : undefined);
   if (component === undefined) {
