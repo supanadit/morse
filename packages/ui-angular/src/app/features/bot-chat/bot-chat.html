@@ -423,10 +423,10 @@
                 }
               </div>
             }
-            <!-- The answer as it arrives: only what the host has sent, revealed a
-                 few words at a time, and plain text because it is not finished. -->
+            <!-- The answer as it arrives, in the same markdown the landed message
+                 uses: a partial that stops mid-`**` reads as words, not as markers. -->
             @if (revealed(row); as words) {
-              <p class="partial">{{ words }}</p>
+              <div class="partial"><morse-markdown [text]="words" /></div>
             }
             @if (row.handoffs.length > 0) {
               <div class="handoffs">

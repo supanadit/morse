@@ -125,7 +125,9 @@ interface BotHandoff {
   a note elsewhere. `activity` is the peer's live step in that conversation, when it has one.
 - **The row.** `bot-chat.html`'s presence row draws the current label, elapsed from `startedAt`
   (hidden under 5 s; minutes after a minute), the newest three steps behind a chevron, `partial` as
-  muted pre-wrap text, and one chip per handoff — `asked @loom · open thread` — which opens that
+  muted markdown through the same renderer as the landed message — a stream that stops mid-`**`
+  reads as words rather than as markers, and the answer does not change shape when it lands — and
+  one chip per handoff — `asked @loom · open thread` — which opens that
   conversation. A failed step opens its error. Existing Stop and ring behaviour is unchanged. The
   row keeps its `role="status"` with one sentence naming the bot and what it is doing.
 

@@ -298,15 +298,14 @@
   font-family: var(--morse-font-mono, ui-monospace, monospace);
   font-size: 10.5px;
 }
-/* The answer as it is written: muted, pre-wrap, and never mistaken for the final line. */
+/* The answer as it is written: the same markdown as the message it becomes, muted
+   so it never reads as the finished line. */
 .entry.acting .partial {
   margin: 2px 0 0;
   max-width: 62ch;
   color: color-mix(in srgb, var(--morse-fg) 62%, transparent);
   font-size: 12.5px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 /* The bots this turn asked, one chip each: a link to the room it happened in. */
 .handoffs {

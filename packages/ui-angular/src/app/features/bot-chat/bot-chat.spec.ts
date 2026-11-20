@@ -161,6 +161,18 @@ function live(overrides: Partial<BotRoutingActive> = {}): BotRoutingActive {
   };
 }
 
+/**
+ * The words drawn under a live row, as the reader sees them: the reveal hands the
+ * markdown layer its text, and that layer paints on its own throttle — one change
+ * detection now, one timer later.
+ */
+function partialText(host: HTMLElement, fixture: ComponentFixture<BotChat>): string {
+  fixture.detectChanges();
+  vi.advanceTimersByTime(120);
+  fixture.detectChanges();
+  return host.querySelector('.acting .partial')?.textContent?.trim() ?? '';
+}
+
 describe('BotChat', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -651,14 +663,12 @@ describe('BotChat', () => {
     expect(row.querySelector('.partial')).toBeNull();
 
     vi.advanceTimersByTime(50);
-    fixture.detectChanges();
-    const first = host.querySelector('.acting .partial')?.textContent ?? '';
+    const first = partialText(host, fixture);
     expect(first.length).toBeGreaterThan(0);
     expect(words.startsWith(first)).toBe(true);
 
     vi.advanceTimersByTime(1_000);
-    fixture.detectChanges();
-    const later = host.querySelector('.acting .partial')?.textContent ?? '';
+    const later = partialText(host, fixture);
     expect(later.length).toBeGreaterThan(first.length);
     expect(words.startsWith(later)).toBe(true);
     expect(later.length).toBeLessThanOrEqual(words.length);
@@ -741,19 +751,17 @@ describe('BotChat', () => {
 
     push(words.slice(0, 2_000));
     vi.advanceTimersByTime(3_000);
-    fixture.detectChanges();
-    const before = host.querySelector('.acting .partial')?.textContent ?? '';
+    const before = partialText(host, fixture);
     expect(before).toHaveLength(2_000);
 
     // The host keeps only the tail of an answer, so this push drops the head of
     // the same turn: what the reader has already read must not start over.
     push(words.slice(500, 2_500));
-    const kept = host.querySelector('.acting .partial')?.textContent ?? '';
+    const kept = partialText(host, fixture);
     expect(kept.length).toBeGreaterThanOrEqual(before.length);
 
     vi.advanceTimersByTime(50);
-    fixture.detectChanges();
-    const after = host.querySelector('.acting .partial')?.textContent ?? '';
+    const after = partialText(host, fixture);
     expect(after.length).toBeGreaterThanOrEqual(kept.length);
     // The words are still the answer's own beginning, never a re-revealed tail.
     expect(words.startsWith(after)).toBe(true);
