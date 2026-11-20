@@ -170,7 +170,7 @@ function partialText(host: HTMLElement, fixture: ComponentFixture<BotChat>): str
   fixture.detectChanges();
   vi.advanceTimersByTime(120);
   fixture.detectChanges();
-  return host.querySelector('.acting .partial')?.textContent?.trim() ?? '';
+  return host.querySelector('.acting .text')?.textContent?.trim() ?? '';
 }
 
 describe('BotChat', () => {
@@ -660,7 +660,7 @@ describe('BotChat', () => {
     // The timer is hidden while the turn is young and counts once it is not.
     expect(row.querySelector('.elapsed')?.textContent?.trim()).toBe('38s');
     // Nothing is revealed before the first tick: the row starts at the beginning.
-    expect(row.querySelector('.partial')).toBeNull();
+    expect(row.querySelector('.text')).toBeNull();
 
     vi.advanceTimersByTime(50);
     const first = partialText(host, fixture);
@@ -688,7 +688,7 @@ describe('BotChat', () => {
     fixture.detectChanges();
     vi.advanceTimersByTime(200);
     fixture.detectChanges();
-    expect(host.querySelector('.acting .partial')?.textContent?.length).toBeGreaterThan(0);
+    expect(host.querySelector('.acting .text')?.textContent?.length).toBeGreaterThan(0);
 
     morse.bot.onRouting(
       round(workshop.id, {
@@ -706,7 +706,7 @@ describe('BotChat', () => {
 
     // Not one word of the new turn before its first tick: the cursor was the old
     // turn's, and borrowing it would put words on screen the reader never waited for.
-    expect(host.querySelector('.acting .partial')).toBeNull();
+    expect(host.querySelector('.acting .text')).toBeNull();
   });
 
   it('stops revealing at the end, and forgets the words when the row goes away', async () => {
@@ -723,7 +723,7 @@ describe('BotChat', () => {
     fixture.detectChanges();
     vi.advanceTimersByTime(50);
     fixture.detectChanges();
-    expect(host.querySelector('.acting .partial')?.textContent?.length).toBeGreaterThan(0);
+    expect(host.querySelector('.acting .text')?.textContent?.length).toBeGreaterThan(0);
 
     // The row leaves while there is still text unread: its clock and its reveal
     // stop with it, rather than ticking into a conversation it no longer belongs to.
@@ -735,7 +735,7 @@ describe('BotChat', () => {
 
     vi.advanceTimersByTime(2_000);
     fixture.detectChanges();
-    expect(host.querySelector('.partial')).toBeNull();
+    expect(host.querySelector('.text')).toBeNull();
   });
 
   it('keeps a long answer on screen when the 2 000-character window slides', async () => {
@@ -1139,7 +1139,7 @@ describe('BotChat', () => {
 
     vi.advanceTimersByTime(1_000);
     fixture.detectChanges();
-    expect(host.querySelector('.acting .partial')).toBeNull();
+    expect(host.querySelector('.acting .text')).toBeNull();
   });
 
   it('keeps one sentence for assistive tech, naming the bot and its work', async () => {

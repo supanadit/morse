@@ -423,10 +423,11 @@
                 }
               </div>
             }
-            <!-- The answer as it arrives, in the same markdown the landed message
-                 uses: a partial that stops mid-`**` reads as words, not as markers. -->
+            <!-- The answer as it arrives, inside the bubble it will land in: the
+                 same markup the finished message draws, so nothing about it moves
+                 or resizes when the turn ends. -->
             @if (revealed(row); as words) {
-              <div class="partial"><morse-markdown [text]="words" /></div>
+              <div class="text"><morse-markdown [text]="words" /></div>
             }
             @if (row.handoffs.length > 0) {
               <div class="handoffs">

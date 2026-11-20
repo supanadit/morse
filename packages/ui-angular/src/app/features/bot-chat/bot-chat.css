@@ -156,10 +156,10 @@
 
 /*
  * The round in flight, drawn where its answer will land: a line of presence, not
- * a status bar and not a message. The row belongs to the turn, so the words
- * inside it change as the bot moves on while an opened step list stays put — a
- * chat shows what is happening now, and a trace of it would be history nobody
- * asked to keep.
+ * a status bar, and the answer itself already in its bubble. The row belongs to
+ * the turn, so the words inside it change as the bot moves on while an opened
+ * step list stays put — a chat shows what is happening now, and a trace of it
+ * would be history nobody asked to keep.
  */
 .entry.acting {
   align-items: flex-start;
@@ -298,15 +298,6 @@
   font-family: var(--morse-font-mono, ui-monospace, monospace);
   font-size: 10.5px;
 }
-/* The answer as it is written: the same markdown as the message it becomes, muted
-   so it never reads as the finished line. */
-.entry.acting .partial {
-  margin: 2px 0 0;
-  max-width: 62ch;
-  color: color-mix(in srgb, var(--morse-fg) 62%, transparent);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
 /* The bots this turn asked, one chip each: a link to the room it happened in. */
 .handoffs {
   display: flex;
@@ -371,7 +362,12 @@
 }
 .stop {
   flex: none;
-  align-self: center;
+  /*
+   * Beside the label, at the row's top. Centred in the row, a Stop on a long
+   * answer drifts down with the words and looks like it belongs to the middle
+   * of the reply instead of to the turn.
+   */
+  align-self: flex-start;
   height: 22px;
   padding: 0 8px;
   border: 1px solid var(--morse-border);
