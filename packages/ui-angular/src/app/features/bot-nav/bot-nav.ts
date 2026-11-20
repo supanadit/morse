@@ -9,6 +9,9 @@ import {
   untracked,
 } from '@angular/core';
 import type { BotConversationSummary, BotSummary } from '@morse/protocol';
+import { BotFace } from '../../ui/bot-face/bot-face';
+import type { BotMood } from '../../ui/bot-face/bot-face-moods';
+import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { MorseService } from '../../host/morse.service';
 import { ModePrefs } from '../../state/mode-prefs';
 import { ShellState } from '../../state/shell-state';
@@ -46,6 +49,7 @@ type NavMenu =
  */
 @Component({
   selector: 'morse-bot-nav',
+  imports: [BotFace],
   templateUrl: './bot-nav.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './bot-nav.css',
@@ -179,9 +183,28 @@ export class BotNav {
     });
   }
 
-  /** A bot's mark: its own avatar when it has one, else the letter it starts with. */
-  protected mark(bot: BotSummary): string {
-    return bot.avatar ?? bot.name.slice(0, 1).toUpperCase();
+  /** Every bot mid-turn, anywhere: the roster's faces and the rooms agree. */
+  private readonly answering = computed(() => {
+    const handles = new Set<string>();
+    for (const state of Object.values(this.morse.bot.routing())) {
+      for (const active of state.active) {
+        handles.add(active.username);
+      }
+    }
+    return handles;
+  });
+
+  /**
+   * What each bot's face is doing. A bot answering in any room is thinking, a
+   * warm engine is work in progress; otherwise it rests on the face its own
+   * description earned.
+   */
+  protected moodOf(bot: BotSummary): BotMood {
+    return moodForBot({
+      description: `${bot.name} ${bot.description}`,
+      streaming: this.answering().has(bot.username),
+      warm: bot.warm,
+    });
   }
 
   /** A room's mark is the same letter idea, from its title. */

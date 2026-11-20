@@ -151,6 +151,43 @@ describe('BotNav', () => {
     expect(groups[0]?.textContent).toContain('Forge, Sable');
   });
 
+  it('puts a bot that is answering into its thinking face, and the others at rest', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [sable, forge], conversations: [workshop] });
+    fixture.detectChanges();
+
+    const faceOf = (name: string) =>
+      rows(host, 'bot')
+        .find((row) => row.textContent?.includes(name))
+        ?.querySelector('morse-bot-face .box')
+        ?.classList.contains('mood-thinking');
+
+    // A cold bot with nothing running rests; it is not thinking in the dark.
+    expect(faceOf('Sable')).toBe(false);
+
+    morse.bot.onRouting({
+      conversationId: workshop.id,
+      state: {
+        conversationId: workshop.id,
+        active: [
+          {
+            target: 'Sable',
+            username: 'sable',
+            activity: { kind: 'tool', label: 'Writing the answer…', at: 10 },
+            startedAt: 10,
+            steps: [],
+            handoffs: [],
+          },
+        ],
+        queued: [],
+      },
+    });
+    fixture.detectChanges();
+
+    // The tile and the room agree: the bot writing wears the thinking face.
+    expect(faceOf('Sable')).toBe(true);
+  });
+
   it('opens a bot under the name the host gives its DM', async () => {
     const { fixture, host, morse } = await render();
     morse.bot.onRoster({ bots: [forge, sable], conversations: [] });

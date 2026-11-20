@@ -513,6 +513,13 @@
 .entry.bot {
   align-items: flex-start;
 }
+/* Faces bring their own colour, so their box carries no wash of its own. */
+.avatar-face,
+.head-face {
+  background: none;
+  color: inherit;
+}
+
 .avatar {
   flex: none;
   display: inline-flex;

@@ -7,7 +7,6 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
 import type {
   BotConfig,
   BotCreateInput,
@@ -22,6 +21,8 @@ import type {
 } from '@morse/protocol';
 import type { BotProviderModel } from '@morse/system';
 import { MorseService } from '../../host/morse.service';
+import { BotFace } from '../../ui/bot-face/bot-face';
+import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { BotMcpStep } from './bot-mcp-step';
 
 /** One OpenCode subagent the reader defined: a name and its own system prompt. */
@@ -137,16 +138,6 @@ const THINKING_LEVELS: ThinkingLevel[] = [
   'max',
 ];
 
-/**
- * The emoji a bot may wear, as one row of choices: a bot with no avatar shows
- * the first letter of its name, and a face is faster to recognise in a list.
- */
-const EMOJI_CHOICES: readonly string[] = [
-  '🤖', '🐴', '🔧', '🛠️', '📚', '🔍', '🧭', '📊',
-  '🧪', '🧠', '🦉', '🦊', '🐙', '🐝', '🚀', '⚙️',
-  '📝', '🎨', '🧵', '🗺️', '💡', '🧮', '🛰️', '🌱',
-];
-
 /** A wizard-local request id for probes; the host echoes it whole. */
 let wizardRequests = 0;
 function nextRequestId(): string {
@@ -231,7 +222,7 @@ function parseEnvVars(value: string): string[] {
   selector: 'morse-bot-wizard',
   templateUrl: './bot-wizard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BotMcpStep, NgTemplateOutlet],
+  imports: [BotFace, BotMcpStep],
   styleUrl: './bot-wizard.css',
 })
 export class BotWizard {
@@ -324,13 +315,18 @@ export class BotWizard {
   /** The roster as it stood at submit, so an edit knows when its save landed. */
   private readonly rosterAtSubmit = signal<{ bots: unknown[] } | null>(null);
   private readonly noticeAtSubmit = signal<{ level: string; text: string; at: number } | null>(null);
-  /** The model search box, filtering everything Connect found. */
+  /** The model search box, filtering the provider's list. */
   protected readonly modelFilter = signal('');
+  /** Which provider's key row was last touched, so its models are in front. */
+  protected readonly activeProvider = signal('');
 
   protected readonly engines = this.morse.engines;
   protected readonly thinkingLevels = THINKING_LEVELS;
   protected readonly providerApis = PROVIDER_APIS;
-  protected readonly emojiChoices = EMOJI_CHOICES;
+  /** The faces a reader may pick instead of the one their handle draws. */
+  protected readonly faceChoices = Array.from({ length: 11 }, (_, index) => `face:${index + 2}`);
+
+  private moodTimer?: ReturnType<typeof setTimeout>;
 
   /** Why the username is unusable, or empty when it is fine. */
   protected readonly usernameError = computed(() => {
@@ -389,20 +385,6 @@ export class BotWizard {
     KNOWN_PROVIDERS.filter((preset) => preset.engines.includes(this.engineKind())),
   );
 
-  /**
-   * The chips with the ones this bot already has keys for first, so a landed key
-   * does not scroll away from its own chip in a list this long.
-   */
-  protected readonly orderedPresets = computed(() => {
-    const chips = this.knownProviders();
-    const chosen = this.credentials();
-    return [...chips].sort(
-      (left, right) =>
-        Number(chosen.some((row) => row.provider === right.credential)) -
-        Number(chosen.some((row) => row.provider === left.credential)),
-    );
-  });
-
   /** The models the catalog probe answered with, for this wizard's request. */
   protected readonly probedModels = computed<ModelOption[]>(() => {
     const requestId = this.probeRequestId();
@@ -412,6 +394,87 @@ export class BotWizard {
     const requestId = this.probeRequestId();
     return requestId !== null && this.morse.bot.models()[requestId] !== undefined;
   });
+
+  /**
+   * The providers this engine can reach, one key row each.
+   *
+   * The list is the engine's own catalog of providers, not only the ones the last
+   * probe answered with: an engine lists its whole model table and a key is what
+   * unlocks part of it, so the keys have to be there before any answer arrives.
+   * Anything the answer names that the catalog does not (a provider of the
+   * reader's own) joins the list at the end.
+   */
+  protected readonly providerRows = computed(() => {
+    const known = this.knownProviders();
+    const answering = new Map<string, number>();
+    for (const model of this.allModels()) {
+      answering.set(model.provider, (answering.get(model.provider) ?? 0) + 1);
+    }
+    const ids = new Set<string>([
+      ...known.map((preset) => preset.credential),
+      ...answering.keys(),
+      ...this.providers().map((provider) => provider.id),
+    ]);
+    return [...ids]
+      .map((id) => ({
+        id,
+        label: known.find((preset) => preset.credential === id)?.label ?? id,
+        env: this.envNameFor(id),
+        key: this.presetKey(id),
+        models: answering.get(id) ?? 0,
+      }))
+      // A provider with models is what the reader can pick right now; the rest are
+      // keys that would add some. Ties fall back to a stable, readable order.
+      .sort(
+        (left, right) =>
+          Number(right.models > 0) - Number(left.models > 0) ||
+          Number(right.key.length > 0) - Number(left.key.length > 0) ||
+          left.label.localeCompare(right.label),
+      );
+  });
+
+  /**
+   * The name a provider's key travels under in the environment — the placeholder
+   * in its row, so a reader who already exports it recognises the field.
+   */
+  protected envNameFor(provider: string): string {
+    return `${provider.replace(/[^a-z0-9]+/gi, '_').toUpperCase()}_API_KEY`;
+  }
+
+  /** Clicking a key row picks that provider: the models column answers it. */
+  protected chooseProvider(provider: string): void {
+    this.activeProvider.set(provider);
+  }
+
+  /** Which provider's models the third column draws. */
+  protected readonly activeProviderId = computed(() => {
+    const rows = this.providerRows();
+    const chosen = this.activeProvider();
+    if (rows.some((row) => row.id === chosen)) {
+      return chosen;
+    }
+    return (rows.find((row) => row.models > 0) ?? rows[0])?.id ?? '';
+  });
+
+  /** That provider's models, narrowed by the search field. */
+  protected readonly activeModels = computed(() => {
+    const provider = this.activeProviderId();
+    const filter = this.modelFilter().trim().toLowerCase();
+    return this.allModels().filter(
+      (model) =>
+        model.provider === provider &&
+        (filter.length === 0 ||
+          model.id.toLowerCase().includes(filter) ||
+          model.name.toLowerCase().includes(filter)),
+    );
+  });
+
+  /** The provider whose models are in front, for the column's own wording. */
+  protected readonly activeProviderRow = computed(() =>
+    this.providerRows().find((row) => row.id === this.activeProviderId()),
+  );
+
+  protected readonly activeProviderLabel = computed(() => this.activeProviderRow()?.label ?? '');
 
   /** The models each source offers, one flat searchable list. */
   protected readonly pinnedModel = signal<ModelOption | undefined>(undefined);
@@ -444,20 +507,6 @@ export class BotWizard {
     return models.some((candidate) => this.modelOptionKey(candidate) === key)
       ? models
       : [...models, pinned];
-  });
-
-  protected readonly visibleModels = computed<ModelOption[]>(() => {
-    const filter = this.modelFilter().trim().toLowerCase();
-    const models = this.allModels();
-    if (filter.length === 0) {
-      return models;
-    }
-    return models.filter(
-      (model) =>
-        model.id.toLowerCase().includes(filter) ||
-        model.name.toLowerCase().includes(filter) ||
-        model.provider.toLowerCase().includes(filter),
-    );
   });
 
   protected readonly model = computed<ModelOption | undefined>(() =>
@@ -708,6 +757,9 @@ export class BotWizard {
       this.credentials.set([]);
       this.providers.set([]);
       this.modelKey.set('');
+      // The engine's catalog is a different set of providers, so the column goes
+      // back to whichever of them it can actually list models for.
+      this.activeProvider.set('');
       // Servers are engine-specific config (`mcp.json` vs `opencode.json`), so a
       // list collected for another engine would be written in the wrong shape.
       this.mcpServers.set([]);
@@ -722,17 +774,6 @@ export class BotWizard {
     }
   }
 
-  protected choosePreset(credential: string): void {
-    const rows = this.credentials();
-    if (rows.some((row) => row.provider === credential)) {
-      this.credentials.update((current) => current.filter((row) => row.provider !== credential));
-      this.refreshCatalog();
-      return;
-    }
-    this.credentials.update((current) => [...current, { provider: credential, apiKey: '' }]);
-    this.refreshCatalog();
-  }
-
   /**
    * Re-probes once a key is committed (blur or Enter), not on every keystroke —
    * the catalog request spawns an engine process, so one per character would be
@@ -742,19 +783,25 @@ export class BotWizard {
     this.probeCatalog();
   }
 
-  protected hasPreset(credential: string): boolean {
-    return this.credentials().some((row) => row.provider === credential);
-  }
-
-  protected setPresetKey(credential: string, event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this.credentials.update((rows) =>
-      rows.map((row) => (row.provider === credential ? { ...row, apiKey: value } : row)),
-    );
-  }
-
+  /** What is typed in one provider's key field, so a re-render keeps it. */
   protected presetKey(credential: string): string {
     return this.credentials().find((row) => row.provider === credential)?.apiKey ?? '';
+  }
+
+  /**
+   * The key typed in a provider's group: its own field, committed on blur. The
+   * model list is what the key is for, so asking for it anywhere else makes the
+   * reader scroll between a list and the thing that fills it.
+   */
+  protected setProviderKey(credential: string, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    const held = this.credentials();
+    this.credentials.set(
+      held.some((row) => row.provider === credential)
+        ? held.map((row) => (row.provider === credential ? { ...row, apiKey: value } : row))
+        : [...held, { provider: credential, apiKey: value }],
+    );
+    this.refreshCatalog();
   }
 
   protected openAddProvider(): void {
@@ -970,6 +1017,8 @@ export class BotWizard {
 
   protected pickModel(key: string): void {
     this.modelKey.set(key);
+    // The column follows the choice, so reopening the page shows its provider.
+    this.activeProvider.set(key.slice(0, key.indexOf('/')));
   }
 
   protected pickThinking(event: Event): void {
@@ -1093,18 +1142,16 @@ export class BotWizard {
     );
   }
 
-  /** Whether using this model still needs a key the form does not hold. */
-  protected needsKey(provider: string): boolean {
-    // An edited bot's keys are the engine's and are never read back, so a tag
-    // claiming one is missing would be a guess.
+  /** What the providers row holds: its own providers, or the ones it read back. */
+  protected readonly providersSummary = computed(() => {
     if (this.editing()) {
-      return false;
+      return this.engineProviders().length === 0
+        ? 'engine catalog'
+        : `${this.engineProviders().length} declared`;
     }
-    return (
-      this.knownProviders().some((preset) => preset.credential === provider) &&
-      !this.hasPreset(provider)
-    );
-  }
+    const mine = this.providers().length;
+    return mine === 0 ? 'engine catalog' : `${mine} of your own`;
+  });
 
   /** What this bot will have to spend, in one line: the keys, or the lack of them. */
   protected readonly keySummary = computed(() => {
@@ -1124,17 +1171,24 @@ export class BotWizard {
     return `${model.name} · ${this.thinking() === '' ? 'engine default' : this.thinking()}`;
   });
 
-  /** The avatar's face: the emoji or URL, else the letter the roster would show. */
-  protected readonly avatarFace = computed(() => {
-    const avatar = this.avatar().trim();
-    return avatar.length > 0 ? avatar : (this.name().trim().slice(0, 1).toUpperCase() || '🤖');
-  });
-
-  /** Whether the avatar is an image rather than one character. */
+  /** Whether the avatar is an image rather than a face or an emoji. */
   protected readonly avatarIsImage = computed(() => /^(https?:|data:)/.test(this.avatar().trim()));
 
-  protected pickAvatar(emoji: string): void {
-    this.avatar.set(this.avatar().trim() === emoji ? '' : emoji);
+  /** The preview's mood: picking a face makes it happy for a moment. */
+  protected readonly avatarMood = signal<'idle' | 'excited'>('idle');
+
+  /** The mood the preview would wear once this bot runs, from what was typed. */
+  protected readonly previewMood = computed(() =>
+    this.avatarMood() === 'excited'
+      ? 'excited'
+      : moodForBot({ description: `${this.name()} ${this.description()}` }),
+  );
+
+  protected pickAvatar(face: string): void {
+    this.avatar.set(this.avatar().trim() === face ? '' : face);
+    this.avatarMood.set('excited');
+    clearTimeout(this.moodTimer);
+    this.moodTimer = setTimeout(() => this.avatarMood.set('idle'), 900);
   }
 
   /**

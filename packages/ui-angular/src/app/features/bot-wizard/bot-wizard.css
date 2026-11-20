@@ -163,46 +163,10 @@
 }
 
 
-.choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 14px;
-}
 
-.choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 148px;
-  padding: 8px 12px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
-  color: var(--morse-fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
 
-.choice:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--morse-fg) 28%, transparent);
-  background: color-mix(in srgb, var(--morse-fg) 6%, transparent);
-}
 
-.choice.on {
-  border-color: var(--morse-accent);
-  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
-}
 
-.choice-name {
-  font-size: 12.5px;
-  font-weight: 600;
-}
 
 .keykind {
   display: flex;
@@ -211,82 +175,13 @@
 }
 
 
-.choice.small {
-  flex-direction: row;
-  align-items: center;
-  min-width: 0;
-  height: 30px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
 
-.presets {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 6px;
-  max-width: 620px;
-  
-  max-height: 244px;
-  overflow-y: auto;
-  padding: 1px 4px 1px 1px;
-  margin-bottom: 8px;
-}
 
-.preset {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-}
 
-.preset-chip {
-  flex: none;
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
 
-.preset-chip:hover {
-  border-color: var(--morse-fg-muted);
-}
 
-.preset.on .preset-chip {
-  border-color: var(--morse-accent);
-  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
-}
 
-.preset-key {
-  width: 100%;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12.5px;
-}
 
-.preset-key:hover {
-  border-color: var(--morse-fg-muted);
-}
 
 .provider-card {
   max-width: 520px;
@@ -641,8 +536,11 @@
   background: var(--morse-hover);
 }
 
+/* The chosen model is the one thing the column exists to show, so it gets an
+   edge as well as a wash — a wash alone reads as hover. */
 .model-option.on {
   background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
 }
 
 .model-name {
@@ -659,9 +557,6 @@
 }
 
 
-.needs-key {
-  color: var(--morse-warning, #d7a13b);
-}
 
 .subagent {
   display: grid;
@@ -723,8 +618,6 @@
   }
 
 
-  .choice,
-  .preset-chip,
   .model-option,
   .ghost {
     min-height: 36px;
@@ -841,30 +734,31 @@
   min-width: 0;
 }
 
-.emoji-grid {
+/* Faces instead of emoji: eleven generated ones, plus the handle's own. */
+.face-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 3px;
 }
 
-.emoji {
-  width: 26px;
-  height: 26px;
+.face {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--morse-radius-md);
   background: none;
-  font-size: 15px;
-  line-height: 1;
   cursor: pointer;
 }
 
-.emoji:hover {
+.face:hover {
   background: var(--morse-hover);
 }
 
-.emoji.on {
-  border-color: color-mix(in srgb, var(--morse-accent) 55%, var(--morse-border));
+.face.on {
+  border-color: var(--morse-accent);
   background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
 }
 
@@ -988,5 +882,203 @@
   .board-foot .secondary {
     flex: 1;
     min-height: 38px;
+  }
+}
+
+/*
+ * The model list, grouped by the provider that serves it. A provider whose key
+ * this bot does not hold shows the key field in its own header — the models
+ * below it are what that key buys, so they are drawn but not choosable until
+ * it is pasted.
+ */
+
+
+
+
+
+
+
+
+/*
+ * The brain, in three columns: engines, provider keys, models. One selected thing
+ * per column and an obvious edge on it — a rail where two rows look the same is a
+ * rail nobody can read.
+ */
+.brain {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.brain-columns {
+  display: grid;
+  grid-template-columns: 132px 264px minmax(0, 1fr);
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-lg);
+  overflow: hidden;
+}
+
+.brain-rail,
+.brain-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-height: 260px;
+  padding: 6px;
+  overflow-y: auto;
+  border-right: 1px solid var(--morse-border);
+}
+
+/* The engine choice: plain text until it is the one, then a solid accent chip. */
+.brain-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: none;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.brain-pick:hover:not(:disabled) {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
+.brain-pick.on {
+  border-color: var(--morse-accent);
+  background: var(--morse-accent);
+  color: var(--morse-accent-fg);
+  font-weight: 600;
+}
+
+/* An engine an edit cannot change still says which one it is. */
+.brain-pick:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.brain-pick-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brain-pick-count {
+  flex: none;
+  color: inherit;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/*
+ * A provider *is* its key row: one input, its environment name as the
+ * placeholder, the accent edge when it is the one whose models are listed.
+ */
+.brain-key {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.brain-key::placeholder {
+  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
+  font-family: var(--morse-font-mono);
+  font-size: 10.5px;
+}
+
+/* A provider the catalog already lists models for reads as the live one. */
+.brain-key.listed::placeholder {
+  color: color-mix(in srgb, var(--morse-fg) 72%, transparent);
+}
+
+.brain-key:hover {
+  background: var(--morse-hover);
+}
+
+.brain-key.on,
+.brain-key:focus {
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+  outline: none;
+  cursor: text;
+}
+
+.brain-empty {
+  margin: 0;
+  padding: 6px;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.brain-models {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 160px;
+  padding: 8px;
+}
+
+/* An empty column says one quiet line, centred — not a bordered box shouting it. */
+.brain-models .brain-empty {
+  margin: auto;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.brain-models .model-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/*
+ * A narrow window: one column each, engines as a scrollable row on top, so the
+ * three answers stay in one flow instead of three slivers.
+ */
+@media (max-width: 860px) {
+  .brain-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .brain-rail,
+  .brain-keys {
+    max-height: 180px;
+    padding: 6px;
+    border-right: 0;
+    border-bottom: 1px solid var(--morse-border);
+  }
+
+  .brain-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .brain-rail .brain-pick {
+    flex: none;
+    width: auto;
   }
 }

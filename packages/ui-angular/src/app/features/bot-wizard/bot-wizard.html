@@ -14,25 +14,39 @@
   <div class="board-body">
     <!-- The face: a bot is picked out of a list by its avatar. -->
     <div class="avatar-pick">
-      <div class="avatar-preview" aria-hidden="true">
-        @if (avatarIsImage()) {
-          <img [src]="avatar()" alt="" />
-        } @else {
-          <span>{{ avatarFace() }}</span>
-        }
+      <div class="avatar-preview">
+        <morse-bot-face
+          [value]="avatar()"
+          [seed]="username() || name()"
+          [mood]="previewMood()"
+          [size]="52"
+        />
       </div>
       <div class="avatar-tools">
-        <div class="emoji-grid" role="listbox" aria-label="Pick an avatar">
-          @for (emoji of emojiChoices; track emoji) {
+        <!-- Faces, not letters: a bot is recognised in a list by its face, and one
+             is already chosen from the handle before anyone picks. -->
+        <div class="face-grid" role="listbox" aria-label="Pick a face">
+          <button
+            type="button"
+            class="face"
+            role="option"
+            [class.on]="avatar().trim() === ''"
+            [attr.aria-selected]="avatar().trim() === ''"
+            (click)="pickAvatar('')"
+            title="From the handle"
+          >
+            <morse-bot-face [seed]="username() || name()" [size]="26" />
+          </button>
+          @for (face of faceChoices; track face) {
             <button
               type="button"
-              class="emoji"
+              class="face"
               role="option"
-              [class.on]="avatar() === emoji"
-              [attr.aria-selected]="avatar() === emoji"
-              (click)="pickAvatar(emoji)"
+              [class.on]="avatar() === face"
+              [attr.aria-selected]="avatar() === face"
+              (click)="pickAvatar(face)"
             >
-              {{ emoji }}
+              <morse-bot-face [value]="face" [size]="26" />
             </button>
           }
         </div>
@@ -41,7 +55,7 @@
           type="text"
           [value]="avatarIsImage() ? avatar() : ''"
           (input)="setText('avatar', $event)"
-          placeholder="…or paste an image URL"
+          placeholder="…or an image URL"
           autocomplete="off"
           aria-label="Avatar image URL"
         />
@@ -90,133 +104,135 @@
     </label>
 
     <div class="rows">
-      <!-- The one row a beginner needs: what it thinks with. -->
-      <details class="row">
-        <summary>
-          <span class="row-label">Model</span>
-          <span class="row-value">{{ modelLabel() }}</span>
-          <span class="row-chev" aria-hidden="true">›</span>
-        </summary>
-        <div class="row-panel">
-          <div class="field">
-            <span>Engine</span>
-            <div class="choices" role="radiogroup" aria-label="Engine">
-              @for (engine of engines(); track engine.kind) {
+      <!-- What it thinks with, in three columns: the engines, the providers with
+           their keys, and the models. A provider *is* its key field — one row
+           each, no separate panel to hunt for, and the column beside it is what
+           that key buys. -->
+      <section class="brain">
+        <div class="brain-columns">
+          <nav class="brain-rail" aria-label="Engines">
+            @for (engine of engines(); track engine.kind) {
+              <button
+                type="button"
+                class="brain-pick"
+                [class.on]="engineKind() === engine.kind"
+                [disabled]="editing()"
+                (click)="chooseEngine(engine.kind)"
+              >
+                <span class="brain-pick-name">{{ engine.label }}</span>
+              </button>
+            }
+            @if (editing()) {
+              <p class="brain-empty">The engine is set by this bot's config.</p>
+            }
+          </nav>
+
+          <!-- One row per provider, and the row is its key field: no label, no
+               button. Clicking it (focusing it) is what picks the provider, and
+               the third column answers with that provider's models. -->
+          <div class="brain-keys" aria-label="Provider keys">
+            @for (row of providerRows(); track row.id) {
+              <input
+                type="password"
+                class="brain-key"
+                [class.on]="row.id === activeProviderId()"
+                [class.listed]="row.models > 0"
+                [value]="row.key"
+                [placeholder]="row.env"
+                (focus)="chooseProvider(row.id)"
+                (change)="setProviderKey(row.id, $event)"
+                [title]="row.label + (row.models > 0 ? ' · ' + row.models + ' models' : '')"
+                [attr.aria-label]="row.label + ' API key'"
+                autocomplete="off"
+              />
+            } @empty {
+              <p class="brain-empty">{{ probeReady() ? 'No providers.' : 'Loading the catalog…' }}</p>
+            }
+          </div>
+
+          <div class="brain-models">
+            <div class="model-tools">
+              <input
+                type="text"
+                class="model-search"
+                [value]="modelFilter()"
+                (input)="setText('modelFilter', $event)"
+                [placeholder]="activeProviderLabel() ? 'Search ' + activeProviderLabel() + '…' : 'Search models…'"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="ghost"
+                (click)="probeCatalog(true)"
+                [disabled]="!probeReady()"
+              >
+                {{ probeReady() ? 'Reload' : 'Loading…' }}
+              </button>
+            </div>
+            <div class="model-list" role="listbox" aria-label="Models">
+              @for (option of activeModels(); track modelOptionKey(option)) {
                 <button
                   type="button"
-                  class="choice"
-                  [class.on]="engineKind() === engine.kind"
-                  [disabled]="editing()"
-                  (click)="chooseEngine(engine.kind)"
+                  class="model-option"
+                  role="option"
+                  [class.on]="modelOptionKey(option) === modelKey()"
+                  [attr.aria-selected]="modelOptionKey(option) === modelKey()"
+                  (click)="pickModel(modelOptionKey(option))"
                 >
-                  <span class="choice-name">{{ engine.label }}</span>
+                  <span class="model-name">{{ option.name }}</span>
+                  @if (option.name !== option.id) {
+                    <span class="model-provider">{{ option.id }}</span>
+                  }
                 </button>
+              } @empty {
+                <p class="brain-empty">
+                  @if (modelFilter().trim().length > 0) {
+                    Nothing matches “{{ modelFilter() }}”.
+                  } @else if (activeProviderRow()?.key) {
+                    {{ activeProviderLabel() }} listed none — Reload asks again.
+                  } @else if (activeProviderRow(); as row) {
+                    Paste {{ row.env }} above, then Reload.
+                  } @else {
+                    This engine listed no models.
+                  }
+                </p>
               }
             </div>
-            @if (editing()) {
-              <small class="field-note">
-                The engine owns the config already in this directory, so it cannot be switched here.
-              </small>
-            }
           </div>
-
-          <div class="field">
-            <span>Model</span>
-            @if (allModels().length > 0) {
-              <div class="model-tools">
-                <input
-                  type="text"
-                  class="model-search"
-                  [value]="modelFilter()"
-                  (input)="setText('modelFilter', $event)"
-                  placeholder="Search {{ allModels().length }} models…"
-                  autocomplete="off"
-                />
-                <button
-                  type="button"
-                  class="ghost"
-                  (click)="probeCatalog(true)"
-                  [disabled]="!probeReady()"
-                >
-                  {{ probeReady() ? 'Reload' : 'Loading…' }}
-                </button>
-              </div>
-              <div class="model-list" role="listbox" aria-label="Models">
-                @for (option of visibleModels(); track modelOptionKey(option)) {
-                  <button
-                    type="button"
-                    class="model-option"
-                    role="option"
-                    [class.on]="modelOptionKey(option) === modelKey()"
-                    [attr.aria-selected]="modelOptionKey(option) === modelKey()"
-                    (click)="pickModel(modelOptionKey(option))"
-                  >
-                    <span class="model-name">{{ option.name }}</span>
-                    <span class="model-provider"
-                      >{{ option.provider }}@if (needsKey(option.provider)) {
-                        <span class="needs-key">· needs key</span>
-                      }</span
-                    >
-                  </button>
-                }
-              </div>
-            }
-            @if (catalogError(); as failure) {
-              <p class="error" role="alert">{{ failure }}</p>
-              <button type="button" class="ghost" (click)="probeCatalog(true)">Try again</button>
-            }
-            @if (modelBlocker(); as blocker) {
-              <small class="field-note">{{ blocker }}</small>
-            }
-          </div>
-
-          <label class="field narrow">
-            <span>Thinking level</span>
-            <select (change)="pickThinking($event)">
-              <option value="" [selected]="thinking() === ''">Engine default</option>
-              @for (level of thinkingLevels; track level) {
-                <option [value]="level" [selected]="thinking() === level">{{ level }}</option>
-              }
-            </select>
-          </label>
         </div>
-      </details>
 
-      <!-- Keys, and the providers a catalog does not carry. -->
+        @if (catalogError(); as failure) {
+          <p class="error" role="alert">{{ failure }}</p>
+          <button type="button" class="ghost" (click)="probeCatalog(true)">Try again</button>
+        }
+        @if (modelBlocker(); as blocker) {
+          <small class="field-note">{{ blocker }}</small>
+        }
+
+        <label class="field narrow">
+          <span>Thinking level</span>
+          <select (change)="pickThinking($event)">
+            <option value="" [selected]="thinking() === ''">Engine default</option>
+            @for (level of thinkingLevels; track level) {
+              <option [value]="level" [selected]="thinking() === level">{{ level }}</option>
+            }
+          </select>
+        </label>
+      </section>
+
+      <!-- The keys are in the model list, where the models they unlock are; this
+           row is for providers no catalog carries, and for model limits. -->
       <details class="row">
         <summary>
-          <span class="row-label">Keys &amp; providers</span>
-          <span class="row-value">{{ keySummary() }}</span>
+          <span class="row-label">Providers</span>
+          <span class="row-value">{{ providersSummary() }}</span>
           <span class="row-chev" aria-hidden="true">›</span>
         </summary>
         <div class="row-panel">
           <p class="row-note">
-            A key is stored in this bot's own config and never read back. An engine with free
-            models works without one.
+            A provider of your own — a gateway, a local server, anything not in the catalog. Its
+            key is stored in this bot's config and never read back.
           </p>
-          <div class="presets">
-            @for (
-              preset of orderedPresets();
-              track preset.engines.join(',') + ':' + preset.credential
-            ) {
-              <div class="preset" [class.on]="hasPreset(preset.credential)">
-                <button type="button" class="preset-chip" (click)="choosePreset(preset.credential)">
-                  {{ preset.label }}
-                </button>
-                @if (hasPreset(preset.credential)) {
-                  <input
-                    type="password"
-                    class="preset-key"
-                    [value]="presetKey(preset.credential)"
-                    (input)="setPresetKey(preset.credential, $event)"
-                    (change)="refreshCatalog()"
-                    [placeholder]="preset.credential + ' API key'"
-                    autocomplete="off"
-                  />
-                }
-              </div>
-            }
-          </div>
 
           @if (editing()) {
             <h4 class="group-title">Providers &amp; model limits</h4>

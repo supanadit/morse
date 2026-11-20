@@ -1,0 +1,43 @@
+/*
+ * The box is the whole of this component's own motion surface: every loop and
+ * every turn of the face is anime.js, on the elements inside it. Nothing here
+ * animates, so a stopped clock means a stopped face rather than a stylesheet
+ * that keeps going.
+ */
+:host {
+  display: inline-flex;
+}
+
+.box {
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 30%;
+  vertical-align: middle;
+}
+
+img,
+svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+img {
+  object-fit: cover;
+}
+
+.glyph {
+  line-height: 1;
+}
+
+/* Transforms on parts of an SVG turn about their own box, not the page's. */
+.body,
+.sway,
+.lift,
+.layer,
+.eyes,
+.blink {
+  transform-box: fill-box;
+  transform-origin: center;
+}

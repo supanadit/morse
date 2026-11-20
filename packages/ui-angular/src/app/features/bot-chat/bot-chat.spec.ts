@@ -193,7 +193,7 @@ describe('BotChat', () => {
     expect(user.textContent).toContain('Hello Forge');
 
     const bot = host.querySelector('.entry.bot') as HTMLElement;
-    expect(bot.querySelector('.avatar')?.textContent?.trim()).toBe('F');
+    expect(bot.querySelector('.avatar morse-bot-face')).not.toBeNull();
     expect(bot.querySelector('.author')?.textContent?.trim()).toBe('Forge');
     // The shared markdown renderer, not a copy: the emphasis became an element.
     expect(bot.querySelector('.text strong')?.textContent).toBe('forge');
@@ -551,6 +551,10 @@ describe('BotChat', () => {
     expect(row.querySelector('.doing-label')?.textContent?.trim()).toBe('Reading launch-brief.md…');
     expect(row.querySelector('.author')?.textContent?.trim()).toBe('Forge');
     expect(row.querySelector('.queued')?.textContent).toContain('Sable');
+    // The face writing the answer is thinking, not resting: same tell as the tile.
+    expect(row.querySelector('morse-bot-face .box')?.classList.contains('mood-thinking')).toBe(
+      true,
+    );
     // Presence, not history: the row is not a line anyone scrolls back to.
     expect(host.querySelectorAll('.transcript .entry:not(.acting)').length).toBe(1);
 
@@ -1289,9 +1293,9 @@ describe('BotChat', () => {
       presence.map((row) => row.querySelector('morse-usage-indicator .pct')?.textContent?.trim()),
     ).toEqual(['21.0%', '42.0%']);
     // Each row's mark comes from its own roster entry.
-    expect(presence.map((row) => row.querySelector('.avatar')?.textContent?.trim())).toEqual([
-      'F',
-      'B',
+    expect(presence.map((row) => row.querySelector('.avatar morse-bot-face') !== null)).toEqual([
+      true,
+      true,
     ]);
 
     // Stop on the second row takes the second handle, not the first bot twice.
@@ -1497,16 +1501,17 @@ describe('BotChat', () => {
     });
   });
 
-  it('wears the conversation avatar in the header: the DM bot mark, else the title initial', async () => {
+  it('wears a face in the header: the DM bot, and one drawn from the title', async () => {
     const { fixture, host, morse } = await render();
     open(morse, dm, []);
     fixture.detectChanges();
-    expect(host.querySelector('.head-avatar')?.textContent?.trim()).toBe('F');
+    expect(host.querySelector('.head-avatar morse-bot-face svg')).not.toBeNull();
 
-    // A group has no single bot to wear, so it wears the conversation's own initial.
+    // A group has no single bot to wear, so its face comes from the title.
     open(morse, workshop, []);
     fixture.detectChanges();
-    expect(host.querySelector('.head-avatar')?.textContent?.trim()).toBe('T');
+    expect(host.querySelector('.head-avatar morse-bot-face svg')).not.toBeNull();
+    expect(host.querySelector('.head-avatar')?.textContent?.trim()).toBe('');
   });
 
   it('copies a line, and shows the tick on the control that did it', async () => {

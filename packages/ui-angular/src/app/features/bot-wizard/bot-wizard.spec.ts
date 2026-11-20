@@ -126,11 +126,23 @@ function walkToConnect(
   // Written by the test, not seeded: the assertions below compare the payload.
   fill(host, 'textarea[placeholder^="You are Forge"]', 'You are Forge.');
   tick(fixture);
-  const engineButtons = [...host.querySelectorAll('.choice')] as HTMLButtonElement[];
-  const match = engineButtons.find((one) => one.textContent?.toLowerCase().includes(kind));
+  const engines = [...host.querySelectorAll('.brain-rail .brain-pick')] as HTMLButtonElement[];
+  const match = engines.find((one) => one.textContent?.toLowerCase().includes(kind));
   match?.click();
   tick(fixture);
   return { probe: lastProbe as ProbeSpy };
+}
+
+/** Answers the last catalog probe with a list of models. */
+function answerModels(
+  fixture: ComponentFixture<BotWizard>,
+  morse: MorseService,
+  probe: ProbeSpy,
+  models: ModelOption[],
+): void {
+  const call = probe.mock.calls.at(-1);
+  morse.bot.onModels({ requestId: call?.[3] ?? '', kind: call?.[0] ?? 'pi', models });
+  tick(fixture);
 }
 
 /** Answers the catalog probe the wizard already sent, then picks the first model. */
@@ -343,81 +355,80 @@ describe('BotWizard', () => {
     expect(button(host, '.board-foot .primary').disabled).toBe(false);
   });
 
-  it('offers pi\'s own catalog providers, OpenCode among them, and probes the id it chips', async () => {
-    const { fixture, host, morse } = await render();
-    const { probe } = walkToConnect(fixture, host, morse, 'pi');
+  it('shows engines, providers with their keys, and models in three columns', async () => {
+    const { fixture, host, morse, probe } = await render();
 
-    const labels = [...host.querySelectorAll('.preset-chip')].map((one) => one.textContent?.trim());
-    // The subscription providers are the point: pi carries both OpenCode ids.
-    expect(labels).toContain('OpenCode Zen');
-    expect(labels).toContain('OpenCode Go');
-    expect(labels).toEqual(expect.arrayContaining(['Z.ai Coding Plan', 'Moonshot AI', 'MiniMax']));
-    expect(labels.length).toBeGreaterThan(30);
+    answerModels(fixture, morse, probe, [
+      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+      { provider: 'opencode-go', id: 'glm-5.2', name: 'GLM-5.2' },
+    ]);
 
-    // The chip writes the provider id pi reads back out of `auth.json`, and the
-    // probe sends exactly that — not the chip's label.
-    const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
-    chips.find((one) => one.textContent?.trim() === 'OpenCode Go')?.click();
+    // Column one: the engines.
+    expect(
+      [...host.querySelectorAll('.brain-rail .brain-pick-name')].map((one) =>
+        one.textContent?.trim(),
+      ),
+    ).toEqual(['pi', 'OpenCode']);
+
+    // Column two: nothing but key fields — one per provider the engine's own
+    // catalog names, its environment name as the placeholder, no label or button.
+    const keys = [...host.querySelectorAll('.brain-key')] as HTMLInputElement[];
+    const placeholders = keys.map((one) => one.getAttribute('placeholder'));
+    expect(placeholders).toContain('ANTHROPIC_API_KEY');
+    expect(placeholders).toContain('OPENCODE_GO_API_KEY');
+    // The engine's whole catalog is there, not just what one probe answered.
+    expect(placeholders.length).toBeGreaterThan(20);
+    // The providers the catalog answered for are the live rows, and lead.
+    expect(keys[0]?.getAttribute('placeholder')).toBe('ANTHROPIC_API_KEY');
+
+    // Column three: the models of the provider in front, and only those.
+    expect(
+      [...host.querySelectorAll('.brain-models .model-name')].map((one) =>
+        one.textContent?.trim(),
+      ),
+    ).toEqual(['Claude Sonnet 4']);
+
+    // Clicking another provider's key row swaps the third column at once.
+    const opencodeGo = host.querySelector(
+      'input[placeholder="OPENCODE_GO_API_KEY"]',
+    ) as HTMLInputElement;
+    opencodeGo.dispatchEvent(new Event('focus'));
     tick(fixture);
-    fillAndCommit(host, '.preset-key', 'oc_go_key');
-    tick(fixture);
-
-    expect(probe.mock.calls.at(-1)?.[0]).toBe('pi');
-    expect(probe.mock.calls.at(-1)?.[2]).toEqual([{ provider: 'opencode-go', apiKey: 'oc_go_key' }]);
-  });
-
-  it('keeps one chip per provider id, so a tracked list never repeats a key', async () => {
-    for (const kind of ['pi', 'opencode']) {
-      const { fixture, host, morse } = await render();
-      walkToConnect(fixture, host, morse, kind);
-      const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
-      const labels = chips.map((one) => one.textContent?.trim() ?? '');
-      expect(new Set(labels).size).toBe(labels.length);
-      // One key field per chip, and none before a chip is chosen.
-      expect(host.querySelectorAll('.preset-key').length).toBe(0);
-    }
-  });
-
-  it('re-probes when a key is committed and keeps Next refused while nothing is listed', async () => {
-    const { fixture, host, morse } = await render();
-    const { probe } = walkToConnect(fixture, host, morse, 'opencode');
-
-    // The probe for the chosen engine ran with no keys and listed nothing.
-    const firstCall = probe.mock.calls.at(-1);
-    expect(firstCall?.[2]).toEqual([]);
-    morse.bot.onModels({ requestId: firstCall?.[3] ?? '', kind: 'opencode', models: [] });
-    tick(fixture);
-    expect(host.querySelector('.board-body')?.textContent).toContain('listed no models');
-    expect(button(host, '.board-foot .primary').disabled).toBe(true);
-
-    // Pick the OpenCode preset chip, paste a key and commit it (blur).
-    const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
-    chips.find((one) => one.textContent?.includes('OpenCode'))?.click();
-    tick(fixture);
-    fillAndCommit(host, '.preset-key', 'oc_sk_test');
-    tick(fixture);
-
-    const afterKey = probe.mock.calls.at(-1);
-    expect(afterKey?.[0]).toBe('opencode');
-    expect(afterKey?.[2]).toEqual([{ provider: 'opencode', apiKey: 'oc_sk_test' }]);
-
-    // The host answers under this wizard's request id and the list appears inline.
-    const requestId = afterKey?.[3] ?? '';
-    morse.bot.onModels({ requestId, kind: 'opencode', models: [claude] });
-    tick(fixture);
-    const options = [...host.querySelectorAll('.model-option')];
-    expect(options.map((one) => one.querySelector('.model-name')?.textContent?.trim())).toContain(
-      'Claude Sonnet 4',
+    expect(host.querySelector('.brain-key.on')?.getAttribute('placeholder')).toBe(
+      'OPENCODE_GO_API_KEY',
     );
+    expect(
+      [...host.querySelectorAll('.brain-models .model-name')].map((one) =>
+        one.textContent?.trim(),
+      ),
+    ).toEqual(['GLM-5.2']);
+  });
 
-    // A foreign answer does not unlock anything: it is not this wizard's list.
-    morse.bot.onModels({
-      requestId: 'somebody-else',
-      kind: 'opencode',
-      models: [{ provider: 'other', id: 'x', name: 'Other X' }],
-    });
+  it('commits a key from the provider row and asks the catalog again', async () => {
+    const { fixture, host, morse, probe } = await render();
+
+    answerModels(fixture, morse, probe, [
+      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+      { provider: 'opencode-go', id: 'glm-5.2', name: 'GLM-5.2' },
+    ]);
+
+    const anthropicKey = host.querySelector(
+      'input[placeholder="ANTHROPIC_API_KEY"]',
+    ) as HTMLInputElement;
+    anthropicKey.value = 'sk-ant-123';
+    anthropicKey.dispatchEvent(new Event('change'));
     tick(fixture);
-    expect(host.textContent).not.toContain('Other X');
+
+    expect(probe.mock.calls.at(-1)?.[2]).toEqual([{ provider: 'anthropic', apiKey: 'sk-ant-123' }]);
+
+    // The answer lands, and the key it holds is still in its row.
+    answerModels(fixture, morse, probe, [
+      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+      { provider: 'opencode-go', id: 'glm-5.2', name: 'GLM-5.2' },
+    ]);
+    expect(
+      (host.querySelector('input[placeholder="ANTHROPIC_API_KEY"]') as HTMLInputElement).value,
+    ).toBe('sk-ant-123');
   });
 
   it('adds a custom provider, discovers its models over HTTP, and saves it', async () => {
@@ -630,18 +641,20 @@ describe('BotWizard', () => {
     const { fixture, host, morse } = await render();
     const { probe } = walkToConnect(fixture, host, morse, 'opencode');
 
-    // A key committed on Connect re-probes without leaving the step.
-    const chips = [...host.querySelectorAll('.preset-chip')] as HTMLButtonElement[];
-    chips.find((one) => one.textContent?.includes('Anthropic'))?.click();
+    // The catalog answers first, so the provider's column — and its key field —
+    // is on the page to type into.
+    answerModels(fixture, morse, probe, [claude]);
+
+    // A key typed into its provider's column is committed on blur, and the
+    // catalog is asked again for what it now unlocks.
+    const key = host.querySelector('.brain-key') as HTMLInputElement;
+    key.value = 'sk-ant-123';
+    key.dispatchEvent(new Event('change'));
     tick(fixture);
-    fillAndCommit(host, '.preset-key', 'sk-ant-123');
-    tick(fixture);
-    const requestId = probe.mock.calls.at(-1)?.[3] ?? '';
-    morse.bot.onModels({ requestId, kind: 'opencode', models: [claude] });
-    tick(fixture);
+    answerModels(fixture, morse, probe, [claude]);
     button(host, '.model-option').click();
     tick(fixture);
-    choose(host, '.row-panel select', 'high');
+    choose(host, '.brain select', 'high');
     tick(fixture);
 
     finishFromConnect(fixture, host, {
@@ -654,6 +667,7 @@ describe('BotWizard', () => {
     button(host, '.board-foot .primary').click();
     tick(fixture);
 
+    const requestId = probe.mock.calls.at(-1)?.[3] ?? '';
     const expected: BotCreateInput & { requestId: string } = {
       username: 'forge',
       name: 'Forge',

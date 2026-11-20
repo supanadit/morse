@@ -1,0 +1,174 @@
+<span
+  class="box"
+  [class]="'box mood-' + mood()"
+  [style.width.px]="size()"
+  [style.height.px]="size()"
+  [style.font-size.px]="size() * 0.82"
+>
+  @if (image() !== '') {
+    <img [src]="image()" alt="" />
+  } @else if (glyph() !== '') {
+    <span class="glyph">{{ glyph() }}</span>
+  } @else {
+    <svg viewBox="0 0 100 100" role="presentation">
+      <defs>
+        <radialGradient [attr.id]="gradientId" cx="35%" cy="28%" r="80%">
+          <stop offset="0%" [attr.stop-color]="design().skin" />
+          <stop offset="100%" [attr.stop-color]="design().shade" />
+        </radialGradient>
+      </defs>
+
+      <!-- The body breathes, sways and lifts; one nested group per axis, so no
+           two animations ever write the same transform. -->
+      <g class="body">
+        <g class="sway">
+          <g class="lift">
+            <rect
+              x="4"
+              y="4"
+              width="92"
+              height="92"
+              rx="30"
+              [attr.fill]="'url(#' + gradientId + ')'"
+            />
+
+            @switch (design().crest) {
+              @case ('antenna') {
+                <line
+                  x1="50"
+                  y1="10"
+                  x2="50"
+                  y2="2"
+                  [attr.stroke]="design().ink"
+                  stroke-width="3"
+                />
+                <circle cx="50" cy="2" r="4" [attr.fill]="design().ink" />
+              }
+              @case ('ears') {
+                <circle cx="10" cy="52" r="5" [attr.fill]="design().ink" opacity="0.5" />
+                <circle cx="90" cy="52" r="5" [attr.fill]="design().ink" opacity="0.5" />
+              }
+              @case ('blush') {
+                <circle cx="22" cy="62" r="7" [attr.fill]="design().blush" opacity="0.55" />
+                <circle cx="78" cy="62" r="7" [attr.fill]="design().blush" opacity="0.55" />
+              }
+            }
+
+            <!-- The expression: one layer per face, crossfading when the mood turns. -->
+            @for (layer of layers(); track layer.id) {
+              <g class="layer" [attr.data-layer]="layer.id">
+                <g class="eyes">
+                  <g class="blink">
+                    @switch (layer.expression.eyes) {
+                      @case ('dot') {
+                        <circle cx="36" cy="44" r="6" [attr.fill]="design().ink" />
+                        <circle cx="64" cy="44" r="6" [attr.fill]="design().ink" />
+                      }
+                      @case ('oval') {
+                        <ellipse cx="36" cy="44" rx="5" ry="8" [attr.fill]="design().ink" />
+                        <ellipse cx="64" cy="44" rx="5" ry="8" [attr.fill]="design().ink" />
+                      }
+                      @case ('wide') {
+                        <circle cx="36" cy="44" r="8" [attr.fill]="design().ink" />
+                        <circle cx="64" cy="44" r="8" [attr.fill]="design().ink" />
+                        <circle cx="38" cy="41" r="2.4" fill="#fff" opacity="0.85" />
+                        <circle cx="66" cy="41" r="2.4" fill="#fff" opacity="0.85" />
+                      }
+                      @case ('up') {
+                        <circle cx="37" cy="41" r="6" [attr.fill]="design().ink" />
+                        <circle cx="63" cy="41" r="6" [attr.fill]="design().ink" />
+                      }
+                      @case ('sad') {
+                        <path
+                          d="M30 47 q6 5 12 0"
+                          [attr.stroke]="design().ink"
+                          stroke-width="3.5"
+                          fill="none"
+                          stroke-linecap="round"
+                        />
+                        <path
+                          d="M58 47 q6 5 12 0"
+                          [attr.stroke]="design().ink"
+                          stroke-width="3.5"
+                          fill="none"
+                          stroke-linecap="round"
+                        />
+                      }
+                      @default {
+                        <path
+                          d="M30 45 q6 -7 12 0"
+                          [attr.stroke]="design().ink"
+                          stroke-width="3.5"
+                          fill="none"
+                          stroke-linecap="round"
+                        />
+                        <path
+                          d="M58 45 q6 -7 12 0"
+                          [attr.stroke]="design().ink"
+                          stroke-width="3.5"
+                          fill="none"
+                          stroke-linecap="round"
+                        />
+                      }
+                    }
+                  </g>
+                </g>
+
+                <g class="mouth">
+                  @switch (layer.expression.mouth) {
+                    @case ('grin') {
+                      <path
+                        d="M34 62 q16 16 32 0 q-16 6 -32 0"
+                        [attr.fill]="design().ink"
+                        stroke-linejoin="round"
+                      />
+                    }
+                    @case ('smile') {
+                      <path
+                        d="M36 64 q14 12 28 0"
+                        [attr.stroke]="design().ink"
+                        stroke-width="3.5"
+                        fill="none"
+                        stroke-linecap="round"
+                      />
+                    }
+                    @case ('half') {
+                      <path
+                        d="M38 66 q12 6 24 0"
+                        [attr.stroke]="design().ink"
+                        stroke-width="3.5"
+                        fill="none"
+                        stroke-linecap="round"
+                      />
+                    }
+                    @case ('flat') {
+                      <path
+                        d="M40 67 h20"
+                        [attr.stroke]="design().ink"
+                        stroke-width="3.5"
+                        fill="none"
+                        stroke-linecap="round"
+                      />
+                    }
+                    @case ('frown') {
+                      <path
+                        d="M40 69 q10 -9 20 0"
+                        [attr.stroke]="design().ink"
+                        stroke-width="3.5"
+                        fill="none"
+                        stroke-linecap="round"
+                      />
+                    }
+                    @default {
+                      <circle cx="50" cy="66" r="5.5" [attr.fill]="design().ink" opacity="0.85" />
+                    }
+                  }
+                </g>
+              </g>
+            }
+          </g>
+        </g>
+      </g>
+    </svg>
+  }
+</span>

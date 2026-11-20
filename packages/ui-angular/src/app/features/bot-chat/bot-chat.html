@@ -10,7 +10,14 @@
     [style.--morse-dock-height]="dockHeight() + 'px'"
   >
     <header class="head">
-      <span class="head-avatar" aria-hidden="true">{{ headAvatar(conversation) }}</span>
+      <span class="head-avatar head-face" aria-hidden="true">
+        <morse-bot-face
+          [value]="headAvatarValue(conversation)"
+          [seed]="headSeed(conversation)"
+          [mood]="headMood()"
+          [size]="30"
+        />
+      </span>
       <div class="titles">
         <h2 class="title">{{ conversation.title }}</h2>
         <span class="members">
@@ -105,7 +112,9 @@
               "
               (click)="togglePeer(peer.traceId)"
             >
-              <span class="peer-avatar" aria-hidden="true">{{ initial(peer.reply.name) }}</span>
+              <span class="peer-avatar" aria-hidden="true">
+                <morse-bot-face [seed]="peer.reply.name" [size]="20" />
+              </span>
               <span class="peer-title">Messaged {{ peer.reply.name }}</span>
               <time [attr.datetime]="stamp(peer.reply.at)" [title]="fullStamp(peer.reply.at)">{{
                 clock(peer.reply.at)
@@ -133,7 +142,9 @@
             record — the steps, how each went, and the asks it handed on.
           -->
           <div class="entry turn" [attr.data-trace-id]="trace.id" [attr.data-status]="trace.status">
-            <span class="avatar" aria-hidden="true">{{ initial(trace.name) }}</span>
+            <span class="avatar avatar-face" aria-hidden="true">
+              <morse-bot-face [seed]="trace.username" [size]="26" />
+            </span>
             <div class="turn-body">
               <button
                 type="button"
@@ -230,7 +241,13 @@
             }
             @case ('bot') {
               <div class="entry bot" [attr.data-entry-id]="entry.id">
-                <span class="avatar" aria-hidden="true">{{ mark(entry.author) }}</span>
+                <span class="avatar avatar-face" aria-hidden="true">
+                  <morse-bot-face
+                    [value]="entry.author.avatar ?? ''"
+                    [seed]="entry.author.username ?? entry.author.name"
+                    [size]="26"
+                  />
+                </span>
                 <div class="body">
                   <div class="who">
                     <span class="author">{{ entry.author.name }}</span>
@@ -338,7 +355,14 @@
           [attr.data-kind]="row.kind"
           [attr.data-quiet]="quiet(row) ? 'true' : null"
         >
-          <span class="avatar" aria-hidden="true">{{ row.mark }}</span>
+          <span class="avatar avatar-face" aria-hidden="true">
+            <morse-bot-face
+              [value]="row.avatar"
+              [seed]="row.username"
+              [mood]="'thinking'"
+              [size]="26"
+            />
+          </span>
           <div class="body">
             <span class="author">{{ row.name }}</span>
             <span class="doing">

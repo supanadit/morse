@@ -75,7 +75,14 @@
               (click)="openBot(bot)"
               (contextmenu)="openRowMenu($event, bot)"
             >
-              <span class="tile" aria-hidden="true">{{ mark(bot) }}</span>
+              <span class="tile tile-face" aria-hidden="true">
+                <morse-bot-face
+                  [value]="bot.avatar ?? ''"
+                  [seed]="bot.username"
+                  [mood]="moodOf(bot)"
+                  [size]="24"
+                />
+              </span>
               <span class="body">
                 <span class="name">{{ bot.name }}</span>
                 <span class="description">{{ botSubtitle(bot) }}</span>

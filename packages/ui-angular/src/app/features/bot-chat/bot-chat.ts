@@ -15,6 +15,7 @@ import type {
   BotAuthor,
   BotConversationSummary,
   BotHandoff,
+  BotSummary,
   BotTranscriptEntry,
   BotTurnReply,
   BotTurnTrace,
@@ -22,6 +23,9 @@ import type {
   PromptImage,
 } from '@morse/protocol';
 import { clockTime, fullTime } from '@morse/ui-runtime';
+import { BotFace } from '../../ui/bot-face/bot-face';
+import type { BotMood } from '../../ui/bot-face/bot-face-moods';
+import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { MorseService } from '../../host/morse.service';
 import { ComposerDrafts } from '../../state/composer-drafts';
 import { CopyButton } from '../../ui/copy-button/copy-button';
@@ -68,7 +72,8 @@ interface ActingRow {
   kind: BotActivity['kind'];
   label: string;
   name: string;
-  mark: string;
+  /** Its own avatar, when the roster has one: the row wears the same face. */
+  avatar: string;
   queued: string[];
   /** The bot's handle: unique, and the only thing a stop takes. */
   username: string;
@@ -120,7 +125,7 @@ interface RevealCursor {
 @Component({
   selector: 'morse-bot-chat',
   templateUrl: './bot-chat.html',
-  imports: [Markdown, ChatComposer, CopyButton, UsageIndicator],
+  imports: [BotFace, Markdown, ChatComposer, CopyButton, UsageIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './bot-chat.css',
   host: { '(document:click)': 'onDocumentClick($event)' },
@@ -216,16 +221,36 @@ export class BotChat {
     }
   }
 
-  /** The header's avatar: the DM bot's own mark, else the conversation's initial. */
-  protected headAvatar(conversation: BotConversationSummary): string {
-    if (conversation.kind === 'dm') {
-      const member = conversation.members[0];
-      const bot = this.morse.bot.roster()?.bots.find((candidate) => candidate.username === member);
-      if (bot !== undefined) {
-        return bot.avatar ?? bot.name.slice(0, 1).toUpperCase();
-      }
+  /**
+   * What the header face is computed from: the bot's handle, so a DM wears the
+   * same face as its roster tile. A group has no single bot, so it uses its title.
+   */
+  protected headSeed(conversation: BotConversationSummary): string {
+    return this.headBot(conversation)?.username ?? conversation.title;
+  }
+
+  /** The header's face: the DM bot's own avatar when it has one. */
+  protected headAvatarValue(conversation: BotConversationSummary): string {
+    return this.headBot(conversation)?.avatar ?? '';
+  }
+
+  /** The header face's mood: answering here turns it thoughtful, a failure sours it. */
+  protected headMood(): BotMood {
+    const conversation = this.conversation();
+    const bot = conversation === undefined ? undefined : this.headBot(conversation);
+    return moodForBot({
+      description: bot === undefined ? '' : `${bot.name} ${bot.description}`,
+      streaming: this.routing() !== null,
+      warm: bot?.warm === true,
+    });
+  }
+
+  private headBot(conversation: BotConversationSummary): BotSummary | undefined {
+    if (conversation.kind !== 'dm') {
+      return undefined;
     }
-    return conversation.title.slice(0, 1).toUpperCase();
+    const member = conversation.members[0];
+    return this.morse.bot.roster()?.bots.find((candidate) => candidate.username === member);
   }
 
   /**
@@ -293,7 +318,7 @@ export class BotChat {
         kind: activity.kind,
         label: activity.label,
         name: entry.target,
-        mark: bot?.avatar ?? entry.target.slice(0, 1).toUpperCase(),
+        avatar: bot?.avatar ?? '',
         // The queue belongs to the room, not to one bot: it is drawn once, under
         // the first row, rather than repeated beside every working member.
         queued: index === 0 ? routing.queued : [],
@@ -589,16 +614,6 @@ export class BotChat {
   /** The clock's tooltip: the full date, so an old line is still placeable. */
   protected fullStamp(at: number): string {
     return fullTime(at);
-  }
-
-  /** A bot's mark: its own avatar when it has one, else the letter it starts with. */
-  protected mark(author: BotAuthor & { role: 'bot' }): string {
-    return author.avatar ?? author.name.slice(0, 1).toUpperCase();
-  }
-
-  /** A finished turn's mark, from the name it was written with. */
-  protected initial(name: string): string {
-    return name.slice(0, 1).toUpperCase();
   }
 
   /**
