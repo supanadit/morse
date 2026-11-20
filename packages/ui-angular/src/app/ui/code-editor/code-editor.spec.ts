@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DiffView } from '../../state/display-prefs';
 import { CodeEditor } from './code-editor';
 
@@ -71,6 +71,27 @@ describe('CodeEditor', () => {
     expect(panes[1]?.querySelector('.morse-diff-gutter-new')?.textContent).toBe('123');
     expect(panes[0]?.querySelector('.morse-diff-gutter-new')).toBeNull();
     expect(panes[1]?.querySelector('.morse-diff-gutter-old')).toBeNull();
+  });
+
+  it('keeps the grammar when a mode switch rebuilds the view', async () => {
+    const fixture = TestBed.createComponent(CodeEditor);
+    fixture.componentRef.setInput('text', 'const a = 1;\n');
+    fixture.componentRef.setInput('path', 'src/main.ts');
+    fixture.componentRef.setInput('mode', 'unified');
+    fixture.componentRef.setInput('diff', DIFF);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+    // The grammar arrives from its own lazy chunk, so wait for the paint it buys.
+    await vi.waitFor(() => expect(host.querySelector('.cm-line span')).not.toBeNull());
+
+    fixture.componentRef.setInput('mode', 'file');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The file view is a new EditorView, so the loaded grammar has to go in again.
+    expect(host.querySelector('.cm-line span')).not.toBeNull();
   });
 
   it('goes back to the file when the mode does', async () => {

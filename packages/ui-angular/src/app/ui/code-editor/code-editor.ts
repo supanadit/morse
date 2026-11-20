@@ -40,7 +40,7 @@ import {
   type Range,
 } from '@codemirror/state';
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view';
-import { foldedRanges } from '@codemirror/language';
+import { foldedRanges, type LanguageSupport } from '@codemirror/language';
 import { parseUnifiedDiff, pinRangeLabel, type PopoverAnchor } from '@morse/ui-runtime';
 import type { DiffView } from '../../state/display-prefs';
 import { pinAtLine } from './bands';
@@ -192,6 +192,8 @@ export class CodeEditor {
   /** The mode + diff the live views were built for, so a no-op effect does no work. */
   private shape = '';
   private loadedPath: string | undefined;
+  /** The grammar `loadedPath` resolved to, kept so a rebuilt view gets it back. */
+  private grammar: LanguageSupport | null = null;
   private flashTimer: ReturnType<typeof setTimeout> | undefined;
   /** The last selection reported up, so an unchanged one is not re-emitted. */
   private reportedSelection: string | null = null;
@@ -295,6 +297,7 @@ export class CodeEditor {
         this.mainView = this.create(host, 'both', documentText(this.document), this.diffExtensionsOf(this.document, 'both'));
       }
     }
+    this.applyGrammar();
     this.applyPins();
     const line = this.line();
     if (line !== undefined) {
@@ -393,8 +396,6 @@ export class CodeEditor {
     this.leftView = undefined;
     this.document = undefined;
     this.leftDocument = undefined;
-    // The grammar belongs to the views that just went away.
-    this.loadedPath = undefined;
   }
 
   /** Keep the two sides of a split on the same line. */
@@ -668,12 +669,22 @@ export class CodeEditor {
       return;
     }
     this.loadedPath = path;
+    this.grammar = null;
     const language = await loadLanguage(path);
     if (this.loadedPath !== path) {
       return;
     }
+    this.grammar = language;
+    this.applyGrammar();
+  }
+
+  /**
+   * Put the loaded grammar into every live view. A mode switch builds new views, so
+   * the grammar has to be handed over again rather than only when the path changes.
+   */
+  private applyGrammar(): void {
     for (const surface of this.surfaces()) {
-      surface.view.dispatch({ effects: this.language.reconfigure(language ?? []) });
+      surface.view.dispatch({ effects: this.language.reconfigure(this.grammar ?? []) });
     }
   }
 
