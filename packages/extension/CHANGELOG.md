@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.30.1 — 20 November 2026
+
+## 🐛 Bug Fixes
+
+- Bot mode's top bar is a compact strip on a phone, without dead space
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.30.0...v0.30.1`](https://github.com/supanadit/morse/compare/v0.30.0...v0.30.1)
+
 ## 0.30.0 — 20 November 2026
 
 ## 🚀 New Features

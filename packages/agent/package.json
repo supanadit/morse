@@ -1,6 +1,6 @@
 {
   "name": "@morse/agent",
-  "version": "0.30.0",
+  "version": "0.30.1",
   "private": true,
   "type": "module",
   "description": "The harness contract: what any coding-agent engine (pi, OpenCode, ...) must expose. Pure TypeScript with NO dependencies — this package must never import @morse/system or any application symbol.",
