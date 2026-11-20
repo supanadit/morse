@@ -37,7 +37,6 @@ export class MarkdownView implements AfterContentInit {
   private readonly box = viewChild<ElementRef<HTMLElement>>('box');
   /** While true, the textarea is mid-composition and paints its own text. */
   protected readonly composing = signal(false);
-  protected readonly html = signal('');
   protected readonly caretVisible = signal(false);
   protected readonly caretRect = signal<ViewRect>({ left: 6, top: 4, right: 6, bottom: 24, width: 2, height: 20 });
   protected readonly selectionBands = signal<SelectionBand[]>([]);
@@ -114,7 +113,18 @@ export class MarkdownView implements AfterContentInit {
         this.area && this.area.selectionStart !== null && this.area.selectionEnd !== null
           ? [this.area.selectionStart, this.area.selectionEnd]
           : undefined;
-      this.html.set(decoratedMarkdownHtml(value, { viewMode: isVm, selection: sel }) + '<br>');
+      // Painted here, not bound in the template: the mirror's scroll and the
+      // caret's line are read straight after, and a binding applies the new
+      // content a render later — long enough for the old, shorter content to
+      // clamp that scroll and leave the two layers a line apart until the next
+      // keystroke. The markup is Morse's own (every character escaped by the
+      // decorator), never a host value.
+      const paint = this.box()?.nativeElement;
+      if (paint) {
+        paint.innerHTML =
+          decoratedMarkdownHtml(value, { viewMode: isVm, selection: sel }) + '<br>';
+      }
+      this.revealCaret();
       this.syncScroll();
       if (isVm) {
         this.updateSelectionAndCaret();
@@ -224,6 +234,28 @@ export class MarkdownView implements AfterContentInit {
       box.scrollTop = this.area.scrollTop;
     }
   };
+
+  /**
+   * After Enter the caret sits on the empty line the trailing newline leaves.
+   * The box does not follow it on its own — it stays where it was, so the caret
+   * is drawn on the line above and only typing or a manual scroll shows the
+   * line it is really on. Put the box on the caret's line here.
+   */
+  private revealCaret(): void {
+    const area = this.area;
+    if (!area || document.activeElement !== area) {
+      return;
+    }
+    // Only the end of the draft can leave the box behind; a caret inside the
+    // text was scrolled into view by the keystroke that moved it.
+    if ((area.selectionStart ?? 0) !== area.value.length) {
+      return;
+    }
+    const bottom = area.scrollHeight - area.clientHeight;
+    if (bottom > 0) {
+      area.scrollTop = bottom;
+    }
+  }
 
   private readonly onCompositionStart = (): void => {
     this.composing.set(true);
