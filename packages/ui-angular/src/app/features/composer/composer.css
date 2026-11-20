@@ -742,6 +742,11 @@ textarea:focus-visible {
   margin-left: auto;
   white-space: nowrap;
 }
+/* The mark a narrow footer paints in place of the word (see the container
+   query): a wide footer keeps the words, so the glyph is not drawn there. */
+.controls-actions .secondary .glyph {
+  display: none;
+}
 /*
  * Row 1 is status only: the session facts on the left, run progress and the
  * context indicator on the right. Row 2 stays pure
@@ -864,24 +869,10 @@ textarea:focus-visible {
 }
 /*
  * Responsive but deterministic: each breakpoint is pinned to the box
- * width so the same width always gives the same layout. Status metrics
- * live on their own row now, so they are only dropped when the box is
- * genuinely too narrow — a ~580px composer has room for the live rate.
+ * width so the same width always gives the same layout. Nothing is dropped
+ * at a narrow width — every fact and control desktop shows stays on the box,
+ * it only changes row: a crowded line wraps instead of losing an entry.
  */
-@container (max-width: 380px) {
-  .usage-host {
-    display: none;
-  }
-}
-@container (max-width: 460px) {
-  .controls {
-    flex-wrap: wrap;
-  }
-  .controls-actions {
-    flex: 1 1 100%;
-    justify-content: flex-end;
-  }
-}
 /* Engine and mode join the model/thinking row on a draft. They may be the two
    most important choices there, so they wrap before they truncate to nothing. */
 .engine-host,
@@ -892,10 +883,102 @@ textarea:focus-visible {
 @container (max-width: 560px) {
   .controls-metrics {
     flex-wrap: wrap;
+    row-gap: 4px;
   }
 }
-@container (max-width: 360px) {
-  .thinking-host {
+@container (max-width: 460px) {
+  /*
+   * One status row, not two: the facts keep the left of the line and the run
+   * progress keeps the right, so the panel loses a row instead of a fact. The
+   * session id is what gives way when the two meet — it is the only entry with
+   * a tail that carries nothing, and its whole text is in the fact's title.
+   */
+  .status-row {
+    flex-wrap: nowrap;
+  }
+  .status-live {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .facts {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  /* The engine and the provider keep their width; the session id — last, and the
+     only fact whose tail carries nothing — is the one that ellipsizes. */
+  .fact {
+    flex: 0 0 auto;
+  }
+  .fact:last-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .status-end {
+    margin-left: auto;
+  }
+  .controls {
+    flex-wrap: nowrap;
+  }
+  .controls-actions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+  /*
+   * The run's own buttons become marks here so they share one line with the two
+   * selectors: three words need ~200px, one line for the whole footer is worth
+   * more on a phone, and the glyph replaces the paint of a label that is still in
+   * the DOM (`title` and `aria-label` name it for everything else).
+   */
+  .controls-actions .secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+  }
+  .controls-actions .secondary .label {
     display: none;
+  }
+  .controls-actions .secondary .glyph {
+    display: inline;
+    font-size: 13px;
+    line-height: 1;
+  }
+  /* One row, with the model name as the thing that gives way — never a second
+     line that leaves the thinking level stranded under the selectors. */
+  .controls-metrics {
+    flex-wrap: nowrap;
+    row-gap: 0;
+  }
+  /*
+   * A model name is a name, not a width: the trigger may never grow past the room
+   * the thinking level and the run's buttons leave, and the name ellipsizes
+   * inside it. The reserve is the thinking trigger plus the gap; flex already
+   * shrinks to this today, and the cap keeps it true if the label's own rules
+   * ever change. Checked with a 45-character name at 320 / 375 / 414 px: the box
+   * reports no horizontal overflow and stays two rows.
+   */
+  .model-button {
+    max-width: calc(100% - 84px);
+  }
+}
+/* The narrowest box: the hint gives up its tail before it gives up its row.
+ * Ellipsis, not a second line — the guidance stays on the one row with the
+ * buttons, and only the words past the room go. */
+@container (max-width: 380px) {
+  .toolbar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .toolbar .hint:not(.throughput) {
+    /* A small basis on purpose: with `auto` the hint's full text counts as its
+       hypothetical size, flexbox wraps the last handle to a second row instead
+       of letting the hint shrink. Starting it narrow keeps one row and lets the
+       words ellipsize into whatever room the buttons leave. */
+    flex: 1 1 8ch;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }

@@ -581,8 +581,31 @@
            the bot variant always shows the Send button instead.
       -->
       @if (variant !== 'bot' && streaming()) {
-        <button type="button" class="secondary" (click)="sendWith('steer')">Steer</button>
-        <button type="button" class="secondary" (click)="sendWith('followUp')">Follow up</button>
+        <!--
+             Two words and a stop sign on a wide footer, three marks on a phone:
+             the words are what make this row too wide to share with the model
+             and thinking selectors there, and the row is worth more than the
+             labels. The words stay in the DOM for readers and tests; only their
+             paint is replaced by the glyph (see the container query).
+        -->
+        <button
+          type="button"
+          class="secondary steer"
+          title="Steer"
+          aria-label="Steer"
+          (click)="sendWith('steer')"
+        >
+          <span class="glyph" aria-hidden="true">⇈</span><span class="label">Steer</span>
+        </button>
+        <button
+          type="button"
+          class="secondary follow-up"
+          title="Follow up"
+          aria-label="Follow up"
+          (click)="sendWith('followUp')"
+        >
+          <span class="glyph" aria-hidden="true">↳</span><span class="label">Follow up</span>
+        </button>
         <button type="button" class="icon stop" title="Stop" aria-label="Stop" (click)="abort()">■</button>
       } @else {
         <button

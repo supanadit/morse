@@ -1004,6 +1004,17 @@ export class App {
   }
 
   /**
+   * The scrim's job: whatever overlay is in front steps aside. On a narrow window
+   * the git panel and the navigation drawer are both full-height overlays with a
+   * strip of conversation beside them, and that strip is this scrim — so one
+   * click has to put away whichever one the reader opened.
+   */
+  protected closeOverlays(): void {
+    this.closeNavigation();
+    if (this.gitOpen()) this.layout.setVisible('right', false);
+  }
+
+  /**
    * The empty panel's "New session": the sidebar's own action, host-aware (a
    * global host asks which folder first), rather than a second implementation
    * that could drift from the button and the key.

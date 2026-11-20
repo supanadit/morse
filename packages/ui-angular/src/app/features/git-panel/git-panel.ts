@@ -344,6 +344,13 @@ export class GitPanel {
   /** Opens a changed path in a preview tab. */
   protected onOpenChange(state: GitRepoState, change: ChangeView): void {
     this.tabs.openFile(change.path, undefined, state.info.path || undefined);
+    /*
+     * On a narrow window the panel is an overlay, not a column: it covers the very
+     * diff the reader just asked for. The file they picked is now the thing to
+     * look at, so the panel steps aside — 759 mirrors the shell's own breakpoint
+     * (app.css), the width where that column becomes an overlay.
+     */
+    if (window.matchMedia('(max-width: 759px)').matches) this.close();
   }
 
   /** A group header folds its section, from the repository's own flag. */

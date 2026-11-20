@@ -4,6 +4,7 @@
   [class.collapsed]="navigationCollapsed()"
   [class.embedded]="embedded()"
   [class.with-rail]="railVisible()"
+  [class.nav-open]="navigationOpen()"
   [class.with-git]="gitOpen()"
   [class.git-expanded]="gitExpanded()"
   [class.panel-full]="bottomPanelFull()"
@@ -223,12 +224,12 @@
     />
   }
 
-  @if (navigationOpen() && !embedded()) {
+  @if ((navigationOpen() || gitOpen()) && !embedded()) {
     <button
       type="button"
       class="scrim"
-      aria-label="Close navigation"
-      (click)="closeNavigation()"
+      [attr.aria-label]="navigationOpen() ? 'Close navigation' : 'Close the git panel'"
+      (click)="closeOverlays()"
     ></button>
   }
 

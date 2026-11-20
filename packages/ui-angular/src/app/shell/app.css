@@ -638,8 +638,10 @@ morse-bottom-panel {
 
 @media (max-width: 759px) {
   /*
-   * One column, and the rail keeps its own track: the panel is a drawer over the
-   * conversation, while the rail stays on screen so Files remains reachable.
+   * One column, and the rail costs nothing until it is asked for: on a phone the
+   * 48px strip is a fifth of the conversation, so the panel is a drawer over the
+   * chat and the rail rides in with it (see `.nav-open` below) instead of
+   * holding a column of its own.
    */
   .shell {
     grid-template-areas:
@@ -651,10 +653,10 @@ morse-bottom-panel {
 
   .shell.with-rail {
     grid-template-areas:
-      '. .'
-      'rail main'
-      '. .';
-    grid-template-columns: var(--morse-rail-width) minmax(0, 1fr);
+      '.'
+      'main'
+      '.';
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /*
@@ -682,10 +684,10 @@ morse-bottom-panel {
   .shell.with-rail.with-git,
   .shell.with-rail.git-expanded {
     grid-template-areas:
-      '. .'
-      'rail main'
-      '. .';
-    grid-template-columns: var(--morse-rail-width) minmax(0, 1fr);
+      '.'
+      'main'
+      '.';
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .shell.git-expanded .git-panel {
@@ -695,15 +697,14 @@ morse-bottom-panel {
   }
 
   /*
-   * Specific enough to beat the component's own `:host { position: relative }`,
-   * which the absolutely-positioned header/list rely on in every other mode.
+   * The git panel is the right-hand twin: full height, with a strip of the
+   * conversation left on its left side, the same shape the navigation drawer
+   * takes on the other edge.
    */
-  /* Same grid-area trap as the drawer: the overlay spans the shell's height,
-     not just row 2 — but stays a right-side partial overlay. */
   .shell > .git-panel {
     position: absolute;
     grid-area: auto;
-    z-index: 20;
+    z-index: 27;
     top: 0;
     bottom: 0;
     right: 0;
@@ -712,15 +713,16 @@ morse-bottom-panel {
   }
 
   /*
-   * Narrow window: the drawer overlays full height but leaves a strip of the
-   * conversation on the right — a click there (the scrim behind it) closes it,
-   * a full-width drawer would have to be closed by nothing but its own content.
-   * With the rail, the drawer starts to its right, so the rail stays clickable.
+   * Narrow window: the drawer is a full-height overlay with a strip of
+   * conversation left beside it. Full height, because the chrome rows are not
+   * worth protecting from a panel the reader just opened — covering them is what
+   * makes it read as a sidebar instead of a box with a gap above it. The strip on
+   * the right is the way out: it is the scrim, so a click there closes the drawer.
    */
   .nav {
     position: absolute;
     grid-area: auto;
-    z-index: 20;
+    z-index: 28;
     top: 0;
     bottom: 0;
     left: 0;
@@ -730,14 +732,43 @@ morse-bottom-panel {
     box-shadow: 0 0 24px rgb(0 0 0 / 35%);
   }
 
-  .shell.with-rail .nav {
+  /*
+   * The rail appears with the drawer and only then: a strip at the window's
+   * edge, not a track that pushed the chat aside. It is the switch between the
+   * two faces of the column — sessions and files — so the drawer cannot open
+   * without it.
+   */
+  .rail {
+    display: none;
+  }
+
+  .shell.nav-open .rail {
+    display: flex;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--morse-rail-width);
+    z-index: 26;
+  }
+
+  /* The drawer clears the rail only where there is a rail to clear: bot mode has
+     none (`railVisible` stands down when the column belongs to the roster), and
+     shifting it 48px there left the chat showing through the gap. */
+  .shell.nav-open.with-rail .nav {
     left: var(--morse-rail-width);
     width: min(100% - 96px, 420px);
   }
 
-  .rail {
-    position: relative;
-    z-index: 25;
+  /*
+   * On a phone the drawer and the git sheet are both full-band overlays, so one
+   * of them would have to be sliced at the other's edge — the very thing these
+   * sheets exist to avoid. The drawer wins; the panel is not dismissed, only
+   * out of sight, and it is back the moment the drawer closes (`rightVisible`
+   * still holds it open).
+   */
+  .shell.nav-open > .git-panel {
+    display: none;
   }
 
   .nav.open {
