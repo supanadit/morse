@@ -146,7 +146,12 @@ What makes a tab more than a second view is that it is **pinned**:
   (`morse.view.sessionTab`, read by `readSessionTabState`). A tab restored without it is closed.
 
 The browser host has no editor tabs and leaves `sessionTabs` off; its tab strip is a separate, wire-driven
-feature (`state/workspace-tabs.ts`, gated on `filePreview`).
+feature (`state/workspace-tabs.ts`, gated on `filePreview`). On a narrow window the strip is not a row of
+tabs — a sideways-scrolling row hides most of itself on a phone — but one bar naming the tab in front;
+tapping it (or pulling it down) opens the same list in a centred dialog — the shared `morse-dialog`
+shell, so it has the same backdrop, card and Escape handling as every other popup — with a search field
+for tab names and paths; a row picks a tab and its `×` closes one. Reordering stays the wide strip's drag.
+The drawer and its search are a CSS breakpoint, not a capability: the wide window keeps the row it always had.
 
 ### Attachments, by host
 

@@ -5,6 +5,14 @@
   border-bottom: 1px solid var(--morse-border);
   background: var(--morse-nav-bg);
 }
+/*
+ * The bar is the narrow window's shape of this component, and nothing on a wide
+ * window: there the row of tabs is the whole thing. CSS owns the breakpoint, so no
+ * width is repeated in TypeScript.
+ */
+.handle {
+  display: none;
+}
 .strip {
   display: flex;
   align-items: stretch;
@@ -290,4 +298,236 @@
 }
 .context-menu-item:disabled:hover {
   background: transparent;
+}
+
+/*
+ * Narrow window: the tab row becomes one bar naming the tab in front, and the same
+ * tabs open as a drawer pulled down from it. A sideways-scrolling row of tabs on a
+ * phone hides most of itself, so the list is the honest shape there. The drawer is
+ * the shared dialog shell: same backdrop, same card, same Escape as every other
+ * popup here. It is centred by the shell's default, like the picker it is.
+ */
+morse-dialog.sheet-dialog {
+  /* The shell's default centring is what a phone wants: a picker in the middle of
+     the page, not a card hanging off the top edge. */
+  --morse-card-width: min(520px, 100%);
+  --morse-card-max-height: min(70vh, 560px);
+  --morse-card-overflow: auto;
+}
+
+@media (max-width: 759px) {
+  :host {
+    min-height: 0;
+    border-bottom: 0;
+    background: none;
+  }
+
+  /* The rows are the drawer's business now. */
+  .strip {
+    display: none;
+  }
+
+  .handle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 0;
+    border-bottom: 1px solid var(--morse-border);
+    border-radius: 0;
+    background: var(--morse-nav-bg);
+    color: var(--morse-fg);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    /* A pull is a vertical gesture here, so the browser must not claim it. */
+    touch-action: pan-x;
+  }
+
+  .handle:active {
+    background: var(--morse-hover);
+  }
+
+  .handle-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .handle-count {
+    flex: none;
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--morse-badge-bg, var(--morse-hover));
+    color: var(--morse-fg-muted);
+    font-size: 11px;
+    line-height: 17px;
+    text-align: center;
+  }
+
+  .handle-caret {
+    flex: none;
+    color: var(--morse-fg-muted);
+    font-size: 10px;
+  }
+
+  /* The drawer's header: the same shape as the project filter's. */
+  .modal-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--morse-border);
+  }
+
+  .modal-head strong {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .modal-head .count {
+    color: var(--morse-fg-muted);
+    font-size: 11px;
+  }
+
+  .modal-head .close {
+    padding: 2px 6px;
+    border: 0;
+    background: transparent;
+    color: var(--morse-fg-muted);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .modal-head .close:hover {
+    color: var(--morse-fg);
+  }
+
+  /* Search sits under the title, like the project filter's, with the same icon. */
+  .search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--morse-border);
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 23px;
+    display: inline-flex;
+    color: var(--morse-fg-muted);
+    pointer-events: none;
+  }
+
+  .search-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+  }
+
+  .search input {
+    flex: 1;
+    min-width: 0;
+    padding-left: 30px;
+    font-size: 12.5px;
+  }
+
+  .list {
+    padding: 4px 6px 8px;
+  }
+
+  /*
+   * One full-width row per tab, with no bracket or inset shadow around the one in
+   * front: the selected row is a plain tint and a check, like the filter's list.
+   */
+  .sheet-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: var(--morse-radius-sm);
+    background: transparent;
+    color: var(--morse-fg-muted);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .sheet-row:hover {
+    background: var(--morse-hover);
+  }
+
+  .sheet-row.selected {
+    background: var(--morse-active);
+    color: var(--morse-fg);
+  }
+
+  .sheet-row.selected .glyph,
+  .sheet-row.selected .check {
+    color: var(--morse-accent);
+  }
+
+  .sheet-row .text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+
+  .sheet-row .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sheet-row .dir {
+    margin-top: 2px;
+    color: var(--morse-fg-muted);
+    font-size: 10.5px;
+  }
+
+  .sheet-row .check {
+    flex: none;
+    font-size: 12px;
+  }
+
+  .sheet-row .close {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--morse-radius-sm);
+    background: transparent;
+    color: var(--morse-fg-muted);
+    font-size: 15px;
+    line-height: 1;
+    opacity: 1;
+  }
+
+  .sheet-row .close:hover {
+    background: var(--morse-hover);
+    color: var(--morse-fg);
+  }
 }

@@ -273,3 +273,165 @@ describe('TabStrip context menu', () => {
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s2', 's3', 's1']);
   });
 });
+
+describe('TabStrip drawer (narrow windows)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  /** A tap on the bar: down, up, then the browser's click. */
+  function tapBar(fixture: ComponentFixture<TabStrip>, from = 10): void {
+    const bar = fixture.nativeElement.querySelector('.handle') as HTMLElement;
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: from }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientY: from }));
+    bar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+  }
+
+  function sheet(fixture: ComponentFixture<TabStrip>): HTMLElement | null {
+    return fixture.nativeElement.querySelector('.modal-card') as HTMLElement | null;
+  }
+
+  function rows(fixture: ComponentFixture<TabStrip>): HTMLElement[] {
+    return [...fixture.nativeElement.querySelectorAll('.sheet-row')] as HTMLElement[];
+  }
+
+  it('names the tab in front, and lists every tab in the drawer', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.handle')?.textContent).toContain('Two');
+
+    tapBar(fixture);
+
+    // Every open tab, in strip order, not just the one the bar names.
+    expect(rows(fixture).map((row) => row.textContent?.replace(/[✓×]/g, '').trim())).toEqual([
+      '✦One',
+      '✦Two',
+    ]);
+    expect(rows(fixture)[1].classList.contains('selected')).toBe(true);
+  });
+
+  it('stays open after the click that opened it', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    fixture.detectChanges();
+
+    // Opening on pointer-up mounted the backdrop before the click arrived, so the
+    // click landed on it and dismissed the drawer at once. The click itself opens.
+    const bar = fixture.nativeElement.querySelector('.handle') as HTMLElement;
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: 10 }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientY: 10 }));
+    fixture.detectChanges();
+    expect(sheet(fixture)).toBeNull();
+
+    bar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(sheet(fixture)).not.toBeNull();
+
+    // Once it is really up, a backdrop click is the ordinary way out.
+    (fixture.nativeElement.querySelector('.modal-layer') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(sheet(fixture)).toBeNull();
+  });
+
+  it('opens on a pull down, and closes again on Escape', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    fixture.detectChanges();
+
+    const bar = fixture.nativeElement.querySelector('.handle') as HTMLElement;
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: 10 }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientY: 60 }));
+    bar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(sheet(fixture)).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(sheet(fixture)).toBeNull();
+  });
+
+  it('toggles on a keyboard click, without a pointer gesture', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    fixture.detectChanges();
+
+    const bar = fixture.nativeElement.querySelector('.handle') as HTMLElement;
+    bar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(sheet(fixture)).not.toBeNull();
+
+    bar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(sheet(fixture)).toBeNull();
+  });
+
+  it('picks a tab from the drawer and folds it away', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    fixture.detectChanges();
+
+    tapBar(fixture);
+    rows(fixture)[0].click();
+    fixture.detectChanges();
+
+    expect(tabs.activeId()).toBe('s1');
+    expect(sheet(fixture)).toBeNull();
+  });
+
+  it('searches tab titles and paths, and forgets the query on close', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/work/morse' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.openFile('docs/STATUS.md');
+    fixture.detectChanges();
+
+    tapBar(fixture);
+    const field = fixture.nativeElement.querySelector('.search input') as HTMLInputElement;
+    const search = (text: string): void => {
+      field.value = text;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+    };
+
+    // A file matches its path, and a session matches its directory as well as its title.
+    search('status');
+    expect(rows(fixture)).toHaveLength(1);
+    expect(rows(fixture)[0].textContent).toContain('STATUS.md');
+
+    search('MORSE');
+    expect(rows(fixture)).toHaveLength(1);
+    expect(rows(fixture)[0].textContent).toContain('One');
+
+    search('nothing here');
+    expect(rows(fixture)).toHaveLength(0);
+    expect(sheet(fixture)?.textContent).toContain('No tabs match that search.');
+
+    // A stale filter would make the next open look like every tab had vanished.
+    (fixture.nativeElement.querySelector('.modal-layer') as HTMLElement).click();
+    fixture.detectChanges();
+    tapBar(fixture);
+    expect(rows(fixture)).toHaveLength(3);
+  });
+
+  it('closes a tab from its row, and stays open while tabs remain', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    fixture.detectChanges();
+
+    tapBar(fixture);
+    (rows(fixture)[0].querySelector('.close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s2']);
+    expect(sheet(fixture)).not.toBeNull();
+
+    // The last one gone leaves nothing to list, so the drawer folds.
+    (rows(fixture)[0].querySelector('.close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(sheet(fixture)).toBeNull();
+  });
+});

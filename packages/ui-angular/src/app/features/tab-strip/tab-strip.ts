@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { fileGlyph } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
+import { Dialog } from '../../ui/dialog/dialog';
 import { WorkspaceTabs, type WorkspaceTab } from '../../state/workspace-tabs';
 
 /** An open tab context menu, anchored at the pointer. */
@@ -31,7 +32,7 @@ interface TabMenu {
  */
 @Component({
   selector: 'morse-tab-strip',
-  imports: [NgTemplateOutlet, CdkDropList, CdkDrag],
+  imports: [NgTemplateOutlet, CdkDropList, CdkDrag, Dialog],
   templateUrl: './tab-strip.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './tab-strip.css',
@@ -45,6 +46,32 @@ export class TabStrip {
   /** Two rows: sessions/Explorer files first, then files from the `@` picker. */
   protected readonly mainTabs = this.tabs.mainTabs;
   protected readonly mentionTabs = this.tabs.mentionTabs;
+  /**
+   * The tab in front, for the narrow window's bar. It replaces the strip there, so
+   * it has to say which tab the reader is looking at without the row of tabs.
+   */
+  protected readonly activeTab = this.tabs.activeTab;
+  /** Every open tab as one list, in strip order — the drawer's shape (narrow windows). */
+  protected readonly allTabs = computed<WorkspaceTab[]>(() => [
+    ...this.mainTabs(),
+    ...this.mentionTabs(),
+  ]);
+  /** True while the narrow window's tab drawer is down. */
+  protected readonly sheetOpen = signal(false);
+  /** What the drawer's field narrows the tabs by; titles and paths both match. */
+  protected readonly drawerQuery = signal('');
+  /** The rows the drawer draws: every tab, or the ones the reader typed. */
+  protected readonly drawerTabs = computed<WorkspaceTab[]>(() => {
+    const needle = this.drawerQuery().trim().toLowerCase();
+    if (needle.length === 0) {
+      return this.allTabs();
+    }
+    return this.allTabs().filter((tab) =>
+      `${tab.title} ${tab.kind === 'file' ? tab.path : tab.kind === 'session' ? tab.cwd ?? '' : ''}`
+        .toLowerCase()
+        .includes(needle),
+    );
+  });
 
   private readonly menuState = signal<TabMenu | undefined>(undefined);
   protected readonly menu = this.menuState.asReadonly();
@@ -174,7 +201,74 @@ export class TabStrip {
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
+    // The drawer covers the page, so it is the innermost thing Escape can close.
+    if (this.sheetOpen()) {
+      this.closeSheet();
+      return;
+    }
     this.closeMenu();
+  }
+
+  protected closeSheet(): void {
+    this.sheetOpen.set(false);
+    // A stale filter would make the next open look like the tabs vanished.
+    this.drawerQuery.set('');
+  }
+
+  protected onDrawerQuery(event: Event): void {
+    this.drawerQuery.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Opens the tab the drawer row names, and gets the drawer out of the way. */
+  protected pick(id: string): void {
+    this.tabs.select(id);
+    this.closeSheet();
+  }
+
+  /**
+   * Closes a tab from the drawer. An empty drawer is a dead panel over the page,
+   * so the last close folds it away.
+   */
+  protected closeFromSheet(id: string, event: Event): void {
+    event.stopPropagation();
+    this.tabs.close(id);
+    if (this.allTabs().length === 0) {
+      this.closeSheet();
+    }
+  }
+
+  /** Where a pull on the bar began; `undefined` when no pull is in flight. */
+  private pullFrom: number | undefined;
+  /** Whether the last pointer-up on the bar was a pull, so its click must open. */
+  private pulled = false;
+
+  protected pullStart(event: PointerEvent): void {
+    this.pullFrom = event.clientY;
+    // A pull can leave this thin bar; keep its pointer, and the click that follows,
+    // on the bar so a pull never vanishes into the page underneath.
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  }
+
+  protected pullEnd(event: PointerEvent): void {
+    const from = this.pullFrom;
+    this.pullFrom = undefined;
+    this.pulled = from !== undefined && event.clientY - from >= 24;
+  }
+
+  /**
+   * Opens on the *click*, never on pointer-up. Opening earlier mounts the dialog's
+   * backdrop between pointer-up and click, so the very click that opened it lands
+   * on the backdrop and dismisses it again — the drawer flashed and was gone.
+   * Keyboard clicks come here too: a button's Enter/Space is a click with no pull.
+   */
+  protected onHandleClick(): void {
+    const pulled = this.pulled;
+    this.pulled = false;
+    if (pulled || !this.sheetOpen()) {
+      this.sheetOpen.set(true);
+    } else {
+      this.closeSheet();
+    }
   }
 
   /** A file chip's menu only spans its row, so these ask the store's scope. */

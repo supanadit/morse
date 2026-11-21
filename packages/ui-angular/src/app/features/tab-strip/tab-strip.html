@@ -1,3 +1,32 @@
+<!--
+  Narrow windows: a row of tabs does not fit a phone, and scrolling it sideways to
+  guess which tab is in front is worse than not having it. The same list opens as a
+  drawer pulled down from this bar instead (the shared dialog shell). This bar is
+  the whole strip there, so it names the tab in front and counts the rest.
+-->
+<button
+  type="button"
+  class="handle"
+  aria-haspopup="dialog"
+  [attr.aria-expanded]="sheetOpen()"
+  (pointerdown)="pullStart($event)"
+  (pointerup)="pullEnd($event)"
+  (click)="onHandleClick()"
+>
+  @if (activeTab(); as tab) {
+    @if (tab.kind === 'session' && isRunning(tab.id)) {
+      <span class="live" aria-hidden="true"></span>
+    } @else {
+      <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
+    }
+    <span class="handle-label">{{ tab.title }}</span>
+  } @else {
+    <span class="handle-label">No open tabs</span>
+  }
+  <span class="handle-count">{{ allTabs().length }}</span>
+  <span class="handle-caret" aria-hidden="true">▾</span>
+</button>
+
 <ng-template #row let-items="items" let-label="label">
   <div
     class="strip"
@@ -74,6 +103,85 @@
     [ngTemplateOutlet]="row"
     [ngTemplateOutletContext]="{ items: mentionTabs(), label: 'Mentioned files' }"
   ></ng-container>
+}
+
+<!--
+  The drawer: every open tab as one searchable list, the one in front marked. It
+  borrows the shared dialog shell (backdrop, centring, Escape) so it looks like the
+  app's other popups instead of a sheet of its own. Only the narrow-window bar can
+  open it, so the search and the list are mobile-only. Reordering stays the wide
+  strip's drag — shortcut: no drag here, add it when a phone can drag a list
+  without fighting the scroll.
+-->
+@if (sheetOpen()) {
+  <morse-dialog class="sheet-dialog" labelledBy="tab-drawer-title" (dismiss)="closeSheet()">
+    <div class="modal-head">
+      <strong id="tab-drawer-title">Open tabs</strong>
+      <span class="count">{{ drawerTabs().length }}</span>
+      <button type="button" class="close" aria-label="Close" (click)="closeSheet()">×</button>
+    </div>
+    <!-- The list can be long; a name or a path typed here narrows it without
+         making the reader scroll the tabs they do not want. -->
+    <div class="search">
+      <span class="search-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16">
+          <circle cx="7" cy="7" r="4.2" />
+          <path d="M10.2 10.2 14 14" />
+        </svg>
+      </span>
+      <input
+        type="search"
+        placeholder="Search tabs"
+        aria-label="Search tabs"
+        [value]="drawerQuery()"
+        (input)="onDrawerQuery($event)"
+      />
+    </div>
+    <div class="list" role="tablist" aria-label="Open tabs">
+      @for (tab of drawerTabs(); track tab.id) {
+        <div
+          class="sheet-row"
+          role="tab"
+          tabindex="0"
+          [class.selected]="tab.id === activeId()"
+          [class.parent]="tab.kind === 'session' && tab.id === activeChipOwner()"
+          [attr.aria-selected]="tab.id === activeId()"
+          [title]="title(tab)"
+          (click)="pick(tab.id)"
+          (keydown.enter)="pick(tab.id)"
+          (keydown.space)="pick(tab.id)"
+        >
+          @if (tab.kind === 'session' && isRunning(tab.id)) {
+            <span class="live" aria-hidden="true"></span>
+          } @else {
+            <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
+          }
+          <span class="text">
+            <span class="label">{{ tab.title }}</span>
+            @if (tab.kind === 'file') {
+              <span class="dir"><bdi>{{ directoryOf(tab) }}</bdi></span>
+            }
+          </span>
+          @if (tab.id === activeId()) {
+            <span class="check" aria-hidden="true">✓</span>
+          }
+          <button
+            type="button"
+            class="close"
+            aria-label="Close tab"
+            [title]="'Close ' + tab.title"
+            (click)="closeFromSheet(tab.id, $event)"
+          >
+            ×
+          </button>
+        </div>
+      } @empty {
+        <span class="empty">
+          {{ drawerQuery().trim().length > 0 ? 'No tabs match that search.' : 'No open tabs' }}
+        </span>
+      }
+    </div>
+  </morse-dialog>
 }
 
 <!-- Right-click a tab for the actions VS Code offers; a layer behind it closes
