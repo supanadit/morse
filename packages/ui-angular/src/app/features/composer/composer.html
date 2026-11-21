@@ -568,6 +568,22 @@
   <div class="controls">
     @if (variant !== 'bot') {
     <div class="controls-metrics">
+      <!--
+        A phone folds the four pickers below into this one button and a bottom
+        sheet; CSS shows only one shape at a time (the container is the composer
+        box, so the same width always picks the same shape).
+      -->
+      <button
+        type="button"
+        class="settings-trigger"
+        aria-haspopup="dialog"
+        [attr.aria-expanded]="settingsOpen()"
+        (click)="openSettings()"
+      >
+        <span class="glyph" aria-hidden="true">⚙</span>
+        <span class="label">Options</span>
+        <span class="caret" aria-hidden="true">▾</span>
+      </button>
       @if (showEnginePicker()) {
         <morse-option-picker
           #enginePicker
@@ -689,6 +705,162 @@
   </div>
   </div>
 
+  <!--
+    The narrow footer's four pickers as one bottom sheet. It lives outside the
+    composer box because that box is a size container: a `position: fixed` child
+    would be anchored to the box instead of the screen. The sheet rises from the
+    bottom edge and its rows call the same handlers the wide pickers do.
+  -->
+  @if (settingsOpen()) {
+    <div class="sheet-scrim" (click)="closeSettings()"></div>
+    <div class="settings-sheet" role="dialog" [attr.aria-label]="settingsTitle()">
+      <div class="sheet-head">
+        @if (settingsPage() !== 'root') {
+          <button type="button" class="sheet-back" aria-label="Back" (click)="backSettings()">‹</button>
+        }
+        <strong>{{ settingsTitle() }}</strong>
+        <button type="button" class="sheet-close" aria-label="Close" (click)="closeSettings()">×</button>
+      </div>
+      <div class="sheet-body">
+        <!--
+          One page at a time: a row on the index slides in its list from the
+          right, and Back slides the index back in from the left.
+        -->
+        <div
+          class="sheet-page"
+          [class.back]="settingsSlide() === 'back'"
+        >
+          @switch (settingsPage()) {
+            @case ('root') {
+              <div class="nav-list">
+                @if (showEnginePicker()) {
+                  <button type="button" class="nav-row" (click)="openSettingsPage('engine')">
+                    <span class="nav-label">Agent engine</span>
+                    <span class="nav-value">{{ engineCurrentLabel() }}</span>
+                    <span class="nav-arrow" aria-hidden="true">›</span>
+                  </button>
+                }
+                @if (showModePicker()) {
+                  <button type="button" class="nav-row" (click)="openSettingsPage('mode')">
+                    <span class="nav-label">Mode</span>
+                    <span class="nav-value">{{ modeCurrentLabel() }}</span>
+                    <span class="nav-arrow" aria-hidden="true">›</span>
+                  </button>
+                } @else if (showEnginePicker() && loadingEngine()) {
+                  <!-- The engine's modes arrive with its catalog; say so instead
+                       of letting the row appear out of nowhere a beat later. -->
+                  <div class="nav-row pending" role="status">
+                    <span class="nav-label">Mode</span>
+                    <span class="nav-value">Reading engine choices…</span>
+                  </div>
+                }
+                <button type="button" class="nav-row" (click)="openSettingsPage('model')">
+                  <span class="nav-label">Model</span>
+                  <span class="nav-value">{{ currentModel()?.name || 'no model' }}</span>
+                  <span class="nav-arrow" aria-hidden="true">›</span>
+                </button>
+                <button type="button" class="nav-row" (click)="openSettingsPage('thinking')">
+                  <span class="nav-label">Thinking level</span>
+                  <span class="nav-value">{{ thinkingLevel() }}</span>
+                  <span class="nav-arrow" aria-hidden="true">›</span>
+                </button>
+              </div>
+            }
+            @case ('engine') {
+              @for (option of engineOptions(); track option.id) {
+                <button
+                  type="button"
+                  class="sheet-row"
+                  [class.selected]="option.id === currentEngine()"
+                  [disabled]="loadingEngine()"
+                  (click)="pickEngineFromSheet(option.id)"
+                >
+                  <span class="row-name">{{ option.label }}</span>
+                  @if (option.badge) {
+                    <span class="row-badge">{{ option.badge }}</span>
+                  }
+                  @if (option.id === currentEngine()) {
+                    <span class="row-check" aria-hidden="true">✓</span>
+                  }
+                </button>
+              }
+            }
+            @case ('mode') {
+              @for (option of modeOptions(); track option.id) {
+                <button
+                  type="button"
+                  class="sheet-row"
+                  [class.selected]="option.id === currentMode()"
+                  (click)="pickModeFromSheet(option.id)"
+                >
+                  <span class="row-text">
+                    <span class="row-name">{{ option.label }}</span>
+                    @if (option.description) {
+                      <span class="row-meta">{{ option.description }}</span>
+                    }
+                  </span>
+                  @if (option.badge) {
+                    <span class="row-badge">{{ option.badge }}</span>
+                  }
+                  @if (option.id === currentMode()) {
+                    <span class="row-check" aria-hidden="true">✓</span>
+                  }
+                </button>
+              }
+            }
+            @case ('model') {
+              <input
+                class="model-search"
+                type="search"
+                placeholder="Search models"
+                aria-label="Search models"
+                [value]="sheetModelQuery()"
+                (input)="onSheetModelQuery($event)"
+              />
+              <div class="model-list">
+                @for (model of sheetModels(); track modelKeyOf(model)) {
+                  <button
+                    type="button"
+                    class="sheet-row"
+                    [class.selected]="modelKeyOf(model) === modelKey()"
+                    [title]="modelKeyOf(model)"
+                    (click)="pickModelFromSheet(model)"
+                  >
+                    <span class="row-name">{{ model.name }}</span>
+                    <span class="row-meta">{{ model.provider }}</span>
+                    @if (modelKeyOf(model) === modelKey()) {
+                      <span class="row-check" aria-hidden="true">✓</span>
+                    }
+                  </button>
+                } @empty {
+                  <p class="sheet-empty">No model matches that search.</p>
+                }
+              </div>
+            }
+            @case ('thinking') {
+              @if (loadingThinkingLevels()) {
+                <p class="sheet-empty" role="status">Reading this model’s levels…</p>
+              }
+              @for (level of levels(); track level) {
+                <button
+                  type="button"
+                  class="sheet-row"
+                  [class.selected]="level === thinkingLevel()"
+                  [disabled]="loadingThinkingLevels()"
+                  (click)="pickThinkingFromSheet(level)"
+                >
+                  <span class="row-name">{{ level }}</span>
+                  @if (level === thinkingLevel()) {
+                    <span class="row-check" aria-hidden="true">✓</span>
+                  }
+                </button>
+              }
+            }
+          }
+        </div>
+      </div>
+    </div>
+  }
   @if (templateRequest(); as request) {
     <morse-prompt-template-dialog
       [request]="request"

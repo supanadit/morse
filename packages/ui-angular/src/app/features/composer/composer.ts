@@ -8,6 +8,7 @@ import {
   computed,
   effect,
   ElementRef,
+  HostListener,
   inject,
   signal,
   untracked,
@@ -46,6 +47,9 @@ import {
 } from './composer-format';
 
 export { builtinName, compactInstructions, outputChars };
+
+/** The narrow sheet's pages: the index of choices, then one list per choice. */
+type SettingsPage = 'root' | 'engine' | 'mode' | 'model' | 'thinking';
 import { ComposerDrafts } from '../../state/composer-drafts';
 import { MorseService } from '../../host/morse.service';
 import { QueuedPrompts, type QueuedPrompt } from '../../state/queued-prompts';
@@ -137,7 +141,7 @@ export interface BotComposerSend {
     '[class.maximized]': 'maximized()',
     '[class.bot]': "variant === 'bot'",
   },
-  styleUrl: './composer.css',
+  styleUrls: ['./composer.css', './composer.settings-sheet.css'],
 })
 export class ChatComposer {
   private readonly morse = inject(MorseService);
@@ -667,6 +671,44 @@ export class ChatComposer {
 
   /** The model chooser popover; `/model` and the footer trigger share it. */
   protected readonly modelPickerOpen = signal(false);
+  /** The phone's single picker button, and the bottom sheet it opens. */
+  protected readonly settingsOpen = signal(false);
+  /**
+   * The sheet is a settings stack: the root names the four choices, and each
+   * page holds one list. A page change is a horizontal slide, not a new dialog.
+   */
+  protected readonly settingsPage = signal<SettingsPage>('root');
+  protected readonly settingsSlide = signal<'forward' | 'back'>('forward');
+  protected readonly settingsTitle = computed(() => {
+    switch (this.settingsPage()) {
+      case 'engine':
+        return 'Agent engine';
+      case 'mode':
+        return 'Mode';
+      case 'model':
+        return 'Model';
+      case 'thinking':
+        return 'Thinking level';
+      default:
+        return 'Session options';
+    }
+  });
+  protected readonly engineCurrentLabel = computed(
+    () => this.engineOptions().find((option) => option.id === this.currentEngine())?.label ?? this.currentEngine(),
+  );
+  protected readonly modeCurrentLabel = computed(
+    () => this.modeOptions().find((option) => option.id === this.currentMode())?.label ?? this.currentMode(),
+  );
+  /** Model lists can be hundreds long; the sheet keeps a filter of its own. */
+  protected readonly sheetModelQuery = signal('');
+  protected readonly sheetModels = computed(() => {
+    const needle = this.sheetModelQuery().trim().toLowerCase();
+    return needle.length === 0
+      ? this.models()
+      : this.models().filter((model) =>
+          `${model.name} ${model.provider} ${model.id}`.toLowerCase().includes(needle),
+        );
+  });
   protected readonly currentModel = this.morse.model;
   /**
    * The provider of the active model. Two providers can expose a model with the
@@ -740,6 +782,9 @@ export class ChatComposer {
   protected readonly folded = signal(false);
 
   protected toggleFolded(): void {
+    // Folding hides the button that opened the sheet; leaving it up would strand
+    // a dialog over a composer the reader just put away.
+    this.closeSettings();
     this.folded.update((folded) => !folded);
   }
   /**
@@ -1790,6 +1835,79 @@ export class ChatComposer {
       return;
     }
     this.openModelPicker();
+  }
+
+  /**
+   * The narrow footer has one button for all four pickers. Close any popover a
+   * wider window left open, and refresh modes the way opening that picker does.
+   */
+  protected openSettings(): void {
+    this.modelPickerOpen.set(false);
+    this.enginePicker()?.close();
+    this.modePicker()?.close();
+    this.thinkingPicker()?.close();
+    // The mode list arrives with the engine's catalog, which may still be in
+    // flight on the first open — refresh unconditionally, not only when a Mode
+    // row already exists to tap.
+    this.morse.refreshModes();
+    this.settingsPage.set('root');
+    this.settingsSlide.set('forward');
+    this.settingsOpen.set(true);
+  }
+
+  protected closeSettings(): void {
+    this.settingsOpen.set(false);
+    this.sheetModelQuery.set('');
+    this.settingsPage.set('root');
+  }
+
+  protected openSettingsPage(page: Exclude<SettingsPage, 'root'>): void {
+    this.settingsSlide.set('forward');
+    this.settingsPage.set(page);
+  }
+
+  protected backSettings(): void {
+    this.settingsSlide.set('back');
+    this.settingsPage.set('root');
+  }
+
+  protected onSheetModelQuery(event: Event): void {
+    this.sheetModelQuery.set((event.target as HTMLInputElement).value);
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onSettingsEscape(): void {
+    if (this.settingsOpen()) {
+      this.closeSettings();
+    }
+  }
+
+  protected pickEngineFromSheet(id: string): void {
+    this.onEnginePick(id);
+    // Stay in the sheet: the engine's catalog lands a moment later, and this
+    // is where its new Mode and Model rows will appear.
+    this.backSettings();
+  }
+
+  protected pickModeFromSheet(id: string): void {
+    this.onModePick(id);
+    this.backSettings();
+  }
+
+  protected pickModelFromSheet(model: ModelOption): void {
+    // Not `onModelPick`: closing that popover focuses the prompt and would raise
+    // the soft keyboard over the sheet we are still showing.
+    this.morse.setModel(model.provider, model.id);
+    this.backSettings();
+  }
+
+  protected pickThinkingFromSheet(level: ThinkingLevel): void {
+    this.onThinkingPick(level);
+    this.backSettings();
+  }
+
+  protected modelKeyOf(model: ModelOption): string {
+    return `${model.provider}/${model.id}`;
   }
 
   protected onModelPick(model: ModelOption): void {
