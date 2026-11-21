@@ -500,6 +500,15 @@ export type ClientToHostMessage =
   | TerminalInputMessage
   | TerminalResizeMessage
   | TerminalCloseMessage
+  | BotClientMessage;
+
+/**
+ * Every `bot/*` request. The session controller routes them by prefix to the
+ * bot port rather than naming a case per request, so the group is one type with
+ * one guard — and a bot request added here joins the routing instead of falling
+ * into the controller's exhaustiveness check as a forgotten case.
+ */
+export type BotClientMessage =
   | BotListRequestMessage
   | BotCreateMessage
   | BotDeleteMessage
@@ -518,3 +527,9 @@ export type ClientToHostMessage =
   | BotGroupUpdateMessage
   | BotGroupDeleteMessage
   | BotThreadDeleteMessage;
+
+/** A runtime guard for `BotClientMessage`, so the controller's request switch
+ * can route the whole group by prefix and still be exhaustive over the rest. */
+export function isBotClientMessage(message: ClientToHostMessage): message is BotClientMessage {
+  return message.type.startsWith('bot/');
+}

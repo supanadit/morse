@@ -170,6 +170,36 @@ owns the `pi` subprocess, `ContextService` builds the editor preamble, and `Tran
 3. the two optional adapters it can offer (`NativeDialogs`, `EditorContextProvider`),
 4. a host-command handler (`openSettings`, `insertIntoEditor`, `revealFile`, `copyToClipboard`).
 
+### The parity contract: neither host can be forgotten
+
+A feature "for both hosts" is one of three things, and each has a compile-time
+never-forget guard — forgetting a host is a build failure, not a bug report:
+
+1. **A capability row** — add it to `DeclaredHostCapabilities`
+   (`@morse/protocol/dto/host`). Both hosts' builders return that type, so both
+   builds fail until each declares the row (`false` where the feature does not
+   apply). The wire shape `HostCapabilities` is derived from the table with
+   every row optional, so old frontends and test fixtures are unaffected.
+2. **A host command** — add it to `SharedHostCommand` in
+   `@morse/protocol/wire/host` when every host must answer it. Both hosts'
+   command switches are exhaustive over `HostHandlerCommand`, so each build
+   fails until the command is implemented or explicitly refused. A command only
+   one host can serve goes in `ServerHostCommand` or `VsCodeHostCommand`; the
+   other host's switch reaches it only in a refusal default that names the
+   owning group. `ControllerHostCommand` is answered by the shared controller
+   before any host handler runs, and the two switches on either side of that
+   boundary are both exhaustive.
+3. **A client-to-host message** — add a variant to `ClientToHostMessage`. The
+   controller's dispatch is exhaustive (`never`-checked): a variant without a
+   case fails the `@morse/system` build, and since both hosts mount that same
+   controller, both get the behaviour at once. `bot/*` requests are one group
+   (`BotClientMessage`) routed by a guard ahead of the switch.
+
+Session-level state that must be the same everywhere is also one store: the
+session index lives under `<MORSE_HOME>/sessions` and both hosts reload records
+the other wrote (`SessionStore.refreshExternal`), so a Morse-side change such as
+a session rename is one truth on the machine.
+
 ### Handshake and session lifetime
 
 The host answers `client/ready` **immediately** with a truthful state (`agentStarting: true` while `pi` spawns),

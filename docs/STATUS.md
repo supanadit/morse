@@ -132,6 +132,10 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
   (remove the session file, behind the host's own confirmation).
 - **Rename a session** from its context menu. The title is Morse's own, stored in `sessions/records/`: the
   engine's conversation is never touched, and the name wins over every later title the engine reports.
+- The session index is **one store for every host on the machine** (`<MORSE_HOME>/sessions`): the VS Code
+  extension keeps it there too, and every index read reloads records another host wrote (`refreshExternal`),
+  so a rename in the browser lands in VS Code and the other way round — a Morse-side change is one truth,
+  not a per-host copy.
 - **Delete a project** from its context menu: every session it holds is closed and removed through its own
   engine's storage, the count is reported, and the directory itself stays on disk.
 - The browser host allows any directory; the VS Code host advertises `capabilities.scope: 'workspace'` and
@@ -357,6 +361,11 @@ Bot mode is shipped and **still beta**: it works, and its edges are still being 
   no longer lists (`state/mode-prefs.ts`).
 - **Data upgrades.** `.morse/` carries a layout version; migrations and an additive reconcile run on `morse start`
   (see [DATA-COMPATIBILITY.md](DATA-COMPATIBILITY.md)).
+- **The parity contract.** A feature meant for both hosts cannot land in one: a capability row added to
+  `DeclaredHostCapabilities` fails both hosts' builders until each declares it, a command added to
+  `SharedHostCommand` fails both hosts' exhaustive command switches, and a new client message fails the shared
+  controller's exhaustive dispatch — so "forgot it in VS Code" (or in the server) is a compile error, not a
+  bug report (see ARCHITECTURE.md, "The parity contract").
 
 ## Not built yet
 

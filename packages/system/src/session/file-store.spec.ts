@@ -106,4 +106,34 @@ describe('FileSessionStore', () => {
     expect(await store.list()).toEqual([]);
     expect((await store.tokens()).size).toBe(0);
   });
+
+  it('refreshExternal picks up a record another host wrote, rename included', async () => {
+    // Two hosts on one machine share the directory: this store is one host's
+    // already-running instance, the "other host" writes through its own.
+    const store = new FileSessionStore(dir);
+    await store.write(record('aa1111', 'Before'), 't1');
+
+    const other = new FileSessionStore(dir);
+    await other.write({ ...record('aa1111', 'Renamed elsewhere'), titlePinned: true });
+    // Until the refresh, the first host still serves its in-memory copy.
+    expect(await store.read('aa1111')).toMatchObject({ title: 'Before' });
+
+    await store.refreshExternal();
+    expect(await store.read('aa1111')).toMatchObject({
+      title: 'Renamed elsewhere',
+      titlePinned: true,
+    });
+  });
+
+  it('refreshExternal drops a record another host removed', async () => {
+    const store = new FileSessionStore(dir);
+    await store.write(record('aa1111'), 't1');
+
+    const other = new FileSessionStore(dir);
+    await other.remove('aa1111');
+
+    await store.refreshExternal();
+    expect(await store.read('aa1111')).toBeUndefined();
+    expect(await store.list()).toEqual([]);
+  });
 });

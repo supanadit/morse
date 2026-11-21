@@ -22,13 +22,15 @@ import { OPENCODE_INSTALL_COMMAND } from '@morse/integration-opencode';
 import {
   HostSessionController,
   type HostCommandContext,
+  type HostHandlerCommand,
   type HostSessionServices,
   type SessionTranscriptStore,
 } from '@morse/system';
 import type {
-  HostCapabilities,
+  DeclaredHostCapabilities,
   HostToClientMessage,
   UpdateHostResult,
+  VsCodeHostCommand,
 } from '@morse/protocol';
 import type { MorseServerConfig } from '../../app/config.js';
 import {
@@ -160,7 +162,7 @@ export class MorseSessionFactory {
     });
   }
 
-  capabilities(): HostCapabilities {
+  capabilities(): DeclaredHostCapabilities {
     return {
       hostKind: 'server',
       // The browser host is global: every project pi knows about.
@@ -187,6 +189,8 @@ export class MorseSessionFactory {
       ],
       // A browser has no local editor to read, so there is nothing to pin.
       editorContext: false,
+      // A browser page streams no editor state; VS Code does.
+      selectionLive: false,
       // No QuickPick/InputBox here, so the frontend renders interactions.
       nativeDialogs: false,
       insertIntoEditor: false,
@@ -225,6 +229,12 @@ export class MorseSessionFactory {
       editMessage: true,
       // The same cut can branch a new session and hand the prompt back instead.
       forkMessage: true,
+      // A finished run reaches the reader through the page's own Notification
+      // API; VS Code asks its host to raise one instead.
+      notify: false,
+      // A browser page has no editor tab to pin a session into; its tab strip
+      // is the surface, and VS Code's editor tabs are its own.
+      sessionTabs: false,
       // A page served by this host may ask the registry for the latest release, so
       // the sidebar can say when a newer Morse is out. A host without it stays
       // quiet; this one is on unless `MORSE_UPDATE_CHECK=0` says otherwise.
@@ -258,7 +268,7 @@ export class MorseSessionFactory {
       // Bot mode: only a host that actually holds a `BotService` can draw a
       // roster, so the flag follows the provider instead of being a constant.
       // The extension resolves none, which is how its UI hides the mode.
-      ...(this.bot === undefined ? {} : { bot: true }),
+      bot: this.bot !== undefined,
       // Several devices share this host, so the composer's queue and the words
       // being typed belong to the host, not to whichever browser is in front.
       sharedComposer: true,
@@ -372,7 +382,7 @@ export class MorseSessionFactory {
    * path the client names.
    */
   private async runHostCommand(
-    command: string,
+    command: HostHandlerCommand,
     args: Record<string, unknown> | undefined,
     context?: HostCommandContext,
     remoteAddress?: string,
@@ -650,8 +660,21 @@ export class MorseSessionFactory {
       case 'updateHost': {
         return this.updateHost(remoteAddress);
       }
-      default:
-        throw new UnsupportedByHostError(`This host does not support "${command}".`);
+      default: {
+        // Exhaustive by construction: the shared and browser-host surfaces are
+        // named cases above, so `command` here is exactly `VsCodeHostCommand` —
+        // the editor-integration surface (insert, reveal, session tabs, native
+        // dialogs, notifications). The frontend asks only where the matching
+        // capability is on, so this refusal is unreachable from this host's own
+        // pages; naming the group keeps a future mis-route loud instead of
+        // silent. A command added to `SharedHostCommand` or `ServerHostCommand`
+        // without a case above fails THIS build — that is the never-forget
+        // guarantee.
+        const editorOnly: VsCodeHostCommand = command;
+        throw new UnsupportedByHostError(
+          `"${editorOnly}" is answered by the VS Code host, not the browser.`,
+        );
+      }
     }
   }
 

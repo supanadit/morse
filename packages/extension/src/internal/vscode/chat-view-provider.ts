@@ -7,9 +7,11 @@ import {
   mcpScope,
   numberArg,
   stringArg,
+  type AgentExtras,
   type AgentMcpExtras,
   type AgentPromptExtras,
   type EditorContextProvider,
+  type HostHandlerCommand,
   type MorseLogger,
 } from '@morse/system';
 import {
@@ -32,11 +34,12 @@ import {
 import {
   parseClientMessage,
   type ClientToHostMessage,
+  type DeclaredHostCapabilities,
   type EngineOption,
   type EngineSetupOption,
-  type HostCapabilities,
   type HostToClientMessage,
   type NoticeLevel,
+  type ServerHostCommand,
 } from '@morse/protocol';
 import { VsCodeDialogs } from './vscode-dialogs';
 import {
@@ -114,6 +117,8 @@ export interface ChatViewProviderDeps {
   inspector: McpInspector;
   /** The selected engine's prompt templates; absent hides the prompt editor. */
   prompts?: AgentPromptExtras;
+  /** The selected engine's config-Fix action; absent hides Fix in the panels. */
+  fix?: AgentExtras['fix'];
   mcpAvailable: boolean;
   /** The installed pi version, for the "a newer pi is out" notice. */
   piVersion?: string;
@@ -125,8 +130,15 @@ export interface ChatViewProviderDeps {
   workbenchDataDir: string;
 }
 
-/** What this host can do — the frontend reads this instead of guessing. */
-function buildCapabilities(deps: ChatViewProviderDeps): HostCapabilities {
+/** What this host can do — the frontend reads this instead of guessing.
+ *
+ * The return type is the parity contract: every capability in the protocol must
+ * be DECIDED here — `false` where this host does not offer a feature, never
+ * omitted. A field added to `HostCapabilities` fails this build (and the server
+ * host's) until both declare it, so a shared feature flag cannot quietly stay
+ * `undefined` on one host while the other turns it on.
+ */
+function buildCapabilities(deps: ChatViewProviderDeps): DeclaredHostCapabilities {
   const { engines, engineSetup, mcpAvailable: mcp, piVersion, prompts } = deps;
   return {
     hostKind: 'vscode',
@@ -170,14 +182,35 @@ function buildCapabilities(deps: ChatViewProviderDeps): HostCapabilities {
     // Editing prompt templates needs an engine that loads them from files; this
     // host can reach those directories whether or not the CLI is on PATH.
     promptEditor: prompts !== undefined,
-    // `configFix` stays unset: this host does not implement it, so the frontend
-    // hides Fix and asks for a hand edit instead of offering a refused action.
+    // Fix rewrites an engine's config file so a later edit can land. This host
+    // answers it for the engine whose administration it wires (the default);
+    // the frontend hides the button otherwise, exactly like the browser host
+    // hides it for an engine without a fix.
+    configFix: deps.fix !== undefined,
     // A whole conversation can be shown as its own editor tab, pinned to that
     // session, and revealed again instead of opened twice.
     sessionTabs: true,
     // The window can store the frontend's shell layout under its own storage, so
     // reopening it lands on the session that was in front instead of empty.
     workbench: true,
+    // The panels below are the browser host's stand-ins for views VS Code
+    // already has; this window keeps the native ones and never answers the
+    // commands behind them. Declared false so the frontend hides them here.
+    fileUpload: false,
+    directoryPicker: false,
+    filePreview: false,
+    gitPanel: false,
+    searchPanel: false,
+    terminal: false,
+    // VS Code updates through the Marketplace, not a self-installed server.
+    selfUpdate: false,
+    // Bot mode is a browser-host surface today; no bot service runs in this
+    // window, so the frontend hides the mode switch instead of showing a
+    // roster that can never load.
+    bot: false,
+    // One webview per window: the composer's queue and drafts stay in the
+    // frontend, not on a host other clients would share.
+    sharedComposer: false,
   };
 }
 
@@ -219,6 +252,22 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       this.disposeSessionTab(message.payload.sessionId);
     }
     await controller.handleClientMessage(message);
+    // A rename must reach the tab label too: the tab is the session's place in
+    // the editor, so a stale label reads exactly like the rename did nothing.
+    if (message.type === 'session/rename') {
+      this.relabelSessionTab(message.payload.sessionId, message.payload.title);
+    }
+  }
+
+  /** Renames the editor tab pinned to `sessionId`, when it is open. */
+  private relabelSessionTab(sessionId: string, title: string): void {
+    // The input is capped at the host's maximum, so the trimmed title is what
+    // the host accepted; an empty one is refused before it gets here.
+    const name = title.trim();
+    const panel = this.sessionPanels.get(sessionId);
+    if (panel !== undefined && name.length > 0) {
+      panel.title = name;
+    }
   }
 
   /**
@@ -848,7 +897,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async runHostCommand(
-    command: string,
+    command: HostHandlerCommand,
     args: Record<string, unknown> | undefined,
     context?: { cwd: string },
   ): Promise<unknown> {
@@ -926,11 +975,41 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
           return { servers: [], errors: [describeError(error)] };
         }
       }
-      case 'configFix':
-        // VS Code resolves only the default engine's administration (never a
-        // per-engine port), so it cannot answer a fix that names its own engine.
-        // The panel hides Fix here; a client that asks anyway is refused.
-        throw new UnsupportedByHostError('VS Code does not implement "configFix".');
+      case 'configFix': {
+        // The default engine's fix, validated like the server's: complete
+        // arguments, an allowed directory, and the file named by the issue
+        // passed as-is (the engine refuses any path outside its own configs).
+        const fix = this.deps.fix;
+        if (fix === undefined) {
+          throw new UnsupportedByHostError('The selected agent engine has no config Fix action.');
+        }
+        const fileId = stringArg(args, 'fileId');
+        if (fileId.length === 0) {
+          throw new UnsupportedByHostError('configFix needs a "fileId" argument.');
+        }
+        const path = stringArg(args, 'path');
+        if (path.length === 0) {
+          throw new UnsupportedByHostError('configFix needs a "path" argument.');
+        }
+        const scope =
+          args?.scope === 'project' ? 'project' : args?.scope === 'global' ? 'global' : undefined;
+        if (scope === undefined) {
+          throw new UnsupportedByHostError('configFix needs a "scope" of "global" or "project".');
+        }
+        // A project fix lands in the folder the panel is viewing; a global one
+        // needs no directory, and an explicit cwd is only passed on when the
+        // policy would let a session live there.
+        let cwd: string | undefined;
+        if (scope === 'project') {
+          cwd = this.mcpCwd(context);
+        } else {
+          const requested = args?.cwd;
+          const active = context?.cwd ?? this.deps.roots[0];
+          const candidate = typeof requested === 'string' && requested.length > 0 ? requested : active;
+          cwd = candidate !== undefined && this.deps.policy.canOpen(candidate) ? candidate : undefined;
+        }
+        return fix({ fileId, path, scope, ...(cwd === undefined ? {} : { cwd }) });
+      }
       case 'mcpAdd':
         return this.requireMcp().add(parseMcpServerInput(args), this.mcpCwd(context));
       case 'mcpInspect': {
@@ -1017,8 +1096,20 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         );
         return { confirmed: answer === 'Delete' };
       }
-      default:
-        throw new UnsupportedByHostError(`VS Code does not implement "${command}".`);
+      default: {
+        // Exhaustive by construction: the shared and VS Code surfaces are named
+        // cases above, so `command` here is exactly `ServerHostCommand` — the
+        // browser host's own panels (git, search, Explorer, upload, self-update).
+        // The frontend asks only where the matching capability is on, so this
+        // refusal is unreachable in a healthy window; naming the group keeps a
+        // future mis-route loud instead of silent. A command added to
+        // `SharedHostCommand` or `VsCodeHostCommand` without a case above fails
+        // THIS build — that is the never-forget guarantee.
+        const browserOnly: ServerHostCommand = command;
+        throw new UnsupportedByHostError(
+          `"${browserOnly}" is answered by the browser host, not this window.`,
+        );
+      }
     }
   }
 }

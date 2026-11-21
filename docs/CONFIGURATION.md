@@ -136,8 +136,11 @@ OpenCode is optional: Morse registers its engine only when the binary is on `PAT
   installed version to Morse, so the "newer release" row never appears for it. A compaction asked for with
   custom instructions runs without OpenCode-specific extras and says so.
 
-Morse's session index lives under `<MORSE_HOME>/sessions/` (the VS Code extension uses its global storage).
-It is what the sidebar lists; each engine's own storage still holds the conversations.
+Morse's session index lives under `<MORSE_HOME>/sessions/`, and both hosts use that one directory: a
+rename in the browser shows up in VS Code (and the other way round) on the next list refresh, and a
+title the reader set (`titlePinned`) survives everywhere. It is what the sidebar lists; each engine's
+own storage still holds the conversations. An older extension build that kept its index under VS Code's
+global storage has its records merged into the shared directory once, without overwriting anything.
 
 `MORSE_HOT_SESSIONS` is the memory dial, and `pi` is what it multiplies: a hot session is a `pi` process plus
 whatever else your own pi configuration loads beside it (measured: 275–450 MB per session on the machine we

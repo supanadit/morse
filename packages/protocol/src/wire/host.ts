@@ -28,16 +28,106 @@ import type {
 
 export type PromptMode = 'new' | 'steer' | 'followUp';
 
-export type HostCommand =
+/**
+ * The host command surface, grouped by who owns the answer. The groups ARE the
+ * parity contract:
+ *
+ * - `SharedHostCommand` — every host must answer it. Adding a member breaks
+ *   both hosts' command switches until each implements it, so a shared feature
+ *   cannot land in one host while the other silently refuses.
+ * - `ServerHostCommand` / `VsCodeHostCommand` — one host's own surface, offered
+ *   only where its capability is on. The other host's switch reaches them only
+ *   in its exhaustive default, which refuses by name.
+ * - `ControllerHostCommand` — answered by the shared session controller before
+ *   any host handler runs, so hosts never see one.
+ *
+ * Never add a member to `HostCommand` directly: assign it to the group that
+ * owns the answer, or the command exists on the wire while no switch is forced
+ * to decide what it does.
+ */
+export type ControllerHostCommand =
+  /**
+   * Sessions whose title or project path matches a query, across the whole pi
+   * catalog (not just the pages the sidebar loaded). Backs the command palette's
+   * `#` session search. Answered by the controller because the registry — and so
+   * the scope filter — lives there, not in a host.
+   */
+  | 'searchSessions'
+  /**
+   * Re-read the viewing engine's own configuration — its models, modes/agents,
+   * commands and skills — without restarting the host (`{ force? }` →
+   * `{ reloaded, requiresConfirmation?, running }`). Refused while a turn of that
+   * engine runs unless `force` is set, because the engine rebuilds its catalogs
+   * mid-turn; the answer carries how many sessions were running so the control
+   * can say so. Answered by the controller: the registry owns the engine and
+   * every warm gateway that must re-read.
+   */
+  | 'reloadAgentConfig';
+
+/** Commands every host answers, in its own way. */
+export type SharedHostCommand =
   | 'listFiles'
+  /** The shell layout the reader left behind (`~/.morse/workbench.json`). */
+  | 'readWorkbench'
+  /** Writes the shell layout back, so the next visit opens the same tabs. */
+  | 'saveWorkbench'
+  /**
+   * The half-written prompts the reader left behind, per tab (`~/.morse/drafts.json`).
+   * Separate from the layout because a draft can carry inline images and is much
+   * larger, and because it is rewritten as the reader types.
+   */
+  | 'readDrafts'
+  | 'saveDrafts'
+  /**
+   * pi's MCP servers for the viewing session's directory: their connection
+   * state, tools and configuration source (`pi mcp list --json`).
+   */
+  | 'mcpStatus'
+  /** Add or replace an MCP server in the global or the project `mcp.json`. */
+  | 'mcpAdd'
+  /** Remove an MCP server from whichever `mcp.json` defines it. */
+  | 'mcpRemove'
+  /** Turn an MCP server on or off in the `mcp.json` that defines it. */
+  | 'mcpSetEnabled'
+  /**
+   * Connect to an MCP server *before* it is added, so the reader can see what it
+   * offers (or exactly why it will not connect). Writes nothing.
+   */
+  | 'mcpInspect'
+  /** Mark the viewing project trusted, so pi loads its `.pi` resources. */
+  | 'trustProject'
+  /**
+   * pi's prompt templates for the viewing directory: the user's and this
+   * project's, with their bodies and frontmatter, so the editor can rewrite them.
+   */
+  | 'promptTemplates'
+  /** Write one prompt template (create, update or move between scopes). */
+  | 'promptTemplateSave'
+  /** Remove one prompt template file. */
+  | 'promptTemplateDelete'
+  /**
+   * Rewrite one engine config file so a later write can land (a JSONC file
+   * rewritten as strict JSON). Named by the `ConfigIssue` the panel shows:
+   * `{ engine?, fileId, path, scope, cwd? }`. The engine validates `path`
+   * against its own resolved config paths, never an arbitrary file.
+   */
+  | 'configFix';
+
+/**
+ * Commands only the browser host answers: it has no Source Control view, no
+ * Search, no Explorer and no terminal of its own, so its panels stand in — and
+ * each rides a capability (`gitPanel`, `searchPanel`, `fileUpload`,
+ * `filePreview`, `selfUpdate`) that VS Code leaves off. A VS Code window never
+ * asks for one; its switch still names the whole group in its refusal default.
+ */
+export type ServerHostCommand =
   /**
    * One directory's entries for the Explorer's lazy tree (`{ path? }` →
    * `{ entries, missing? }`): the level drawn first, and each folder's level fetched as
    * it opens. Cwd-relative and in `listFiles`' vocabulary — directories carry the
    * trailing `/` — and ignored entries are included, since the Explorer is how the
    * reader reaches a `.env` or a file under `node_modules`. `missing` says the directory
-   * itself is gone, so the tree can drop its row. The browser host answers it; VS Code
-   * never renders this Explorer and leaves `filePreview` off.
+   * itself is gone, so the tree can drop its row.
    */
   | 'listDir'
   | 'readFile'
@@ -64,35 +154,43 @@ export type HostCommand =
   | 'gitBranches'
   /** Switch to a branch, optionally creating it first. */
   | 'gitCheckout'
+  /** Stage the named paths in the viewing session's repository. */
+  | 'gitStage'
+  /** Unstage the named paths (keep the working-tree change). */
+  | 'gitUnstage'
   /**
-   * pi's MCP servers for the viewing session's directory: their connection
-   * state, tools and configuration source (`pi mcp list --json`).
+   * Text across the viewing project's files (`{ query, caseSensitive?,
+   * include?, exclude? }` → `WorkspaceSearchResult`): matches grouped by file,
+   * each line carrying its number, a window of its text and where the matches
+   * fall in it. Backs the search panel — ripgrep where the host has it, a
+   * built-in walk otherwise, which the result's `engine` reports so the panel
+   * can suggest ripgrep.
    */
-  | 'mcpStatus'
-  /** Add or replace an MCP server in the global or the project `mcp.json`. */
-  | 'mcpAdd'
-  /** Remove an MCP server from whichever `mcp.json` defines it. */
-  | 'mcpRemove'
-  /** Turn an MCP server on or off in the `mcp.json` that defines it. */
-  | 'mcpSetEnabled'
+  | 'searchWorkspace'
   /**
-   * Rewrite one engine config file so a later write can land (a JSONC file
-   * rewritten as strict JSON). Named by the `ConfigIssue` the panel shows:
-   * `{ engine?, fileId, path, scope, cwd? }`. The engine validates `path`
-   * against its own resolved config paths, never an arbitrary file.
+   * Install the latest published build for this host and relaunch it, so the
+   * browser footer's update notice can act instead of only linking. Only offered
+   * where `capabilities.selfUpdate` is set — an npm-global install the host can
+   * rewrite — and answered with an `UpdateHostResult`.
    */
-  | 'configFix'
-  /** Open the host's prompt-template editor (VS Code's editor panel). */
-  | 'openPromptEditor'
-  /** Mark the viewing project trusted, so pi loads its `.pi` resources. */
-  | 'trustProject'
-  /**
-   * Connect to an MCP server *before* it is added, so the reader can see what it
-   * offers (or exactly why it will not connect). Writes nothing.
-   */
-  | 'mcpInspect'
+  | 'updateHost';
+
+/**
+ * Commands only the VS Code host answers: they reach into the editor, the workbench
+ * and the OS — surfaces a browser page does not have. Only offered where the
+ * matching capability is set, so a browser page never asks.
+ */
+export type VsCodeHostCommand =
+  | 'openSettings'
+  | 'showOutput'
+  | 'copyToClipboard'
+  | 'insertIntoEditor'
+  | 'revealFile'
+  | 'getEditorContext'
   /** Open the host's MCP editor (VS Code's editor panel; the browser host tabs). */
   | 'openMcpEditor'
+  /** Open the host's prompt-template editor (VS Code's editor panel). */
+  | 'openPromptEditor'
   /**
    * Show one session as its own editor tab (VS Code), revealing the tab when it
    * is already open instead of opening a second one. Only offered where
@@ -101,60 +199,6 @@ export type HostCommand =
   | 'openSessionTab'
   /** Drop a session's editor tab; the session itself stays open and resumable. */
   | 'closeSessionTab'
-  /**
-   * pi's prompt templates for the viewing directory: the user's and this
-   * project's, with their bodies and frontmatter, so the editor can rewrite them.
-   */
-  | 'promptTemplates'
-  /** Write one prompt template (create, update or move between scopes). */
-  | 'promptTemplateSave'
-  /** Remove one prompt template file. */
-  | 'promptTemplateDelete'
-  /** Stage the named paths in the viewing session's repository. */
-  | 'gitStage'
-  /** Unstage the named paths (keep the working-tree change). */
-  | 'gitUnstage'
-  /** The shell layout the reader left behind (`~/.morse/workbench.json`). */
-  | 'readWorkbench'
-  /**
-   * Sessions whose title or project path matches a query, across the whole pi
-   * catalog (not just the pages the sidebar loaded). Backs the command palette's
-   * `#` session search.
-   */
-  | 'searchSessions'
-  /**
-   * Re-read the viewing engine's own configuration — its models, modes/agents,
-   * commands and skills — without restarting the host (`{ force? }` →
-   * `{ reloaded, requiresConfirmation?, running }`). Refused while a turn of that
-   * engine runs unless `force` is set, because the engine rebuilds its catalogs
-   * mid-turn; the answer carries how many sessions were running so the control
-   * can say so before asking again.
-   */
-  | 'reloadAgentConfig'
-  /**
-   * Text across the viewing project's files (`{ query, caseSensitive?,
-   * include?, exclude? }` → `WorkspaceSearchResult`): matches grouped by file,
-   * each line carrying its number, a window of its text and where the matches
-   * fall in it. Backs the search panel — ripgrep where the host has it, a
-   * built-in walk otherwise, which the result's `engine` reports so the panel
-   * can suggest ripgrep. Only offered where `capabilities.searchPanel` is set.
-   */
-  | 'searchWorkspace'
-  /** Writes the shell layout back, so the next visit opens the same tabs. */
-  | 'saveWorkbench'
-  /**
-   * The half-written prompts the reader left behind, per tab (`~/.morse/drafts.json`).
-   * Separate from the layout because a draft can carry inline images and is much
-   * larger, and because it is rewritten as the reader types.
-   */
-  | 'readDrafts'
-  | 'saveDrafts'
-  | 'openSettings'
-  | 'showOutput'
-  | 'copyToClipboard'
-  | 'insertIntoEditor'
-  | 'revealFile'
-  | 'getEditorContext'
   /** Ask the host to confirm a destructive action in its own dialog. */
   | 'confirmDeleteSession'
   /**
@@ -166,14 +210,13 @@ export type HostCommand =
    * Show a notification of the host's own (a finished run the reader stepped
    * away from). Only offered where `capabilities.notify` is set.
    */
-  | 'notify'
-  /**
-   * Install the latest published build for this host and relaunch it, so the
-   * browser footer's update notice can act instead of only linking. Only offered
-   * where `capabilities.selfUpdate` is set — an npm-global install the host can
-   * rewrite — and answered with an `UpdateHostResult`.
-   */
-  | 'updateHost';
+  | 'notify';
+
+export type HostCommand =
+  | ControllerHostCommand
+  | SharedHostCommand
+  | ServerHostCommand
+  | VsCodeHostCommand;
 
 /**
  * The shape every host -> frontend message shares: which message it is and its body.

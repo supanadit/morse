@@ -1,8 +1,8 @@
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { WorkspaceRef } from '@morse/agent';
+import { morseDataDir } from '@morse/system';
 import { FRONTEND_MANIFEST_FILE, frontendIdentity, parseFrontendManifest } from '@morse/protocol';
 import type { FrontendIdentity } from '@morse/protocol';
 import { DEFAULT_UPLOAD_DIR } from '../internal/uploads/upload-store.js';
@@ -158,10 +158,9 @@ function readFrontendIdentity(uiDir: string): FrontendIdentity | undefined {
   }
 }
 
-/** `MORSE_HOME` wins, else the same `~/.morse` the CLI uses. */
+/** `MORSE_HOME` wins, else the same `~/.morse` the CLI uses — one helper shared with the VS Code host. */
 function resolveDataDir(env: NodeJS.ProcessEnv): string {
-  const explicit = env.MORSE_HOME?.trim();
-  return explicit && explicit.length > 0 ? explicit : join(homedir(), '.morse');
+  return morseDataDir(env);
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

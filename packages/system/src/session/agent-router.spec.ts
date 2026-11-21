@@ -1127,6 +1127,32 @@ describe('AgentRouter rename and project ids', () => {
     expect(writes).toHaveLength(0);
   });
 
+  it('list() serves a rename another host wrote, through the store reload', async () => {
+    // Two hosts share one store directory; the other host's writes only become
+    // visible through `refreshExternal`, which every index read refreshes.
+    class SharedMemoryStore extends MemoryStore {
+      readonly external = new Map<string, MorseSessionRecord>();
+      override async refreshExternal(): Promise<void> {
+        this.rows.clear();
+        for (const [id, row] of this.external) {
+          this.rows.set(id, row);
+        }
+      }
+    }
+    const store = new SharedMemoryStore();
+    const record = recordOf('pi', 'pi-1');
+    store.external.set(record.id, record);
+    const { router } = build({ store, engines: [] });
+
+    const titleBefore = (await router.list()).find((row) => row.id === record.id)?.title;
+    store.external.set(record.id, { ...record, title: 'Renamed elsewhere', titlePinned: true });
+
+    expect((await router.list()).find((row) => row.id === record.id)?.title).toBe(
+      'Renamed elsewhere',
+    );
+    expect((await router.list()).find((row) => row.id === record.id)?.title).not.toBe(titleBefore);
+  });
+
   it('leaves a pinned row alone when the engine renames itself', async () => {
     const store = new MemoryStore();
     const record = recordOf('pi', 'pi-1', { title: 'Release prep', titlePinned: true });

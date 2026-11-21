@@ -11,6 +11,7 @@ export * from './session/identity.js';
 export * from './session/ports.js';
 export * from './session/reconcile.js';
 export * from './session/file-store.js';
+export * from './session/data-dir.js';
 export * from './session/agent-router.js';
 export * from './session/engine-plan.js';
 export * from './session/service.js';

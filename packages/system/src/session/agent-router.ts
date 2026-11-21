@@ -467,7 +467,14 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     if (!force && Date.now() - this.lastFresh < this.freshMs) {
       return;
     }
-    const burst: Promise<void> = this.runScans();
+    // Another host on this machine may have written the index (a session
+    // renamed in the browser, say) since our last look: reload before the
+    // scans reconcile over it, so the shared directory stays one truth.
+    // One burst covers reload and scans, so concurrent callers share it.
+    const burst: Promise<void> = (async () => {
+      await this.deps.store.refreshExternal?.();
+      await this.runScans();
+    })();
     this.refreshing = burst;
     // The burst never rejects (each engine's scan is caught inside), so the
     // cleanup is only about letting the *next* burst start.

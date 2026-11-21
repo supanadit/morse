@@ -1,4 +1,5 @@
 import type { AgentInteractionRequest } from '@morse/agent';
+import type { ControllerHostCommand, HostCommand } from '@morse/protocol';
 
 /**
  * Driven port (R2) declared by the host glue: hosts that can render
@@ -21,10 +22,21 @@ export interface HostCommandContext {
   cwd: string;
 }
 
+/**
+ * The commands a host's own handler must answer: every command on the wire
+ * except the controller-owned ones, which the shared controller intercepts
+ * before a host handler is ever called. Both hosts switch over this type
+ * exhaustively — a command added to `SharedHostCommand` or to their own group
+ * must be implemented or explicitly refused HERE, in every host, or the build
+ * fails. That is the parity contract: a feature meant for both hosts cannot be
+ * forgotten in one of them.
+ */
+export type HostHandlerCommand = Exclude<HostCommand, ControllerHostCommand>;
+
 /** Host commands may return a value; the controller forwards it when the frontend
  * asked for one with a `requestId`. */
 export type HostCommandHandler = (
-  command: string,
+  command: HostHandlerCommand,
   args?: Record<string, unknown>,
   context?: HostCommandContext,
 ) => Promise<unknown>;

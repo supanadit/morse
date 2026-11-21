@@ -22,11 +22,14 @@ import type {
 } from '@morse/system';
 import {
   PROTOCOL_VERSION,
+  isBotClientMessage,
   type AgentFailure,
   type ChatPin,
   type ClientToHostMessage,
   type FrontendIdentity,
   type HostCapabilities,
+  type HostCommand,
+  type ControllerHostCommand,
   type HostToClientMessage,
   type InteractionResponse,
   type SessionActivity,
@@ -38,6 +41,15 @@ import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
 import type { ComposerHub } from './composer-hub.js';
 import { describeError } from '../errors.js';
 import { BotWire, type Guarded } from './bot-wire.js';
+
+/**
+ * A runtime guard for `ControllerHostCommand`, so the controller can answer its
+ * own commands before any host handler runs — and be forced, by the exhaustiveness
+ * checks on both sides, to answer every command the group gains.
+ */
+function isControllerCommand(command: HostCommand): command is ControllerHostCommand {
+  return command === 'searchSessions' || command === 'reloadAgentConfig';
+}
 import {
   describeAgentFailure,
   entryIdForEdit,
@@ -411,6 +423,14 @@ export class HostSessionController {
   }
 
   private async dispatchClientMessage(message: ClientToHostMessage): Promise<void> {
+    // Bot mode is routed by prefix rather than by case: every `bot/*` request
+    // belongs to the same port. Routing it here, ahead of the switch, is what
+    // lets the switch below be exhaustive — a non-bot request without a case is
+    // a compile error, not a silently swallowed message.
+    if (isBotClientMessage(message)) {
+      await this.botWire.handle(message);
+      return;
+    }
     switch (message.type) {
       case 'client/ready':
         if (message.payload.protocolVersion !== PROTOCOL_VERSION) {
@@ -591,14 +611,17 @@ export class HostSessionController {
       case 'terminal/close':
         this.terminalHost.close(message.payload.terminalId);
         return;
-      default:
-        // Bot mode is routed by prefix rather than by case: every `bot/*` request
-        // belongs to the same port, and this check sits before the (silent)
-        // unknown-type fallthrough it has always had.
-        if (message.type.startsWith('bot/')) {
-          await this.botWire.handle(message);
-        }
+      default: {
+        // The bot group was routed before the switch and every other request
+        // type must be a named case above, so `message` is `never` here. That
+        // is the point: a new ClientToHostMessage variant without a case fails
+        // the build instead of reaching the wire and being ignored forever.
+        const unhandled: never = message;
+        this.options.logger.warn(
+          `Ignoring an unhandled request type: ${JSON.stringify(unhandled)}`,
+        );
         return;
+      }
     }
   }
 
@@ -1843,76 +1866,91 @@ export class HostSessionController {
   }
 
   private async runHostCommand(
-    command: string,
+    command: HostCommand,
     args: Record<string, unknown> | undefined,
     requestId?: string,
   ): Promise<void> {
-    // Session search is answered here, not by the host's own command handler:
-    // the registry (and so the whole catalog) lives in this controller, and the
-    // result must respect the host's scope. Routing it through every host would
-    // duplicate the scope filter in each one.
-    if (command === 'searchSessions') {
-      const query = typeof args?.query === 'string' ? args.query : '';
-      const limit = typeof args?.limit === 'number' ? args.limit : undefined;
-      const sessions = await this.options.services.registry
-        .searchSessions(query, limit)
-        .catch((error: unknown) => {
-          this.options.logger.warn(`Session search failed: ${describeError(error)}`, error);
-          return [];
-        });
-      const scoped = sessions.filter((session) => this.withinScope(session.cwd));
-      this.answerHostCommand(requestId, true, { sessions: scoped });
-      return;
-    }
-    // The draft pickers' config reload belongs here too: the registry owns the
-    // engine's config and every warm gateway that must re-read it, and the
-    // draft in front of this client is the project whose config was edited.
-    if (command === 'reloadAgentConfig') {
-      const key = this.activeKey;
-      const state = key === undefined ? undefined : this.options.services.registry.stateOf(key);
-      const engine =
-        key === undefined ? this.draftEngine : this.options.services.registry.engineOf(key);
-      const cwd = state?.workspace.cwd ?? this.draftProjectCwd();
-      let result: ReloadedAgentConfig;
-      try {
-        result = await this.options.services.registry.reloadAgentConfig({
-          ...(engine === undefined ? {} : { engine }),
-          cwd,
-          ...(args?.force === true ? { force: true } : {}),
-        });
-      } catch (error: unknown) {
-        this.options.logger.error(`Agent config reload failed: ${describeError(error)}`, error);
-        // The wire answer drives the composer's error row; the notice reaches
-        // the same channel a successful reload announces on, so a failure is
-        // never silent.
-        this.options.emit(
-          noticeMessage('error', 'The agent configuration could not be reloaded.', Date.now()),
-        );
-        this.answerHostCommand(
-          requestId,
-          false,
-          undefined,
-          'The agent configuration could not be reloaded.',
-        );
-        return;
+    // The controller-owned commands are answered here, not by the host's own
+    // handler: the registry — and so the scope filter, the engine config and
+    // every warm gateway — lives in this controller, and routing them through
+    // every host would duplicate that in each one. A command added to
+    // `ControllerHostCommand` must be answered in this switch, or the forward
+    // below stops compiling: a handler is never handed a command it cannot
+    // name.
+    if (isControllerCommand(command)) {
+      switch (command) {
+        case 'searchSessions': {
+          const query = typeof args?.query === 'string' ? args.query : '';
+          const limit = typeof args?.limit === 'number' ? args.limit : undefined;
+          const sessions = await this.options.services.registry
+            .searchSessions(query, limit)
+            .catch((error: unknown) => {
+              this.options.logger.warn(`Session search failed: ${describeError(error)}`, error);
+              return [];
+            });
+          const scoped = sessions.filter((session) => this.withinScope(session.cwd));
+          this.answerHostCommand(requestId, true, { sessions: scoped });
+          return;
+        }
+        // The draft pickers' config reload belongs here too: the registry owns
+        // the engine's config and every warm gateway that must re-read it, and
+        // the draft in front of this client is the project whose config was
+        // edited.
+        case 'reloadAgentConfig': {
+          const key = this.activeKey;
+          const state = key === undefined ? undefined : this.options.services.registry.stateOf(key);
+          const engine =
+            key === undefined ? this.draftEngine : this.options.services.registry.engineOf(key);
+          const cwd = state?.workspace.cwd ?? this.draftProjectCwd();
+          let result: ReloadedAgentConfig;
+          try {
+            result = await this.options.services.registry.reloadAgentConfig({
+              ...(engine === undefined ? {} : { engine }),
+              cwd,
+              ...(args?.force === true ? { force: true } : {}),
+            });
+          } catch (error: unknown) {
+            this.options.logger.error(`Agent config reload failed: ${describeError(error)}`, error);
+            // The wire answer drives the composer's error row; the notice reaches
+            // the same channel a successful reload announces on, so a failure is
+            // never silent.
+            this.options.emit(
+              noticeMessage('error', 'The agent configuration could not be reloaded.', Date.now()),
+            );
+            this.answerHostCommand(
+              requestId,
+              false,
+              undefined,
+              'The agent configuration could not be reloaded.',
+            );
+            return;
+          }
+          this.answerHostCommand(requestId, true, result);
+          // An engine with no config to reload answers `reloaded: false`; saying
+          // otherwise would announce a re-read that never happened.
+          if (!result.reloaded) {
+            return;
+          }
+          this.options.emit(noticeMessage('info', 'Agent configuration reloaded.', Date.now()));
+          if (this.isDraft) {
+            // The empty panel's pickers came from the config the engine just
+            // replaced, and a mode list is exactly what a reload changes: re-probe
+            // and drop a picked mode the reloaded config no longer offers. A warm
+            // session re-read its own catalogs through the registry.
+            await this.refreshModes();
+          } else {
+            this.emitState();
+          }
+          return;
+        }
+        default: {
+          // Every controller-owned command must be answered above; this branch
+          // existing is what makes a new `ControllerHostCommand` member a
+          // compile error here instead of a silent fall-through to a host.
+          const unhandled: never = command;
+          throw new Error(`No controller answers the "${String(unhandled)}" command.`);
+        }
       }
-      this.answerHostCommand(requestId, true, result);
-      // An engine with no config to reload answers `reloaded: false`; saying
-      // otherwise would announce a re-read that never happened.
-      if (!result.reloaded) {
-        return;
-      }
-      this.options.emit(noticeMessage('info', 'Agent configuration reloaded.', Date.now()));
-      if (this.isDraft) {
-        // The empty panel's pickers came from the config the engine just
-        // replaced, and a mode list is exactly what a reload changes: re-probe
-        // and drop a picked mode the reloaded config no longer offers. A warm
-        // session re-read its own catalogs through the registry.
-        await this.refreshModes();
-      } else {
-        this.emitState();
-      }
-      return;
     }
     const handler = this.options.onHostCommand;
     if (!handler) {

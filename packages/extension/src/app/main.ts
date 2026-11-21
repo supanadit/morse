@@ -18,6 +18,7 @@ import {
   FileSessionStore,
   SessionRegistry,
   describeError,
+  morseSessionsDir,
 } from '@morse/system';
 import {
   bindTranscriptsToRegistry,
@@ -120,9 +121,9 @@ async function startHost(
   );
   const workspace = readWorkspaceRef();
 
-  // Morse's index lives in the extension's *global* storage: the derived ids are
-  // the same in every window, and the sidebar should keep listing a session
-  // after another window created it. The shell layout stays per-workspace.
+  // The derived ids are the same in every host, so a shared index keeps a
+  // session listed no matter which window — or which host — created it. The
+  // shell layout stays per-workspace.
   // OpenCode registers only when this window can reach it: a configured server,
   // or a binary on PATH (including the login shell's, resolved above). A
   // pi-only window never starts an OpenCode server.
@@ -160,7 +161,18 @@ async function startHost(
         ]),
   ];
 
-  const store = new FileSessionStore(join(context.globalStorageUri.fsPath, 'sessions'));
+  // The session index lives in Morse's own data directory — the same one the
+  // browser host uses — so a Morse-side change (a session renamed in one host)
+  // is one truth on this machine instead of a per-host copy that never meets
+  // the others. Older installs kept it under global storage; those records are
+  // merged in once below.
+  const sharedSessionsDir = morseSessionsDir();
+  await mergeLegacySessionStore(
+    join(context.globalStorageUri.fsPath, 'sessions'),
+    sharedSessionsDir,
+    logger,
+  );
+  const store = new FileSessionStore(sharedSessionsDir);
   const router = new AgentRouter({ store, defaultWorkspace: workspace, logger });
   for (const planned of planEngineRegistration(candidates)) {
     const candidate = candidates.find((entry) => entry.kind === planned.kind);
@@ -230,6 +242,7 @@ async function startHost(
     ...(extras?.mcp === undefined ? {} : { mcp: extras.mcp }),
     inspector: adapter.inspector,
     ...(extras?.prompts === undefined ? {} : { prompts: extras.prompts }),
+    ...(extras?.fix === undefined ? {} : { fix: extras.fix }),
     mcpAvailable: extras?.mcp !== undefined && extras.cli !== undefined,
     ...(extras?.version === undefined ? {} : { piVersion: extras.version() }),
     workbenchDataDir: workbenchDataDir(context),
@@ -363,4 +376,52 @@ async function readFrontendManifest(
   const manifestUri = vscode.Uri.joinPath(webviewRoot, FRONTEND_MANIFEST_FILE);
   const raw = await readFile(manifestUri.fsPath, 'utf8').catch(() => undefined);
   return parseFrontendManifest(raw);
+}
+
+/**
+ * One-time move of the records an older build indexed under the extension's
+ * global storage into the shared directory. Only rows the shared store does not
+ * have yet are copied — the shared store is the truth now, and a row that is
+ * stale (deleted at the engine meanwhile) is dropped by the next reconcile, so
+ * the merge cannot resurrect a conversation for long. The old directory is left
+ * in place untouched; it is a few hundred small files the reader can delete.
+ */
+async function mergeLegacySessionStore(
+  legacyDir: string,
+  sharedDir: string,
+  logger: OutputChannelLogger,
+): Promise<void> {
+  if (legacyDir === sharedDir) {
+    return;
+  }
+  const legacy = new FileSessionStore(legacyDir);
+  const records = await legacy.list();
+  if (records.length === 0) {
+    return;
+  }
+  const shared = new FileSessionStore(sharedDir);
+  const tokens = await legacy.tokens();
+  let moved = 0;
+  for (const record of records) {
+    const existing = await shared.read(record.id);
+    if (existing === undefined) {
+      await shared.write(record, tokens.get(record.id));
+      moved += 1;
+      continue;
+    }
+    // The same engine session can exist in both (both hosts scan the same
+    // engine). A rename the reader made in this extension while it still had
+    // its own store is exactly what must survive: carry the title and its pin
+    // over, but never overwrite a pin the shared store already holds, and keep
+    // the shared row's own fields (cwd, counts) instead of the legacy copies.
+    if (record.titlePinned === true && existing.titlePinned !== true) {
+      await shared.write({ ...existing, title: record.title, titlePinned: true });
+      moved += 1;
+    }
+  }
+  if (moved > 0) {
+    logger.info(
+      `Moved ${moved} session record(s) from the extension's storage to ${sharedDir}`,
+    );
+  }
 }

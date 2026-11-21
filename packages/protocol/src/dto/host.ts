@@ -1,4 +1,3 @@
-/** What a host is and offers, plus the shell state it persists across reloads. */
 import type { HostKind, HostScope } from './primitives.js';
 
 /**
@@ -37,7 +36,15 @@ export interface EngineSetupOption {
   hint?: string;
 }
 
-export interface HostCapabilities {
+/**
+ * The capability TABLE every host declares: one row per capability, decided.
+ * This is the anti-"forgot it in the other host" contract — a host's builder
+ * returns this type, so adding a field here breaks BOTH hosts' builders until
+ * each declares what it does (`false` where the feature does not apply), and a
+ * builder that omits a field it should decide is a compile error, not a
+ * silently-hidden feature.
+ */
+export interface DeclaredHostCapabilities {
   hostKind: HostKind;
   scope: HostScope;
   /**
@@ -48,14 +55,14 @@ export interface HostCapabilities {
    * cannot enumerate its engines, leaves it out and the frontend shows no
    * engine picker.
    */
-  engines?: EngineOption[];
+  engines: EngineOption[];
   /**
    * How to install each engine this host knows, in the host's own words. Always
    * reported, even when everything resolved; the frontend uses it only when
    * `engines` is an empty list — the full-screen setup card a fresh install
    * needs, naming every engine the reader could install rather than blaming one.
    */
-  engineSetup?: EngineSetupOption[];
+  engineSetup: EngineSetupOption[];
   /** Host can read the active editor selection / open files. */
   editorContext: boolean;
   /**
@@ -65,7 +72,7 @@ export interface HostCapabilities {
    * and an empty path clears the chip. Optional: hosts without an editor leave
    * it off.
    */
-  selectionLive?: boolean;
+  selectionLive: boolean;
   /** Host renders interaction requests natively (QuickPick, InputBox, ...). */
   nativeDialogs: boolean;
   /** Host can insert text into an editor. */
@@ -76,35 +83,35 @@ export interface HostCapabilities {
    * Host can list workspace files, so the frontend can offer a file picker.
    * Optional: hosts without it simply do not show the picker.
    */
-  filePicker?: boolean;
+  filePicker: boolean;
   /**
    * Host can receive a file the browser read (base64) and store it on its own
    * disk, returning a path the frontend can `@mention`. Browsers cannot hand a
    * dragged file's path to the agent, so this is how a browser host attaches a
    * real file. Optional: hosts that cannot write files leave it off.
    */
-  fileUpload?: boolean;
+  fileUpload: boolean;
   /**
    * Host can list directories on its own filesystem, so the frontend can offer
    * a folder browser when the user has to choose which project a new session
    * belongs to. VS Code already has a workspace folder and leaves it off; the
    * browser host, where any directory is fair game, turns it on.
    */
-  directoryPicker?: boolean;
+  directoryPicker: boolean;
   /**
    * Host can read a file's contents (`readFile`), so the frontend can render an
    * Explorer and open files in its own preview tabs. This is the browser host's
    * stand-in for a text editor; VS Code already has an Explorer and an editor,
    * so it leaves this off and keeps its native ones.
    */
-  filePreview?: boolean;
+  filePreview: boolean;
   /**
    * Host can edit a prompt the agent already answered (`chat/edit`): in place on
    * an engine with its own edit, or as a branch before that prompt on one that
    * only forks. Optional: an agent backend without the primitive leaves it off
    * and the frontend hides the affordance.
    */
-  editMessage?: boolean;
+  editMessage: boolean;
   /**
    * Host can branch a new session before a past user message (`chat/fork`) and
    * hand that prompt back to the composer. Rides the same branch primitive as
@@ -112,7 +119,7 @@ export interface HostCapabilities {
    * sending anything. Optional: an agent backend without fork support leaves it
    * off and the frontend hides the affordance.
    */
-  forkMessage?: boolean;
+  forkMessage: boolean;
   /**
    * Host allows the frontend to ask the registry whether a newer Morse has been
    * published, so the sidebar can say so instead of letting a reader run a stale
@@ -120,7 +127,7 @@ export interface HostCapabilities {
    * ever does over the internet: a locked-down deployment (or a webview whose CSP
    * forbids it) leaves it off and the frontend stays quiet.
    */
-  updateCheck?: boolean;
+  updateCheck: boolean;
   /**
    * Host can install a newer Morse build for itself and relaunch it
    * (`updateHost`), so the browser footer's update notice becomes a button
@@ -130,20 +137,21 @@ export interface HostCapabilities {
    * never be on by accident. VS Code updates through the Marketplace and leaves
    * it off.
    */
-  selfUpdate?: boolean;
+  selfUpdate: boolean;
   /**
    * The installed pi version, so the frontend can tell when a newer pi is out
-   * and say how this host updates it (`pi update`). Optional: a host that could
-   * not read pi's package leaves it off and the pi notice stays quiet.
+   * and say how this host updates it (`pi update`). A host that could not read
+   * the installed package declares `undefined`, so the pi notice stays quiet —
+   * the field is decided, even when the answer is "unknown".
    */
-  piVersion?: string;
+  piVersion: string | undefined;
   /**
    * Host can read the active project's git history (`gitLog`), so the frontend
    * can offer a git panel: a commit list and its branch graph. The browser host
    * serves a machine with no editor and turns it on; VS Code keeps its own
    * Source Control view and leaves it off.
    */
-  gitPanel?: boolean;
+  gitPanel: boolean;
   /**
    * Host can manage MCP servers (`mcpStatus`/`mcpAdd`/`mcpRemove`/
    * `mcpSetEnabled`): list their configured state, add one, remove one, or turn
@@ -151,7 +159,7 @@ export interface HostCapabilities {
    * never mix; a host whose engines all lack MCP administration leaves this off
    * and the frontend hides the affordance instead of promising it.
    */
-  mcp?: boolean;
+  mcp: boolean;
   /**
    * Host implements `configFix`, which rewrites an engine's config file so a
    * later write can land (a JSONC file normalized to strict JSON). Only a host
@@ -159,7 +167,7 @@ export interface HostCapabilities {
    * extension does not, so the frontend hides Fix there instead of offering a
    * button that can only fail.
    */
-  configFix?: boolean;
+  configFix: boolean;
   /**
    * Host can search the project's files for text (`searchWorkspace`), so the
    * frontend can offer a search panel: matches grouped by file, each line a
@@ -167,14 +175,14 @@ export interface HostCapabilities {
    * installed, a built-in walk otherwise); VS Code has its own Search view and
    * leaves it off.
    */
-  searchPanel?: boolean;
+  searchPanel: boolean;
   /**
    * Host can run an interactive shell for the frontend's bottom panel
    * (`terminal/open` and friends), streaming its output back. VS Code already
    * has an integrated terminal and leaves it off; the browser host turns it on,
    * so the panel stands on its own.
    */
-  terminal?: boolean;
+  terminal: boolean;
   /**
    * Host can read and write the frontend's shell layout (`readWorkbench` /
    * `saveWorkbench`), so the tabs and terminal a reader had open come back on
@@ -182,21 +190,21 @@ export interface HostCapabilities {
    * extension under its per-workspace storage, so a reopened window restores the
    * session that was in front instead of starting empty.
    */
-  workbench?: boolean;
+  workbench: boolean;
   /**
    * Host can raise a notification of its own (`notify`), so the frontend can say
    * a run finished while the reader was elsewhere. VS Code turns it on (its
    * webview has no Web Notifications); the browser host leaves it off and uses
    * the `Notification` API instead.
    */
-  notify?: boolean;
+  notify: boolean;
   /**
    * Host can read and write pi's prompt-template files (`promptTemplates`,
    * `promptTemplateSave`, `promptTemplateDelete`), so the frontend can offer the
    * template editor. Both hosts have a filesystem; a host that cannot reach the
    * agent directory leaves it off and the editor stays hidden.
    */
-  promptEditor?: boolean;
+  promptEditor: boolean;
   /**
    * Host can show one session in an editor tab of its own (`openSessionTab`)
    * and drop it again (`closeSessionTab`), so a VS Code window can hold a whole
@@ -204,22 +212,34 @@ export interface HostCapabilities {
    * a host with no editor surface (the browser host) leaves it off and the
    * sidebar's session menu keeps its two entries.
    */
-  sessionTabs?: boolean;
+  sessionTabs: boolean;
   /**
    * Host runs Bot mode: the roster of isolated bots, their conversations and the
    * routing between them. Only the browser host offers it in MVP, so the
    * frontend hides the mode switch where it is absent rather than showing a
    * roster that can never load.
    */
-  bot?: boolean;
+  bot: boolean;
   /**
    * Host owns the composer's queue and relays its draft text, so several
    * connected clients share them (`composer/state`, `composer/queue`,
    * `composer/draft`). The browser host turns it on; VS Code has one webview per
    * window and keeps its queue in the frontend.
    */
-  sharedComposer?: boolean;
+  sharedComposer: boolean;
 }
+
+/**
+ * The wire shape a host pushes at handshake: the declared table with every row
+ * optional, so an older frontend meets a newer host (unknown rows read as
+ * "off") and a test fixture can name only the rows it exercises. The frontend
+ * keeps reading `undefined` as "not offered"; a BUILDER never writes this type —
+ * it writes `DeclaredHostCapabilities` above, where nothing can be omitted.
+ */
+export type HostCapabilities = {
+  [K in keyof DeclaredHostCapabilities]?: DeclaredHostCapabilities[K];
+};
+
 
 /**
  * The frontend's persisted shell layout: which tabs are open and in front, the

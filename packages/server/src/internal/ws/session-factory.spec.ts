@@ -152,7 +152,10 @@ function fakeSocket(): WebSocket {
 describe('MorseSessionFactory bot wiring', () => {
   it('reports the bot capability only when the service resolved', () => {
     expect(factoryWith(fakeBot().service).capabilities().bot).toBe(true);
-    expect(factoryWith(undefined).capabilities().bot).toBeUndefined();
+    // The declared table is total: a builder never omits a row, so "no bot
+    // service" is an explicit `false` for the frontend to hide on — same
+    // outcome as the old absent field, but decided instead of undefined.
+    expect(factoryWith(undefined).capabilities().bot).toBe(false);
   });
 
   it('advertises configFix only when an engine exposes a fix', () => {

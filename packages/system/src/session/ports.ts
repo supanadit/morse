@@ -135,4 +135,12 @@ export interface SessionStore {
    * use case then reports that instead of pretending the session is gone.
    */
   remove?(id: string): Promise<void>;
+  /**
+   * Re-reads the backing storage, so records another process wrote become
+   * visible. Optional on purpose: a store that is the only writer of its
+   * directory never needs it. The hosts on one machine share one directory
+   * exactly so a Morse-side change (a session rename, say) is one truth for
+   * every host — this is the read side of that contract.
+   */
+  refreshExternal?(): Promise<void>;
 }

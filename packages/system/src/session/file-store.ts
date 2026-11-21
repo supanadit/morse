@@ -114,6 +114,25 @@ export class FileSessionStore implements SessionStore {
     return this.tokenByMorseId;
   }
 
+  /**
+   * Re-reads the store from disk, so records another process wrote become
+   * visible without a restart. The hosts on one machine (the VS Code extension
+   * and the server) share this directory on purpose — it is what makes a
+   * Morse-only change such as a session rename land in the other host — so a
+   * store must not treat its constructor's load as the last word.
+   *
+   * Memory never diverges from disk (every write and remove goes through both),
+   * so a plain reload is correct, including the other host's deletions and
+   * tokens. Concurrent index appends from the other host can lose one line in a
+   * compaction rewrite; the record files stay authoritative for `list`/`read`.
+   */
+  async refreshExternal(): Promise<void> {
+    const loaded = this.load();
+    this.records = loaded.records;
+    this.tokenByMorseId = loaded.tokens;
+    this.indexLines = loaded.indexLines;
+  }
+
   /** Reads every record file, then replays the index for its tokens. */
   private load(): { records: Map<string, MorseSessionRecord>; tokens: Map<string, string>; indexLines: number } {
     const records = new Map<string, MorseSessionRecord>();
