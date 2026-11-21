@@ -1169,7 +1169,15 @@ export class ChatComposer {
     // selection that was shown but not locked does not ride along.
     // Compaction owns the conversation until it finishes: a prompt typed now
     // waits in this session's queue instead of racing the context rewrite.
-    const owner = this.tabs.composerKey();
+    // The key is this tab's conversation, never the host's active one, so a
+    // prompt cannot leak into another tab's session. A draft tab has no session
+    // to name, though: the wire spells "the session in front" as no key at all,
+    // and the host lazily opens the draft — an addressed `draft-N` names no
+    // live session, so the host would drop the prompt (the first send of every
+    // new session silently died that way).
+    const front = this.tabs.activeTab();
+    const owner =
+      front?.kind === 'session' && front.draft === true ? undefined : this.tabs.composerKey();
     if (this.sessionBusy()) {
       this.sync.enqueue({ text: value, images, pins }, owner);
     } else if (mode === 'followUp' && this.running()) {
@@ -1178,9 +1186,7 @@ export class ChatComposer {
       this.sync.enqueue({ text: value, images, pins }, this.tabs.composerKey());
     } else {
       // While idle (`followUp` won the race with the run ending) a queued kind
-      // makes no sense: pi should start a fresh turn. The key is this tab's
-      // conversation, never the host's active one, so a prompt cannot leak into
-      // another tab's session.
+      // makes no sense: pi should start a fresh turn.
       this.morse.prompt(value, mode === 'followUp' ? 'new' : mode, images, pins, owner);
     }
     this.attachments.setLivePreview(null);

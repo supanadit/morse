@@ -262,6 +262,34 @@ describe('ChatComposer queued messages', () => {
     expect(rows(host)).toEqual(['follow-up']);
   });
 
+  it('sends a draft tab’s first prompt unaddressed, so the host opens the session', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const tabs = TestBed.inject(WorkspaceTabs);
+
+    // The front tab is a brand-new session: no session id exists on the host yet.
+    tabs.openDraft('/repo');
+    fixture.detectChanges();
+
+    const box = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')!;
+    box.value = 'first prompt';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    // Addressed to `draft-1` the prompt would name no live session and the host
+    // would drop it — every new session's first send died that way.
+    const prompt = transport.sent.find((message) => message.type === 'chat/prompt');
+    expect(prompt?.payload).toMatchObject({ text: 'first prompt' });
+    expect((prompt?.payload as { sessionKey?: string }).sessionKey).toBeUndefined();
+  });
+
   it('shows the paused banner and sends the choice the reader clicked', async () => {
     const transport = new QueueHostTransport(true);
     await TestBed.configureTestingModule({
