@@ -190,15 +190,20 @@ Code, where there is no editor tab, the composer chip keeps its annotation butto
 
 - The Explorer is drawn in levels. The flat `listFiles` listing the `@mention` picker uses (git-aware,
   the active session's directory, capped at five thousand files in the host's index) paints the first
-  frame, and the `listDir` host command (`{ path? }` → `{ entries }`) completes it: the root level is
-  listed as soon as the pane mounts and each folder's own level is fetched the first time it opens —
-  one `readdir`, the same skip rules and the same trailing-`/` vocabulary as `listFiles`, so a level
-  merges straight into the flat listing. The two shapes one tree in `@morse/ui-runtime`
+  frame, and the `listDir` host command (`{ path? }` → `{ entries, missing? }`) completes it: the root level
+  is listed as soon as the pane mounts and each folder's own level is fetched the first time it opens —
+  one `readdir`, and the same trailing-`/` vocabulary as `listFiles`, so a level merges straight into the
+  flat listing. A level lists *everything* in its directory, ignored entries and dot-folders included, so
+  the reader can reach a `.env` or a file under `node_modules`; only `.git` stays out. `missing` says the
+  folder itself vanished (a terminal `rm -rf`, a branch switch), and the Explorer then drops that row and
+  the folders open under it instead of drawing a ghost. The two shapes one tree in `@morse/ui-runtime`
   (`files/tree.ts`), which is what keeps a parent directory holding more projects than the flat index
   has room for showing every folder up front. `WorkspaceFiles` holds both listings and re-reads the flat
   one on a timer (`fresh: true` bypasses the host's index cache); a moved file list, a moved working
   tree, a project switch or the refresh button throws the listed levels away, and whatever folder is
-  still open is asked for again. Clicking a file opens a tab. The same poll asks
+  still open is asked for again. The open folders are remembered per project in the page's storage, so a
+  browser refresh lands on the same tree (and re-reads only those levels) instead of folding it to the
+  root. Clicking a file opens a tab. The same poll asks
   `gitStatus` (`{ isRepo, files: [{ path, status }], branch?, refs? }`, porcelain codes), and a changed
   file shows the one-letter badge its status earns (`M`, `A`, `D`, `R`, `U`, `C`) with a dot on the
   folder that holds it. The `branch` and `refs` the same answer carries are for the git panel: they are
@@ -206,7 +211,9 @@ Code, where there is no editor tab, the composer chip keeps its annotation butto
   below).
   A **filter box** above the list narrows the project: a query replaces the tree with a flat, ranked list of
   matching files (the `@mention` picker's `rankFiles`, so a name hit outranks a path hit) and each row names
-  the folder it sits in; the title bar reads `3 of 41` rather than claiming a smaller project.
+  the folder it sits in. It searches what the levels have listed, never a walk of the disk; the title bar
+  carries no file count, since counting every listed file was the one heavy thing this pane did on each
+  change.
 - A file tab is filled by the `readFile` host command (`{ path, cwd? }` → `{ path, content, size, truncated,
   binary }`). `path` is relative to the viewing session's cwd: `readWorkspaceFile` resolves it against that
   directory and refuses an absolute path or one that escapes it, so a browser cannot read outside the

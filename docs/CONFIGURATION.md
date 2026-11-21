@@ -328,10 +328,13 @@ reopened as an empty room.
 
 When the host advertises `filePreview` — the NestJS/browser host does, VS Code does not — the sidebar grows
 an **Explorer** for the session's project and the chat grows a **tab strip**. Clicking a file opens it in a
-new preview tab; selecting a session opens or reveals its tab and activates that session. A **filter box**
-above the tree narrows the project to the files whose path matches — the tree gives way to a flat, ranked
-list with each file's folder beside it — and the title bar counts the matches (`3 of 41`), so finding a file
-whose folder the reader would otherwise have to open by hand is one box instead of a walk. The strip is
+new preview tab; selecting a session opens or reveals its tab and activates that session. The tree loads
+one directory at a time as folders open, lists ignored entries as well as tracked ones (an `.env`, a file
+under `node_modules`), and remembers the open folders per project, so a browser refresh lands on the same
+tree. A **filter box** above the tree narrows the project to the files whose path matches — the tree gives
+way to a flat, ranked list with each file's folder beside it — searching what the opened folders have
+listed, so finding a file whose folder the reader would otherwise have to open by hand is one box instead
+of a walk. The strip is
 frontend state, and the browser host persists it (with the bottom panel and its terminals) to
 `<MORSE_HOME>/workbench.json`, so opening the page again lands on the tab the reader left; the drafts of
 those tabs — text, pins, mentions and inline images — are persisted per tab to

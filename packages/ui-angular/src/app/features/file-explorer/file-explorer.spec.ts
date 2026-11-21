@@ -5,8 +5,14 @@ import { MorseService } from '../../host/morse.service';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { FileExplorer, matchFiles } from './file-explorer';
 
-function setup(files: string[], status?: unknown, levels?: Record<string, string[]>) {
-  const state = signal({ workspace: { cwd: '/work/morse', name: 'morse' } });
+function setup(
+  files: string[],
+  status?: unknown,
+  levels?: Record<string, string[]>,
+  missing?: ReadonlySet<string>,
+  cwd = '/work/morse',
+) {
+  const state = signal({ workspace: { cwd, name: cwd.split('/').at(-1) ?? cwd } });
   const morse = {
     state,
     // The real service derives `workspace` from `state`; mirror that so a project
@@ -21,6 +27,11 @@ function setup(files: string[], status?: unknown, levels?: Record<string, string
       }
       if (command === 'listDir') {
         const path = typeof args?.path === 'string' ? args.path : '';
+        if (missing?.has(path) === true) {
+          // The row is still drawn from its parent's level, but the folder is
+          // gone from disk: the host says so instead of answering an empty one.
+          return Promise.resolve({ entries: [], missing: true });
+        }
         // An explicit `levels` answers the way the real host does — a level the
         // flat listing never reached — and without one the flat list is the truth.
         return Promise.resolve({ entries: levels?.[path] ?? level(files, path) });
@@ -238,6 +249,66 @@ describe('FileExplorer', () => {
     expect(rows(fixture)).toEqual(['src', 'app', 'main.ts']);
   });
 
+  it('reopens the folders left open after a browser refresh', async () => {
+    const levels = {
+      '': ['src/'],
+      src: ['src/app/'],
+      'src/app': ['src/app/main.ts'],
+    };
+    const first = setup(['src/app/main.ts'], undefined, levels);
+    await settleTree(first.fixture);
+    first.fixture.nativeElement.querySelector('.row').click();
+    await settleTree(first.fixture);
+    expect(rows(first.fixture)).toEqual(['src', 'app']);
+
+    // A refresh throws the component away. The open folder comes back from the
+    // page's own storage, and its level is asked for again — no second click.
+    first.fixture.destroy();
+    TestBed.resetTestingModule();
+    const second = setup(['src/app/main.ts'], undefined, levels);
+    await settleTree(second.fixture);
+
+    expect(rows(second.fixture)).toEqual(['src', 'app']);
+    const asked = second.morse.requestHostCommand.mock.calls
+      .filter(([command]) => command === 'listDir')
+      .map(([, args]) => args);
+    expect(asked).toContainEqual({ path: 'src' });
+  });
+
+  it('does not apply another project\u2019s open folders', async () => {
+    const levels = { '': ['src/'], src: ['src/app/'] };
+    const first = setup(['src/app/main.ts'], undefined, levels, undefined, '/work/other');
+    await settleTree(first.fixture);
+    first.fixture.nativeElement.querySelector('.row').click();
+    await settleTree(first.fixture);
+    first.fixture.destroy();
+    TestBed.resetTestingModule();
+
+    // The saved tree belongs to `/work/other`; this project starts folded.
+    const second = setup(['src/app/main.ts']);
+    await settleTree(second.fixture);
+    expect(rows(second.fixture)).toEqual(['src']);
+  });
+
+  it('drops a folder the reader deleted in a terminal, and asks for it once', async () => {
+    const levels: Record<string, string[]> = { '': ['gone/', 'kept/'] };
+    const { fixture, morse } = setup([], undefined, levels, new Set(['gone']));
+    await settleTree(fixture);
+    expect(rows(fixture)).toEqual(['gone', 'kept']);
+
+    // `rm -rf gone` behind the UI's back: the row is still on screen, but its
+    // level says the folder is gone and the fresh root read stops naming it.
+    levels[''] = ['kept/'];
+    fixture.nativeElement.querySelector('.row').click();
+    await settleTree(fixture);
+
+    expect(rows(fixture)).toEqual(['kept']);
+    const asked = morse.requestHostCommand.mock.calls
+      .filter(([command]) => command === 'listDir')
+      .map(([, args]) => (args as { path?: string } | undefined)?.path ?? '');
+    expect(asked.filter((path) => path === 'gone')).toHaveLength(1);
+  });
+
   it('reveals a file the flat listing never reached, loading folders on the way', async () => {
     // The chip names a file past the flat index's cap: the root level (read in
     // full) says the project owns its first folder, and each level on the way
@@ -403,8 +474,9 @@ describe('FileExplorer', () => {
     // The tree (folders to open) gives way to the file, with its folder beside it.
     expect(rows(fixture)).toEqual(['main.ts']);
     expect(fixture.nativeElement.querySelector('.row .dir')?.textContent).toBe('src/app');
-    // The count reads as a narrowing, not a smaller project.
-    expect(fixture.nativeElement.querySelector('.pane-meta')?.textContent?.trim()).toContain('of');
+    // No badge in the title bar: the count it used to show meant walking every
+    // listed file, and the tree already says how much is on screen.
+    expect(fixture.nativeElement.querySelector('.pane-meta')).toBeNull();
 
     (fixture.nativeElement.querySelector('.filter input') as HTMLInputElement).dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape' }),
@@ -427,6 +499,36 @@ describe('FileExplorer', () => {
     typeFilter(fixture, 'nothing like this');
     expect(rows(fixture)).toEqual([]);
     expect(fixture.nativeElement.querySelector('.hint')?.textContent).toContain('No file matches');
+  });
+
+  it('lists the ignored entries the flat index leaves out, and finds them', async () => {
+    const { fixture } = setup(['README.md'], undefined, {
+      '': ['README.md', '.env', 'node_modules/'],
+      node_modules: ['node_modules/.bin/', 'node_modules/left-pad/'],
+      'node_modules/left-pad': ['node_modules/left-pad/index.js'],
+    });
+    await settleTree(fixture);
+
+    // The root level names the ignored file and folder the git-driven index
+    // never returned: one readdir, not a project walk.
+    expect(rows(fixture)).toEqual(['node_modules', '.env', 'README.md']);
+
+    const open = (label: string): void => {
+      const row = [...fixture.nativeElement.querySelectorAll('.row')].find((node: Element) =>
+        node.textContent?.includes(label),
+      ) as HTMLElement;
+      row.click();
+    };
+    open('node_modules');
+    await settleTree(fixture);
+    expect(rows(fixture)).toContain('left-pad');
+    open('left-pad');
+    await settleTree(fixture);
+
+    // The filter searches the levels already listed, so the ignored file is
+    // reachable without the tree ever indexing it up front.
+    typeFilter(fixture, 'index.js');
+    expect(rows(fixture)).toEqual(['index.js']);
   });
 
   it('fills its column with no resize handle and no fold control', async () => {

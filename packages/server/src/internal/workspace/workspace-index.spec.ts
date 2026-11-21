@@ -75,12 +75,13 @@ describe('workspace index cache', () => {
 
 /**
  * The Explorer's lazy tree reads one level at a time from here: no cap, the
- * `listFiles` vocabulary, and the same skip rules the index walks with — so a
- * parent directory past the index's first five thousand files still draws every
- * folder of the level it asks for.
+ * `listFiles` vocabulary, and no ignore list — so a parent directory past the
+ * index's first five thousand files still draws every folder of the level it
+ * asks for, and the reader can reach an ignored file the git-driven index left
+ * out.
  */
 describe('listProjectDirectory', () => {
-  it('lists one level: files plainly, folders with the trailing slash', async () => {
+  it('lists one level, ignored entries included and git metadata left out', async () => {
     const dir = project('levels');
     mkdirSync(join(dir, 'src'));
     writeFileSync(join(dir, 'src', 'main.ts'), 'export {};\n');
@@ -88,12 +89,20 @@ describe('listProjectDirectory', () => {
     writeFileSync(join(dir, 'node_modules', 'dep.js'), '');
     mkdirSync(join(dir, '.git'));
     writeFileSync(join(dir, '.gitignore'), '*~\n');
+    writeFileSync(join(dir, '.env'), 'TOKEN=1\n');
 
-    // The index's skip rules hold level by level: no build directory, no
-    // dot-folder — while a dot-*file* stays exactly as pickable as ever.
-    expect(await listProjectDirectory(dir, '')).toEqual(['.gitignore', 'a.ts', 'src/']);
+    // The Explorer reaches what the reader may want to open: a gitignored
+    // directory, a dot-folder and a dot-file are all entries of this level.
+    // Only `.git` itself stays out — it is repository metadata, not project
+    // content.
+    expect(await listProjectDirectory(dir, '')).toEqual({
+      entries: ['.env', '.gitignore', 'a.ts', 'node_modules/', 'src/'],
+    });
     // Entries stay project-relative, so a level merges into the flat listing.
-    expect(await listProjectDirectory(dir, 'src')).toEqual(['src/main.ts']);
+    expect(await listProjectDirectory(dir, 'src')).toEqual({ entries: ['src/main.ts'] });
+    expect(await listProjectDirectory(dir, 'node_modules')).toEqual({
+      entries: ['node_modules/dep.js'],
+    });
   });
 
   it('refuses a directory outside the project, like the preview does', async () => {
@@ -106,11 +115,16 @@ describe('listProjectDirectory', () => {
       'The project only lists its own directories.',
     );
     // The project root itself is the empty path, not an escape.
-    expect(await listProjectDirectory(dir, '')).toContain('a.ts');
+    expect((await listProjectDirectory(dir, '')).entries).toContain('a.ts');
   });
 
-  it('answers a vanished directory with none, instead of failing the tree', async () => {
+  it('says a vanished directory is missing, instead of an empty one', async () => {
     const dir = project('gone');
-    expect(await listProjectDirectory(dir, 'deleted')).toEqual([]);
+    // The Explorer keeps the row from the parent's level; `missing` is what
+    // tells it the reader `rm -rf`'d the folder and the row has to go.
+    expect(await listProjectDirectory(dir, 'deleted')).toEqual({
+      entries: [],
+      missing: true,
+    });
   });
 });

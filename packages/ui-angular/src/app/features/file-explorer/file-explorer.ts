@@ -46,9 +46,12 @@ export interface FileMatch {
  * On top of that flat listing, the tree is drawn in levels: the root is listed
  * as soon as the pane mounts, and a folder's level is fetched the first time it
  * can be seen (`listDir`, one `readdir` per level). The flat list is capped —
- * five thousand files, in the host's index — so for a parent directory holding
- * more than that it is the *levels* that carry every folder: the flat listing
- * paints the first frame, and each level completes its own folder.
+ * five thousand files, in the host's index — and, being git-driven, it skips
+ * ignored paths; the levels carry both: every folder, and the `.env` or
+ * `node_modules` file the reader may want to open. The levels are the only way
+ * the ignored entries cost anything — one `readdir` for the folder actually
+ * opened. The open folders are remembered with the project they belong to, so a
+ * browser refresh lands on the same tree instead of folding it back to the root.
  */
 @Component({
   selector: 'morse-file-explorer',
@@ -64,7 +67,9 @@ export class FileExplorer {
   private readonly workspaceStore = inject(WorkspaceFilesStore);
   private readonly rowsEl = viewChild<ElementRef<HTMLElement>>('rowsBox');
 
-  private readonly expanded = signal<ReadonlySet<string>>(new Set());
+  /** The folders the reader had open, restored from the last visit to this project. */
+  private readonly saved = readExpanded();
+  private readonly expanded = signal<ReadonlySet<string>>(this.saved?.paths ?? new Set());
   /** The file in front, when the active tab is a file: the row the tree follows. */
   private readonly activePath = computed(() => {
     const tab = this.tabs.activeTab();
@@ -77,7 +82,7 @@ export class FileExplorer {
    */
   protected readonly selected = signal<string | undefined>(undefined);
   /** The project the expanded set belongs to, so switching projects folds it. */
-  private expandedFor = '';
+  private expandedFor = this.saved?.cwd ?? '';
   /**
    * The path the tree last revealed. A poll, a refresh or the reader's own
    * expand/collapse changes `rows` too, and none of them may scroll the pane
@@ -87,44 +92,33 @@ export class FileExplorer {
   /** Set by a reveal, cleared by the single scroll it schedules. */
   private scrollPending = false;
 
-  private readonly tree = computed(() =>
-    buildFileTree(mergedEntries(this.workspaceStore.files(), this.workspaceStore.directories())),
-  );
   /**
-   * The project's file count, from the flat listing alone. The badge says how
-   * big the project is, not how much of it has been opened — a count that grew
-   * as folders were explored would read as the project changing.
+   * The flat listing and every level the lazy tree has listed, as one entry
+   * list. The flat listing paints the first frame; a level adds what the index
+   * cannot see — an ignored `.env`, a file under `node_modules` — once its
+   * folder is open.
    */
-  private readonly flatTree = computed(() => buildFileTree(this.workspaceStore.files()));
+  private readonly entries = computed(() =>
+    mergedEntries(this.workspaceStore.files(), this.workspaceStore.directories()),
+  );
+  private readonly tree = computed(() => buildFileTree(this.entries()));
   /**
    * The files as the shared tree wants them: a node with a label, a kind and its
    * children, carrying the `FileNode` itself so a click opens the right path. A
    * directory keeps its fold mark; a file shows its git badge.
    */
   protected readonly nodes = computed<TreeNode<FileNode>[]>(() => this.toNodes(this.tree()));
-  protected readonly fileCount = computed(() => countFiles(this.flatTree()));
   protected readonly isLoading = this.workspaceStore.busy;
   protected readonly errorMessage = this.workspaceStore.error;
   /**
    * The Explorer's own search box. A non-empty query replaces the tree with a
    * flat list of matching files — VS Code's Explorer filter, and the fast way to
    * reach a file whose folder the reader would otherwise have to open by hand.
+   * It searches the entries that are already listed, never a walk of the disk.
    */
   protected readonly filter = signal('');
   protected readonly filtering = computed(() => this.filter().trim().length > 0);
-  protected readonly matching = computed(() =>
-    matchFiles(this.workspaceStore.files(), this.filter()),
-  );
-  /**
-   * The title bar counts what is on screen: the matches while filtering, every
-   * file otherwise. `3 of 41` says the box is narrowing the project, not that the
-   * project shrank.
-   */
-  protected readonly meta = computed(() =>
-    this.filtering()
-      ? `${this.matching().length} of ${this.fileCount()}`
-      : this.fileCount().toString(),
-  );
+  protected readonly matching = computed(() => matchFiles(this.entries(), this.filter()));
 
   /** The changed paths by letter, and the folders that contain one. */
   private readonly changes = computed(() => statusByPath(this.workspaceStore.status()));
@@ -144,11 +138,12 @@ export class FileExplorer {
       const cwd = this.morse.state().workspace.cwd;
       untracked(() => {
         // `state()` re-emits on every transcript update; only a new project
-        // deserves a fresh expanded set.
+        // deserves a fresh expanded set. The saved set is remembered per
+        // project, so the one restored above is kept only when it is this one.
         if (cwd.length > 0 && cwd !== this.expandedFor) {
-          this.expanded.set(new Set());
-          this.revealedPath = undefined;
           this.expandedFor = cwd;
+          this.setExpanded(new Set());
+          this.revealedPath = undefined;
           // A query for the last project's files would leave this one looking empty.
           this.filter.set('');
         }
@@ -218,11 +213,41 @@ export class FileExplorer {
         }
         for (const dir of ['', ...open]) {
           if (listed[dir] === undefined) {
-            this.workspace.loadDir(dir);
+            void this.workspace.loadDir(dir).then((missing) => {
+              if (missing) {
+                this.forgetMissing(dir);
+              }
+            });
           }
         }
       });
     });
+  }
+
+  /**
+   * Writes the open set and remembers it, so a browser refresh lands on the same
+   * tree instead of folding every folder back to the root.
+   */
+  private setExpanded(paths: ReadonlySet<string>): void {
+    this.expanded.set(paths);
+    storeExpanded(this.expandedFor, paths);
+  }
+
+  /**
+   * The reader deleted a folder in a terminal while its row was on screen. Drop
+   * it — and everything under it — from the open set, then re-read the levels:
+   * the parent's cached level still names it, and a fresh `readdir` is what makes
+   * the ghost row go. A missing folder is an ordinary thing to see, not an error.
+   */
+  private forgetMissing(path: string): void {
+    const next = new Set(this.expanded());
+    for (const dir of next) {
+      if (dir === path || dir.startsWith(`${path}/`)) {
+        next.delete(dir);
+      }
+    }
+    this.setExpanded(next);
+    this.workspace.reloadLevels();
   }
 
   /**
@@ -245,17 +270,17 @@ export class FileExplorer {
     if (ancestors.length === 0) {
       return true;
     }
-    this.expanded.update((set) => {
-      const next = new Set(set);
-      let changed = false;
-      for (const dir of ancestors) {
-        if (!next.has(dir)) {
-          next.add(dir);
-          changed = true;
-        }
+    const next = new Set(this.expanded());
+    let changed = false;
+    for (const dir of ancestors) {
+      if (!next.has(dir)) {
+        next.add(dir);
+        changed = true;
       }
-      return changed ? next : set;
-    });
+    }
+    if (changed) {
+      this.setExpanded(next);
+    }
     return true;
   }
 
@@ -403,15 +428,13 @@ export class FileExplorer {
 
   protected onRow(node: FileNode): void {
     if (node.kind === 'dir') {
-      this.expanded.update((set) => {
-        const next = new Set(set);
-        if (next.has(node.path)) {
-          next.delete(node.path);
-        } else {
-          next.add(node.path);
-        }
-        return next;
-      });
+      const next = new Set(this.expanded());
+      if (next.has(node.path)) {
+        next.delete(node.path);
+      } else {
+        next.add(node.path);
+      }
+      this.setExpanded(next);
       return;
     }
     this.tabs.openFile(node.path);
@@ -442,13 +465,15 @@ export class FileExplorer {
  *
  * Directories are left out: the filtered view answers "find a file", and a folder
  * row would only open a folder. The ranking is the `@mention` picker's, through
- * `rankFiles`, so the two file lists look for the same thing the same way.
+ * `rankFiles`, so the two file lists look for the same thing the same way. A path
+ * can arrive twice — from the flat listing and from a level that also names it —
+ * so duplicates are dropped before they become two identical rows.
  */
 export function matchFiles(files: readonly string[], query: string): FileMatch[] {
   if (query.trim().length === 0) {
     return [];
   }
-  return rankFiles(files, query, Number.POSITIVE_INFINITY)
+  return rankFiles([...new Set(files)], query, Number.POSITIVE_INFINITY)
     .filter((path) => !path.endsWith('/'))
     .map((path) => {
       const cut = path.lastIndexOf('/');
@@ -460,20 +485,12 @@ export function matchFiles(files: readonly string[], query: string): FileMatch[]
     });
 }
 
-function countFiles(nodes: readonly FileNode[]): number {
-  let count = 0;
-  for (const node of nodes) {
-    count += node.kind === 'file' ? 1 : countFiles(node.children);
-  }
-  return count;
-}
-
 /**
- * The flat listing and every level the lazy tree has listed, as one entry list
- * for `buildFileTree`. The two only ever add to each other: the flat list paints
- * the first frame while the root level is still on its way, and a level that
- * lands completes a folder the flat list could not reach — its index is capped,
- * these levels are not.
+ * The flat listing and every level the lazy tree has listed, as one entry list.
+ * The two only ever add to each other: the flat list paints the first frame
+ * while the root level is still on its way, and a level that lands completes a
+ * folder the flat list could not reach — its index is capped, these levels are
+ * not, and it lists the ignored entries the index leaves out.
  */
 function mergedEntries(flat: readonly string[], levels: Record<string, string[]>): string[] {
   const entries = [...flat];
@@ -481,6 +498,49 @@ function mergedEntries(flat: readonly string[], levels: Record<string, string[]>
     entries.push(...level);
   }
   return entries;
+}
+
+/** Where the open folders are remembered, so a refresh lands on the same tree. */
+const EXPANDED_KEY = 'morse.explorer.expanded';
+
+/** The project and the folders the reader had open in it. */
+interface SavedExpanded {
+  cwd: string;
+  paths: ReadonlySet<string>;
+}
+
+function readExpanded(): SavedExpanded | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(EXPANDED_KEY);
+    if (raw === null || raw === undefined) {
+      return undefined;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
+      return undefined;
+    }
+    const { cwd, paths } = parsed as { cwd?: unknown; paths?: unknown };
+    if (typeof cwd !== 'string' || cwd.length === 0 || !Array.isArray(paths)) {
+      return undefined;
+    }
+    return {
+      cwd,
+      paths: new Set(
+        paths.filter((path): path is string => typeof path === 'string' && path.length > 0),
+      ),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function storeExpanded(cwd: string, paths: ReadonlySet<string>): void {
+  try {
+    globalThis.localStorage?.setItem(EXPANDED_KEY, JSON.stringify({ cwd, paths: [...paths] }));
+  } catch {
+    // Storage is a nicety, not a requirement: the folders still stand open in
+    // this session.
+  }
 }
 
 /** Every directory above `path`, outermost first (`a/b/c.ts` -> `a`, `a/b`). */

@@ -72,6 +72,16 @@ export async function workspaceFiles(
   return files;
 }
 
+/** One directory's level, and whether the directory itself is gone. */
+export interface DirectoryListing {
+  entries: string[];
+  /**
+   * The path is no longer on disk (a terminal `rm -rf`, a branch switch). The
+   * Explorer drops the row rather than keeping a ghost an empty level would.
+   */
+  missing?: true;
+}
+
 /**
  * One directory's entries for the Explorer's lazy tree: the root level the pane
  * draws first, then each folder's own level as it opens. The vocabulary is
@@ -81,29 +91,39 @@ export async function workspaceFiles(
  * entry of the level is there, which is what keeps a parent directory of twenty
  * repositories from losing the ones past the index's first five thousand files.
  *
+ * Everything the project holds is listed, ignored or not — an `.env` and a file
+ * under `node_modules` are project files the reader may want to open, and one
+ * `readdir` per level keeps that as cheap as listing the tracked ones. Only git's
+ * own metadata stays out: it is not project content, and expanding it would
+ * bury the tree in objects.
+ *
  * The path resolves inside the project the way `readFile`'s does: the browser
  * host never lists a directory the client names outside the session's
  * directory, and an absolute path is a client naming a place the session does
  * not own rather than a path to reinterpret.
  */
-export async function listProjectDirectory(cwd: string, requested: string): Promise<string[]> {
+export async function listProjectDirectory(
+  cwd: string,
+  requested: string,
+): Promise<DirectoryListing> {
   const target = resolveDirectoryWithin(cwd, requested);
   let listed: Dirent[];
   try {
     listed = await readdir(target, { withFileTypes: true });
-  } catch {
-    // An unreadable or vanished directory answers as none: the row that asked
-    // for it shows no children instead of the whole tree failing.
-    return [];
+  } catch (error) {
+    // An unreadable directory is an empty one, but a vanished directory says so:
+    // the tree has to drop the row, not keep a folder nothing will ever fill.
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR'
+      ? { entries: [], missing: true }
+      : { entries: [] };
   }
   const parent = toPosix(relative(cwd, target));
   const entries: string[] = [];
   for (const entry of listed) {
     const path = toPosix(join(parent, entry.name));
     if (entry.isDirectory()) {
-      // The index's skip rules, level by level: no build directories, and no
-      // dot-folder (`.git`, `.github`) — while a dot-*file* stays pickable.
-      if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.')) {
+      if (entry.name === '.git') {
         continue;
       }
       entries.push(`${path}/`);
@@ -114,7 +134,7 @@ export async function listProjectDirectory(cwd: string, requested: string): Prom
       entries.push(path);
     }
   }
-  return entries.sort();
+  return { entries: entries.sort() };
 }
 
 /**

@@ -186,7 +186,11 @@ turns them on so the panel stands on its own:
 - **Explorer**: the session project's files with git status badges, resizable, refreshed by polling
   `listFiles` (`fresh: true`) and `gitStatus`, with a filter box that narrows it to a flat, ranked list of
   matching files. The tree draws in levels: every top-level entry up front, then one folder's level
-  (`listDir`) as it opens — so a parent directory past the file index's cap still lists all of it.
+  (`listDir`) as it opens — so a parent directory past the file index's cap still lists all of it, and
+  ignored entries (a `.env`, a file under `node_modules`) are listed too, since one `readdir` per opened
+  folder is the whole cost. Open folders are remembered per project, so a browser refresh lands on the
+  same tree; a folder deleted from a terminal (`rm -rf`) is dropped when its level says it is gone. The
+  title carries no file count: counting the tree was the pane's one heavy per-change computation.
 - **Preview tabs**: a file opens read-only as a chip of the session in front (its own tab when no session is
   open); over 512 kB is truncated and a binary
   is named rather than decoded. Drag the line numbers to pin a `path:start-end` range into your next message;

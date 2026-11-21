@@ -387,12 +387,13 @@ export class MorseSessionFactory {
       case 'listDir': {
         // The Explorer's lazy tree: the root level the pane draws first, then
         // one folder's level as it opens. One `readdir`, no index cap, so every
-        // entry of the level is listed — which is what the flat index's slice
-        // could not promise past its first five thousand files.
+        // entry of the level is listed — ignored files and directories included,
+        // which is what the flat index's `git ls-files` could not promise. A
+        // directory deleted since the row was drawn answers `missing`, so the
+        // tree can drop it instead of showing an empty ghost.
         const cwd = this.requireWritableCwd(context);
         const path = typeof args?.path === 'string' ? args.path : '';
-        const entries = await listProjectDirectory(cwd, path);
-        return { entries };
+        return await listProjectDirectory(cwd, path);
       }
       case 'readFile': {
         // The Explorer and the preview tabs. `readWorkspaceFile` resolves the

@@ -29,10 +29,13 @@ export type PromptMode = 'new' | 'steer' | 'followUp';
 export type HostCommand =
   | 'listFiles'
   /**
-   * One directory's entries for the Explorer's lazy tree (`{ path? }` → `{ entries }`):
-   * the level drawn first, and each folder's level fetched as it opens. Cwd-relative and
-   * in `listFiles`' vocabulary — directories carry the trailing `/`. The browser host
-   * answers it; VS Code never renders this Explorer and leaves `filePreview` off.
+   * One directory's entries for the Explorer's lazy tree (`{ path? }` →
+   * `{ entries, missing? }`): the level drawn first, and each folder's level fetched as
+   * it opens. Cwd-relative and in `listFiles`' vocabulary — directories carry the
+   * trailing `/` — and ignored entries are included, since the Explorer is how the
+   * reader reaches a `.env` or a file under `node_modules`. `missing` says the directory
+   * itself is gone, so the tree can drop its row. The browser host answers it; VS Code
+   * never renders this Explorer and leaves `filePreview` off.
    */
   | 'listDir'
   | 'readFile'

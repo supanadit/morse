@@ -221,6 +221,44 @@ describe('WorkspaceFiles', () => {
     ]);
   });
 
+  it('reports a vanished directory instead of storing an empty level', async () => {
+    const { files, requestHostCommand } = setup({
+      hostKind: 'server',
+      filePicker: true,
+      gitPanel: true,
+    });
+    // Let the first read finish, so the deferred answer below is `listDir`'s.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const store = TestBed.inject(WorkspaceFilesStore);
+    requestHostCommand.mockImplementationOnce(() =>
+      Promise.resolve({ entries: [], missing: true }),
+    );
+
+    // The parent's cached level still names the row; `true` is what tells the
+    // Explorer to drop it and re-read the levels rather than draw it empty.
+    await expect(files.loadDir('gone')).resolves.toBe(true);
+    expect(store.directories()['gone']).toBeUndefined();
+    expect(store.pendingDirectories().has('gone')).toBe(false);
+  });
+
+  it('treats a vanished root as an empty project, so the pane does not loop', async () => {
+    const { files, requestHostCommand } = setup({
+      hostKind: 'server',
+      filePicker: true,
+      gitPanel: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const store = TestBed.inject(WorkspaceFilesStore);
+    requestHostCommand.mockImplementationOnce(() =>
+      Promise.resolve({ entries: [], missing: true }),
+    );
+
+    // There is no row above the root to drop; an empty level is the answer, and
+    // the "whatever is open has its level" effect settles.
+    await expect(files.loadDir('')).resolves.toBe(false);
+    expect(store.directories()['']).toEqual([]);
+  });
+
   it('drops a level asked for before a refresh, so a stale answer cannot land', async () => {
     const { files, requestHostCommand } = setup({
       hostKind: 'server',

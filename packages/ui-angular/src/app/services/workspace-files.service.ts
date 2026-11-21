@@ -308,8 +308,12 @@ export class WorkspaceFiles {
    * level already listed, or already on its way, is left alone — which is what
    * lets the surface drive it from a plain "whatever is open has no level yet"
    * effect without asking twice.
+   *
+   * Resolves `true` when the host says the directory itself is gone, so the
+   * surface that asked can drop the row and its branch; a level that could not
+   * be read (permissions, a host that did not answer) is an empty one.
    */
-  loadDir(path: string): void {
+  loadDir(path: string): Promise<boolean> {
     const cwd = this.morse.workspace().cwd;
     if (
       cwd.length === 0 ||
@@ -317,26 +321,42 @@ export class WorkspaceFiles {
       this.store.directories()[path] !== undefined ||
       this.store.pendingDirectories().has(path)
     ) {
-      return;
+      return Promise.resolve(false);
     }
     const generation = this.levelGeneration;
     this.store.setDirectoryPending(path, true);
-    void this.morse
+    return this.morse
       .requestHostCommand('listDir', path.length > 0 ? { path } : undefined)
       .then((data) => {
         if (generation !== this.levelGeneration || this.morse.workspace().cwd !== cwd) {
-          return;
+          return false;
         }
-        const entries = asDirEntries(data);
-        if (entries !== undefined) {
-          this.store.setDirectory(path, entries);
+        const listing = asDirEntries(data);
+        if (listing === undefined) {
+          return false;
         }
+        if (listing.missing === true && path.length > 0) {
+          return true;
+        }
+        // The root is always on screen; a vanished root is an empty project,
+        // not a row to drop (and re-asking would loop).
+        this.store.setDirectory(path, listing.entries);
+        return false;
       })
       .finally(() => {
         if (generation === this.levelGeneration) {
           this.store.setDirectoryPending(path, false);
         }
       });
+  }
+
+  /**
+   * Throws the listed levels away so whatever is open is asked for again — the
+   * surface uses it after a directory vanished: the parent's cached level still
+   * names it, and only a fresh `readdir` stops drawing the ghost row.
+   */
+  reloadLevels(): void {
+    this.invalidateLevels();
   }
 
   /**
@@ -416,14 +436,19 @@ function asFiles(value: unknown): string[] | undefined {
   return files.filter((file): file is string => typeof file === 'string');
 }
 
-/** What `listDir` answers with: one directory's entries, in `listFiles`' vocabulary. */
-function asDirEntries(value: unknown): string[] | undefined {
+/** What `listDir` answers with: one directory's entries, and whether it is gone. */
+function asDirEntries(
+  value: unknown,
+): { entries: string[]; missing: boolean } | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
-  const entries = (value as { entries?: unknown }).entries;
+  const { entries, missing } = value as { entries?: unknown; missing?: unknown };
   if (!Array.isArray(entries)) {
     return undefined;
   }
-  return entries.filter((entry): entry is string => typeof entry === 'string');
+  return {
+    entries: entries.filter((entry): entry is string => typeof entry === 'string'),
+    missing: missing === true,
+  };
 }
