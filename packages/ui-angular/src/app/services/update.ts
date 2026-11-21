@@ -80,8 +80,10 @@ export function isNewerRelease(latest: string, current: string): boolean {
     return false;
   }
   for (let index = 0; index < release.numbers.length; index += 1) {
-    if (release.numbers[index] !== running.numbers[index]) {
-      return release.numbers[index] > running.numbers[index];
+    const latestPart = release.numbers[index] ?? 0;
+    const currentPart = running.numbers[index] ?? 0;
+    if (latestPart !== currentPart) {
+      return latestPart > currentPart;
     }
   }
   if (release.prerelease === running.prerelease) {

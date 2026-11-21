@@ -1,6 +1,11 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { BotEngineCapabilities, BotProviderRecord, MorseLogger } from '@morse/system';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  writePrivateJson,
+  type BotEngineCapabilities,
+  type BotProviderRecord,
+  type MorseLogger,
+} from '@morse/system';
 import { piProviderEntry } from './bot-layout.js';
 import { PiRpcAgentFactory } from './pi-rpc-agent-factory.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
@@ -11,7 +16,6 @@ const AUTH_FILE = 'auth.json';
 /** pi's custom provider/model config, inside the same agent dir. */
 const MODELS_FILE = 'models.json';
 /** A file holding API keys is readable by its owner only. */
-const PRIVATE_FILE_MODE = 0o600;
 
 /**
  * What the pi engine offers a bot. Credentials are `'stored'`: pi reads API
@@ -144,30 +148,4 @@ function readJsonObject(path: string): Record<string, unknown> | undefined {
   return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : undefined;
-}
-
-/** Temp file beside the target, then rename: private from the moment it exists. */
-function writePrivateJson(path: string, value: unknown): void {
-  const serialized = JSON.stringify(value);
-  const temp = `${path}.${process.pid}.tmp`;
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  try {
-    writeFileSync(temp, serialized, { mode: PRIVATE_FILE_MODE });
-    // `mode` only applies when the temp file is created; a stale temp left by a
-    // crashed run could be broader, so the mode is enforced explicitly.
-    chmodSync(temp, PRIVATE_FILE_MODE);
-    renameSync(temp, path);
-  } catch (error) {
-    // Some filesystems refuse a rename over an existing file (a Windows mount).
-    // Mirroring the bot registry store, the fallback writes in place: not
-    // atomic, but failing the wizard on such a host is worse.
-    try {
-      writeFileSync(path, serialized, { mode: PRIVATE_FILE_MODE });
-      chmodSync(path, PRIVATE_FILE_MODE);
-      rmSync(temp, { force: true });
-    } catch {
-      rmSync(temp, { force: true });
-      throw error;
-    }
-  }
 }

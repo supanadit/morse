@@ -196,7 +196,7 @@ function bodyArguments(body: string): PromptTemplateArgument[] {
 /** Strip a surrounding pair of quotes, if any. */
 function unquote(value: string): string {
   const match = /^(['"])([\s\S]*)\1$/.exec(value);
-  return match === null ? value : match[2];
+  return match === null ? value : (match[2] ?? value);
 }
 
 /** Pull `argument-hint` (and the body) out of a template's frontmatter. */
@@ -205,10 +205,10 @@ export function readPromptTemplate(raw: string): ParsedPromptTemplate {
   if (frontmatter === null) {
     return { body: raw };
   }
-  const hint = /^argument-hint:[ \t]*(.*)$/m.exec(frontmatter[1]);
+  const hint = /^argument-hint:[ \t]*(.*)$/m.exec(frontmatter[1] ?? '');
   return {
     body: raw.slice(frontmatter[0].length),
-    argumentHint: hint === null ? undefined : unquote(hint[1].trim()),
+    argumentHint: hint === null ? undefined : unquote((hint[1] ?? '').trim()),
   };
 }
 

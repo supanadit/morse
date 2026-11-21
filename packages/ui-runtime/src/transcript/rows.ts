@@ -6,6 +6,7 @@ import type {
   TranscriptItem,
   UserTranscriptItem,
 } from '@morse/protocol';
+import { escapeHtml } from '../render/highlight.js';
 
 /**
  * One step of a turn: a tool call or a note the agent thought out loud.
@@ -195,7 +196,7 @@ export function splitMentionTokens(text: string): MentionSegment[] {
   for (let match = MENTION_TOKEN.exec(text); match !== null; match = MENTION_TOKEN.exec(text)) {
     // The separator before the mention stays plain text; the chip itself
     // carries the `@`, like pi's TUI renders it.
-    const separatorEnd = match.index + match[1].length;
+    const separatorEnd = match.index + (match[1] ?? '').length;
     if (separatorEnd > cursor) {
       segments.push({ kind: 'text', text: text.slice(cursor, separatorEnd) });
     }
@@ -364,13 +365,6 @@ function basename(path: string): string {
   return cut === -1 ? clean : clean.slice(cut + 1);
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 /**
  * One chip's annotation, shortened for display: the first line only, cut to a

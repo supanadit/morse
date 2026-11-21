@@ -3,7 +3,7 @@ import { open, readdir, stat } from 'node:fs/promises';
 import { sep } from 'node:path';
 import type { WorkspaceSearchFile, WorkspaceSearchLine, WorkspaceSearchResult } from '@morse/protocol';
 import { UnsupportedByHostError } from '@morse/system';
-import { SKIPPED_DIRECTORIES } from './workspace-index.js';
+import { SKIPPED_DIRECTORIES } from '@morse/system';
 
 /**
  * Text search across a project's files, for the frontend's search panel.
@@ -366,8 +366,8 @@ async function runNodeWalk(
       // here, and the entry is registered on the way out.
       const matched: WorkspaceSearchLine[] = [];
       let fileCount = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].endsWith('\r') ? lines[i].slice(0, -1) : lines[i];
+      for (const [i, current] of lines.entries()) {
+        const line = current.endsWith('\r') ? current.slice(0, -1) : current;
         const hay = fold ? line.toLowerCase() : line;
         const columns: number[] = [];
         let at = hay.indexOf(needle);
@@ -501,7 +501,7 @@ function compileGlobs(patterns: readonly string[]): (path: string) => boolean {
     let source = '';
     let index = 0;
     while (index < glob.length) {
-      const char = glob[index];
+      const char = glob[index] ?? '';
       if (char === '*') {
         if (glob[index + 1] === '*') {
           if (glob[index + 2] === '/') {

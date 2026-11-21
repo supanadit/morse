@@ -1,12 +1,9 @@
-import { AgentUnavailableError, MorseError } from '@morse/system';
 import type {
   AgentEvent,
   AgentGateway,
-  AgentHistoryEntry,
   AgentInteractionRequest,
   AgentInteractionResponse,
   AgentSessionState,
-  AgentUserMessage,
   ModelRef,
   PromptImage,
   PromptMode,
@@ -25,7 +22,6 @@ import type {
 } from '@morse/system';
 import {
   PROTOCOL_VERSION,
-  type AgentErrorCode,
   type AgentFailure,
   type ChatPin,
   type ClientToHostMessage,
@@ -39,7 +35,18 @@ import {
   type UserTranscriptItem,
 } from '@morse/protocol';
 import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
-import type { TerminalBackend, TerminalSession } from './terminal.js';
+import { describeError } from '../errors.js';
+import { BotWire, type Guarded } from './bot-wire.js';
+import {
+  describeAgentFailure,
+  entryIdForEdit,
+  historyItems,
+  hintOnly,
+  insideRoots,
+  workspaceOf,
+} from './session-helpers.js';
+import type { TerminalBackend } from './terminal.js';
+import { TerminalHost } from './terminal-host.js';
 import { SessionTranscriptStore } from './transcript-store.js';
 import {
   draftSessionViewState,
@@ -138,19 +145,6 @@ export interface HostSessionControllerOptions {
    */
   bot?: BotControllerPort;
 }
-
-/** A value the controller accepted after validating it against something. */
-interface GuardedOk<T> {
-  ok: true;
-  value: T;
-}
-
-/** A value the controller refused; the caller answers with its own error. */
-interface GuardedFailed {
-  ok: false;
-}
-
-type Guarded<T> = GuardedOk<T> | GuardedFailed;
 
 /** How long a session title may be, as the sidebar's inline editor enforces. */
 const SESSION_TITLE_MAX = 120;
@@ -281,23 +275,18 @@ export class HostSessionController {
   private clientChain: Promise<void> = Promise.resolve();
   /** Discriminates history item ids across pages (see `historyItems`). */
   private historyPageSeq = 0;
-  /** This client's live attachments to shells, keyed by the terminal id it named. */
-  private readonly terminals = new Map<string, TerminalSession>();
-  /**
-   * The ids this connection has already opened. It separates a *first* open — a
-   * page reattaching to a shell the host still runs — from a repeat open (the
-   * Restart button), which must replace the shell and clear its scrollback
-   * instead of replaying it into the emulator that already shows it.
-   */
-  private readonly openedTerminals = new Set<string>();
-  /**
-   * Bumped whenever a terminal id is opened or closed. A shell's late `exit`
-   * (a replaced one, a killed one) compares its generation and stays silent, so
-   * it cannot delete or report over the shell now holding the id.
-   */
-  private readonly terminalGenerations = new Map<string, number>();
+  private readonly terminalHost: TerminalHost;
+  private readonly botWire: BotWire;
 
-  constructor(private readonly options: HostSessionControllerOptions) {}
+  constructor(private readonly options: HostSessionControllerOptions) {
+    this.terminalHost = new TerminalHost({
+      backend: options.terminal,
+      emit: (message) => this.options.emit(message),
+      logger: options.logger,
+      currentCwd: () => this.currentState().workspace.cwd,
+    });
+    this.botWire = new BotWire(options);
+  }
 
   async start(): Promise<void> {
     this.detachRegistry = this.options.services.registry.subscribe((tagged) => {
@@ -377,16 +366,7 @@ export class HostSessionController {
       return;
     }
     this.disposed = true;
-    // Detach, do not kill: the shell and its scrollback belong to the host now,
-    // so a reloaded page (a browser refresh) can attach to the same process. An
-    // explicit `terminal/close` is the only thing that ends a shell.
-    for (const session of this.terminals.values()) {
-      session.detach();
-    }
-    this.terminals.clear();
-    this.terminalGenerations.clear();
-    // The next connection is a new viewer, so every id is a first open again.
-    this.openedTerminals.clear();
+    this.terminalHost.dispose();
     this.detachRegistry?.();
     this.detachRegistry = undefined;
     this.detachTranscripts?.();
@@ -575,365 +555,29 @@ export class HostSessionController {
         );
         return;
       case 'terminal/open':
-        await this.openTerminal(message.payload);
+        await this.terminalHost.open(message.payload);
         return;
       case 'terminal/input':
-        this.terminals.get(message.payload.terminalId)?.write(message.payload.data);
+        this.terminalHost.write(message.payload.terminalId, message.payload.data);
         return;
       case 'terminal/resize':
-        this.terminals
-          .get(message.payload.terminalId)
-          ?.resize(message.payload.cols, message.payload.rows);
+        this.terminalHost.resize(
+          message.payload.terminalId,
+          message.payload.cols,
+          message.payload.rows,
+        );
         return;
       case 'terminal/close':
-        this.closeTerminal(message.payload.terminalId);
+        this.terminalHost.close(message.payload.terminalId);
         return;
       default:
         // Bot mode is routed by prefix rather than by case: every `bot/*` request
         // belongs to the same port, and this check sits before the (silent)
         // unknown-type fallthrough it has always had.
         if (message.type.startsWith('bot/')) {
-          await this.handleBotMessage(message);
+          await this.botWire.handle(message);
         }
         return;
-    }
-  }
-
-  /**
-   * Bot mode's client requests, delegated to the host's bot port.
-   *
-   * Everything here is a projection of what `BotService` already does: the roster
-   * is read back after a mutation, an open asks for the full in-memory
-   * transcript, and a probe echoes the wizard's `requestId` so its dialog can
-   * match the answer. `bot/send` is deliberately not awaited — one round can run
-   * for minutes, and the transport must keep reading the reader's Stop while it
-   * does. Its refusal (a round already in flight) is a notice, never a throw at
-   * the socket.
-   */
-  private async handleBotMessage(message: ClientToHostMessage): Promise<void> {
-    const bot = this.options.bot;
-    if (bot === undefined) {
-      return;
-    }
-    // The name is read before narrowing: the fallthrough below has no case left
-    // to narrow against.
-    const type: string = message.type;
-    switch (message.type) {
-      case 'bot/list':
-        this.emitBotRoster(bot);
-        return;
-      case 'bot/create':
-        // `requestId` rides on the payload for the wizard's own bookkeeping; the
-        // service ignores it and the answer is the roster, which is what the
-        // wizard's list is drawn from.
-        await this.runBotAction(() => bot.createBot(message.payload));
-        return;
-      case 'bot/delete':
-        await this.runBotAction(() => bot.deleteBot(message.payload.name));
-        return;
-      case 'bot/inspect': {
-        // A read, so the answer is the config itself rather than a roster: the
-        // wizard only needs the one bot the reader asked to edit.
-        const result = await this.guardBot(() => bot.inspectBot(message.payload.name));
-        if (result.ok) {
-          this.options.emit({ type: 'bot/config', payload: result.value });
-        }
-        return;
-      }
-      case 'bot/update':
-        await this.runBotAction(() => bot.updateBot(message.payload));
-        return;
-      case 'bot/groupCreate':
-        await this.runBotAction(() => bot.createGroup(message.payload));
-        return;
-      case 'bot/groupUpdate':
-        await this.runBotAction(() => bot.updateGroup(message.payload));
-        return;
-      case 'bot/groupDelete':
-        await this.runBotAction(() => bot.deleteGroup(message.payload.id));
-        return;
-      case 'bot/threadDelete':
-        await this.runBotAction(() => bot.deleteThread(message.payload.id));
-        return;
-      case 'bot/probeModels': {
-        const { requestId, kind } = message.payload;
-        const result = await this.guardBot(() =>
-          bot.probeModels(kind, message.payload.envVars, message.payload.credentials),
-        );
-        if (result.ok) {
-          this.options.emit({
-            type: 'bot/models',
-            payload: { requestId, kind, models: result.value },
-          });
-        }
-        return;
-      }
-      case 'bot/discoverModels': {
-        const { requestId, baseUrl, credential } = message.payload;
-        const result = await this.guardBot(() => bot.discoverModels(baseUrl, credential));
-        if (result.ok) {
-          this.options.emit({
-            type: 'bot/models',
-            payload: {
-              requestId,
-              kind: 'discover',
-              // Discovered entries carry no engine provider: the wizard knows the
-              // record id it asked about and binds the choice to that provider.
-              models: result.value.map((model) => ({
-                provider: 'discover',
-                id: model.id,
-                name: model.name ?? model.id,
-                ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
-                ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
-              })),
-            },
-          });
-        }
-        return;
-      }
-      case 'bot/open': {
-        const { conversationId, limit } = message.payload;
-        // The newest page of the transcript, replacing whatever the client held:
-        // a conversation is reopened at its end, not at its beginning.
-        const page = bot.open(conversationId, limit);
-        this.options.emit({
-          type: 'bot/transcript',
-          payload: {
-            conversationId,
-            entries: page.entries,
-            replace: true,
-            hasMore: page.hasMore,
-            // The turns that ended in this page, so an opened room draws its
-            // history from the same answer as its lines. Absent when there is
-            // none: a room with no history stays a plain list.
-            ...(page.traces.length === 0 ? {} : { traces: page.traces }),
-          },
-        });
-        // The two facts the service only pushes when they change: a client that
-        // arrives (or comes back) mid-round has to be told them, or the chat shows
-        // nothing happening while a bot is still working — and the composer's ring
-        // stays empty over a conversation that already has counters.
-        const routing = bot.routing(conversationId);
-        this.options.emit({
-          type: 'bot/routing',
-          payload: { conversationId, state: routing },
-        });
-        const usages = bot.usages(conversationId);
-        for (const usage of usages) {
-          this.options.emit({ type: 'bot/usage', payload: usage });
-        }
-        return;
-      }
-      case 'bot/history': {
-        const { conversationId, before, limit } = message.payload;
-        // Scrolling up: the page before the oldest line the client holds, put in
-        // front of it rather than replacing anything.
-        const page = bot.history(conversationId, before, limit);
-        this.options.emit({
-          type: 'bot/transcript',
-          payload: {
-            conversationId,
-            entries: page.entries,
-            replace: false,
-            prepend: true,
-            hasMore: page.hasMore,
-            ...(page.traces.length === 0 ? {} : { traces: page.traces }),
-          },
-        });
-        return;
-      }
-      case 'bot/send': {
-        // Attachments travel with the line rather than through an upload round
-        // trip: the host writes files into the bot's own workspace on the way in.
-        const images = message.payload.images;
-        const files = message.payload.files;
-        const attachments = {
-          ...(images === undefined || images.length === 0 ? {} : { images }),
-          ...(files === undefined || files.length === 0 ? {} : { files }),
-        };
-        void bot
-          .send(message.payload.conversationId, message.payload.text, attachments)
-          .catch((error: unknown) => this.emitBotFailure(error));
-        return;
-      }
-      case 'bot/stop':
-        bot.stop(message.payload.conversationId, message.payload.username);
-        this.emitBotRoster(bot);
-        return;
-      case 'bot/newDiscussion':
-        await this.runBotAction(() => bot.newDiscussion(message.payload.conversationId));
-        return;
-      case 'bot/clear':
-        // The service pushes the emptied transcript itself (`replace` with no
-        // lines), so the client's page is cleared by the same path that clears
-        // the file; the roster is republished because the prune also ends any
-        // round, and a warm bot goes cold with it.
-        await this.runBotAction(() => bot.clear(message.payload.conversationId));
-        return;
-      case 'bot/compact':
-        // Compaction is a model call per member, so it is awaited like any other
-        // bot mutation: the round of notes and counters it writes arrives through
-        // the service's own pushes.
-        await this.runBotAction(() => bot.compact(message.payload.conversationId));
-        return;
-      default:
-        // A `bot/*` request this controller does not route (a newer frontend on
-        // an older host): said out loud, the way an unknown host command is.
-        this.options.emit(
-          noticeMessage('warn', `This host does not support "${type}".`, Date.now()),
-        );
-        return;
-    }
-  }
-
-  /** Runs a bot mutation, then republishes the roster it changed. */
-  private async runBotAction(action: () => unknown | Promise<unknown>): Promise<void> {
-    const bot = this.options.bot;
-    const result = await this.guardBot(action);
-    if (result.ok && bot !== undefined) {
-      this.emitBotRoster(bot);
-    }
-  }
-
-  /** Pushes the roster as the one message every bot surface redraws from. */
-  private emitBotRoster(bot: BotControllerPort): void {
-    this.options.emit({ type: 'bot/roster', payload: bot.roster() });
-  }
-
-  /**
-   * A bot request failed. It belongs to the bot panel, not to the chat transcript
-   * in front, so it is a notice and a log line — never the wire `error` channel,
-   * which the frontend reads as a refused connection.
-   */
-  private emitBotFailure(error: unknown): void {
-    const message = describeError(error);
-    this.options.logger.error(`Bot request failed: ${message}`, error);
-    this.options.emit(noticeMessage('error', message, Date.now()));
-  }
-
-  /** `guard`, for a bot port: the same refusal as a value, without touching the chat. */
-  private async guardBot<T>(action: () => T | Promise<T>): Promise<Guarded<T>> {
-    try {
-      return { ok: true, value: await action() };
-    } catch (error: unknown) {
-      this.emitBotFailure(error);
-      return { ok: false };
-    }
-  }
-
-  /**
-   * Attaches this client to a shell for the bottom panel. The directory is the
-   * viewing session's (or the draft's), never an arbitrary path the client
-   * names — the backend still re-checks it against the host policy before
-   * spawning.
-   *
-   * A *first* open on this connection may land on a shell that is already running
-   * (a reloaded page reattaching); a repeat open (the Restart button) replaces
-   * it, scrollback and all, so the fresh shell does not replay the old one.
-   */
-  private async openTerminal(payload: {
-    terminalId: string;
-    cwd?: string;
-    cols?: number;
-    rows?: number;
-  }): Promise<void> {
-    const backend = this.options.terminal;
-    if (backend === undefined) {
-      this.emitTerminalExit(payload.terminalId, undefined, 'This host has no terminal.');
-      return;
-    }
-    // A repeat open on this connection is a *reattach*: a pane that remounted
-    // (a rebuilt view) is asking for the shell it already has, not a new one.
-    // Detach the superseded viewer only; `attach` below reuses the live shell
-    // and replays what that viewer missed. A shell that already exited is the
-    // other case — there the dead scrollback is dropped so a fresh shell does
-    // not replay it over the emulator that still shows it.
-    const previous = this.terminals.get(payload.terminalId);
-    if (previous !== undefined) {
-      previous.detach();
-      this.terminals.delete(payload.terminalId);
-    } else if (this.openedTerminals.has(payload.terminalId)) {
-      // A restart after the shell exited: drop the dead shell's scrollback, so
-      // the fresh shell does not replay it over the emulator that still has it.
-      backend.close(payload.terminalId);
-    }
-    this.openedTerminals.add(payload.terminalId);
-    // Any pending exit for a superseded shell is now stale.
-    const generation = (this.terminalGenerations.get(payload.terminalId) ?? 0) + 1;
-    this.terminalGenerations.set(payload.terminalId, generation);
-
-    const cwd = payload.cwd ?? this.currentState().workspace.cwd;
-    const cols = clampGeometry(payload.cols, 80);
-    const rows = clampGeometry(payload.rows, 24);
-    let session: TerminalSession;
-    try {
-      session = await backend.attach(
-        payload.terminalId,
-        { cwd, cols, rows },
-        {
-          output: (data) => {
-            if (this.terminalGenerations.get(payload.terminalId) === generation) {
-              this.emitTerminalOutput(payload.terminalId, data);
-            }
-          },
-          exit: (code, error) => {
-            // A shell replaced or closed after this one opened is not the shell
-            // the client is looking at; its end is not news.
-            if (this.terminalGenerations.get(payload.terminalId) !== generation) {
-              return;
-            }
-            this.terminals.delete(payload.terminalId);
-            this.emitTerminalExit(payload.terminalId, code, error);
-          },
-        },
-      );
-    } catch (error: unknown) {
-      this.options.logger.warn('Failed to open a terminal', error);
-      this.emitTerminalExit(payload.terminalId, undefined, describeTerminalError(error));
-      return;
-    }
-    // The client may have closed it while `attach` was still awaiting the shell.
-    if (!this.disposed && this.terminalGenerations.get(payload.terminalId) === generation) {
-      this.terminals.set(payload.terminalId, session);
-      // Catch the viewer up before the shell's next chunk: what it missed while
-      // no page was attached is the whole point of a surviving terminal.
-      if (session.replay.length > 0) {
-        this.emitTerminalOutput(payload.terminalId, session.replay);
-      }
-    } else {
-      // Nobody is watching any more: leave the shell running for the next attach.
-      session.detach();
-    }
-  }
-
-  /**
-   * Ends a shell for good: the reader closed the pane. Bumps the generation first,
-   * so a late `exit` for the shell being replaced is not reported as news.
-   */
-  private closeTerminal(terminalId: string): void {
-    this.terminalGenerations.set(terminalId, (this.terminalGenerations.get(terminalId) ?? 0) + 1);
-    const session = this.terminals.get(terminalId);
-    this.terminals.delete(terminalId);
-    this.openedTerminals.delete(terminalId);
-    session?.detach();
-    this.options.terminal?.close(terminalId);
-  }
-
-  private emitTerminalOutput(terminalId: string, data: string): void {
-    if (data.length > 0 && !this.disposed) {
-      this.options.emit({
-        type: 'terminal/output',
-        payload: { terminalId, data },
-      });
-    }
-  }
-
-  private emitTerminalExit(terminalId: string, code?: number, error?: string): void {
-    if (!this.disposed) {
-      this.options.emit({
-        type: 'terminal/exit',
-        payload: { terminalId, code, error },
-      });
     }
   }
 
@@ -1239,9 +883,7 @@ export class HostSessionController {
       );
       return;
     }
-    const result = await this.guard(() =>
-      this.options.services.registry.deleteProject(path),
-    );
+    const result = await this.guard(() => this.options.services.registry.deleteProject(path));
     if (!result.ok) {
       return;
     }
@@ -1255,7 +897,11 @@ export class HostSessionController {
     if (this.activeKey !== undefined && deleted.includes(this.activeKey)) {
       await this.fallBackAfterSessionGone(this.activeKey);
     }
-    const name = path.split(/[\\/]/).filter((part) => part.length > 0).at(-1) ?? path;
+    const name =
+      path
+        .split(/[\\/]/)
+        .filter((part) => part.length > 0)
+        .at(-1) ?? path;
     this.options.emit(
       failed.length === 0
         ? noticeMessage(
@@ -1655,9 +1301,7 @@ export class HostSessionController {
    */
   private async editPrompt(itemId: string, text: string): Promise<void> {
     const target = await this.cutBefore(itemId, 'edit', (item) =>
-      text.trim().length === 0 &&
-      (item.images?.length ?? 0) === 0 &&
-      (item.pins?.length ?? 0) === 0
+      text.trim().length === 0 && (item.images?.length ?? 0) === 0 && (item.pins?.length ?? 0) === 0
         ? // The cut commits the engine's revert (OpenCode) before the prompt is
           // sent, so an empty edit would destroy the tail and send nothing.
           'Nothing to send — the prompt is empty.'
@@ -2892,143 +2536,4 @@ export class HostSessionController {
       return { ok: false };
     }
   }
-}
-
-function workspaceOf(path: string): WorkspaceRef {
-  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
-  return { cwd: path, name: parts.at(-1) ?? path };
-}
-
-function insideRoots(path: string, roots: string[]): boolean {
-  return roots.some(
-    (root) => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`),
-  );
-}
-
-/** Domain history -> transcript items (presentation mapping stays in this layer). */
-function historyItems(key: string, entries: AgentHistoryEntry[], page: number): TranscriptItem[] {
-  return entries.map((entry, index): TranscriptItem => {
-    const id = `${key}#history-${page}-${index}`;
-    const at = entry.at ?? 0;
-    if (entry.role === 'user') {
-      return {
-        kind: 'user',
-        id,
-        at,
-        text: entry.text,
-        ...(entry.images ? { images: entry.images } : {}),
-        ...(entry.pins ? { pins: entry.pins } : {}),
-      };
-    }
-    if (entry.role === 'tool') {
-      return {
-        kind: 'tool',
-        id,
-        at,
-        name: entry.name,
-        title: entry.title,
-        status: entry.status,
-        input: entry.input,
-        output: entry.output,
-        ...(entry.details !== undefined ? { details: entry.details } : {}),
-        ...(entry.childSession !== undefined ? { child: entry.childSession } : {}),
-      };
-    }
-    if (entry.role === 'compaction') {
-      // A marker row, not a message: the transcript keeps every folded entry —
-      // the divider says where the agent's context was reset, not where history
-      // ends ("Start of conversation" belongs to the real beginning again).
-      return {
-        kind: 'compaction',
-        id,
-        at,
-        summary: entry.summary,
-        ...(entry.tokensBefore !== undefined ? { tokensBefore: entry.tokensBefore } : {}),
-      };
-    }
-    return {
-      kind: 'assistant',
-      id,
-      at,
-      text: entry.text,
-      thinking: entry.thinking ?? '',
-      streaming: false,
-      model: entry.model,
-    };
-  });
-}
-
-/**
- * Maps a transcript row to the engine entry an edit or fork cuts at.
- *
- * Both lists are total: the engine lists every user message and the transcript
- * keeps a row for each, a text-less one (an image-only prompt) included. Counting
- * the same distance from the end keeps the two lists aligned even when an older
- * history page is still unloaded.
- */
-function entryIdForEdit(
-  items: TranscriptItem[],
-  itemId: string,
-  userMessages: AgentUserMessage[],
-): string | undefined {
-  const userItems = items.filter((item): item is UserTranscriptItem => item.kind === 'user');
-  const index = userItems.findIndex((item) => item.id === itemId);
-  if (index === -1) {
-    return undefined;
-  }
-  // Count from the end so a partially loaded transcript still lines up: both
-  // lists are total now, so the offset is exact.
-  const position = userMessages.length - (userItems.length - index);
-  return position >= 0 ? userMessages[position]?.entryId : undefined;
-}
-
-function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return typeof error === 'string' ? error : JSON.stringify(error);
-}
-
-/** Terminal geometry the wire named: a positive integer, or the default. */
-function clampGeometry(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.max(1, Math.min(1000, Math.floor(value)));
-}
-
-/** A terminal that could not open says why, the same way a command failure does. */
-function describeTerminalError(error: unknown): string {
-  return error instanceof MorseError ? error.message : describeError(error);
-}
-
-/**
- * The machine-readable half of a failed start. Only the codes a frontend has help
- * for cross the wire; everything else keeps its message and the host's hint — a
- * frontend that guessed would offer the wrong remedy.
- */
-function describeAgentFailure(error: unknown, hint: string | undefined): AgentFailure | undefined {
-  const code = agentErrorCode(error);
-  const install = error instanceof AgentUnavailableError ? error.remedy?.install : undefined;
-  const failure: AgentFailure = {
-    ...(code ? { code } : {}),
-    ...(install ? { install } : {}),
-    ...(hint ? { hint } : {}),
-  };
-  return Object.keys(failure).length > 0 ? failure : undefined;
-}
-
-function agentErrorCode(error: unknown): AgentErrorCode | undefined {
-  if (!(error instanceof MorseError)) {
-    return undefined;
-  }
-  // `MorseError.code` is a plain string; only the two the UI can help with pass.
-  return error.code === 'agent-unavailable' || error.code === 'agent-protocol'
-    ? error.code
-    : undefined;
-}
-
-/** The host's next step without a code: a dead process, not a resolution failure. */
-function hintOnly(hint: string | undefined): AgentFailure | undefined {
-  return hint ? { hint } : undefined;
 }

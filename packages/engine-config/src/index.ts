@@ -5,6 +5,7 @@
  */
 export * from './core/config-file.js';
 export * from './core/config-store.js';
+export * from './core/errors.js';
 export * from './core/json-format.js';
 export * from './core/scope.js';
 export * from './core/section.js';

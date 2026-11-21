@@ -5,6 +5,7 @@ import { MorseService } from '../host/morse.service';
 import { QueuedPrompts } from './queued-prompts';
 import { ShellState } from './shell-state';
 import { TerminalStore } from './terminal-store';
+import { FileTabLoader } from './workspace-tabs-loader.js';
 
 export interface SessionTab {
   kind: 'session';
@@ -78,66 +79,38 @@ export interface McpTab {
   title: string;
 }
 
-/**
- * One tab as it is written to `<MORSE_HOME>/workbench.json`. Only the durable
- * half is kept: a session's id/title/cwd (a draft keeps its `draft` flag), a
- * file's path and how it was opened. A preview's content (and a commit's diff)
- * is read again on restore, so the file stays small and the view is never a
- * stale copy of the disk.
- */
-/** The shape every restorable tab shares: which kind, its id, and its label. */
-export interface PersistedTabBase {
-  kind: 'session' | 'mcp' | 'file';
-  id: string;
-  title: string;
-}
+import type {
+  FilePreviewPayload,
+  PersistedTab,
+  TabsSnapshot,
+} from './workspace-tabs-codec.js';
+import {
+  MENTION_PREFIX,
+  asDiff,
+  asPreview,
+  asTabsSnapshot,
+  basename,
+  chipOwner,
+  clearedPreview,
+  commitTabId,
+  draftNumber,
+  mentionTabId,
+  tabRow,
+} from './workspace-tabs-codec.js';
 
-/** A conversation tab; `draft` before the host has opened a session for it. */
-export interface PersistedSessionTab extends PersistedTabBase {
-  kind: 'session';
-  cwd?: string;
-  draft?: boolean;
-}
-
-export interface PersistedMcpTab extends PersistedTabBase {
-  kind: 'mcp';
-}
-
-/** A file or diff preview, optionally tied to a session or a commit. */
-export interface PersistedFileTab extends PersistedTabBase {
-  kind: 'file';
-  path: string;
-  mention?: boolean;
-  sessionId?: string;
-  language?: string;
-  commitHash?: string;
-  commitSubject?: string;
-  projectCwd?: string;
-}
-
-/** A tab the strip restores after a reload. */
-export type PersistedTab = PersistedSessionTab | PersistedMcpTab | PersistedFileTab;
-
-/** What the strip remembers across a reload: its tabs, and which one was in front. */
-export interface TabsSnapshot {
-  tabs: PersistedTab[];
-  activeId?: string;
-}
+export type {
+  FilePreviewPayload,
+  PersistedFileTab,
+  PersistedMcpTab,
+  PersistedSessionTab,
+  PersistedTab,
+  PersistedTabBase,
+  TabsSnapshot,
+} from './workspace-tabs-codec.js';
 
 const FILE_PREFIX = 'file:';
-/** Files opened from the `@` picker live in a second row, so the prefix differs. */
-const MENTION_PREFIX = 'mention:';
 /** There is one MCP editor tab, whatever the directory. */
 export const MCP_TAB_ID = 'mcp:servers';
-
-/** The shape the host's `readFile` command resolves with. */
-interface FilePreviewPayload {
-  path: string;
-  content: string;
-  size: number;
-  truncated: boolean;
-  binary: boolean;
-}
 
 /**
  * The browser host's tab strip: sessions and files open side by side, one active
@@ -176,8 +149,14 @@ export class WorkspaceTabs {
    * `showSession` (or `endRestore`, when the host never sends one).
    */
   private restorePending = false;
+  private readonly loader: FileTabLoader;
 
   constructor() {
+    this.loader = new FileTabLoader(
+      this.morse,
+      () => this.items(),
+      (id, change) => this.patch(id, change),
+    );
     // The composer edits the draft of the tab in front. Pointing the store here,
     // where the active tab is known, keeps a half-typed message with its session
     // even while the composer is unmounted by a file preview.
@@ -482,8 +461,8 @@ export class WorkspaceTabs {
       this.draftCounter,
     );
     const inFront = this.activeTab();
-    if (inFront?.kind === 'file' && this.needsLoad(inFront)) {
-      void this.load(inFront.id);
+    if (inFront?.kind === 'file' && this.loader.needsLoad(inFront)) {
+      void this.loader.load(inFront.id);
     }
   }
 
@@ -668,8 +647,8 @@ export class WorkspaceTabs {
       );
       this.active.set(id);
       this.closePromptEditorIfOpen();
-      if (reread || this.needsLoad(standalone)) {
-        void this.load(id);
+      if (reread || this.loader.needsLoad(standalone)) {
+        void this.loader.load(id);
       }
       return;
     }
@@ -690,7 +669,7 @@ export class WorkspaceTabs {
     ]);
     this.active.set(id);
     this.closePromptEditorIfOpen();
-    void this.load(id);
+    void this.loader.load(id);
   }
 
   /** Focuses an already-open file tab, re-reading it when its project moved. */
@@ -706,8 +685,8 @@ export class WorkspaceTabs {
     }
     this.active.set(id);
     this.closePromptEditorIfOpen();
-    if (reread || this.needsLoad(tab)) {
-      void this.load(id);
+    if (reread || this.loader.needsLoad(tab)) {
+      void this.loader.load(id);
     }
   }
 
@@ -757,8 +736,8 @@ export class WorkspaceTabs {
       }
       return;
     }
-    if (this.needsLoad(tab)) {
-      void this.load(id);
+    if (this.loader.needsLoad(tab)) {
+      void this.loader.load(id);
     }
   }
 
@@ -791,6 +770,9 @@ export class WorkspaceTabs {
     const from = items.findIndex((tab) => tab.id === id);
     const to = items.findIndex((tab) => tab.id === targetId);
     const moved = items[from];
+    if (!moved) {
+      return;
+    }
     const next = items.filter((tab) => tab.id !== id);
     const target = next.findIndex((tab) => tab.id === targetId);
     next.splice(from < to ? target + 1 : target, 0, moved);
@@ -809,6 +791,9 @@ export class WorkspaceTabs {
       return;
     }
     const tab = this.items()[index];
+    if (!tab) {
+      return;
+    }
     const closedSession = tab.kind === 'session' && tab.draft !== true;
     const cwd = tab.kind === 'session' ? tab.cwd : undefined;
     this.remove(this.doomedWith(id), index, chipOwner(tab));
@@ -1160,9 +1145,7 @@ export class WorkspaceTabs {
 
   /** Re-reads a file tab from disk (the preview's refresh affordance). */
   reload(id: string): void {
-    // A refresh re-reads both the content and the diff: the file changed on disk.
-    this.patch(id, { diff: undefined, diffError: undefined });
-    void this.load(id);
+    this.loader.reload(id);
   }
 
   /**
@@ -1171,42 +1154,7 @@ export class WorkspaceTabs {
    * commit tab asks for the commit's diff instead of the working tree's.
    */
   loadDiff(id: string): void {
-    const tab = this.items().find((candidate) => candidate.id === id);
-    if (
-      tab === undefined ||
-      tab.kind !== 'file' ||
-      tab.diff !== undefined ||
-      tab.diffLoading === true
-    ) {
-      return;
-    }
-    this.patch(id, { diffLoading: true, diffError: undefined });
-    const request =
-      tab.commitHash !== undefined
-        ? this.morse.requestHostCommand('gitCommitDiff', {
-            hash: tab.commitHash,
-            path: tab.path,
-            cwd: tab.projectCwd,
-            ...(tab.repo === undefined ? {} : { repo: tab.repo }),
-          })
-        : this.morse.requestHostCommand('gitDiff', {
-            path: tab.path,
-            cwd: tab.projectCwd,
-            ...(tab.repo === undefined ? {} : { repo: tab.repo }),
-          });
-    void request.then((data) => {
-      const diff = asDiff(data);
-      if (diff === undefined) {
-        this.patch(id, {
-          diffLoading: false,
-          diffError: tab.commitHash === undefined
-            ? 'Could not read this file’s changes.'
-            : 'Could not read this file in that commit.',
-        });
-        return;
-      }
-      this.patch(id, { diffLoading: false, diff });
-    });
+    this.loader.loadDiff(id);
   }
 
   private findSession(id: string): SessionTab | undefined {
@@ -1262,198 +1210,9 @@ export class WorkspaceTabs {
     );
   }
 
-  private needsLoad(tab: WorkspaceTab): boolean {
-    if (tab.kind !== 'file') {
-      return false;
-    }
-    // A commit tab has no working-tree content to read: its diff is the view.
-    if (tab.commitHash !== undefined) {
-      return tab.diff === undefined && tab.diffLoading !== true && tab.diffError === undefined;
-    }
-    return !tab.loading && tab.content === undefined && tab.error === undefined;
-  }
-
-  private async load(id: string): Promise<void> {
-    const tab = this.items().find((candidate) => candidate.id === id);
-    if (tab === undefined || tab.kind !== 'file') {
-      return;
-    }
-    if (tab.commitHash !== undefined) {
-      this.loadDiff(id);
-      return;
-    }
-    this.patch(id, { loading: true, error: undefined });
-    const data = await this.morse.requestHostCommand('readFile', {
-      path: tab.path,
-      cwd: tab.projectCwd,
-    });
-    const preview = asPreview(data);
-    if (preview === undefined) {
-      this.patch(id, { loading: false, error: 'Could not read this file.' });
-      return;
-    }
-    this.patch(id, {
-      loading: false,
-      content: preview.content,
-      size: preview.size,
-      truncated: preview.truncated,
-      binary: preview.binary,
-      language: languageForPath(preview.path),
-    });
-  }
-
   private patch(id: string, change: Partial<FileTab>): void {
     this.items.update((tabs) =>
       tabs.map((tab) => (tab.id === id && tab.kind === 'file' ? { ...tab, ...change } : tab)),
     );
   }
-}
-
-function asPreview(value: unknown): FilePreviewPayload | undefined {
-  if (typeof value !== 'object' || value === null) {
-    return undefined;
-  }
-  const candidate = value as Record<string, unknown>;
-  const content = candidate['content'];
-  const path = candidate['path'];
-  if (typeof content !== 'string' || typeof path !== 'string') {
-    return undefined;
-  }
-  const size = candidate['size'];
-  return {
-    path,
-    content,
-    size: typeof size === 'number' ? size : content.length,
-    truncated: candidate['truncated'] === true,
-    binary: candidate['binary'] === true,
-  };
-}
-
-/**
- * The persisted `{ tabs, activeId }` shape, with every entry that is not a
- * usable tab dropped. A layout from an unknown version (or a hand-edited file)
- * degrades to the entries that still make sense instead of throwing at boot.
- */
-function asTabsSnapshot(value: unknown): TabsSnapshot | undefined {
-  if (typeof value !== 'object' || value === null) {
-    return undefined;
-  }
-  const candidate = value as Record<string, unknown>;
-  const rawTabs = candidate['tabs'];
-  if (!Array.isArray(rawTabs)) {
-    return undefined;
-  }
-  const tabs = rawTabs.flatMap<PersistedTab>((entry) => {
-    const tab = asPersistedTab(entry);
-    return tab === undefined ? [] : [tab];
-  });
-  const activeId = candidate['activeId'];
-  return {
-    tabs,
-    ...(typeof activeId === 'string' ? { activeId } : {}),
-  };
-}
-
-function asPersistedTab(value: unknown): PersistedTab | undefined {
-  if (typeof value !== 'object' || value === null) {
-    return undefined;
-  }
-  const candidate = value as Record<string, unknown>;
-  const id = candidate['id'];
-  if (typeof id !== 'string' || id.length === 0) {
-    return undefined;
-  }
-  if (candidate['kind'] === 'session') {
-    const title = candidate['title'];
-    if (typeof title !== 'string') {
-      return undefined;
-    }
-    const cwd = candidate['cwd'];
-    return {
-      kind: 'session',
-      id,
-      title,
-      ...(typeof cwd === 'string' ? { cwd } : {}),
-      ...(candidate['draft'] === true ? { draft: true } : {}),
-    };
-  }
-  if (candidate['kind'] === 'mcp') {
-    const title = candidate['title'];
-    if (typeof title !== 'string') {
-      return undefined;
-    }
-    return { kind: 'mcp', id, title };
-  }
-  if (candidate['kind'] !== 'file') {
-    return undefined;
-  }
-  const path = candidate['path'];
-  const title = candidate['title'];
-  if (typeof path !== 'string' || typeof title !== 'string') {
-    return undefined;
-  }
-  const sessionId = candidate['sessionId'];
-  const language = candidate['language'];
-  const commitHash = candidate['commitHash'];
-  const commitSubject = candidate['commitSubject'];
-  const projectCwd = candidate['projectCwd'];
-  return {
-    kind: 'file',
-    id,
-    path,
-    title,
-    ...(candidate['mention'] === true ? { mention: true } : {}),
-    ...(typeof sessionId === 'string' ? { sessionId } : {}),
-    ...(typeof language === 'string' ? { language } : {}),
-    ...(typeof commitHash === 'string' ? { commitHash } : {}),
-    ...(typeof commitSubject === 'string' ? { commitSubject } : {}),
-    ...(typeof projectCwd === 'string' ? { projectCwd } : {}),
-  };
-}
-
-function asDiff(value: unknown): string | undefined {
-  if (typeof value !== 'object' || value === null) {
-    return undefined;
-  }
-  const diff = (value as { diff?: unknown }).diff;
-  return typeof diff === 'string' ? diff : undefined;
-}
-
-/** The `N` in `draft-N`; 0 when the id is not a draft id this store minted. */
-function draftNumber(id: string): number {
-  const match = /^draft-(\d+)$/.exec(id);
-  return match === null ? 0 : Number.parseInt(match[1]!, 10);
-}
-
-function basename(path: string): string {
-  const slash = path.lastIndexOf('/');
-  return slash === -1 ? path : path.slice(slash + 1);
-}
-
-/** A quoted file's tab id: keyed by session, so the same path can be quoted twice. */
-function mentionTabId(sessionId: string | undefined, path: string): string {
-  return `${MENTION_PREFIX}${sessionId ?? ''}:${path}`;
-}
-
-/** A commit file's tab id: the same path in two commits is two diffs. */
-function commitTabId(hash: string, path: string): string {
-  return `commit:${hash}:${path}`;
-}
-
-/**
- * Drops a file tab's content and diff, so a reveal that changed the project reads
- * the new directory instead of showing the old one's bytes.
- */
-function clearedPreview(): Partial<FileTab> {
-  return { content: undefined, error: undefined, diff: undefined, diffError: undefined };
-}
-
-/** The row a tab renders in: files attached to a session get their own, below the sessions. */
-function tabRow(tab: WorkspaceTab): 'main' | 'mention' {
-  return tab.kind === 'file' && tab.mention === true ? 'mention' : 'main';
-}
-
-/** The session a chip belongs to, so closing the chip in front can return there. */
-function chipOwner(tab: WorkspaceTab | undefined): string | undefined {
-  return tab?.kind === 'file' && tab.mention === true ? tab.sessionId : undefined;
 }

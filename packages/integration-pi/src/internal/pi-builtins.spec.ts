@@ -7,7 +7,7 @@ import {
   getBuiltinSlashCommands,
 } from './pi-builtins.js';
 import { piPackageRoot, readPiVersion } from './pi-install.js';
-import { buildCommandList, type CommandContext } from '../pi-rpc-agent.js';
+import { buildCommandList, type CommandContext } from '../pi-rpc-helpers.js';
 
 /**
  * pi's TUI builtins are not in the RPC protocol (`get_commands` deliberately

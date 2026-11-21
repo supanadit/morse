@@ -30,6 +30,8 @@ import {
   type PromptTemplate,
   type PromptTemplateInput,
   type ResourceDirs,
+  normalizeCwd,
+  messageOf,
 } from '@morse/engine-config';
 
 import { isValidCommandName, parseCommandFile } from '../internal/opencode-prompts-config.js';
@@ -366,11 +368,3 @@ function globalOnly(locator: ConfigLocator): ConfigLocator {
 }
 
 /** A real directory, or `undefined` for "no project". */
-function normalizeCwd(cwd: string | undefined): string | undefined {
-  const trimmed = cwd?.trim();
-  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

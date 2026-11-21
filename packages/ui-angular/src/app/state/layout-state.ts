@@ -1,4 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
+import { readFlag, storeFlag } from './browser-storage';
 
 /**
  * The regions the shell lays out. A region is a band of the window or a column in one.
@@ -101,21 +102,7 @@ function clampSize(id: SizeId, px: number): number {
   return Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, px)));
 }
 
-function readFlag(key: string): boolean {
-  try {
-    return globalThis.localStorage?.getItem(key) === '1';
-  } catch {
-    return false;
-  }
-}
 
-function storeFlag(key: string, value: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(key, value ? '1' : '0');
-  } catch {
-    // Storage is a nicety, not a requirement: the signal still holds the state.
-  }
-}
 
 /** A stored size, clamped to what its kind of box allows. `undefined` is "never dragged". */
 function readSize(id: SizeId): number | undefined {

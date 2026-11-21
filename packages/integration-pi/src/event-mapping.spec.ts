@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentHistoryEntry } from '@morse/agent';
-import { appendPinMentions } from './pi-rpc-agent.js';
+import { appendPinMentions } from '@morse/system';
 import { activePathEntries, mapSessionEvent, splitTrailingMentions, toHistory, toEntryHistory, userMessagesOf } from './event-mapping.js';
 
 const ISO_1 = '2026-01-01T00:00:01.000Z';

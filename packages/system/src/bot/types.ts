@@ -1,5 +1,5 @@
 import type { ModelInput, ModelRef, ThinkingLevel } from '@morse/agent';
-import type { McpServer } from '@morse/protocol';
+import type { BotProviderApi, McpServer } from '@morse/protocol';
 
 /**
  * A bot's portable identity, written to `<botRoot>/engine.json`.
@@ -131,11 +131,7 @@ export interface BotEngineCapabilities {
 }
 
 /** The wire protocols Morse can translate into either engine's provider config. */
-export type BotProviderApi =
-  | 'openai-completions'
-  | 'openai-responses'
-  | 'anthropic-messages'
-  | 'google-generative-ai';
+export type { BotProviderApi };
 
 /** How a provider authenticates: a key stored in the bot's config, or an env ref. */
 export type BotProviderCredential =

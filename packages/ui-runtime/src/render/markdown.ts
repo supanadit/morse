@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked';
-import { highlightCode } from './highlight.js';
+import { escapeHtml, highlightCode } from './highlight.js';
 
 /**
  * The TLDs a bare link may end in. `marked`'s GFM autolink only recognises a
@@ -38,14 +38,14 @@ function bareAutolink(): TokenizerAndRendererExtension {
     start(src) {
       BARE_LINK_AT.lastIndex = 0;
       const match = BARE_LINK_AT.exec(src);
-      return match ? match.index + match[1].length : undefined;
+      return match ? match.index + (match[1] ?? '').length : undefined;
     },
     tokenizer(src) {
       const match = BARE_LINK.exec(src);
       if (!match) {
         return undefined;
       }
-      const url = trimBareLinkTail(match[1]);
+      const url = trimBareLinkTail(match[1] ?? '');
       if (url.length === 0) {
         return undefined;
       }
@@ -89,13 +89,6 @@ function count(text: string, char: string): number {
   return total;
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 /**
  * The custom renderer both Marked instances share: highlighted code blocks with

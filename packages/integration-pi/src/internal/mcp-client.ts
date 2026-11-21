@@ -1,3 +1,4 @@
+import { asNonEmptyString } from '@morse/system';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { cleanSpawnEnv } from './spawn-env.js';
 
@@ -526,13 +527,13 @@ export class McpInspector {
           timeoutMs,
         ),
       );
-      const protocolVersion = asString(initialized['protocolVersion']) ?? MCP_PROTOCOL_VERSION;
+      const protocolVersion = asNonEmptyString(initialized['protocolVersion']) ?? MCP_PROTOCOL_VERSION;
       connection.adoptProtocolVersion(protocolVersion);
       connection.notify('notifications/initialized');
 
       const capabilities = toCapabilities(asRecord(initialized['capabilities']));
       const serverInfo = toServerInfo(asRecord(initialized['serverInfo']));
-      const instructions = asString(initialized['instructions']);
+      const instructions = asNonEmptyString(initialized['instructions']);
       const logs = connection.logs();
 
       const result: McpInspection = {
@@ -604,15 +605,15 @@ export function parseMcpServerSpec(raw: unknown): McpServerSpec {
   const args = asRecord(raw);
   const isHttp = args['type'] === 'http' || (args['url'] !== undefined && args['command'] === undefined);
   const spec: McpServerSpec = { type: isHttp ? 'http' : 'stdio' };
-  const command = asString(args['command']);
+  const command = asNonEmptyString(args['command']);
   if (command !== undefined) {
     spec.command = command;
   }
-  const url = asString(args['url']);
+  const url = asNonEmptyString(args['url']);
   if (url !== undefined) {
     spec.url = url;
   }
-  const cwd = asString(args['cwd']);
+  const cwd = asNonEmptyString(args['cwd']);
   if (cwd !== undefined) {
     spec.cwd = cwd;
   }
@@ -683,12 +684,12 @@ function toCapabilities(raw: Record<string, unknown>): McpServerCapabilities {
 }
 
 function toServerInfo(raw: Record<string, unknown>): McpInspection['serverInfo'] {
-  const name = asString(raw['name']);
+  const name = asNonEmptyString(raw['name']);
   if (name === undefined) {
     return undefined;
   }
-  const title = asString(raw['title']);
-  const version = asString(raw['version']);
+  const title = asNonEmptyString(raw['title']);
+  const version = asNonEmptyString(raw['version']);
   return { name, ...(title ? { title } : {}), ...(version ? { version } : {}) };
 }
 
@@ -696,12 +697,12 @@ function toTools(values: unknown[]): McpToolSummary[] {
   return values
     .map((value): McpToolSummary | undefined => {
       const row = asRecord(value);
-      const name = asString(row['name']);
+      const name = asNonEmptyString(row['name']);
       if (name === undefined) {
         return undefined;
       }
-      const title = asString(row['title']);
-      const description = asString(row['description']);
+      const title = asNonEmptyString(row['title']);
+      const description = asNonEmptyString(row['description']);
       return {
         name,
         ...(title ? { title } : {}),
@@ -716,7 +717,7 @@ function toResources(values: unknown[]): McpResourceSummary[] {
   return values
     .map((value): McpResourceSummary | undefined => {
       const row = asRecord(value);
-      const uri = asString(row['uri']);
+      const uri = asNonEmptyString(row['uri']);
       if (uri === undefined) {
         return undefined;
       }
@@ -732,7 +733,7 @@ function toResourceTemplates(values: unknown[]): McpResourceTemplateSummary[] {
   return values
     .map((value): McpResourceTemplateSummary | undefined => {
       const row = asRecord(value);
-      const uriTemplate = asString(row['uriTemplate']);
+      const uriTemplate = asNonEmptyString(row['uriTemplate']);
       if (uriTemplate === undefined) {
         return undefined;
       }
@@ -745,7 +746,7 @@ function toPrompts(values: unknown[]): McpPromptSummary[] {
   return values
     .map((value): McpPromptSummary | undefined => {
       const row = asRecord(value);
-      const name = asString(row['name']);
+      const name = asNonEmptyString(row['name']);
       if (name === undefined) {
         return undefined;
       }
@@ -753,11 +754,11 @@ function toPrompts(values: unknown[]): McpPromptSummary[] {
         ? row['arguments']
             .map((value): McpPromptArgumentSummary | undefined => {
               const arg = asRecord(value);
-              const argName = asString(arg['name']);
+              const argName = asNonEmptyString(arg['name']);
               if (argName === undefined) {
                 return undefined;
               }
-              const description = asString(arg['description']);
+              const description = asNonEmptyString(arg['description']);
               return {
                 name: argName,
                 ...(description ? { description } : {}),
@@ -774,7 +775,7 @@ function toPrompts(values: unknown[]): McpPromptSummary[] {
 function pick<T extends string>(row: Record<string, unknown>, keys: T[]): { [K in T]?: string } {
   const out: { [K in T]?: string } = {};
   for (const key of keys) {
-    const value = asString(row[key]);
+    const value = asNonEmptyString(row[key]);
     if (value !== undefined) {
       out[key] = value;
     }
@@ -794,11 +795,6 @@ function authUrlFrom(header: string | null): string | undefined {
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
 function describeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }

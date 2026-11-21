@@ -11,6 +11,7 @@ import { join, resolve, sep } from 'node:path';
 import type { ConfigIssue, ConfigIssueCode, ConfigMutation, ConfigScope } from '@morse/protocol';
 
 import type { WritePolicy } from '../core/types.js';
+import { messageOf } from '../core/errors.js';
 import { fileSignature, writeAtomic } from '../core/write.js';
 import { ResourceStore, type ResourceDirs, type ResourceList } from './resource-store.js';
 
@@ -357,8 +358,4 @@ function nameMessage(fileId: string, name: string): string {
 
 function noProjectMessage(fileId: string, scope: ConfigScope): string {
   return `No project is open, so there is no ${scope} ${fileId} directory.`;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

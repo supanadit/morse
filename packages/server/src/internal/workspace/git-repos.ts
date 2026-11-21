@@ -1,8 +1,8 @@
-import { execFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import type { Dirent } from 'node:fs';
 import type { GitRepoInfo, GitRepos } from '@morse/protocol';
+import { gitText } from './git-exec.js';
 import { resolveWithin } from './file-store.js';
 
 /**
@@ -187,15 +187,4 @@ async function walk(root: string, directory: string, depth: number, found: strin
 /** Paths read with `/` on every platform, the way pi prints them. */
 function toPosix(path: string): string {
   return path.split('\\').join('/');
-}
-
-function gitText(args: string[], cwd: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      args,
-      { cwd, timeout: 5_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
-      (error, stdout) => resolve(error ? undefined : stdout),
-    );
-  });
 }

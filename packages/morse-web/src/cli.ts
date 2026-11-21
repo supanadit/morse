@@ -118,6 +118,9 @@ function parseArgs(argv: string[]): Options {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
     const [flag, inline] = splitFlag(arg);
     const takeValue = (): string => {
       if (inline !== undefined) return inline;

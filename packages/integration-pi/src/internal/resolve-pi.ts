@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { AgentUnavailableError } from '@morse/system';
+import { windowsExtensions } from '@morse/system';
 import { readPiVersion } from './pi-install.js';
 
 export interface ResolvePiOptions {
@@ -194,16 +195,6 @@ function resolveNpmCmdShim(cmdPath: string): WinShim | undefined {
     return undefined;
   }
 }
-
-/** `PATHEXT` is a shell variable and is often absent from GUI processes. */
-function windowsExtensions(env: NodeJS.ProcessEnv): string[] {
-  const raw = env.PATHEXT ?? env.Pathext ?? process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD';
-  return raw
-    .split(';')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-}
-
 /**
  * A Windows path that names an executable we can actually start, plus how to
  * start it. `.ps1` is probed explicitly because `PATHEXT` deliberately omits it,

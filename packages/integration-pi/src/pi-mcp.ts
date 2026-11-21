@@ -8,8 +8,11 @@ import {
   type ConfigScope,
   type McpServer,
   type McpServerEntry,
+  normalizeCwd,
+  messageOf,
 } from '@morse/engine-config';
 
+import { isRecord } from './internal/rpc/helpers.js';
 import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
 import type { PiMcpStore } from './engine/pi-mcp-store.js';
 import {
@@ -226,7 +229,7 @@ export class PiMcp {
           }
           // A worker must never reject the whole list; this row carries it.
           server.state = 'failed';
-          server.error = describe(error);
+          server.error = messageOf(error);
           settled.add(server.name);
         }
       });
@@ -296,7 +299,7 @@ export class PiMcp {
       }
       return instance.fileAt(request.fileId, request.path, request.scope).normalize();
     } catch (error: unknown) {
-      return fixRefusal(request, describe(error));
+      return fixRefusal(request, messageOf(error));
     }
   }
 
@@ -450,7 +453,7 @@ export class PiMcp {
       // Only our budget expiring is a disconnect; a thrown probe is a failure.
       return {
         state: error instanceof ProbeTimeoutError ? 'disconnected' : 'failed',
-        error: describe(error),
+        error: messageOf(error),
       };
     }
   }
@@ -696,18 +699,4 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** A real directory, or `undefined` for "no project" (global-only MCP). */
-function normalizeCwd(cwd: string | undefined): string | undefined {
-  const trimmed = cwd?.trim();
-  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

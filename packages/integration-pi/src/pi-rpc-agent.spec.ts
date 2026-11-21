@@ -3,8 +3,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSessionState } from '@morse/agent';
+import { appendPinMentions } from '@morse/system';
 import { loadSpeed } from './session-speed.js';
-import { appendPinMentions, buildCommandList, PiRpcAgent, toModelInputs, upsertStatus, upsertWidget, type CommandContext } from './pi-rpc-agent.js';
+import {
+  buildCommandList,
+  toModelInputs,
+  upsertStatus,
+  upsertWidget,
+  type CommandContext,
+} from './pi-rpc-helpers.js';
+import { PiRpcAgent } from './pi-rpc-agent.js';
 
 /**
  * The palette is rebuilt from disk because pi caches its prompt templates at

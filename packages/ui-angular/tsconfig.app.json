@@ -3,7 +3,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": []
+    "types": [],
+    "noUncheckedIndexedAccess": true
   },
   "include": [
     "src/**/*.ts"

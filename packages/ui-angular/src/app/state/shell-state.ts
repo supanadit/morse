@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { readFlag, storeFlag } from './browser-storage';
 import { LayoutState } from './layout-state';
 import { OverlayStack } from './overlay-stack';
 
@@ -93,22 +94,6 @@ function readGitExpanded(): boolean {
 function storeGitExpanded(expanded: boolean): void {
   try {
     globalThis.localStorage?.setItem(GIT_EXPANDED_KEY, expanded ? '1' : '0');
-  } catch {
-    // As above.
-  }
-}
-
-function readFlag(key: string): boolean {
-  try {
-    return globalThis.localStorage?.getItem(key) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function storeFlag(key: string, value: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(key, value ? '1' : '0');
   } catch {
     // As above.
   }

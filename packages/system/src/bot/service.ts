@@ -1,14 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   AgentEvent,
-  AgentFormRequest,
-  AgentFormValue,
   AgentGateway,
   AgentGatewayFactory,
   AgentInteractionRequest,
-  AgentInteractionResponse,
   AgentSessionState,
   ModelRef,
   PromptDisposition,
@@ -32,24 +29,42 @@ import type {
   BotProviderConfig,
   BotProviderCredentialInput,
   BotRosterEntry,
-  BotRoutingActive,
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
   BotTurnTrace,
   BotUpdateInput,
   BotUsage,
-  BotWaitingAsk,
   PromptImage,
 } from '@morse/protocol';
-import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
+import { stepForEvent } from './activity.js';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
-import { startingActivity, stepForEvent } from './activity.js';
 import { writeBotAttachments } from './attachments.js';
 import { addressedBots, busRefusal, BUS_LIMITS } from './bus.js';
+import { BotBusCredentials } from './bus-credentials.js';
 import { BotDeliveryStore, DELIVERY_TTL_MS } from './deliveries.js';
+import {
+  attachmentSummary,
+  autoAnswerFor,
+  autoAnswerSummary,
+  botAuthor,
+  cappedDescription,
+  errorMessage,
+  handoffState,
+  isSafeSubagentName,
+  isSafeUsername,
+  leadBrief,
+  newDeliveryId,
+  relayLine,
+  threadConversationId,
+  traceStatus,
+  usageKey,
+  warmKey,
+  type BusTurnContext,
+} from './helpers.js';
 import { HOST_PERSON_ID, hostPerson } from './person.js';
+import { BotQueries } from './queries.js';
 import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
 import { BotTraceStore } from './traces.js';
 import { BotTurnTracker, type TurnSnapshot } from './turns.js';
@@ -389,19 +404,6 @@ interface PromptOutcome {
   noted?: boolean;
 }
 
-/**
- * What the plugin reads from a bot's turn file: the room, trigger and hop count
- * the bot is answering in, without the bot having to name any of them. `expiresAt`
- * is the turn's own deadline, so a file a crash left behind stops being a turn.
- */
-interface BusTurnContext {
-  deliveryId: string;
-  conversationId: string;
-  rootId: string;
-  depth: number;
-  expiresAt: number;
-}
-
 /** One live engine session, keyed by (conversation, bot). */
 interface WarmGateway {
   readonly conversationId: string;
@@ -488,12 +490,8 @@ export class BotService {
    */
   private readonly usageByBot = new Map<string, BotUsage>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
-  /**
-   * The bus token each bot's engine was started with, in both directions: a
-   * token names its bot, and a bot's token is replaced when it is minted again.
-   */
-  private readonly busTokens = new Map<string, string>();
-  private readonly busTokenOf = new Map<string, string>();
+  /** The token and turn files each bot's engine calls the bus back with. */
+  private readonly bus: BotBusCredentials;
   /** When each bot last sent over the bus, for the hourly backstop. */
   private readonly busSends = new Map<string, number[]>();
   private readonly idleMs: number;
@@ -503,6 +501,8 @@ export class BotService {
   private lastPrunedAt: number | undefined;
   /** True once the host is shutting down, so a settling lane starts nothing new. */
   private disposed = false;
+  /** The read side: transcripts, traces, routing and counters. */
+  private readonly queries: BotQueries;
 
   constructor(private readonly options: BotServiceOptions) {
     // Reading the registry is tolerant by design (an older file is migrated as
@@ -515,7 +515,23 @@ export class BotService {
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
     this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.clock = options.now ?? Date.now;
+    this.bus = new BotBusCredentials({
+      root: options.root,
+      now: this.clock,
+      turnTimeoutMs: this.turnTimeoutMs,
+      assertBot: (username) => this.botOrThrow(username),
+    });
     this.turns = new BotTurnTracker(this.clock);
+    this.queries = new BotQueries({
+      transcripts: this.transcripts,
+      traces: this.traces,
+      deliveries: this.deliveries,
+      registry: () => this.registry,
+      turns: this.turns,
+      usageByBot: this.usageByBot,
+      logger: this.options.logger,
+      displayNameOf: (username) => this.displayNameOf(username),
+    });
     this.recoverDeliveries();
   }
 
@@ -655,7 +671,7 @@ export class BotService {
     await Promise.all(gateways.map((warm) => this.dropWarm(warm, true)));
     // The bot's engine is stopping, so its bus credential dies with it: a token
     // that outlived the bot would let a dead plugin's calls through.
-    this.forgetBusToken(bot.username);
+    this.bus.forget(bot.username);
     this.busSends.delete(bot.username);
     const factory = this.factories.get(bot.username);
     this.factories.delete(bot.username);
@@ -1146,17 +1162,12 @@ export class BotService {
 
   /** The whole conversation, oldest first. A read: an unknown id is simply empty. */
   transcript(conversationId: string): BotTranscriptEntry[] {
-    return this.transcripts.all(conversationId);
+    return this.queries.transcript(conversationId);
   }
 
-  /**
-   * The newest page, which is what opening a conversation shows. `hasMore` tells
-   * the chat whether scrolling up has anything to fetch; `traces` are the turns
-   * that ended in it, so an opened room draws its history without a second read.
-   */
+  /** The newest page, with the turns that ended in it. */
   open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptPage {
-    const page = this.transcripts.latest(conversationId, limit);
-    return { ...page, traces: this.tracesIn(conversationId, page.entries) };
+    return this.queries.open(conversationId, limit);
   }
 
   /** The page before `beforeId`, for the chat's scroll-to-top. */
@@ -1165,207 +1176,17 @@ export class BotService {
     beforeId: string | undefined,
     limit: number = TRANSCRIPT_PAGE_SIZE,
   ): TranscriptPage {
-    const page = this.transcripts.before(conversationId, beforeId, limit);
-    // The page ends where the requested line starts, so a turn that ended after
-    // it belongs to the page above — unless the id was unknown, in which case
-    // the store fell back to the newest page and there is no upper bound.
-    const boundary =
-      beforeId === undefined
-        ? undefined
-        : this.transcripts.all(conversationId).find((entry) => entry.id === beforeId);
-    return {
-      ...page,
-      traces: this.tracesIn(conversationId, page.entries, boundary?.at),
-    };
+    return this.queries.history(conversationId, beforeId, limit);
   }
 
-  /**
-   * The finished turns whose end falls in one page's window.
-   *
-   * The store keeps them oldest first, so a page's history reads in the order it
-   * happened. A page with no lines has no window at all: a room with no history
-   * is a plain list, not every turn it ever had.
-   */
-  private tracesIn(
-    conversationId: string,
-    entries: BotTranscriptEntry[],
-    beforeAt?: number,
-  ): BotTurnTrace[] {
-    const oldest = entries[0];
-    if (oldest === undefined) {
-      return [];
-    }
-    try {
-      return this.traces
-        .all(conversationId)
-        .filter(
-          (trace) =>
-            trace.endedAt >= oldest.at && (beforeAt === undefined || trace.endedAt < beforeAt),
-        );
-    } catch (error: unknown) {
-      // A room's transcript is the room; the turns beside it are history. A file
-      // that cannot be read is reported and read as no history, so the person can
-      // still open the room — and the store keeps refusing to write over it.
-      this.options.logger.warn(`Cannot read ${conversationId}'s finished turns`, error);
-      return [];
-    }
-  }
-
-  /**
-   * The work in flight on one conversation, as the chat draws it, or `null`.
-   *
-   * Read by the host when a conversation opens: a client that arrives — or
-   * returns — mid-turn must see every bot still working, since the service only
-   * pushes a state when it changes. Built from the delivery file plus the live
-   * turn records, so the answer to an opening read and a push cannot disagree.
-   */
+  /** The work in flight on one conversation, as the chat draws it, or `null`. */
   routing(conversationId: string): BotRoutingState | null {
-    return this.routingFrom(conversationId, this.deliveries.all(conversationId));
+    return this.queries.routing(conversationId);
   }
 
-  /** One room's state, from rows the caller already read. */
-  private routingFrom(
-    conversationId: string,
-    rows: BotDelivery[],
-  ): BotRoutingState | null {
-    // A row's asks point at deliveries in other rooms (the thread a bot opened),
-    // so each room is read once per push however many asks point into it.
-    const byRoom = new Map<string, BotDelivery[]>([[conversationId, rows]]);
-    const rowsOf = (id: string): BotDelivery[] => {
-      const cached = byRoom.get(id);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const read = this.deliveries.all(id);
-      byRoom.set(id, read);
-      return read;
-    };
-    const active = rows
-      .filter((row) => row.status === 'running')
-      .map((row) => this.activeRow(row, rowsOf));
-    const queued = rows
-      .filter((row) => row.status === 'queued')
-      .map((row) => this.displayNameOf(row.to));
-    const waiting = this.waitingAsks(conversationId);
-    if (active.length === 0 && queued.length === 0 && waiting.length === 0) {
-      return null;
-    }
-    return {
-      conversationId,
-      active,
-      queued,
-      ...(waiting.length === 0 ? {} : { waiting }),
-    };
-  }
-
-  /**
-   * The asks this room's bots have made elsewhere and not been answered on.
-   *
-   * A peer works in its own thread, so nothing in this room moves while it does.
-   * The rows come from the delivery files — the ask names the room it was made
-   * from — which is what lets a client that opens the room late and one watching
-   * a push draw the same list. Only threads are read: an ask to a bot already in
-   * this room is visible here, answering, and needs no row of its own.
-   */
-  private waitingAsks(roomId: string): BotWaitingAsk[] {
-    const asks: BotWaitingAsk[] = [];
-    for (const conversation of this.registry.conversations) {
-      if (conversation.id === roomId || conversation.kind !== 'thread') {
-        continue;
-      }
-      let rows: BotDelivery[];
-      try {
-        rows = this.deliveries.all(conversation.id);
-      } catch (error: unknown) {
-        // One unreadable queue must not cost the room its presence: the wait it
-        // holds is unknown, not the whole row. It is reported like every other
-        // broken file, and the next push tries again.
-        this.options.logger.warn(`Failed to read the deliveries in "${conversation.id}"`, error);
-        continue;
-      }
-      for (const row of rows) {
-        if (row.originId !== roomId || (row.status !== 'queued' && row.status !== 'running')) {
-          continue;
-        }
-        const turn = this.turns.get(row.to);
-        const activity =
-          turn !== undefined && turn.conversationId === conversation.id ? turn.steps.at(-1) : undefined;
-        asks.push({
-          username: row.to,
-          target: this.displayNameOf(row.to),
-          conversationId: conversation.id,
-          deliveryId: row.id,
-          state: row.status === 'running' ? 'working' : 'asked',
-          at: row.createdAt,
-          ...(activity === undefined ? {} : { activity }),
-        });
-      }
-    }
-    // Insertion order breaks a same-millisecond tie, so two asks never swap.
-    return asks.sort((left, right) => left.at - right.at);
-  }
-
-  /**
-   * One running delivery as the row draws it: the turn record when the lane has
-   * one, and a one-step starting row when a delivery was re-queued and no
-   * record survived. `activity` is always the newest step, so a row cannot show a
-   * line its own step list does not carry.
-   */
-  private activeRow(
-    row: BotDelivery,
-    rowsOf: (conversationId: string) => BotDelivery[],
-  ): BotRoutingActive {
-    const turn = this.turns.get(row.to);
-    const record =
-      turn !== undefined && turn.conversationId === row.conversationId ? turn : undefined;
-    const startedAt = record?.startedAt ?? row.createdAt;
-    const steps = record?.steps ?? [startingActivity(startedAt)];
-    return {
-      target: this.displayNameOf(row.to),
-      username: row.to,
-      activity: steps.at(-1) ?? startingActivity(startedAt),
-      startedAt,
-      steps,
-      handoffs: (record?.handoffs ?? []).map((handoff) => this.handoffRow(handoff, rowsOf)),
-      ...(record === undefined || record.partial === '' ? {} : { partial: record.partial }),
-    };
-  }
-
-  /**
-   * One ask as its sender's row draws it: its state read from the delivery it
-   * created, so it moves asked → working → done without the sender's engine
-   * saying anything else, and the peer's live step when its turn is in that room.
-   */
-  private handoffRow(
-    handoff: BotHandoff,
-    rowsOf: (conversationId: string) => BotDelivery[],
-  ): BotHandoff {
-    const delivery = rowsOf(handoff.conversationId).find((row) => row.id === handoff.deliveryId);
-    const target = this.turns.get(handoff.username);
-    const activity =
-      target !== undefined && target.conversationId === handoff.conversationId
-        ? target.steps.at(-1)
-        : undefined;
-    return {
-      ...handoff,
-      ...(delivery === undefined ? {} : { state: handoffState(delivery.status) }),
-      ...(activity === undefined ? {} : { activity }),
-    };
-  }
-
-  /**
-   * The counters each bot in one conversation last reported, oldest report first,
-   * or an empty list before anyone answers. A read: an unknown conversation is
-   * simply empty.
-   *
-   * Keyed per `(conversation, bot)` because a lane is per bot: a room can have two
-   * engine sessions with two windows, and reporting only the last answer would
-   * leave the other bot's ring describing nothing.
-   */
+  /** The counters each bot in one conversation last reported. */
   usages(conversationId: string): BotUsage[] {
-    return [...this.usageByBot.values()].filter(
-      (usage) => usage.conversationId === conversationId,
-    );
+    return this.queries.usages(conversationId);
   }
 
   /**
@@ -1539,17 +1360,7 @@ export class BotService {
 
   /** Where one bot's bus credentials live: the mint and the turn writer agree here. */
   botBusPaths(username: string): { tokenFile: string; turnFile: string } {
-    // The username names a directory and both credentials are read from it, so
-    // a value that could step outside the data dir is refused here rather than
-    // trusted from a caller.
-    if (!isSafeUsername(username)) {
-      throw new Error(`"${username}" is not a usable username.`);
-    }
-    const config = join(this.botRoot(username), 'config');
-    return {
-      tokenFile: join(config, '.morse-bus-token'),
-      turnFile: join(config, '.morse-bus-turn.json'),
-    };
+    return this.bus.paths(username);
   }
 
   /**
@@ -1558,22 +1369,12 @@ export class BotService {
    * the previous process handed out.
    */
   issueBusToken(username: string): string {
-    this.botOrThrow(username);
-    this.forgetBusToken(username);
-    const token = randomBytes(32).toString('hex');
-    this.busTokens.set(token, username);
-    this.busTokenOf.set(username, token);
-    const { tokenFile } = this.botBusPaths(username);
-    writeFileSync(tokenFile, token, { mode: 0o600 });
-    // The mode applies when the file is created; a file a crash left behind keeps
-    // its own, and this credential must be private either way.
-    chmodSync(tokenFile, 0o600);
-    return token;
+    return this.bus.issue(username);
   }
 
   /** The bot a bearer token names, or `undefined` for a token this host never minted. */
   resolveBusToken(token: string): string | undefined {
-    return this.busTokens.get(token);
+    return this.bus.resolve(token);
   }
 
   /**
@@ -1903,8 +1704,7 @@ export class BotService {
     this.turnAttachments.clear();
     this.announced.clear();
     // Credentials die with the process that handed them out.
-    this.busTokens.clear();
-    this.busTokenOf.clear();
+    this.bus.clear();
     this.busSends.clear();
     this.listeners.clear();
   }
@@ -2449,7 +2249,7 @@ export class BotService {
       // answering in. Written before the prompt and gone when the turn settles, so
       // a call from a cold probe, a compaction session or after a timeout has
       // nothing to read and is refused instead of guessing a room.
-      this.writeTurnFile(bot.username, delivery);
+      this.bus.writeTurn(bot.username, delivery);
       // No prompt prefix: the persona is the engine's own instruction file (pi's
       // agent-dir AGENTS.md, OpenCode's `instructions`), written once by the
       // layout, so the engine applies it exactly as it would for a hand-built
@@ -2491,7 +2291,7 @@ export class BotService {
     } finally {
       // The turn is over however it ended, so its context file goes with it: a
       // stale one is worse than none, because it still names a room.
-      this.clearTurnFile(bot.username);
+      this.bus.clearTurn(bot.username);
       // The composer's ring is per conversation and outlives the turn, so it is
       // refreshed at the turn's end — not awaited: the lane's next delivery must
       // not wait on a counter read, and a failed read leaves the last number.
@@ -2680,49 +2480,6 @@ export class BotService {
     this.busSends.set(username, recent);
   }
 
-  private forgetBusToken(username: string): void {
-    const token = this.busTokenOf.get(username);
-    if (token === undefined) {
-      return;
-    }
-    this.busTokens.delete(token);
-    this.busTokenOf.delete(username);
-  }
-
-  /**
-   * Writes the context file a bot's plugin reads during one turn: the delivery,
-   * the room it names, the trigger it descends from and the hop count — none of
-   * which the bot has to state, so none of which it can get wrong.
-   */
-  private writeTurnFile(username: string, delivery: BotDelivery): void {
-    const { turnFile } = this.botBusPaths(username);
-    const context: BusTurnContext = {
-      deliveryId: delivery.id,
-      conversationId: delivery.conversationId,
-      rootId: delivery.rootId,
-      depth: delivery.depth,
-      expiresAt: this.clock() + this.turnTimeoutMs,
-    };
-    writeFileSync(turnFile, JSON.stringify(context), { mode: 0o600 });
-    // Same rule as the token: a file left by a crash must not stay group-readable.
-    chmodSync(turnFile, 0o600);
-  }
-
-  private clearTurnFile(username: string): void {
-    rmSync(this.botBusPaths(username).turnFile, { force: true });
-  }
-
-  private readTurnFile(username: string): BusTurnContext | undefined {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(readFileSync(this.botBusPaths(username).turnFile, 'utf8'));
-    } catch {
-      // Missing, half-written or unreadable: one refusal, and no room to guess.
-      return undefined;
-    }
-    return isBusTurnContext(parsed) ? parsed : undefined;
-  }
-
   /**
    * The turn a bus call belongs to, or nothing. Three things must agree: the file
    * exists and is in time, and its delivery is the one this bot's lane is running.
@@ -2730,7 +2487,7 @@ export class BotService {
    * at a room this bot is no longer answering in.
    */
   private liveBusTurn(username: string): BusTurnContext | undefined {
-    const context = this.readTurnFile(username);
+    const context = this.bus.readTurn(username);
     if (context === undefined || context.expiresAt <= this.clock()) {
       return undefined;
     }
@@ -3214,7 +2971,7 @@ export class BotService {
     }
     seen.add(conversationId);
     const rows = this.deliveries.all(conversationId);
-    const state = this.routingFrom(conversationId, rows);
+    const state = this.queries.routingFrom(conversationId, rows);
     if (state === null) {
       if (this.announced.delete(conversationId)) {
         this.emit({ type: 'routing', conversationId, state: null });
@@ -3687,213 +3444,4 @@ export class BotService {
   private workspaceOf(username: string): WorkspaceRef {
     return { cwd: join(this.botRoot(username), 'workspace'), name: username };
   }
-}
-
-/**
- * One bot's counters in one room, keyed by the room as well as the bot: one bot
- * may be warm in several conversations, and each ring describes one of them.
- */
-function usageKey(conversationId: string, username: string): string {
-  return `${conversationId}\u0000${username}`;
-}
-
-/**
- * One delivery's own status as the handoff that created it reads it: a waiting
- * ask is still `asked`, a running turn is `working`, and every terminal end that
- * is not an answer — a failure, a drop, a cancel — is `failed`.
- */
-function handoffState(status: BotDeliveryStatus): BotHandoff['state'] {
-  switch (status) {
-    case 'queued':
-      return 'asked';
-    case 'running':
-      return 'working';
-    case 'done':
-      return 'done';
-    case 'failed':
-    case 'dropped':
-    case 'cancelled':
-      return 'failed';
-  }
-}
-
-/**
- * How a settled delivery reads as history. A turn only ever ends done, failed or
- * cancelled; the other delivery states belong to asks that never settled as a
- * turn at all.
- */
-function traceStatus(status: BotDeliveryStatus): BotTurnTrace['status'] {
-  return status === 'done' || status === 'failed' ? status : 'cancelled';
-}
-
-/**
- * One delivery or root id. Hex, so it is path-safe everywhere an id can end up
- * and short enough to read in a transcript note; random, so two hosts that were
- * never introduced cannot mint the same one.
- */
-function newDeliveryId(): string {
-  return randomBytes(8).toString('hex');
-}
-
-/**
- * The one conversation id a pair of bots shares, whichever of them is sending:
- * the usernames sorted, so `bot_send` finds the same thread from either side.
- */
-function threadConversationId(left: string, right: string): string {
-  return left < right ? `thread-${left}-${right}` : `thread-${right}-${left}`;
-}
-
-/** The roster's description, cut to the cap a whole-list fetch can afford. */
-function cappedDescription(description: string): string {
-  return description.length <= BOT_DESCRIPTION_LIMIT
-    ? description
-    : description.slice(0, BOT_DESCRIPTION_LIMIT);
-}
-
-/** Whether a parsed turn file is the shape the plugin and the host agreed on. */
-function isBusTurnContext(value: unknown): value is BusTurnContext {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const turn = value as Record<string, unknown>;
-  return (
-    typeof turn['deliveryId'] === 'string' &&
-    typeof turn['conversationId'] === 'string' &&
-    typeof turn['rootId'] === 'string' &&
-    typeof turn['depth'] === 'number' &&
-    typeof turn['expiresAt'] === 'number'
-  );
-}
-
-/** The transcript line a relay arrives as: who, in which conversation, said what. */
-function relayLine(title: string, author: string, text: string): string {
-  return `[${title}] ${author}: ${text}`;
-}
-
-/**
- * What was attached, said in one clause for the bots that only get the relay
- * text: an engine handed real images sees them itself, but a teammate reading a
- * relay must be told the picture was there.
- */
-function attachmentSummary(images: number, files: number): string {
-  const parts: string[] = [];
-  if (images > 0) {
-    parts.push(`${images} image${images === 1 ? '' : 's'}`);
-  }
-  if (files > 0) {
-    parts.push(`${files} file${files === 1 ? '' : 's'}`);
-  }
-  return parts.length === 0 ? '' : `[attached: ${parts.join(', ')}]`;
-}
-
-/** The brief an unaddressed group message prefixes onto its lead's prompt. */
-function leadBrief(title: string): string {
-  return `You are the lead of the group "${title}". Answer, or ask a member with bot_send.`;
-}
-
-/** The default answer to one engine question. */
-function autoAnswerFor(request: AgentInteractionRequest): AgentInteractionResponse {
-  switch (request.kind) {
-    case 'confirm':
-      return { requestId: request.requestId, confirmed: true };
-    case 'select':
-      return { requestId: request.requestId, value: request.options[0]?.value ?? '' };
-    case 'input':
-      return { requestId: request.requestId, value: request.value ?? '' };
-    case 'editor':
-      // The engine's own draft is the answer. A bot has no reader to type one,
-      // and cancelling loses the whole tool call — a web search opened as an
-      // editor prompt never runs when the prompt is dismissed instead.
-      return { requestId: request.requestId, value: request.value ?? '' };
-    case 'form':
-      return { requestId: request.requestId, values: formDefaults(request) };
-  }
-}
-
-/**
- * A form's answer, filled the way a silent reader would: the seed a field
- * carries, the first choice a list offers, and the empty value its type implies.
- * Nothing is invented beyond that — a bot cannot reason about a form it cannot
- * see, so the safest complete answer is its own defaults.
- */
-function formDefaults(request: AgentFormRequest): Record<string, AgentFormValue> {
-  const values: Record<string, AgentFormValue> = {};
-  for (const field of request.fields) {
-    if (field.defaultValue !== undefined) {
-      values[field.key] = field.defaultValue;
-      continue;
-    }
-    switch (field.type) {
-      case 'boolean':
-        values[field.key] = false;
-        break;
-      case 'number':
-      case 'integer':
-        values[field.key] = 0;
-        break;
-      case 'multiselect':
-        values[field.key] = [];
-        break;
-      case 'select': {
-        const first = field.options?.[0]?.value;
-        if (first !== undefined) {
-          values[field.key] = first;
-        }
-        break;
-      }
-      default:
-        values[field.key] = '';
-    }
-  }
-  return values;
-}
-
-/** How the transcript describes an auto-answer, stable per request kind. */
-function autoAnswerSummary(request: AgentInteractionRequest): string {
-  switch (request.kind) {
-    case 'confirm':
-      return `confirmed "${request.title}"`;
-    case 'select':
-      return `selected the first option of "${request.title}"`;
-    case 'input':
-    case 'editor':
-      return request.value === undefined || request.value.length === 0
-        ? `left "${request.title}" blank`
-        : `filled "${request.title}" from its draft`;
-    case 'form':
-      return `filled "${request.title}" with its defaults`;
-  }
-}
-
-function botAuthor(bot: BotRecord): BotAuthor {
-  return {
-    role: 'bot',
-    name: bot.name,
-    username: bot.username,
-    ...(bot.avatar === undefined ? {} : { avatar: bot.avatar }),
-  };
-}
-
-/**
- * A username that stays inside `<root>/<username>/` and parses as a `@handle`:
- * lowercase letters, digits, dashes and underscores, starting with a letter or
- * digit, at most 32 characters. Keeping it lowercase is what makes a mention
- * unambiguous, and keeping it slash-free is what keeps it a directory name that
- * cannot escape the data dir.
- */
-function isSafeUsername(username: string): boolean {
-  return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(username);
-}
-
-/** A subagent name that is usable as a config key in either engine's own file. */
-function isSafeSubagentName(name: string): boolean {
-  return /^[\p{L}\p{N}_][\p{L}\p{N}_-]*$/u.test(name);
-}
-
-function warmKey(conversationId: string, username: string): string {
-  return `${conversationId}\u0000${username}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -20,8 +20,13 @@ export * from './errors.js';
 export * from './logger.js';
 
 export * from './data/layout.js';
+export * from './data/text.js';
+export * from './data/guards.js';
+export * from './data/workspace-path.js';
+export * from './data/platform.js';
 
 export * from './bot/types.js';
+export * from './bot/files.js';
 export * from './bot/instruction.js';
 export * from './bot/store.js';
 export * from './bot/deliveries.js';
@@ -32,6 +37,7 @@ export * from './bot/service.js';
 export * from './bot/data.js';
 
 export * from './chat/service.js';
+export * from './chat/pins.js';
 export * from './chat/ports.js';
 export * from './context/ports.js';
 export * from './context/selection-span.js';

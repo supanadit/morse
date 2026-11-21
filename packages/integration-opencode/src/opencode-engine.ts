@@ -34,7 +34,8 @@ import {
   toModelRefs,
   type ApiModel,
 } from './internal/model-mapping.js';
-import { OpenCodeAgent, readAvailableCommands } from './opencode-agent.js';
+import { OpenCodeAgent } from './opencode-agent.js';
+import { readAvailableCommands } from './opencode-helpers.js';
 import { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
 import { resolveOpenCodeSpawn } from './internal/resolve-opencode.js';
 

@@ -34,7 +34,7 @@
         class="row"
         role="option"
         [class.all]="row.all"
-        [class.active]="row.path === rows()[active()].path"
+        [class.active]="row.path === rows()[active()]?.path"
         [class.selected]="row.path === selected()"
         [attr.aria-selected]="row.path === selected()"
         [title]="row.path || 'Every project pi knows about'"

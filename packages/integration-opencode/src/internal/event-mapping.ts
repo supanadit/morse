@@ -5,6 +5,8 @@ import type {
   TokenUsage,
   ToolResultDetails,
 } from '@morse/agent';
+import { safeStringify, truncate } from '@morse/system';
+import { asNumber, asRecord, asString } from './guards.js';
 import type { OpenCodeEvent } from './event-stream.js';
 import {
   toFormRequest,
@@ -570,34 +572,4 @@ function asFailure(value: unknown): EngineFailure | undefined {
   }
   // A bare tag is still more useful than saying nothing.
   return type !== undefined && type.length > 0 ? { message: type, type } : undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function safeStringify(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  try {
-    return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function truncate(value: string, max: number): string {
-  const single = value.replace(/\s+/g, ' ').trim();
-  return single.length > max ? `${single.slice(0, max)}…` : single;
 }

@@ -6,6 +6,7 @@ import type {
   ToolResultDetails,
 } from '@morse/agent';
 import { describeToolCall } from './event-mapping.js';
+import { asNumber, asRecord } from './guards.js';
 import { childSessionOf, childSessionFromText } from './child-session.js';
 
 /**
@@ -263,17 +264,6 @@ function asArray(value: unknown): ApiContentPart[] | undefined {
     (part): part is ApiContentPart => part !== null && typeof part === 'object',
   ) as ApiContentPart[];
 }
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
 function safeStringify(value: unknown): string {
   try {
     return typeof value === 'string' ? value : JSON.stringify(value, null, 2);

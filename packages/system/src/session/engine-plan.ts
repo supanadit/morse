@@ -41,6 +41,9 @@ export function planEngineRegistration(
     return [];
   }
   const chosen = available.find((candidate) => candidate.preferred === true) ?? available[0];
+  if (!chosen) {
+    return [];
+  }
   return available.map((candidate) => ({
     kind: candidate.kind,
     default: candidate.kind === chosen.kind,

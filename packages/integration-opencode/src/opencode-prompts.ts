@@ -6,6 +6,7 @@ import {
   type PromptScope,
   type PromptTemplate,
   type PromptTemplateInput,
+  normalizeCwd,
 } from '@morse/engine-config';
 import type { CommandSource } from './internal/opencode-prompts-config.js';
 import {
@@ -150,9 +151,4 @@ export class OpenCodePrompts {
 }
 
 /** A real directory, or `undefined` for "no project" (the user commands alone). */
-function normalizeCwd(cwd: string | undefined): string | undefined {
-  const trimmed = cwd?.trim();
-  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}
-
 export { composeCommandFile, parseCommandFile } from './internal/opencode-prompts-config.js';

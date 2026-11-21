@@ -1,4 +1,5 @@
 import type { MorseLogger } from '@morse/system';
+import { basicAuth } from './auth.js';
 import { OPENCODE_API_PREFIX, type OpenCodeConnection } from './connection.js';
 
 /**
@@ -356,9 +357,6 @@ class UnauthorizedStream extends Error {
   }
 }
 
-function basicAuth(password: string): string {
-  return `Basic ${Buffer.from(`opencode:${password}`, 'utf8').toString('base64')}`;
-}
 
 /** A sleep that the stream's abort can cut short. */
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

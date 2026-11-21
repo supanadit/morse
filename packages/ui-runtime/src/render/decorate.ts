@@ -98,12 +98,20 @@ export function decorateMarkdown(text: string, options?: DecorateOptions): Markd
     const line = text.slice(offset, lineEnd);
     if (fence !== undefined) {
       const close = FENCE_CLOSE.exec(line);
-      if (close && close[1][0] === fence.marker[0] && close[1].length >= fence.marker.length) {
+      const closingMarker = close?.[1];
+      if (
+        closingMarker &&
+        closingMarker[0] === fence.marker[0] &&
+        closingMarker.length >= fence.marker.length
+      ) {
         pushCode(spans, blocked, text, fence, offset);
         const inside = isSelectionInside(fence.blockStart, lineEnd, options?.selection);
         const isPanel = viewMode && !inside;
         // Update opening span kind based on inside/outside gating
-        spans[fence.openSpanIndex].kind = isPanel ? 'block' : 'fence';
+        const openSpan = spans[fence.openSpanIndex];
+        if (openSpan) {
+          openSpan.kind = isPanel ? 'block' : 'fence';
+        }
         spans.push({ start: offset, end: lineEnd, kind: isPanel ? 'hide' : 'fence' });
         blocked.push([offset, lineEnd]);
         fence = undefined;
@@ -121,11 +129,11 @@ export function decorateMarkdown(text: string, options?: DecorateOptions): Markd
         });
         blocked.push([offset, lineEnd]);
         fence = {
-          marker: open[1],
+          marker: open[1] ?? '',
           blockStart: offset,
           openSpanIndex,
           contentStart: Math.min(lineEnd + 1, text.length),
-          lang: open[2],
+          lang: open[2] ?? '',
         };
       } else if (HEADING.test(line)) {
         spans.push({ start: offset, end: lineEnd, kind: 'heading' });
@@ -144,7 +152,10 @@ export function decorateMarkdown(text: string, options?: DecorateOptions): Markd
     pushCode(spans, blocked, text, fence, text.length);
     const inside = isSelectionInside(fence.blockStart, text.length, options?.selection);
     const isPanel = viewMode && !inside;
-    spans[fence.openSpanIndex].kind = isPanel ? 'block' : 'fence';
+    const openSpan = spans[fence.openSpanIndex];
+    if (openSpan) {
+      openSpan.kind = isPanel ? 'block' : 'fence';
+    }
   }
 
   // Built in forward scan order: sorted and disjoint, so one moving gate walks
@@ -153,7 +164,11 @@ export function decorateMarkdown(text: string, options?: DecorateOptions): Markd
   let gate = 0;
   let at = 0;
   while (at < text.length) {
-    while (gate < blocked.length && blocked[gate][1] <= at) {
+    for (;;) {
+      const edge = blocked[gate];
+      if (!edge || edge[1] > at) {
+        break;
+      }
       gate += 1;
     }
     const inside = blocked[gate];

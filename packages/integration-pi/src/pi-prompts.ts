@@ -4,7 +4,9 @@ import {
   type ConfigIssue,
   type PromptScope,
   type PromptTemplateInput,
+  normalizeCwd,
 } from '@morse/engine-config';
+import { isRecord } from './internal/rpc/helpers.js';
 import { PiEngineDefinition, type PiEngineInstance } from './engine/pi-engine.js';
 import {
   isValidTemplateName,
@@ -153,13 +155,4 @@ export function parsePromptTemplateInput(raw: unknown): PromptTemplateInput {
   }
   return input;
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** A real directory, or `undefined` for "no project" (the user templates alone). */
-function normalizeCwd(cwd: string | undefined): string | undefined {
-  const trimmed = cwd?.trim();
-  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}

@@ -16,7 +16,7 @@ import type {
   BotProviderApi,
   BotProviderRecord,
 } from '@morse/system';
-import { BOT_BUS_INSTRUCTION } from '@morse/system';
+import { BOT_BUS_INSTRUCTION, asRecord, readText } from '@morse/system';
 import type { ModelInput } from '@morse/agent';
 import {
   PI_BUS_EXTENSION_END,
@@ -481,21 +481,6 @@ function readJsonObject(path: string): Record<string, unknown> | undefined {
   }
   return parsed as Record<string, unknown>;
 }
-
-function readText(path: string): string | undefined {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return undefined;
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 function writePrivateText(path: string, text: string): void {
   writePrivate(path, text.endsWith('\n') ? text : `${text}\n`);
 }

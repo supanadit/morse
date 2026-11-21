@@ -13,6 +13,8 @@ import {
   type PromptTemplateInput,
   type ResourceDirs,
   type ResourceList,
+  normalizeCwd,
+  messageOf,
 } from '@morse/engine-config';
 
 import { extractFrontmatter, parsePromptTemplate } from '../internal/prompt-frontmatter.js';
@@ -103,7 +105,7 @@ export class PiPromptStore extends FileResourceStore<PiPromptTemplate, PromptTem
       }
       info.body = parsed.body.trim();
     } catch (error: unknown) {
-      info.error = describe(error);
+      info.error = messageOf(error);
     }
     return info;
   }
@@ -163,14 +165,4 @@ const VALID_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** Whether a name is a safe file name (and therefore a valid `/command`). */
 export function isValidTemplateName(name: string): boolean {
   return VALID_NAME.test(name) && name !== '.' && name !== '..';
-}
-
-/** A real directory, or `undefined` for "no project" (the user templates alone). */
-function normalizeCwd(cwd: string | undefined): string | undefined {
-  const trimmed = cwd?.trim();
-  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

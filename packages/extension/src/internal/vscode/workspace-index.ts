@@ -1,29 +1,13 @@
 import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
 import type { MorseLogger } from '@morse/system';
+import {
+  MAX_INDEXED_FILES,
+  SKIPPED_DIRECTORIES,
+  indexEntries,
+  isInSkippedDirectory,
+} from '@morse/system';
 
-/**
- * Directories a file picker never wants, and which make a workspace walk slow
- * enough to feel broken.
- */
-const SKIPPED_DIRECTORIES = new Set([
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  'coverage',
-  'target',
-  'vendor',
-  'venv',
-  '__pycache__',
-  '.angular',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-]);
-
-const MAX_INDEXED_FILES = 5_000;
 const INDEX_TTL_MS = 60_000;
 
 interface FileIndex {
@@ -132,28 +116,6 @@ async function indexWorkspace(): Promise<Omit<FileIndex, 'at'>> {
   }
   return { files: indexEntries(fromWalk), source: 'walk' };
 }
-
-/**
- * Turns a list of file paths into the picker's entries: the files plus every
- * directory they imply, the latter marked with a trailing `/` — the same
- * vocabulary pi's own completion uses, so a mention can point at a folder and
- * the frontend can drill into it (`@docs/`).
- */
-function indexEntries(paths: string[]): string[] {
-  const entries = new Set(dedupe(paths).slice(0, MAX_INDEXED_FILES));
-  for (const path of [...entries]) {
-    const segments = path.split('/');
-    for (let depth = 1; depth < segments.length; depth += 1) {
-      entries.add(`${segments.slice(0, depth).join('/')}/`);
-    }
-  }
-  return [...entries].sort();
-}
-
-function dedupe(paths: string[]): string[] {
-  return [...new Set(paths)];
-}
-
 /**
  * `git ls-files` reports paths relative to the repository root, so a workspace
  * folder below that root is handled by stripping `--show-prefix` and dropping
@@ -191,16 +153,6 @@ function runGit(args: string[], cwd: string): Promise<string | undefined> {
     );
   });
 }
-
-/**
- * Only *folders* are skipped by the name rules: a dotfile such as `.gitignore` is
- * perfectly pickable, while a dot-folder (`.git`, `.github`) is not.
- */
-function isInSkippedDirectory(path: string): boolean {
-  const folders = path.split('/').slice(0, -1);
-  return folders.some((folder) => SKIPPED_DIRECTORIES.has(folder) || folder.startsWith('.'));
-}
-
 async function walk(directory: vscode.Uri, files: string[]): Promise<void> {
   if (files.length >= MAX_INDEXED_FILES) {
     return;

@@ -228,11 +228,14 @@ export class PositionMap {
     }
 
     // Find slots on the line matching y
-    let bestSlot = this.slots[0];
+    const firstSlot = this.slots[0];
+    if (!firstSlot) {
+      return 0;
+    }
+    let bestSlot = firstSlot;
     let minDistance = Number.POSITIVE_INFINITY;
 
-    for (let i = 0; i < this.slots.length; i++) {
-      const slot = this.slots[i];
+    for (const slot of this.slots) {
       const { rect } = slot;
 
       // Check if point falls within vertical row
@@ -250,15 +253,14 @@ export class PositionMap {
 
     // If y is past the bottom of all slots, return end of buffer
     const lastSlot = this.slots[this.slots.length - 1];
-    if (y >= lastSlot.rect.bottom) {
+    if (lastSlot && y >= lastSlot.rect.bottom) {
       return this.text.length;
     }
 
     if (minDistance === Number.POSITIVE_INFINITY) {
       // Find line closest to y
       let closestLineDist = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < this.slots.length; i++) {
-        const slot = this.slots[i];
+      for (const slot of this.slots) {
         const lineDist = Math.abs(y - (slot.rect.top + slot.rect.height / 2));
         if (lineDist < closestLineDist) {
           closestLineDist = lineDist;
@@ -278,6 +280,6 @@ export class PositionMap {
       return this.metrics.paddingTop + this.metrics.lineHeight;
     }
     const lastSlot = this.slots[this.slots.length - 1];
-    return lastSlot.rect.bottom + this.metrics.paddingTop;
+    return (lastSlot?.rect.bottom ?? this.metrics.lineHeight) + this.metrics.paddingTop;
   }
 }

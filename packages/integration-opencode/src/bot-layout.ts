@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { ModelInput } from '@morse/agent';
 import type { ConfigDocument, EngineInstance } from '@morse/engine-config';
@@ -9,7 +9,8 @@ import type {
   BotProviderModel,
   BotProviderRecord,
 } from '@morse/system';
-import { BOT_BUS_INSTRUCTION, BOT_BUS_INSTRUCTION_FILE } from '@morse/system';
+import { BOT_BUS_INSTRUCTION, BOT_BUS_INSTRUCTION_FILE, readText } from '@morse/system';
+import { asNonEmptyString, asNumber, asRecord } from './internal/guards.js';
 import { OpenCodeEngineDefinition } from './engine/open-code-engine.js';
 import { writeOpenCodeCredentials } from './bot-engine.js';
 import {
@@ -268,16 +269,16 @@ function readProviders(value: unknown): BotProviderRecord[] {
     const settings = asRecord(provider['settings']) ?? {};
     const models = asRecord(provider['models']) ?? {};
     const api = Object.entries(OPENCODE_PACKAGE).find(
-      ([, packageName]) => packageName === asString(provider['package']),
+      ([, packageName]) => packageName === asNonEmptyString(provider['package']),
     );
     return [
       {
         id,
-        label: asString(provider['name']) ?? id,
+        label: asNonEmptyString(provider['name']) ?? id,
         ...(api === undefined ? {} : { api: api[0] as BotProviderRecord['api'] }),
-        ...(asString(settings['baseURL']) === undefined
+        ...(asNonEmptyString(settings['baseURL']) === undefined
           ? {}
-          : { baseUrl: asString(settings['baseURL']) }),
+          : { baseUrl: asNonEmptyString(settings['baseURL']) }),
         models: Object.entries(models).flatMap(([modelId, rawModel]) => {
           const entry = asRecord(rawModel);
           if (entry === undefined) {
@@ -288,12 +289,14 @@ function readProviders(value: unknown): BotProviderRecord[] {
           const input = Array.isArray(capabilities['input'])
             ? capabilities['input'].filter((one): one is ModelInput => typeof one === 'string')
             : undefined;
-          const context = numberField(limit['context']);
-          const output = numberField(limit['output']);
+          const context = asNumber(limit['context']);
+          const output = asNumber(limit['output']);
           return [
             {
               id: modelId,
-              ...(asString(entry['name']) === undefined ? {} : { name: asString(entry['name']) }),
+              ...(asNonEmptyString(entry['name']) === undefined
+                ? {}
+                : { name: asNonEmptyString(entry['name']) }),
               ...(context === undefined ? {} : { contextWindow: context }),
               ...(output === undefined ? {} : { maxTokens: output }),
               ...(input === undefined ? {} : { input }),
@@ -318,10 +321,10 @@ export function openCodeProviderEntry(
 ): unknown {
   const existing = asRecord(kept) ?? {};
   const existingSettings = asRecord(existing['settings']) ?? {};
-  const baseUrl = provider.baseUrl ?? asString(existingSettings['baseURL']);
+  const baseUrl = provider.baseUrl ?? asNonEmptyString(existingSettings['baseURL']);
   const apiKey =
     provider.credential === undefined
-      ? asString(existingSettings['apiKey'])
+      ? asNonEmptyString(existingSettings['apiKey'])
       : provider.credential.kind === 'stored'
         ? provider.credential.apiKey
         : undefined;
@@ -337,7 +340,7 @@ export function openCodeProviderEntry(
     name: provider.label,
     package:
       provider.api === undefined
-        ? (asString(existing['package']) ?? '@ai-sdk/openai-compatible')
+        ? (asNonEmptyString(existing['package']) ?? '@ai-sdk/openai-compatible')
         : (packages[provider.api] ?? '@ai-sdk/openai-compatible'),
     ...(env === undefined ? {} : { env }),
     settings: {
@@ -364,11 +367,11 @@ function openCodeModelEntry(model: BotProviderModel, kept: unknown): unknown {
   const existing = asRecord(kept) ?? {};
   const existingLimit = asRecord(existing['limit']) ?? {};
   const existingCapabilities = asRecord(existing['capabilities']) ?? {};
-  const context = model.contextWindow ?? numberField(existingLimit['context']);
-  const output = model.maxTokens ?? numberField(existingLimit['output']);
+  const context = model.contextWindow ?? asNumber(existingLimit['context']);
+  const output = model.maxTokens ?? asNumber(existingLimit['output']);
   return {
     ...existing,
-    name: model.name ?? asString(existing['name']) ?? model.id,
+    name: model.name ?? asNonEmptyString(existing['name']) ?? model.id,
     ...(context === undefined && output === undefined
       ? {}
       : {
@@ -797,30 +800,6 @@ function readModel(value: unknown): { provider: string; id: string; name: string
   }
   return { provider, id, name: id };
 }
-
-/** A file's text, or undefined when it is absent: an absent file is "" not an error. */
-function readText(path: string): string | undefined {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return undefined;
-  }
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function numberField(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 function writePrivateText(path: string, text: string): void {
   writeJsonAtomicText(path, text.endsWith('\n') ? text : `${text}\n`);
 }

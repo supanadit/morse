@@ -16,7 +16,7 @@ import {
   resolveFixExtras,
   resolveMcpExtras,
   resolvePromptExtras,
-} from './session-factory.service.js';
+} from './session-factory-helpers.js';
 import { MorseGateway } from './morse.gateway.js';
 import type { MorseServerConfig } from '../../app/config.js';
 

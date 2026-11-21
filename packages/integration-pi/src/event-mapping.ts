@@ -1,9 +1,11 @@
 import type { AgentEvent, AgentHistoryEntry, AgentSessionState, AgentUserMessage, ChatPin, NoticeLevel, PromptImage, TokenUsage, ToolResultDetails } from '@morse/agent';
+import { safeStringify, truncate } from '@morse/system';
 import {
   asArray,
   asNumber,
   asRecord,
   asString,
+  isDefined,
   type RpcAssistantMessageEvent,
   type RpcMessage,
   type RpcRecord,
@@ -779,21 +781,7 @@ export function describeToolCall(toolName: string, args: Record<string, unknown>
   return toolName;
 }
 
-function safeStringify(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  try {
-    return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
 
-function truncate(value: string, max: number): string {
-  const single = value.replace(/\s+/g, ' ').trim();
-  return single.length > max ? `${single.slice(0, max)}…` : single;
-}
 
 /** Session entries timestamp in ISO (`2026-…`); agent messages in Unix ms. */
 function entryTimestamp(value: unknown): number | undefined {
@@ -809,8 +797,4 @@ function entryTimestamp(value: unknown): number | undefined {
     }
   }
   return undefined;
-}
-
-function isDefined<T>(value: T | undefined): value is T {
-  return value !== undefined;
 }

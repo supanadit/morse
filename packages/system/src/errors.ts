@@ -44,3 +44,11 @@ export class UnsupportedByHostError extends MorseError {
     super(message, 'unsupported-by-host');
   }
 }
+
+/** The sentence a thrown value reads as: an Error's own message, else its JSON. */
+export function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : JSON.stringify(error);
+}

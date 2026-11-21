@@ -57,7 +57,7 @@ export class CompositeResourceStore<TItem, TSave = TItem> extends ResourceStore<
   private childFor(source?: string): ResourceStore<TItem, TSave> {
     const named =
       source === undefined ? undefined : this.children.find((child) => child.source === source);
-    return (named ?? this.children[0]).store;
+    return (named ?? this.children[0]!).store;
   }
 }
 

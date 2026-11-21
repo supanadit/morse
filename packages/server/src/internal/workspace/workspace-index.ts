@@ -3,31 +3,13 @@ import { readdir } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { UnsupportedByHostError, type MorseLogger } from '@morse/system';
+import {
+  MAX_INDEXED_FILES,
+  SKIPPED_DIRECTORIES,
+  indexEntries,
+  isInSkippedDirectory,
+} from '@morse/system';
 
-/**
- * Directories a file picker never wants, and which make a tree walk slow enough
- * to feel broken. Mirrors the VS Code host's list on purpose: a browser host and
- * a webview host should offer the same files for the same project. Exported for
- * `workspace-search.ts`, which skips the same noise while grepping.
- */
-export const SKIPPED_DIRECTORIES = new Set([
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  'coverage',
-  'target',
-  'vendor',
-  'venv',
-  '__pycache__',
-  '.angular',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-]);
-
-const MAX_INDEXED_FILES = 5_000;
 const INDEX_TTL_MS = 60_000;
 /**
  * How many directories keep a warm index. A global browser host switches
@@ -203,29 +185,6 @@ async function indexWorkspace(cwd: string): Promise<Omit<FileIndex, 'at'>> {
   await walk(cwd, cwd, fromWalk);
   return { files: indexEntries(fromWalk), source: 'walk' };
 }
-
-/**
- * Turns a list of file paths into the picker's entries: the files plus every
- * directory they imply, the latter marked with a trailing `/`. Deriving the
- * directories from the files keeps the git and walk listings identical and never
- * offers a folder the agent could not reach anyway. The frontend ranks a
- * directory first and lets the user drill into it (`@docs/` lists its contents).
- */
-function indexEntries(paths: string[]): string[] {
-  const entries = new Set(dedupe(paths).slice(0, MAX_INDEXED_FILES));
-  for (const path of [...entries]) {
-    const segments = path.split('/');
-    for (let depth = 1; depth < segments.length; depth += 1) {
-      entries.add(`${segments.slice(0, depth).join('/')}/`);
-    }
-  }
-  return [...entries].sort();
-}
-
-function dedupe(paths: string[]): string[] {
-  return [...new Set(paths)];
-}
-
 /**
  * `git ls-files` reports paths relative to the repository root; a directory
  * below that root is handled by stripping `--show-prefix` and dropping entries
@@ -264,16 +223,6 @@ function runGit(args: string[], cwd: string): Promise<string | undefined> {
     );
   });
 }
-
-/**
- * Only *folders* are skipped by the name rules: a dotfile such as `.gitignore`
- * is perfectly pickable, while a dot-folder (`.git`, `.github`) is not.
- */
-function isInSkippedDirectory(path: string): boolean {
-  const folders = path.split('/').slice(0, -1);
-  return folders.some((folder) => SKIPPED_DIRECTORIES.has(folder) || folder.startsWith('.'));
-}
-
 async function walk(root: string, directory: string, files: string[]): Promise<void> {
   if (files.length >= MAX_INDEXED_FILES) {
     return;

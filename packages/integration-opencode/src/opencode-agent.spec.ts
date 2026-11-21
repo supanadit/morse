@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, AgentSessionState } from '@morse/agent';
-import { AgentUnavailableError, UnsupportedByHostError, silentLogger } from '@morse/system';
+import { AgentUnavailableError, UnsupportedByHostError, appendPinMentions, silentLogger } from '@morse/system';
 import type { OpenCodeApi, OpenCodePage } from './internal/client.js';
 import type { OpenCodeConfigGuard } from './internal/config-guard.js';
 import type {
@@ -13,7 +13,8 @@ import type {
 } from './internal/event-stream.js';
 import type { ApiModel } from './internal/model-mapping.js';
 import type { ApiMessage } from './internal/message-mapping.js';
-import { OpenCodeAgent, appendPinMentions, readAvailableCommands } from './opencode-agent.js';
+import { OpenCodeAgent } from './opencode-agent.js';
+import { readAvailableCommands } from './opencode-helpers.js';
 
 /**
  * The session adapter against a fake server: what it sends on the wire, what it

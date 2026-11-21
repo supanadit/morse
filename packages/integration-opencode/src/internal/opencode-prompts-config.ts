@@ -215,7 +215,7 @@ export function moveConfigCommand(path: string, from: string, to?: string): bool
   }
   const entry = command[from];
   const { [from]: _removed, ...rest } = command;
-  if (to !== undefined) {
+  if (to !== undefined && entry !== undefined) {
     if (!isValidCommandName(to)) {
       throw new Error(`"${to}" is not a valid command name (letters, digits, "_" and "-").`);
     }

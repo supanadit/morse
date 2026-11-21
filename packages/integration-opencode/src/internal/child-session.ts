@@ -1,4 +1,5 @@
 import type { AgentChildSessionRef } from '@morse/agent';
+import { asNonEmptyString, asRecord } from './guards.js';
 
 /**
  * The session a tool call spawned, when the call delegated to one.
@@ -26,13 +27,13 @@ export function childSessionOf(
   }
   const delegation = toolName === 'task' || toolName === 'subagent';
   const id =
-    asString(record['childSessionID']) ??
-    asString(record['childID']) ??
-    (delegation ? (asString(record['sessionID']) ?? asString(record['sessionId'])) : undefined);
+    asNonEmptyString(record['childSessionID']) ??
+    asNonEmptyString(record['childID']) ??
+    (delegation ? (asNonEmptyString(record['sessionID']) ?? asNonEmptyString(record['sessionId'])) : undefined);
   if (id === undefined || id.length === 0) {
     return undefined;
   }
-  const agent = asString(record['agent']) ?? asString(record['subagentType']);
+  const agent = asNonEmptyString(record['agent']) ?? asNonEmptyString(record['subagentType']);
   return { sessionId: id, ...(agent === undefined ? {} : { agent }) };
 }
 
@@ -61,17 +62,7 @@ export function childSessionFromText(
   }
   const agent =
     /\bagent="([^"]+)"/.exec(tag)?.[1] ??
-    asString(asRecord(source)?.['agent']) ??
-    asString(asRecord(source)?.['subagentType']);
+    asNonEmptyString(asRecord(source)?.['agent']) ??
+    asNonEmptyString(asRecord(source)?.['subagentType']);
   return { sessionId, ...(agent === undefined ? {} : { agent }) };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

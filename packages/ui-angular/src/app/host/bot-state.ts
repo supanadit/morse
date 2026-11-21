@@ -1,12 +1,10 @@
 import { signal } from '@angular/core';
 import type {
   BotConfig,
-  BotConversationSummary,
   BotModelsMessage,
   BotRosterMessage,
   BotRoutingMessage,
   BotRoutingState,
-  BotSummary,
   BotTranscriptEntry,
   BotTranscriptMessage,
   BotTurnTrace,
@@ -31,10 +29,7 @@ function mergeTraces(current: BotTurnTrace[], incoming: BotTurnTrace[]): BotTurn
 }
 
 /** The roster as one value: the bots the host runs, and the conversations it keeps. */
-export interface BotRoster {
-  bots: BotSummary[];
-  conversations: BotConversationSummary[];
-}
+export type BotRoster = BotRosterMessage['payload'];
 
 /**
  * Bot mode's client-side state: the roster, the conversation in front, the

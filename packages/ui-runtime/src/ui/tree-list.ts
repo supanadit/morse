@@ -98,8 +98,7 @@ export function flattenTree<T>(
     depth: number,
     ancestorContinues: readonly boolean[],
   ): void => {
-    for (let index = 0; index < list.length; index += 1) {
-      const node = list[index];
+    for (const [index, node] of list.entries()) {
       const isLast = index === list.length - 1;
       rows.push({ node, depth, isLast, ancestorContinues });
       if (node.kind !== "group" || !expanded.has(node.id)) {

@@ -1,5 +1,6 @@
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
+import { windowsExtensions } from '@morse/system';
 
 /**
  * Finds the OpenCode binary, and says how to start it.
@@ -120,16 +121,6 @@ export function findWindowsInstall(
   }
   return undefined;
 }
-
-/** `PATHEXT` is a shell variable and is often absent from GUI processes. */
-function windowsExtensions(env: NodeJS.ProcessEnv): string[] {
-  const raw = env.PATHEXT ?? env.Pathext ?? process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD';
-  return raw
-    .split(';')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-}
-
 /**
  * How to start one file, or `undefined` when this platform cannot start it.
  *

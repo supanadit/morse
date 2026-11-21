@@ -12,7 +12,13 @@ import {
   OPENCODE_INSTALL_COMMAND,
   openOpenCodeEngine,
 } from '@morse/integration-opencode';
-import { AgentRouter, ChatService, FileSessionStore, SessionRegistry } from '@morse/system';
+import {
+  AgentRouter,
+  ChatService,
+  FileSessionStore,
+  SessionRegistry,
+  describeError,
+} from '@morse/system';
 import {
   bindTranscriptsToRegistry,
   planEngineRegistration,
@@ -350,12 +356,6 @@ async function resolveSpawnEnv(
   return enriched;
 }
 
-function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return typeof error === 'string' ? error : JSON.stringify(error);
-}
 
 async function readFrontendManifest(
   webviewRoot: vscode.Uri,

@@ -1,8 +1,9 @@
-import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentGatewayFactory } from '@morse/agent';
 import {
   AgentUnavailableError,
+  writePrivateJson,
   type BotEngineCapabilities,
   type BotProviderRecord,
   type MorseLogger,
@@ -40,7 +41,6 @@ import { OpenCodeEventStream } from './internal/event-stream.js';
  */
 
 /** A file holding API keys is readable by its owner only. */
-const PRIVATE_FILE_MODE = 0o600;
 
 /**
  * What the OpenCode engine offers a bot. Credentials are `'stored'`: the
@@ -171,33 +171,6 @@ export function writeOpenCodeCredentials(
   }
   writePrivateJson(join(botRoot, 'sessions', 'opencode', 'auth.json'), auth);
 }
-
-/** Temp file beside the target, then rename: private from the moment it exists. */
-function writePrivateJson(path: string, value: unknown): void {
-  const serialized = JSON.stringify(value);
-  const temp = `${path}.${process.pid}.tmp`;
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  try {
-    writeFileSync(temp, serialized, { mode: PRIVATE_FILE_MODE });
-    // `mode` only applies when the temp file is created; a stale temp left by a
-    // crashed run could be broader, so the mode is enforced explicitly.
-    chmodSync(temp, PRIVATE_FILE_MODE);
-    renameSync(temp, path);
-  } catch (error) {
-    // Some filesystems refuse a rename over an existing file (a Windows mount).
-    // Mirroring the bot registry store, the fallback writes in place: not
-    // atomic, but failing the wizard on such a host is worse.
-    try {
-      writeFileSync(path, serialized, { mode: PRIVATE_FILE_MODE });
-      chmodSync(path, PRIVATE_FILE_MODE);
-      rmSync(temp, { force: true });
-    } catch {
-      rmSync(temp, { force: true });
-      throw error;
-    }
-  }
-}
-
 /** OpenCode renders an agent's description in one row, so it is written short. */
 const SUBAGENT_DESCRIPTION_MAX = 80;
 

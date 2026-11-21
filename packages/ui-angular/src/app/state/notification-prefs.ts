@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { readFlag, storeFlag } from './browser-storage';
 
 /**
  * When a finished run should say so:
@@ -18,23 +19,6 @@ const MODE_KEY = 'morse.notifications.mode';
 const SOUND_KEY = 'morse.notifications.sound';
 /** The "notifications are off" nudge was answered, so it stops asking. */
 const BANNER_KEY = 'morse.notifications.banner';
-
-function readFlag(key: string, fallback: boolean): boolean {
-  try {
-    const raw = globalThis.localStorage?.getItem(key);
-    return raw === null || raw === undefined ? fallback : raw === '1';
-  } catch {
-    return fallback;
-  }
-}
-
-function storeFlag(key: string, value: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(key, value ? '1' : '0');
-  } catch {
-    // Storage is a nicety, not a requirement: the signal still holds the choice.
-  }
-}
 
 function isMode(value: unknown): value is NotificationMode {
   return value === 'away' || value === 'always';

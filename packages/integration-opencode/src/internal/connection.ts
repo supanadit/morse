@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { AgentUnavailableError } from '@morse/system';
+import { basicAuth } from './auth.js';
 import { resolveOpenCodeSpawn, type OpenCodeSpawn } from './resolve-opencode.js';
 
 /**
@@ -347,9 +348,6 @@ async function stop(child: ChildProcess): Promise<void> {
   }
 }
 
-function basicAuth(password: string): string {
-  return `Basic ${Buffer.from(`opencode:${password}`, 'utf8').toString('base64')}`;
-}
 
 function normalizeUrl(url: string): string {
   const trimmed = url.trim().replace(/\/+$/, '');

@@ -48,7 +48,7 @@ export const DEFAULT_ROUTE: AppRoute = { path: '/', component: App };
  */
 export function hashPath(hash: string): string {
   const withoutHash = hash.startsWith('#') ? hash.slice(1) : hash;
-  const path = withoutHash.split('?')[0].split('&')[0];
+  const path = withoutHash.split('?')[0]?.split('&')[0] ?? '';
   return path.length > 0 ? path : '/';
 }
 

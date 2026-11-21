@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { gitText } from './git-exec.js';
 import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
 import type {
@@ -601,7 +602,12 @@ function nonEmptyLines(output: string | undefined): string[] {
 
 /** `<behind>\t<ahead>` from `git rev-list --left-right --count`; 0 when unreadable. */
 function parseCounts(raw: string): [number, number] {
-  const [behind, ahead] = raw.trim().split(/\s+/).map((value) => Number.parseInt(value, 10));
+  const counts = raw
+    .trim()
+    .split(/\s+/)
+    .map((value) => Number.parseInt(value, 10));
+  const behind = counts[0] ?? 0;
+  const ahead = counts[1] ?? 0;
   return [Number.isFinite(behind) ? behind : 0, Number.isFinite(ahead) ? ahead : 0];
 }
 
@@ -655,18 +661,6 @@ function parseRefs(raw: string): string[] {
     .filter((ref) => ref.length > 0);
   return refs;
 }
-
-function gitText(args: string[], cwd: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      args,
-      { cwd, timeout: 5_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
-      (error, stdout) => resolve(error ? undefined : stdout),
-    );
-  });
-}
-
 /** Resolves session-relative client paths into repository-relative ones. */
 function resolvePaths(cwd: string, work: string, requested: readonly string[]): string[] {
   return requested

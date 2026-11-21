@@ -5,6 +5,7 @@ import {
   type ConfigMutation,
   type McpServer,
   type McpServerEntry,
+  normalizeCwd,
 } from '@morse/engine-config';
 import type {
   McpConfigScope,
@@ -285,10 +286,6 @@ function withMessage(mutation: ConfigMutation): McpMutation {
   }
   const message = mutation.message ?? mutation.issues?.[0]?.message;
   return message === undefined ? mutation : { ...mutation, message };
-}
-
-function normalizeCwd(cwd?: string): string | undefined {
-  return cwd !== undefined && cwd.length > 0 ? cwd : undefined;
 }
 
 /** A fix refused before any write: the panel shows the sentence beside the file. */

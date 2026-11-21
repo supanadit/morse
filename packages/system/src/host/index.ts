@@ -7,6 +7,7 @@
  * differs.
  */
 export * from './native-dialogs.js';
+export * from './command-args.js';
 export * from './terminal.js';
 export * from './terminal-buffer.js';
 export * from './transcript-projector.js';

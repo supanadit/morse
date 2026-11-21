@@ -8,6 +8,7 @@
 import type { ConfigIssue, ConfigIssueCode, ConfigMutation, ConfigScope } from '@morse/protocol';
 
 import { UnsupportedScopeError, type ConfigLocator } from '../engine/locator.js';
+import { messageOf } from './errors.js';
 import { ResourceStore, type ResourceList } from '../resource/resource-store.js';
 import type { ConfigFile } from './config-file.js';
 import {
@@ -647,8 +648,4 @@ function issue(
   pointer?: string,
 ): ConfigIssue {
   return { file, fileId, scope, pointer, code, message, fixable: false };
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -218,7 +218,7 @@ function applyDelta(
     return items;
   }
   const target = items[index];
-  if (target.kind !== 'assistant') {
+  if (!target || target.kind !== 'assistant') {
     return items;
   }
   const next = [...items];

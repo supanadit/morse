@@ -137,7 +137,7 @@ export class BootSplash implements AfterViewInit, OnDestroy {
       // The rings are drawn by animating `draw: 'start end'` on a drawable proxy.
       const drawables = [ringA, ringB]
         .filter((element): element is SVGGeometryElement => element !== null)
-        .map((element) => createDrawable(element)[0]);
+        .flatMap((element) => createDrawable(element));
       // Drawable proxies report the full path on creation; start them closed.
       for (const ring of drawables) {
         ring.setAttribute('draw', '0 0');

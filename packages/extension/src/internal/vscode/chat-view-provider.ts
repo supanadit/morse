@@ -3,7 +3,10 @@ import {
   ChatService,
   SessionRegistry,
   UnsupportedByHostError,
-  selectionSpan,
+  describeError,
+  mcpScope,
+  numberArg,
+  stringArg,
   type AgentMcpExtras,
   type AgentPromptExtras,
   type EditorContextProvider,
@@ -36,6 +39,11 @@ import {
   type NoticeLevel,
 } from '@morse/protocol';
 import { VsCodeDialogs } from './vscode-dialogs';
+import {
+  renderFailureHtml,
+  toSelectionPayload,
+  toWorkspacePath,
+} from './view-helpers';
 import { renderWebviewHtml } from './webview-html';
 import { SelectionPreviewTracker } from './selection-preview';
 import { workspaceFiles } from './workspace-index';
@@ -1013,98 +1021,4 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         throw new UnsupportedByHostError(`VS Code does not implement "${command}".`);
     }
   }
-}
-
-/**
- * Shown when the frontend bundle itself cannot be loaded. Without this the view
- * would just be blank, which tells the user (and us) nothing.
- */
-function stringArg(args: Record<string, unknown> | undefined, key: string): string {
-  const value = args?.[key];
-  return typeof value === 'string' ? value : '';
-}
-
-/** A numeric argument, or 0 when the panel did not send one. */
-function numberArg(args: Record<string, unknown> | undefined, key: string): number {
-  const value = args?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-/** The scope a mutation edits, when the panel named one. */
-function mcpScope(args: Record<string, unknown> | undefined): 'global' | 'project' | undefined {
-  return args?.scope === 'global' || args?.scope === 'project' ? args.scope : undefined;
-}
-
-/** The selection span of an editor, if any, as a `context/selection` payload. */
-function toSelectionPayload(
-  path: string,
-  editor: vscode.TextEditor,
-): {
-  path: string;
-  startLine?: number;
-  endLine?: number;
-  startColumn?: number;
-  endColumn?: number;
-  characters?: number;
-  text?: string;
-} {
-  const span = selectionSpan(
-    editor.selections,
-    (selection) =>
-      editor.document.getText(
-        new vscode.Range(
-          selection.start.line,
-          selection.start.character,
-          selection.end.line,
-          selection.end.character,
-        ),
-      ),
-    (line) => editor.document.lineAt(line).text.length,
-  );
-  return span === undefined ? { path } : { path, ...span };
-}
-
-/** Mention paths are workspace-relative; the editor usually wants an absolute one. */
-function toWorkspacePath(path: string): vscode.Uri {
-  const roots = vscode.workspace.workspaceFolders ?? [];
-  const inside = roots.some(
-    (root) =>
-      path === root.uri.fsPath ||
-      path.startsWith(`${root.uri.fsPath}${process.platform === 'win32' ? '\\' : '/'}`),
-  );
-  if (inside || roots.length === 0) {
-    return vscode.Uri.file(path);
-  }
-  return vscode.Uri.joinPath(roots[0]!.uri, path);
-}
-
-function renderFailureHtml(title: string, detail: string, hint: string): string {
-  const csp = `default-src 'none'; style-src 'unsafe-inline'`;
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-</head>
-<body style="font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 12px">
-  <strong>${escapeHtml(title)}</strong>
-  <p style="color: var(--vscode-descriptionForeground)">${escapeHtml(detail)}</p>
-  <p style="color: var(--vscode-descriptionForeground)">${escapeHtml(hint)}</p>
-</body>
-</html>`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return typeof error === 'string' ? error : JSON.stringify(error);
 }

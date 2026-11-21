@@ -3,35 +3,8 @@
  * groups sessions. Both are Morse's shapes — a harness supplies the data, but a
  * sidebar page is Morse's.
  *
- * Shapes only — no I/O, no ports, no framework imports (R2/R8).
+ * Shapes only — no I/O, no ports, no framework imports (R2/R8). The wire DTOs are
+ * already these shapes, so they are re-exported rather than written twice.
  */
 
-export interface SessionSummary {
-  id: string;
-  title: string;
-  cwd: string;
-  updatedAt: number;
-  messageCount: number;
-  /**
-   * The session this one was forked from, as its id, when pi recorded one. A child
-   * and its parent share a first message, so this is the only thing that tells a
-   * fork from a coincidence — the frontend nests a child under its parent by it.
-   * Mirrors `SessionSummary` in `@morse/protocol`.
-   */
-  parentId?: string;
-  /**
-   * True when this session was spawned as a subagent — a delegation child the
-   * parent's tool call created and steers itself: watched read-only, never
-   * resumed with a composer. A plain fork stays a normal session. Mirrors
-   * `SessionSummary` in `@morse/protocol`.
-   */
-  subagent?: boolean;
-}
-
-/** A project is a directory the agent has worked in (one pi session bucket). */
-export interface ProjectSummary {
-  path: string;
-  name: string;
-  sessionCount: number;
-  lastUsedAt: number;
-}
+export type { ProjectSummary, SessionSummary } from '@morse/protocol';

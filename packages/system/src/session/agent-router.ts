@@ -9,6 +9,7 @@ import type {
   WorkspaceRef,
 } from '@morse/agent';
 import type { SessionSummary } from '../domain/index.js';
+import { baseName } from '../data/text.js';
 import { AgentUnavailableError, UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { deriveSessionId } from './identity.js';
@@ -902,13 +903,4 @@ function nowOr(fallback: number): number {
 
 function sortedByRecency(records: readonly MorseSessionRecord[]): MorseSessionRecord[] {
   return [...records].sort((left, right) => right.updatedAt - left.updatedAt);
-}
-
-function baseName(path: string): string {
-  return (
-    path
-      .split(/[\\/]/)
-      .filter((part) => part.length > 0)
-      .at(-1) ?? path
-  );
 }

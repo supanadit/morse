@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { ConfigIssue, ConfigIssueCode, ConfigMutation, ConfigScope } from '@morse/protocol';
 
 import { JsonFormat, type ConfigFormat } from './json-format.js';
+import { messageOf } from './errors.js';
 import type { ConfigDocument, WritePolicy } from './types.js';
 import { fileSignature, writeAtomic } from './write.js';
 
@@ -164,8 +165,4 @@ export class JsonConfigFile extends ConfigFile {
   format(): ConfigFormat {
     return JSON_FORMAT;
   }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
