@@ -955,6 +955,13 @@ export class OpenCodeAgent extends Session {
       // why the transcript stops.
       this.mergeState({ streaming: false });
     }
+    // Publish the state before the events that end a run. Host consumers read it
+    // at run-end to decide whether the next queued prompt may go out; announcing
+    // the end while `streaming` is still true left queues stuck until another
+    // event happened to wake them.
+    if (mapped.state !== undefined || event.type === 'stream.fatal') {
+      this.emitState(event.created);
+    }
     for (const mappedEvent of mapped.events) {
       if (mappedEvent.type === 'agent/interaction') {
         const kind = mappedEvent.request.kind === 'form' ? 'form' : 'permission';
@@ -962,9 +969,6 @@ export class OpenCodeAgent extends Session {
         this.pending.set(mappedEvent.request.requestId, kind);
       }
       this.emit(mappedEvent);
-    }
-    if (mapped.state !== undefined || event.type === 'stream.fatal') {
-      this.emitState(event.created);
     }
     const title = asRecord(event.data)['title'];
     if (typeof title === 'string' && title.length > 0) {

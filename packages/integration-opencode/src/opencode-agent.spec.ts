@@ -1157,14 +1157,20 @@ describe('OpenCodeAgent', () => {
       created: 13,
     });
 
+    // The state that clears `streaming` must land before the run-end: host-side
+    // consumers (the shared queue) read the state at that moment to decide
+    // whether the next queued prompt can go out.
     expect(events.map((event) => event.type)).toEqual([
-      'agent/run-start',
       'agent/state',
+      'agent/run-start',
       'agent/delta',
       'agent/message',
-      'agent/run-end',
       'agent/state',
+      'agent/run-end',
     ]);
+    const ended = events.find((event) => event.type === 'agent/state' && !event.state.streaming);
+    expect(ended).toBeDefined();
+    expect(events.indexOf(ended!) < events.findIndex((event) => event.type === 'agent/run-end')).toBe(true);
     const state = await agent.state();
     expect(state.streaming).toBe(false);
     await agent.dispose();
