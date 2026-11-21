@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.31.0 — 21 November 2026
+
+## 🚀 New Features
+
+- **A queue that follows you across devices** — every browser sees the same queue, and a reload keeps it
+- **A paused queue waits for you** — after a stop or a failure, continue the answer or send what was queued
+- **Scheduled compaction joins the queue** — drag it before a message to compact first, cancel it with ×
+- **The explorer shows ignored files** — a .env or a file under node_modules is reachable now
+- **Folders stay open** — a refresh lands back on the same tree
+- **A redesigned bot editor** — one page of rows instead of a seven-step wizard, saved from anywhere
+- **Every bot has a face of its own** — a small animated portrait that moves instead of one shared look
+
+## 🐛 Bug Fixes
+
+- Composer controls sit level at one height, and the reload button matches the pickers
+- A finished tool trace folds to its summary instead of previewing a step
+- Bots know what kind of room they answer in — a DM or a thread no longer gets group advice
+- The thinking level you picked stays for the whole run
+- A bot's streaming answer grows in the bubble it lands in, and reads as markdown while it streams
+- A bot's chat row stays one line tall
+- The app resizes with the phone keyboard instead of hiding the composer
+- The status line fits a narrow window as one panning line
+- Syntax highlighting survives switching unified, split and file diff views
+- Code mode gains an upload button on phones
+- The prompt's caret follows the line it is really on after Enter
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.30.1...v0.31.0`](https://github.com/supanadit/morse/compare/v0.30.1...v0.31.0)
+
 ## 0.30.1 — 20 November 2026
 
 ## 🐛 Bug Fixes

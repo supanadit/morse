@@ -1,6 +1,6 @@
 {
   "name": "morse-monorepo",
-  "version": "0.30.1",
+  "version": "0.31.0",
   "private": true,
   "packageManager": "npm@11.20.0",
   "description": "Agent-agnostic GUI for coding agents (Pi, OpenCode) — chat in VS Code or your browser.",
