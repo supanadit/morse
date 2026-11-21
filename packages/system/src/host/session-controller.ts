@@ -61,6 +61,7 @@ import {
 import type { TerminalBackend } from './terminal.js';
 import { TerminalHost } from './terminal-host.js';
 import { SessionTranscriptStore } from './transcript-store.js';
+import { InteractionHub } from './interaction-hub.js';
 import {
   draftSessionViewState,
   noticeMessage,
@@ -83,6 +84,13 @@ export interface HostSessionServices {
    * frontend (VS Code) leaves it out and the frontend keeps its own queue.
    */
   composer?: ComposerHub;
+  /**
+   * The pending questions shared by every client of this host. Optional: a host
+   * with one frontend (VS Code) keeps them in its own controller. The browser
+   * server passes one hub to all connections so an answer on any device drops
+   * the form on all of them.
+   */
+  interactions?: InteractionHub;
 }
 
 /** A subscription to a directory's MCP config changing on disk. */
@@ -188,6 +196,7 @@ export class HostSessionController {
   private detachTranscripts: (() => void) | undefined;
   private detachRemovals: (() => void) | undefined;
   private detachMcpWatch: (() => void) | undefined;
+  private detachInteractions: (() => void) | undefined;
   private activeKey: string | undefined;
   /** True while the panel shows the intentional no-session draft state. */
   private isDraft = false;
@@ -249,16 +258,8 @@ export class HostSessionController {
   private disposed = false;
   private hasOpenedOnce = false;
   private hostReadyEmitted = false;
-  /**
-   * Browser dialogs the agent is waiting on, keyed by request id. The value
-   * carries the owning session, so the answer is routed back to the pi process
-   * that asked — a dialog in a background conversation must not be answered by
-   * whichever session happens to be in front.
-   */
-  private readonly pendingInteractions = new Map<
-    string,
-    { sessionKey: string; request: AgentInteractionRequest }
-  >();
+  /** Pending questions belong to the host, not to this one connection. */
+  private readonly interactions: InteractionHub;
   /** The one pending request this client is showing, so a session switch swaps it. */
   private shownInteractionId: string | undefined;
   /** Cursor of the oldest history page loaded for the active session. */
@@ -297,6 +298,7 @@ export class HostSessionController {
   private readonly botWire: BotWire;
 
   constructor(private readonly options: HostSessionControllerOptions) {
+    this.interactions = options.services.interactions ?? new InteractionHub();
     this.terminalHost = new TerminalHost({
       backend: options.terminal,
       emit: (message) => this.options.emit(message),
@@ -322,12 +324,17 @@ export class HostSessionController {
     // reopened later cannot inherit a compact nobody is waiting for anymore.
     this.detachRemovals = this.options.services.registry.onRemoval((key) => {
       this.scheduledCompacts.delete(key);
+      this.interactions.forget(key);
     });
     // A host watch over pi's `mcp.json` files: a config edited in a terminal (or
     // by another window) reaches this client without it having to poll the
     // expensive `pi mcp list` itself.
     this.detachMcpWatch = this.options.services.mcpWatch?.subscribe((cwd) => {
       this.options.emit({ type: 'mcp/changed', payload: { cwd } });
+    });
+    this.detachInteractions = this.interactions.subscribe(() => {
+      this.syncInteraction();
+      this.publishActivity();
     });
     if (this.options.autoOpen !== false || this.options.pinnedSessionId !== undefined) {
       // Answer the handshake immediately with a truthful state: the agent is
@@ -393,6 +400,8 @@ export class HostSessionController {
     this.detachRemovals = undefined;
     this.detachMcpWatch?.();
     this.detachMcpWatch = undefined;
+    this.detachInteractions?.();
+    this.detachInteractions = undefined;
     if (this.options.ownsRegistry === true) {
       await this.options.services.registry.dispose();
     }
@@ -1788,8 +1797,8 @@ export class HostSessionController {
 
   private async respondToInteraction(response: InteractionResponse, owner?: string): Promise<void> {
     const sessionKey =
-      owner ?? this.pendingInteractions.get(response.requestId)?.sessionKey ?? this.activeKey;
-    this.pendingInteractions.delete(response.requestId);
+      owner ?? this.interactions.ownerOf(response.requestId) ?? this.activeKey;
+    this.interactions.settle(response.requestId);
     this.syncInteraction();
     // A session that is no longer hot has no process left to answer; the dialog
     // it was waiting on is already gone with it.
@@ -2138,7 +2147,7 @@ export class HostSessionController {
     // goes to the frontend, even in a host that answers every other kind
     // natively. Those other kinds keep their native path below.
     if (!dialogs || request.kind === 'form') {
-      this.pendingInteractions.set(request.requestId, { sessionKey, request });
+      this.interactions.add(sessionKey, request);
       this.syncInteraction();
       this.publishActivity();
       return;
@@ -2151,15 +2160,7 @@ export class HostSessionController {
 
   /** The pending dialog the active session owns, if any. */
   private pendingFor(sessionKey: string | undefined): AgentInteractionRequest | undefined {
-    if (sessionKey === undefined) {
-      return undefined;
-    }
-    for (const entry of this.pendingInteractions.values()) {
-      if (entry.sessionKey === sessionKey) {
-        return entry.request;
-      }
-    }
-    return undefined;
+    return this.interactions.pendingFor(sessionKey);
   }
 
   /**
@@ -2478,6 +2479,9 @@ export class HostSessionController {
         this.options.emit({ type: 'composer/draft', payload: draft });
       }
     }
+    // A device that joins while a question is already pending shows it in its
+    // own single slot; the answer still goes to the session that asked.
+    this.syncInteraction();
   }
 
   private emitTranscript(key: string): void {

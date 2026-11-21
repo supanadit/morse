@@ -31,6 +31,7 @@ import {
   type TranscriptItem,
 } from '@morse/protocol';
 import { HostSessionController, type HostSessionServices } from './session-controller.js';
+import { InteractionHub } from './interaction-hub.js';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
 import type { SessionCatalog } from '../session/ports.js';
 import type { TerminalBackend, TerminalSink } from './terminal.js';
@@ -248,9 +249,15 @@ function connect(
   agentHint?: string,
   pinnedSessionId?: string,
   composer?: HostSessionServices['composer'],
+  interactions?: InteractionHub,
 ): HostSessionController {
   return new HostSessionController({
-    services: { registry, chat, ...(composer ? { composer } : {}) },
+    services: {
+      registry,
+      chat,
+      ...(composer ? { composer } : {}),
+      ...(interactions ? { interactions } : {}),
+    },
     capabilities: CAPABILITIES,
     emit: (message) => sink.push(message),
     logger: silentLogger,
@@ -3475,6 +3482,127 @@ describe('HostSessionController session-scoped dialogs', () => {
 
     const dismissed = messages.filter((message) => message.type === 'interaction/dismiss').at(-1);
     expect(dismissed?.payload.requestId).toBe('req-2');
+  });
+
+  const SHARED_FORM: AgentInteractionRequest = {
+    requestId: 'req-shared',
+    kind: 'form',
+    title: 'Composer fix',
+    fields: [{ key: 'choice', label: 'Choice', type: 'text', required: true }],
+  };
+
+  async function twoDevices(count = 2) {
+    const interactions = new InteractionHub();
+    const sinks: HostToClientMessage[][] = Array.from({ length: count }, () => []);
+    const created: Controlled[] = [];
+    const factory: AgentGatewayFactory = {
+      create: (options) => {
+        const sessionId = options.sessionId ?? `generated-${created.length + 1}`;
+        const session = controlled(sessionId);
+        created.push(session);
+        return Promise.resolve(session.gateway);
+      },
+    };
+    const registry = new SessionRegistry({
+      factory,
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const transcripts = new SessionTranscriptStore();
+    const hosts = sinks.map((sink) =>
+      connect(
+        registry,
+        chat,
+        transcripts,
+        sink,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        interactions,
+      ),
+    );
+    return { interactions, sinks, created, registry, chat, transcripts, hosts };
+  }
+
+  it('dismisses a form on every device when one device answers it', async () => {
+    const { sinks, created, registry, hosts } = await twoDevices();
+    for (const host of hosts) {
+      await host.start();
+    }
+    await registry.open({ sessionId: 'sess-a' });
+    for (const host of hosts) {
+      await host.handleClientMessage({
+        type: 'session/activate',
+        payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+      });
+    }
+
+    created[0]!.emit({ type: 'agent/interaction', at: Date.now(), request: SHARED_FORM });
+    await Promise.resolve();
+    for (const messages of sinks) {
+      const shown = messages.filter((message) => message.type === 'interaction/request').at(-1);
+      expect(shown?.payload.requestId).toBe('req-shared');
+    }
+
+    await hosts[0]!.handleClientMessage({
+      type: 'interaction/respond',
+      payload: { requestId: 'req-shared', values: { choice: 'one' } },
+    });
+    for (const messages of sinks) {
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'interaction/dismiss' &&
+            message.payload.requestId === 'req-shared',
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it('shows a pending form to a device that connects after the question was asked', async () => {
+    const { interactions, sinks, created, registry, chat, transcripts, hosts } =
+      await twoDevices(1);
+    await hosts[0]!.start();
+    await registry.open({ sessionId: 'sess-a' });
+    await hosts[0]!.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+    created[0]!.emit({ type: 'agent/interaction', at: Date.now(), request: SHARED_FORM });
+    await Promise.resolve();
+
+    // The second device joins while the first is still looking at the form.
+    const late: HostToClientMessage[] = [];
+    const lateHost = connect(
+      registry,
+      chat,
+      transcripts,
+      late,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      interactions,
+    );
+    await lateHost.start();
+    await lateHost.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-a', cwd: WORKSPACE.cwd },
+    });
+    await lateHost.handleClientMessage({
+      type: 'client/ready',
+      payload: { protocolVersion: PROTOCOL_VERSION },
+    });
+
+    expect(
+      late.some(
+        (message) =>
+          message.type === 'interaction/request' && message.payload.requestId === 'req-shared',
+      ),
+    ).toBe(true);
   });
 });
 

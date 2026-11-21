@@ -3,6 +3,7 @@ import {
   AgentRouter,
   ChatService,
   ComposerHub,
+  InteractionHub,
   SessionRegistry,
   UnsupportedByHostError,
   type AgentExtras,
@@ -111,6 +112,8 @@ export class MorseSessionFactory {
    * keeps working while no client is connected.
    */
   private readonly composer: ComposerHub;
+  /** One pending-question map for every browser connected to this host. */
+  private readonly interactions = new InteractionHub();
 
   constructor(
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
@@ -283,6 +286,7 @@ export class MorseSessionFactory {
       registry: this.registry,
       chat: new ChatService({ agent: this.registry, logger: this.logger }),
       composer: this.composer,
+      interactions: this.interactions,
       ...(this.mcpWatch === undefined ? {} : { mcpWatch: this.mcpWatch }),
     };
 
