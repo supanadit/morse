@@ -12,7 +12,9 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
 
 - Markdown transcript with highlighted, copyable code blocks.
 - Tool calls as a **compact tree** by default: one summary line per turn with its steps and the files they
-  touched nested under it. The always-open timeline is a per-user toggle (`morse.chat.toolDisplay=timeline`).
+  touched nested under it. While the turn runs, the folded tree previews its newest action; on finish it folds
+  completely, unless the reader opened it — then it stays open until they collapse it, which collapses every
+  step detail too. The always-open timeline is a per-user toggle (`morse.chat.toolDisplay=timeline`).
 - Thinking streams as it arrives, and a resumed session is seeded from the agent — never from a blank panel.
 - Every message is stamped with its wall-clock time (`HH:MM`, the full date on hover) in both code mode and
   bot mode, so a line can be placed in the day.

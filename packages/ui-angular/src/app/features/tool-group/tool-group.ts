@@ -51,7 +51,10 @@ interface ToolDiff {
  * The reader can also choose the `compact` display (see `DisplayPrefs`): then
  * the live turn stays folded, the header is followed by a single line naming the
  * newest action, thinking notes are dropped, and the steps lose their card
- * chrome. Same data, two densities.
+ * chrome. That preview belongs to a run in progress: once the turn finishes the
+ * group folds completely, unless the reader opened it — their expansion stands
+ * until they collapse it, which collapses every step detail with it. Same data,
+ * two densities.
  */
 @Component({
   selector: 'morse-tool-group',
@@ -106,14 +109,17 @@ export class ToolGroup {
   /** The reader's chosen density, read from the shared preference. */
   protected readonly compact = computed(() => this.display.toolDisplay() === 'compact');
   /**
-   * What the compact tree shows: every step once the tree is open (thinking
-   * notes included, so the summary's thought count is truthful), and only the
-   * newest step while it is folded.
+   * What the compact tree shows: every step once the tree is open, the newest
+   * step while the turn is running, and nothing once it has finished. A finished
+   * trace collapses completely; the preview line is progress, not history.
    */
   protected readonly compactSteps = computed<ProcessStep[]>(() => {
     const steps = this.steps();
     if (this.isOpen()) {
       return steps;
+    }
+    if (!this.working() && !this.running()) {
+      return [];
     }
     const last = steps.at(-1);
     return last === undefined ? [] : [last];
@@ -125,8 +131,10 @@ export class ToolGroup {
    * tool that is executing keeps the timeline open, and between two steps the
    * host still reports the run, so it cannot flap open and shut per step.
    *
-   * The compact display deliberately opts out: it stays folded while the agent
-   * works and puts the newest action on the summary line instead.
+   * The compact display deliberately opts out of auto-opening: it stays folded
+   * while the agent works and shows the newest action as a preview row. That
+   * preview is gated on the run (see `compactSteps`), so a finished turn folds
+   * completely even though the auto state never flips here.
    */
   protected readonly autoOpen = computed(() =>
     this.compact() ? false : this.working() || this.running(),
@@ -181,10 +189,16 @@ export class ToolGroup {
       onCleanup(() => clearInterval(handle));
     });
 
-    // A new run (or a finished one) resets the manual choice.
+    // A new run (or a finished one) resets the manual choice, and an automatic
+    // collapse takes the open step bodies with it: a folded trace is folded all
+    // the way. A group the reader opened after it finished does not pass through
+    // here, so their expansion stands until they collapse it themselves.
     effect(() => {
-      this.autoOpen();
+      const auto = this.autoOpen();
       this.override.set(null);
+      if (!auto) {
+        this.openSteps.set({});
+      }
     });
 
     // A live thinking body reads like a log: as its text streams in, keep it
@@ -229,7 +243,13 @@ export class ToolGroup {
   }
 
   protected toggle(): void {
-    this.override.set(!this.isOpen());
+    const open = !this.isOpen();
+    this.override.set(open);
+    // Collapsing the trace collapses all of it: the next open starts from the
+    // summary, not from whatever step detail was left behind.
+    if (!open) {
+      this.openSteps.set({});
+    }
   }
 
   protected toggleStep(key: string): void {
