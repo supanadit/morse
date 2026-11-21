@@ -213,7 +213,7 @@
                 <div class="bubble">
                   @if (entry.images?.length) {
                     <div class="sent-images">
-                      @for (image of entry.images ?? []; track $index) {
+                      @for (image of entry.images; track $index) {
                         <img
                           class="sent-image"
                           [src]="preview(image)"
@@ -224,7 +224,7 @@
                   }
                   @if (entry.files?.length) {
                     <div class="sent-files">
-                      @for (file of entry.files ?? []; track file) {
+                      @for (file of entry.files; track file) {
                         <span class="sent-file" [title]="file">{{ file }}</span>
                       }
                     </div>
