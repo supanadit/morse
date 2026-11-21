@@ -36,6 +36,8 @@ function setup(
     activateSession: vi.fn(),
     newSession: vi.fn(),
     closeTerminal: vi.fn(),
+    // The default single-client host: closing a tab still drops its queue.
+    sharedComposer: () => false,
     requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) =>
       Promise.resolve(handler(command, args)),
     ),

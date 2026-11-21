@@ -30,6 +30,11 @@ export class QueueDrain {
 
   constructor() {
     effect(() => {
+      // A shared host dispatches the queue itself (`ComposerHub`), for every
+      // client at once. Only a single-client host drains here.
+      if (this.morse.sharedComposer()) {
+        return;
+      }
       const activity = this.morse.sessionActivity();
       // Reading the queue is what makes an enqueue, reorder or removal re-run
       // the drain; `dispatching` alone would never notice a new item.

@@ -10,6 +10,12 @@ const LAYOUT_FILE = 'workbench.json';
  * can carry inline image attachments, and rewritten as the reader types.
  */
 const DRAFTS_FILE = 'drafts.json';
+/**
+ * The host-owned composer queues and pause flags, per session. Smaller than the
+ * drafts file (a queued prompt can still carry images), rewritten on every queue
+ * action, and shared by every connected client.
+ */
+const COMPOSER_FILE = 'composer.json';
 
 /**
  * A layout is a handful of tab names and shell ids, so anything past a quarter
@@ -61,6 +67,16 @@ export function readDrafts(dataDir: string): WorkbenchSnapshot | undefined {
 /** Writes the drafts back, with the same atomic write and envelope guard. */
 export function saveDrafts(dataDir: string, snapshot: unknown): boolean {
   return saveSlot(dataDir, DRAFTS_FILE, snapshot, DRAFTS_MAX_BYTES);
+}
+
+/** The host-owned composer queues and pause flags, as last written. */
+export function readComposer(dataDir: string): WorkbenchSnapshot | undefined {
+  return readSlot(join(dataDir, COMPOSER_FILE), DRAFTS_MAX_BYTES);
+}
+
+/** Writes the composer queues back, with the same atomic write and envelope guard. */
+export function saveComposer(dataDir: string, snapshot: unknown): boolean {
+  return saveSlot(dataDir, COMPOSER_FILE, snapshot, DRAFTS_MAX_BYTES);
 }
 
 function readSlot(path: string, maxBytes: number): WorkbenchSnapshot | undefined {

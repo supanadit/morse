@@ -17,6 +17,9 @@ import {
   type SessionActivity,
   type SessionSummary,
   type SessionView,
+  type SharedComposerCommand,
+  type SharedComposerDraft,
+  type SharedComposerState,
   type ThinkingLevel,
 } from '@morse/protocol';
 import {
@@ -58,6 +61,12 @@ export class MorseService {
 
   readonly connection = computed(() => this.view().connection);
   readonly connectionDetail = computed(() => this.view().connectionDetail);
+  /** True when the host owns the queue and relays drafts (`composer/*` messages). */
+  readonly sharedComposer = computed(() => this.view().capabilities?.sharedComposer === true);
+  /** Listeners for a session's shared queue state, applied by `ComposerSync`. */
+  private readonly composerStateListeners = new Set<(state: SharedComposerState) => void>();
+  /** Listeners for the text another device is typing. */
+  private readonly composerDraftListeners = new Set<(draft: SharedComposerDraft) => void>();
   /** The wire version the host and this bundle agreed on. */
   readonly protocolVersion = computed(() => this.view().protocolVersion);
   /**
@@ -209,7 +218,10 @@ export class MorseService {
     // Bot mode is not part of `SessionView` — the shared reducer has no case for
     // it, on purpose: bot state belongs to this frontend, so the four messages
     // are taken off the transport here and folded into `BotState`.
-    const unsubscribeBot = this.transport.onMessage((message) => this.onBotMessage(message));
+    const unsubscribeBot = this.transport.onMessage((message) => {
+      this.onBotMessage(message);
+      this.onComposerMessage(message);
+    });
     this.destroyRef.onDestroy(() => {
       this.clearSlowConnectionTimer();
       unsubscribeBot();
@@ -244,6 +256,23 @@ export class MorseService {
         return;
       default:
         return;
+    }
+  }
+
+  /**
+   * The `composer/*` side channel: the host's queue state and the text another
+   * device is typing. Outside `SessionView` on purpose — it is shell state shared
+   * between clients, not conversation state.
+   */
+  private onComposerMessage(message: HostToClientMessage): void {
+    if (message.type === 'composer/state') {
+      for (const listener of [...this.composerStateListeners]) {
+        listener(message.payload);
+      }
+    } else if (message.type === 'composer/draft') {
+      for (const listener of [...this.composerDraftListeners]) {
+        listener(message.payload);
+      }
     }
   }
 
@@ -312,6 +341,32 @@ export class MorseService {
    */
   onComposerSeed(listener: (seed: ComposerSeed) => void): () => void {
     return this.client.onComposerSeed(listener);
+  }
+
+  /** One session's host-owned queue and pause state. */
+  onComposerState(listener: (state: SharedComposerState) => void): () => void {
+    this.composerStateListeners.add(listener);
+    return () => {
+      this.composerStateListeners.delete(listener);
+    };
+  }
+
+  /** The words another device is typing in a session's composer. */
+  onComposerDraft(listener: (draft: SharedComposerDraft) => void): () => void {
+    this.composerDraftListeners.add(listener);
+    return () => {
+      this.composerDraftListeners.delete(listener);
+    };
+  }
+
+  /** Relays this page's composer text for a session to the other devices. */
+  composerDraft(draft: SharedComposerDraft): void {
+    this.actions.composerDraft(draft);
+  }
+
+  /** One queue request; the host answers with a `composer/state` broadcast. */
+  composerQueue(command: SharedComposerCommand): void {
+    this.actions.composerQueue(command);
   }
 
   /**

@@ -27,7 +27,12 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
 
 - `steer`, follow-up and abort. Steering lands in the running turn; a prompt sent mid-run with no mode is
   **queued** as a follow-up rather than refused, and shown above the composer (`Queued messages`: edit, send
-  now, remove) until it runs as the current turn settles.
+  now, remove) until it runs as the current turn settles. On the browser host the queue belongs to the host
+  (`composer.json` under `MORSE_HOME`), so it survives a reload, a closed tab and a host restart, and every
+  connected device — phone included — sees the same items and order. A run that finishes naturally drains it;
+  a run the reader **stopped**, or one that **failed**, pauses it, and the panel says why with **Continue
+  answer** (send a continuation, then let the queue drain when that run ends) and **Send queued** (run the
+  head now). A compaction's own abort is not a stop and keeps the queue moving.
 - Compaction behind an explicit confirmation, optionally with custom instructions (`session/compact`). While
   a run is in flight the same question also offers **Schedule Compact**: the compaction joins the follow-up
   queue instead of aborting the run, so its place decides when it happens — drag it above a follow-up to

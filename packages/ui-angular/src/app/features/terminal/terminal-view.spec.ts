@@ -89,6 +89,7 @@ function setup(): {
     activateSession: vi.fn(),
     newSession: vi.fn(),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
+    sharedComposer: () => false,
     sessionActivity: signal(new Map()),
     openTerminal: vi.fn(),
     sendTerminal: vi.fn(),

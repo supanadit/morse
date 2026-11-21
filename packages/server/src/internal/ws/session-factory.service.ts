@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AgentRouter,
   ChatService,
+  ComposerHub,
   SessionRegistry,
   UnsupportedByHostError,
   type AgentExtras,
@@ -97,6 +98,17 @@ export class MorseSessionFactory {
    * serves, so the disconnect path can detach exactly that client's forwarding.
    */
   private readonly botFeeds = new Map<HostSessionController, () => void>();
+  /** Each live connection's emitter, so host-wide state can reach every client. */
+  private readonly connections = new Map<
+    HostSessionController,
+    (message: HostToClientMessage) => void
+  >();
+  /**
+   * The queue and live draft state shared by every client: one owner, one
+   * dispatcher, and a file under the host's own directory. Created here so it
+   * keeps working while no client is connected.
+   */
+  private readonly composer: ComposerHub;
 
   constructor(
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
@@ -133,6 +145,19 @@ export class MorseSessionFactory {
                 .map((key) => this.registry.stateOf(key)?.workspace.cwd ?? '')
                 .filter((cwd) => cwd.length > 0),
           });
+
+    this.composer = new ComposerHub({
+      chat: new ChatService({ agent: this.registry, logger: this.logger }),
+      transcripts: this.transcripts,
+      registry: this.registry,
+      dataDir: this.config.dataDir,
+      logger: this.logger,
+    });
+    this.composer.subscribe((message) => {
+      for (const emit of this.connections.values()) {
+        emit(message);
+      }
+    });
   }
 
   capabilities(): HostCapabilities {
@@ -234,6 +259,9 @@ export class MorseSessionFactory {
       // roster, so the flag follows the provider instead of being a constant.
       // The extension resolves none, which is how its UI hides the mode.
       ...(this.bot === undefined ? {} : { bot: true }),
+      // Several devices share this host, so the composer's queue and the words
+      // being typed belong to the host, not to whichever browser is in front.
+      sharedComposer: true,
     };
   }
 
@@ -244,6 +272,7 @@ export class MorseSessionFactory {
     const services: HostSessionServices = {
       registry: this.registry,
       chat: new ChatService({ agent: this.registry, logger: this.logger }),
+      composer: this.composer,
       ...(this.mcpWatch === undefined ? {} : { mcpWatch: this.mcpWatch }),
     };
 
@@ -276,6 +305,7 @@ export class MorseSessionFactory {
     if (this.bot !== undefined) {
       this.botFeeds.set(controller, this.subscribeBot(this.bot, emit));
     }
+    this.connections.set(controller, emit);
     return controller;
   }
 
@@ -288,6 +318,7 @@ export class MorseSessionFactory {
   release(controller: HostSessionController): void {
     this.botFeeds.get(controller)?.();
     this.botFeeds.delete(controller);
+    this.connections.delete(controller);
   }
 
   /**

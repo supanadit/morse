@@ -42,6 +42,23 @@
   }
   @if (queuedMessages().length && variant !== 'bot') {
     <div class="queue" role="region" aria-label="Queued follow-up messages">
+      @if (queuePaused(); as paused) {
+        <div class="queue-paused" role="status">
+          <span class="queue-paused-text">
+            @if (paused === 'failed') {
+              The queue is paused because the run failed.
+            } @else {
+              The queue is paused because you stopped the run.
+            }
+          </span>
+          <button type="button" class="queue-continue" (click)="continueAnswer()">
+            Continue answer
+          </button>
+          <button type="button" class="queue-continue secondary" (click)="continueQueue()">
+            Send queued
+          </button>
+        </div>
+      }
       <div class="queue-head">
         <span class="queue-glyph" aria-hidden="true">⏲</span>
         <span class="queue-title">Queued messages</span>

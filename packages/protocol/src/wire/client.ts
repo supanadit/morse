@@ -14,6 +14,8 @@ import type {
   FrontendIdentity,
   InteractionResponse,
   PromptImage,
+  SharedComposerCommand,
+  SharedComposerDraft,
   ThinkingLevel,
 } from '../dto.js';
 import type { HostCommand, PromptMode } from './host.js';
@@ -85,6 +87,22 @@ export interface ChatBranchMessage extends ClientMessageBase {
 export interface ChatAbortMessage extends ClientMessageBase {
   type: 'chat/abort';
   payload: Record<string, never>;
+}
+
+/**
+ * Relays the composer text of a session to the other connected devices. Sent
+ * from real input only, never from a restored draft; the host echoes it back
+ * with the same `origin`, which is how the sender knows to ignore its own.
+ */
+export interface ComposerDraftInputMessage extends ClientMessageBase {
+  type: 'composer/draft';
+  payload: SharedComposerDraft;
+}
+
+/** One request against the host-owned queue; the state comes back as `composer/state`. */
+export interface ComposerQueueMessage extends ClientMessageBase {
+  type: 'composer/queue';
+  payload: SharedComposerCommand;
 }
 
 export interface SessionNewMessage extends ClientMessageBase {
@@ -454,6 +472,8 @@ export type ClientToHostMessage =
   | ChatForkMessage
   | ChatBranchMessage
   | ChatAbortMessage
+  | ComposerDraftInputMessage
+  | ComposerQueueMessage
   | SessionNewMessage
   | SessionLoadMessage
   | SessionActivateMessage

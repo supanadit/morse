@@ -75,6 +75,18 @@ export class ComposerDrafts {
     this.texts.update((map) => ({ ...map, [this.key()]: value }));
   }
 
+  /**
+   * The text another device is typing in `key`'s composer. Applied to the tab's
+   * own slot, whether or not it is in front, so switching to it later shows the
+   * words the reader last saw.
+   */
+  setFor(key: string, text: string): void {
+    if (key.length === 0 || this.texts()[key] === text) {
+      return;
+    }
+    this.texts.update((map) => ({ ...map, [key]: text }));
+  }
+
   updateText(change: (value: string) => string): void {
     this.setText(change(this.text()));
   }

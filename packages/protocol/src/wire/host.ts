@@ -21,6 +21,8 @@ import type {
   SessionActivity,
   SessionSummary,
   SessionViewState,
+  SharedComposerDraft,
+  SharedComposerState,
   TranscriptItem,
 } from '../dto.js';
 
@@ -211,6 +213,25 @@ export interface ProjectListMessage extends HostMessageBase {
 export interface SessionActivityMessage extends HostMessageBase {
   type: 'session/activity';
   payload: { sessions: SessionActivity[] };
+}
+
+/**
+ * One session's host-owned queue and pause state. Every connected client gets
+ * it: a queue edit on a phone shows up on the desktop. An empty queue with no
+ * pause is never sent (and a client treats it as "forget this session").
+ */
+export interface ComposerStateMessage extends HostMessageBase {
+  type: 'composer/state';
+  payload: SharedComposerState;
+}
+
+/**
+ * The words one device is typing in a session's composer, relayed to the
+ * others. The sender ignores its own echo by `origin`.
+ */
+export interface ComposerDraftMessage extends HostMessageBase {
+  type: 'composer/draft';
+  payload: SharedComposerDraft;
 }
 
 export interface TranscriptAppendMessage extends HostMessageBase {
@@ -457,6 +478,8 @@ export type HostToClientMessage =
   | ContextSelectionMessage
   | ContextSelectionLiveMessage
   | ComposerSeedMessage
+  | ComposerStateMessage
+  | ComposerDraftMessage
   | HostCommandResultMessage
   | ErrorMessage
   | TerminalOutputMessage

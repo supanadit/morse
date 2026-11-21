@@ -1096,8 +1096,11 @@ export class WorkspaceTabs {
       this.drafts.forget(id);
       // A terminal belongs to its session tab: closing the tab kills its shells.
       this.closeOwnerTerminals(id);
-      // A queued follow-up belongs to the tab too: closing it drops its queue.
-      this.queued.forgetOwner(id);
+      // A queued follow-up belongs to the tab on a single-client host; a shared
+      // host keeps it, so reopening the session shows the queue again.
+      if (!this.morse.sharedComposer()) {
+        this.queued.forgetOwner(id);
+      }
     }
   }
 

@@ -40,6 +40,7 @@ import { Toolbar } from './toolbar/toolbar';
 import { DropZone } from '../ui/drop-zone';
 import { MorseService } from '../host/morse.service';
 import { RunNotifier } from '../services/run-notifier';
+import { RunClock } from '../services/run-clock';
 import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
 import { ModePrefs, type ShellMode } from '../state/mode-prefs';
@@ -49,6 +50,7 @@ import { ShellState, type LeftPane } from '../state/shell-state';
 import { WorkspaceTabs } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
 import { QueueDrain } from '../services/queue-drain';
+import { ComposerSync } from '../services/composer-sync';
 import { EnterDirective } from '../ui/enter.directive';
 import { SessionNav } from '../features/session-nav/session-nav';
 import { BotNav } from '../features/bot-nav/bot-nav';
@@ -567,6 +569,13 @@ export class App {
     // The queue drain is shell state too: a queued follow-up must run when its
     // own session settles, even if the reader is looking at another tab.
     inject(QueueDrain);
+    // And so is the run clock: it anchors a run when the host reports it, so
+    // leaving the conversation for a file or the bot column never loses the time.
+    inject(RunClock);
+    // The shared composer: the queue and relayed draft arrive even while the
+    // composer is unmounted (a file tab, the bot column), so the store is alive
+    // for the whole shell.
+    inject(ComposerSync);
     // The keyboard's DOM half: constructing it attaches the one document keydown
     // listener the registry is decided by (`ui/shortcut-keys.ts`).
     inject(ShortcutKeys);

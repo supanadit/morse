@@ -15,14 +15,20 @@ function setup() {
   const activity = signal<MutableActivity>(new Map());
   const prompt = vi.fn();
   const compactSession = vi.fn();
-  const fake = { sessionActivity: activity, prompt, compactSession };
+  const fake = {
+    sessionActivity: activity,
+    prompt,
+    compactSession,
+    // A single-client host: this frontend still owns the drain.
+    sharedComposer: () => false,
+  };
   TestBed.configureTestingModule({ providers: [{ provide: MorseService, useValue: fake }] });
   // Constructing the service is what arms its effect in the real app (`App`
   // injects it); a service does not drive change detection, so `tick()` flushes.
   TestBed.inject(QueueDrain);
   const queue = TestBed.inject(QueuedPrompts);
   TestBed.tick();
-  return { activity, prompt, compactSession, queue };
+  return { activity, prompt, compactSession, queue, fake };
 }
 
 function enqueue(queue: QueuedPrompts, text: string, owner: string): void {
@@ -139,5 +145,19 @@ describe('QueueDrain', () => {
     TestBed.tick();
 
     expect(compactSession).toHaveBeenCalledWith(undefined, 's2');
+  });
+
+  it('leaves dispatch to the host when the composer is shared', () => {
+    const { activity, prompt, queue, fake } = setup();
+    fake.sharedComposer = () => true;
+    TestBed.tick();
+    enqueue(queue, 'later', 's2');
+
+    // A settle that a local drain would fire. The host owns the queue here, so
+    // no prompt leaves this frontend.
+    activity.set(new Map([['s2', idle()]]));
+    TestBed.tick();
+
+    expect(prompt).not.toHaveBeenCalled();
   });
 });

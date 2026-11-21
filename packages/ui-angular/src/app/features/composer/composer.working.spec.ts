@@ -175,6 +175,32 @@ describe('ChatComposer per-tab Working clock', () => {
     expect(working(host)).toBe('Working 3.0s');
   });
 
+  it('keeps a run\u2019s clock when the composer is mounted again', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const transport = new RunningHostTransport();
+    const first = await mount(transport);
+
+    transport.activity([activity('s1', true)]);
+    transport.state({ sessionId: 's1', streaming: true });
+    first.tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    first.fixture.detectChanges();
+    await vi.advanceTimersByTimeAsync(3_000);
+    first.fixture.detectChanges();
+    expect(working(first.host)).toBe('Working 3.0s');
+
+    // The reader leaves for a file tab or the bot column, which tears the
+    // composer down. The run is still going, so coming back must show the same
+    // clock — not one that started when the composer did.
+    first.fixture.destroy();
+    const second = TestBed.createComponent(ChatComposer);
+    second.detectChanges();
+    await vi.advanceTimersByTimeAsync(1_000);
+    second.detectChanges();
+
+    expect(working(second.nativeElement as HTMLElement)).toBe('Working 4.0s');
+  });
+
   it('starts a session\'s second run at zero, not where the first ended', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));

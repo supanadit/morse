@@ -212,6 +212,13 @@ export interface HostCapabilities {
    * roster that can never load.
    */
   bot?: boolean;
+  /**
+   * Host owns the composer's queue and relays its draft text, so several
+   * connected clients share them (`composer/state`, `composer/queue`,
+   * `composer/draft`). The browser host turns it on; VS Code has one webview per
+   * window and keeps its queue in the frontend.
+   */
+  sharedComposer?: boolean;
 }
 
 /**

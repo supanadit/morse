@@ -18,8 +18,21 @@ class QueueHostTransport extends BaseHostTransport {
   readonly kind = 'memory' as const;
   readonly sent: ClientToHostMessage[] = [];
 
+  constructor(private readonly sharedComposer = false) {
+    super();
+  }
+
   connect(): void {
     this.emitStatus('open');
+  }
+
+  /** One session's host-owned queue, as the shared-composer host broadcasts it. */
+  composerState(payload: {
+    sessionId: string;
+    queue: { id: string; text: string }[];
+    paused?: 'stopped' | 'failed';
+  }): void {
+    this.emitMessage({ type: 'composer/state', payload });
   }
 
   send(message: ClientToHostMessage): void {
@@ -38,6 +51,7 @@ class QueueHostTransport extends BaseHostTransport {
           nativeDialogs: false,
           insertIntoEditor: false,
           revealFile: false,
+          ...(this.sharedComposer ? { sharedComposer: true } : {}),
         },
         state: {
           workspace: { cwd: '/work/morse', name: 'morse' },
@@ -172,6 +186,50 @@ describe('ChatComposer queued messages', () => {
     (host.querySelector('.queue-row.compaction .queue-remove') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(rows(host)).toEqual(['follow-up']);
+  });
+
+  it('shows the paused banner and sends the choice the reader clicked', async () => {
+    const transport = new QueueHostTransport(true);
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const tabs = TestBed.inject(WorkspaceTabs);
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    fixture.detectChanges();
+
+    // The host says the reader stopped the run and the queue is waiting.
+    transport.composerState({
+      sessionId: 's1',
+      queue: [{ id: 'q1', text: 'next' }],
+      paused: 'stopped',
+    });
+    fixture.detectChanges();
+
+    expect(host.querySelector('.queue-paused')?.textContent).toContain('stopped');
+    expect(rows(host)).toEqual(['next']);
+
+    (host.querySelector('.queue-continue:not(.secondary)') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'chat/prompt',
+        payload: expect.objectContaining({ text: 'Continue from where you stopped.' }),
+      }),
+    );
+    expect(transport.sent).toContainEqual({
+      type: 'composer/queue',
+      payload: { sessionId: 's1', action: 'resume' },
+    });
+
+    (host.querySelector('.queue-continue.secondary') as HTMLButtonElement).click();
+    expect(transport.sent).toContainEqual({
+      type: 'composer/queue',
+      payload: { sessionId: 's1', action: 'continue' },
+    });
   });
 });
 

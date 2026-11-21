@@ -50,6 +50,8 @@ import { ComposerDrafts } from '../../state/composer-drafts';
 import { MorseService } from '../../host/morse.service';
 import { QueuedPrompts, type QueuedPrompt } from '../../state/queued-prompts';
 import { RestoreState } from '../../state/restore-state';
+import { RunClock } from '../../services/run-clock';
+import { ComposerSync } from '../../services/composer-sync';
 import { ShellState } from '../../state/shell-state';
 import { ShortcutService } from '../../services/shortcut.service';
 import { Uploader } from '../../services/uploads';
@@ -142,6 +144,8 @@ export class ChatComposer {
   private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
   private readonly shortcuts = inject(ShortcutService);
+  private readonly clock = inject(RunClock);
+  private readonly sync = inject(ComposerSync);
   private readonly destroyRef = inject(DestroyRef);
   private readonly attachments = inject(AttachmentStore);
   private readonly drafts = inject(ComposerDrafts);
@@ -430,6 +434,10 @@ export class ChatComposer {
    * never shows another session's messages.
    */
   protected readonly queuedMessages = computed(() => this.queue.forOwner(this.tabs.composerKey()));
+  /** Why the queue in front stopped draining; absent while it runs normally. */
+  protected readonly queuePaused = computed(() =>
+    this.queue.pausedReason(this.tabs.composerKey()),
+  );
 
   /**
    * The asks this bot room's bots have handed to peers elsewhere, for the block
@@ -761,21 +769,16 @@ export class ChatComposer {
     });
   }
   /**
-   * When each session's current run began, keyed by session id. One composer
-   * draws whichever tab is in front, so a single clock leaked across tabs:
-   * switching between two running sessions kept the first one's start (running
-   * stayed true, so nothing reset it), and passing through an idle tab restarted
-   * the second's. Keyed here, every tab keeps its own time.
+   * The run clock is the shell's, not this component's: the composer is torn
+   * down by a file tab, the bot column or a closed session tab, and the count
+   * has to continue where it was. Keyed by the tab in front (`composerKey`): a
+   * session id, or a draft tab's id before the first prompt names the session.
+   * A file tab resolves to the session that owns it, so its clock is that
+   * session's.
    */
-  private readonly runStarts = signal<ReadonlyMap<string, number>>(new Map());
   protected readonly elapsed = computed(() => {
     this.tick();
-    // Keyed by the tab in front (`composerKey`): a session id, or a draft tab's
-    // id before the first prompt names the session. A file tab resolves to the
-    // session that owns it, so its clock is that session's.
-    const key = this.tabs.composerKey();
-    const start = key === undefined ? undefined : this.runStarts().get(key);
-    const ms = start === undefined ? 0 : Date.now() - start;
+    const ms = this.clock.elapsed(this.tabs.composerKey(), Date.now());
     // Stay quiet for the first second; "0ms" would only flicker.
     return ms < 1000 ? '' : formatDuration(ms);
   });
@@ -848,34 +851,14 @@ export class ChatComposer {
     this.morse.onComposerSeed((seed) => {
       this.drafts.setText(seed.text);
       this.syncInputValue();
+      this.relayDraft(seed.text);
       this.attachments.seed(seed.images ?? [], seed.pins ?? []);
     });
 
-    // The elapsed clock is per session. The host's activity reports every live
-    // session, so a run's start is recorded the moment it begins — in the
-    // background too — and dropped only when that session's run ends, never by a
-    // tab switch that leaves it running.
-    effect(() => {
-      const activity = this.morse.sessionActivity();
-      untracked(() => {
-        this.runStarts.update((current) => {
-          let next: Map<string, number> | undefined;
-          for (const entry of activity.values()) {
-            const running = entry.streaming || entry.busy;
-            const known = current.has(entry.sessionKey);
-            if (running && !known) {
-              next ??= new Map(current);
-              next.set(entry.sessionKey, Date.now());
-            } else if (!running && known) {
-              next ??= new Map(current);
-              next.delete(entry.sessionKey);
-            }
-          }
-          return next ?? current;
-        });
-      });
-    });
-
+    // The run's start belongs to the shell (`RunClock`): it anchors every live
+    // session the moment the host reports it, so leaving this tab — or closing
+    // it — never restarts the count. This effect seeds a draft the activity map
+    // cannot name yet and releases the clock when the run in front is over.
     effect((onCleanup) => {
       const key = this.tabs.composerKey();
       // Tracking `key` re-runs this on a tab switch even while `running` stays
@@ -885,14 +868,10 @@ export class ChatComposer {
         this.throughput.length = 0;
         return;
       }
-      // The host's activity seeds a run's start when it can (a session id in
-      // front); a draft tab, whose key is not yet in that map, is seeded here.
-      // The effect runs once per run (or per tab switch mid-run), so re-seeding
-      // the baseline from this tab's transcript is exactly right — a live figure
-      // never spans two tabs or two runs.
-      this.runStarts.update((current) =>
-        current.has(key) ? current : new Map(current).set(key, Date.now()),
-      );
+      // Untracked: the clock's own signal is read by the elapsed computed, and
+      // tracking it here would make starting a run re-run this effect, whose
+      // cleanup releases that start — a loop on a host that sends no activity.
+      untracked(() => this.clock.start(key));
       this.baseline.set(untracked(() => outputChars(this.morse.items())));
       this.tokensPerSecond.set(undefined);
       this.throughput.length = 0;
@@ -907,20 +886,7 @@ export class ChatComposer {
         // says "not over", which is what keeps a switch from clearing it; a host
         // that never emits activity has no entry, and its run has stopped (the
         // effect re-ran), so clearing is right either way.
-        untracked(() => {
-          const entry = this.morse.sessionActivity().get(key);
-          const stillRunning = entry !== undefined && (entry.streaming || entry.busy);
-          if (!stillRunning) {
-            this.runStarts.update((current) => {
-              if (!current.has(key)) {
-                return current;
-              }
-              const next = new Map(current);
-              next.delete(key);
-              return next;
-            });
-          }
-        });
+        untracked(() => this.clock.release(key));
       });
     });
   }
@@ -928,8 +894,16 @@ export class ChatComposer {
   protected onInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     this.drafts.setText(target.value);
+    // The words, relayed to the other devices viewing this session. Only real
+    // input is sent; restoring a draft at boot never pushes it back.
+    this.relayDraft(target.value);
     this.refreshMentionQuery(target.value, target.selectionStart);
     this.refreshPaletteQuery(target.value, target.selectionStart);
+  }
+
+  /** Relays the composer's text for the tab in front; a no-op without a shared host. */
+  private relayDraft(text: string): void {
+    this.sync.draft(this.tabs.composerKey(), text);
   }
 
   protected onKeydown(event: KeyboardEvent): void {
@@ -1172,7 +1146,7 @@ export class ChatComposer {
     if (mode === 'followUp' && this.running()) {
       // A follow-up is queued, not sent: the reader gets to see, edit or drop it
       // before it runs, instead of it disappearing into pi's invisible queue.
-      this.queue.enqueue({ text: value, images, pins }, this.tabs.composerKey());
+      this.sync.enqueue({ text: value, images, pins }, this.tabs.composerKey());
     } else {
       // While idle (`followUp` won the race with the run ending) a queued kind
       // makes no sense: pi should start a fresh turn.
@@ -1180,12 +1154,14 @@ export class ChatComposer {
     }
     this.attachments.setLivePreview(null);
     this.drafts.setText('');
+    this.relayDraft('');
   }
 
   /** Puts a queued follow-up back in the composer, attachments and all. */
   protected editQueued(item: QueuedPrompt): void {
-    this.queue.remove(item.id);
+    this.sync.remove(this.tabs.composerKey(), item);
     this.drafts.setText(item.text);
+    this.relayDraft(item.text);
     this.syncInputValue();
     this.attachments.seed(item.images, item.pins);
     this.promptInput()?.nativeElement.focus();
@@ -1193,12 +1169,31 @@ export class ChatComposer {
 
   /** Runs a queued follow-up now: steering it when a run is in flight. */
   protected sendQueued(item: QueuedPrompt): void {
-    this.queue.remove(item.id);
-    this.morse.prompt(item.text, this.running() ? 'steer' : 'new', item.images, item.pins);
+    this.sync.sendNow(
+      this.tabs.composerKey(),
+      item,
+      this.running() ? 'steer' : 'new',
+    );
   }
 
   protected removeQueued(item: QueuedPrompt): void {
-    this.queue.remove(item.id);
+    this.sync.remove(this.tabs.composerKey(), item);
+  }
+
+  /**
+   * The paused banner's first choice: continue the answer the reader stopped.
+   * The prompt goes through the normal path (which can reopen a cold session);
+   * clearing the pause lets the queue drain when that run finishes naturally.
+   */
+  protected continueAnswer(): void {
+    const owner = this.tabs.composerKey();
+    this.morse.prompt('Continue from where you stopped.', 'new');
+    this.sync.resume(owner);
+  }
+
+  /** The paused banner's second choice: run the queue head now. */
+  protected continueQueue(): void {
+    this.sync.continueQueue(this.tabs.composerKey());
   }
 
   /**
@@ -1210,7 +1205,7 @@ export class ChatComposer {
     const dragged = event.item.data as QueuedPrompt | undefined;
     const target = event.container.data[event.currentIndex];
     if (dragged !== undefined && target !== undefined) {
-      this.queue.move(dragged.id, target.id);
+      this.sync.move(this.tabs.composerKey(), dragged.id, target.id);
     }
   }
 

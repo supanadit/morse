@@ -112,6 +112,29 @@
   text-align: center;
   font-size: 10px;
 }
+/* A stopped or failed run leaves the queue paused: the reader chooses whether
+   to continue the answer or send the queued item, so the banner says why and
+   carries both. */
+.queue-paused {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--morse-border);
+  background: color-mix(in srgb, var(--morse-warn) 10%, transparent);
+  font-size: 11.5px;
+}
+.queue-paused-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--morse-fg-muted);
+}
+.queue-continue {
+  flex: none;
+  height: var(--morse-control-height, 26px);
+  padding: 0 8px;
+  font-size: 11.5px;
+}
 .queue-row {
   display: flex;
   align-items: center;

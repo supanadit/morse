@@ -10,6 +10,7 @@ function setup() {
     activateSession: vi.fn(),
     newSession: vi.fn(),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
+    sharedComposer: () => false,
     sessionActivity: signal(new Map<string, { sessionKey: string; streaming: boolean }>()),
     state: signal({ sessionId: undefined as string | undefined, streaming: false }),
   };

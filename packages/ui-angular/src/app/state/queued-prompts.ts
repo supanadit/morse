@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import type { ChatPin, PromptImage } from '@morse/protocol';
+import type { ChatPin, PromptImage, SharedComposerPrompt } from '@morse/protocol';
 
 /**
  * A follow-up the user queued while the agent was working. The words and the
@@ -33,10 +33,47 @@ export interface QueuedPrompt {
 @Injectable({ providedIn: 'root' })
 export class QueuedPrompts {
   private readonly items = signal<readonly QueuedPrompt[]>([]);
+  /** Why a shared session's queue is paused; absent on a host without one. */
+  private readonly pausedBy = signal<ReadonlyMap<string, 'stopped' | 'failed'>>(new Map());
   private counter = 0;
 
   readonly queued = this.items.asReadonly();
   readonly count = computed(() => this.items().length);
+
+  /** Why `owner`'s queue stopped draining, or `undefined` when it is running. */
+  pausedReason(owner: string | undefined): 'stopped' | 'failed' | undefined {
+    return owner === undefined ? undefined : this.pausedBy().get(owner);
+  }
+
+  /**
+   * Replaces one session's queue with the host's copy. Every device applies the
+   * same broadcast, so the ids, order and pause match everywhere; other
+   * sessions' rows are left alone.
+   */
+  replaceSession(
+    owner: string,
+    items: readonly SharedComposerPrompt[],
+    paused?: 'stopped' | 'failed',
+  ): void {
+    this.items.update((list) => [
+      ...list.filter((item) => item.sessionId !== owner),
+      ...items.map((item) => ({
+        ...item,
+        images: item.images ?? [],
+        pins: item.pins ?? [],
+        sessionId: owner,
+      })),
+    ]);
+    this.pausedBy.update((current) => {
+      const next = new Map(current);
+      if (paused === undefined) {
+        next.delete(owner);
+      } else {
+        next.set(owner, paused);
+      }
+      return next;
+    });
+  }
 
   /** The prompts waiting for `owner`, oldest first — the tab in front's own queue. */
   forOwner(owner: string | undefined): readonly QueuedPrompt[] {

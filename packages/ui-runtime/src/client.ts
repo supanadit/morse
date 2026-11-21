@@ -12,6 +12,8 @@ import {
   type PromptImage,
   type PromptMode,
   type SessionView,
+  type SharedComposerCommand,
+  type SharedComposerDraft,
   type ThinkingLevel,
   type WorkspaceInfo,
 } from '@morse/protocol';
@@ -50,6 +52,13 @@ export interface MorseActions {
     timeoutMs?: number,
   ): Promise<unknown>;
   abort(): void;
+  /**
+   * Relays one session's composer text to the host, which echoes it to the other
+   * connected clients. Hosts without `sharedComposer` ignore it.
+   */
+  composerDraft(draft: SharedComposerDraft): void;
+  /** One request against the host-owned queue (hosts with `sharedComposer`). */
+  composerQueue(command: SharedComposerCommand): void;
   newSession(cwd?: string): void;
   loadSession(sessionId: string, cwd?: string): void;
   activateSession(sessionId: string, cwd?: string): void;
@@ -322,6 +331,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     branchMessage: (itemId) => send({ type: 'chat/branch', payload: { itemId } }),
     hostCommand: (command, args, timeoutMs) => requestHostCommand(command, args, timeoutMs),
     abort: () => send({ type: 'chat/abort', payload: {} }),
+    composerDraft: (draft) => send({ type: 'composer/draft', payload: draft }),
+    composerQueue: (command) => send({ type: 'composer/queue', payload: command }),
     newSession: (cwd) => send({ type: 'session/new', payload: { cwd } }),
     loadSession: (sessionId, cwd) => send({ type: 'session/load', payload: { sessionId, cwd } }),
     refreshSession: () => send({ type: 'session/refresh', payload: {} }),

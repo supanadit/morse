@@ -69,11 +69,17 @@ needs.
    `openProject(path)`, `activateSession(id, cwd?)`, `closeSession(id)`, `compactSession()`,
    `requestSessions()`, `requestProjects()`, `setModel(provider, id)`, `setThinkingLevel(level)`.
    When the agent is streaming, a prompt uses `steer` for an immediate course-correction; a **follow-up**
-   is queued in the frontend (`state/queued-prompts.ts`), shown above the composer as `Queued messages`
-   with edit / send / remove and a drag handle to reorder (`QueuedPrompts.move`, the same CDK drop the
-   tab strip uses — the queue dispatches `shift`, so the order is which follow-up runs first), and
-   dispatched one prompt per settled run — the reader's queue, not pi's invisible one. The core also
-   downgrades a `new` prompt while streaming and tells the user via a notice.
+   is queued (`state/queued-prompts.ts`), shown above the composer as `Queued messages`
+   with edit / send / remove and a drag handle to reorder (the same CDK drop the tab strip uses — the
+   order is which follow-up runs first), and dispatched one prompt per settled run — the reader's queue,
+   not pi's invisible one. The core also downgrades a `new` prompt while streaming and tells the user via
+   a notice. On a host with `capabilities.sharedComposer` the queue and its dispatch live in the host
+   instead (`ComposerHub`): `composer/queue` carries enqueue / remove / move / send / continue / resume,
+   `composer/state` broadcasts the queue and its pause to every client, and `composer/draft` relays what
+   one device is typing to the others (the sender skips its own `origin`). A natural finish drains the
+   queue; an explicit Stop (marked by the controller's `chat/abort` path, not by the `aborted` reason
+   alone) or a failed run pauses it, and the composer offers **Continue answer** / **Send queued**. VS Code
+   leaves the capability off and keeps the frontend queue below.
 4. **Interactions** — if `capabilities.nativeDialogs` is `false`, render `pendingInteraction` yourself and
    answer with `interaction/respond`. If it is `true`, the host is already showing QuickPick/InputBox and the
    request never reaches you.
@@ -93,7 +99,9 @@ needs.
    panel's terminal (again the browser host; VS Code keeps its integrated terminal), `workbench`
    whether the host can store the shell layout (`readWorkbench` / `saveWorkbench`) so the tabs, panel
    and terminals come back on the next visit (the browser host keeps it under `MORSE_HOME`; VS Code has
-   its own tab restoration and leaves it off), `sessionTabs`
+   its own tab restoration and leaves it off), `sharedComposer` whether the host owns the composer's
+   queue and relays its draft text across clients (`composer/state`, `composer/queue`, `composer/draft`;
+   the browser host turns it on, VS Code keeps the frontend queue), `sessionTabs`
    whether the host can show one session as its own editor tab (`openSessionTab` / `closeSessionTab`) — on
    for VS Code, which then offers "Open in editor tab" in a session's sidebar menu and pins a
    `HostSessionController` per tab; the browser host has no editor surface and leaves it off — and

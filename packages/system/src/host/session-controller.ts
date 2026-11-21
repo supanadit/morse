@@ -35,6 +35,7 @@ import {
   type UserTranscriptItem,
 } from '@morse/protocol';
 import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
+import type { ComposerHub } from './composer-hub.js';
 import { describeError } from '../errors.js';
 import { BotWire, type Guarded } from './bot-wire.js';
 import {
@@ -65,6 +66,11 @@ export interface HostSessionServices {
    * double, simply never pushes.
    */
   mcpWatch?: McpWatch;
+  /**
+   * The host-owned composer queue and draft relay. Optional: a host with one
+   * frontend (VS Code) leaves it out and the frontend keeps its own queue.
+   */
+  composer?: ComposerHub;
 }
 
 /** A subscription to a directory's MCP config changing on disk. */
@@ -447,8 +453,23 @@ export class HostSessionController {
       case 'chat/branch':
         await this.branchFrom(message.payload.itemId);
         return;
-      case 'chat/abort':
-        await this.guard(() => this.options.services.chat.abort(this.promptTarget()));
+      case 'chat/abort': {
+        const key = this.promptTarget();
+        // Mark the run as stopped by the reader before the abort lands: the
+        // run-end can arrive first, and only this marker may pause the queue —
+        // pi's own compaction aborts a run too.
+        const cancel = this.options.services.composer?.requestStop(key);
+        const result = await this.guard(() => this.options.services.chat.abort(key));
+        if (!result.ok) {
+          cancel?.();
+        }
+        return;
+      }
+      case 'composer/draft':
+        this.options.services.composer?.setDraft(message.payload);
+        return;
+      case 'composer/queue':
+        this.options.services.composer?.handle(message.payload);
         return;
       case 'session/new':
         // "New session" is an empty draft, not a spawn: no engine session, no
@@ -842,6 +863,7 @@ export class HostSessionController {
       return;
     }
     this.options.transcripts.clear(sessionId);
+    this.options.services.composer?.forget(sessionId);
     await this.fallBackAfterSessionGone(sessionId);
     this.options.emit(noticeMessage('info', 'Session deleted.', Date.now()));
   }
@@ -2390,6 +2412,18 @@ export class HostSessionController {
       },
     });
     this.publishActivity();
+    // A device that connects mid-sentence, or after a queue was left behind,
+    // gets the shared composer state now; live changes follow.
+    const composer = this.options.services.composer;
+    if (composer !== undefined) {
+      const snapshot = composer.snapshot();
+      for (const state of snapshot.states) {
+        this.options.emit({ type: 'composer/state', payload: state });
+      }
+      for (const draft of snapshot.drafts) {
+        this.options.emit({ type: 'composer/draft', payload: draft });
+      }
+    }
   }
 
   private emitTranscript(key: string): void {
