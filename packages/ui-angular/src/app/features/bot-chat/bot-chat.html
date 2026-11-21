@@ -74,7 +74,11 @@
         [attr.aria-expanded]="menuOpen()"
         (click)="menuOpen.set(!menuOpen())"
       >
-        ⋯
+        <!-- Drawn, not typed: the ⋯ character carries its own bearing and
+             stray spacing, and no amount of centering makes it sit still. -->
+        <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3.4 8h.01M8 8h.01M12.6 8h.01" />
+        </svg>
       </button>
     </header>
 

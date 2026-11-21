@@ -80,11 +80,17 @@
   border-radius: 50%;
   background: transparent;
   color: var(--morse-fg-muted);
-  font: inherit;
-  font-size: 18px;
-  line-height: 1;
-  letter-spacing: 0.1em;
   cursor: pointer;
+}
+/* Three dots, drawn as a stroke so the button's centre is theirs too. */
+.head-toggle .glyph {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
 }
 .head-toggle:hover,
 .head-toggle[aria-expanded='true'] {

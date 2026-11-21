@@ -348,6 +348,15 @@ ul {
   opacity: 0;
   transition: opacity 120ms ease;
 }
+.row-more .glyph {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
 
 .bot-row:hover .row-more,
 .group-row:hover .row-more,

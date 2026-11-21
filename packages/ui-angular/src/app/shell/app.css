@@ -310,6 +310,18 @@ morse-bottom-panel {
 .dock > * {
   pointer-events: auto;
 }
+/*
+ * The dock owns the band it overlaps with the transcript. A soft keyboard can
+ * shift that band while the transcript keeps its scroll position; without a
+ * solid backing, message text paints in the gap between the composer and the
+ * bottom panel. Phones only — a wide window keeps the transcript visible under
+ * the floating slab by design.
+ */
+@media (max-width: 600px) {
+  .dock {
+    background: var(--morse-bg);
+  }
+}
 
 /*
  * Drop target highlight. It sits above the transcript but below the composer, and

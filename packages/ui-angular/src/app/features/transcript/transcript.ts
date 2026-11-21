@@ -362,6 +362,16 @@ export class ChatTranscript {
     this.activePromptId.set(id);
   }
 
+  @HostListener('window:resize')
+  protected onViewportResize(): void {
+    // A phone keyboard shrinks the visual viewport, so the transcript loses
+    // height without any new rows. A reader following the output must stay at
+    // the bottom; otherwise old lines ride up into the dock's overlap band.
+    if (this.pinned()) {
+      this.afterRender(() => this.scrollToBottom());
+    }
+  }
+
   protected jumpToLatest(): void {
     this.pinned.set(true);
     this.scrollToBottom(true);

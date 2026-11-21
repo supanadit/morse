@@ -79,6 +79,18 @@ describe('ChatTranscript history paging', () => {
     const label = (fixture.nativeElement as HTMLElement).querySelector('.older-label');
     expect(label?.textContent).toContain('Loading older messages');
   });
+
+  it('re-pins to the bottom when a soft keyboard resizes the viewport', async () => {
+    const fixture = TestBed.createComponent(ChatTranscript);
+    fixture.detectChanges();
+    const component = fixture.componentInstance as unknown as { scrollToBottom: () => void };
+    const spy = vi.spyOn(component, 'scrollToBottom');
+
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(spy).toHaveBeenCalled();
+  });
 });
 
 /**
