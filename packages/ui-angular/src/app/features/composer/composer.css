@@ -81,6 +81,21 @@
   }
 }
 /*
+ * On a phone the transcript scrolls under this slab, and `backdrop-filter`
+ * makes every scrolled frame re-read and blur that moving backdrop. It is the
+ * one glass effect in the app and it costs more than the conversation itself
+ * on a low-end mobile GPU — folding the composer removes it and scrolling
+ * turns snappy again. A solid slab composites once and is at least as legible
+ * over the last lines the transcript reserves room for.
+ */
+@media (max-width: 560px) {
+  .box {
+    background: var(--morse-panel, var(--morse-bg));
+    backdrop-filter: none;
+    box-shadow: 0 -3px 14px rgb(0 0 0 / 28%);
+  }
+}
+/*
  * Follow-ups waiting their turn, above the composer. They stay the reader's
  * to see and change until the run that queued them settles.
  */
@@ -1012,6 +1027,11 @@ textarea:focus-visible {
    */
   .model-button {
     max-width: calc(100% - 84px);
+  }
+  /* The name is already ellipsized to nothing at this width; drop its box so
+     the engine and mode pills get the room to show their full labels. */
+  .model-button .label {
+    display: none;
   }
 }
 /* The narrowest box: the hint gives up its tail before it gives up its row.

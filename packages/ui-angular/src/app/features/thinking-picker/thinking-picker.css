@@ -33,6 +33,14 @@
   color: var(--morse-fg-muted);
   font-size: 10px;
 }
+/* On a phone the composer's trigger shrinks to an icon: the coloured brain
+   already shows the level, and the label's room is owed to the engine and mode
+   pills. The text stays in the DOM for the tooltip, readers and tests. */
+@container (max-width: 460px) {
+  :host(.thinking-host) .level {
+    display: none;
+  }
+}
 /* Reading the picked model's levels: the trigger keeps the level it has
    and spins where the caret sits, so the wait is visible without the
    dropdown having to be open. */
