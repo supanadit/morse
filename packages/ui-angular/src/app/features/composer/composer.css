@@ -32,8 +32,13 @@
   border-color: var(--morse-fg-muted);
   color: var(--morse-fg);
 }
-/* In the toolbar, at the far edge: the composer's own fold handle. */
+/* In the toolbar, at the far edge: the composer's own fold handle. It carries
+   no box, but it is one more control on the row, so it takes the same height
+   and its glyph centres instead of sitting on the baseline. */
 .fold-shut {
+  display: inline-flex;
+  align-items: center;
+  height: var(--morse-control-height);
   margin-left: auto;
   padding: 0 4px;
   border: 0;
@@ -256,8 +261,8 @@
   color: var(--morse-fg-muted);
 }
 .icon {
-  width: 24px;
-  height: 24px;
+  width: var(--morse-control-height);
+  height: var(--morse-control-height);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -293,21 +298,16 @@
   color: var(--morse-error);
   border-color: var(--morse-error);
 }
-/* The config reload is a control in the picker row, so it takes the pickers'
-   box instead of the compact icon square: same padding, border, fill and line
-   box, which is what also makes it exactly as tall as them. While the host
-   works, the glyph alone turns: the border drops out so the box does not read
-   as a card spinning. */
+/* The config reload is one more square in the control row — the height every
+   control shares — with the pickers' border and fill, and the icon buttons'
+   square shape. While the host works the glyph alone turns: the border drops
+   out so the box does not read as a card spinning. */
 .reload-config {
   flex: none;
-  width: auto;
-  height: auto;
-  padding: 4px 8px;
   border-color: var(--morse-input-border);
   background: var(--morse-input-bg);
   color: var(--morse-input-fg);
-  font-size: 12px;
-  line-height: inherit;
+  font-size: 15px;
 }
 .reload-config:hover:not(:disabled) {
   background: var(--morse-input-bg);
@@ -769,6 +769,11 @@ textarea:focus-visible {
 .controls-actions .secondary .glyph {
   display: none;
 }
+/* The run's own words are controls in the same row, so they share the height
+   the pickers and icon buttons use. */
+.controls .secondary {
+  height: var(--morse-control-height);
+}
 /*
  * Row 1 is status only: the session facts on the left, run progress and the
  * context indicator on the right. Row 2 stays pure
@@ -814,6 +819,7 @@ textarea:focus-visible {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 240px;
+  height: var(--morse-control-height);
   padding: 4px 8px;
   border: 1px solid var(--morse-input-border);
   border-radius: var(--morse-radius-sm);
@@ -955,8 +961,8 @@ textarea:focus-visible {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: var(--morse-control-height);
+    height: var(--morse-control-height);
     padding: 0;
   }
   .controls-actions .secondary .label {

@@ -6,6 +6,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: var(--morse-control-height, 26px);
   padding: 4px 8px;
   border: 1px solid var(--morse-input-border);
   border-radius: var(--morse-radius-sm);

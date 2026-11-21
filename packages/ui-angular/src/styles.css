@@ -78,6 +78,13 @@
   );
   --morse-font-size: var(--vscode-font-size, 13px);
   /*
+   * The one height a control row shares. A picker, an icon button and a text
+   * action each measured their own content before this — a 16px glyph in one,
+   * a 12px line in another — and a row of them sat a couple of pixels apart.
+   * Anything that lines up with a neighbour takes this height.
+   */
+  --morse-control-height: 26px;
+  /*
    * The navigation column and the chat pane sit side by side, so their headers
    * have to land on the same line: both read this, and neither keeps its own
    * padding, which is exactly how they drifted apart before. The value includes
