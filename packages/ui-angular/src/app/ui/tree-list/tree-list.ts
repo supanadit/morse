@@ -34,6 +34,8 @@ export class TreeList<T> {
   readonly selected = input<string | undefined>(undefined);
   /** The empty state, when the tree has no rows (a project with no sessions). */
   readonly empty = input<string>('Nothing to show.');
+  /** Whether a row can be dragged out; what it carries is the caller's business. */
+  readonly draggable = input(false);
 
   /** A row was clicked — the caller decides whether that folds or opens. */
   readonly activate = output<TreeNode<T>>();
@@ -41,12 +43,20 @@ export class TreeList<T> {
   readonly toggle = output<TreeNode<T>>();
   /** A row was right-clicked, with the pointer's spot — the caller anchors a menu there. */
   readonly context = output<{ node: TreeNode<T>; event: MouseEvent }>();
+  /** A row started a drag, with the event the caller fills with its payload. */
+  readonly dragStart = output<{ node: TreeNode<T>; event: DragEvent }>();
 
   protected readonly rows = computed(() => flattenTree(this.nodes(), this.expanded()));
 
   protected onContext(event: MouseEvent, node: TreeNode<T>): void {
     event.preventDefault();
     this.context.emit({ node, event });
+  }
+
+  protected onDragStart(event: DragEvent, node: TreeNode<T>): void {
+    if (this.draggable()) {
+      this.dragStart.emit({ node, event });
+    }
   }
 
   protected isOpen(node: TreeNode<T>): boolean {

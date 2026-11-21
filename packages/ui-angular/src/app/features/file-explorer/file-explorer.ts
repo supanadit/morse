@@ -21,6 +21,7 @@ import { MorseService } from '../../host/morse.service';
 import { WorkspaceFiles } from '../../services/workspace-files.service';
 import { WorkspaceFilesStore } from '../../state/workspace-files.store';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
+import { writeWorkspacePathDrag } from '../../ui/drop-zone';
 import { Pane } from '../../ui/pane/pane';
 import { TreeList } from '../../ui/tree-list/tree-list';
 import { rankFiles } from '../file-picker/file-picker';
@@ -77,8 +78,8 @@ export class FileExplorer {
   });
   /**
    * The row the tree highlights. It follows the active file chip — from the
-   * Explorer, the git panel or the `@` picker — so switching chips moves the
-   * Explorer's focus too, not just the preview.
+   * Explorer, the git panel or the `@` picker — or a dropped directory chip, so
+   * switching chips moves the Explorer's focus too, not just the preview.
    */
   protected readonly selected = signal<string | undefined>(undefined);
   /** The project the expanded set belongs to, so switching projects folds it. */
@@ -169,6 +170,27 @@ export class FileExplorer {
         } else {
           // Not ours (or not listed yet): forget it, so a later poll can reveal
           // the path once the project answers with it.
+          this.revealedPath = undefined;
+        }
+      });
+    });
+
+    // A directory chip asks for a folder, not a file tab. Read the listing too:
+    // a reveal that lands before the root level arrives must run again on it.
+    effect(() => {
+      const reveal = this.tabs.directoryReveal();
+      const files = this.workspaceStore.files();
+      const root = this.workspaceStore.directories()[''];
+      untracked(() => {
+        if (!reveal) {
+          return;
+        }
+        const path = reveal.path.replace(/\/$/, '');
+        this.filter.set('');
+        if (this.revealActive(path, files, root)) {
+          this.revealedPath = path;
+          this.scrollPending = true;
+        } else {
           this.revealedPath = undefined;
         }
       });
@@ -295,7 +317,7 @@ export class FileExplorer {
     files: readonly string[],
     root: readonly string[] | undefined,
   ): boolean {
-    if (files.includes(path)) {
+    if (files.includes(path) || files.includes(`${path}/`)) {
       return true;
     }
     if (root === undefined) {
@@ -394,6 +416,16 @@ export class FileExplorer {
   /** The shared tree reports the node it was given; a folder folds, a file opens. */
   protected onTreeRow(node: TreeNode<FileNode>): void {
     this.onRow(node.data);
+  }
+
+  /** Drag either kind of row into the chat: a folder keeps pi's trailing slash. */
+  protected onDragRow({ node, event }: { node: TreeNode<FileNode>; event: DragEvent }): void {
+    const path = node.data.path;
+    this.onDragPath(event, node.data.kind === 'dir' ? `${path}/` : path);
+  }
+
+  protected onDragPath(event: DragEvent, path: string): void {
+    writeWorkspacePathDrag(event, path);
   }
 
   /** The git badge letter for a file, or `undefined` when it is unchanged. */

@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION, type ClientToHostMessage } from '@morse/protocol';
 import { BaseHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AttachmentStore } from '../../state/attachments';
+import { ShellState } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { ChatComposer } from './composer';
@@ -150,5 +151,28 @@ describe('ChatComposer attachment chips', () => {
     expect(chipLabels(host)).toEqual([]);
     const name = host.querySelector('.chip:not(.live) .chip-name')?.textContent?.trim();
     expect(name).toBe('src/whole.ts');
+  });
+
+  it('keeps a whole-file annotation editable even when the host has a file editor', async () => {
+    const { fixture, host, store } = await mount({ filePreview: true });
+    store.pin({ path: 'src/whole.ts', note: 'read this first' });
+    fixture.detectChanges();
+
+    // No line card exists for a path-only pin, so the chip owns the note.
+    expect(host.querySelector('button.chip-note')?.textContent).toContain('read this first');
+  });
+
+  it('reveals a directory chip in the Explorer instead of opening a file', async () => {
+    const { fixture, host, store } = await mount({ filePreview: true });
+    store.pin({ path: 'docs/' });
+    fixture.detectChanges();
+
+    host.querySelector<HTMLElement>('.chip:not(.live) .chip-body')?.click();
+    fixture.detectChanges();
+
+    const tabs = TestBed.inject(WorkspaceTabs);
+    expect(tabs.directoryReveal()?.path).toBe('docs/');
+    expect(TestBed.inject(ShellState).leftPane()).toBe('files');
+    expect(tabs.tabs().some((tab) => tab.kind === 'file' && tab.path === 'docs/')).toBe(false);
   });
 });

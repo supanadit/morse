@@ -3,10 +3,18 @@ import { AttachmentStore } from '../state/attachments';
 import { DropFlight } from './drop-flight';
 import { Uploader } from '../services/uploads';
 
+/** MIME for a path dragged out of Morse's own Explorer, relative to the workspace. */
+export const WORKSPACE_PATH_DRAG_TYPE = 'application/x-morse-workspace-path';
+
+/** Marks an Explorer row's path so the chat drop can pin it as a chip. */
+export function writeWorkspacePathDrag(event: DragEvent, path: string): void {
+  event.dataTransfer?.setData(WORKSPACE_PATH_DRAG_TYPE, path);
+}
+
 /**
  * Drag and drop for the whole chat surface: dragging files anywhere over the
- * chat highlights the drop target, and dropping them attaches images or writes
- * `@mentions` for whatever came as a path (a VS Code explorer drag).
+ * chat highlights the drop target, and dropping them attaches images or pins a
+ * whole-file/folder chip for whatever came as a path (an Explorer drag).
  *
  * The counter matters: `dragleave` fires when the pointer crosses into a child
  * element, so a boolean would flicker the highlight off and on.
@@ -49,11 +57,13 @@ export class DropZone {
    * chat (moving selected text around) is ignored.
    */
   private carriesFiles(event: DragEvent): boolean {
-    if (this.internalDrag) {
+    const types = event.dataTransfer?.types;
+    if (types === undefined || types.length === 0) {
       return false;
     }
-    const types = event.dataTransfer?.types;
-    return types !== undefined && types.length > 0;
+    // An Explorer row marks itself with a path; other in-page drags (selected
+    // text, queued messages) carry no file and must stay ignored.
+    return !this.internalDrag || types.includes(WORKSPACE_PATH_DRAG_TYPE);
   }
 
   onDragEnter(event: DragEvent): void {
@@ -95,28 +105,34 @@ export class DropZone {
       return;
     }
 
-    const files = Array.from(transfer.files ?? []);
+    // Our own Explorer hands over the workspace-relative path directly. No bytes
+    // to upload: the prompt gets the same chip a pinned file would.
+    const draggedPath = transfer.getData(WORKSPACE_PATH_DRAG_TYPE);
+
+    const files = draggedPath ? [] : Array.from(transfer.files ?? []);
     const { images } = await this.attachments.read(
       files.filter((file) => file.type.startsWith('image/')),
     );
 
     // A VS Code drag arrives as a URI list or as a label, not as File objects
     // with paths, so every source is read.
-    const entries = parseDrop(transfer);
+    const entries: DropEntries = draggedPath ? { paths: [], names: [] } : parseDrop(transfer);
     const nonImageFiles = files.filter((file) => !file.type.startsWith('image/'));
 
     // A browser cannot hand out a path, so a dropped File is uploaded to the
-    // host (which owns the disk) and comes back as an `@mention`. A host without
+    // host (which owns the disk) and comes back as a pinned path. A host without
     // uploads falls back to the bare name — all it used to get.
     const uploading =
       this.uploads.available() && nonImageFiles.length > 0
         ? this.uploads.upload(nonImageFiles)
         : Promise.resolve({ added: [], failed: nonImageFiles.map((file) => file.name) });
-    const ghostMentions = [
-      ...entries.paths.map((path) => relativeToWorkspace(path, cwd)),
-      ...entries.names,
-      ...nonImageFiles.map((file) => file.name),
-    ];
+    const ghostPaths = draggedPath
+      ? [draggedPath]
+      : [
+          ...entries.paths.map((path) => relativeToWorkspace(path, cwd)),
+          ...entries.names,
+          ...nonImageFiles.map((file) => file.name),
+        ];
 
     // Fly first, attach on landing: the chip appears exactly when the ghost
     // reaches the composer, which is what makes the drop feel like it landed.
@@ -132,28 +148,34 @@ export class DropZone {
           name: image.name,
           thumbnail: `data:${image.mimeType};base64,${image.data}`,
         })),
-        ...ghostMentions.map((name) => ({ name })),
+        ...ghostPaths.map((name) => ({ name })),
       ],
       origin,
     );
 
     const uploaded = await uploading;
-    const mentionSources = [
-      ...entries.paths.map((path) => relativeToWorkspace(path, cwd)),
-      ...entries.names,
-      ...uploaded.added.map((file) => file.path),
-      ...uploaded.failed,
-    ];
+    const droppedPaths = draggedPath
+      ? [draggedPath]
+      : [
+          ...entries.paths.map((path) => relativeToWorkspace(path, cwd)),
+          ...entries.names,
+          ...uploaded.added.map((file) => file.path),
+          ...uploaded.failed,
+        ];
 
     this.attachments.add(images);
-    this.attachments.addMentions(mentionSources);
+    // A path drops as a chip, not as `@text` in the draft: the chip can be
+    // annotated and carries no line range. The wire still gets one `@path`.
+    for (const path of droppedPaths) {
+      this.attachments.pin({ path });
+    }
 
     const parts: string[] = [];
     if (images.length > 0) {
       parts.push(`${images.length} image${images.length === 1 ? '' : 's'} attached`);
     }
-    if (mentionSources.length > 0) {
-      parts.push(`${mentionSources.length} file${mentionSources.length === 1 ? '' : 's'} added to the prompt`);
+    if (droppedPaths.length > 0) {
+      parts.push(`${droppedPaths.length} ${droppedPaths.length === 1 ? 'item' : 'items'} pinned to this message`);
     }
     if (parts.length > 0) {
       this.attachments.say('info', parts.join(' · '));

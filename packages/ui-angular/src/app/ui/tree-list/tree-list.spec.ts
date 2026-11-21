@@ -29,7 +29,9 @@ function node(id: string, children: TreeNode<Item>[] = [], data = id): TreeNode<
       [nodes]="nodes()"
       [expanded]="expanded()"
       [selected]="selected()"
+      [draggable]="draggable()"
       empty="No sessions yet."
+      (dragStart)="dragged.set($event.node.id)"
       (activate)="clicked.set($event.data.path)"
       (toggle)="toggled.set($event.id)"
       (context)="contexted.set($event.node.id)"
@@ -44,6 +46,8 @@ class Host {
   ]);
   readonly expanded = signal<ReadonlySet<string>>(new Set());
   readonly selected = signal<string | undefined>(undefined);
+  readonly draggable = signal(false);
+  readonly dragged = signal<string | undefined>(undefined);
   readonly clicked = signal<string | undefined>(undefined);
   readonly contexted = signal<string | undefined>(undefined);
   readonly toggled = signal<string | undefined>(undefined);
@@ -139,6 +143,19 @@ describe('TreeList', () => {
 
     expect(host.querySelector('.empty')?.textContent).toContain('No sessions yet.');
     expect(host.querySelector('.row')).toBeNull();
+  });
+
+  it('hands a dragged row to the caller, and keeps rows still by default', () => {
+    const { host, fixture } = render();
+    expect(host.querySelector('.row')?.getAttribute('draggable')).toBeNull();
+
+    fixture.componentInstance.draggable.set(true);
+    fixture.detectChanges();
+    const row = host.querySelector('.row') as HTMLElement;
+    expect(row.getAttribute('draggable')).toBe('true');
+    row.dispatchEvent(new Event('dragstart', { bubbles: true }));
+
+    expect(fixture.componentInstance.dragged()).toBe('morse');
   });
 
   it('reports a right-click with the node it landed on, and no menu of its own', () => {

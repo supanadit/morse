@@ -175,6 +175,17 @@ export class WorkspaceTabs {
     this.items().find((tab) => tab.id === this.active()),
   );
   /**
+   * A folder another part of the workbench (a dropped chip) asked the Explorer
+   * to show. No file tab is opened: a fresh object per request makes clicking the
+   * same chip twice reveal it again after the reader scrolled away.
+   */
+  private readonly directoryRevealSignal = signal<{ path: string } | undefined>(undefined);
+  readonly directoryReveal = this.directoryRevealSignal.asReadonly();
+
+  revealDirectory(path: string): void {
+    this.directoryRevealSignal.set({ path });
+  }
+  /**
    * No session is in front on a host that shows the strip: the panel is the empty
    * placeholder, not a conversation. Only a tabbed host has this state — VS Code
    * has no strip, and its session-less panel is a normal "start a session".

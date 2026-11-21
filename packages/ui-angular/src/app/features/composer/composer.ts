@@ -463,6 +463,15 @@ export class ChatComposer {
    * own editor is already where a selection came from.
    */
   protected openPinPreview(pin: PendingPin): void {
+    // A directory has no file to preview: bring its row up in the Explorer,
+    // where the tree opens its ancestors and marks the folder.
+    if (pin.path.endsWith('/')) {
+      if (this.morse.capabilities()?.filePreview) {
+        this.shell.setLeftPane('files');
+        this.tabs.revealDirectory(pin.path);
+      }
+      return;
+    }
     if (this.morse.capabilities()?.filePreview) {
       this.tabs.openMentionFile(pin.path, pin.startLine);
     }
@@ -529,6 +538,11 @@ export class ChatComposer {
    * stranded.
    */
   protected notesInFile(pin: PendingPin): boolean {
+    // A whole file (or a folder) has no line card in the editor, so its note
+    // must stay editable on the chip itself.
+    if (pin.startLine === undefined) {
+      return false;
+    }
     const tab = this.tabs
       .tabs()
       .find((candidate): candidate is FileTab => candidate.kind === 'file' && candidate.path === pin.path);

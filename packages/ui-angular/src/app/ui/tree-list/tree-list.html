@@ -32,6 +32,8 @@
           [attr.aria-expanded]="row.node.kind === 'group' ? isOpen(row.node) : null"
           [attr.aria-current]="selected() === row.node.id ? 'true' : null"
           [title]="row.node.label"
+          [attr.draggable]="draggable() ? 'true' : null"
+          (dragstart)="onDragStart($event, row.node)"
           (click)="onRow(row.node)"
           (contextmenu)="onContext($event, row.node)"
         >

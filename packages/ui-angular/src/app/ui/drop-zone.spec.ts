@@ -10,6 +10,7 @@ import {
   relativeToWorkspace,
 } from './drop-zone';
 import { Uploader, type UploadReport } from '../services/uploads';
+import { WORKSPACE_PATH_DRAG_TYPE } from './drop-zone';
 
 /** Minimal `DataTransfer` double: jsdom has no DragEvent implementation. */
 function transfer(data: Record<string, string>, files: File[] = [], types?: string[]): DataTransfer {
@@ -119,7 +120,7 @@ describe('DropZone', () => {
     document.dispatchEvent(new Event('dragend', { bubbles: true }));
   });
 
-  it('mentions a Source Control item that arrived as plain text', async () => {
+  it('pins a Source Control item that arrived as plain text', async () => {
     const attachments = TestBed.inject(AttachmentStore);
 
     await zone.onDrop(
@@ -127,10 +128,10 @@ describe('DropZone', () => {
       '/w/project',
     );
 
-    expect(attachments.mentions()).toEqual(['service.ts']);
+    expect(attachments.pins().map((pin) => pin.path)).toEqual(['service.ts']);
   });
 
-  it('attaches images and turns paths into workspace-relative mentions', async () => {
+  it('attaches images and pins paths as workspace-relative chips', async () => {
     const attachments = TestBed.inject(AttachmentStore);
     const data = transfer(
       { 'text/uri-list': 'file:///w/project/src/app.ts' },
@@ -142,11 +143,29 @@ describe('DropZone', () => {
 
     expect(zone.active()).toBe(false);
     expect(attachments.images()).toHaveLength(1);
-    expect(attachments.mentions()).toEqual(['src/app.ts']);
+    expect(attachments.pins().map((pin) => pin.path)).toEqual(['src/app.ts']);
+    expect(attachments.pins()[0]?.startLine).toBeUndefined();
     expect(attachments.notice()?.text).toContain('1 image attached');
   });
 
-  it('uploads a dropped File when the host can take it, and mentions the host path', async () => {
+  it('pins a path dragged from Morse’s own Explorer, once', async () => {
+    const attachments = TestBed.inject(AttachmentStore);
+    document.dispatchEvent(new Event('dragstart', { bubbles: true }));
+    const data = transfer(
+      { [WORKSPACE_PATH_DRAG_TYPE]: 'docs/', 'text/plain': 'docs' },
+      [],
+      [WORKSPACE_PATH_DRAG_TYPE, 'text/plain'],
+    );
+
+    zone.onDragEnter(dragEvent(data));
+    expect(zone.active()).toBe(true);
+    await zone.onDrop(dragEvent(data));
+
+    expect(attachments.pins().map((pin) => pin.path)).toEqual(['docs/']);
+    document.dispatchEvent(new Event('dragend', { bubbles: true }));
+  });
+
+  it('uploads a dropped File when the host can take it, and pins the host path', async () => {
     // A browser File has no path; only a host that advertises `fileUpload` can
     // turn its bytes into a mention.
     uploads.available = () => true;
@@ -163,7 +182,7 @@ describe('DropZone', () => {
 
     await zone.onDrop(dragEvent(transfer({}, [file], ['Files'])), '/w/project');
 
-    expect(attachments.mentions()).toEqual(['.morse/uploads/notes.txt']);
+    expect(attachments.pins().map((pin) => pin.path)).toEqual(['.morse/uploads/notes.txt']);
   });
 });
 

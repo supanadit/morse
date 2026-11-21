@@ -3,6 +3,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
+import { WORKSPACE_PATH_DRAG_TYPE } from '../../ui/drop-zone';
 import { FileExplorer, matchFiles } from './file-explorer';
 
 function setup(
@@ -39,7 +40,11 @@ function setup(
       return Promise.resolve({ files });
     }),
   };
-  const tabs = { openFile: vi.fn(), activeTab: signal<{ kind: 'file'; id: string; path: string; title: string } | undefined>(undefined) };
+  const tabs = {
+    openFile: vi.fn(),
+    activeTab: signal<{ kind: 'file'; id: string; path: string; title: string } | undefined>(undefined),
+    directoryReveal: signal<{ path: string } | undefined>(undefined),
+  };
   TestBed.configureTestingModule({
     imports: [FileExplorer],
     providers: [
@@ -165,6 +170,43 @@ describe('FileExplorer', () => {
     expect(rows(fixture)).toEqual(['src', 'README.md']);
     fixture.nativeElement.querySelectorAll('.row')[1].click();
     expect(tabs.openFile).toHaveBeenCalledWith('README.md');
+  });
+
+  it('drags files and folders into the prompt as workspace mentions', async () => {
+    const { fixture } = setup(['src/app/main.ts', 'README.md']);
+    await flush();
+    fixture.detectChanges();
+    const payload = new Map<string, string>();
+    const dataTransfer = { setData: (type: string, value: string) => payload.set(type, value) };
+    const drag = (row: Element): void => {
+      const event = new Event('dragstart', { bubbles: true });
+      Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+      row.dispatchEvent(event);
+    };
+
+    const rows = fixture.nativeElement.querySelectorAll('.row');
+    expect(rows[0].getAttribute('draggable')).toBe('true');
+    drag(rows[0]);
+    expect(payload.get(WORKSPACE_PATH_DRAG_TYPE)).toBe('src/');
+    drag(rows[1]);
+    expect(payload.get(WORKSPACE_PATH_DRAG_TYPE)).toBe('README.md');
+
+    // The flat filtered list is draggable too.
+    typeFilter(fixture, 'main');
+    drag(fixture.nativeElement.querySelector('.row'));
+    expect(payload.get(WORKSPACE_PATH_DRAG_TYPE)).toBe('src/app/main.ts');
+  });
+
+  it('reveals a directory asked for by a chip, without opening a file tab', async () => {
+    const { fixture, tabs } = setup(['src/app/main.ts', 'README.md']);
+    await settleTree(fixture);
+
+    tabs.directoryReveal.set({ path: 'src/app/' });
+    await settleTree(fixture);
+
+    expect(rows(fixture)).toEqual(['src', 'app', 'README.md']);
+    expect(fixture.nativeElement.querySelector('.row.active')?.textContent).toContain('app');
+    expect(tabs.openFile).not.toHaveBeenCalled();
   });
 
   it('expands a directory to reveal its files', async () => {

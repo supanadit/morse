@@ -401,7 +401,7 @@
           <button
             type="button"
             class="chip-body"
-            [title]="pinTitle(pin, 'Open ' + pin.path + ' in the preview')"
+            [title]="pinTitle(pin, pin.path.endsWith('/') ? 'Show ' + pin.path + ' in the Explorer' : 'Open ' + pin.path + ' in the preview')"
             (click)="openPinPreview(pin)"
           >
             <span class="pin-icon" aria-hidden="true">⧉</span>
@@ -443,7 +443,7 @@
             <button
               type="button"
               class="chip-note ghost"
-              title="Add an annotation — your words about this range ride the prompt too"
+              title="Add an annotation — your words ride the prompt too"
               [attr.aria-label]="'Add an annotation on ' + pin.path"
               (click)="openAnnotation(pin, $event)"
             >

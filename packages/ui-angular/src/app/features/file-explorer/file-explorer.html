@@ -39,6 +39,8 @@
           [class.active]="selected() === match.path"
           [attr.aria-current]="selected() === match.path ? 'true' : null"
           [title]="match.path"
+          draggable="true"
+          (dragstart)="onDragPath($event, match.path)"
           (click)="openMatch(match)"
         >
           <svg [class]="'file-icon ' + iconFor(match.name)" viewBox="0 0 16 16"
@@ -60,7 +62,9 @@
       [nodes]="nodes()"
       [expanded]="expanded()"
       [selected]="selected()"
+      [draggable]="true"
       empty="No files found."
+      (dragStart)="onDragRow($event)"
       (activate)="onTreeRow($event)"
       (toggle)="onTreeRow($event)"
     />
