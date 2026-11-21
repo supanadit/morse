@@ -293,13 +293,25 @@
   color: var(--morse-error);
   border-color: var(--morse-error);
 }
-/* The config reload sits beside the thinking picker and borrows the same 24px
-   box, so the footer row keeps one height. While the host works, the glyph
-   alone turns: the border drops out so the square box does not read as a card
-   spinning. */
+/* The config reload is a control in the picker row, so it takes the pickers'
+   box instead of the compact icon square: same padding, border, fill and line
+   box, which is what also makes it exactly as tall as them. While the host
+   works, the glyph alone turns: the border drops out so the box does not read
+   as a card spinning. */
 .reload-config {
   flex: none;
-  font-size: 14px;
+  width: auto;
+  height: auto;
+  padding: 4px 8px;
+  border-color: var(--morse-input-border);
+  background: var(--morse-input-bg);
+  color: var(--morse-input-fg);
+  font-size: 12px;
+  line-height: inherit;
+}
+.reload-config:hover:not(:disabled) {
+  background: var(--morse-input-bg);
+  border-color: var(--morse-fg-muted);
 }
 .reload-config:disabled {
   opacity: 0.7;
