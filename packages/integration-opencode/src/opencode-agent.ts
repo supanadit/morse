@@ -920,8 +920,16 @@ export class OpenCodeAgent extends Session {
         const apiModel = this.modelFor(step.provider, step.id);
         patch.model = apiModel === undefined ? step : toModelRef(apiModel);
         if (apiModel !== undefined) {
-          patch.availableThinkingLevels = thinkingLevelsOf(apiModel);
-          patch.thinkingLevel = thinkingLevelOf(apiModel, undefined);
+          const levels = thinkingLevelsOf(apiModel);
+          patch.availableThinkingLevels = levels;
+          // A step names the model, not the variant it runs with: the session's
+          // own pick still applies while the same model serves the turn. Only a
+          // model swap (or a pick its variants no longer offer) makes it moot.
+          const current = this.box.model;
+          const sameModel = current?.provider === step.provider && current.id === step.id;
+          if (!sameModel || !levels.includes(this.box.thinkingLevel)) {
+            patch.thinkingLevel = thinkingLevelOf(apiModel, undefined);
+          }
         }
       }
       const previous = this.box.model;

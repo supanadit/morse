@@ -357,6 +357,27 @@ describe('OpenCodeAgent', () => {
     await agent.dispose();
   });
 
+  it('keeps the chosen thinking level while a step serves the same model', async () => {
+    const { agent, stream } = await harness();
+    await agent.setThinkingLevel('high');
+
+    // Every assistant step announces its model; the variant it runs with is
+    // the session's own pick and is not part of the step payload.
+    stream.emit('ses_1', {
+      type: 'session.step.started',
+      data: {
+        sessionID: 'ses_1',
+        assistantMessageID: 'msg_1',
+        agent: 'build',
+        model: { id: 'flint-40b-free', providerID: 'opencode' },
+      },
+      created: 1_000,
+    });
+
+    expect((await agent.state()).thinkingLevel).toBe('high');
+    await agent.dispose();
+  });
+
   it("seeds a fresh session with its agent's configured model", async () => {
     const { agent } = await harness({
       handler: (method, path, query) => {
