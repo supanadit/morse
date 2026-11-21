@@ -44,6 +44,7 @@ import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
 import { ModePrefs, type ShellMode } from '../state/mode-prefs';
 import { RestoreState } from '../state/restore-state';
+import { QueuedPrompts } from '../state/queued-prompts';
 import { ShellState, type LeftPane } from '../state/shell-state';
 import { WorkspaceTabs } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
@@ -144,6 +145,7 @@ export class App {
   private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly queue = inject(QueuedPrompts);
   private readonly notifier = inject(RunNotifier);
   private readonly notifications = inject(NotificationPrefs);
   private readonly shortcuts = inject(ShortcutService);
@@ -965,15 +967,16 @@ export class App {
 
   /**
    * The reader keeps the run (and the follow-ups queued behind it): the dialog
-   * steps aside, and the host arms the compaction to fire when this conversation
-   * settles. The same pin as `confirmCompact`, for the same reason — the question
-   * is about one conversation, whatever tab is in front by the time it is answered.
+   * steps aside and the compaction joins the queue, where it can be dragged
+   * before or after those follow-ups — or removed — until it runs. The same pin
+   * as `confirmCompact`, for the same reason: the question is about one
+   * conversation, whatever tab is in front by the time it is answered.
    */
   protected scheduleCompact(): void {
     const instructions = this.shell.compactInstructions();
-    const sessionKey = this.shell.compactSessionKey();
+    const sessionKey = this.shell.compactSessionKey() ?? this.tabs.composerKey();
     this.shell.closeCompactPrompt();
-    this.morse.compactSession(instructions, sessionKey, true);
+    this.queue.enqueueCompaction(instructions, sessionKey);
   }
 
   /**

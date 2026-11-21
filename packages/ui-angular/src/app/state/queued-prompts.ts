@@ -11,6 +11,12 @@ export interface QueuedPrompt {
   text: string;
   images: PromptImage[];
   pins: ChatPin[];
+  /**
+   * Set when the item is a scheduled compaction rather than a message. It runs
+   * where it sits in the queue, so dragging it changes whether it happens before
+   * or after the follow-ups around it.
+   */
+  compaction?: { instructions?: string };
   /** The session it was queued for, so a settle elsewhere cannot dispatch it. */
   sessionId?: string;
 }
@@ -47,6 +53,23 @@ export class QueuedPrompts {
     const id = `queued-${this.counter}`;
     this.items.update((list) => [...list, { ...prompt, id, sessionId }]);
     return id;
+  }
+
+  /**
+   * Queues a compaction where it belongs in the order. Scheduling it used to arm
+   * a host timer that always waited for every follow-up; as a queue item the
+   * reader can put it before one instead.
+   */
+  enqueueCompaction(instructions: string | undefined, sessionId?: string): string {
+    return this.enqueue(
+      {
+        text: 'Compact context',
+        images: [],
+        pins: [],
+        compaction: instructions === undefined ? {} : { instructions },
+      },
+      sessionId,
+    );
   }
 
   remove(id: string): void {

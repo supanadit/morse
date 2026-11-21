@@ -27,9 +27,10 @@ Morse **v0.28.0**. This page is the honest inventory of what ships. Everything e
   **queued** as a follow-up rather than refused, and shown above the composer (`Queued messages`: edit, send
   now, remove) until it runs as the current turn settles.
 - Compaction behind an explicit confirmation, optionally with custom instructions (`session/compact`). While
-  a run is in flight the same question also offers **Schedule Compact**: pi compacts by aborting whatever is
-  running, so the compaction is armed instead and fires the moment that conversation settles — queued
-  follow-ups included (`session/compact` with `schedule`).
+  a run is in flight the same question also offers **Schedule Compact**: the compaction joins the follow-up
+  queue instead of aborting the run, so its place decides when it happens — drag it above a follow-up to
+  compact first, or below it to compact after that turn — and its `×` cancels it. It has no edit or send
+  control.
 - Interaction requests: native QuickPick/InputBox in VS Code for the single-value kinds, rendered inline in the
   browser everywhere — and **forms** (several typed fields, constraints, conditional visibility) always rendered
   in the panel, because no native dialog can express them.

@@ -14,14 +14,15 @@ function idle(streaming = false): { streaming: boolean; busy: boolean } {
 function setup() {
   const activity = signal<MutableActivity>(new Map());
   const prompt = vi.fn();
-  const fake = { sessionActivity: activity, prompt };
+  const compactSession = vi.fn();
+  const fake = { sessionActivity: activity, prompt, compactSession };
   TestBed.configureTestingModule({ providers: [{ provide: MorseService, useValue: fake }] });
   // Constructing the service is what arms its effect in the real app (`App`
   // injects it); a service does not drive change detection, so `tick()` flushes.
   TestBed.inject(QueueDrain);
   const queue = TestBed.inject(QueuedPrompts);
   TestBed.tick();
-  return { activity, prompt, queue };
+  return { activity, prompt, compactSession, queue };
 }
 
 function enqueue(queue: QueuedPrompts, text: string, owner: string): void {
@@ -97,5 +98,46 @@ describe('QueueDrain', () => {
 
     expect(prompt).not.toHaveBeenCalled();
     expect(queue.queued()).toHaveLength(1);
+  });
+
+  it('compacts before a follow-up when the reader puts it first', () => {
+    const { activity, prompt, compactSession, queue } = setup();
+    const promptId = queue.enqueue({ text: 'task A', images: [], pins: [] }, 's2');
+    const compactionId = queue.enqueueCompaction('keep the schema', 's2');
+    queue.move(compactionId, promptId);
+
+    activity.set(new Map([['s2', idle()]]));
+    TestBed.tick();
+
+    // The compaction is at the head: the message behind it waits for the busy
+    // flip, exactly the way it waits for a run.
+    expect(compactSession).toHaveBeenCalledWith('keep the schema', 's2');
+    expect(prompt).not.toHaveBeenCalled();
+
+    activity.set(new Map([['s2', { streaming: false, busy: true }]]));
+    TestBed.tick();
+    activity.set(new Map([['s2', idle()]]));
+    TestBed.tick();
+
+    expect(prompt).toHaveBeenCalledWith('task A', 'new', [], [], 's2');
+  });
+
+  it('compacts after the follow-up when it is left below it', () => {
+    const { activity, prompt, compactSession, queue } = setup();
+    queue.enqueue({ text: 'task A', images: [], pins: [] }, 's2');
+    queue.enqueueCompaction(undefined, 's2');
+
+    activity.set(new Map([['s2', idle()]]));
+    TestBed.tick();
+    expect(prompt).toHaveBeenCalledWith('task A', 'new', [], [], 's2');
+    expect(compactSession).not.toHaveBeenCalled();
+
+    // The prompt's own run settles, then the queued compaction runs.
+    activity.set(new Map([['s2', idle(true)]]));
+    TestBed.tick();
+    activity.set(new Map([['s2', idle()]]));
+    TestBed.tick();
+
+    expect(compactSession).toHaveBeenCalledWith(undefined, 's2');
   });
 });

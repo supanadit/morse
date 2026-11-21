@@ -56,6 +56,7 @@
         @for (item of queuedMessages(); track item.id) {
           <div
             class="queue-row"
+            [class.compaction]="item.compaction !== undefined"
             cdkDrag
             cdkDragLockAxis="y"
             [cdkDragData]="item"
@@ -63,34 +64,57 @@
             [morseEnterY]="4"
           >
             <span class="queue-grip" cdkDragHandle title="Drag to reorder" aria-hidden="true">⠿</span>
-            <span class="queue-text" [title]="item.text">{{ item.text }}</span>
-            <div class="queue-actions">
-              <button
-                type="button"
-                class="queue-action"
-                title="Edit in the composer"
-                (click)="editQueued(item)"
+            @if (item.compaction; as compaction) {
+              <span
+                class="queue-text"
+                title="Runs where you place it: drag it before or after the queued messages."
               >
-                ✎ <span>edit</span>
-              </button>
-              <button
-                type="button"
-                class="queue-action"
-                title="Send now"
-                (click)="sendQueued(item)"
-              >
-                ➤ <span>send</span>
-              </button>
-              <button
-                type="button"
-                class="queue-remove"
-                title="Remove from the queue"
-                aria-label="Remove from the queue"
-                (click)="removeQueued(item)"
-              >
-                ×
-              </button>
-            </div>
+                Compact context
+                @if (compaction.instructions) {
+                  <span class="queue-note">· “{{ compaction.instructions }}”</span>
+                }
+              </span>
+              <div class="queue-actions">
+                <button
+                  type="button"
+                  class="queue-remove"
+                  title="Cancel this scheduled compaction"
+                  aria-label="Cancel this scheduled compaction"
+                  (click)="removeQueued(item)"
+                >
+                  ×
+                </button>
+              </div>
+            } @else {
+              <span class="queue-text" [title]="item.text">{{ item.text }}</span>
+              <div class="queue-actions">
+                <button
+                  type="button"
+                  class="queue-action"
+                  title="Edit in the composer"
+                  (click)="editQueued(item)"
+                >
+                  ✎ <span>edit</span>
+                </button>
+                <button
+                  type="button"
+                  class="queue-action"
+                  title="Send now"
+                  (click)="sendQueued(item)"
+                >
+                  ➤ <span>send</span>
+                </button>
+                <button
+                  type="button"
+                  class="queue-remove"
+                  title="Remove from the queue"
+                  aria-label="Remove from the queue"
+                  (click)="removeQueued(item)"
+                >
+                  ×
+                </button>
+              </div>
+            }
           </div>
         }
       </div>

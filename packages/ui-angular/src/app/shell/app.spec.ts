@@ -13,6 +13,7 @@ import { App } from './app';
 import { MorseService } from '../host/morse.service';
 import { AttachmentStore } from '../state/attachments';
 import { RestoreState } from '../state/restore-state';
+import { QueuedPrompts } from '../state/queued-prompts';
 import { ShellState } from '../state/shell-state';
 import { ModePrefs } from '../state/mode-prefs';
 import { MORSE_TRANSPORT } from '../host/transport.token';
@@ -558,7 +559,7 @@ describe('App · compaction asks first', () => {
     expect(labels).toEqual(['Cancel', 'Compact context']);
   });
 
-  it('offers Schedule Compact while a run is in flight, and hands the host a schedule', async () => {
+  it('offers Schedule Compact while a run is in flight, and queues it instead of aborting', async () => {
     const { host, fixture, sent } = await renderApp();
 
     // The run the reader does not want aborted — the follow-ups queued behind it
@@ -583,11 +584,12 @@ describe('App · compaction asks first', () => {
     schedule.click();
     fixture.detectChanges();
 
-    // One message goes out, and it is the schedule rather than the compaction:
-    // the run keeps going and the host fires the compact at the settle.
-    const scheduled = compactions(sent);
-    expect(scheduled).toHaveLength(1);
-    expect(scheduled[0]).toMatchObject({ payload: { schedule: true } });
+    // Nothing goes to the host, and the run keeps going: the compaction joins
+    // the queue, where it can still be moved before or after a follow-up.
+    expect(compactions(sent)).toHaveLength(0);
+    const queued = TestBed.inject(QueuedPrompts).queued();
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.compaction).toEqual({});
     expect(host.querySelector('morse-confirm-dialog')).toBeNull();
   });
 

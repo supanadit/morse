@@ -133,6 +133,46 @@ describe('ChatComposer queued messages', () => {
 
     expect(rows(host)).toEqual(['second', 'first']);
   });
+
+  it('queues a compaction that can be reordered or canceled, never edited or sent', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const queue = TestBed.inject(QueuedPrompts);
+    const tabs = TestBed.inject(WorkspaceTabs);
+
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    const promptId = queue.enqueue({ text: 'follow-up', images: [], pins: [] }, 's1');
+    const compactionId = queue.enqueueCompaction('keep the schema', 's1');
+    fixture.detectChanges();
+
+    // It is queued work like the prompt around it, and it says what it will do.
+    expect(rows(host)).toHaveLength(2);
+    expect(rows(host)[1]).toContain('Compact context');
+    expect(rows(host)[1]).toContain('keep the schema');
+
+    // Only a cancel button: a compaction cannot be edited or sent early.
+    const compactionRow = host.querySelector('.queue-row.compaction') as HTMLElement;
+    expect(compactionRow.querySelectorAll('button')).toHaveLength(1);
+    expect(compactionRow.querySelector('.queue-remove')).not.toBeNull();
+    expect(compactionRow.querySelector('.queue-action')).toBeNull();
+
+    // Dragged above the follow-up, it now runs before that message.
+    queue.move(compactionId, promptId);
+    fixture.detectChanges();
+    expect(rows(host)[0]).toContain('Compact context');
+    expect(rows(host)[1]).toBe('follow-up');
+
+    // Canceling removes the schedule the same way it removes a message.
+    (host.querySelector('.queue-row.compaction .queue-remove') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(rows(host)).toEqual(['follow-up']);
+  });
 });
 
 describe('ChatComposer waiting for replies', () => {

@@ -116,6 +116,16 @@
 .queue-row + .queue-row {
   border-top: 1px solid var(--morse-hover);
 }
+/* A scheduled compaction is queued work, not a message: it is draggable like
+   the rest, can only be canceled, and stays muted so it does not read as text
+   to edit or send. */
+.queue-row.compaction {
+  color: var(--morse-fg-muted);
+}
+.queue-note {
+  color: var(--morse-fg-muted);
+  opacity: 0.8;
+}
 .queue-grip {
   flex: none;
   color: var(--morse-fg-muted);

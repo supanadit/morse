@@ -14,10 +14,12 @@ import { QueuedPrompts, type QueuedPrompt } from '../state/queued-prompts';
  * is addressed to its session (`sessionKey`) so a background one runs without
  * switching the panel to it.
  *
- * One prompt per settle, per session: the guard keeps a settle from dispatching
+ * One item per settle, per session: the guard keeps a settle from dispatching
  * the whole queue in one tick before the run it started flips the session back
  * to working. A session that is not hot is left alone — its queue is kept for
- * when it is activated again, never dropped.
+ * when it is activated again, never dropped. A scheduled compaction is one of
+ * those items, so its place in the queue decides whether it runs before or
+ * after the follow-ups around it.
  */
 @Injectable({ providedIn: 'root' })
 export class QueueDrain {
@@ -68,7 +70,13 @@ export class QueueDrain {
         continue;
       }
       this.dispatching.add(owner);
-      this.morse.prompt(next.text, 'new', next.images, next.pins, owner);
+      if (next.compaction === undefined) {
+        this.morse.prompt(next.text, 'new', next.images, next.pins, owner);
+      } else {
+        // A compaction is queued work like any other: run it at the head, and
+        // the busy flip keeps the items behind it waiting until it finishes.
+        this.morse.compactSession(next.compaction.instructions, owner);
+      }
     }
   }
 }
