@@ -2088,8 +2088,13 @@ export class HostSessionController {
   private async runCompact(instructions?: string, requestedKey?: string): Promise<void> {
     const targetKey =
       requestedKey ?? this.promptTarget() ?? this.options.services.registry.activeKeyOf();
+    const composer = this.options.services.composer;
     if (targetKey !== undefined) {
       this.compacting.add(targetKey);
+      // The shared queue also refuses to dispatch this session's items until
+      // the rewrite ends — another device may click Send before our state
+      // update reaches it.
+      composer?.setCompacting(targetKey, true);
     }
     this.emitState();
     try {
@@ -2099,6 +2104,7 @@ export class HostSessionController {
     } finally {
       if (targetKey !== undefined) {
         this.compacting.delete(targetKey);
+        composer?.setCompacting(targetKey, false);
       }
       this.emitState();
     }
@@ -2238,6 +2244,33 @@ export class HostSessionController {
   }
 
   /**
+   * The sidebar row for a session this host has opened but whose page the
+   * reader may not have revealed. The index row is the authority: a row made
+   * from the live gateway alone loses `parentId`/`subagent` (a watched subagent
+   * turns into a promptable root) and gets today's timestamp (it jumps to the
+   * top of its project). Only a session the index does not hold yet — one
+   * whose first prompt has not been written — gets a live placeholder.
+   */
+  private async hotSummary(key: string): Promise<SessionSummary | undefined> {
+    const stored = await this.guard(() => this.options.services.registry.summary(key));
+    if (stored.ok && stored.value !== undefined) {
+      return this.withinScope(stored.value.cwd) ? stored.value : undefined;
+    }
+    const state = this.options.services.registry.stateOf(key);
+    const cwd = state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
+    if (!this.withinScope(cwd)) {
+      return undefined;
+    }
+    return {
+      id: key,
+      title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
+      cwd,
+      updatedAt: Date.now(),
+      messageCount: 0,
+    };
+  }
+
+  /**
    * Publishes sessions. Without `request.cwd` it is the first page of every
    * project plus the project list; with `request.cwd` it is that one project's
    * next page, merged by the frontend into what it already shows.
@@ -2279,18 +2312,10 @@ export class HostSessionController {
         if (known.has(key)) {
           continue;
         }
-        const state = this.options.services.registry.stateOf(key);
-        const cwd = state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
-        if (!this.withinScope(cwd)) {
-          continue;
+        const summary = await this.hotSummary(key);
+        if (summary !== undefined) {
+          sessions.push(summary);
         }
-        sessions.push({
-          id: key,
-          title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
-          cwd,
-          updatedAt: Date.now(),
-          messageCount: 0,
-        });
       }
       this.summaries = new Map(sessions.map((session) => [session.id, session]));
       const hasMoreByProject = await this.projectHasMore(sessions);
@@ -2367,19 +2392,10 @@ export class HostSessionController {
         if (known.has(key)) {
           continue;
         }
-        const state = this.options.services.registry.stateOf(key);
-        const sessionCwd =
-          state?.workspace.cwd ?? this.options.services.registry.defaultWorkspace.cwd;
-        if (sessionCwd !== cwd) {
-          continue;
+        const summary = await this.hotSummary(key);
+        if (summary !== undefined && summary.cwd === cwd) {
+          sessions.push(summary);
         }
-        sessions.push({
-          id: key,
-          title: state?.sessionTitle ?? this.derivedTitle(key) ?? UNTITLED_SESSION,
-          cwd: sessionCwd,
-          updatedAt: Date.now(),
-          messageCount: 0,
-        });
       }
     }
     for (const session of sessions) {

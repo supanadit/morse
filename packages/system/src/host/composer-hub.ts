@@ -84,6 +84,8 @@ export class ComposerHub {
   private readonly texts = new Map<string, string>();
   private readonly stopRequested = new Set<string>();
   private readonly dispatching = new Set<string>();
+  /** Sessions whose context rewrite is in flight; their queues wait for it. */
+  private readonly compacting = new Set<string>();
   private readonly listeners = new Set<(message: HostToClientMessage) => void>();
 
   constructor(private readonly options: ComposerHubOptions) {
@@ -178,6 +180,23 @@ export class ComposerHub {
     this.persist();
   }
 
+  /**
+   * The controller tells the hub when a compaction starts and ends in one
+   * session. The gate is per session: a rewrite in A cannot hold B's queue,
+   * and a queued message cannot jump ahead of the rewrite it was typed during.
+   */
+  setCompacting(sessionKey: string, active: boolean): void {
+    if (active) {
+      this.compacting.add(sessionKey);
+      return;
+    }
+    if (this.compacting.delete(sessionKey)) {
+      // The rewrite's own run-end may have come before it was marked busy, so
+      // nothing else will wake a queue that was held back until now.
+      void this.drain(sessionKey);
+    }
+  }
+
   private async onEvent(sessionKey: string, event: AgentEvent): Promise<void> {
     if (event.type === 'agent/ready') {
       // A persisted queue waits for its session to be opened, then continues.
@@ -257,7 +276,8 @@ export class ComposerHub {
 
   private async sendNow(sessionKey: string, itemId: string): Promise<void> {
     const session = this.sessions.get(sessionKey);
-    if (session === undefined) {
+    if (session === undefined || this.compacting.has(sessionKey)) {
+      // A rewrite owns the session: leave the item queued, ready to run after.
       return;
     }
     const index = session.queue.findIndex((item) => item.id === itemId);
@@ -309,7 +329,7 @@ export class ComposerHub {
       return;
     }
     const state = this.options.registry.stateOf(sessionKey);
-    if (state === undefined || state.streaming) {
+    if (this.compacting.has(sessionKey) || state === undefined || state.streaming) {
       return;
     }
     const item = session.queue[0];

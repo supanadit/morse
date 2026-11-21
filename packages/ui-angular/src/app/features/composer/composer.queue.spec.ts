@@ -35,6 +35,20 @@ class QueueHostTransport extends BaseHostTransport {
     this.emitMessage({ type: 'composer/state', payload });
   }
 
+  /** Per-session activity, as the host reports parallel conversations. */
+  activity(sessions: { sessionKey: string; streaming: boolean; busy: boolean }[]): void {
+    this.emitMessage({
+      type: 'session/activity',
+      payload: {
+        sessions: sessions.map((session) => ({
+          agentReady: true,
+          agentStarting: false,
+          ...session,
+        })),
+      },
+    });
+  }
+
   send(message: ClientToHostMessage): void {
     this.sent.push(message);
     if (message.type !== 'client/ready') {
@@ -111,6 +125,66 @@ describe('ChatComposer queued messages', () => {
     fixture.detectChanges();
 
     expect(rows(host)).toEqual(['for s2']);
+  });
+
+  it('queues a prompt typed during compaction and hides Send until it finishes', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const queue = TestBed.inject(QueuedPrompts);
+    const tabs = TestBed.inject(WorkspaceTabs);
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    queue.enqueue({ text: 'waiting', images: [], pins: [] }, 's1');
+
+    // s1 is compacting (busy, no stream); s2 is idle. Only s1's queue waits.
+    transport.activity([
+      { sessionKey: 's1', streaming: false, busy: true },
+      { sessionKey: 's2', streaming: false, busy: false },
+    ]);
+    fixture.detectChanges();
+    expect(host.querySelector('.queue-action[title="Send now"]')).toBeNull();
+
+    const prompts = () => transport.sent.filter((message) => message.type === 'chat/prompt');
+    const before = prompts().length;
+    const box = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')!;
+    box.value = 'typed during compaction';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(prompts()).toHaveLength(before);
+    expect(rows(host)).toContain('typed during compaction');
+    expect(queue.forOwner('s1').at(-1)?.sessionId).toBe('s1');
+
+    // Another tab's compaction must not hold this one's queue or hide its Send.
+    transport.activity([
+      { sessionKey: 's1', streaming: false, busy: false },
+      { sessionKey: 's2', streaming: false, busy: true },
+    ]);
+    fixture.detectChanges();
+    expect(host.querySelector('.queue-action[title="Send now"]')).not.toBeNull();
+
+    box.value = 'after compaction';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+    expect(prompts().at(-1)?.payload).toMatchObject({
+      text: 'after compaction',
+      sessionKey: 's1',
+    });
+
+    // The queue's own Send resumes after the rewrite and addresses the same
+    // session, not whichever one the host happens to have in front.
+    (
+      host.querySelector('.queue-row .queue-action[title="Send now"]') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    expect(prompts().at(-1)?.payload).toMatchObject({ text: 'waiting', sessionKey: 's1' });
   });
 
   it('reorders the queue to the slot CDK reports the row was dropped on', async () => {

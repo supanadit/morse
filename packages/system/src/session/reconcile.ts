@@ -72,13 +72,25 @@ export function planReconcile(
       tokens.get(record.id) === info.token && stored.get(record.id)?.version === record.version;
     if (!unchanged) {
       // A title the reader set is theirs: the engine's report may carry a newer
-      // token, but it does not get to rename the row back.
+      // token, but it does not get to rename the row back. Lineage is ours too:
+      // a later report that drops a subagent's parent (a finished child loses
+      // its OpenCode parentID, a pi header is past the scanned tail) must not
+      // promote a watched child into a promptable root.
       const carried = stored.get(record.id);
-      upserts.push(
-        carried?.titlePinned === true
-          ? { ...record, title: carried.title, titlePinned: true }
-          : record,
-      );
+      const lineage: Partial<MorseSessionRecord> = {};
+      if (carried?.subagent === true) {
+        lineage.subagent = true;
+      }
+      if (record.parentId === undefined && carried?.parentId !== undefined) {
+        lineage.parentId = carried.parentId;
+      }
+      upserts.push({
+        ...record,
+        ...lineage,
+        ...(carried?.titlePinned === true
+          ? { title: carried.title, titlePinned: true }
+          : {}),
+      });
       upsertTokens.set(record.id, info.token);
     }
   }

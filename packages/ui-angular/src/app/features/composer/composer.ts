@@ -709,6 +709,16 @@ export class ChatComposer {
     () => this.morse.state().streaming || this.morse.state().busy,
   );
   /**
+   * The session this composer edits is waiting on a compaction (or a switch).
+   * A prompt sent then would race the context rewrite, so it goes to this
+   * session's queue. Read from per-session activity, not the host's active
+   * state: another tab's compaction must not gate this composer.
+   */
+  protected readonly sessionBusy = computed(() => {
+    const key = this.tabs.composerKey();
+    return key !== undefined && this.morse.sessionActivity().get(key)?.busy === true;
+  });
+  /**
    * The composer folded to a single line. On a narrow window the box is a large
    * block sitting under the conversation; folding it gives the transcript the
    * room instead of covering it.
@@ -1143,14 +1153,21 @@ export class ChatComposer {
     // the agent gets an `@path` mention for a pin, never a copied blob. The
     // live preview is a preview only: unlocking it was never done, so a
     // selection that was shown but not locked does not ride along.
-    if (mode === 'followUp' && this.running()) {
+    // Compaction owns the conversation until it finishes: a prompt typed now
+    // waits in this session's queue instead of racing the context rewrite.
+    const owner = this.tabs.composerKey();
+    if (this.sessionBusy()) {
+      this.sync.enqueue({ text: value, images, pins }, owner);
+    } else if (mode === 'followUp' && this.running()) {
       // A follow-up is queued, not sent: the reader gets to see, edit or drop it
       // before it runs, instead of it disappearing into pi's invisible queue.
       this.sync.enqueue({ text: value, images, pins }, this.tabs.composerKey());
     } else {
       // While idle (`followUp` won the race with the run ending) a queued kind
-      // makes no sense: pi should start a fresh turn.
-      this.morse.prompt(value, mode === 'followUp' ? 'new' : mode, images, pins);
+      // makes no sense: pi should start a fresh turn. The key is this tab's
+      // conversation, never the host's active one, so a prompt cannot leak into
+      // another tab's session.
+      this.morse.prompt(value, mode === 'followUp' ? 'new' : mode, images, pins, owner);
     }
     this.attachments.setLivePreview(null);
     this.drafts.setText('');
@@ -1169,6 +1186,11 @@ export class ChatComposer {
 
   /** Runs a queued follow-up now: steering it when a run is in flight. */
   protected sendQueued(item: QueuedPrompt): void {
+    // The queue's Send is hidden while compaction runs; keep the guard here too
+    // so a click racing the state update cannot send into the rewrite.
+    if (this.sessionBusy()) {
+      return;
+    }
     this.sync.sendNow(
       this.tabs.composerKey(),
       item,
@@ -1187,7 +1209,14 @@ export class ChatComposer {
    */
   protected continueAnswer(): void {
     const owner = this.tabs.composerKey();
-    this.morse.prompt('Continue from where you stopped.', 'new');
+    const text = 'Continue from where you stopped.';
+    if (this.sessionBusy()) {
+      // The same rule as the composer's Send: a compaction owns the session,
+      // so this prompt waits in the queue instead of steering the rewrite.
+      this.sync.enqueue({ text, images: [], pins: [] }, owner);
+    } else {
+      this.morse.prompt(text, 'new', undefined, undefined, owner);
+    }
     this.sync.resume(owner);
   }
 

@@ -131,6 +131,33 @@ describe('reconcileSessions', () => {
     expect(second.upserts).toEqual([]);
   });
 
+  it('keeps a subagent marked when a later engine report drops its parent', async () => {
+    const store = new MemoryStore();
+    await reconcileSessions({
+      kind: 'test',
+      scan: () =>
+        Promise.resolve([
+          info({
+            sessionId: 'engine-1',
+            parentSessionId: 'engine-0',
+            subagent: true,
+            token: 't1',
+          }),
+        ]),
+      store,
+    });
+    // A later token arrives with no parent and no subagent mark: the engine
+    // forgot its side of the link, but a spawned child stays a child.
+    await reconcileSessions({
+      kind: 'test',
+      scan: () => Promise.resolve([info({ sessionId: 'engine-1', token: 't2' })]),
+      store,
+    });
+    const record = [...store.records.values()][0];
+    expect(record?.subagent).toBe(true);
+    expect(record?.parentId).toBeDefined();
+  });
+
   it('falls back to caller-held tokens when the store cannot report its own', async () => {
     // A port-store with no `tokens()`: reconcile then has to trust the caller's
     // map, exactly as it did before mirrored tokens existed.

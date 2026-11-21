@@ -30,7 +30,7 @@ import {
   type SessionViewState,
   type TranscriptItem,
 } from '@morse/protocol';
-import { HostSessionController } from './session-controller.js';
+import { HostSessionController, type HostSessionServices } from './session-controller.js';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
 import type { SessionCatalog } from '../session/ports.js';
 import type { TerminalBackend, TerminalSink } from './terminal.js';
@@ -247,9 +247,10 @@ function connect(
   scope?: HostScopeOptions,
   agentHint?: string,
   pinnedSessionId?: string,
+  composer?: HostSessionServices['composer'],
 ): HostSessionController {
   return new HostSessionController({
-    services: { registry, chat },
+    services: { registry, chat, ...(composer ? { composer } : {}) },
     capabilities: CAPABILITIES,
     emit: (message) => sink.push(message),
     logger: silentLogger,
@@ -313,6 +314,8 @@ function harness(
     refreshModels?: () => Promise<void>;
     /** Persisted sessions the catalog reports, so a test can seed a real title. */
     catalogSessions?: SessionSummary[];
+    /** Index rows the catalog can name directly, beyond the published pages. */
+    catalogRead?: (id: string) => Promise<SessionSummary | undefined>;
     /** Session ids the factory refuses, as the engine router does for a stale id. */
     unknownSessionIds?: string[];
     /** Warnings the agent carries on its state (pi's refused prompt templates). */
@@ -331,6 +334,8 @@ function harness(
     reloadConfigError?: Error;
     /** Counts config re-reads on warm sessions after a reload. */
     refreshConfig?: () => Promise<void>;
+    /** Shared queue the compaction gate must talk to, when the host has one. */
+    composer?: HostSessionServices['composer'];
     /** The host's view scope; the workspace under test unless a test says otherwise. */
     scope?: HostScopeOptions;
   } = {},
@@ -435,6 +440,7 @@ function harness(
     factory,
     catalog: {
       list: () => Promise.resolve(options.catalogSessions ?? []),
+      ...(options.catalogRead === undefined ? {} : { read: options.catalogRead }),
       remove: (id) => {
         removed.push(id);
         return Promise.resolve();
@@ -447,7 +453,16 @@ function harness(
   const chat = new ChatService({ agent: registry, logger: silentLogger });
   const transcripts = new SessionTranscriptStore();
   const scope: HostScopeOptions = options.scope ?? { kind: 'workspace', roots: [WORKSPACE.cwd] };
-  const controller = connect(registry, chat, transcripts, messages, scope, options.agentHint);
+  const controller = connect(
+    registry,
+    chat,
+    transcripts,
+    messages,
+    scope,
+    options.agentHint,
+    undefined,
+    options.composer,
+  );
   return {
     messages,
     registry,
@@ -647,6 +662,30 @@ describe('HostSessionController compaction', () => {
     await pending;
     // Released: the composer hands back even though nothing else is running.
     expect(lastStateOf(h.messages)).toMatchObject({ busy: false, streaming: false });
+  });
+
+  it('gates only the compacting session in the shared queue', async () => {
+    const hold: CompactHold = { finish: () => {}, fail: () => {} };
+    const setCompacting = vi.fn();
+    const h = harness({
+      hold,
+      composer: {
+        setCompacting,
+        snapshot: () => ({ states: [], drafts: [] }),
+        subscribe: () => () => undefined,
+      } as unknown as HostSessionServices['composer'],
+    });
+    await withOpenSession(h);
+    setCompacting.mockClear();
+
+    const pending = h.controller.handleClientMessage({
+      type: 'session/compact',
+      payload: { sessionKey: 'sess-1' },
+    });
+    expect(setCompacting).toHaveBeenCalledWith('sess-1', true);
+    hold.finish();
+    await pending;
+    expect(setCompacting).toHaveBeenLastCalledWith('sess-1', false);
   });
 
   it('a failed compaction also releases the busy state', async () => {
@@ -1516,6 +1555,36 @@ describe('HostSessionController chat/edit', () => {
       .at(-1)
       ?.payload.sessions.map((session) => session.id);
     expect(listed).toEqual(['sess-1']);
+  });
+
+  it('keeps a hot subagent nested when its row is outside the published pages', async () => {
+    // The index holds an old watched child that the first page does not. Before
+    // folding hot sessions in, the host rebuilt its row from the live gateway:
+    // the UI then showed a composer and detached it from its parent.
+    const child: SessionSummary = {
+      id: 'sess-1',
+      title: 'Watched child',
+      cwd: WORKSPACE.cwd,
+      updatedAt: 1_000,
+      messageCount: 7,
+      parentId: 'parent-1',
+      subagent: true,
+    };
+    const h = harness({
+      catalogRead: (id) => Promise.resolve(id === child.id ? child : undefined),
+    });
+    await withOpenSession(h);
+    h.messages.length = 0;
+    await h.controller.handleClientMessage({ type: 'session/list', payload: {} });
+
+    const listed = h.messages
+      .filter(
+        (message): message is Extract<HostToClientMessage, { type: 'session/list' }> =>
+          message.type === 'session/list',
+      )
+      .at(-1)
+      ?.payload.sessions;
+    expect(listed).toEqual([child]);
   });
 
   it('edits through the key the engine was given when the prompt has no text', async () => {

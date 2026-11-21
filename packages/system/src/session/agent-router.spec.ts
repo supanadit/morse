@@ -964,6 +964,31 @@ describe('AgentRouter catalog', () => {
     expect(listed.map((session) => session.title)).toEqual(['pi c', 'opencode b', 'pi a']);
   });
 
+  it('projects one indexed row by id with its lineage, for a hot session outside the page', async () => {
+    const store = new MemoryStore();
+    const record = recordOf('pi', 'child-1', {
+      title: 'Watched child',
+      parentId: 'parent-1',
+      subagent: true,
+    });
+    store.rows.set(record.id, record);
+    const { router } = build({
+      store,
+      engines: [{ kind: 'pi', catalog: new RecordingCatalog() }],
+    });
+
+    expect(await router.read(record.id)).toEqual({
+      id: record.id,
+      title: 'Watched child',
+      cwd: '/work/project',
+      updatedAt: 1_000,
+      messageCount: 1,
+      parentId: 'parent-1',
+      subagent: true,
+    });
+    expect(await router.read('missing')).toBeUndefined();
+  });
+
   it('adds a session created outside Morse on the next read and does not re-scan inside the window', async () => {
     const store = new MemoryStore();
     let scans = 0;

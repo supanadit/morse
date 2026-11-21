@@ -84,7 +84,7 @@ export class ComposerSync {
       return;
     }
     this.queue.remove(item.id);
-    this.morse.prompt(item.text, mode, item.images, item.pins);
+    this.morse.prompt(item.text, mode, item.images, item.pins, owner);
   }
 
   /** Clears the pause and runs the queue head now. */

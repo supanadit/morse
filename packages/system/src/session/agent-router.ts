@@ -363,6 +363,12 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
     };
   }
 
+  /** One indexed session by Morse id, projected the same way as the paged list. */
+  async read(id: string): Promise<SessionSummary | undefined> {
+    const record = await this.deps.store.read(id);
+    return record === undefined ? undefined : toSessionSummary(record);
+  }
+
   /** Sessions whose title or project path contains the query, capped to a ceiling. */
   async search(
     query: string,

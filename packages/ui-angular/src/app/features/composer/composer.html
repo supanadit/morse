@@ -113,14 +113,18 @@
                 >
                   ✎ <span>edit</span>
                 </button>
-                <button
-                  type="button"
-                  class="queue-action"
-                  title="Send now"
-                  (click)="sendQueued(item)"
-                >
-                  ➤ <span>send</span>
-                </button>
+                <!-- A compaction owns this conversation: the row stays editable, but
+                     nothing can jump the queue until the rewrite finishes. -->
+                @if (!sessionBusy()) {
+                  <button
+                    type="button"
+                    class="queue-action"
+                    title="Send now"
+                    (click)="sendQueued(item)"
+                  >
+                    ➤ <span>send</span>
+                  </button>
+                }
                 <button
                   type="button"
                   class="queue-remove"

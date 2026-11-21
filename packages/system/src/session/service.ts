@@ -511,6 +511,15 @@ export class SessionRegistry {
   }
 
   /**
+   * One indexed session by Morse id. A host folding a hot session into its
+   * sidebar uses this to keep the row's true lineage and timestamp instead of
+   * fabricating one from the live gateway.
+   */
+  summary(key: string): Promise<SessionSummary | undefined> {
+    return this.deps.catalog.read?.(key) ?? Promise.resolve(undefined);
+  }
+
+  /**
    * Sets a title the reader chose. Morse's index holds it, so no engine is
    * started or written to; the catalog answers false when the row is gone.
    */

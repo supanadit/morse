@@ -55,6 +55,14 @@ export interface SessionCatalog {
    */
   list(): Promise<SessionSummary[]>;
   /**
+   * One session by Morse id, in the sidebar's shape. Optional: a catalog that
+   * cannot address a single row directly leaves it to the caller's live
+   * placeholder. Morse's index is the authority for a session's lineage, so a
+   * host folding in a hot session outside its published pages must read this
+   * rather than invent a row from the gateway's state.
+   */
+  read?(id: string): Promise<SessionSummary | undefined>;
+  /**
    * More of one project's sessions, newest first, starting at `offset`.
    * Optional: a catalog that can only answer `list()` in full omits it, and the
    * sidebar simply has nothing more to load for that project.

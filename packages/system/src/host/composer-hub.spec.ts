@@ -163,6 +163,35 @@ describe('ComposerHub', () => {
     expect(test.prompt).toHaveBeenCalledTimes(1);
   });
 
+  it('holds a session’s queue and Send-now during its compaction, without holding another’s', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: false });
+    test.states.set('s2', { streaming: false });
+    test.hub.setCompacting('s1', true);
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('during') });
+    await settle();
+    expect(test.prompt).not.toHaveBeenCalled();
+
+    // Even an explicit Send-now leaves the item queued while the rewrite runs.
+    const id = test.stateOf('s1')?.queue[0]?.id;
+    expect(id).toBeDefined();
+    test.hub.handle({ sessionId: 's1', action: 'send', itemId: id! });
+    await settle();
+    expect(test.prompt).not.toHaveBeenCalled();
+    expect(test.stateOf('s1')?.queue.map((item) => item.text)).toEqual(['during']);
+
+    // A different conversation is not affected by s1's gate.
+    test.hub.handle({ sessionId: 's2', action: 'enqueue', item: input('elsewhere') });
+    await settle();
+    expect(test.prompt).toHaveBeenCalledWith('elsewhere', 'new', [], [], 's2');
+
+    test.hub.setCompacting('s1', false);
+    await settle();
+    expect(test.prompt).toHaveBeenCalledWith('during', 'new', [], [], 's1');
+  });
+
   it('sends one queued item now, steering while a run is live', async () => {
     const test = setup();
     dir = test.dataDir;
