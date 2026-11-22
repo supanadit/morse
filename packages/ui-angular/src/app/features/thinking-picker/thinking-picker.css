@@ -36,7 +36,7 @@
 /* On a phone the composer's trigger shrinks to an icon: the coloured brain
    already shows the level, and the label's room is owed to the engine and mode
    pills. The text stays in the DOM for the tooltip, readers and tests. */
-@container (max-width: 460px) {
+@container (max-width: 380px) {
   :host(.thinking-host) .level {
     display: none;
   }

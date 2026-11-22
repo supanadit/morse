@@ -345,7 +345,12 @@
   border-color: var(--morse-input-border);
   background: var(--morse-input-bg);
   color: var(--morse-input-fg);
-  font-size: 15px;
+}
+/* A centred SVG, unlike a text glyph, spins around the circle's own centre. */
+.reload-config .glyph {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 .reload-config:hover:not(:disabled) {
   background: var(--morse-input-bg);
@@ -1028,11 +1033,6 @@ textarea:focus-visible {
   .model-button {
     max-width: calc(100% - 84px);
   }
-  /* The name is already ellipsized to nothing at this width; drop its box so
-     the engine and mode pills get the room to show their full labels. */
-  .model-button .label {
-    display: none;
-  }
 }
 /* The narrowest box: the hint gives up its tail before it gives up its row.
  * Ellipsis, not a second line — the guidance stays on the one row with the
@@ -1051,6 +1051,11 @@ textarea:focus-visible {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* The name is already ellipsized to nothing at this width; drop its box so
+     the engine and mode pills get the room to show their full labels. */
+  .model-button .label {
+    display: none;
   }
 }
 
