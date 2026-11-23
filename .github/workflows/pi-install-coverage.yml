@@ -115,8 +115,8 @@ jobs:
           node-version: 24
           cache: npm
 
-      # `--ignore-scripts`: this job never runs the UI or a host, and skipping
-      # install scripts keeps node-pty (the browser terminal, native) out of it.
+      # `--ignore-scripts`: this job never runs the UI or a host, so it needs
+      # none of their install scripts.
       - name: Install Morse's dependencies
         run: npm ci --ignore-scripts
 

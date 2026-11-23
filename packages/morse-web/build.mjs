@@ -52,7 +52,7 @@ const runtimeExternals = [
   'rxjs',
   'rxjs/*',
   'ws',
-  'node-pty',
+  '@lydell/node-pty',
   'yaml',
 ];
 

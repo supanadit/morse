@@ -17,7 +17,7 @@ this server together with the inlined `@morse/*` libraries and the frontend.
 | `src/internal/ws/morse.gateway.ts` | One `HostSessionController` per WebSocket; a shared registry so sessions outlive a connection |
 | `src/internal/ws/session-factory.service.ts` | Per-connection wiring, capabilities, and the host commands (files, git, uploads, MCP) |
 | `src/internal/workspace/` | `file-store`, `git-log`, `directory-browser`, `workbench-store`, `workspace-index` |
-| `src/internal/terminal/` | The `node-pty` terminal backend for the bottom panel |
+| `src/internal/terminal/` | The `@lydell/node-pty` terminal backend for the bottom panel |
 | `src/internal/uploads/`, `internal/http/`, `internal/projects/`, `internal/logging/` | Upload inbox, `/api/health`, the project allow-list, the Nest logger |
 
 ## Run it

@@ -12,7 +12,7 @@ export interface ProcessRow {
 
 /**
  * Reads the process table once. `ps` is POSIX-only; Windows has no equivalent,
- * so there the table is empty and a teardown falls back to `node-pty`'s own
+ * so there the table is empty and a teardown falls back to `@lydell/node-pty`'s own
  * `kill`, which already ends the pseudoconsole's whole process list.
  *
  * Any failure returns `[]`: a missing `ps` (a minimal container) or a denied
@@ -84,7 +84,7 @@ export function descendantRows(root: number, table: ProcessRow[]): ProcessRow[] 
 }
 
 /**
- * Every process in a pty session (`sid` == the shell's pid: `node-pty` calls
+ * Every process in a pty session (`sid` == the shell's pid: `@lydell/node-pty` calls
  * `setsid`, so the shell leads its own session and its descendants share it
  * unless one calls `setsid` itself). This is what catches a child that
  * reparented to init after the shell died — the force pass after the grace.

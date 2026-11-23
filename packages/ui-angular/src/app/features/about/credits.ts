@@ -191,12 +191,12 @@ export const CREDITS: readonly CreditGroup[] = [
         role: 'The WebSocket server NestJS sits on.',
       },
       {
-        name: 'node-pty',
-        packages: ['node-pty'],
+        name: '@lydell/node-pty',
+        packages: ['@lydell/node-pty'],
         license: 'MIT',
-        url: 'https://github.com/microsoft/node-pty',
+        url: 'https://github.com/lydell/node-pty',
         role: 'The pseudo-terminal the browser host runs the panel\u2019s shell in.',
-        by: 'Microsoft',
+        by: 'Simon Lydell',
       },
       {
         name: 'reflect-metadata',

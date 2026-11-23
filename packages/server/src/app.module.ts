@@ -14,6 +14,7 @@ import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
 import { ServerTerminalBackend } from './internal/terminal/terminal.service.js';
+import { ptyAvailable } from './internal/terminal/pty.js';
 import {
   createAgentRouter,
   createBotService,
@@ -122,7 +123,18 @@ import {
       inject: [MORSE_BOT_SERVICE],
     },
     MorseRegistryLifecycle,
-    ServerTerminalBackend,
+    {
+      // No PTY on this platform: no backend, so the session factory reports the
+      // capability off and the client hides the bottom panel instead of failing.
+      provide: ServerTerminalBackend,
+      useFactory: (
+        policy: ServerProjectPolicy,
+        logger: MorseLogger,
+        config: MorseServerConfig,
+      ): ServerTerminalBackend | undefined =>
+        ptyAvailable ? new ServerTerminalBackend(policy, logger, config) : undefined,
+      inject: [MORSE_PROJECT_POLICY, MORSE_LOGGER, MORSE_CONFIG],
+    },
     // One session factory for the host: it owns the registry, the terminals and
     // the per-session state a connection reads.
     MorseSessionFactory,

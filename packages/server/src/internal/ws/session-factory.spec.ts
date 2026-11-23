@@ -19,6 +19,7 @@ import {
 } from './session-factory-helpers.js';
 import { MorseGateway } from './morse.gateway.js';
 import type { MorseServerConfig } from '../../app/config.js';
+import type { ServerTerminalBackend } from '../terminal/terminal.service.js';
 
 const WORKSPACE = { cwd: '/tmp/morse-bot-factory', name: 'morse-bot-factory' };
 const CONFIG = {
@@ -93,7 +94,11 @@ function fakeBot() {
 function factoryWith(
   bot: BotService | undefined,
   extras?: AgentExtras,
-  options: { canOpen?: (cwd: string) => boolean; defaultCwd?: string } = {},
+  options: {
+    canOpen?: (cwd: string) => boolean;
+    defaultCwd?: string;
+    terminal?: ServerTerminalBackend;
+  } = {},
 ): MorseSessionFactory {
   const registry = {
     subscribe: () => () => undefined,
@@ -123,7 +128,7 @@ function factoryWith(
     { canOpen: options.canOpen ?? (() => true) } as unknown as FactoryArgs[2],
     silentLogger,
     CONFIG,
-    {} as FactoryArgs[5],
+    options.terminal,
     router as FactoryArgs[6],
     {} as FactoryArgs[7],
     bot,
@@ -704,6 +709,25 @@ describe('configFix', () => {
 
     expect(engineFix).toHaveBeenCalledWith({ fileId: 'config', path, scope: 'global' });
     expect(lastResult(messages)).toMatchObject({ ok: true, data: { ok: true } });
+  });
+});
+
+describe('MorseSessionFactory terminal wiring', () => {
+  it('advertises the terminal only when a PTY backend resolved', () => {
+    const backend = {} as ServerTerminalBackend;
+    expect(factoryWith(undefined, undefined, { terminal: backend }).capabilities().terminal).toBe(
+      true,
+    );
+    expect(factoryWith(undefined).capabilities().terminal).toBe(false);
+  });
+
+  it('refuses a terminal without a backend instead of throwing', async () => {
+    const { controller, messages } = connect(factoryWith(undefined));
+    await controller.handleClientMessage({
+      type: 'terminal/open',
+      payload: { terminalId: 't1' },
+    });
+    expect(messages.some((message) => message.type === 'terminal/exit')).toBe(true);
   });
 });
 

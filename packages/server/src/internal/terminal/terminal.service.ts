@@ -1,4 +1,4 @@
-import { spawn as spawnPty, type IPty } from 'node-pty';
+import { spawnPty, type IPty } from './pty.js';
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { UnsupportedByHostError, type MorseLogger } from '@morse/system';
 import {
@@ -81,7 +81,7 @@ interface TerminalEntry {
 
 /**
  * The browser host's terminal (driven adapter). A real pseudo-terminal via
- * `node-pty`, so the shell is interactive exactly as in a desktop terminal:
+ * `@lydell/node-pty`, so the shell is interactive exactly as in a desktop terminal:
  * prompts, colours, line editing, resize and full-screen programs (vim, top)
  * all work.
  *
@@ -184,7 +184,7 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
   /**
    * Ends a shell and everything it started.
    *
-   * `node-pty`'s own `kill` signals only the shell's pid on Unix
+   * `@lydell/node-pty`'s own `kill` signals only the shell's pid on Unix
    * (`process.kill(this.pid, signal || 'SIGHUP')`), so a dev server the reader
    * launched — a child, usually in a process group of its own under job control —
    * survives the close, reparents to init, and keeps its port. The `SIGKILL`
@@ -196,7 +196,7 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
    * re-reads the table, because by then the children have reparented to init and
    * are only findable by the pty session they still share.
    *
-   * Windows is left to `node-pty`: its `kill()` already takes the pseudoconsole's
+   * Windows is left to `@lydell/node-pty`: its `kill()` already takes the pseudoconsole's
    * whole process list, and there is no `ps` table to walk.
    */
   private killPty(pty: IPty | undefined): void {

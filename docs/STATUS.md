@@ -212,7 +212,7 @@ turns them on so the panel stands on its own:
   front so the folder nearest the file stays visible, and all chips share one height (two `postgresql.yaml`
   are told apart without a tooltip); with no shared name, every chip keeps its single row.
 - **Bottom panel**: a chip row below the composer that opens a tool and drags taller from its top edge. Its
-  first tool is a **terminal** — one or more real PTYs (`node-pty`) per session, each in its own tab, in the
+  first tool is a **terminal** — one or more real PTYs (`@lydell/node-pty`) per session, each in its own tab, in the
   viewing project, rendered with xterm.js (ANSI, colours, cursor, resize, full-screen programs). Terminals
   are never shared across sessions and close with their session tab; the shell itself lives in the host, not
   the page, so a reload reattaches and replays the scrollback, and the output survives a host restart from

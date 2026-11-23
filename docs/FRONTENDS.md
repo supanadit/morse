@@ -455,17 +455,20 @@ after `morse stop`/`start` reopens where the reader `cd`'d instead of at the ses
 directory wins over its owner's in `terminalsWithOwnerCwd`.
 - The backend is a port (`TerminalBackend`, `packages/host/src/terminal.ts`), so the controller
 owns the wire conversation and the host owns the process. The NestJS host implements it in
-`ServerTerminalBackend` with **`node-pty`** — a real pseudo-terminal in the viewing session's directory,
+`ServerTerminalBackend` with **`@lydell/node-pty`** — a real pseudo-terminal in the viewing session's directory,
 gated by `ProjectPolicy` like opening a session — so prompts, colours, line editing, resize and
-full-screen programs (vim, top) all work as in a desktop terminal. `node-pty` is a native module,
-kept external in the `morse-web` bundle and installed by npm (it needs a compiler on Linux).
-- **A close reaps the whole job, not just the shell.** `node-pty`'s own `kill` signals only the
+full-screen programs (vim, top) all work as in a desktop terminal. It is a native module, but ships
+prebuilt binaries per platform, so installing Morse needs no compiler; it stays external in the
+`morse-web` bundle. If no prebuild matches the platform or Node ABI, the loader gives up quietly:
+no backend is registered, `capabilities.terminal` is false and the client hides the bottom panel,
+while the rest of Morse runs unchanged.
+- **A close reaps the whole job, not just the shell.** `@lydell/node-pty`'s own `kill` signals only the
 shell's pid on Unix, so a `pnpm start:dev`/dev-server child survives a `terminal/close`, reparents
 to init and keeps its port. `ServerTerminalBackend` therefore reads the process table (POSIX `ps`)
 and signals the shell, every descendant and each of their process groups — a graceful `SIGHUP`
 first (so a server still prints its shutdown log), then a `SIGKILL` pass that re-reads the table by
 the pty session (`sid`) and catches children that reparented while the shell died. Windows keeps
-`node-pty`'s no-argument `kill`, which already ends the ConPTY's whole process list. `Ctrl+C` in
+`@lydell/node-pty`'s no-argument `kill`, which already ends the ConPTY's whole process list. `Ctrl+C` in
 the pane is the shell's own foreground-group `SIGINT` and is unchanged.
 - The view is **xterm.js** (`@xterm/xterm` plus the fit and WebGL addons), imported lazily the first
 time the panel opens so a reader who never opens it downloads nothing. xterm renders the PTY's raw

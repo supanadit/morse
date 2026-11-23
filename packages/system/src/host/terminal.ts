@@ -5,7 +5,7 @@
  *
  * Kept free of `node:*` so the same controller serves the VS Code host (which
  * leaves the capability off) and the NestJS host (which implements it with
- * `node-pty`).
+ * `@lydell/node-pty`).
  */
 
 /** How a terminal is opened. `cwd` is already policy-approved by the host. */

@@ -121,7 +121,7 @@ export class MorseSessionFactory {
     @Inject(MORSE_PROJECT_POLICY) private readonly policy: ServerProjectPolicy,
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
     @Inject(MORSE_CONFIG) private readonly config: MorseServerConfig,
-    @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend,
+    @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend | undefined,
     @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
     @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
     // Bot mode is optional at the composition root: only a host that provides the
@@ -213,9 +213,10 @@ export class MorseSessionFactory {
       // otherwise, which the answer's `engine` reports to the panel.
       searchPanel: true,
       // VS Code already has an integrated terminal; the browser host has none, so
-      // the bottom panel's terminal is this host's. It runs in the viewing
-      // session's directory and is gated by `ProjectPolicy`, like a session.
-      terminal: true,
+      // the bottom panel's terminal is this host's when a PTY backend resolved.
+      // A platform without a prebuilt PTY reports `false` and the client hides
+      // the panel rather than offering a terminal that cannot start.
+      terminal: this.terminal !== undefined,
       // The browser host restores the tabs, panel, terminals and half-written
       // prompts the reader left open, kept under `<MORSE_HOME>`. VS Code has its
       // own tab restoration and leaves this off.
@@ -308,7 +309,7 @@ export class MorseSessionFactory {
       // not on this machine.
       onHostCommand: (command, args, context) =>
         this.runHostCommand(command, args, context, remoteAddress),
-      // The bottom panel's shell: this host can spawn one on its own machine.
+      // The bottom panel's shell, when this host has a PTY backend at all.
       terminal: this.terminal,
       agentHint:
         'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * node-pty is a native module, so the shell is a hand-driven fake here: the test
+ * The PTY is a native module, so the shell is a hand-driven fake here: the test
  * writes output at will and can make a `kill` print the shutdown lines a dev
  * server emits as it stops.
  */
@@ -63,7 +63,7 @@ const pty = vi.hoisted(() => {
   };
 });
 
-vi.mock('node-pty', () => ({ spawn: pty.spawn }));
+vi.mock('./pty.js', () => ({ spawnPty: pty.spawn }));
 
 /**
  * The tree walk shells out to `ps` and signals real process groups. The service

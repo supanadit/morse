@@ -55,7 +55,7 @@
     "@nestjs/platform-express": "^12.1.2",
     "@nestjs/platform-ws": "^12.1.2",
     "@nestjs/websockets": "^12.1.2",
-    "node-pty": "^1.1.0",
+    "@lydell/node-pty": "1.2.0-beta.18",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "ws": "^8.22.0",

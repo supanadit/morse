@@ -50,7 +50,7 @@ packages/morse-web/
 
 1. **server** — entry `packages/server/src/main.ts`, `bundle: true`, `platform: node`, `format: esm`,
    `target: node20`.
-   - `external: ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws', 'node-pty', 'yaml']` — the
+   - `external: ['@nestjs/*', 'reflect-metadata', 'rxjs', 'rxjs/*', 'ws', '@lydell/node-pty', 'yaml']` — the
      runtime npm installs. Keep this list equal to `package.json` `dependencies`: the output is ESM, so a
      CommonJS dependency that `require()`s a builtin (`yaml` → `require('process')`) must not be inlined.
    - `node:*` builtins are external automatically under `platform: node`.
