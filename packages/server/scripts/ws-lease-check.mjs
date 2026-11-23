@@ -1,6 +1,6 @@
-// Verifies the NestJS session lease: a client that reconnects within
-// MORSE_SESSION_GRACE_MS must reattach to the same pi session (and get its
-// transcript back) instead of spawning a new `pi` process.
+// Verifies the NestJS session lease: a client that reconnects before the
+// registry's grace period expires reattaches to the same session (and gets its
+// transcript back) instead of spawning a new agent process.
 //
 //   node packages/server/scripts/ws-lease-check.mjs [ws://127.0.0.1:4399/ws]
 //   LEASE_PAUSE_MS=12000 node ...   # must report a NEW session (grace expired)

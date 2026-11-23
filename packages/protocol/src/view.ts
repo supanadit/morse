@@ -17,7 +17,7 @@ export type ConnectionStatus = 'connecting' | 'ready' | 'closed' | 'error';
 
 /**
  * The single state object every frontend renders. It is produced by a pure
- * reducer, so Angular/React/Svelte bindings only differ in how they render it.
+ * reducer, so the Angular binding only has to render it.
  */
 export interface SessionView {
   protocolVersion: number;

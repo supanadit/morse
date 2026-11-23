@@ -37,18 +37,15 @@ import { MORSE_TRANSPORT } from './transport.token';
  * back (`view.frontend`) comes from `webview.manifest.json`, which is generated
  * from this package's manifest at build time — that is the authoritative one, and
  * the About dialog renders it. This literal only exists because the client has no
- * manifest to read at runtime, and `core/frontend-identity.spec.ts` fails when it
+ * manifest to read at runtime, and `host/frontend-identity.spec.ts` fails when it
  * drifts from `package.json`.
  */
 export const FRONTEND_IDENTITY = { name: '@morse/ui-angular', version: '0.31.0' };
 const SLOW_CONNECTION_MS = 6_000;
 
 /**
- * Thin Angular binding over the framework-free `MorseClient`.
- *
- * This is deliberately the ONLY place where Angular meets the wire protocol:
- * a React or Svelte frontend replaces this file and the components, while
- * `@morse/protocol` and `@morse/ui-runtime` stay exactly the same.
+ * The only place Angular meets the wire protocol: it binds `SessionView` to
+ * signals and forwards UI events as client actions.
  */
 @Injectable({ providedIn: 'root' })
 export class MorseService {

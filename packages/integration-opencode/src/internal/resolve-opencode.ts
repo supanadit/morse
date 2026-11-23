@@ -199,7 +199,10 @@ function unwrapShim(shim: string): OpenCodeSpawn | undefined {
     }
     for (const match of line.matchAll(/"([^"]*(?:%~dp0|%dp0%)[^"]*)"/gi)) {
       const relative = match[1]!.split(batchDir).pop() ?? '';
-      const resolved = join(base, relative.replace(/^[\\/]+/, ''));
+      // A .cmd body uses backslashes; join() only treats them as separators on
+      // Windows, and this helper is exported so the shim parsing is testable on
+      // any OS. Forward slashes work on both.
+      const resolved = join(base, relative.replace(/^[\\/]+/, '').replace(/\\/g, '/'));
       if (isProgram(resolved)) {
         target = resolved;
       }

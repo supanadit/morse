@@ -4,8 +4,6 @@ import { PROTOCOL_VERSION } from '@morse/protocol';
 
 export interface WebviewHtmlOptions {
   title: string;
-  /** Frontend identity to log, purely informational. */
-  frontend?: { name: string; version: string };
   /**
    * A hash route to enter before the bundle boots (`/mcp` -> `#/mcp`). One
    * Angular build serves several surfaces: the chat view and the MCP editor
@@ -15,11 +13,10 @@ export interface WebviewHtmlOptions {
 }
 
 /**
- * Serves the built frontend inside the webview.
+ * Serves the built Angular bundle inside the webview.
  *
- * The frontend stays a plain static bundle: this function only rewrites the
- * `<base>` to the webview resource root and injects a CSP with a nonce, so any
- * frontend build (Angular today, React or Svelte tomorrow) works unchanged.
+ * The bundle stays plain static files: this function only rewrites `<base>` to
+ * the webview resource root and injects a CSP with a nonce.
  */
 export async function renderWebviewHtml(
   webview: vscode.Webview,

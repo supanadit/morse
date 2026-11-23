@@ -731,11 +731,6 @@ export class MorseSessionFactory {
   }
 
   /**
-   * The directory the command should touch, after `ProjectPolicy` approved it.
-   * The controller hands in what the client is viewing; the registry's active
-   * session is only a fallback for a host command issued without one.
-   */
-  /**
    * The MCP port of the engine the command names (`args.engine`), or the
    * default engine's when the client is older and names none. An engine that
    * has no MCP administration is a refusal — never another engine's config.

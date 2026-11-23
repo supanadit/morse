@@ -8,10 +8,11 @@ package**: no source of its own beyond the CLI, only build glue.
 
 ## The problem a single package has to solve
 
-The monorepo ships nine workspace packages, and eight of them are `private: true`:
+The monorepo ships eleven workspace packages, most of them `private: true`:
 
 ```
-protocol, agent, system, host, integration-pi, ui-runtime, ui-angular, extension, server
+protocol, agent, system, engine-config, integration-pi, integration-opencode,
+ui-runtime, ui-angular, extension, server, morse-web
 ```
 
 npm installs a package's dependency tree from the registry, so a published `@morse/server` could never

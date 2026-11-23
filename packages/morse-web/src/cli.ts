@@ -782,7 +782,7 @@ function printHelp(): void {
 
 // --- entry point -------------------------------------------------------------
 
-export async function run(argv: string[]): Promise<number> {
+async function run(argv: string[]): Promise<number> {
   const options = parseArgs(argv);
 
   if (options.version || options.command === 'version') {

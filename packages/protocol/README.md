@@ -27,5 +27,5 @@ npm run build -w @morse/protocol
 npm run check-types -w @morse/protocol
 ```
 
-See [`docs/FRONTENDS.md`](../../docs/FRONTENDS.md) for the frontend contract and
+See [`docs/FRONTEND.md`](../../docs/FRONTEND.md) for the frontend contract and
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for where this sits.

@@ -1,8 +1,8 @@
 # @morse/ui-runtime
 
 The **framework-free frontend runtime**: the transport abstraction and the client that turns wire
-messages into a single `SessionView`. A frontend (Angular today, React/Svelte tomorrow) only renders
-that view and calls the actions — all the protocol logic lives here.
+messages into a single `SessionView`. The Angular frontend only renders that view and calls the actions —
+all the protocol logic lives here.
 
 Part of the [Morse](../../README.md) monorepo. It depends on `@morse/protocol` only.
 
@@ -23,4 +23,4 @@ npm run test -w @morse/ui-runtime
 npm run build -w @morse/ui-runtime
 ```
 
-See [`docs/FRONTENDS.md`](../../docs/FRONTENDS.md) for what a frontend must implement.
+See [`docs/FRONTEND.md`](../../docs/FRONTEND.md) for what the frontend must implement.

@@ -6,11 +6,22 @@ import * as vscode from 'vscode';
 import { selectionSpan } from '@morse/system';
 import { escapeHtml } from './webview-html';
 
-/** A string argument, or the empty string when the panel sent none. */
-
-/** A numeric argument, or 0 when the panel did not send one. */
-
-/** The scope a mutation edits, when the panel named one. */
+/** The span of an editor's current selections, if any. */
+export function selectionSpanOf(editor: vscode.TextEditor) {
+  return selectionSpan(
+    editor.selections,
+    (selection) =>
+      editor.document.getText(
+        new vscode.Range(
+          selection.start.line,
+          selection.start.character,
+          selection.end.line,
+          selection.end.character,
+        ),
+      ),
+    (line) => editor.document.lineAt(line).text.length,
+  );
+}
 
 /** The selection span of an editor, if any, as a `context/selection` payload. */
 export function toSelectionPayload(
@@ -25,19 +36,7 @@ export function toSelectionPayload(
   characters?: number;
   text?: string;
 } {
-  const span = selectionSpan(
-    editor.selections,
-    (selection) =>
-      editor.document.getText(
-        new vscode.Range(
-          selection.start.line,
-          selection.start.character,
-          selection.end.line,
-          selection.end.character,
-        ),
-      ),
-    (line) => editor.document.lineAt(line).text.length,
-  );
+  const span = selectionSpanOf(editor);
   return span === undefined ? { path } : { path, ...span };
 }
 

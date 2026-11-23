@@ -117,18 +117,9 @@ export function parseMcpServerInput(raw: unknown): McpServerInput {
 }
 
 export interface PiMcpOptions {
-  /**
-   * Retained for compatibility with the CLI-backed manager. Listing now reads
-   * pi's files directly, so nothing resolves or spawns the binary.
-   */
-  piPath?: string;
-  /** Retained for compatibility; see `piPath`. */
-  nodeEntryPath?: string;
   env?: NodeJS.ProcessEnv;
   /** Override the agent directory; defaults to `PI_CODING_AGENT_DIR` or `~/.pi/agent`. */
   agentDir?: string;
-  /** Retained for compatibility; probes use `PROBE_TIMEOUT_MS`. */
-  timeoutMs?: number;
   /**
    * The whole probe's budget across every enabled server, so a panel with many
    * servers still answers inside the frontend's status timeout. Defaults to

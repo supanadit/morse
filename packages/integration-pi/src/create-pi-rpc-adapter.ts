@@ -107,8 +107,6 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
     // The same clock-bound prober the editor uses: `status({ probe: true })`
     // connects servers through the one client Morse owns.
     this.mcp = new PiMcp({
-      piPath: config.piPath,
-      nodeEntryPath: config.nodeEntryPath,
       env: config.env,
       inspector: this.inspector,
     });

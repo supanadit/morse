@@ -1,9 +1,5 @@
-// Writes the frontend manifest next to the built index.html.
-//
-// It is what makes the frontend swappable: any host reads
-// `webview.manifest.json`, checks `protocolVersion`, and serves whatever
-// directory it points at. Build a different frontend package and the hosts do
-// not change.
+// Writes the frontend manifest next to the built index.html. Hosts read it to
+// reject a stale bundle and to name the build in the About dialog.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

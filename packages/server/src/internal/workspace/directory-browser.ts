@@ -1,27 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-
-/**
- * Heavy or generated directories a project picker never wants to step into.
- * Mirrors the file picker's skip list so both hosts hide the same noise.
- */
-const SKIPPED_DIRECTORIES = new Set([
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  'coverage',
-  'target',
-  'vendor',
-  'venv',
-  '__pycache__',
-  '.angular',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-]);
+import { SKIPPED_DIRECTORIES } from '@morse/system';
 
 /** One subdirectory row of the browser. */
 export interface DirectoryEntry {

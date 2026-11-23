@@ -507,7 +507,7 @@ export function mockConversation(): TranscriptItem[] {
     '| NestJS browser | `global` | projects → sessions |',
     '| VS Code | `workspace` | one group (open folders) |',
     '',
-    'See `docs/FRONTENDS.md` for the rule that frontends must read capabilities instead of guessing.',
+    'See `docs/FRONTEND.md` for the rule that the frontend reads capabilities instead of guessing.',
   ].join('\n');
 
   return [

@@ -147,9 +147,8 @@ export interface EditorSelectionPayload {
 }
 
 /**
- * The framework-agnostic Morse client. Angular, React and Svelte bindings all
- * wrap exactly this object — the reducer and the wire protocol live here, not in
- * the components.
+ * The framework-free Morse client. The reducer and wire protocol live here,
+ * not in the Angular components.
  */
 export interface MorseClient {
   getView(): SessionView;

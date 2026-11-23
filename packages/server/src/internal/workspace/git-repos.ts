@@ -2,6 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import type { Dirent } from 'node:fs';
 import type { GitRepoInfo, GitRepos } from '@morse/protocol';
+import { SKIPPED_DIRECTORIES } from '@morse/system';
 import { gitText } from './git-exec.js';
 import { resolveWithin } from './file-store.js';
 
@@ -26,27 +27,7 @@ const MAX_DEPTH = 3;
  */
 const BRANCH_CONCURRENCY = 16;
 
-/**
- * Directories the scan never descends into. Mirrors the file picker's skip list:
- * a dependency tree is not a set of repositories the reader owns, and walking it
- * would make the scan slow enough to feel broken.
- */
-const SKIPPED_DIRECTORIES = new Set([
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  'coverage',
-  'target',
-  'vendor',
-  'venv',
-  '__pycache__',
-  '.angular',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-]);
+/** A dependency tree is not a set of repositories the reader owns; skip it. */
 
 /**
  * The repositories a project holds: the one its directory sits in (if any) plus

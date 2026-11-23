@@ -86,9 +86,7 @@ Fix a refusal with:
 npm run build:ui && npm run sync-webview
 ```
 
-`sync-webview` copies `packages/ui-angular/dist` into `packages/extension/media/webview`. A different
-frontend is swapped in with `npm run sync-webview -- --frontend=ui-react` (note the `--`; npm drops flags on
-nested `npm run`). The `--frontend` flag is ignored if passed without `--`.
+`sync-webview` copies `packages/ui-angular/dist` into `packages/extension/media/webview`.
 
 ### 1.4 Development loop (F5)
 

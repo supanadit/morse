@@ -8,8 +8,8 @@ below is explicit so the structure can be audited rather than trusted.
 
 ```
                     ┌───────────────────────────────┐
-                    │  @morse/ui-angular (frontend) │   one frontend,
-                    └───────────────┬───────────────┘   swappable
+                    │  @morse/ui-angular (frontend) │   the only frontend
+                    └───────────────┬───────────────┘
               webview postMessage   │   WebSocket
         ┌───────────────────────────┴─────────────────────────────┐
         │                                                          │
@@ -30,7 +30,7 @@ below is explicit so the structure can be audited rather than trusted.
 
 A host only supplies a transport, its capabilities and the two optional adapters it can offer. The session
 controller, the transcript projector and the agent adapter are shared, so both hosts render the same
-conversation. See [`FRONTENDS.md`](FRONTENDS.md) for swapping Angular for React, Svelte or something else.
+conversation. See [`FRONTEND.md`](FRONTEND.md) for the Angular frontend and its wire contract.
 
 ## Packages
 
@@ -132,7 +132,7 @@ Port types never leak `vscode`, NestJS or child-process types: `pi`'s protocol r
   enforcement), and `protocol` has zero project imports. `system` imports `agent` and `protocol`.
   A harness adapter depends on `agent` alone; only Morse's own code sees `morse`.
 - **R2 ports on the consuming side** — see the table above; nothing port-shaped lives in a `domain.ts`.
-- **R3 adapter isolation / swappability** — the integration packages are the only ones that spawn processes or hold a server connection;
+- **R3 adapter isolation** — the integration packages are the only ones that spawn processes or hold a server connection;
   `ui-angular` is the only one that imports Angular; the VS Code API appears only under
   `extension/src/internal/vscode/`. Adapters never import each other.
 - **R4 shared adapter utilities** — `system/src/host/` is technology-agnostic host glue (no `vscode`, no NestJS,

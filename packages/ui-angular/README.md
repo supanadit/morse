@@ -25,7 +25,7 @@ npm run start -w @morse/ui-angular     # dev server
 The build output is what hosts serve. For the VS Code host, sync it into the extension:
 
 ```bash
-npm run sync-webview -- --frontend=<folder>     # or --frontend=ui-angular
+npm run sync-webview
 ```
 
 ## Tests
@@ -37,17 +37,15 @@ npm run test -w @morse/ui-angular      # vitest + jsdom, using the in-memory tra
 ## Structure
 
 ```text
-src/app/core/            transport token, MorseService (Angular <-> protocol), shell state, tabs,
-                         workbench persistence, MCP state, git panel state, attachments, shortcuts
-src/app/chat/            transcript, composer, tab strip, header, bottom panel + terminal,
-                         model/thinking pickers, MCP panel, file preview, tool group
-src/app/nav/             session navigation, project picker, file explorer
-src/app/git/             the browser host's git panel and graph
-src/app/palette/         the command palette
-src/app/agent/           the "pi is not installed" setup screen
+src/app/host/            transport token, MorseService (Angular <-> protocol), app-local state
+src/app/features/        one folder per surface: transcript, composer, session nav, git, MCP,
+                         terminal, pickers, bot mode, and the setup screen
+src/app/shell/           the app shell, activity rail, toolbar and status bar
+src/app/state/           tabs, workbench, MCP, git and other stores
+src/app/services/        shortcuts, updates, workspace files
+src/app/ui/              shared DOM primitives: panes, splitter, markdown, tree list, icons
 src/styles.css           VS Code theme variables with browser fallbacks
 scripts/write-manifest.mjs  writes the frontend manifest hosts validate against
 ```
 
-See [`docs/FRONTENDS.md`](../../docs/FRONTENDS.md) for what a frontend must implement, and how to add a
-React or Svelte alternative without touching any host.
+See [`docs/FRONTEND.md`](../../docs/FRONTEND.md) for the wire contract this frontend implements.

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { selectionSpan } from '@morse/system';
+import { selectionSpanOf } from './view-helpers';
 
 /** What the host reports about the editor's current state. */
 export interface LiveSelectionPreview {
@@ -112,24 +112,7 @@ export function toLivePreview(editor: vscode.TextEditor | undefined): LiveSelect
     return { path: '' };
   }
   const path = vscode.workspace.asRelativePath(editor.document.uri, false);
-  const span = toSpan(editor);
+  const span = selectionSpanOf(editor);
   // Focused, nothing selected: the whole file is the preview.
   return span === undefined ? { path } : { path, ...span };
-}
-
-/** The shared span for the editor's current selections, if any. */
-function toSpan(editor: vscode.TextEditor) {
-  return selectionSpan(
-    editor.selections,
-    (selection) =>
-      editor.document.getText(
-        new vscode.Range(
-          selection.start.line,
-          selection.start.character,
-          selection.end.line,
-          selection.end.character,
-        ),
-      ),
-    (line) => editor.document.lineAt(line).text.length,
-  );
 }

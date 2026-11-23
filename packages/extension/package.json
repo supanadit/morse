@@ -210,7 +210,7 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
     "verify-webview": "node scripts/verify-webview.mjs",
-    "vsix": "npm run package && node scripts/verify-webview.mjs && node -e \"require('node:fs').mkdirSync('../../dist', { recursive: true })\" && vsce package --no-dependencies --out ../../dist/morse.vsix",
+    "vsix": "node scripts/verify-webview.mjs && node -e \"require('node:fs').mkdirSync('../../dist', { recursive: true })\" && vsce package --no-dependencies --out ../../dist/morse.vsix",
     "compile-tests": "tsc -p tsconfig.test.json",
     "pretest": "npm run compile-tests && npm run compile",
     "check-types": "tsc --noEmit -p tsconfig.json",

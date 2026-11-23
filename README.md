@@ -180,7 +180,7 @@ tarballs, `npm link`, settings and troubleshooting — is in [`docs/INSTALL.md`]
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | VS Code settings and the browser host's environment variables                                            |
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)     | Build/dev commands, F5, `?mock=1`, and the pipeline checks                                               |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)   | The two hosts, packages, ports and the layering rules                                                    |
-| [`docs/FRONTENDS.md`](docs/FRONTENDS.md)         | The frontend contract and how to add a React/Svelte/Vue one                                              |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md)           | The Angular frontend and the wire contract                                                               |
 | [`docs/PACKAGING.md`](docs/PACKAGING.md)         | How the browser host becomes one npm package, and how to publish it                                      |
 | [`docs/RELEASING.md`](docs/RELEASING.md)         | Cutting a semver release: bump, tag, CI publish of the VSIX and npm package                              |
 | [`docs/STATUS.md`](docs/STATUS.md)               | What is implemented, and what is not built yet                                                           |

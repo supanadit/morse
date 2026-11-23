@@ -44,8 +44,6 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.mjs",
-    "build:server": "node build.mjs --server --cli",
-    "build:ui": "node build.mjs --ui",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "prepack": "node build.mjs"
   },

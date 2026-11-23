@@ -5,9 +5,8 @@ export type TransportStatus = 'connecting' | 'open' | 'closed' | 'error';
 export type TransportKind = 'vscode' | 'websocket' | 'memory';
 
 /**
- * Port (R2) the frontend core owns: every host connection is one implementation
- * of this interface, so the same Angular/React/Svelte app runs inside a VS Code
- * webview or a browser talking to the NestJS host.
+ * Port (R2) the frontend core owns: one implementation per host, so the same
+ * Angular app runs in a VS Code webview or a browser talking to the NestJS host.
  */
 export interface HostTransport {
   readonly kind: TransportKind;

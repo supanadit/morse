@@ -330,7 +330,6 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     try {
       view.webview.html = await renderWebviewHtml(view.webview, this.deps.webviewRoot, {
         title: 'Morse',
-        frontend: this.deps.frontend,
       });
     } catch (error: unknown) {
       // A rejected resolveWebviewView leaves the panel blank with no explanation,
@@ -593,7 +592,6 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
     void renderWebviewHtml(panel.webview, this.deps.webviewRoot, {
       title: 'Morse session',
-      frontend: this.deps.frontend,
       route: sessionRoute(sessionId),
     })
       .then((html) => {
@@ -729,7 +727,6 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
     void renderWebviewHtml(panel.webview, this.deps.webviewRoot, {
       title: 'MCP server',
-      frontend: this.deps.frontend,
       route: '/mcp',
     })
       .then((html) => {
@@ -794,7 +791,6 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
 
     void renderWebviewHtml(panel.webview, this.deps.webviewRoot, {
       title: 'Prompt templates',
-      frontend: this.deps.frontend,
       route: '/prompts',
     })
       .then((html) => {

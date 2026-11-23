@@ -113,8 +113,6 @@ export function isLoopback(address: string | undefined): boolean {
   );
 }
 
-/** The scope a mutation edits, when the panel named one. */
-
 /** The scope a prompt-template mutation targets; only an explicit "project" moves off global. */
 export function promptScope(args: Record<string, unknown> | undefined): 'global' | 'project' {
   return args?.scope === 'project' ? 'project' : 'global';

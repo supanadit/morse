@@ -1,14 +1,14 @@
-# Swapping the frontend
+# The Angular frontend
 
-Morse is built so the UI framework is a leaf detail. Neither host imports Angular, and no host knows which
-framework produced the bundle it serves.
+Morse has one frontend: the Angular app in `packages/ui-angular`. Neither host imports Angular — they serve
+the built bundle and speak its wire protocol in `packages/protocol`.
 
 ## The contract
 
-A frontend is a **static bundle** plus a manifest:
+The Angular build emits a **static bundle** plus a manifest:
 
 ```
-packages/<ui-package>/dist/
+packages/ui-angular/dist/
 ├─ index.html                 relative asset URLs (host rewrites <base>)
 ├─ main-<hash>.js
 ├─ styles-<hash>.css
@@ -17,7 +17,7 @@ packages/<ui-package>/dist/
 
 Hosts read `webview.manifest.json`, compare `protocolVersion` with their own and serve the directory as-is:
 
-- VS Code host: `npm run sync-webview [-- --frontend=<folder>]` copies the bundle into
+- VS Code host: `npm run sync-webview` copies the bundle into
   `packages/extension/media/webview`
   (the host then injects a CSP nonce and rewrites `<base>` to the webview resource root).
 - NestJS host: serves the same directory (`MORSE_UI_DIR`, default `packages/ui-angular/dist`).
@@ -27,7 +27,7 @@ report the bundle's `{ name, version }` back in `host/ready` (`payload.frontend`
 can learn its own version at runtime — the About dialog shows it verbatim, so both hosts must read the manifest from
 the directory they actually serve (`frontendIdentity()` in `@morse/protocol`).
 
-## Reusable pieces (write these once, per framework write only views)
+## Reusable pieces
 
 | Piece | Package | What it gives you |
 |---|---|---|
@@ -40,15 +40,9 @@ Multi-project is host state, not frontend state: the host streams the transcript
 replays another one when the client activates it, so a frontend only renders `view.items` plus the
 `view.projects` / `view.sessions` lists.
 
-A framework binding is therefore thin: hold the `SessionView` in whatever reactivity primitive the framework
-has (Angular signals, React state/SWR, Svelte stores) and call `client.actions.*` from events. In Angular that
-is one file: `packages/ui-angular/src/app/host/morse.service.ts`.
-
-A second frontend should keep the same internal shape as `ui-angular` (`docs/ARCHITECTURE.md` § *Inside a
-frontend*): a layered backbone — the host seam and its client binding, app-local state, use-cases/adapters,
-DOM primitives — with the views in one folder per surface domain, and imports pointing only inward. Only the
-view layer changes between frameworks; everything below it is `@morse/ui-runtime` plus the layers the seam
-needs.
+The Angular binding is one file: `packages/ui-angular/src/app/host/morse.service.ts`. It holds the
+`SessionView` in a signal and calls `client.actions.*` from events. The UI's own layering is documented in
+`docs/ARCHITECTURE.md` § *Inside a frontend*.
 
 ## Rules a frontend must follow
 
@@ -453,7 +447,7 @@ that holds a terminal is not discarded as untouched (`TerminalStore.hasOwner`). 
 directory the shell reported over **OSC 7** (`cwdChange` → `TerminalStore.setCwd`), so a shell restored
 after `morse stop`/`start` reopens where the reader `cd`'d instead of at the session root; the pane's own
 directory wins over its owner's in `terminalsWithOwnerCwd`.
-- The backend is a port (`TerminalBackend`, `packages/host/src/terminal.ts`), so the controller
+- The backend is a port (`TerminalBackend`, `packages/system/src/host/terminal.ts`), so the controller
 owns the wire conversation and the host owns the process. The NestJS host implements it in
 `ServerTerminalBackend` with **`@lydell/node-pty`** — a real pseudo-terminal in the viewing session's directory,
 gated by `ProjectPolicy` like opening a session — so prompts, colours, line editing, resize and
@@ -487,34 +481,16 @@ lazily imported CJS module as `{ default: exports }`, so `importCjs` unwraps `de
 8. **Attribution travels with the frontend.** The About dialog is frontend data, not a host message:
    `packages/ui-angular/src/app/features/about/credits.ts` lists every technology the workspace depends on (its spec
    fails when one is missing, stale, or changes its licence), and the bundled font licence ships beside the
-   bundle (`public/fonts/LICENSE.txt`). A replacement frontend reuses both instead of dropping them — no host
-   work, no protocol change.
+   bundle (`public/fonts/LICENSE.txt`). Both are part of the Angular bundle, not host work.
 9. **Keys are the frontend's own.** No host message carries a shortcut: `packages/ui-angular/src/app/services/shortcut.service.ts`
    is the catalog (matching, matching display, and the help dialog all read the one list), and owners bind the
-   action they own through `ShortcutService`. A replacement frontend binds the same keys — the key a user learns
-   is part of the product, not of the wire — and keeps the help honest about which ones this host can run.
+   action they own through `ShortcutService`. The key a user learns is part of the product, not of the wire,
+   and the help stays honest about which ones this host can run.
 
-## Adding `ui-react` (the same recipe for Svelte, Vue, Solid, ...)
-
-```bash
-# 1. create packages/ui-react with a Vite/React build that emits to ./dist
-# 2. depend on @morse/protocol + @morse/ui-runtime
-# 3. render the SessionView and call client.actions.*
-# 4. copy the manifest step from packages/ui-angular/scripts/write-manifest.mjs
-# 5. verify
-npm run build -w @morse/ui-react
-npm run sync-webview -- --frontend=ui-react     # VS Code host (no `--` = the flag is swallowed)
-MORSE_UI_DIR=packages/ui-react/dist npm run start:server   # NestJS host
-```
-
-Nothing in `agent`, `system`, `host`, `integration-pi`, `extension` or `server` changes. If a new screen needs
-data the protocol does not carry yet, add a wire message in `@morse/protocol`, map it in `host`, and
-bump `PROTOCOL_VERSION` — that is the only place where "frontend work" can leak into hosts.
-
-## Developing a frontend without any host
+## Developing the UI without a host
 
 ```bash
-npm run dev:ui                 # ng serve (or the framework's dev server)
+npm run dev:ui                 # ng serve
 # http://localhost:4200/?mock=1     in-memory mock host: scripted streaming answer + tool card
 # http://localhost:4200/?mock=1&boot=1   hold the cold-start splash to review its animation
 # http://localhost:4200/?mock=1&boot=1&empty=1   blank transcript: the empty-state hero + handoff
