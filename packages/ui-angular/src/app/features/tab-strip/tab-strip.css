@@ -44,20 +44,20 @@
   max-width: 190px;
   padding: 0 4px 0 8px;
   border: 1px solid var(--morse-border);
-  border-radius: 999px;
+  border-radius: var(--morse-radius-sm);
   background: var(--morse-bubble, var(--morse-hover));
   font-size: 11.5px;
 }
 /*
  * A chip whose file name is shared with another open chip spends a second
- * line on its directory. Two lines do not fit the pill, so it grows and
- * squares off a little — the name stays on top, the folder under it.
+ * line on its directory. Two lines do not fit the one-line chip, so it grows —
+ * the name stays on top, the folder under it.
  */
 .tab.mention.has-dir {
   height: auto;
   min-height: 30px;
   padding: 3px 5px 3px 9px;
-  border-radius: 10px;
+  border-radius: var(--morse-radius-sm);
 }
 .tab.mention:hover {
   background: var(--morse-hover);
@@ -68,13 +68,13 @@
   /* Expanded: an active chip is the document in front, so its full name
      matters more than the row's tidiness — no max-width, no ellipsis. */
   max-width: none;
+  /* Suppress the shared active tab's 2px bottom underline; the chip's 1px
+     accent border is its whole outline. */
+  box-shadow: none;
   border-color: var(--morse-accent);
   background: color-mix(in srgb, var(--morse-accent) 22%, transparent);
   color: var(--morse-fg);
   font-weight: 600;
-  /* Highlighted and focused: the accent ring says "this one", on top of the
-     tint and the underline the shared hover/active rules would give it. */
-  box-shadow: 0 0 0 1.5px var(--morse-accent);
 }
 .tab.mention.active .label {
   overflow: visible;
