@@ -505,6 +505,38 @@ describe('BotChat', () => {
     expect(bubble.textContent).toContain('what is wrong with this?');
   });
 
+  it('opens an attached image full size and closes it again', async () => {
+    const { fixture, host, morse } = await render();
+    open(morse, dm, [
+      {
+        id: '1',
+        author: { role: 'user' },
+        text: 'look at this',
+        at: 1,
+        images: [{ data: 'aW1n', mimeType: 'image/png' }],
+      },
+    ]);
+    fixture.detectChanges();
+
+    expect(host.querySelector('.image-overlay')).toBeNull();
+    (host.querySelector('.sent-image-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.image-frame img')?.getAttribute('src')).toBe(
+      'data:image/png;base64,aW1n',
+    );
+
+    (host.querySelector('.image-close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(host.querySelector('.image-overlay')).toBeNull();
+
+    // The second close path is the same Escape code mode's transcript uses.
+    (host.querySelector('.sent-image-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(host.querySelector('.image-overlay')).toBeNull();
+  });
+
   it('keeps the bot draft and its attachments out of the code session behind it', async () => {
     const { fixture, morse } = await render();
     const attachments = TestBed.inject(AttachmentStore);
@@ -1297,6 +1329,12 @@ describe('BotChat', () => {
       true,
       true,
     ]);
+    // Stop and the gauge stay on the name line; a changing status label must
+    // never carry either one away from the pointer.
+    expect(presence[0]?.querySelector('.act-head .author')?.textContent?.trim()).toBe('Forge');
+    expect(presence[0]?.querySelector('.act-head .stop')).not.toBeNull();
+    expect(presence[0]?.querySelector('.act-head morse-usage-indicator')).not.toBeNull();
+    expect(presence[0]?.querySelector('.doing .stop')).toBeNull();
 
     // Stop on the second row takes the second handle, not the first bot twice.
     const stop = vi.spyOn(morse, 'stopBotRound');

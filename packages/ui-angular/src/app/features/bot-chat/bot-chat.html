@@ -218,11 +218,19 @@
                   @if (entry.images?.length) {
                     <div class="sent-images">
                       @for (image of entry.images; track $index) {
-                        <img
-                          class="sent-image"
-                          [src]="preview(image)"
-                          alt="Image attached to this message"
-                        />
+                        <button
+                          type="button"
+                          class="sent-image-button"
+                          [title]="'View image ' + ($index + 1)"
+                          [attr.aria-label]="'View image ' + ($index + 1)"
+                          (click)="openImage(image, $index)"
+                        >
+                          <img
+                            class="sent-image"
+                            [src]="preview(image)"
+                            alt="Image attached to this message"
+                          />
+                        </button>
                       }
                     </div>
                   }
@@ -373,18 +381,12 @@
             />
           </span>
           <div class="body">
-            <span class="author">{{ row.name }}</span>
-            <span class="doing">
-              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span class="doing-label" [title]="row.label">{{ row.label }}</span>
-              @if (elapsed(row); as since) {
-                <span class="elapsed" title="How long this turn has run">{{ since }}</span>
-              }
+            <!-- The controls stay on the name line: the status words below change
+                 length many times a second, and a Stop that follows them is a Stop
+                 nobody can catch. -->
+            <div class="act-head">
+              <span class="author">{{ row.name }}</span>
               @if (row.ring; as ring) {
-                <!-- Each lane has its own engine session, so each row draws
-                     that bot's own window. A bot that has not reported yet has
-                     none, and the gauge rides the status line, beside the clock
-                     it works by — not floating at the row's edge. -->
                 <morse-usage-indicator
                   class="row-usage"
                   [variant]="'context'"
@@ -397,6 +399,23 @@
                   [model]="ring.model"
                   [sessionTitle]="ring.sessionTitle"
                 />
+              }
+              <!-- Each lane has its own Stop, since each lane can be halted without
+                   disturbing its teammates. -->
+              <button
+                type="button"
+                class="stop"
+                [title]="'Stop ' + row.name + ' in this conversation'"
+                (click)="stop(row.username)"
+              >
+                Stop
+              </button>
+            </div>
+            <span class="doing">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="doing-label" [title]="row.label">{{ row.label }}</span>
+              @if (elapsed(row); as since) {
+                <span class="elapsed" title="How long this turn has run">{{ since }}</span>
               }
               @if (row.queued.length > 0) {
                 <span class="queued">then {{ row.queued.join(', ') }}</span>
@@ -482,16 +501,6 @@
               </div>
             }
           </div>
-          <!-- Each lane has its own Stop, since each lane can be halted without
-               disturbing its teammates. -->
-          <button
-            type="button"
-            class="stop"
-            [title]="'Stop ' + row.name + ' in this conversation'"
-            (click)="stop(row.username)"
-          >
-            Stop
-          </button>
         </div>
       }
     </div>
@@ -515,5 +524,17 @@
     <span class="bot-eyebrow">Bot mode · Beta</span>
     <h2>No conversation open</h2>
     <p>Pick a bot or a group in the sidebar.</p>
+  </div>
+}
+
+@if (shownImage(); as shown) {
+  <div class="image-overlay" (click)="closeImage()">
+    <button type="button" class="image-close" aria-label="Close image" (click)="closeImage()">
+      ×
+    </button>
+    <figure class="image-frame" (click)="$event.stopPropagation()">
+      <img [src]="shown.src" [alt]="shown.label" />
+      <figcaption>{{ shown.label }}</figcaption>
+    </figure>
   </div>
 }

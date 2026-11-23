@@ -594,6 +594,7 @@ export class BotService {
     // Morse's record is an index entry, not a second configuration: identity and
     // which engine runs it. Everything a reader can change lives in the engine's
     // own files, written below.
+    const extraEnv = input.env === undefined ? undefined : { ...input.env };
     const record: BotRecord = {
       username: input.username,
       name: input.name.trim(),
@@ -601,6 +602,7 @@ export class BotService {
       ...(input.avatar === undefined ? {} : { avatar: input.avatar }),
       engineKind: input.engineKind,
       credentialEnv: [...input.envVars],
+      ...(extraEnv === undefined || Object.keys(extraEnv).length === 0 ? {} : { env: extraEnv }),
     };
     // Everything the engine files will key by name is checked before the first
     // byte is written: a stdio server with no command (or an http one with no
@@ -613,7 +615,10 @@ export class BotService {
       mkdirSync(join(botRoot, 'config'), { recursive: true, mode: 0o700 });
       mkdirSync(join(botRoot, 'sessions'), { recursive: true, mode: 0o700 });
       mkdirSync(join(botRoot, 'workspace'), { recursive: true, mode: 0o700 });
-      factory = adapter.createFactory(botRoot, this.engineEnv(record.credentialEnv, record.username));
+      factory = adapter.createFactory(
+        botRoot,
+        this.engineEnv(record.credentialEnv, record.username, record.env),
+      );
       writeBotIdentity(botRoot, record);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
       // The probe runs as the bot itself — its root, its credentials — so a bad
@@ -790,6 +795,7 @@ export class BotService {
       ...(state.thinkingLevel === undefined ? {} : { thinkingLevel: state.thinkingLevel }),
       persona: state.persona ?? '',
       envVars: [...bot.credentialEnv],
+      ...(bot.env === undefined ? {} : { env: { ...bot.env } }),
       ...(state.tools === undefined ? {} : { tools: state.tools }),
       ...(state.agentsMd === undefined ? {} : { agentsMd: state.agentsMd }),
       ...(state.subagents === undefined ? {} : { subagents: state.subagents }),
@@ -842,6 +848,9 @@ export class BotService {
     // boundary create enforces applies here — before identity or settings change.
     assertSubagentNames(input.subagents);
     assertMcpServers(input.mcpServers ?? []);
+    // An absent map keeps the saved values; an explicit one replaces them, even
+    // when the form emptied it.
+    const extraEnv = input.env === undefined ? bot.env : input.env;
     const updated: BotRecord = {
       username: bot.username,
       name: input.name.trim(),
@@ -851,6 +860,9 @@ export class BotService {
         : { avatar: input.avatar }),
       engineKind: bot.engineKind,
       credentialEnv: [...input.envVars],
+      ...(extraEnv === undefined || Object.keys(extraEnv).length === 0
+        ? {}
+        : { env: { ...extraEnv } }),
     };
     const botRoot = this.botRoot(bot.username);
     writeBotIdentity(botRoot, updated);
@@ -1127,6 +1139,7 @@ export class BotService {
     kind: string,
     envVars: string[],
     credentials: { provider: string; apiKey: string }[],
+    extraEnv?: Record<string, string>,
   ): Promise<ModelRef[]> {
     const adapter = this.options.adapters[kind];
     if (adapter === undefined) {
@@ -1152,7 +1165,7 @@ export class BotService {
         credentials,
         providers: [],
       });
-      factory = adapter.createFactory(probeRoot, this.engineEnv(envVars));
+      factory = adapter.createFactory(probeRoot, this.engineEnv(envVars, undefined, extraEnv));
       return await this.readModels(factory, workspace);
     } finally {
       await this.disposeFactory(factory, 'Failed to dispose a bot probe factory');
@@ -3324,18 +3337,27 @@ export class BotService {
    * and session directories at the bot's root. The declared names are copied
    * explicitly so a future host that scopes its base cannot silently drop them.
    *
+   * A bot's own values then override the host's, so a name set in the form stays
+   * with that bot instead of following whatever the host happens to export.
    * A bot also gets the three bus names, which are its own two credential paths
    * plus the host's endpoint. A caller with no bot (the wizard's probe of an
    * engine that does not exist yet) passes no username and gets none: there is no
    * bot directory to read a token from.
    */
-  private engineEnv(envVars: readonly string[], username?: string): NodeJS.ProcessEnv {
+  private engineEnv(
+    envVars: readonly string[],
+    username?: string,
+    extra?: Record<string, string>,
+  ): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const name of envVars) {
       const value = process.env[name];
       if (value !== undefined) {
         env[name] = value;
       }
+    }
+    if (extra !== undefined) {
+      Object.assign(env, extra);
     }
     if (username === undefined) {
       return env;
@@ -3357,7 +3379,7 @@ export class BotService {
     }
     const created = adapter.createFactory(
       this.botRoot(bot.username),
-      this.engineEnv(bot.credentialEnv, bot.username),
+      this.engineEnv(bot.credentialEnv, bot.username, bot.env),
     );
     this.factories.set(bot.username, created);
     return created;

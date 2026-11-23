@@ -133,12 +133,14 @@ describe('bot wire messages', () => {
       payload: {
         kind: 'opencode',
         envVars: [],
+        env: { ACME_TOKEN: 'probe-secret' },
         credentials: [{ provider: 'anthropic', apiKey: 'sk-probe' }],
         requestId: 'req-2',
       },
     };
 
     expect(isClientToHostMessage(message)).toBe(true);
+    expect(message.payload.env).toEqual({ ACME_TOKEN: 'probe-secret' });
     expect(message.payload.credentials).toEqual([{ provider: 'anthropic', apiKey: 'sk-probe' }]);
   });
 

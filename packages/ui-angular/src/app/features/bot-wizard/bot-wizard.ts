@@ -23,7 +23,7 @@ import type { BotProviderModel } from '@morse/system';
 import { MorseService } from '../../host/morse.service';
 import { BotFace } from '../../ui/bot-face/bot-face';
 import { moodForBot } from '../../ui/bot-face/bot-mood';
-import { BotMcpStep } from './bot-mcp-step';
+import { BotMcpStep, parseEnvText } from './bot-mcp-step';
 import {
   DEFAULT_TOOLS,
   ENGINE_TOOLS,
@@ -121,6 +121,10 @@ export class BotWizard {
   protected readonly draftError = signal<string | null>(null);
 
   protected readonly envVars = signal('');
+  /** Values set only for this bot, one `KEY=value` per line. */
+  protected readonly envText = signal('');
+  /** Whether the loaded config had its own values, so clearing them is a real save. */
+  private readonly envLoaded = signal(false);
   /**
    * The built-in tools this bot may use, in its engine's own names. Empty means
    * none — a chat-only bot — and that is also what keeps a provider that emulates
@@ -562,6 +566,7 @@ export class BotWizard {
       | 'persona'
       | 'agentsMd'
       | 'envVars'
+      | 'envText'
       | 'modelFilter',
     event: Event,
   ): void {
@@ -591,6 +596,9 @@ export class BotWizard {
         return;
       case 'envVars':
         this.envVars.set(value);
+        return;
+      case 'envText':
+        this.envText.set(value);
         return;
       case 'modelFilter':
         this.modelFilter.set(value);
@@ -915,6 +923,7 @@ export class BotWizard {
       this.engineKind(),
       this.collectedCredentials(),
       parseEnvVars(this.envVars()),
+      this.envText(),
     ]);
     if (!force && signature === this.probeSignature()) {
       return;
@@ -929,6 +938,7 @@ export class BotWizard {
       parseEnvVars(this.envVars()),
       this.collectedCredentials(),
       requestId,
+      parseEnvText(this.envText()).values,
     );
   }
 
@@ -956,6 +966,12 @@ export class BotWizard {
     // the catalog probe therefore answers with what needs no key.
     this.credentials.set([]);
     this.envVars.set(config.envVars.join(', '));
+    this.envText.set(
+      Object.entries(config.env ?? {})
+        .map(([key, value]) => `${key}=${value}`)
+        .join('\n'),
+    );
+    this.envLoaded.set(config.env !== undefined);
     this.persona.set(config.persona);
     this.personaEdited.set(true);
     this.agentsMd.set(config.agentsMd ?? '');
@@ -1087,6 +1103,15 @@ export class BotWizard {
     const target = this.editTarget();
     this.noticeAtSubmit.set(this.morse.lastNotice() ?? null);
     this.createError.set(null);
+    const parsedEnv = parseEnvText(this.envText());
+    if (parsedEnv.error !== undefined) {
+      this.createError.set(parsedEnv.error);
+      return;
+    }
+    const extraEnv =
+      Object.keys(parsedEnv.values).length === 0 && !this.envLoaded()
+        ? undefined
+        : parsedEnv.values;
     if (target !== null) {
       this.rosterAtSubmit.set(this.morse.bot.roster());
       const credentials = this.collectedCredentials();
@@ -1104,6 +1129,7 @@ export class BotWizard {
         ...(model === undefined ? {} : { model }),
         ...(thinking === '' ? {} : { thinkingLevel: thinking }),
         envVars: parseEnvVars(this.envVars()),
+        ...(extraEnv === undefined ? {} : { env: extraEnv }),
         agentsMd,
         subagents,
         // Only a pasted key replaces the stored ones; an untouched form keeps them.
@@ -1135,6 +1161,7 @@ export class BotWizard {
       engineKind: this.engineKind(),
       credentials: this.collectedCredentials(),
       envVars: parseEnvVars(this.envVars()),
+      ...(extraEnv === undefined ? {} : { env: extraEnv }),
       persona: this.persona(),
       ...(this.toolsToSend() === undefined ? {} : { tools: this.toolsToSend() as string[] }),
       ...(model === undefined ? {} : { model }),

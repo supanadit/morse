@@ -349,6 +349,7 @@ export interface BotProbeModelsMessage extends ClientMessageBase {
   payload: {
     kind: string;
     envVars: string[];
+    env?: Record<string, string>;
     credentials: BotCredentialInput[];
     requestId: string;
   };

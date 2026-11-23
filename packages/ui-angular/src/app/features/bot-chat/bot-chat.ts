@@ -118,7 +118,10 @@ interface RevealCursor {
   imports: [BotFace, Markdown, ChatComposer, CopyButton, UsageIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './bot-chat.css',
-  host: { '(document:click)': 'onDocumentClick($event)' },
+  host: {
+    '(document:click)': 'onDocumentClick($event)',
+    '(document:keydown.escape)': 'onEscape()',
+  },
 })
 export class BotChat {
   protected readonly morse = inject(MorseService);
@@ -801,6 +804,21 @@ export class BotChat {
   /** A sent image's `data:` URL, for the thumbnail in the reader's own bubble. */
   protected preview(image: PromptImage): string {
     return `data:${image.mimeType};base64,${image.data}`;
+  }
+
+  /** The thumbnail opened full-size, with the same overlay code mode shows. */
+  protected readonly shownImage = signal<{ src: string; label: string } | null>(null);
+
+  protected openImage(image: PromptImage, index: number): void {
+    this.shownImage.set({ src: this.preview(image), label: `Image ${index + 1}` });
+  }
+
+  protected closeImage(): void {
+    this.shownImage.set(null);
+  }
+
+  protected onEscape(): void {
+    this.closeImage();
   }
 
   /**

@@ -29,6 +29,11 @@ export interface BotRecord {
    * the one engine-related field Morse keeps here.
    */
   credentialEnv: string[];
+  /**
+   * Values set only for this bot, merged over the host's environment when its
+   * engine starts. Morse writes them here rather than into a shared host env.
+   */
+  env?: Record<string, string>;
 }
 
 /**

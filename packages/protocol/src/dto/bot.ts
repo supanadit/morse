@@ -363,6 +363,8 @@ export interface BotCreateInput {
   credentials: BotCredentialInput[];
   /** Names of the host's environment variables the bot's engine inherits. */
   envVars: string[];
+  /** Values defined only for this bot; they override host variables of the same name. */
+  env?: Record<string, string>;
   /** The bot's system prompt, written where its engine keeps system prompts. */
   persona: string;
   model?: ModelOption;
@@ -405,6 +407,8 @@ export interface BotConfig {
   persona: string;
   /** Names of the host's environment variables the bot's engine inherits. */
   envVars: string[];
+  /** Values this bot alone sets, read back so the form can edit them. */
+  env?: Record<string, string>;
   /**
    * The built-in tools this bot may use, in its engine's own names (`read`,
    * `bash`, `edit`, `write` on pi; `read`, `edit`, `bash`, `webfetch`, … on
@@ -444,6 +448,8 @@ export interface BotUpdateInput {
   /** The built-in tools this bot may use; absent keeps the engine's default set. */
   tools?: string[];
   envVars: string[];
+  /** Explicit map replaces the bot's values, including when emptied; absent keeps them. */
+  env?: Record<string, string>;
   agentsMd?: string;
   subagents?: Array<{ name: string; prompt: string }>;
   /** Credentials to write into the bot's config; omitted leaves the stored ones. */

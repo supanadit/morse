@@ -89,7 +89,12 @@ export class BotWire {
       case 'bot/probeModels': {
         const { requestId, kind } = message.payload;
         const result = await this.guard(() =>
-          bot.probeModels(kind, message.payload.envVars, message.payload.credentials),
+          bot.probeModels(
+            kind,
+            message.payload.envVars,
+            message.payload.credentials,
+            message.payload.env,
+          ),
         );
         if (result.ok) {
           this.port.emit({

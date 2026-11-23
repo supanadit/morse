@@ -172,11 +172,22 @@
   animation: acting-in 200ms ease-out both;
 }
 .entry.bot.acting .body {
-  /* Sized by its words, so Stop sits beside them instead of at the far edge of
-     a wide conversation. Specificity has to beat `.entry.bot .body { flex: 1 }`. */
+  /* Sized by its words, so the row stays a chat line and not a status bar.
+     Specificity has to beat `.entry.bot .body { flex: 1 }`. */
   flex: 0 1 auto;
   gap: 3px;
   max-width: 100%;
+}
+/* The name line owns the controls. Nothing below it can push them sideways:
+   the label, the clock and the queue all change length as the turn runs. */
+.entry.acting .act-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.entry.acting .act-head .author {
+  flex: none;
 }
 .entry.acting .doing {
   display: flex;
@@ -351,11 +362,13 @@
   color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
   font-size: 11.5px;
 }
-/* The bot's gauge rides the status line: it reads as part of what is happening
-   now, beside the clock it works by, not as a float between the row's edges. */
+/* The gauge sits on the name line, next to Stop. Its own width is held steady
+   so a change from 9.9% to 100% does not nudge the button under the cursor. */
 .row-usage {
   flex: none;
-  align-self: center;
+  justify-content: center;
+  /* Wide enough for `100.0%`, so the button after it never shifts. */
+  min-width: 78px;
 }
 /* The gauge sits near the row's start, so its panel opens toward the room:
    anchored at the right it would lay its 320px across the transcript's edge
@@ -369,11 +382,9 @@
 .stop {
   flex: none;
   /*
-   * Beside the label, at the row's top. Centred in the row, a Stop on a long
-   * answer drifts down with the words and looks like it belongs to the middle
-   * of the reply instead of to the turn.
+   * On the name line, beside the gauge. A Stop that follows the status words
+   * moves as they grow, and a pointer aimed at it lands on empty space.
    */
-  align-self: flex-start;
   height: 22px;
   padding: 0 8px;
   border: 1px solid var(--morse-border);
@@ -486,6 +497,13 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
+}
+.sent-image-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  cursor: zoom-in;
 }
 .sent-image {
   max-width: 180px;
@@ -921,6 +939,56 @@
  * A phone: the conversation owns every pixel — tighter rails and air, bubbles
  * wide enough to read prose in, and a dock that stops crowding the last line.
  */
+/* shortcut: the same full-size viewer as the code transcript, copied until a
+   third surface needs it and the pair can move into one shared component. */
+.image-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgb(0 0 0 / 62%);
+}
+.image-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  max-width: min(880px, 92vw);
+  max-height: 92vh;
+}
+.image-frame img {
+  max-width: 100%;
+  max-height: calc(92vh - 40px);
+  object-fit: contain;
+  border-radius: var(--morse-radius-md);
+  background: var(--morse-panel);
+}
+.image-frame figcaption {
+  color: var(--morse-badge-fg, #fff);
+  font-size: 11.5px;
+  text-align: center;
+}
+.image-close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 45%);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.image-close:hover {
+  background: rgb(0 0 0 / 70%);
+}
+
 @media (max-width: 720px) {
   .transcript {
     gap: 12px;

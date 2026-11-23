@@ -108,7 +108,15 @@ function tick(fixture: ComponentFixture<BotWizard>): void {
 
 /** The spy shape the walk helpers pass around: the probe's own arguments. */
 interface ProbeSpy {
-  mock: { calls: [string, string[], { provider: string; apiKey: string }[], string][] };
+  mock: {
+    calls: [
+      string,
+      string[],
+      { provider: string; apiKey: string }[],
+      string,
+      Record<string, string>?,
+    ][];
+  };
 }
 
 /**
@@ -280,6 +288,31 @@ describe('BotWizard', () => {
     handle.dispatchEvent(new Event('input'));
     tick(fixture);
     expect(create().disabled).toBe(true);
+  });
+
+  it('sends bot-only env values with the create and the catalog probe', async () => {
+    const { fixture, host, morse, probe } = await render();
+    walkToConnect(fixture, host, morse, 'pi');
+    answerModels(fixture, morse, probe, [claude]);
+    fill(
+      host,
+      'textarea[placeholder="ACME_TOKEN=only-this-bot"]',
+      'ACME_TOKEN=secret\nREGION=eu',
+    );
+    tick(fixture);
+    // The catalog is probed when the engine is picked; Reload re-asks with the
+    // values the form now holds.
+    (host.querySelector('input.model-search + button') as HTMLButtonElement).click();
+    tick(fixture);
+    pickCatalogModel(fixture, host, morse, probe);
+    const create = vi.spyOn(morse, 'createBot');
+
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+
+    const expected = { ACME_TOKEN: 'secret', REGION: 'eu' };
+    expect(probe.mock.calls.at(-1)?.[4]).toEqual(expected);
+    expect(create.mock.calls[0]?.[0].env).toEqual(expected);
   });
 
   it('saves an edit from the footer, with no rail and no review to walk to', async () => {
@@ -853,6 +886,44 @@ describe('BotWizard', () => {
     // Its config named no MCP servers, so the engine's file stays untouched.
     expect(update.mock.calls[0]?.[0]).not.toHaveProperty('mcpServers');
     expect(host.textContent).toContain('Saving…');
+  });
+
+  it('fills bot-only env values from the config, validates them and sends them back', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.ui.wizardTarget.set('forge');
+    morse.ui.wizardOpen.set(true);
+    fixture.detectChanges();
+    morse.bot.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Keeps the forge hot',
+      engineKind: 'pi',
+      model: claude,
+      persona: 'You are Forge.',
+      envVars: ['ANTHROPIC_API_KEY'],
+      env: { ACME_TOKEN: 'secret', REGION: 'eu' },
+    });
+    tick(fixture);
+
+    const selector = 'textarea[placeholder="ACME_TOKEN=only-this-bot"]';
+    expect((host.querySelector(selector) as HTMLTextAreaElement).value).toBe(
+      'ACME_TOKEN=secret\nREGION=eu',
+    );
+    const update = vi.spyOn(morse, 'updateBot');
+
+    fill(host, selector, 'NOT_A_PAIR');
+    tick(fixture);
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+    expect(host.textContent).toContain('Each environment variable needs a KEY=value line.');
+    expect(update).not.toHaveBeenCalled();
+
+    fill(host, selector, 'ACME_TOKEN=rotated');
+    tick(fixture);
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+    expect(update.mock.calls[0]?.[0].env).toEqual({ ACME_TOKEN: 'rotated' });
   });
 
   it('seeds MCP servers from the edited config and sends them back', async () => {

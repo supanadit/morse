@@ -293,6 +293,12 @@ bot's OpenCode log at `<bot>/sessions/opencode/log/`. A pi bot needs no such plu
 is the only variable pointed at its tree, so its commands already see your environment. MCP servers keep
 the bot environment in every case.
 
+Bot settings → Environment also takes `KEY=value` lines under **Bot-only values**. Those values live in
+that bot's `engine.json`, are merged over the host's environment when its engine starts (and when the
+wizard probes its catalog), and override a host variable of the same name. Only that bot receives them;
+they are still plaintext on disk in its private directory and come back to the browser when you edit the
+bot, so treat them like the API keys you paste into a provider.
+
 Bots created before this update are repaired on the next host start: they gain the shell plugin and,
 where their generated ruleset still uses the old tool names, the correct permission actions — so their
 shell and external-path file access start working without being recreated.

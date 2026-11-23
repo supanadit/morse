@@ -745,6 +745,36 @@ describe('BotService creation', () => {
     });
   });
 
+  it('keeps bot-only env values with their bot and overrides the host for its engine', async () => {
+    const previous = process.env['MORSE_TEST_BOT_ONLY'];
+    process.env['MORSE_TEST_BOT_ONLY'] = 'host';
+    try {
+      const { root, adapter, service } = harness();
+      const env = { MORSE_TEST_BOT_ONLY: 'forge', ACME_TOKEN: 'forge-secret' };
+      await service.createBot(
+        botInput({ envVars: ['MORSE_TEST_BOT_ONLY'], env }),
+      );
+      await service.createBot(
+        botInput({ username: 'sable', name: 'Sable', description: 'Reviews things' }),
+      );
+
+      expect(readBotIdentity(join(root, 'forge'))?.env).toEqual(env);
+      expect(service.inspectBot('forge').env).toEqual(env);
+      expect(adapter.envs[0]?.['MORSE_TEST_BOT_ONLY']).toBe('forge');
+      expect(adapter.envs[0]?.['ACME_TOKEN']).toBe('forge-secret');
+      // The other bot never sees either value: one came from the host, the
+      // other from a form filled for Forge alone.
+      expect(adapter.envs[1]?.['MORSE_TEST_BOT_ONLY']).toBe('host');
+      expect(adapter.envs[1]?.['ACME_TOKEN']).toBeUndefined();
+    } finally {
+      if (previous === undefined) {
+        delete process.env['MORSE_TEST_BOT_ONLY'];
+      } else {
+        process.env['MORSE_TEST_BOT_ONLY'] = previous;
+      }
+    }
+  });
+
   it('createBot removes a half-written bot on probe failure', async () => {
     const { root, service } = harness({ probeThrows: true });
 
@@ -1390,6 +1420,21 @@ describe('BotService edits', () => {
     });
     expect(adapter.subagentWrites.at(-1)).toEqual({ botRoot, subagents: [] });
     expect(readBotIdentity(botRoot)?.subagents).toBeUndefined();
+  });
+
+  it('keeps bot-only env on an edit that omits it and clears it when sent empty', async () => {
+    const { root, service } = harness();
+    const env = { ACME_TOKEN: 'forge-secret' };
+    await service.createBot(botInput({ env }));
+    const botRoot = join(root, 'forge');
+    const edit = { username: 'forge', name: 'Forge', description: 'Builds things', persona: '', envVars: [] };
+
+    await service.updateBot(edit);
+    expect(readBotIdentity(botRoot)?.env).toEqual(env);
+
+    await service.updateBot({ ...edit, env: {} });
+    expect(readBotIdentity(botRoot)).not.toHaveProperty('env');
+    expect(service.inspectBot('forge')).not.toHaveProperty('env');
   });
 
   it('leaves the stored credentials alone unless a key is pasted', async () => {
@@ -5099,6 +5144,15 @@ describe('BotService model probes', () => {
     expect(factory?.credentialsPresent).toBe(true);
     expect(adapter.credentialWrites).toEqual([{ botRoot: factory?.botRoot, entries: CREDENTIALS }]);
     expect(factory?.disposes).toBe(1);
+    expect(readdirSync(root).some((name) => name.startsWith('.probe-'))).toBe(false);
+  });
+
+  it('probeModels gives the throwaway root the wizard-only env values', async () => {
+    const { root, adapter, service } = harness({ models: [MODEL] });
+
+    await service.probeModels('fake', [], CREDENTIALS, { ACME_TOKEN: 'probe-secret' });
+
+    expect(adapter.envs[0]?.['ACME_TOKEN']).toBe('probe-secret');
     expect(readdirSync(root).some((name) => name.startsWith('.probe-'))).toBe(false);
   });
 

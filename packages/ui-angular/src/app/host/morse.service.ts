@@ -611,10 +611,11 @@ export class MorseService {
     envVars: string[],
     credentials: { provider: string; apiKey: string }[],
     requestId: string,
+    env?: Record<string, string>,
   ): void {
     this.transport.send({
       type: 'bot/probeModels',
-      payload: { kind, envVars, credentials, requestId },
+      payload: { kind, envVars, ...(env === undefined ? {} : { env }), credentials, requestId },
     });
   }
 

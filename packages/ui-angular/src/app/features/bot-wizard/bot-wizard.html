@@ -655,6 +655,16 @@
               autocomplete="off"
             />
           </label>
+          <label class="field">
+            <span>Bot-only values <em>KEY=value per line, overrides this host</em></span>
+            <textarea
+              rows="3"
+              [value]="envText()"
+              (input)="setText('envText', $event)"
+              placeholder="ACME_TOKEN=only-this-bot"
+              autocomplete="off"
+            ></textarea>
+          </label>
         </div>
       </details>
 
