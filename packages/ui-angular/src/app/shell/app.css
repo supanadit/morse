@@ -319,8 +319,12 @@ morse-bottom-panel {
 .subagent-strip {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
+  /* One scrollable row: a conversation can spawn dozens of children, and the
+     strip must stay a slim bar instead of pushing the composer up the screen. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
   margin: 0 12px 4px;
   padding: 5px 8px;
   border: 1px solid color-mix(in srgb, #a78bfa 30%, transparent);
@@ -330,7 +334,10 @@ morse-bottom-panel {
 }
 .subagent-strip .strip-label {
   flex: none;
+  position: sticky;
+  left: 0;
   padding-right: 4px;
+  background: inherit;
   color: color-mix(in srgb, #a78bfa 80%, var(--morse-fg));
   font-size: 10.5px;
   letter-spacing: 0.06em;
@@ -344,6 +351,7 @@ morse-bottom-panel {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: none;
   min-width: 0;
   max-width: 260px;
   padding: 2px 8px;
@@ -358,6 +366,21 @@ morse-bottom-panel {
 .subagent-strip .child:hover {
   border-color: #a78bfa;
   background: color-mix(in srgb, #a78bfa 16%, transparent);
+}
+/* A finished child stays listed but quiets down: the running ones come first
+   and carry the spinner, so the strip still answers "what is working now". */
+.subagent-strip .child.done {
+  border-color: color-mix(in srgb, #a78bfa 14%, transparent);
+  opacity: 0.72;
+}
+.subagent-strip .child.done .child-agent {
+  color: var(--morse-fg-muted);
+  font-weight: 500;
+}
+.subagent-strip .done-mark {
+  flex: none;
+  color: #a78bfa;
+  font-size: 10px;
 }
 .subagent-strip .live {
   flex: none;

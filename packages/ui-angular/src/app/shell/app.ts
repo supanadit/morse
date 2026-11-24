@@ -79,9 +79,13 @@ function previewBoot(): boolean {
   return new URL(location.href, 'http://localhost/').searchParams.get('boot') === '1';
 }
 
-/** A child the conversation in front is running, as the subagent strip lists it. */
-interface RunningSubagent extends ChildSessionRef {
+/** A child the conversation in front spawned, as the subagent strip lists it. */
+interface SubagentEntry extends ChildSessionRef {
   title: string;
+  /** Still working; a finished child stays listed with a check instead. */
+  running: boolean;
+  /** When the child last changed, to order the strip newest-first. */
+  at: number;
 }
 
 @Component({
@@ -340,36 +344,45 @@ export class App {
   protected readonly activeParent = this.morse.parentOfActive;
 
   /**
-   * The subagents the conversation in front has running right now, for the strip
-   * above its composer. The host reports a child as streaming while its spawning
-   * tool row is still running (a child has no process of its own), so this reads
-   * the same activity the navigator does; the transcript fills in a child the
-   * catalog has not listed yet, and names the agent that runs it.
+   * The subagents the conversation in front spawned, for the strip above its
+   * composer. Finished children stay in it — otherwise the strip vanishes the
+   * moment the last run settles, exactly when the reader is looking for which
+   * agent finished. A child has no process of its own: the host marks it
+   * streaming while its spawning tool row runs, and the transcript fills in a
+   * child the catalog has not listed yet and names the agent running it.
    */
-  protected readonly runningSubagents = computed<RunningSubagent[]>(() => {
+  protected readonly subagents = computed<SubagentEntry[]>(() => {
     const parentId = this.morse.state().sessionId;
     if (parentId === undefined || this.activeIsSubagent()) {
       return [];
     }
     const activity = this.morse.sessionActivity();
-    const rows = new Map<string, RunningSubagent>();
+    const rows = new Map<string, SubagentEntry>();
     for (const session of this.morse.sessions()) {
-      if (
-        session.subagent === true &&
-        session.parentId === parentId &&
-        activity.get(session.id)?.streaming === true
-      ) {
-        rows.set(session.id, { sessionId: session.id, title: session.title });
+      if (session.subagent === true && session.parentId === parentId) {
+        rows.set(session.id, {
+          sessionId: session.id,
+          title: session.title,
+          running: activity.get(session.id)?.streaming === true,
+          at: session.updatedAt,
+        });
       }
     }
     for (const item of this.morse.items()) {
-      if (item.kind !== 'tool' || item.child === undefined || item.status !== 'running') {
+      if (item.kind !== 'tool' || item.child === undefined) {
         continue;
       }
       const known = rows.get(item.child.sessionId);
-      rows.set(item.child.sessionId, { ...item.child, title: known?.title ?? item.title });
+      rows.set(item.child.sessionId, {
+        ...item.child,
+        title: known?.title ?? item.title,
+        // The tool row is the authority while it is here: it knows a just-ended
+        // child before the catalog's activity does.
+        running: item.status === 'running',
+        at: known?.at ?? item.at,
+      });
     }
-    return [...rows.values()];
+    return [...rows.values()].sort((a, b) => Number(b.running) - Number(a.running) || b.at - a.at);
   });
 
   /**

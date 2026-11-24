@@ -462,22 +462,29 @@
           -->
           @if (!activeIsSubagent()) {
             <div class="dock" #dock>
-              <!-- The subagents this conversation has running, pinned above the
+              <!-- Every subagent this conversation spawned, pinned above the
                    composer (and above its todo list): with a dozen parallel runs
-                   the tool rows scroll away, so the live ones stay in reach. -->
-              @if (runningSubagents().length > 0) {
+                   the tool rows scroll away, and a finished child must not vanish
+                   before the reader sees which one ended. -->
+              @if (subagents().length > 0) {
                 <div class="subagent-strip" role="status">
                   <span class="strip-label">
-                    Subagents <span class="strip-count">{{ runningSubagents().length }}</span>
+                    Subagents <span class="strip-count">{{ subagents().length }}</span>
                   </span>
-                  @for (child of runningSubagents(); track child.sessionId) {
+                  @for (child of subagents(); track child.sessionId) {
                     <button
                       type="button"
                       class="child"
+                      [class.running]="child.running"
+                      [class.done]="!child.running"
                       [attr.title]="child.title"
                       (click)="openSubagent(child)"
                     >
-                      <span class="live" aria-hidden="true"></span>
+                      @if (child.running) {
+                        <span class="live" aria-hidden="true"></span>
+                      } @else {
+                        <span class="done-mark" aria-hidden="true">✓</span>
+                      }
                       <span class="child-agent">{{ child.agent ?? 'subagent' }}</span>
                       <span class="child-title">{{ child.title }}</span>
                     </button>

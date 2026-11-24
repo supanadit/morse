@@ -955,7 +955,7 @@ describe('App · running subagents above the composer', () => {
     TestBed.resetTestingModule();
   });
 
-  it('lists a running child and opens it from the strip', () => {
+  it('lists a child, then keeps it after it finishes and still opens it', () => {
     const fixture = TestBed.createComponent(App);
     const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
     const state = signal<SessionViewState>({
@@ -999,13 +999,12 @@ describe('App · running subagents above the composer', () => {
         child: { sessionId: 'kid', agent: 'explore' },
       },
     ]);
+    const activity = signal(new Map([['kid', { sessionKey: 'kid', streaming: true }]]));
     const activate = vi.fn();
     Object.defineProperty(morse, 'state', { value: state });
     Object.defineProperty(morse, 'activeIsSubagent', { value: signal(false) });
     Object.defineProperty(morse, 'sessions', { value: sessions });
-    Object.defineProperty(morse, 'sessionActivity', {
-      value: signal(new Map([['kid', { sessionKey: 'kid', streaming: true }]])),
-    });
+    Object.defineProperty(morse, 'sessionActivity', { value: activity });
     Object.defineProperty(morse, 'items', { value: items });
     Object.defineProperty(morse, 'activateSession', { value: activate });
 
@@ -1016,8 +1015,23 @@ describe('App · running subagents above the composer', () => {
     const child = strip?.querySelector<HTMLButtonElement>('.child');
     expect(child?.textContent).toContain('explore');
     expect(child?.textContent).toContain('Split the module');
+    expect(child?.querySelector('.live')).not.toBeNull();
 
-    child?.click();
+    // Once the tool row settles the child stays on the strip, marked done —
+    // otherwise the strip would vanish exactly when the reader checks it.
+    activity.set(new Map([['kid', { sessionKey: 'kid', streaming: false }]]));
+    const row = items()[0];
+    if (row?.kind === 'tool') {
+      items.set([{ ...row, status: 'ok' }]);
+    }
+    fixture.detectChanges();
+
+    const settled = (fixture.nativeElement as HTMLElement).querySelector('.subagent-strip .child');
+    expect(settled?.classList.contains('done')).toBe(true);
+    expect(settled?.querySelector('.live')).toBeNull();
+    expect(settled?.querySelector('.done-mark')).not.toBeNull();
+
+    (settled as HTMLButtonElement).click();
     expect(activate).toHaveBeenCalledWith('kid');
   });
 });
