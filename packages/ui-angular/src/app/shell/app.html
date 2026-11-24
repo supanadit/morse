@@ -386,7 +386,18 @@
             <!-- Not named after an engine: the session may be running pi or
                  OpenCode, and the host's own message below already names which
                  one failed and why. -->
-            <strong>Agent unavailable</strong>
+            <div class="alert-head">
+              <strong>Agent unavailable</strong>
+              <button
+                type="button"
+                class="dismiss"
+                aria-label="Dismiss this warning"
+                title="Dismiss"
+                (click)="dismissAgentBanner()"
+              >
+                ×
+              </button>
+            </div>
             <p>{{ agentError() || 'Morse could not start the coding agent.' }}</p>
             <div class="actions">
               <button type="button" (click)="retryAgent()">Retry</button>

@@ -215,16 +215,15 @@ export class ChatComposer {
   /**
    * Sending works as soon as the handshake is done. Without a session
    * (`autoOpen: false`) the host lazily opens one on the first prompt, so
-   * "agent not ready yet" must not block the composer. Only a spawn failure
-   * does: that is when the banner offers Retry instead.
+   * "agent not ready yet" must not block the composer. A spawn failure does not
+   * lock it either: the failure bar explains the state and offers Retry, while
+   * the reader can still fold or reach the composer and try again.
    *
    * Where the host has a tab strip (the browser host), `App` does not mount the
    * composer at all until a session tab is in front, so this only decides the
    * lazy start on a host with no tabs (VS Code).
    */
-  protected readonly canSend = computed(
-    () => this.connected() && !this.agentStarting() && this.agentError() === undefined,
-  );
+  protected readonly canSend = computed(() => this.connected() && !this.agentStarting());
   /**
    * Whether a line can be typed here. A bot conversation has no session behind
    * it — its agent belongs to the host, not to this draft — so a code-mode
@@ -821,7 +820,7 @@ export class ChatComposer {
       return 'Starting the agent…';
     }
     if (this.agentError()) {
-      return 'The agent is unavailable.';
+      return `Type to retry the agent… (${this.sendHint()})`;
     }
     return this.agentReady()
       ? `Ask Morse… (${this.sendHint()})`

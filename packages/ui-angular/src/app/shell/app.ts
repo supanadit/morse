@@ -566,7 +566,14 @@ export class App {
   protected readonly agentScreen = computed(
     () => this.agentBlocked() && this.morse.items().length === 0,
   );
-  protected readonly agentBanner = computed(() => this.agentBlocked() && !this.agentScreen());
+  /** The failure text the reader dismissed, so the banner stays gone for it. */
+  private readonly dismissedAgentError = signal<string | undefined>(undefined);
+  protected readonly agentBanner = computed(
+    () =>
+      this.agentBlocked() &&
+      !this.agentScreen() &&
+      this.agentError() !== this.dismissedAgentError(),
+  );
   protected readonly lastError = this.morse.lastError;
   /**
    * Warnings pi reported about its own configuration (a prompt template it
@@ -614,6 +621,13 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // A dismissed failure comes back when the agent has a new one to report:
+    // clearing it resets the dismissal, so only the exact text stays hidden.
+    effect(() => {
+      if (this.agentError() === undefined) {
+        this.dismissedAgentError.set(undefined);
+      }
+    });
     // Once Files has been opened, it stays mounted (hidden) so its tree, filter and
     // scroll survive a swap back to the session list.
     effect(() => {
@@ -1144,6 +1158,11 @@ export class App {
 
   protected retryAgent(): void {
     this.morse.newSession();
+  }
+
+  /** Hides the spawn-failure bar without pretending the agent recovered. */
+  protected dismissAgentBanner(): void {
+    this.dismissedAgentError.set(this.agentError());
   }
 
   protected openSettings(): void {

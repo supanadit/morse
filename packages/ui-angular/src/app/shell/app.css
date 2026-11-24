@@ -716,6 +716,40 @@ morse-bottom-panel {
   color: var(--morse-fg-muted);
 }
 
+.alert-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.alert-head strong {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A failure the reader can put away and keep reading the transcript. */
+.alert .dismiss {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.alert .dismiss:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+
 /*
  * Offline is a normal state, not a crash: a calm amber hairline instead of the
  * red error border. The full-screen state carries the explanation; this is the

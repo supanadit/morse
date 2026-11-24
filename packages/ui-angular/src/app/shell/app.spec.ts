@@ -1109,3 +1109,43 @@ describe('App · running subagents above the composer', () => {
     expect(panel?.querySelector('.subagents-list .done-mark')).not.toBeNull();
   });
 });
+
+/**
+ * A spawn failure with a transcript above it is a bar, not a wall: the reader
+ * can dismiss it and keep reading, and the same failure must not come back for
+ * nothing. A different failure does come back.
+ */
+describe('App · dismissing the agent failure bar', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('hides the bar until the agent reports a different failure', () => {
+    const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
+    const error = signal<string | undefined>('No session for ses_123 is in the index.');
+    Object.defineProperty(morse, 'connection', { value: signal('ready') });
+    Object.defineProperty(morse, 'agentReady', { value: signal(false) });
+    Object.defineProperty(morse, 'agentStarting', { value: signal(false) });
+    Object.defineProperty(morse, 'agentError', { value: error });
+    Object.defineProperty(morse, 'items', {
+      value: signal<TranscriptItem[]>([
+        { kind: 'user', id: 'm-1', at: 1, text: 'split it' },
+      ]),
+    });
+    const fixture = TestBed.createComponent(App);
+
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.alert')).not.toBeNull();
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.alert .dismiss')
+      ?.click();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.alert')).toBeNull();
+
+    // A new message is new news: the bar returns.
+    error.set('The agent exited before it could start.');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.alert')).not.toBeNull();
+  });
+});
