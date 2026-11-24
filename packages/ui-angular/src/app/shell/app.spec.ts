@@ -1048,4 +1048,64 @@ describe('App · running subagents above the composer', () => {
     // Opening a child folds the list away.
     expect(panel?.querySelector('.subagents-list')).toBeNull();
   });
+
+  /**
+   * OpenCode shows the child in its catalog before the tool row learns the id.
+   * While the parent is running, a catalog child newer than the prompt that
+   * started the turn is working — otherwise the panel only ever showed children
+   * after they finished.
+   */
+  it('marks a catalog-only child working while the parent runs', () => {
+    const fixture = TestBed.createComponent(App);
+    const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
+    const state = signal<SessionViewState>({
+      workspace: { cwd: '/work/morse', name: 'morse' },
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: true,
+      busy: false,
+      agentReady: true,
+      agentStarting: false,
+      sessionId: 'parent',
+    } as SessionViewState);
+    Object.defineProperty(morse, 'state', { value: state });
+    Object.defineProperty(morse, 'activeIsSubagent', { value: signal(false) });
+    Object.defineProperty(morse, 'sessionActivity', { value: signal(new Map()) });
+    Object.defineProperty(morse, 'sessions', {
+      value: signal<SessionSummary[]>([
+        {
+          id: 'kid',
+          title: 'Split the module',
+          cwd: '/work/morse',
+          updatedAt: 20,
+          messageCount: 1,
+          parentId: 'parent',
+          subagent: true,
+        },
+      ]),
+    });
+    Object.defineProperty(morse, 'items', {
+      value: signal<TranscriptItem[]>([
+        { kind: 'user', id: 'm-1', at: 10, text: 'split it' },
+      ]),
+    });
+
+    fixture.detectChanges();
+
+    const panel = (fixture.nativeElement as HTMLElement).querySelector('.subagents');
+    expect(panel?.querySelector('.subagents-working')?.textContent).toContain('1 working');
+    panel?.querySelector<HTMLButtonElement>('.subagents-head')?.click();
+    fixture.detectChanges();
+    expect(panel?.querySelector('.subagents-list .live')).not.toBeNull();
+
+    // The run ends: the child had no tool row to settle it, so the parent's
+    // streaming flag is what stops the spinner.
+    state.update((value) => ({ ...value, streaming: false }));
+    fixture.detectChanges();
+    expect(panel?.querySelector('.subagents-working')).toBeNull();
+    expect(panel?.querySelector('.subagents-list .live')).toBeNull();
+    expect(panel?.querySelector('.subagents-list .done-mark')).not.toBeNull();
+  });
 });

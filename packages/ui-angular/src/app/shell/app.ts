@@ -357,13 +357,27 @@ export class App {
       return [];
     }
     const activity = this.morse.sessionActivity();
+    const state = this.morse.state();
+    const parentRunning =
+      activity.get(parentId)?.streaming === true ||
+      (state.sessionId === parentId && state.streaming === true);
+    // A child that is only in the catalog (OpenCode reports it there before its
+    // tool row learns the id) is working while its parent runs and it is newer
+    // than the prompt that started this turn. Without the age cut a child that
+    // finished in an earlier turn and never linked a row would spin forever.
+    const lastPromptAt = this.morse
+      .items()
+      .filter((item) => item.kind === 'user')
+      .reduce((latest, item) => Math.max(latest, item.at), 0);
     const rows = new Map<string, SubagentEntry>();
     for (const session of this.morse.sessions()) {
       if (session.subagent === true && session.parentId === parentId) {
         rows.set(session.id, {
           sessionId: session.id,
           title: session.title,
-          running: activity.get(session.id)?.streaming === true,
+          running:
+            activity.get(session.id)?.streaming === true ||
+            (parentRunning && session.updatedAt >= lastPromptAt),
           at: session.updatedAt,
         });
       }

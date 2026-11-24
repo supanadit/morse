@@ -2553,6 +2553,13 @@ export class HostSessionController {
   /** Child sessions whose spawning tool row in a hot session is still running. */
   private trackChild(sessionKey: string, event: AgentEvent): void {
     const toolKey = (id: string): string => `${sessionKey}\0${id}`;
+    if (event.type === 'agent/tool-start' && (event.name === 'task' || event.name === 'subagent')) {
+      // The child's session row exists in the catalog from the moment the engine
+      // spawns it, but `session/list` has not been re-read since: refreshing here
+      // is what lets the navigator and the subagent panel show it *while* it runs,
+      // instead of only after the run ends and the list is published again.
+      void this.publishSessions();
+    }
     if (event.type === 'agent/run-end') {
       // An aborted run need not end its tools: nothing it spawned is running now.
       this.clearChildren(sessionKey);
