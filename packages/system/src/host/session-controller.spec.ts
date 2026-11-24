@@ -3386,6 +3386,14 @@ describe('HostSessionController session-scoped dialogs', () => {
 
     expect(activity()?.payload.sessions.find((s) => s.sessionKey === 'kid')?.streaming).toBe(true);
 
+    // Switching the visible conversation keeps the child's mark: the status is
+    // the host's, not the panel's.
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-b', cwd: WORKSPACE.cwd },
+    });
+    expect(activity()?.payload.sessions.find((s) => s.sessionKey === 'kid')?.streaming).toBe(true);
+
     // The end need not repeat the child link: the row knows which call it was.
     created[0].emit({
       type: 'agent/tool-end',

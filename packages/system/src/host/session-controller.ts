@@ -240,12 +240,14 @@ export class HostSessionController {
   /** Keys of the sessions a compaction is running for (`session/compact`). */
   private readonly compacting = new Set<string>();
   /**
-   * Child sessions a running tool row spawned. A subagent is not a registry
-   * entry, so this is the only place that knows it is working; `publishActivity`
-   * reports these beside the hot sessions. `toolChildren` maps the opening tool
-   * call to its child so a tool-end (which need not repeat the link) clears it.
+   * Child sessions a running tool row spawned, mapped to the session that owns
+   * the row. A subagent is not a registry entry, so this is the only place that
+   * knows it is working; `publishActivity` reports these beside the hot sessions.
+   * `toolChildren` maps the opening tool call to its child so a tool-end (which
+   * need not repeat the link) clears it. Both are seeded from warm transcripts so
+   * a frontend refresh or a tab switch does not lose a run already in flight.
    */
-  private readonly activeChildren = new Set<string>();
+  private readonly activeChildren = new Map<string, string>();
   private readonly toolChildren = new Map<string, string>();
   /**
    * Compactions the reader scheduled while their conversation was still working
@@ -320,6 +322,10 @@ export class HostSessionController {
     this.detachRegistry = this.options.services.registry.subscribe((tagged) => {
       void this.onTaggedEvent(tagged.sessionKey, tagged.event);
     });
+    // A reconnect or refresh starts a new controller while the agents keep
+    // running: rebuild what the transcripts already know before the first
+    // activity report, or every in-flight subagent would read as finished.
+    this.seedChildren();
     // The transcript lives with the session, not with this connection: forward
     // the updates of whichever session this client is showing.
     this.detachTranscripts = this.options.transcripts.subscribe((update) => {
@@ -1080,6 +1086,9 @@ export class HostSessionController {
     this.loadingOlderHistory = false;
     this.agentReady = true;
     this.clearAgentFailure();
+    // Switching to a session must keep the children it already had running, even
+    // if their tool events landed before this controller watched it.
+    this.seedChildren();
     this.emitTranscript(opened.key);
     this.emitState();
     // A session can have been waiting on a dialog while it was in the
@@ -2535,7 +2544,7 @@ export class HostSessionController {
       };
     });
     const known = new Set(sessions.map((session) => session.sessionKey));
-    for (const key of children) {
+    for (const key of children.keys()) {
       if (known.has(key)) {
         continue;
       }
@@ -2593,7 +2602,7 @@ export class HostSessionController {
       event.status === undefined ||
       event.status === 'running'
     ) {
-      this.activeChildren.add(child);
+      this.activeChildren.set(child, sessionKey);
     } else {
       this.activeChildren.delete(child);
     }
@@ -2606,6 +2615,26 @@ export class HostSessionController {
       if (key.startsWith(`${sessionKey}\0`)) {
         this.toolChildren.delete(key);
         this.activeChildren.delete(child);
+      }
+    }
+    for (const [child, owner] of this.activeChildren) {
+      if (owner === sessionKey) {
+        this.activeChildren.delete(child);
+      }
+    }
+  }
+
+  /**
+   * Rebuilds the running-children set from the transcript the host already
+   * holds. Its tool rows survive a reconnect, so a refreshed frontend (or a new
+   * controller) still reports a child that started before it was watching.
+   */
+  private seedChildren(): void {
+    for (const sessionKey of this.options.services.registry.hotKeys()) {
+      for (const item of this.options.transcripts.items(sessionKey)) {
+        if (item.kind === 'tool' && item.status === 'running' && item.child !== undefined) {
+          this.activeChildren.set(item.child.sessionId, sessionKey);
+        }
       }
     }
   }
