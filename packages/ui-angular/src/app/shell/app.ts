@@ -396,10 +396,6 @@ export class App {
     this.subagentsOpen.update((open) => !open);
   }
 
-  protected closeSubagents(): void {
-    this.subagentsOpen.set(false);
-  }
-
   /** Opens one child from the list and folds the list away. */
   protected pickSubagent(child: SubagentEntry): void {
     this.subagentsOpen.set(false);

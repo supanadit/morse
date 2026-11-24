@@ -1010,18 +1010,18 @@ describe('App · running subagents above the composer', () => {
 
     fixture.detectChanges();
 
-    const bar = (fixture.nativeElement as HTMLElement).querySelector('.subagent-bar');
-    const trigger = bar?.querySelector<HTMLButtonElement>('.subagent-trigger');
-    expect(trigger?.textContent).toContain('Subagents');
-    expect(trigger?.querySelector('.trigger-count')?.textContent).toContain('1/1');
-    expect(trigger?.querySelector('.live')).not.toBeNull();
-    // The list is folded until asked for: one compact row, no chip strip.
-    expect(bar?.querySelector('.subagent-list')).toBeNull();
+    const panel = (fixture.nativeElement as HTMLElement).querySelector('.subagents');
+    const head = panel?.querySelector<HTMLButtonElement>('.subagents-head');
+    expect(head?.textContent).toContain('Subagents');
+    expect(head?.querySelector('.subagents-count')?.textContent).toContain('1');
+    expect(head?.querySelector('.subagents-working')?.textContent).toContain('1 working');
+    // The rows are folded until asked for: one quiet header, like the queue's.
+    expect(panel?.querySelector('.subagents-list')).toBeNull();
 
-    trigger?.click();
+    head?.click();
     fixture.detectChanges();
 
-    const child = bar?.querySelector<HTMLButtonElement>('.subagent-list .subagent-row');
+    const child = panel?.querySelector<HTMLButtonElement>('.subagents-list .subagents-row');
     expect(child?.textContent).toContain('explore');
     expect(child?.textContent).toContain('Split the module');
     expect(child?.textContent).toContain('Working');
@@ -1036,8 +1036,8 @@ describe('App · running subagents above the composer', () => {
     }
     fixture.detectChanges();
 
-    expect(trigger?.querySelector('.trigger-count')?.textContent?.trim()).toBe('1');
-    const settled = bar?.querySelector<HTMLButtonElement>('.subagent-list .subagent-row');
+    expect(head?.querySelector('.subagents-working')).toBeNull();
+    const settled = panel?.querySelector<HTMLButtonElement>('.subagents-list .subagents-row');
     expect(settled?.textContent).toContain('Done');
     expect(settled?.querySelector('.live')).toBeNull();
     expect(settled?.querySelector('.done-mark')).not.toBeNull();
@@ -1046,6 +1046,6 @@ describe('App · running subagents above the composer', () => {
     expect(activate).toHaveBeenCalledWith('kid');
     fixture.detectChanges();
     // Opening a child folds the list away.
-    expect(bar?.querySelector('.subagent-list')).toBeNull();
+    expect(panel?.querySelector('.subagents-list')).toBeNull();
   });
 });

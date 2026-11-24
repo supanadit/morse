@@ -462,45 +462,33 @@
           -->
           @if (!activeIsSubagent()) {
             <div class="dock" #dock>
-              <!-- Every subagent this conversation spawned, folded into one
-                   compact trigger above the composer (and above its todo list).
-                   The list opens as a vertical, scrollable panel: parallel runs
-                   used to scroll out of the transcript, and a finished child
-                   must not vanish before the reader sees which one ended. -->
+              <!-- Every subagent this conversation spawned, in the same panel
+                   shape the composer's queue and a pending question use. The head
+                   folds the rows away; they scroll vertically inside, never
+                   sideways, and fit a phone. -->
               @if (subagents().length > 0) {
-                <div class="subagent-bar">
+                <div class="subagents" role="region" aria-label="Subagents">
                   <button
                     type="button"
-                    class="subagent-trigger"
-                    aria-haspopup="true"
-                    [attr.aria-expanded]="subagentsOpen()"
+                    class="subagents-head"
+                    aria-expanded="{{ subagentsOpen() }}"
                     (click)="toggleSubagents()"
                   >
+                    <span class="subagents-glyph" aria-hidden="true">⧉</span>
+                    <span class="subagents-title">Subagents</span>
+                    <span class="subagents-count">{{ subagents().length }}</span>
                     @if (runningSubagentCount() > 0) {
-                      <span class="live" aria-hidden="true"></span>
-                    } @else {
-                      <span class="glyph" aria-hidden="true">⧉</span>
+                      <span class="subagents-working">
+                        <span class="live" aria-hidden="true"></span>
+                        {{ runningSubagentCount() }} working
+                      </span>
                     }
-                    <span class="trigger-label">Subagents</span>
-                    <span class="trigger-count">
-                      @if (runningSubagentCount() > 0) {
-                        <b>{{ runningSubagentCount() }}</b>/{{ subagents().length }}
-                      } @else {
-                        {{ subagents().length }}
-                      }
-                    </span>
-                    <span class="caret" aria-hidden="true">›</span>
+                    <span class="chevron" aria-hidden="true">›</span>
                   </button>
                   @if (subagentsOpen()) {
-                    <button
-                      type="button"
-                      class="subagent-scrim"
-                      aria-label="Close subagents"
-                      (click)="closeSubagents()"
-                    ></button>
-                    <div class="subagent-list" role="group" aria-label="Subagents">
+                    <div class="subagents-list">
                       @for (child of subagents(); track child.sessionId) {
-                        <button type="button" class="subagent-row" (click)="pickSubagent(child)">
+                        <button type="button" class="subagents-row" (click)="pickSubagent(child)">
                           @if (child.running) {
                             <span class="live" aria-hidden="true"></span>
                           } @else {
