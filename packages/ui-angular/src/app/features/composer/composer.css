@@ -111,12 +111,29 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   padding: 5px 10px;
-  border-bottom: 1px solid var(--morse-border);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--morse-fg-muted);
+  font: inherit;
   font-size: 11px;
+  text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.queue-head:hover {
+  background: var(--morse-hover);
+  color: var(--morse-fg);
+}
+.queue-caret {
+  margin-left: auto;
+  transition: transform 120ms ease;
+}
+.queue-head[aria-expanded='true'] .queue-caret {
+  transform: rotate(90deg);
 }
 .queue-count {
   min-width: 16px;
@@ -178,6 +195,14 @@
 }
 .queue-grip:active {
   cursor: grabbing;
+}
+.queue-list {
+  border-top: 1px solid var(--morse-border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .queue-caret {
+    transition: none;
+  }
 }
 /* Angular CDK drag: the row in hand floats in a preview and the rest slide
    aside, exactly like the session strip's tabs. */

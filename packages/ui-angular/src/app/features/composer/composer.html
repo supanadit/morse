@@ -18,11 +18,18 @@
          room says who and how far, in the same panel a session uses for its
          follow-ups. Clicking a row opens the thread it is waiting in. -->
     <div class="queue waiting" role="region" aria-label="Waiting for replies">
-      <div class="queue-head">
+      <button
+        type="button"
+        class="queue-head"
+        [attr.aria-expanded]="queueOpen()"
+        (click)="toggleQueue()"
+      >
         <span class="queue-glyph" aria-hidden="true">⏲</span>
         <span class="queue-title">Waiting for replies</span>
         <span class="queue-count">{{ waitingAsks().length }}</span>
-      </div>
+        <span class="queue-caret" aria-hidden="true">›</span>
+      </button>
+      @if (queueOpen()) {
       <div class="queue-list">
         @for (ask of waitingAsks(); track ask.deliveryId) {
           <button
@@ -38,6 +45,7 @@
           </button>
         }
       </div>
+      }
     </div>
   }
   @if (queuedMessages().length && variant !== 'bot') {
@@ -59,11 +67,18 @@
           </button>
         </div>
       }
-      <div class="queue-head">
+      <button
+        type="button"
+        class="queue-head"
+        [attr.aria-expanded]="queueOpen()"
+        (click)="toggleQueue()"
+      >
         <span class="queue-glyph" aria-hidden="true">⏲</span>
         <span class="queue-title">Queued messages</span>
         <span class="queue-count">{{ queuedMessages().length }}</span>
-      </div>
+        <span class="queue-caret" aria-hidden="true">›</span>
+      </button>
+      @if (queueOpen()) {
       <div
         class="queue-list"
         cdkDropList
@@ -139,6 +154,7 @@
           </div>
         }
       </div>
+      }
     </div>
   }
   <div class="box">

@@ -438,6 +438,13 @@ export class ChatComposer {
    * never shows another session's messages.
    */
   protected readonly queuedMessages = computed(() => this.queue.forOwner(this.tabs.composerKey()));
+  /** Whether the queued follow-ups are unfolded; the header is the toggle. */
+  protected readonly queueOpen = signal(true);
+
+  protected toggleQueue(): void {
+    this.queueOpen.update((open) => !open);
+  }
+
   /** Why the queue in front stopped draining; absent while it runs normally. */
   protected readonly queuePaused = computed(() =>
     this.queue.pausedReason(this.tabs.composerKey()),

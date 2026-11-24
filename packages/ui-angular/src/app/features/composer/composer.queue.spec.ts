@@ -127,6 +127,38 @@ describe('ChatComposer queued messages', () => {
     expect(rows(host)).toEqual(['for s2']);
   });
 
+  it('folds the queued messages from the header and keeps the count', async () => {
+    const transport = new QueueHostTransport();
+    await TestBed.configureTestingModule({
+      imports: [ChatComposer],
+      providers: [{ provide: MORSE_TRANSPORT, useValue: transport }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ChatComposer);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const queue = TestBed.inject(QueuedPrompts);
+    const tabs = TestBed.inject(WorkspaceTabs);
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    queue.enqueue({ text: 'first', images: [], pins: [] }, 's1');
+    queue.enqueue({ text: 'second', images: [], pins: [] }, 's1');
+    fixture.detectChanges();
+
+    const head = host.querySelector<HTMLButtonElement>('.queue-head')!;
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+    expect(rows(host)).toEqual(['first', 'second']);
+
+    head.click();
+    fixture.detectChanges();
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(rows(host)).toEqual([]);
+    // The header stays, so the folded count is still readable.
+    expect(head.querySelector('.queue-count')?.textContent?.trim()).toBe('2');
+
+    head.click();
+    fixture.detectChanges();
+    expect(rows(host)).toEqual(['first', 'second']);
+  });
+
   it('queues a prompt typed during compaction and hides Send until it finishes', async () => {
     const transport = new QueueHostTransport();
     await TestBed.configureTestingModule({
