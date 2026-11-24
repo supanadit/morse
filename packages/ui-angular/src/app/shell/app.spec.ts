@@ -1010,15 +1010,25 @@ describe('App · running subagents above the composer', () => {
 
     fixture.detectChanges();
 
-    const strip = (fixture.nativeElement as HTMLElement).querySelector('.subagent-strip');
-    expect(strip?.querySelector('.strip-count')?.textContent).toContain('1');
-    const child = strip?.querySelector<HTMLButtonElement>('.child');
+    const bar = (fixture.nativeElement as HTMLElement).querySelector('.subagent-bar');
+    const trigger = bar?.querySelector<HTMLButtonElement>('.subagent-trigger');
+    expect(trigger?.textContent).toContain('Subagents');
+    expect(trigger?.querySelector('.trigger-count')?.textContent).toContain('1/1');
+    expect(trigger?.querySelector('.live')).not.toBeNull();
+    // The list is folded until asked for: one compact row, no chip strip.
+    expect(bar?.querySelector('.subagent-list')).toBeNull();
+
+    trigger?.click();
+    fixture.detectChanges();
+
+    const child = bar?.querySelector<HTMLButtonElement>('.subagent-list .subagent-row');
     expect(child?.textContent).toContain('explore');
     expect(child?.textContent).toContain('Split the module');
+    expect(child?.textContent).toContain('Working');
     expect(child?.querySelector('.live')).not.toBeNull();
 
-    // Once the tool row settles the child stays on the strip, marked done —
-    // otherwise the strip would vanish exactly when the reader checks it.
+    // Once the tool row settles the child stays in the list, marked done —
+    // otherwise it would vanish exactly when the reader checks which ended.
     activity.set(new Map([['kid', { sessionKey: 'kid', streaming: false }]]));
     const row = items()[0];
     if (row?.kind === 'tool') {
@@ -1026,12 +1036,16 @@ describe('App · running subagents above the composer', () => {
     }
     fixture.detectChanges();
 
-    const settled = (fixture.nativeElement as HTMLElement).querySelector('.subagent-strip .child');
-    expect(settled?.classList.contains('done')).toBe(true);
+    expect(trigger?.querySelector('.trigger-count')?.textContent?.trim()).toBe('1');
+    const settled = bar?.querySelector<HTMLButtonElement>('.subagent-list .subagent-row');
+    expect(settled?.textContent).toContain('Done');
     expect(settled?.querySelector('.live')).toBeNull();
     expect(settled?.querySelector('.done-mark')).not.toBeNull();
 
-    (settled as HTMLButtonElement).click();
+    settled?.click();
     expect(activate).toHaveBeenCalledWith('kid');
+    fixture.detectChanges();
+    // Opening a child folds the list away.
+    expect(bar?.querySelector('.subagent-list')).toBeNull();
   });
 });

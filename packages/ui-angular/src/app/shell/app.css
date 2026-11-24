@@ -311,78 +311,58 @@ morse-bottom-panel {
   pointer-events: auto;
 }
 /*
- * The running-subagents strip above the composer. A row of chips like the todo
- * overlay, one per child still working, each a way into its transcript. Violet
- * rather than the accent blue, the same hue the subagent tabs carry, so a
- * delegated run reads as delegation everywhere.
+ * The subagents trigger above the composer. One compact row — a spinner or
+ * count, never a strip of chips — and the children themselves open in a
+ * vertical list. Violet rather than the accent blue, the same hue the subagent
+ * tabs carry, so a delegated run reads as delegation everywhere.
  */
-.subagent-strip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* One scrollable row: a conversation can spawn dozens of children, and the
-     strip must stay a slim bar instead of pushing the composer up the screen. */
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
+.subagent-bar {
+  position: relative;
   margin: 0 12px 4px;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in srgb, #a78bfa 30%, transparent);
-  border-radius: var(--morse-radius-sm);
-  background: color-mix(in srgb, #a78bfa 10%, var(--morse-panel, var(--morse-bg)));
-  font-size: 11.5px;
 }
-.subagent-strip .strip-label {
-  flex: none;
-  position: sticky;
-  left: 0;
-  padding-right: 4px;
-  background: inherit;
-  color: color-mix(in srgb, #a78bfa 80%, var(--morse-fg));
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.subagent-strip .strip-count {
-  margin-left: 2px;
-  color: var(--morse-fg-muted);
-}
-.subagent-strip .child {
+.subagent-trigger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: none;
-  min-width: 0;
-  max-width: 260px;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, #a78bfa 22%, transparent);
+  min-height: 26px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, #a78bfa 30%, transparent);
   border-radius: 999px;
-  background: transparent;
+  background: color-mix(in srgb, #a78bfa 10%, var(--morse-panel, var(--morse-bg)));
   color: var(--morse-fg);
   font: inherit;
   font-size: 11.5px;
   cursor: pointer;
 }
-.subagent-strip .child:hover {
+.subagent-trigger:hover,
+.subagent-trigger[aria-expanded='true'] {
   border-color: #a78bfa;
-  background: color-mix(in srgb, #a78bfa 16%, transparent);
+  background: color-mix(in srgb, #a78bfa 16%, var(--morse-panel, var(--morse-bg)));
 }
-/* A finished child stays listed but quiets down: the running ones come first
-   and carry the spinner, so the strip still answers "what is working now". */
-.subagent-strip .child.done {
-  border-color: color-mix(in srgb, #a78bfa 14%, transparent);
-  opacity: 0.72;
+.subagent-trigger .trigger-label {
+  color: color-mix(in srgb, #a78bfa 85%, var(--morse-fg));
+  font-weight: 600;
 }
-.subagent-strip .child.done .child-agent {
+.subagent-trigger .trigger-count {
   color: var(--morse-fg-muted);
-  font-weight: 500;
 }
-.subagent-strip .done-mark {
-  flex: none;
+.subagent-trigger .trigger-count b {
+  color: color-mix(in srgb, #a78bfa 85%, var(--morse-fg));
+  font-weight: 600;
+}
+.subagent-trigger .caret {
+  color: color-mix(in srgb, #a78bfa 80%, var(--morse-fg-muted));
+  transition: transform 120ms ease;
+}
+.subagent-trigger[aria-expanded='true'] .caret {
+  transform: rotate(90deg);
+}
+.subagent-trigger .glyph {
   color: #a78bfa;
-  font-size: 10px;
+  font-size: 11px;
 }
-.subagent-strip .live {
+.subagent-trigger .live,
+.subagent-row .live {
   flex: none;
   width: 9px;
   height: 9px;
@@ -396,22 +376,94 @@ morse-bottom-panel {
     transform: rotate(360deg);
   }
 }
-.subagent-strip .child-agent {
+/* A click anywhere else folds the list; the scrim sits under it, not over. */
+.subagent-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+/*
+ * The list, above the trigger. A column on every width, capped in height and
+ * scrolled vertically inside — never sideways. The width follows the window,
+ * so a phone gets the whole line and a long title ellipses instead of pushing
+ * a control off screen.
+ */
+.subagent-list {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: 21;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(50vh, 320px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, #a78bfa 30%, transparent);
+  border-radius: var(--morse-radius-sm);
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 10px 28px rgb(0 0 0 / 35%);
+}
+.subagent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.subagent-row:hover,
+.subagent-row:focus-visible {
+  background: var(--morse-hover);
+}
+.subagent-row .done-mark {
   flex: none;
+  width: 9px;
+  color: #a78bfa;
+  font-size: 10px;
+  text-align: center;
+}
+.subagent-row .row-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
+.subagent-row .row-agent {
   color: color-mix(in srgb, #a78bfa 85%, var(--morse-fg));
+  font-size: 11.5px;
   font-weight: 600;
 }
-.subagent-strip .child-title {
-  min-width: 0;
+.subagent-row .row-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+.subagent-row .row-state {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .subagent-strip .live {
+  .subagent-trigger .live,
+  .subagent-row .live {
     animation: none;
     border-color: #a78bfa;
+  }
+  .subagent-trigger .caret {
+    transition: none;
   }
 }
 /*

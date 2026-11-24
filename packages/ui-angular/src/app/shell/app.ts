@@ -385,6 +385,27 @@ export class App {
     return [...rows.values()].sort((a, b) => Number(b.running) - Number(a.running) || b.at - a.at);
   });
 
+  /** How many of them are still working, for the trigger's "2/5". */
+  protected readonly runningSubagentCount = computed(
+    () => this.subagents().filter((child) => child.running).length,
+  );
+  /** The compact list above the composer is open. */
+  protected readonly subagentsOpen = signal(false);
+
+  protected toggleSubagents(): void {
+    this.subagentsOpen.update((open) => !open);
+  }
+
+  protected closeSubagents(): void {
+    this.subagentsOpen.set(false);
+  }
+
+  /** Opens one child from the list and folds the list away. */
+  protected pickSubagent(child: SubagentEntry): void {
+    this.subagentsOpen.set(false);
+    this.openSubagent(child);
+  }
+
   /**
    * Opens a spawned session from its tool row: swaps the panel to the child's
    * transcript. The catalog is refreshed first (fire and forget) because a child
