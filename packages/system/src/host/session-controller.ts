@@ -240,6 +240,14 @@ export class HostSessionController {
   /** Keys of the sessions a compaction is running for (`session/compact`). */
   private readonly compacting = new Set<string>();
   /**
+   * Child sessions a running tool row spawned. A subagent is not a registry
+   * entry, so this is the only place that knows it is working; `publishActivity`
+   * reports these beside the hot sessions. `toolChildren` maps the opening tool
+   * call to its child so a tool-end (which need not repeat the link) clears it.
+   */
+  private readonly activeChildren = new Set<string>();
+  private readonly toolChildren = new Map<string, string>();
+  /**
    * Compactions the reader scheduled while their conversation was still working
    * (`session/compact` with `schedule`): session key -> the instructions it was
    * asked with. pi compacts by aborting the run in flight, so these wait for that
@@ -325,6 +333,9 @@ export class HostSessionController {
     this.detachRemovals = this.options.services.registry.onRemoval((key) => {
       this.scheduledCompacts.delete(key);
       this.interactions.forget(key);
+      // A parent that leaves takes its children's running marks with it.
+      this.clearChildren(key);
+      this.publishActivity();
     });
     // A host watch over pi's `mcp.json` files: a config edited in a terminal (or
     // by another window) reaches this client without it having to poll the
@@ -2040,6 +2051,7 @@ export class HostSessionController {
         if (event.type === 'agent/run-end') {
           void this.publishSessions();
         }
+        this.trackChild(sessionKey, event);
       } else {
         this.publishActivity();
       }
@@ -2057,6 +2069,7 @@ export class HostSessionController {
         return;
       case 'agent/run-end':
         this.options.transcripts.apply(sessionKey, event);
+        this.trackChild(sessionKey, event);
         // An engine persists and names a session at its first user message (pi
         // writes the session file then, and the catalog derives the title from
         // that text), so a finished run is the moment to replace the placeholder
@@ -2077,6 +2090,7 @@ export class HostSessionController {
         return;
       default:
         this.options.transcripts.apply(sessionKey, event);
+        this.trackChild(sessionKey, event);
     }
   }
 
@@ -2502,13 +2516,17 @@ export class HostSessionController {
    * conversations both read as running instead of one silently taking over.
    */
   private publishActivity(): void {
+    // A subagent runs inside its parent's process, so the registry cannot report
+    // it: its liveness is the parent's tool row (see `trackChild`). Both the
+    // navigator and the tab strip read it like any other live session.
+    const children = this.activeChildren;
     const sessions: SessionActivity[] = this.options.services.registry.hotKeys().map((key) => {
       const state = this.options.services.registry.stateOf(key);
       const isActive = key === this.viewKey();
       const needsInput = this.pendingFor(key) !== undefined;
       return {
         sessionKey: key,
-        streaming: state?.streaming ?? false,
+        streaming: state?.streaming === true || children.has(key),
         busy: (isActive && this.switchBusy) || this.compacting.has(key),
         agentReady: isActive ? this.agentReady : state !== undefined,
         agentStarting: isActive ? this.agentStarting : false,
@@ -2516,7 +2534,73 @@ export class HostSessionController {
         ...(isActive && this.agentError !== undefined ? { agentError: this.agentError } : {}),
       };
     });
+    const known = new Set(sessions.map((session) => session.sessionKey));
+    for (const key of children) {
+      if (known.has(key)) {
+        continue;
+      }
+      sessions.push({
+        sessionKey: key,
+        streaming: true,
+        busy: false,
+        agentReady: true,
+        agentStarting: false,
+      });
+    }
     this.options.emit({ type: 'session/activity', payload: { sessions } });
+  }
+
+  /** Child sessions whose spawning tool row in a hot session is still running. */
+  private trackChild(sessionKey: string, event: AgentEvent): void {
+    const toolKey = (id: string): string => `${sessionKey}\0${id}`;
+    if (event.type === 'agent/run-end') {
+      // An aborted run need not end its tools: nothing it spawned is running now.
+      this.clearChildren(sessionKey);
+      this.publishActivity();
+      return;
+    }
+    if (
+      event.type !== 'agent/tool-start' &&
+      event.type !== 'agent/tool-update' &&
+      event.type !== 'agent/tool-end'
+    ) {
+      return;
+    }
+    const key = toolKey(event.toolCallId);
+    if (event.type === 'agent/tool-end') {
+      const child = this.toolChildren.get(key) ?? event.childSession?.sessionId;
+      this.toolChildren.delete(key);
+      if (child !== undefined) {
+        this.activeChildren.delete(child);
+      }
+      this.publishActivity();
+      return;
+    }
+    const child = event.childSession?.sessionId;
+    if (child === undefined) {
+      return;
+    }
+    this.toolChildren.set(key, child);
+    if (
+      event.type === 'agent/tool-start' ||
+      event.status === undefined ||
+      event.status === 'running'
+    ) {
+      this.activeChildren.add(child);
+    } else {
+      this.activeChildren.delete(child);
+    }
+    this.publishActivity();
+  }
+
+  /** Drops the children a session spawned, when that session ends or leaves. */
+  private clearChildren(sessionKey: string): void {
+    for (const [key, child] of this.toolChildren) {
+      if (key.startsWith(`${sessionKey}\0`)) {
+        this.toolChildren.delete(key);
+        this.activeChildren.delete(child);
+      }
+    }
   }
 
   /**

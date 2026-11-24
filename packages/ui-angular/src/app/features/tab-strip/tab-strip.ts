@@ -92,6 +92,32 @@ export class TabStrip {
   }
 
   /**
+   * The sessions in the strip that are delegation children. A subagent has no
+   * process of its own and is steered by its parent, so its tab is tinted to read
+   * as a watched child rather than another conversation. The catalog carries the
+   * flag; a child spawned this turn may not be listed yet, so its tool row in the
+   * open transcript is the other source.
+   */
+  protected readonly subagentIds = computed<ReadonlySet<string>>(() => {
+    const ids = new Set(
+      this.morse
+        .sessions()
+        .filter((session) => session.subagent === true)
+        .map((session) => session.id),
+    );
+    for (const item of this.morse.items()) {
+      if (item.kind === 'tool' && item.child !== undefined) {
+        ids.add(item.child.sessionId);
+      }
+    }
+    return ids;
+  });
+
+  protected isSubagent(tab: WorkspaceTab | undefined): boolean {
+    return tab?.kind === 'session' && this.subagentIds().has(tab.id);
+  }
+
+  /**
    * True while the agent is producing a turn in that session, whatever tab is in
    * front. The tab then shows a spinner, so a run is visible even when the reader
    * is looking at another session or a file. `sessionActivity` lists every hot

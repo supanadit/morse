@@ -167,6 +167,27 @@
 .tab.parent .glyph {
   color: var(--morse-accent);
 }
+/*
+ * A subagent tab: a delegation child watched read-only, not another
+ * conversation. Tinted violet (also the running-subagent strip's hue) so a
+ * handful of parallel runs in the strip are told apart at a glance; the
+ * spinner follows the same hue instead of the accent blue.
+ */
+.tab.subagent {
+  background: color-mix(in srgb, #a78bfa 10%, transparent);
+  color: color-mix(in srgb, #a78bfa 45%, var(--morse-fg));
+}
+.tab.subagent .glyph {
+  color: color-mix(in srgb, #a78bfa 80%, var(--morse-fg-muted));
+}
+.tab.subagent.active {
+  background: color-mix(in srgb, #a78bfa 18%, var(--morse-panel, var(--morse-bg)));
+  box-shadow: inset 0 -2px 0 #a78bfa;
+}
+.tab.subagent .live {
+  border-color: color-mix(in srgb, #a78bfa 30%, transparent);
+  border-top-color: #a78bfa;
+}
 /* A session the agent is streaming in: a spinner, active or not. */
 .tab .live {
   flex: none;
@@ -351,6 +372,11 @@ morse-dialog.sheet-dialog {
     background: var(--morse-hover);
   }
 
+  .handle.subagent {
+    background: color-mix(in srgb, #a78bfa 12%, var(--morse-nav-bg));
+    color: color-mix(in srgb, #a78bfa 45%, var(--morse-fg));
+  }
+
   .handle-label {
     flex: 1;
     min-width: 0;
@@ -472,6 +498,17 @@ morse-dialog.sheet-dialog {
 
   .sheet-row:hover {
     background: var(--morse-hover);
+  }
+
+  /* A delegation child keeps the violet tint in the drawer, and its spinner. */
+  .sheet-row.subagent {
+    background: color-mix(in srgb, #a78bfa 8%, transparent);
+    color: color-mix(in srgb, #a78bfa 45%, var(--morse-fg));
+  }
+
+  .sheet-row.subagent .live {
+    border-color: color-mix(in srgb, #a78bfa 30%, transparent);
+    border-top-color: #a78bfa;
   }
 
   .sheet-row.selected {

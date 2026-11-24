@@ -3364,6 +3364,41 @@ describe('HostSessionController session-scoped dialogs', () => {
     ).toBe(true);
   });
 
+  /**
+   * A subagent has no registry entry: the parent process runs it. Its liveness
+   * is the parent's spawning tool row, so activity must report the child while
+   * that row runs and drop it the moment the row ends — otherwise the sidebar
+   * and the tab strip never spin for a delegation child.
+   */
+  it('reports a running child as activity while its tool row is running', async () => {
+    const { host, messages, created } = await twoSessions();
+    const activity = () => messages.filter((message) => message.type === 'session/activity').at(-1);
+
+    created[0].emit({
+      type: 'agent/tool-start',
+      at: Date.now(),
+      toolCallId: 'call-1',
+      name: 'task',
+      title: 'split the module',
+      childSession: { sessionId: 'kid', agent: 'explore' },
+    });
+    await Promise.resolve();
+
+    expect(activity()?.payload.sessions.find((s) => s.sessionKey === 'kid')?.streaming).toBe(true);
+
+    // The end need not repeat the child link: the row knows which call it was.
+    created[0].emit({
+      type: 'agent/tool-end',
+      at: Date.now(),
+      toolCallId: 'call-1',
+      status: 'ok',
+      durationMs: 12,
+    });
+    await Promise.resolve();
+
+    expect(activity()?.payload.sessions.some((s) => s.sessionKey === 'kid')).toBe(false);
+  });
+
   it('sends a form to the frontend even when this host answers other kinds natively', async () => {
     const messages: HostToClientMessage[] = [];
     const created: Controlled[] = [];

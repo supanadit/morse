@@ -462,6 +462,28 @@
           -->
           @if (!activeIsSubagent()) {
             <div class="dock" #dock>
+              <!-- The subagents this conversation has running, pinned above the
+                   composer (and above its todo list): with a dozen parallel runs
+                   the tool rows scroll away, so the live ones stay in reach. -->
+              @if (runningSubagents().length > 0) {
+                <div class="subagent-strip" role="status">
+                  <span class="strip-label">
+                    Subagents <span class="strip-count">{{ runningSubagents().length }}</span>
+                  </span>
+                  @for (child of runningSubagents(); track child.sessionId) {
+                    <button
+                      type="button"
+                      class="child"
+                      [attr.title]="child.title"
+                      (click)="openSubagent(child)"
+                    >
+                      <span class="live" aria-hidden="true"></span>
+                      <span class="child-agent">{{ child.agent ?? 'subagent' }}</span>
+                      <span class="child-title">{{ child.title }}</span>
+                    </button>
+                  }
+                </div>
+              }
               <!-- The session's todo list, docked just above the composer: pi's TUI
                    shows a todo widget there, and RPC cannot carry it (the extension
                    registers a component factory, which RPC mode drops). Rebuilt from

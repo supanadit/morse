@@ -79,6 +79,11 @@ function previewBoot(): boolean {
   return new URL(location.href, 'http://localhost/').searchParams.get('boot') === '1';
 }
 
+/** A child the conversation in front is running, as the subagent strip lists it. */
+interface RunningSubagent extends ChildSessionRef {
+  title: string;
+}
+
 @Component({
   selector: 'app-root',
   imports: [
@@ -333,6 +338,39 @@ export class App {
    */
   protected readonly activeIsSubagent = this.morse.activeIsSubagent;
   protected readonly activeParent = this.morse.parentOfActive;
+
+  /**
+   * The subagents the conversation in front has running right now, for the strip
+   * above its composer. The host reports a child as streaming while its spawning
+   * tool row is still running (a child has no process of its own), so this reads
+   * the same activity the navigator does; the transcript fills in a child the
+   * catalog has not listed yet, and names the agent that runs it.
+   */
+  protected readonly runningSubagents = computed<RunningSubagent[]>(() => {
+    const parentId = this.morse.state().sessionId;
+    if (parentId === undefined || this.activeIsSubagent()) {
+      return [];
+    }
+    const activity = this.morse.sessionActivity();
+    const rows = new Map<string, RunningSubagent>();
+    for (const session of this.morse.sessions()) {
+      if (
+        session.subagent === true &&
+        session.parentId === parentId &&
+        activity.get(session.id)?.streaming === true
+      ) {
+        rows.set(session.id, { sessionId: session.id, title: session.title });
+      }
+    }
+    for (const item of this.morse.items()) {
+      if (item.kind !== 'tool' || item.child === undefined || item.status !== 'running') {
+        continue;
+      }
+      const known = rows.get(item.child.sessionId);
+      rows.set(item.child.sessionId, { ...item.child, title: known?.title ?? item.title });
+    }
+    return [...rows.values()];
+  });
 
   /**
    * Opens a spawned session from its tool row: swaps the panel to the child's

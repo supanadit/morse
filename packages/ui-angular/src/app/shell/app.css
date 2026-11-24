@@ -311,6 +311,87 @@ morse-bottom-panel {
   pointer-events: auto;
 }
 /*
+ * The running-subagents strip above the composer. A row of chips like the todo
+ * overlay, one per child still working, each a way into its transcript. Violet
+ * rather than the accent blue, the same hue the subagent tabs carry, so a
+ * delegated run reads as delegation everywhere.
+ */
+.subagent-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 12px 4px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, #a78bfa 30%, transparent);
+  border-radius: var(--morse-radius-sm);
+  background: color-mix(in srgb, #a78bfa 10%, var(--morse-panel, var(--morse-bg)));
+  font-size: 11.5px;
+}
+.subagent-strip .strip-label {
+  flex: none;
+  padding-right: 4px;
+  color: color-mix(in srgb, #a78bfa 80%, var(--morse-fg));
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.subagent-strip .strip-count {
+  margin-left: 2px;
+  color: var(--morse-fg-muted);
+}
+.subagent-strip .child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, #a78bfa 22%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.subagent-strip .child:hover {
+  border-color: #a78bfa;
+  background: color-mix(in srgb, #a78bfa 16%, transparent);
+}
+.subagent-strip .live {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, #a78bfa 30%, transparent);
+  border-top-color: #a78bfa;
+  animation: subagent-spin 0.8s linear infinite;
+}
+@keyframes subagent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.subagent-strip .child-agent {
+  flex: none;
+  color: color-mix(in srgb, #a78bfa 85%, var(--morse-fg));
+  font-weight: 600;
+}
+.subagent-strip .child-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .subagent-strip .live {
+    animation: none;
+    border-color: #a78bfa;
+  }
+}
+/*
  * The dock owns the band it overlaps with the transcript. A soft keyboard can
  * shift that band while the transcript keeps its scroll position; without a
  * solid backing, message text paints in the gap between the composer and the

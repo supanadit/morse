@@ -13,6 +13,8 @@ function setup() {
     sharedComposer: () => false,
     sessionActivity: signal(new Map<string, { sessionKey: string; streaming: boolean }>()),
     state: signal({ sessionId: undefined as string | undefined, streaming: false }),
+    sessions: signal<{ id: string; title: string; subagent?: boolean }[]>([]),
+    items: signal<{ kind: string; child?: { sessionId: string } }[]>([]),
   };
   TestBed.configureTestingModule({
     imports: [TabStrip],
@@ -175,6 +177,24 @@ describe('TabStrip context menu', () => {
     expect(first.querySelector('.live')).not.toBeNull();
     expect(second.classList.contains('running')).toBe(false);
     expect(second.querySelector('.live')).toBeNull();
+  });
+
+  it('tints a subagent tab and gives it the running spinner', () => {
+    const { fixture, tabs, morse } = setup();
+    tabs.focusSession({ id: 'parent', title: 'Parent' });
+    tabs.focusSession({ id: 'kid', title: 'Explore' });
+    morse.sessions.set([{ id: 'kid', title: 'Explore', subagent: true }]);
+    morse.sessionActivity.set(new Map([['kid', { sessionKey: 'kid', streaming: true }]]));
+    fixture.detectChanges();
+
+    const kid = [...fixture.nativeElement.querySelectorAll('.tab')].find((tab: HTMLElement) =>
+      tab.textContent?.includes('Explore'),
+    ) as HTMLElement;
+    // The host reports a running child as streaming even though it owns no
+    // process, so the tab spins and stands out in the subagent violet.
+    expect(kid.classList.contains('subagent')).toBe(true);
+    expect(kid.classList.contains('running')).toBe(true);
+    expect(kid.querySelector('.live')).not.toBeNull();
   });
 
   it('does not animate a session that is warm but not streaming', () => {

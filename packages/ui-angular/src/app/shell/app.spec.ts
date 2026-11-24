@@ -943,3 +943,81 @@ describe('App · watching a subagent', () => {
     expect(refreshed).toBe(1);
   });
 });
+
+/**
+ * Parallel subagent runs scroll out of the transcript, so the conversation in
+ * front keeps the live ones pinned above its composer. A child has no process of
+ * its own: the host marks it streaming while its spawning tool row runs, which
+ * is the same activity the sidebar and tab strip read.
+ */
+describe('App · running subagents above the composer', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('lists a running child and opens it from the strip', () => {
+    const fixture = TestBed.createComponent(App);
+    const morse = TestBed.inject(MorseService) as unknown as Record<string, unknown>;
+    const state = signal<SessionViewState>({
+      workspace: { cwd: '/work/morse', name: 'morse' },
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: false,
+      busy: false,
+      agentReady: true,
+      agentStarting: false,
+      sessionId: 'parent',
+    } as SessionViewState);
+    const sessions = signal<SessionSummary[]>([
+      {
+        id: 'parent',
+        title: 'The parent conversation',
+        cwd: '/work/morse',
+        updatedAt: 1,
+        messageCount: 2,
+      },
+      {
+        id: 'kid',
+        title: 'Split the module',
+        cwd: '/work/morse',
+        updatedAt: 2,
+        messageCount: 1,
+        parentId: 'parent',
+        subagent: true,
+      },
+    ]);
+    const items = signal<TranscriptItem[]>([
+      {
+        kind: 'tool',
+        id: 'tool-1',
+        at: 1,
+        name: 'task',
+        title: 'Split the module',
+        status: 'running',
+        child: { sessionId: 'kid', agent: 'explore' },
+      },
+    ]);
+    const activate = vi.fn();
+    Object.defineProperty(morse, 'state', { value: state });
+    Object.defineProperty(morse, 'activeIsSubagent', { value: signal(false) });
+    Object.defineProperty(morse, 'sessions', { value: sessions });
+    Object.defineProperty(morse, 'sessionActivity', {
+      value: signal(new Map([['kid', { sessionKey: 'kid', streaming: true }]])),
+    });
+    Object.defineProperty(morse, 'items', { value: items });
+    Object.defineProperty(morse, 'activateSession', { value: activate });
+
+    fixture.detectChanges();
+
+    const strip = (fixture.nativeElement as HTMLElement).querySelector('.subagent-strip');
+    expect(strip?.querySelector('.strip-count')?.textContent).toContain('1');
+    const child = strip?.querySelector<HTMLButtonElement>('.child');
+    expect(child?.textContent).toContain('explore');
+    expect(child?.textContent).toContain('Split the module');
+
+    child?.click();
+    expect(activate).toHaveBeenCalledWith('kid');
+  });
+});
