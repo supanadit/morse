@@ -98,28 +98,28 @@
           {{ loadingOlder() ? 'Loading earlier messages…' : 'Scroll up for earlier messages' }}
         </p>
       }
-      @if (timeline().length === 0) {
+      @if (entries().length === 0) {
         <p class="empty-note">No messages yet. Say hello to {{ conversation.title }}.</p>
       }
-      @for (item of timeline(); track item.key) {
-        @if (peerReply(item); as peer) {
+      @for (entry of entries(); track entry.id) {
+        @if (peerReply(entry); as peer) {
           <!--
             The answer this line came from: the bot messaged a peer, so the room
             says which one and the peer's words stay folded under that line. The
             person messaged their own bot — nothing here may read as a second
             participant in the chat.
           -->
-          <div class="entry peer" [attr.data-open]="isPeerOpen(peer.traceId) ? 'true' : null">
+          <div class="entry peer" [attr.data-open]="isPeerOpen(peer.entryId) ? 'true' : null">
             <button
               type="button"
               class="peer-line"
-              [attr.aria-expanded]="isPeerOpen(peer.traceId)"
+              [attr.aria-expanded]="isPeerOpen(peer.entryId)"
               [title]="
-                isPeerOpen(peer.traceId)
+                isPeerOpen(peer.entryId)
                   ? 'Hide what ' + peer.reply.name + ' answered'
                   : 'Show what ' + peer.reply.name + ' answered'
               "
-              (click)="togglePeer(peer.traceId)"
+              (click)="togglePeer(peer.entryId)"
             >
               <span class="peer-avatar" aria-hidden="true">
                 <morse-bot-face [seed]="peer.reply.name" [size]="20" />
@@ -129,10 +129,10 @@
                 clock(peer.reply.at)
               }}</time>
               <span class="turn-caret" aria-hidden="true">{{
-                isPeerOpen(peer.traceId) ? '▾' : '▸'
+                isPeerOpen(peer.entryId) ? '▾' : '▸'
               }}</span>
             </button>
-            @if (isPeerOpen(peer.traceId)) {
+            @if (isPeerOpen(peer.entryId)) {
               <div class="peer-message">
                 <span class="peer-author">{{ peer.reply.name }}</span>
                 @if (peer.reply.text.length > 0) {
@@ -144,72 +144,8 @@
             }
           </div>
         }
-        @if (item.trace; as trace) {
-          <!--
-            A finished turn: one line above the answer it produced, saying who ran
-            it, how long it took and how much work it did. Opening it reads the
-            record — the steps, how each went, and the asks it handed on.
-          -->
-          <div class="entry turn" [attr.data-trace-id]="trace.id" [attr.data-status]="trace.status">
-            <span class="avatar avatar-face" aria-hidden="true">
-              <morse-bot-face [seed]="trace.username" [size]="26" />
-            </span>
-            <div class="turn-body">
-              <button
-                type="button"
-                class="turn-line"
-                [attr.aria-expanded]="isExpanded(trace.id)"
-                [title]="
-                  isExpanded(trace.id)
-                    ? 'Hide the steps of this turn'
-                    : 'Show the steps of this turn'
-                "
-                (click)="toggleTurn(trace.id)"
-              >
-                <span class="turn-summary">{{ turnSummary(trace) }}</span>
-                @if (turnStatus(trace); as status) {
-                  <!-- Failure is in the step outcomes and the tint; a reader who
-                       cannot see the tint still needs the word. -->
-                  <span class="visually-hidden">{{ status }}</span>
-                }
-                <span class="turn-caret" aria-hidden="true">{{
-                  isExpanded(trace.id) ? '▾' : '▸'
-                }}</span>
-              </button>
-              @if (isExpanded(trace.id)) {
-                <div class="turn-steps">
-                  @if (recordSteps(trace).length === 0) {
-                    <p class="turn-none">No steps were recorded.</p>
-                  }
-                  @for (step of recordSteps(trace); track $index) {
-                    <div class="step" [attr.data-status]="step.status ?? null">
-                      <span class="step-label">{{ step.label }}</span>
-                      @if (stepOutcome(step.status, true); as outcome) {
-                        <span class="step-outcome">{{ outcome }}</span>
-                      }
-                      @if (step.error; as error) {
-                        <span class="step-error">{{ error }}</span>
-                      }
-                    </div>
-                  }
-                  @for (handoff of trace.handoffs; track handoff.deliveryId) {
-                    <button
-                      type="button"
-                      class="handoff"
-                      [title]="'Open the conversation with @' + handoff.username"
-                      (click)="openHandoff(handoff)"
-                    >
-                      {{ '@' + handoff.username }}
-                      <span class="handoff-state">{{ handoff.state }}</span>
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-        } @else if (item.entry; as entry) {
-          @switch (entry.author.role) {
-            @case ('user') {
+        @switch (entry.author.role) {
+          @case ('user') {
               <!-- The reader's own line, on the reading side, as they typed it,
                    with whatever they attached: thumbnails for images, a chip for
                    each file the host wrote into the bot's workspace. -->
@@ -268,70 +204,7 @@
                 <div class="body">
                   <div class="who">
                     <span class="author">{{ entry.author.name }}</span>
-                    <!--
-                      The turns that produced this line, beside its author rather
-                      than as a second block repeating who spoke. Several records
-                      can land on one answer, so each is its own toggle.
-                    -->
-                    @for (trace of item.traces ?? []; track trace.id) {
-                      <button
-                        type="button"
-                        class="turn-line"
-                        [attr.data-trace-id]="trace.id"
-                        [attr.data-status]="trace.status"
-                        [attr.aria-expanded]="isExpanded(trace.id)"
-                        [title]="
-                          isExpanded(trace.id)
-                            ? 'Hide the steps of this turn'
-                            : 'Show the steps of this turn'
-                        "
-                        (click)="toggleTurn(trace.id)"
-                      >
-                        <span class="turn-summary">{{ turnDetail(trace) }}</span>
-                        @if (turnStatus(trace); as status) {
-                          <!-- Failure is in the step outcomes and the tint; a reader who
-                               cannot see the tint still needs the word. -->
-                          <span class="visually-hidden">{{ status }}</span>
-                        }
-                        <span class="turn-caret" aria-hidden="true">{{
-                          isExpanded(trace.id) ? '▾' : '▸'
-                        }}</span>
-                      </button>
-                    }
                   </div>
-                  <!-- A record opens where the turn is named, above the answer it
-                       produced — the same place the standalone record sits. -->
-                  @for (trace of item.traces ?? []; track trace.id) {
-                    @if (isExpanded(trace.id)) {
-                      <div class="turn-steps">
-                        @if (recordSteps(trace).length === 0) {
-                          <p class="turn-none">No steps were recorded.</p>
-                        }
-                        @for (step of recordSteps(trace); track $index) {
-                          <div class="step" [attr.data-status]="step.status ?? null">
-                            <span class="step-label">{{ step.label }}</span>
-                            @if (stepOutcome(step.status, true); as outcome) {
-                              <span class="step-outcome">{{ outcome }}</span>
-                            }
-                            @if (step.error; as error) {
-                              <span class="step-error">{{ error }}</span>
-                            }
-                          </div>
-                        }
-                        @for (handoff of trace.handoffs; track handoff.deliveryId) {
-                          <button
-                            type="button"
-                            class="handoff"
-                            [title]="'Open the conversation with @' + handoff.username"
-                            (click)="openHandoff(handoff)"
-                          >
-                            {{ '@' + handoff.username }}
-                            <span class="handoff-state">{{ handoff.state }}</span>
-                          </button>
-                        }
-                      </div>
-                    }
-                  }
                   <div class="text"><morse-markdown [text]="entry.text" /></div>
                   <div class="line-meta">
                     <time
@@ -357,7 +230,6 @@
                 <time [attr.datetime]="stamp(entry.at)">{{ when(entry.at) }}</time>
               </p>
             }
-          }
         }
       }
       @for (row of acting(); track row.key) {

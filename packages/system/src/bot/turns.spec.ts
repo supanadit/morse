@@ -60,12 +60,13 @@ describe('bot turn tracker', () => {
     expect(tracker.get('sigil')?.steps.at(-1)).toMatchObject({ status: 'ok', durationMs: 900 });
   });
 
-  it('keeps the tail of the answer and hands the turn over once', () => {
+  it('keeps the tail of the answer and drops the turn on request', () => {
     const tracker = new BotTurnTracker(() => 0);
     tracker.start('sigil', 'dm-sigil');
     tracker.appendPartial('sigil', 'x'.repeat(2_500));
     expect(tracker.get('sigil')?.partial).toHaveLength(2_000);
-    expect(tracker.take('sigil')?.conversationId).toBe('dm-sigil');
+    expect(tracker.get('sigil')?.conversationId).toBe('dm-sigil');
+    tracker.clear('sigil');
     expect(tracker.get('sigil')).toBeUndefined();
   });
 
@@ -83,7 +84,6 @@ describe('bot turn tracker', () => {
     now = 42;
     tracker.clear('sigil');
     expect(tracker.get('sigil')).toBeUndefined();
-    expect(tracker.take('sigil')).toBeUndefined();
   });
 
   it('keeps the last characters of the answer, not the first', () => {

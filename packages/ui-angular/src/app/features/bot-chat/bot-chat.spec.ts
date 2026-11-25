@@ -7,7 +7,6 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
-  BotTurnTrace,
   ClientToHostMessage,
 } from '@morse/protocol';
 import { clockTime, fullTime, MemoryHostTransport } from '@morse/ui-runtime';
@@ -113,22 +112,6 @@ function mentionInto(fixture: ComponentFixture<BotChat>, host: HTMLElement, text
   fixture.detectChanges();
 }
 
-/** A finished turn, worded the way the host keeps it. */
-function turn(overrides: Partial<BotTurnTrace> = {}): BotTurnTrace {
-  return {
-    id: 'delivery-1',
-    conversationId: 'dm-forge',
-    username: 'sigil',
-    name: 'Sigil',
-    startedAt: 0,
-    endedAt: 100,
-    status: 'done',
-    steps: [],
-    handoffs: [],
-    ...overrides,
-  };
-}
-
 /** A conversation in front, with the lines the test wants to read. */
 function open(
   morse: MorseService,
@@ -200,228 +183,6 @@ describe('BotChat', () => {
 
     const system = host.querySelector('.entry.system') as HTMLElement;
     expect(system.textContent).toContain('Round stopped.');
-  });
-
-  it('draws a finished turn beside its answer, not as a second row', async () => {
-    const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge, sable], conversations: [dm] });
-    morse.bot.open(dm.id);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [
-        entry('u1', { role: 'user' }, 'what changed?', 50),
-        entry(
-          'a1',
-          { role: 'bot', name: 'Sigil', username: 'sigil', avatar: 'S' },
-          'The **tests** pass.',
-          120,
-        ),
-      ],
-      replace: true,
-      traces: [
-        turn({
-          // The host appends the answer and only then stamps the trace, so the
-          // turn's end follows the line it produced.
-          startedAt: 90,
-          endedAt: 130,
-          steps: [
-            { kind: 'thinking', label: 'Reading the brief…', at: 10, status: 'ok' },
-            {
-              kind: 'tool',
-              label: 'Running the tests…',
-              tool: 'bash',
-              at: 40,
-              status: 'error',
-              error: 'exit code 1',
-            },
-          ],
-          handoffs: [
-            {
-              username: 'loom',
-              conversationId: 'thread-sigil-loom',
-              deliveryId: 'delivery-2',
-              at: 60,
-              state: 'done',
-            },
-          ],
-        }),
-      ],
-    });
-    fixture.detectChanges();
-
-    // The record shares the answer's own row: the toggle sits beside the author,
-    // and drops the name — the who-line above it already says who worked.
-    const answer = host.querySelector('.entry.bot') as HTMLElement;
-    const summary = answer.querySelector('.turn-line') as HTMLButtonElement;
-    expect(summary.getAttribute('data-trace-id')).toBe('delivery-1');
-    expect(answer.querySelector('.turn-summary')?.textContent?.trim()).toBe(
-      '0s · 1 step · asked @loom',
-    );
-    expect(summary.getAttribute('aria-expanded')).toBe('false');
-    // The mark and the name are the answer's alone: no second row repeats them.
-    expect(host.querySelectorAll('.transcript > .entry .avatar').length).toBe(1);
-
-    // The record rides the answer's place in the conversation, not a row of its
-    // own, so the transcript's order is the lines' order.
-    const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
-      one.getAttribute('data-entry-id'),
-    );
-    expect(order).toEqual(['u1', 'a1']);
-
-    // Expanding opens the record above the answer: the work a reader can check,
-    // the failure's own text, and the ask as a link back to the conversation it
-    // happened in. The model's thinking is not the reader's to read, so no step
-    // names it — the count is the work's count, not the turn's whole breath.
-    summary.click();
-    fixture.detectChanges();
-    expect(summary.getAttribute('aria-expanded')).toBe('true');
-    expect(answer.textContent).not.toContain('Reading the brief…');
-    // The wire says `ok`/`error`; the record says what happened in words.
-    expect(
-      [...answer.querySelectorAll('.step-outcome')].map((one) => one.textContent?.trim()),
-    ).toEqual(['failed']);
-    expect(answer.textContent).toContain('Running the tests…');
-    expect(answer.querySelector('.step-error')?.textContent?.trim()).toBe('exit code 1');
-
-    const open = vi.spyOn(morse, 'openBotConversation');
-    (answer.querySelector('.handoff') as HTMLButtonElement).click();
-    expect(open).toHaveBeenCalledWith('thread-sigil-loom');
-  });
-
-  it('puts each finished turn above its own answer, not both above the first', async () => {
-    const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
-    morse.bot.open(dm.id);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [
-        entry('a1', { role: 'bot', name: 'Sigil', username: 'sigil' }, 'The first answer.', 120),
-        entry('u2', { role: 'user' }, 'and then?', 140),
-        entry('a2', { role: 'bot', name: 'Sigil', username: 'sigil' }, 'The second answer.', 180),
-      ],
-      replace: true,
-      traces: [
-        // Each trace ends after its own answer; the spans do not overlap, so the
-        // handle alone cannot tell them apart — the window does.
-        turn({ id: 'turn-1', startedAt: 90, endedAt: 130 }),
-        turn({ id: 'turn-2', startedAt: 150, endedAt: 190 }),
-      ],
-    });
-    fixture.detectChanges();
-
-    // Each answer carries its own record inside its row, in the conversation's
-    // order; no record is a row of its own.
-    const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
-      one.getAttribute('data-entry-id'),
-    );
-    expect(order).toEqual(['a1', 'u2', 'a2']);
-    const records = [...host.querySelectorAll('.turn-line')].map((one) =>
-      one.getAttribute('data-trace-id'),
-    );
-    expect(records).toEqual(['turn-1', 'turn-2']);
-  });
-
-  it('keeps a turn with no answer in place by when it ended', async () => {
-    const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
-    morse.bot.open(dm.id);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [
-        entry('u1', { role: 'user' }, 'before', 100),
-        entry('u2', { role: 'user' }, 'after', 200),
-      ],
-      replace: true,
-      traces: [turn({ id: 'stopped', status: 'cancelled', startedAt: 110, endedAt: 150 })],
-    });
-    fixture.detectChanges();
-
-    // A cancelled turn wrote no line, so nothing anchors it: it falls where it
-    // ended, still drawn and still in the transcript's own order.
-    const order = [...host.querySelectorAll('.transcript > .entry')].map((one) =>
-      one.classList.contains('turn')
-        ? one.getAttribute('data-trace-id')
-        : one.getAttribute('data-entry-id'),
-    );
-    expect(order).toEqual(['u1', 'stopped', 'u2']);
-    expect(host.querySelector('.turn-line')).not.toBeNull();
-  });
-
-  it('draws a finished turn that recorded no steps and no handoffs', async () => {
-    const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
-    morse.bot.open(dm.id);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [entry('a1', { role: 'bot', name: 'Sigil' }, 'Nothing to report.', 120)],
-      replace: true,
-      traces: [turn({ status: 'cancelled', steps: [], handoffs: [] })],
-    });
-    fixture.detectChanges();
-
-    const summary = host.querySelector('.turn-line') as HTMLButtonElement;
-    // A turn that never got going says so, rather than counting a step it did
-    // not take: the placeholder the live row starts with is not history.
-    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe(
-      'Sigil · 0s · could not start',
-    );
-
-    summary.click();
-    fixture.detectChanges();
-    expect(host.querySelector('.turn')?.textContent).toContain('No steps were recorded');
-  });
-
-  it('says a stopped turn had steps, and words a step’s outcome for a reader', async () => {
-    const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
-    morse.bot.open(dm.id);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [
-        entry('a1', { role: 'bot', name: 'Sigil', username: 'sigil' }, 'Only got this far.', 120),
-      ],
-      replace: true,
-      traces: [
-        turn({
-          id: 'stopped',
-          status: 'cancelled',
-          startedAt: 90,
-          endedAt: 120,
-          steps: [
-            { kind: 'thinking', label: 'Reading the brief…', at: 100, status: 'ok' },
-            { kind: 'tool', label: 'Running the tests…', tool: 'bash', at: 110, status: 'running' },
-          ],
-        }),
-      ],
-    });
-    fixture.detectChanges();
-
-    // The record sits beside the answer, so the name is the who-line's job.
-    expect(host.querySelector('.turn-summary')?.textContent?.trim()).toBe('0s · stopped');
-    (host.querySelector('.turn-line') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    // The thought is not the reader's to read; the step that is left, still
-    // marked running in a finished record, has no outcome to report.
-    expect(host.querySelector('.turn-steps')?.textContent).toContain('Running the tests…');
-    expect(
-      [...host.querySelectorAll('.turn-steps .step-outcome')].map((one) => one.textContent?.trim()),
-    ).toEqual([]);
-  });
-
-  it('says a failed turn failed in words, not only in its colour', async () => {
-    const { fixture, host, morse } = await render();
-    morse.bot.onRoster({ bots: [forge], conversations: [dm] });
-    morse.bot.open(dm.id);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [entry('a1', { role: 'bot', name: 'Sigil' }, 'It broke.', 120)],
-      replace: true,
-      traces: [turn({ status: 'failed', steps: [] })],
-    });
-    fixture.detectChanges();
-
-    const row = host.querySelector('.turn') as HTMLElement;
-    expect(row.querySelector('.turn-line .visually-hidden')?.textContent?.trim()).toBe('failed');
   });
 
   it('keeps the lines of the conversation in front, not another one', async () => {
@@ -1099,28 +860,16 @@ describe('BotChat', () => {
     const { fixture, host, morse } = await render();
     open(morse, dm, [
       entry('u1', { role: 'user' }, 'ask Loom how many', 50),
-      entry(
-        'a1',
-        { role: 'bot', name: 'Forge', username: 'forge', avatar: 'F' },
-        'Loom says twelve.',
-        120,
-      ),
+      {
+        ...entry(
+          'a1',
+          { role: 'bot', name: 'Forge', username: 'forge', avatar: 'F' },
+          'Loom says twelve.',
+          120,
+        ),
+        reply: { username: 'loom', name: 'Loom', at: 100, text: 'It is **twelve**.' },
+      },
     ]);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [],
-      replace: false,
-      traces: [
-        turn({
-          conversationId: dm.id,
-          username: 'forge',
-          name: 'Forge',
-          startedAt: 90,
-          endedAt: 130,
-          reply: { username: 'loom', name: 'Loom', at: 100, text: 'It is **twelve**.' },
-        }),
-      ],
-    });
     fixture.detectChanges();
 
     // Folded by default: the room says which peer was messaged, and the peer's
@@ -1139,20 +888,12 @@ describe('BotChat', () => {
 
   it('says a peer came back empty under its own line', async () => {
     const { fixture, host, morse } = await render();
-    open(morse, dm, []);
-    morse.bot.onTranscript({
-      conversationId: dm.id,
-      entries: [],
-      replace: false,
-      traces: [
-        turn({
-          conversationId: dm.id,
-          username: 'forge',
-          name: 'Forge',
-          reply: { username: 'loom', name: 'Loom', at: 100, text: '' },
-        }),
-      ],
-    });
+    open(morse, dm, [
+      {
+        ...entry('a1', { role: 'bot', name: 'Forge', username: 'forge' }, 'No words back.', 120),
+        reply: { username: 'loom', name: 'Loom', at: 100, text: '' },
+      },
+    ]);
     fixture.detectChanges();
 
     (host.querySelector('.peer-line') as HTMLButtonElement).click();

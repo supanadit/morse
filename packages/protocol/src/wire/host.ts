@@ -9,7 +9,6 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
-  BotTurnTrace,
   BotUsage,
   ComposerSeed,
   FrontendIdentity,
@@ -456,11 +455,6 @@ export interface BotTranscriptMessage extends HostMessageBase {
     replace: boolean;
     prepend?: boolean;
     hasMore?: boolean;
-    /**
-     * Finished turns whose `endedAt` falls in this page, oldest first. Absent when
-     * no turn settled in its window, so a room with no history stays a plain list.
-     */
-    traces?: BotTurnTrace[];
   };
 }
 

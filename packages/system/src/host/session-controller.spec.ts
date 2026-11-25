@@ -24,7 +24,6 @@ import {
 } from '@morse/system';
 import {
   PROTOCOL_VERSION,
-  type BotTurnTrace,
   type HostToClientMessage,
   type SessionSummary,
   type SessionViewState,
@@ -4011,24 +4010,6 @@ describe('HostSessionController bot messages', () => {
       envVars: string[];
       credentials: { provider: string; apiKey: string }[];
     }[] = [];
-    const openTrace: BotTurnTrace = {
-      id: 'turn-1',
-      conversationId: 'dm-x',
-      username: 'forge',
-      name: 'Forge',
-      startedAt: 1,
-      endedAt: 2,
-      status: 'done',
-      steps: [],
-      handoffs: [],
-    };
-    const historyTrace: BotTurnTrace = {
-      ...openTrace,
-      id: 'turn-0',
-      startedAt: 0,
-      endedAt: 1,
-      status: 'failed',
-    };
     const controller = botController(
       messages,
       fakePort({
@@ -4041,12 +4022,10 @@ describe('HostSessionController bot messages', () => {
         open: () => ({
           entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
           hasMore: true,
-          traces: [openTrace],
         }),
         history: (_conversationId, before) => ({
           entries: [{ id: 'line-0', author: { role: 'user' }, text: before ?? '', at: 1 }],
           hasMore: false,
-          traces: [historyTrace],
         }),
         send: (conversationId, text) => {
           sent.push([conversationId, text]);
@@ -4096,7 +4075,6 @@ describe('HostSessionController bot messages', () => {
           entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
           replace: true,
           hasMore: true,
-          traces: [openTrace],
         },
       },
       { type: 'bot/routing', payload: { conversationId: 'dm-x', state: null } },
@@ -4116,7 +4094,6 @@ describe('HostSessionController bot messages', () => {
         replace: false,
         prepend: true,
         hasMore: false,
-        traces: [historyTrace],
       },
     });
 

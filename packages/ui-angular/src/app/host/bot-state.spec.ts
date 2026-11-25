@@ -2,7 +2,6 @@ import type {
   BotConversationSummary,
   BotSummary,
   BotTranscriptEntry,
-  BotTurnTrace,
   ModelOption,
 } from '@morse/protocol';
 import { describe, expect, it } from 'vitest';
@@ -30,21 +29,6 @@ function line(id: string, text: string, at = 1_700_000_000_000): BotTranscriptEn
   return { id, author: { role: 'user' }, text, at };
 }
 
-function trace(id: string, overrides: Partial<BotTurnTrace> = {}): BotTurnTrace {
-  return {
-    id,
-    conversationId: 'dm-forge',
-    username: 'sigil',
-    name: 'Sigil',
-    startedAt: 0,
-    endedAt: 100,
-    status: 'done',
-    steps: [],
-    handoffs: [],
-    ...overrides,
-  };
-}
-
 const model: ModelOption = { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Sonnet' };
 
 describe('BotState', () => {
@@ -70,7 +54,6 @@ describe('BotState', () => {
       conversationId: 'dm-forge',
       entries: [line('a', 'hi')],
       replace: true,
-      traces: [trace('turn-1')],
     });
     state.onRouting({
       conversationId: 'dm-forge',
@@ -90,7 +73,6 @@ describe('BotState', () => {
 
     expect(state.activeId()).toBeNull();
     expect(state.transcripts()['dm-forge']).toBeUndefined();
-    expect(state.traces()['dm-forge']).toBeUndefined();
     expect(state.routing()['dm-forge']).toBeUndefined();
     expect(state.usage()['dm-forge']).toBeUndefined();
   });
@@ -163,56 +145,6 @@ describe('BotState', () => {
 
     expect(state.transcripts()['dm-forge']?.map((one) => one.text)).toEqual(['older', 'newer']);
     expect(state.hasOlder()['dm-forge']).toBe(false);
-  });
-
-  it("replaces a page's traces and appends a settled one in order", () => {
-    const state = new BotState();
-    state.onTranscript({
-      conversationId: 'dm-forge',
-      entries: [],
-      replace: true,
-      traces: [trace('t2', { endedAt: 200 }), trace('t1', { endedAt: 100 })],
-    });
-
-    // A page is the newest window, so it replaces what was held and reads oldest
-    // first, the way the lines do.
-    expect(state.tracesFor('dm-forge').map((one) => one.id)).toEqual(['t1', 't2']);
-
-    // A settled turn arrives as one appended trace; a repeated id — the same turn
-    // after a resend — is one row, not two.
-    state.onTranscript({
-      conversationId: 'dm-forge',
-      entries: [],
-      replace: false,
-      traces: [trace('t3', { endedAt: 300 }), trace('t2', { endedAt: 200 })],
-    });
-    expect(state.tracesFor('dm-forge').map((one) => one.id)).toEqual(['t1', 't2', 't3']);
-  });
-
-  it('puts an older page of traces in front, and resets them on a replace', () => {
-    const state = new BotState();
-    state.onTranscript({
-      conversationId: 'dm-forge',
-      entries: [],
-      replace: true,
-      traces: [trace('t3', { endedAt: 300 })],
-    });
-
-    // Scrolling up brings turns that ended before the window held, so they go in
-    // front; the host sorts its pages the same way, oldest first.
-    state.onTranscript({
-      conversationId: 'dm-forge',
-      entries: [],
-      replace: false,
-      prepend: true,
-      traces: [trace('t2', { endedAt: 200 }), trace('t1', { endedAt: 100 })],
-    });
-    expect(state.tracesFor('dm-forge').map((one) => one.id)).toEqual(['t1', 't2', 't3']);
-
-    // A replace with no traces is a page with no settled turn in it, which is what
-    // an opened or cleared room sends: what was held no longer belongs to it.
-    state.onTranscript({ conversationId: 'dm-forge', entries: [], replace: true });
-    expect(state.tracesFor('dm-forge')).toEqual([]);
   });
 
   it('keeps each conversation transcript separate', () => {

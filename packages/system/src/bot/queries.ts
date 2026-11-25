@@ -9,7 +9,6 @@ import type {
   BotRoutingActive,
   BotRoutingState,
   BotTranscriptEntry,
-  BotTurnTrace,
   BotUsage,
   BotWaitingAsk,
 } from '@morse/protocol';
@@ -20,15 +19,13 @@ import { handoffState } from './helpers.js';
 import {
   TRANSCRIPT_PAGE_SIZE,
   type BotTranscriptStore,
-  type TranscriptPage,
+  type TranscriptSlice,
 } from './transcripts.js';
-import type { BotTraceStore } from './traces.js';
 import type { BotTurnTracker } from './turns.js';
 import type { BotRegistryFile } from './types.js';
 
 export interface BotQueriesDeps {
   transcripts: BotTranscriptStore;
-  traces: BotTraceStore;
   deliveries: BotDeliveryStore;
   registry: () => BotRegistryFile;
   turns: BotTurnTracker;
@@ -47,12 +44,10 @@ export class BotQueries {
 
   /**
    * The newest page, which is what opening a conversation shows. `hasMore` tells
-   * the chat whether scrolling up has anything to fetch; `traces` are the turns
-   * that ended in it, so an opened room draws its history without a second read.
+   * the chat whether scrolling up has anything to fetch.
    */
-  open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptPage {
-    const page = this.deps.transcripts.latest(conversationId, limit);
-    return { ...page, traces: this.tracesIn(conversationId, page.entries) };
+  open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptSlice {
+    return this.deps.transcripts.latest(conversationId, limit);
   }
 
   /** The page before `beforeId`, for the chat's scroll-to-top. */
@@ -60,51 +55,8 @@ export class BotQueries {
     conversationId: string,
     beforeId: string | undefined,
     limit: number = TRANSCRIPT_PAGE_SIZE,
-  ): TranscriptPage {
-    const page = this.deps.transcripts.before(conversationId, beforeId, limit);
-    // The page ends where the requested line starts, so a turn that ended after
-    // it belongs to the page above — unless the id was unknown, in which case
-    // the store fell back to the newest page and there is no upper bound.
-    const boundary =
-      beforeId === undefined
-        ? undefined
-        : this.deps.transcripts.all(conversationId).find((entry) => entry.id === beforeId);
-    return {
-      ...page,
-      traces: this.tracesIn(conversationId, page.entries, boundary?.at),
-    };
-  }
-
-  /**
-   * The finished turns whose end falls in one page's window.
-   *
-   * The store keeps them oldest first, so a page's history reads in the order it
-   * happened. A page with no lines has no window at all: a room with no history
-   * is a plain list, not every turn it ever had.
-   */
-  private tracesIn(
-    conversationId: string,
-    entries: BotTranscriptEntry[],
-    beforeAt?: number,
-  ): BotTurnTrace[] {
-    const oldest = entries[0];
-    if (oldest === undefined) {
-      return [];
-    }
-    try {
-      return this.deps.traces
-        .all(conversationId)
-        .filter(
-          (trace) =>
-            trace.endedAt >= oldest.at && (beforeAt === undefined || trace.endedAt < beforeAt),
-        );
-    } catch (error: unknown) {
-      // A room's transcript is the room; the turns beside it are history. A file
-      // that cannot be read is reported and read as no history, so the person can
-      // still open the room — and the store keeps refusing to write over it.
-      this.deps.logger.warn(`Cannot read ${conversationId}'s finished turns`, error);
-      return [];
-    }
+  ): TranscriptSlice {
+    return this.deps.transcripts.before(conversationId, beforeId, limit);
   }
 
   /**

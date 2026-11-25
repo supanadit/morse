@@ -141,10 +141,6 @@ export class BotWire {
             entries: page.entries,
             replace: true,
             hasMore: page.hasMore,
-            // The turns that ended in this page, so an opened room draws its
-            // history from the same answer as its lines. Absent when there is
-            // none: a room with no history stays a plain list.
-            ...(page.traces.length === 0 ? {} : { traces: page.traces }),
           },
         });
         // The two facts the service only pushes when they change: a client that
@@ -175,7 +171,6 @@ export class BotWire {
             replace: false,
             prepend: true,
             hasMore: page.hasMore,
-            ...(page.traces.length === 0 ? {} : { traces: page.traces }),
           },
         });
         return;

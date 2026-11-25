@@ -18,7 +18,6 @@ import type {
   BotSummary,
   BotTranscriptEntry,
   BotTurnReply,
-  BotTurnTrace,
   BotUsage,
   PromptImage,
 } from '@morse/protocol';
@@ -35,15 +34,7 @@ import { botUsageInputs, hasBotUsage, type BotUsageInputs } from '../composer/bo
 import type { MentionCandidate } from '../mention-picker/mention-picker';
 import { UsageIndicator } from '../usage/usage-indicator';
 import { elapsedLabel, revealLength, rowIsQuiet } from './reveal';
-import {
-  answerFor,
-  itemRank,
-  overlapWithRevealed,
-  sentenceCase,
-  turnDuration,
-  visibleSteps,
-  type TimelineItem,
-} from './bot-chat-helpers';
+import { overlapWithRevealed, sentenceCase, visibleSteps } from './bot-chat-helpers';
 
 /** How often an answer still arriving is revealed by one step. */
 const REVEAL_INTERVAL_MS = 50;
@@ -144,49 +135,6 @@ export class BotChat {
     const id = this.morse.bot.activeId();
     return id === null ? [] : (this.morse.bot.transcripts()[id] ?? []);
   });
-  /**
-   * One timeline of lines and finished turns, ordered by when each belongs in the
-   * conversation.
-   *
-   * A turn is anchored to the answer it produced, not to the moment the host
-   * stamped the trace: the answer is appended when the engine finishes and the
-   * trace is written after it, with I/O in between, so `endedAt` usually follows
-   * the answer's `at`. The anchor is the earliest bot line by that turn's own
-   * handle falling between `startedAt` and `endedAt`; the record is drawn
-   * inside that line, beside its author. A turn with no such line — cancelled
-   * or failed before writing, or its answer outside the loaded window — keeps
-   * its place by `endedAt` as its own row.
-   */
-  protected readonly timeline = computed<TimelineItem[]>(() => {
-    const id = this.morse.bot.activeId();
-    if (id === null) {
-      return [];
-    }
-    const entries = this.morse.bot.transcripts()[id] ?? [];
-    const anchored = new Map<string, BotTurnTrace[]>();
-    const loose: TimelineItem[] = [];
-    for (const trace of this.morse.bot.tracesFor(id)) {
-      const answer = answerFor(trace, entries);
-      if (answer === undefined) {
-        loose.push({ key: `trace:${trace.id}`, at: trace.endedAt, trace });
-        continue;
-      }
-      const held = anchored.get(answer.id) ?? [];
-      held.push(trace);
-      anchored.set(answer.id, held);
-    }
-    const items: TimelineItem[] = [
-      ...loose,
-      ...entries.map((entry) => {
-        const anchoredTraces = anchored.get(entry.id);
-        return anchoredTraces === undefined
-          ? { key: `entry:${entry.id}`, at: entry.at, entry }
-          : { key: `entry:${entry.id}`, at: entry.at, entry, traces: anchoredTraces };
-      }),
-    ];
-    items.sort((left, right) => left.at - right.at || itemRank(left) - itemRank(right));
-    return items;
-  });
   /** Whether the host said older entries exist before the ones held. */
   protected readonly hasOlder = computed(() => {
     const id = this.morse.bot.activeId();
@@ -194,8 +142,6 @@ export class BotChat {
   });
   /** True while a page of older entries is in flight, so the row says so. */
   protected readonly loadingOlder = signal(false);
-  /** The finished turns the reader has opened; a closed one is one line. */
-  protected readonly expandedTurns = signal<ReadonlySet<string>>(new Set<string>());
   /** The peers' messages the reader has opened, by the turn that received them. */
   private readonly openPeers = signal<ReadonlySet<string>>(new Set<string>());
   /**
@@ -617,48 +563,6 @@ export class BotChat {
   }
 
   /**
-   * The one line a finished turn collapses to: whose turn it was, how long it
-   * ran, how much work it did, and whom it asked.
-   *
-   * The name comes from the trace, not the roster: a handle can be reused and a
-   * bot renamed or deleted, and the record still has to say who did the work. A
-   * cancelled turn says whether it stopped or never got going, instead of
-   * counting a placeholder step as work.
-   */
-  protected turnSummary(trace: BotTurnTrace): string {
-    return [trace.name, this.turnWork(trace)].join(' · ');
-  }
-
-  /**
-   * The same record without the name, for a toggle sitting beside the answer it
-   * produced: the author line already says who worked, so repeating it would be
-   * the doubled row this replaces.
-   */
-  protected turnDetail(trace: BotTurnTrace): string {
-    return this.turnWork(trace);
-  }
-
-  /** The recorded steps a reader is shown, in the order they happened. */
-  protected recordSteps(trace: BotTurnTrace): BotActivity[] {
-    return visibleSteps(trace.steps);
-  }
-
-  /** What the turn did, minus whose turn it was: time, work, and the asks. */
-  private turnWork(trace: BotTurnTrace): string {
-    const steps = visibleSteps(trace.steps);
-    const parts = [turnDuration(trace.endedAt - trace.startedAt)];
-    if (trace.status === 'cancelled') {
-      parts.push(steps.length === 0 ? 'could not start' : 'stopped');
-    } else {
-      parts.push(steps.length === 1 ? '1 step' : `${steps.length} steps`);
-    }
-    if (trace.handoffs.length > 0) {
-      parts.push(`asked ${trace.handoffs.map((handoff) => `@${handoff.username}`).join(', ')}`);
-    }
-    return parts.join(' · ');
-  }
-
-  /**
    * A step's outcome in the reader's words. The wire's `ok` and `error` are for
    * machines; a finished turn has no outcome to report for a step still marked
    * running, so it says nothing there.
@@ -676,62 +580,28 @@ export class BotChat {
     }
   }
 
-  /** The word a failed turn needs for a reader who cannot see its colour. */
-  protected turnStatus(trace: BotTurnTrace): string | undefined {
-    return trace.status === 'failed' ? 'failed' : undefined;
-  }
-
-  /** Whether the reader has opened this turn's step list. */
-  protected isExpanded(id: string): boolean {
-    return this.expandedTurns().has(id);
-  }
-
-  /** Opens or closes one turn's record; the others keep their own state. */
-  protected toggleTurn(id: string): void {
-    this.expandedTurns.update((open) => {
-      const next = new Set(open);
-      if (!next.delete(id)) {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  /** Whether the reader has opened the peer's message a turn was woken by. */
-  protected isPeerOpen(traceId: string): boolean {
-    return this.openPeers().has(traceId);
+  /** Whether the reader has opened the peer's message under this line. */
+  protected isPeerOpen(entryId: string): boolean {
+    return this.openPeers().has(entryId);
   }
 
   /** Opens or closes one peer's message; the others keep their own state. */
-  protected togglePeer(traceId: string): void {
+  protected togglePeer(entryId: string): void {
     this.openPeers.update((open) => {
       const next = new Set(open);
-      if (!next.delete(traceId)) {
-        next.add(traceId);
+      if (!next.delete(entryId)) {
+        next.add(entryId);
       }
       return next;
     });
   }
 
-  /**
-   * The peer's answer this timeline item is the reply to, with the turn that
-   * received it.
-   *
-   * It hangs on a trace, because that is where the wake-up recorded it: the room
-   * itself holds only the bot's own words. A row with several records takes the
-   * first that was woken by a peer; one item is one line, and one line is one
-   * answer.
-   */
+  /** The peer's answer this line was woken by, carried with the bot's own words. */
   protected peerReply(
-    item: TimelineItem,
-  ): { traceId: string; reply: BotTurnReply } | undefined {
-    for (const trace of item.traces ?? []) {
-      if (trace.reply !== undefined) {
-        return { traceId: trace.id, reply: trace.reply };
-      }
-    }
-    const single = item.trace;
-    return single?.reply === undefined ? undefined : { traceId: single.id, reply: single.reply };
+    entry: BotTranscriptEntry,
+  ): { entryId: string; reply: BotTurnReply } | undefined {
+    const reply = entry.reply;
+    return reply === undefined ? undefined : { entryId: entry.id, reply };
   }
 
   /** Follows a handoff to the conversation the ask happened in. */

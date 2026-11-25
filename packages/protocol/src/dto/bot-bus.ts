@@ -9,8 +9,6 @@
  * implementation cannot rename a field one side already promises.
  */
 
-import type { BotActivity, BotHandoff } from './bot.js';
-
 /**
  * What a bus call is for. `message` is ordinary conversation, `assign` marks work
  * the sender wants done, and `reply` marks an answer to an earlier assignment —
@@ -108,62 +106,22 @@ export interface BotDelivery {
 }
 
 /**
- * How a finished turn ended. A cancelled or failed turn is recorded too: "how
- * long it ran, where it stopped" is exactly what the record is for.
- */
-export type BotTurnTraceStatus = 'done' | 'failed' | 'cancelled';
-
-/**
  * The peer's answer a turn was woken by.
  *
- * Kept on the trace rather than written into the room: the person messaged their
- * own bot, so the peer never speaks there. It is still history — a reader can open
- * it under the line that says the bot messaged that peer, which is where the
- * answer came from — and the words are shown only when asked for.
+ * Kept on the bot's own line rather than written into the room: the person
+ * messaged their own bot, so the peer never speaks there. A reader can open it
+ * under the line that says the bot messaged that peer, where the answer came
+ * from, and the words are shown only when asked for.
  */
 export interface BotTurnReply {
   /** The bot that answered, by handle. */
   username: string;
-  /** Its display name at settle time: handles are reusable, a trace keeps its own. */
+  /** Its display name at settle time: handles are reusable, this keeps its own. */
   name: string;
   /** Epoch milliseconds the answer was handed back. */
   at: number;
   /** What it said; empty when its turn ended without words. */
   text: string;
-}
-
-/**
- * One finished turn, kept as the conversation's record of it.
- *
- * Written once when the turn settles, never while it runs. A trace is history for
- * the person reading the room, not context for an engine: nothing here is ever
- * put into a prompt.
- */
-export interface BotTurnTrace {
-  /** The delivery id: one turn, one trace. */
-  id: string;
-  conversationId: string;
-  /** The bot that answered, by handle. */
-  username: string;
-  /**
-   * The display name at settle time. Stored rather than resolved from the roster,
-   * because handles are reusable and a trace keeps the name it was written with.
-   */
-  name: string;
-  /** Epoch milliseconds the turn was taken off the queue. */
-  startedAt: number;
-  /** Epoch milliseconds it settled. */
-  endedAt: number;
-  status: BotTurnTraceStatus;
-  /** Every step the turn took, newest last; empty when the engine never started. */
-  steps: BotActivity[];
-  /** The asks this turn handed to other bots, with the state each ended in. */
-  handoffs: BotHandoff[];
-  /**
-   * The peer's answer this turn was woken by — a turn that ran because a bot it
-   * asked has answered. Absent on every turn nobody was waiting for.
-   */
-  reply?: BotTurnReply;
 }
 
 /**

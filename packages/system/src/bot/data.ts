@@ -24,7 +24,7 @@ export const BOT_DIR = 'bot';
 const REGISTRY_FILE = 'registry.json';
 const IDENTITY_FILE = 'engine.json';
 
-/** Directories under the bot root that Morse itself writes, not a lost bot. */
+/** Directories under the bot root that Morse owns, not lost bots. `traces` is legacy. */
 const MORSE_DIRS = new Set(['backups', 'transcripts', 'deliveries', 'traces']);
 
 /** What a reconcile needs: the bot tree and the engines this host can run. */

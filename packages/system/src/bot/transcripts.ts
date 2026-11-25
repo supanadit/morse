@@ -9,7 +9,7 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { BotAuthor, BotTranscriptEntry, BotTurnTrace } from '@morse/protocol';
+import type { BotAuthor, BotTranscriptEntry } from '@morse/protocol';
 
 /**
  * Bot conversations' transcripts, kept on disk so a restart does not lose them.
@@ -27,26 +27,7 @@ import type { BotAuthor, BotTranscriptEntry, BotTurnTrace } from '@morse/protoco
  * entry written into the same file, which is what makes one chat read as a
  * sequence of engine sessions.
  */
-export interface TranscriptPage {
-  entries: BotTranscriptEntry[];
-  /** True when older entries remain before the first one returned. */
-  hasMore: boolean;
-  /**
-   * The finished turns that ended inside this page's window, oldest first.
-   *
-   * A trace is history for the reader, not a line of the conversation, so it
-   * travels with the page it belongs to instead of being interleaved into it.
-   */
-  traces: BotTurnTrace[];
-}
-
-/**
- * One page of lines as the store reads it.
- *
- * The store knows transcripts and nothing else, so it cannot answer for the
- * turns that ended in a page; the service attaches those when it builds the
- * `TranscriptPage` the chat receives.
- */
+/** One page of lines as the store reads it. */
 export interface TranscriptSlice {
   entries: BotTranscriptEntry[];
   /** True when older entries remain before the first one returned. */

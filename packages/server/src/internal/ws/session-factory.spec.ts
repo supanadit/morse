@@ -62,9 +62,8 @@ function fakeBot() {
     open: vi.fn(() => ({
       entries: [{ id: 'line-1', author: { role: 'system' }, text: 'hello', at: 2 }],
       hasMore: false,
-      traces: [],
     })),
-    history: vi.fn(() => ({ entries: [], hasMore: false, traces: [] })),
+    history: vi.fn(() => ({ entries: [], hasMore: false })),
     send: vi.fn(() => Promise.resolve()),
     stop: vi.fn(),
     newDiscussion: vi.fn(),
@@ -340,41 +339,6 @@ describe('MorseSessionFactory bot wiring', () => {
       },
       { type: 'bot/routing', payload: { conversationId: 'dm-x', state: null } },
     ]);
-  });
-
-  it('pushes a finished turn into every open room', () => {
-    const bot = fakeBot();
-    const gateway = new MorseGateway(factoryWith(bot.service), silentLogger, {});
-    const socket = fakeSocket();
-    gateway.handleConnection(socket);
-    const trace = {
-      id: 'turn-1',
-      conversationId: 'dm-x',
-      username: 'forge',
-      name: 'Forge',
-      startedAt: 1,
-      endedAt: 2,
-      status: 'done' as const,
-      steps: [],
-      handoffs: [],
-    };
-
-    bot.emit({
-      type: 'transcript',
-      conversationId: 'dm-x',
-      entries: [],
-      replace: false,
-      traces: [trace],
-    });
-
-    // The turn travels as an append of no lines: the transcript the client holds
-    // is unchanged, and the room learns what history it now has.
-    const sent = (socket.send as unknown as { mock: { calls: [string][] } }).mock.calls;
-    expect(JSON.parse(sent.at(-1)?.[0] ?? '{}')).toEqual({
-      type: 'bot/transcript',
-      payload: { conversationId: 'dm-x', entries: [], replace: false, traces: [trace] },
-    });
-    gateway.handleDisconnect(socket);
   });
 
   it('broadcasts routing state and forgets the feed when the socket disconnects', () => {

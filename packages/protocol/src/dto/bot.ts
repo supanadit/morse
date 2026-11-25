@@ -3,6 +3,7 @@
  * exchange. A bot is an agent with its own config, engine and model, so these
  * shapes name those choices per bot instead of borrowing a session's view state.
  */
+import type { BotTurnReply } from './bot-bus.js';
 import type { ModelOption } from './model.js';
 import type { McpServer } from './mcp.js';
 import type { ModelInput, ThinkingLevel } from './primitives.js';
@@ -102,6 +103,8 @@ export interface BotTranscriptEntry {
   images?: PromptImage[];
   /** Names of the files sent with this line, as the reader attached them. */
   files?: string[];
+  /** The peer's answer that woke this bot, folded under its own line. */
+  reply?: BotTurnReply;
 }
 
 /**

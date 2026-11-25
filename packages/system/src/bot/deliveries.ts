@@ -26,9 +26,8 @@ export const DELIVERY_TTL_MS = 86_400_000;
  *
  * The directory is this store's own: the sweeps read every `*.json` in it as a
  * conversation queue, so it must not be shared with the registry or any other
- * JSON. The file plumbing itself is shared with the trace store
- * (`ConversationFiles`), so the id rule and the read contract cannot drift
- * between the two; what differs here is the row validator and the sweep policy.
+ * JSON. The file plumbing is `ConversationFiles`, so the id rule and the read
+ * contract match the other per-conversation stores.
  *
  * A row only moves forward, and a terminal row never changes again. A queued row
  * may be dropped or cancelled without ever running (a full queue, a withdrawn

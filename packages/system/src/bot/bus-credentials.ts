@@ -16,10 +16,6 @@ import { isBusTurnContext, isSafeUsername, type BusTurnContext } from './helpers
 export interface BotBusCredentialsOptions {
   /** `<dataDir>/bot`: one directory per bot. */
   root: string;
-  /** Clock, for tests. */
-  now: () => number;
-  /** How long one bot turn may take, so a turn file outlives no turn. */
-  turnTimeoutMs: number;
   /** Refuses a username with no bot, so a token always names a live one. */
   assertBot(username: string): void;
 }
@@ -91,7 +87,9 @@ export class BotBusCredentials {
       conversationId: delivery.conversationId,
       rootId: delivery.rootId,
       depth: delivery.depth,
-      expiresAt: this.options.now() + this.options.turnTimeoutMs,
+      // Turns have no deadline; the plugins' liveness check only needs a finite
+      // future value, while the host still refuses a hand-written past one.
+      expiresAt: Number.MAX_SAFE_INTEGER,
     };
     writeFileSync(turnFile, JSON.stringify(context), { mode: 0o600 });
     // Same rule as the token: a file left by a crash must not stay group-readable.

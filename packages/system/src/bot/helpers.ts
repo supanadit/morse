@@ -10,13 +10,13 @@ import type {
   AgentInteractionResponse,
 } from '@morse/agent';
 import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
-import type { BotAuthor, BotDeliveryStatus, BotHandoff, BotTurnTrace } from '@morse/protocol';
+import type { BotAuthor, BotDeliveryStatus, BotHandoff } from '@morse/protocol';
 import type { BotRecord } from './types.js';
 
 /**
  * What the plugin reads from a bot's turn file: the room, trigger and hop count
  * the bot is answering in, without the bot having to name any of them. `expiresAt`
- * is the turn's own deadline, so a file a crash left behind stops being a turn.
+ * is a far-future marker: turns have no deadline, but a hand-written past value is refused.
  */
 export interface BusTurnContext {
   deliveryId: string;
@@ -52,15 +52,6 @@ export function handoffState(status: BotDeliveryStatus): BotHandoff['state'] {
     case 'cancelled':
       return 'failed';
   }
-}
-
-/**
- * How a settled delivery reads as history. A turn only ever ends done, failed or
- * cancelled; the other delivery states belong to asks that never settled as a
- * turn at all.
- */
-export function traceStatus(status: BotDeliveryStatus): BotTurnTrace['status'] {
-  return status === 'done' || status === 'failed' ? status : 'cancelled';
 }
 
 /**

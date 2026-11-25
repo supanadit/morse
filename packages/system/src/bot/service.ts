@@ -23,7 +23,6 @@ import type {
   BotCreateInput,
   BotGroupCreateInput,
   BotGroupUpdateInput,
-  BotHandoff,
   BotMcpServerInput,
   BotOutgoingAttachments,
   BotProviderConfig,
@@ -32,7 +31,7 @@ import type {
   BotRoutingState,
   BotSummary,
   BotTranscriptEntry,
-  BotTurnTrace,
+  BotTurnReply,
   BotUpdateInput,
   BotUsage,
   PromptImage,
@@ -51,23 +50,24 @@ import {
   botAuthor,
   cappedDescription,
   errorMessage,
-  handoffState,
   isSafeSubagentName,
   isSafeUsername,
   leadBrief,
   newDeliveryId,
   relayLine,
   threadConversationId,
-  traceStatus,
   usageKey,
   warmKey,
   type BusTurnContext,
 } from './helpers.js';
 import { HOST_PERSON_ID, hostPerson } from './person.js';
 import { BotQueries } from './queries.js';
-import { BotTranscriptStore, TRANSCRIPT_PAGE_SIZE, type TranscriptPage } from './transcripts.js';
-import { BotTraceStore } from './traces.js';
-import { BotTurnTracker, type TurnSnapshot } from './turns.js';
+import {
+  BotTranscriptStore,
+  TRANSCRIPT_PAGE_SIZE,
+  type TranscriptSlice,
+} from './transcripts.js';
+import { BotTurnTracker } from './turns.js';
 import { discoverOpenAiCompatibleModels } from './providers.js';
 import type { BotProviderModel } from './types.js';
 import {
@@ -147,11 +147,6 @@ export type BotEvent =
       conversationId: string;
       entries: BotTranscriptEntry[];
       replace: boolean;
-      /**
-       * The turns that just settled, when this event is their landing: an append
-       * of no lines that tells the open room what history it now has.
-       */
-      traces?: BotTurnTrace[];
     }
   | { type: 'routing'; conversationId: string; state: BotRoutingState | null }
   | { type: 'usage'; usage: BotUsage };
@@ -172,8 +167,6 @@ export interface BotServiceOptions {
   logger: MorseLogger;
   /** How long a gateway stays warm after its last event. Default 5 minutes. */
   idleMs?: number;
-  /** How long one bot turn (or one gateway start) may take. Default 5 minutes. */
-  turnTimeoutMs?: number;
   /**
    * The host's local bot-bus URL, handed to a bot's engine as `MORSE_BUS_URL`.
    * Absent until the host serves the endpoint, so an engine started without one
@@ -237,7 +230,6 @@ export class BotBusError extends Error {
 }
 
 const DEFAULT_IDLE_MS = 300_000;
-const DEFAULT_TURN_TIMEOUT_MS = 300_000;
 /**
  * The value the roster summary still reports for a `chainCap`.
  *
@@ -400,8 +392,6 @@ interface PromptOutcome {
   reply: string;
   reason: 'settled' | 'aborted' | 'error';
   error?: string;
-  /** True when the reason is already recorded as its own transcript note. */
-  noted?: boolean;
 }
 
 /** One live engine session, keyed by (conversation, bot). */
@@ -435,13 +425,6 @@ export class BotService {
    * restart, and the same file is what the routing strip is drawn from.
    */
   private readonly deliveries: BotDeliveryStore;
-  /**
-   * The turns each conversation has finished, beside its transcript.
-   *
-   * A trace is written once, when a turn settles, and never read by a bot:
-   * history for the reader, not context for an engine.
-   */
-  private readonly traces: BotTraceStore;
   /**
    * The bots running a turn right now, by username.
    *
@@ -495,13 +478,12 @@ export class BotService {
   /** When each bot last sent over the bus, for the hourly backstop. */
   private readonly busSends = new Map<string, number[]>();
   private readonly idleMs: number;
-  private readonly turnTimeoutMs: number;
   private readonly clock: () => number;
   /** When the terminal-row sweep last ran, so a live host does not repeat it. */
   private lastPrunedAt: number | undefined;
   /** True once the host is shutting down, so a settling lane starts nothing new. */
   private disposed = false;
-  /** The read side: transcripts, traces, routing and counters. */
+  /** The read side: transcripts, routing and counters. */
   private readonly queries: BotQueries;
 
   constructor(private readonly options: BotServiceOptions) {
@@ -511,20 +493,15 @@ export class BotService {
     this.registry = loadBotRegistry(options.root);
     this.transcripts = new BotTranscriptStore(options.root);
     this.deliveries = new BotDeliveryStore(join(options.root, 'deliveries'));
-    this.traces = new BotTraceStore(join(options.root, 'traces'));
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
-    this.turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
     this.clock = options.now ?? Date.now;
     this.bus = new BotBusCredentials({
       root: options.root,
-      now: this.clock,
-      turnTimeoutMs: this.turnTimeoutMs,
       assertBot: (username) => this.botOrThrow(username),
     });
     this.turns = new BotTurnTracker(this.clock);
     this.queries = new BotQueries({
       transcripts: this.transcripts,
-      traces: this.traces,
       deliveries: this.deliveries,
       registry: () => this.registry,
       turns: this.turns,
@@ -682,7 +659,6 @@ export class BotService {
     this.factories.delete(bot.username);
     await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
     this.transcripts.forget(dmConversationId(bot.username));
-    this.traces.forget(dmConversationId(bot.username));
     rmSync(this.botRoot(bot.username), { recursive: true, force: true });
 
     const emptiedGroups: string[] = [];
@@ -734,7 +710,6 @@ export class BotService {
     for (const id of emptiedGroups) {
       this.transcripts.forget(id);
       this.deliveries.forget(id);
-      this.traces.forget(id);
       this.forgetRoomUsage(id);
     }
     const dm = dmConversationId(bot.username);
@@ -1013,7 +988,6 @@ export class BotService {
     }
     this.transcripts.forget(id);
     this.deliveries.forget(id);
-    this.traces.forget(id);
     // The room is gone whole, so its counters go with it rather than outliving it.
     this.forgetRoomUsage(id);
     this.registry.groups = this.registry.groups.filter((candidate) => candidate.id !== id);
@@ -1074,7 +1048,6 @@ export class BotService {
     }
     this.transcripts.forget(id);
     this.deliveries.forget(id);
-    this.traces.forget(id);
     this.forgetRoomUsage(id);
     await this.saveRegistry();
     // A room that was waiting on this thread has nothing to wait for any more.
@@ -1178,8 +1151,8 @@ export class BotService {
     return this.queries.transcript(conversationId);
   }
 
-  /** The newest page, with the turns that ended in it. */
-  open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptPage {
+  /** The newest page of lines. */
+  open(conversationId: string, limit: number = TRANSCRIPT_PAGE_SIZE): TranscriptSlice {
     return this.queries.open(conversationId, limit);
   }
 
@@ -1188,7 +1161,7 @@ export class BotService {
     conversationId: string,
     beforeId: string | undefined,
     limit: number = TRANSCRIPT_PAGE_SIZE,
-  ): TranscriptPage {
+  ): TranscriptSlice {
     return this.queries.history(conversationId, beforeId, limit);
   }
 
@@ -1572,9 +1545,6 @@ export class BotService {
     }
     this.transcripts.forget(conversationId);
     this.deliveries.forget(conversationId);
-    // The history went with the lines it belongs to; a trace left behind would
-    // be a turn the reader can no longer read the answer to.
-    this.traces.forget(conversationId);
     conversation.sessions = {};
     // Every bot's counters go, not just the last answer's: a stale ring would
     // describe a session that no longer exists. The client learns which rings to
@@ -1773,14 +1743,6 @@ export class BotService {
     } catch (error: unknown) {
       this.options.logger.warn('Failed to prune finished bot deliveries', error);
     }
-    // The room's turns age out in the same pass: one sweep, one hour, so a live
-    // host pays for history once rather than on every message. A corrupt file is
-    // reported and skipped, exactly as a broken queue is.
-    try {
-      this.traces.prune(now);
-    } catch (error: unknown) {
-      this.options.logger.warn('Failed to prune finished bot turns', error);
-    }
     this.dropExpiredDeliveries(now);
   }
 
@@ -1900,21 +1862,14 @@ export class BotService {
     } finally {
       // A graceful shutdown hands this turn back to the queue: writing a status
       // here would make the ask look finished, and `dispose`'s requeue would then
-      // find nothing to put back. One flag for both the status and the trace, so
-      // a turn can never be recorded as history without having settled.
+      // find nothing to put back.
       const settled = !this.disposed;
       if (settled) {
         this.deliveries.setStatus(conversationId, delivery.id, status, note);
       }
       this.turnAttachments.delete(delivery.id);
-      // The turn is history now: take the record once, here, so the trace below
-      // is written from what the tracker actually saw.
-      const turn = this.turns.take(delivery.to);
-      // The order below is the settle's, and it matters: the status is written,
-      // a graceful shutdown has had its chance to requeue, then the answer is
-      // handed back, and only a delivery that really settled becomes history.
-      // A handed-back answer therefore wakes the asker before this turn's trace
-      // is written, so the trace describes a turn whose work already landed.
+      // The live row ends with the turn; none of its work is kept as history.
+      this.turns.clear(delivery.to);
       if (settled && conversation !== undefined) {
         try {
           this.handBack(conversation, bot, delivery, answer, status);
@@ -1924,119 +1879,8 @@ export class BotService {
           this.options.logger.warn("Failed to hand a thread's answer back", error);
         }
       }
-      try {
-        // A room that was deleted while its turn ended has no history to keep:
-        // the trace would outlive every page that could show it.
-        const room = this.findConversation(conversationId);
-        if (settled && turn !== undefined && room !== undefined) {
-          this.recordTrace(turn, delivery, status);
-        }
-      } catch (error: unknown) {
-        // A turn's history is not worth a stuck lane: the next ask behind this
-        // one must still run, so a failed write is reported and the lane goes on.
-        this.options.logger.warn("Failed to write a finished bot turn's trace", error);
-      }
       this.finishLane(delivery.to, conversationId);
     }
-  }
-
-  /**
-   * Writes one settled turn and pushes it into its room.
-   *
-   * The trace is the delivery's id and the tracker's record, with the bot's
-   * display name as the roster holds it *now*: handles are reusable, and a trace
-   * keeps the name it was written with. Each ask is resolved against its delivery
-   * at this moment, so the trace says how far the ask had got when this turn
-   * settled rather than the `asked` its record was opened with — a peer can
-   * answer after the asker's turn is over. A turn that ran because a peer
-   * answered keeps that answer's words, not its line: the room shows the bot
-   * speaking, and the peer's message is there for whoever opens it.
-   *
-   * The push appends no lines and replaces nothing: the transcript is unchanged,
-   * and a room that already shows the answer only learns what history it now has.
-   */
-  private recordTrace(
-    turn: TurnSnapshot,
-    delivery: BotDelivery,
-    status: BotDeliveryStatus,
-  ): void {
-    const trace: BotTurnTrace = {
-      id: delivery.id,
-      conversationId: turn.conversationId,
-      username: turn.username,
-      name: this.displayNameOf(turn.username),
-      startedAt: turn.startedAt,
-      endedAt: this.clock(),
-      status: traceStatus(status),
-      // The placeholder a live row opens with is not work the turn did: a turn
-      // that never got going records no steps, and its line says so rather than
-      // counting a step the engine never took.
-      steps: turn.steps.filter((step) => step.kind !== 'starting'),
-      handoffs: this.tracedHandoffs(turn.handoffs),
-      // The answer the turn was woken by is kept here, not in the transcript:
-      // it is history a reader can open, never a peer speaking in this room.
-      ...(delivery.kind === 'reply' &&
-      delivery.from.type === 'bot' &&
-      delivery.answer !== undefined
-        ? {
-            reply: {
-              username: delivery.from.username,
-              name: this.displayNameOf(delivery.from.username),
-              at: delivery.createdAt,
-              text: delivery.answer,
-            },
-          }
-        : {}),
-    };
-    this.traces.add(trace);
-    this.emit({
-      type: 'transcript',
-      conversationId: turn.conversationId,
-      entries: [],
-      replace: false,
-      traces: [trace],
-    });
-  }
-
-  /**
-   * The asks one settled turn leaves behind, each read from the delivery it
-   * created.
-   *
-   * The tracker records a handoff once, as `asked`, and never moves it: the live
-   * row re-derives the state on every push from the delivery, but a trace is
-   * written once and nothing re-reads it. So the state is resolved here through
-   * the same mapping the row uses, and means what it can mean at this instant —
-   * how far the ask had got when the turn settled. A delivery that is gone keeps
-   * the state the turn recorded.
-   */
-  private tracedHandoffs(handoffs: BotHandoff[]): BotHandoff[] {
-    // An ask points at a delivery in the thread it opened, so each room is read
-    // once however many asks point into it.
-    const byRoom = new Map<string, BotDelivery[]>();
-    const rowsOf = (conversationId: string): BotDelivery[] => {
-      const cached = byRoom.get(conversationId);
-      if (cached !== undefined) {
-        return cached;
-      }
-      let rows: BotDelivery[];
-      try {
-        rows = this.deliveries.all(conversationId);
-      } catch (error: unknown) {
-        // This trace is the settling turn's own history, so one unreadable room
-        // must not cost it the record: that room's asks keep the state the turn
-        // wrote, and the room is reported instead.
-        this.options.logger.warn(`Cannot read ${conversationId}'s bot deliveries`, error);
-        rows = [];
-      }
-      byRoom.set(conversationId, rows);
-      return rows;
-    };
-    return handoffs.map((handoff) => {
-      const row = rowsOf(handoff.conversationId).find(
-        (candidate) => candidate.id === handoff.deliveryId,
-      );
-      return row === undefined ? handoff : { ...handoff, state: handoffState(row.status) };
-    });
   }
 
   /**
@@ -2260,8 +2104,8 @@ export class BotService {
     try {
       // The bot's plugin reads this to name the room, trigger and hop count it is
       // answering in. Written before the prompt and gone when the turn settles, so
-      // a call from a cold probe, a compaction session or after a timeout has
-      // nothing to read and is refused instead of guessing a room.
+      // a call from a cold probe or a compaction session has nothing to read and
+      // is refused instead of guessing a room.
       this.bus.writeTurn(bot.username, delivery);
       // No prompt prefix: the persona is the engine's own instruction file (pi's
       // agent-dir AGENTS.md, OpenCode's `instructions`), written once by the
@@ -2279,18 +2123,29 @@ export class BotService {
       this.markTold(conversation, bot.username, context.upTo);
       const reply = outcome.reply.trim();
       if (reply !== '') {
-        this.append(conversation.id, botAuthor(bot), reply);
+        // The peer's words stay folded under this line, not in the room as a
+        // second participant: the person messaged their own bot.
+        const wokenBy =
+          delivery.kind === 'reply' &&
+          delivery.from.type === 'bot' &&
+          delivery.answer !== undefined
+            ? {
+                username: delivery.from.username,
+                name: this.displayNameOf(delivery.from.username),
+                at: delivery.createdAt,
+                text: delivery.answer,
+              }
+            : undefined;
+        this.append(conversation.id, botAuthor(bot), reply, { reply: wokenBy });
       }
       if (outcome.reason === 'aborted') {
         return { status: 'cancelled', reply };
       }
       if (outcome.reason === 'error') {
-        if (outcome.noted !== true) {
-          this.note(
-            conversation.id,
-            `${bot.name} failed${outcome.error === undefined ? '' : `: ${outcome.error}`}`,
-          );
-        }
+        this.note(
+          conversation.id,
+          `${bot.name} failed${outcome.error === undefined ? '' : `: ${outcome.error}`}`,
+        );
         return { status: 'failed', reply };
       }
       return { status: 'done', reply };
@@ -2584,22 +2439,13 @@ export class BotService {
     }
     const factory = this.factoryFor(bot, adapter);
     const stored = conversation.sessions[bot.username]?.engineSessionId;
-    const creating = factory.create({
+    const gateway = await factory.create({
       workspace: this.workspaceOf(bot.username),
       ...(stored === undefined ? {} : { sessionId: stored }),
     });
-    let gateway: AgentGateway;
-    try {
-      gateway = await this.withDeadline(creating, 'gateway creation');
-    } catch (error) {
-      // A create that only finishes after the deadline would leak a process
-      // nobody holds a reference to; dispose it when it eventually lands.
-      void creating.then((late) => late.dispose()).catch(() => undefined);
-      throw error;
-    }
     let sessionId: string | undefined;
     try {
-      const state = await this.withDeadline(gateway.state(), 'gateway startup');
+      const state = await gateway.state();
       sessionId = state.sessionId;
       // Model and thinking level are best-effort: engines declare per-model
       // capabilities, and a stored choice the current model does not offer must
@@ -2610,7 +2456,7 @@ export class BotService {
       if (stored.model !== undefined) {
         const model = stored.model;
         await this.applyStartupSetting(
-          () => this.withDeadline(gateway.setModel(model), 'gateway startup'),
+          () => gateway.setModel(model),
           conversation.id,
           `Model "${model.provider}/${model.id}" is not available on this engine — using the engine default.`,
         );
@@ -2618,7 +2464,7 @@ export class BotService {
       if (stored.thinkingLevel !== undefined) {
         const level = stored.thinkingLevel;
         await this.applyStartupSetting(
-          () => this.withDeadline(gateway.setThinkingLevel(level), 'gateway startup'),
+          () => gateway.setThinkingLevel(level),
           conversation.id,
           `Thinking level "${level}" is not available on this model — using the engine default.`,
         );
@@ -2674,19 +2520,10 @@ export class BotService {
     images?: PromptImage[],
   ): Promise<PromptOutcome> {
     warm.reply = '';
-    let deadline: NodeJS.Timeout | undefined;
+    // No host deadline: like code mode, the turn lasts as long as the engine's
+    // run; a reader ends a stuck one with `stop()`.
     const settled = new Promise<PromptOutcome>((resolve) => {
-      // A turn the engine never ends must not hold its lane — and with it every
-      // ask behind it — forever. The deadline settles it and forces the silent
-      // gateway out (see `expireTurn`).
-      deadline = setTimeout(() => {
-        this.expireTurn(warm);
-      }, this.turnTimeoutMs);
-      deadline.unref?.();
       warm.settle = (outcome) => {
-        if (deadline !== undefined) {
-          clearTimeout(deadline);
-        }
         warm.settle = undefined;
         resolve(outcome);
       };
@@ -2703,9 +2540,6 @@ export class BotService {
       // A prompt the engine refused leaves nothing to wait for; clearing the slot
       // keeps the gateway evictable instead of looking busy forever.
       warm.settle = undefined;
-      if (deadline !== undefined) {
-        clearTimeout(deadline);
-      }
       throw error;
     }
     if (disposition === 'handled') {
@@ -2714,21 +2548,6 @@ export class BotService {
       warm.settle?.({ reply: warm.reply, reason: 'settled' });
     }
     return settled;
-  }
-
-  /**
-   * The turn deadline fired: record it, settle the turn as failed, and dispose
-   * the gateway so a silent engine cannot keep a process (or its lane) alive. The settle slot is only cleared by `promptAndWait`'s own wrapper, so a
-   * timer that lost the race to a real run-end does nothing.
-   */
-  private expireTurn(warm: WarmGateway): void {
-    const settle = warm.settle;
-    if (settle === undefined) {
-      return;
-    }
-    this.note(warm.conversationId, `Turn timed out after ${this.turnTimeoutMs / 1000}s`);
-    settle({ reply: warm.reply, reason: 'error', noted: true });
-    void this.dropWarm(warm, true);
   }
 
   /**
@@ -2751,29 +2570,6 @@ export class BotService {
       }
       this.options.logger.warn(note, error);
       this.note(conversationId, note);
-    }
-  }
-
-  /**
-   * Waits for engine work no longer than one turn's budget. An adapter that never
-   * answers a `create`/`state` call must not hold a turn open either.
-   */
-  private async withDeadline<T>(work: Promise<T>, label: string): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      return await Promise.race([
-        work,
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error(`${label} timed out after ${this.turnTimeoutMs / 1000}s`));
-          }, this.turnTimeoutMs);
-          timer.unref?.();
-        }),
-      ]);
-    } finally {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
     }
   }
 
@@ -2876,7 +2672,7 @@ export class BotService {
     conversationId: string,
     author: BotAuthor,
     text: string,
-    attachments?: { images?: PromptImage[]; files?: string[] },
+    attachments?: { images?: PromptImage[]; files?: string[]; reply?: BotTurnReply },
   ): BotTranscriptEntry {
     const entry = this.transcripts.append(conversationId, {
       id: randomUUID(),
@@ -2889,6 +2685,7 @@ export class BotService {
       ...(attachments?.files === undefined || attachments.files.length === 0
         ? {}
         : { files: attachments.files }),
+      ...(attachments?.reply === undefined ? {} : { reply: attachments.reply }),
     });
     this.emit({ type: 'transcript', conversationId, entries: [entry], replace: false });
     return entry;

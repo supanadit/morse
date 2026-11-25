@@ -1,11 +1,11 @@
 /**
  * The turn a bot is taking, kept while it runs.
  *
- * A reader watching a room is shown a row, not a trace: the work in progress,
- * the asks it handed out and the answer as it is written. None of that is
- * history yet — it exists only until the turn settles, when the service takes
- * it and writes a trace. Keeping the record here, with no I/O, means its shape
- * can be read and tested without a service or a file.
+ * A reader watching a room is shown a live row: the work in progress, the asks
+ * it handed out and the answer as it is written. None of that is history — it
+ * exists only until the turn settles, then the row is dropped. Keeping the
+ * record here, with no I/O, means its shape can be read and tested without a
+ * service or a file.
  *
  * One record per bot handle: lanes are per bot, so a bot takes one turn at a
  * time and starting another replaces whatever the record held.
@@ -169,16 +169,6 @@ export class BotTurnTracker {
     if (turn.handoffs.length > TURN_HANDOFFS_MAX) {
       turn.handoffs.splice(0, turn.handoffs.length - TURN_HANDOFFS_MAX);
     }
-  }
-
-  /** Removes the turn and returns it, for the trace its settle writes. */
-  take(username: string): TurnSnapshot | undefined {
-    const turn = this.turns.get(username);
-    if (turn === undefined) {
-      return undefined;
-    }
-    this.turns.delete(username);
-    return snapshotOf(turn);
   }
 
   /** Drops a turn without keeping it. */
