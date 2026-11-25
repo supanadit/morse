@@ -60,17 +60,36 @@ export class TabStrip {
   protected readonly sheetOpen = signal(false);
   /** What the drawer's field narrows the tabs by; titles and paths both match. */
   protected readonly drawerQuery = signal('');
-  /** The rows the drawer draws: every tab, or the ones the reader typed. */
+  /**
+   * The rows the drawer draws: every tab, or the ones the reader typed. A
+   * session's chips move up beside it, so the indent under that row says which
+   * conversation the file belongs to instead of leaving it at the end.
+   */
   protected readonly drawerTabs = computed<WorkspaceTab[]>(() => {
     const needle = this.drawerQuery().trim().toLowerCase();
-    if (needle.length === 0) {
-      return this.allTabs();
+    const tabs =
+      needle.length === 0
+        ? this.allTabs()
+        : this.allTabs().filter((tab) =>
+            `${tab.title} ${tab.kind === 'file' ? tab.path : tab.kind === 'session' ? tab.cwd ?? '' : ''}`
+              .toLowerCase()
+              .includes(needle),
+          );
+    const owner = this.tabs.contextSessionId();
+    if (owner === undefined) {
+      return tabs;
     }
-    return this.allTabs().filter((tab) =>
-      `${tab.title} ${tab.kind === 'file' ? tab.path : tab.kind === 'session' ? tab.cwd ?? '' : ''}`
-        .toLowerCase()
-        .includes(needle),
+    const chips = tabs.filter(
+      (tab) => tab.kind === 'file' && tab.mention === true && tab.sessionId === owner,
     );
+    if (chips.length === 0) {
+      return tabs;
+    }
+    const roots = tabs.filter((tab) => !chips.includes(tab));
+    const at = roots.findIndex((tab) => tab.id === owner);
+    return at < 0
+      ? [...roots, ...chips]
+      : [...roots.slice(0, at + 1), ...chips, ...roots.slice(at + 1)];
   });
 
   private readonly menuState = signal<TabMenu | undefined>(undefined);

@@ -500,6 +500,12 @@ morse-dialog.sheet-dialog {
     background: var(--morse-hover);
   }
 
+  /* A file chip belongs to the session above it; one indent says that without
+     turning the drawer into a second file tree. */
+  .sheet-row.child {
+    padding-left: 26px;
+  }
+
   /* A delegation child keeps the violet tint in the drawer, and its spinner. */
   .sheet-row.subagent {
     background: color-mix(in srgb, #a78bfa 8%, transparent);

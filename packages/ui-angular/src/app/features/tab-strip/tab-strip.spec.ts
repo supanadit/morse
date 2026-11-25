@@ -332,6 +332,44 @@ describe('TabStrip drawer (narrow windows)', () => {
     expect(rows(fixture)[1].classList.contains('selected')).toBe(true);
   });
 
+  it('indents a session file chip instead of drawing a folder tree', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('packages/system/src/bot/helpers.ts');
+    tabs.openFile('README.md');
+    fixture.detectChanges();
+
+    tapBar(fixture);
+    expect(fixture.nativeElement.querySelectorAll('.sheet-folder')).toHaveLength(0);
+
+    const [session, ...files] = rows(fixture);
+    expect(session.classList.contains('child')).toBe(false);
+    expect(files.every((row) => row.classList.contains('child'))).toBe(true);
+    expect(files[0].querySelector('.label')?.textContent).toContain('helpers.ts');
+    expect(files[0].querySelector('.dir')?.textContent).toContain('packages/system/src/bot');
+
+    files[0].click();
+    fixture.detectChanges();
+    expect(tabs.activeId()).toBe('mention:s1:packages/system/src/bot/helpers.ts');
+    expect(sheet(fixture)).toBeNull();
+  });
+
+  it('puts a session chip under its session row, not at the end', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openFile('helpers.ts');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.focusSession({ id: 's1', title: 'One' });
+    fixture.detectChanges();
+
+    tapBar(fixture);
+    expect(rows(fixture).map((row) => row.querySelector('.label')?.textContent?.trim())).toEqual([
+      'One',
+      'helpers.ts',
+      'Two',
+    ]);
+  });
+
   it('stays open after the click that opened it', () => {
     const { fixture, tabs } = setup();
     tabs.focusSession({ id: 's1', title: 'One' });

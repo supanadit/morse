@@ -108,9 +108,11 @@
 }
 
 <!--
-  The drawer: every open tab as one searchable list, the one in front marked. It
-  borrows the shared dialog shell (backdrop, centring, Escape) so it looks like the
-  app's other popups instead of a sheet of its own. Only the narrow-window bar can
+  The drawer: every open tab as one searchable list, the one in front marked. A
+  file attached to a session sits one indent under it, the way its chip sits in
+  the strip's second row — no folder tree to walk on a phone. It borrows the
+  shared dialog shell (backdrop, centring, Escape) so it looks like the app's
+  other popups instead of a sheet of its own. Only the narrow-window bar can
   open it, so the search and the list are mobile-only. Reordering stays the wide
   strip's drag — shortcut: no drag here, add it when a phone can drag a list
   without fighting the scroll.
@@ -145,6 +147,7 @@
           class="sheet-row"
           role="tab"
           tabindex="0"
+          [class.child]="tab.kind === 'file' && tab.mention === true"
           [class.selected]="tab.id === activeId()"
           [class.parent]="tab.kind === 'session' && tab.id === activeChipOwner()"
           [class.subagent]="isSubagent(tab)"
