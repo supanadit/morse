@@ -78,6 +78,11 @@ export interface AgentGateway {
   fork(entryId: string): Promise<{ text: string; cancelled: boolean }>;
   abort(): Promise<void>;
   /**
+   * Stops a session this agent spawned, whose engine id the router knows.
+   * Optional: an engine without background children never needs one.
+   */
+  abortChild?(childSessionId: string): Promise<void>;
+  /**
    * Re-reads the commands the agent exposes — prompt templates especially, which
    * pi caches at spawn. Optional: an adapter that cannot re-read resources simply
    * omits it and the palette keeps what the last `state()` reported.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '@morse/agent';
 import type { OpenCodeEvent } from './event-stream.js';
-import { OpenCodeEventMapper, normalizeType } from './event-mapping.js';
+import { OpenCodeEventMapper, childRunningOf, normalizeType } from './event-mapping.js';
 
 /**
  * These fixtures are payloads recorded from a real OpenCode 2.1.4 server (the
@@ -455,5 +455,30 @@ describe('OpenCodeEventMapper', () => {
         mode: 'build',
       },
     ]);
+  });
+});
+
+describe('childRunningOf', () => {
+  it('reads a child as running from its start or busy status, and idle from its end', () => {
+    expect(childRunningOf('session.execution.started', {})).toBe(true);
+    expect(childRunningOf('session.next.execution.started', {})).toBe(true);
+    expect(childRunningOf('session.status', { status: { type: 'busy' } })).toBe(true);
+    for (const type of [
+      'session.execution.succeeded',
+      'session.execution.failed',
+      'session.execution.interrupted',
+      'session.execution.cancelled',
+      'session.execution.aborted',
+      'session.idle',
+    ]) {
+      expect(childRunningOf(type, {}), type).toBe(false);
+    }
+    expect(childRunningOf('session.status', { status: { type: 'idle' } })).toBe(false);
+  });
+
+  it('says nothing for the events that are not about liveness', () => {
+    expect(childRunningOf('session.text.delta', { delta: 'x' })).toBeUndefined();
+    expect(childRunningOf('session.status', {})).toBeUndefined();
+    expect(childRunningOf('session.status', { status: { type: 'other' } })).toBeUndefined();
   });
 });

@@ -35,6 +35,8 @@ export interface ApiSessionInfo {
   time?: {
     created?: number;
     updated?: number;
+    /** When the session last became busy; a session still running has this and no later `idle`. */
+    busy?: number;
     idle?: number;
     viewed?: number;
     archived?: number;
@@ -60,6 +62,20 @@ interface ApiSkill {
   id?: string;
   name?: string;
   description?: string;
+}
+
+/**
+ * Whether the server's record says the session is mid-run: a `time.busy` that
+ * no later `time.idle` has cancelled. Undefined for a record without a busy
+ * time (a server that does not write one), so nothing is assumed from it.
+ */
+export function sessionBusy(session: ApiSessionInfo | undefined): boolean | undefined {
+  const busy = session?.time?.busy;
+  if (busy === undefined) {
+    return undefined;
+  }
+  const idle = session?.time?.idle;
+  return idle === undefined || busy >= idle;
 }
 
 export function initialStateOf(
@@ -105,7 +121,9 @@ export function initialStateOf(
     availableCommands: [...commands],
     ...(mode === undefined ? {} : { mode }),
     ...(modes.length === 0 ? {} : { availableModes: [...modes] }),
-    streaming: false,
+    // OpenCode's subagents run in the background, so a child is often opened
+    // while it is still working: its record says so, and the spinner follows.
+    streaming: sessionBusy(session) === true,
     ...(usage === undefined ? {} : { usage }),
     ...(typeof session.cost === 'number' && Number.isFinite(session.cost)
       ? { costUsd: session.cost }

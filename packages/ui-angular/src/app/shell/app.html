@@ -499,18 +499,35 @@
                   @if (subagentsOpen()) {
                     <div class="subagents-list">
                       @for (child of subagents(); track child.sessionId) {
-                        <button type="button" class="subagents-row" (click)="pickSubagent(child)">
+                        <div class="subagents-row">
+                          <button
+                            type="button"
+                            class="subagents-open"
+                            (click)="pickSubagent(child)"
+                          >
+                            @if (child.running) {
+                              <span class="live" aria-hidden="true"></span>
+                            } @else {
+                              <span class="done-mark" aria-hidden="true">✓</span>
+                            }
+                            <span class="row-body">
+                              <span class="row-agent">{{ child.agent ?? 'subagent' }}</span>
+                              <span class="row-title">{{ child.title }}</span>
+                            </span>
+                            <span class="row-state">{{ child.running ? 'Working' : 'Done' }}</span>
+                          </button>
                           @if (child.running) {
-                            <span class="live" aria-hidden="true"></span>
-                          } @else {
-                            <span class="done-mark" aria-hidden="true">✓</span>
+                            <button
+                              type="button"
+                              class="subagents-stop"
+                              [attr.aria-label]="'Stop ' + (child.agent ?? 'subagent')"
+                              title="Stop subagent"
+                              (click)="stopSubagent(child)"
+                            >
+                              ■
+                            </button>
                           }
-                          <span class="row-body">
-                            <span class="row-agent">{{ child.agent ?? 'subagent' }}</span>
-                            <span class="row-title">{{ child.title }}</span>
-                          </span>
-                          <span class="row-state">{{ child.running ? 'Working' : 'Done' }}</span>
-                        </button>
+                        </div>
                       }
                     </div>
                   }

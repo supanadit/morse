@@ -68,6 +68,9 @@ export class OpenCodeEventStream {
   private connected = false;
   private failures = 0;
   private deathReported = false;
+  /** Last line received, including a heartbeat comment: an idle stream still breathes. */
+  private lastActivity = Date.now();
+  private restarting: Promise<void> | undefined;
   /** Increments on every successful connection, so tests can observe reconnects. */
   private connections = 0;
   /** The `data:` lines of the SSE frame being assembled. */
@@ -146,6 +149,37 @@ export class OpenCodeEventStream {
     this.loop = undefined;
   }
 
+  /**
+   * Restarts a connection that has gone quiet: the transport can stay open
+   * after the server stopped sending, which leaves a running turn with no
+   * events to end it. A heartbeat counts as activity, so an idle but healthy
+   * stream is left alone.
+   */
+  async restartIfStale(stalledAfterMs: number): Promise<boolean> {
+    if (!this.connected || this.restarting !== undefined) {
+      return false;
+    }
+    if (Date.now() - this.lastActivity < stalledAfterMs) {
+      return false;
+    }
+    const restart = this.restart();
+    this.restarting = restart;
+    try {
+      await restart;
+      return true;
+    } finally {
+      this.restarting = undefined;
+    }
+  }
+
+  private async restart(): Promise<void> {
+    this.abort?.abort();
+    await this.loop?.catch(() => undefined);
+    this.abort = undefined;
+    this.loop = undefined;
+    this.start();
+  }
+
   /** The reconnect loop: read until the response ends, then back off and retry. */
   private async run(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
@@ -190,6 +224,7 @@ export class OpenCodeEventStream {
     this.connected = true;
     this.failures = 0;
     this.deathReported = false;
+    this.lastActivity = Date.now();
     this.broadcastStatus('stream.connected');
 
     const reader = response.body.getReader();
@@ -228,6 +263,7 @@ export class OpenCodeEventStream {
    */
   private consume(line: string): OpenCodeEvent | undefined {
     const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
+    this.lastActivity = Date.now();
     if (trimmed.length === 0) {
       const raw = this.frame.join('\n');
       this.frame = [];

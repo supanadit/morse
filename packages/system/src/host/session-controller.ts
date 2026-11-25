@@ -250,6 +250,13 @@ export class HostSessionController {
   private readonly activeChildren = new Map<string, string>();
   private readonly toolChildren = new Map<string, string>();
   /**
+   * Children the engine itself reported as running (`agent/child`) after their
+   * tool row closed — OpenCode's subagents run on in the background. Only the
+   * engine's idle report or the parent leaving ends them: the parent's run-end
+   * does not, since a background child outlives the turn that started it.
+   */
+  private readonly reportedChildren = new Map<string, string>();
+  /**
    * Compactions the reader scheduled while their conversation was still working
    * (`session/compact` with `schedule`): session key -> the instructions it was
    * asked with. pi compacts by aborting the run in flight, so these wait for that
@@ -340,7 +347,7 @@ export class HostSessionController {
       this.scheduledCompacts.delete(key);
       this.interactions.forget(key);
       // A parent that leaves takes its children's running marks with it.
-      this.clearChildren(key);
+      this.forgetChildren(key);
       this.publishActivity();
     });
     // A host watch over pi's `mcp.json` files: a config edited in a terminal (or
@@ -500,6 +507,18 @@ export class HostSessionController {
         await this.branchFrom(message.payload.itemId);
         return;
       case 'chat/abort': {
+        const child = message.payload.childSessionId;
+        if (child !== undefined) {
+          // A background child runs in its parent's engine; the parent's adapter
+          // knows the engine id behind the id the frontend sees.
+          const parent = message.payload.parentSessionId ?? this.promptTarget();
+          const gateway =
+            parent === undefined ? undefined : this.options.services.registry.agentFor(parent);
+          if (gateway?.abortChild !== undefined) {
+            await this.guard(() => gateway.abortChild!(child));
+          }
+          return;
+        }
         const key = this.promptTarget();
         // Mark the run as stopped by the reader before the abort lands: the
         // run-end can arrive first, and only this marker may pause the queue —
@@ -2526,9 +2545,10 @@ export class HostSessionController {
    */
   private publishActivity(): void {
     // A subagent runs inside its parent's process, so the registry cannot report
-    // it: its liveness is the parent's tool row (see `trackChild`). Both the
+    // it: its liveness is the parent's tool row (see `trackChild`) or, for a
+    // background child, the engine's own report (`agent/child`). Both the
     // navigator and the tab strip read it like any other live session.
-    const children = this.activeChildren;
+    const children = new Map([...this.activeChildren, ...this.reportedChildren]);
     const sessions: SessionActivity[] = this.options.services.registry.hotKeys().map((key) => {
       const state = this.options.services.registry.stateOf(key);
       const isActive = key === this.viewKey();
@@ -2559,8 +2579,18 @@ export class HostSessionController {
     this.options.emit({ type: 'session/activity', payload: { sessions } });
   }
 
-  /** Child sessions whose spawning tool row in a hot session is still running. */
+  /** Tracks which children a hot session's events leave running: by their tool row, or by the engine's own report. */
   private trackChild(sessionKey: string, event: AgentEvent): void {
+    if (event.type === 'agent/child') {
+      const child = event.childSession.sessionId;
+      if (event.running) {
+        this.reportedChildren.set(child, sessionKey);
+      } else {
+        this.reportedChildren.delete(child);
+      }
+      this.publishActivity();
+      return;
+    }
     const toolKey = (id: string): string => `${sessionKey}\0${id}`;
     if (event.type === 'agent/tool-start' && (event.name === 'task' || event.name === 'subagent')) {
       // The child's session row exists in the catalog from the moment the engine
@@ -2609,7 +2639,11 @@ export class HostSessionController {
     this.publishActivity();
   }
 
-  /** Drops the children a session spawned, when that session ends or leaves. */
+  /**
+   * Drops the children a session's open tool rows still track, when its run
+   * ends: an aborted run need not end its tools, and nothing they spawned is
+   * running now. A child the engine reports running itself is kept.
+   */
   private clearChildren(sessionKey: string): void {
     for (const [key, child] of this.toolChildren) {
       if (key.startsWith(`${sessionKey}\0`)) {
@@ -2620,6 +2654,16 @@ export class HostSessionController {
     for (const [child, owner] of this.activeChildren) {
       if (owner === sessionKey) {
         this.activeChildren.delete(child);
+      }
+    }
+  }
+
+  /** A parent that leaves the hot set: nobody is left to report its children's end. */
+  private forgetChildren(sessionKey: string): void {
+    this.clearChildren(sessionKey);
+    for (const [child, owner] of this.reportedChildren) {
+      if (owner === sessionKey) {
+        this.reportedChildren.delete(child);
       }
     }
   }

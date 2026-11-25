@@ -14,7 +14,7 @@ import type {
 import type { ApiModel } from './internal/model-mapping.js';
 import type { ApiMessage } from './internal/message-mapping.js';
 import { OpenCodeAgent } from './opencode-agent.js';
-import { readAvailableCommands } from './opencode-helpers.js';
+import { readAvailableCommands, sessionBusy } from './opencode-helpers.js';
 
 /**
  * The session adapter against a fake server: what it sends on the wire, what it
@@ -137,6 +137,10 @@ class FakeStream {
     )) {
       subscription.listener(event);
     }
+  }
+
+  async restartIfStale(): Promise<boolean> {
+    return false;
   }
 }
 
@@ -666,6 +670,202 @@ describe('OpenCodeAgent', () => {
     // The old id is released, and the new one carries the live streaming truth.
     expect(guard.forget).toHaveBeenCalledWith('ses_1');
     expect(guard.setStreaming).toHaveBeenCalledWith('ses_2', false);
+    await agent.dispose();
+  });
+
+  it('stops a child through the parent without touching the parent run', async () => {
+    const { agent, stream, api } = await harness();
+
+    stream.emit('ses_1', {
+      type: 'session.tool.called',
+      data: {
+        sessionID: 'ses_1',
+        id: 'call_1',
+        name: 'task',
+        input: { prompt: 'Explore' },
+        metadata: { sessionID: 'ses_kid' },
+      },
+      created: 60,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await agent.abortChild('ses_kid');
+    expect(api.calls.filter((call) => call.path.endsWith('/interrupt'))).toEqual([
+      expect.objectContaining({ method: 'POST', path: '/session/ses_kid/interrupt' }),
+    ]);
+
+    // An id this session never named cannot be stopped through it.
+    await agent.abortChild('ses_unknown');
+    expect(api.calls.filter((call) => call.path.endsWith('/interrupt'))).toHaveLength(1);
+    await agent.abort();
+    expect(api.calls.at(-1)).toMatchObject({ path: '/session/ses_1/interrupt' });
+    await agent.dispose();
+  });
+
+  it('reports a background subagent from its own session after the task row closed', async () => {
+    const { agent, stream, events } = await harness();
+
+    // The `task` call names its child and returns at once: OpenCode subagents
+    // run on in the background, so the row says nothing about how long they run.
+    stream.emit('ses_1', {
+      type: 'session.tool.called',
+      data: {
+        sessionID: 'ses_1',
+        id: 'call_1',
+        name: 'task',
+        input: { prompt: 'Explore the repo' },
+        metadata: { sessionID: 'ses_kid', agent: 'explore' },
+      },
+      created: 60,
+    });
+    stream.emit('ses_1', {
+      type: 'session.tool.success',
+      data: { sessionID: 'ses_1', id: 'call_1' },
+      created: 61,
+    });
+    expect(events.filter((event) => event.type === 'agent/tool-end')).toHaveLength(1);
+    expect(stream.subscriptions.map((entry) => entry.sessionID)).toContain('ses_kid');
+
+    stream.emit('ses_kid', {
+      type: 'session.execution.started',
+      data: { sessionID: 'ses_kid' },
+      created: 62,
+    });
+    stream.emit('ses_kid', { type: 'session.idle', data: { sessionID: 'ses_kid' }, created: 63 });
+
+    expect(events.filter((event) => event.type === 'agent/child')).toEqual([
+      {
+        type: 'agent/child',
+        at: 62,
+        childSession: { sessionId: 'ses_kid', agent: 'explore' },
+        running: true,
+      },
+      {
+        type: 'agent/child',
+        at: 63,
+        childSession: { sessionId: 'ses_kid', agent: 'explore' },
+        running: false,
+      },
+    ]);
+
+    await agent.dispose();
+    expect(stream.subscriptions.map((entry) => entry.sessionID)).not.toContain('ses_kid');
+  });
+
+  it('takes a child the record still shows as busy as running, and lets its idle report win', async () => {
+    const fallback = defaultHandler();
+    const { agent, stream, events } = await harness({
+      handler: (method, path, query, body) =>
+        method === 'GET' && path === '/session/ses_kid'
+          ? sessionInfo({ id: 'ses_kid', time: { created: 1_000, busy: 2_500 } })
+          : fallback(method, path, query, body),
+    });
+    const reports = () => events.filter((event) => event.type === 'agent/child');
+
+    // The child usually starts before the tool names it, so its start event is
+    // missed; the record is what says it is still working.
+    stream.emit('ses_1', {
+      type: 'session.tool.success',
+      data: { sessionID: 'ses_1', id: 'call_1', name: 'task', metadata: { sessionID: 'ses_kid' } },
+      created: 60,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reports()).toEqual([
+      {
+        type: 'agent/child',
+        at: expect.any(Number),
+        childSession: { sessionId: 'ses_kid' },
+        running: true,
+      },
+    ]);
+
+    stream.emit('ses_kid', { type: 'session.idle', data: { sessionID: 'ses_kid' }, created: 61 });
+    expect(reports().at(-1)).toMatchObject({ running: false, at: 61 });
+    await agent.dispose();
+  });
+
+  it('settles a child whose idle frame was lost when the stream reconnects', async () => {
+    let active: Record<string, unknown> = { ses_kid: {} };
+    const fallback = defaultHandler();
+    const { agent, stream, events } = await harness({
+      handler: (method, path, query, body) =>
+        method === 'GET' && path === '/session/active'
+          ? active
+          : fallback(method, path, query, body),
+    });
+    const reports = () => events.filter((event) => event.type === 'agent/child');
+    const flush = (): Promise<unknown> => new Promise((resolve) => setTimeout(resolve, 0));
+
+    stream.emit('ses_1', {
+      type: 'session.tool.called',
+      data: {
+        sessionID: 'ses_1',
+        id: 'call_1',
+        name: 'task',
+        input: { prompt: 'Explore' },
+        metadata: { sessionID: 'ses_kid' },
+      },
+      created: 60,
+    });
+    await flush();
+    stream.emit('ses_kid', {
+      type: 'session.execution.started',
+      data: { sessionID: 'ses_kid' },
+      created: 60,
+    });
+    expect(reports().at(-1)).toMatchObject({ running: true, childSession: { sessionId: 'ses_kid' } });
+
+    stream.emit('ses_1', { type: 'stream.connected', data: {}, created: 61 });
+    await flush();
+    // The engine still lists the child: an idle must not be invented.
+    expect(reports()).toHaveLength(1);
+
+    active = {};
+    stream.emit('ses_1', { type: 'stream.connected', data: {}, created: 62 });
+    await flush();
+    expect(reports().at(-1)).toMatchObject({ running: false, childSession: { sessionId: 'ses_kid' } });
+
+    // A later check does not repeat a settlement the host already knows.
+    stream.emit('ses_1', { type: 'stream.connected', data: {}, created: 63 });
+    await flush();
+    expect(reports()).toHaveLength(2);
+    await agent.dispose();
+  });
+
+  it('opens a session the engine is still running as streaming, and ends the run at its end', async () => {
+    const guard = {
+      setStreaming: vi.fn(),
+      forget: vi.fn(),
+    } as unknown as OpenCodeConfigGuard;
+    const fallback = defaultHandler();
+    const { agent, stream, events } = await harness({
+      guard,
+      sessionId: 'ses_1',
+      handler: (method, path, query, body) =>
+        method === 'GET' && path === '/session/ses_1'
+          ? sessionInfo({ time: { created: 1_000, updated: 2_000, busy: 2_500 } })
+          : fallback(method, path, query, body),
+    });
+
+    expect(await agent.state()).toMatchObject({ streaming: true });
+    expect(guard.setStreaming).toHaveBeenCalledWith('ses_1', true);
+
+    // Opened mid-run, the start was never seen; the end must still close the run.
+    stream.emit('ses_1', {
+      type: 'session.execution.succeeded',
+      data: { sessionID: 'ses_1' },
+      created: 70,
+    });
+    expect(events).toContainEqual({ type: 'agent/run-end', at: 70, reason: 'settled' });
+    expect(await agent.state()).toMatchObject({ streaming: false });
+
+    // A busy time followed by an idle one is a finished session; a record with
+    // no busy time is unknown, and is never taken as running.
+    expect(sessionBusy({ time: { busy: 1_000, idle: 2_000 } })).toBe(false);
+    expect(sessionBusy({ time: { busy: 1_000, idle: 1_000 } })).toBe(true);
+    expect(sessionBusy({ time: { idle: 2_000 } })).toBeUndefined();
+    expect(sessionBusy({ time: { created: 1_000 } })).toBeUndefined();
+    expect(sessionBusy(undefined)).toBeUndefined();
     await agent.dispose();
   });
 

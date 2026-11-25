@@ -905,6 +905,31 @@ describe('AgentRouter engine capabilities', () => {
     await expect(empty.reloadConfig({ engine: 'pi' })).resolves.toBe(false);
   });
 
+  it('passes a child stop through with the engine id, not the Morse id', async () => {
+    const inner = new FakeGateway(state({ sessionId: 'parent' }));
+    const stop = vi.fn(() => Promise.resolve());
+    inner.abortChild = stop;
+    const { router } = build({ engines: [{ kind: 'pi', gatewayFor: () => inner }] });
+    const gateway = await router.create({ workspace: WORKSPACE });
+    let childId = '';
+    gateway.subscribe((event) => {
+      if (event.type === 'agent/child') {
+        childId = event.childSession.sessionId;
+      }
+    });
+
+    inner.emit({
+      type: 'agent/child',
+      at: Date.now(),
+      childSession: { sessionId: 'engine-child' },
+      running: true,
+    });
+    await gateway.abortChild?.(childId);
+
+    expect(childId).not.toBe('engine-child');
+    expect(stop).toHaveBeenCalledWith('engine-child');
+  });
+
   it('passes a config reload through to the wrapped gateway', async () => {
     const inner = new FakeGateway(state({ sessionId: 'parent-engine' }));
     let reloaded = 0;

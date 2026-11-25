@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
   Session,
+  type AgentChildSessionRef,
   type AgentFormRequest,
   type AgentHistoryPage,
   type AgentSelectRequest,
@@ -37,7 +38,11 @@ import {
   type ApiAgentModel,
 } from './internal/catalog.js';
 import type { OpenCodeConfigGuard } from './internal/config-guard.js';
-import { OpenCodeEventMapper, toTokenUsage } from './internal/event-mapping.js';
+import {
+  OpenCodeEventMapper,
+  childRunningOf,
+  toTokenUsage,
+} from './internal/event-mapping.js';
 import type { OpenCodeEvent, OpenCodeEventStream } from './internal/event-stream.js';
 import {
   asRecord,
@@ -47,6 +52,7 @@ import {
   readAvailableCommands,
   readCommandCatalog,
   resolveFallbackModel,
+  sessionBusy,
   type ApiSessionInfo,
 } from './opencode-helpers.js';
 
@@ -73,6 +79,10 @@ import {
   type ApiForm,
   type ApiPermissionRequest,
 } from './internal/form-mapping.js';
+
+const CHILD_RECONCILE_MS = 5_000;
+/** A connection with no frame — not even a heartbeat — for this long is stalled. */
+const STREAM_STALE_MS = 20_000;
 
 /**
  * One OpenCode conversation, as a harness session.
@@ -161,6 +171,15 @@ export class OpenCodeAgent extends Session {
   private disposed = false;
   /** A refresh in flight; another request for one is folded into it. */
   private refreshing: Promise<void> | undefined;
+  /** Spawned children this session listens to, by engine id (see `watchChild`). */
+  private readonly childWatches = new Map<string, () => void>();
+  /** The child refs behind the watches, for reports the engine does not name again. */
+  private readonly childRefs = new Map<string, AgentChildSessionRef>();
+  /** Last liveness each child was reported with, so repeats stay quiet. */
+  private readonly childRunning = new Map<string, boolean>();
+  /** A status reconcile in flight; ticks and reconnects fold into it. */
+  private reconcilingChildren: Promise<void> | undefined;
+  private watchdog: ReturnType<typeof setInterval> | undefined;
   /** Interaction requests already shown to the reader, by request id. */
   private readonly announced = new Set<string>();
   /** What kind of thing each pending request is, so a reply goes to its endpoint. */
@@ -180,6 +199,14 @@ export class OpenCodeAgent extends Session {
     this.configDir = options.configDir;
     this.guard = options.guard;
     this.engineId = session.id;
+    // Opened while the engine was still running it (a background subagent the
+    // reader clicked into): the start event is gone, so the run is taken as in
+    // flight until its end arrives — and the guard must know a turn is live.
+    if (sessionBusy(session) === true) {
+      this.mapper.resume();
+      this.guard?.setStreaming(this.engineId, true);
+      this.watchdog ??= setInterval(() => this.tickWatchdog(), CHILD_RECONCILE_MS);
+    }
   }
 
   /**
@@ -196,6 +223,9 @@ export class OpenCodeAgent extends Session {
       // A config reload must never fire under a running turn; the guard is what
       // knows which sessions are mid-step.
       this.guard?.setStreaming(this.engineId, patch.streaming);
+      if (patch.streaming) {
+        this.watchdog ??= setInterval(() => this.tickWatchdog(), CHILD_RECONCILE_MS);
+      }
     }
     const last = this.box.lastUsage;
     const contextWindow = this.box.model?.contextWindow;
@@ -398,6 +428,14 @@ export class OpenCodeAgent extends Session {
   /** Interrupts the running turn. A no-op turn answers `{interrupted:false}`. */
   async abort(): Promise<void> {
     await this.api.post(`/session/${encodeURIComponent(this.engineId)}/interrupt`);
+  }
+
+  /** Stops a child this session spawned, by the engine id its tool event named. */
+  async abortChild(childSessionId: string): Promise<void> {
+    if (!this.childRefs.has(childSessionId)) {
+      return;
+    }
+    await this.api.post(`/session/${encodeURIComponent(childSessionId)}/interrupt`);
   }
 
   // ---------------------------------------------------------------- models
@@ -764,6 +802,12 @@ export class OpenCodeAgent extends Session {
     this.disposed = true;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    for (const unsubscribe of this.childWatches.values()) {
+      unsubscribe();
+    }
+    this.childWatches.clear();
+    clearInterval(this.watchdog);
+    this.watchdog = undefined;
     this.clearListeners();
     // A session that is gone never blocks a config reload.
     this.guard?.forget(this.engineId);
@@ -773,6 +817,108 @@ export class OpenCodeAgent extends Session {
   }
 
   // ---------------------------------------------------------------- internals
+
+  private reportChild(child: AgentChildSessionRef, running: boolean, at: number): void {
+    if (this.disposed || this.childRunning.get(child.sessionId) === running) {
+      return;
+    }
+    this.childRunning.set(child.sessionId, running);
+    this.emit({ type: 'agent/child', at, childSession: child, running });
+    if ([...this.childRunning.values()].some(Boolean) || this.box.streaming) {
+      this.watchdog ??= setInterval(() => this.tickWatchdog(), CHILD_RECONCILE_MS);
+    } else {
+      clearInterval(this.watchdog);
+      this.watchdog = undefined;
+    }
+  }
+
+  /**
+   * Re-reads the engine's active sessions once for all watched children. A
+   * child missing from the list has ended: this settles a run whose idle frame
+   * was lost, without waiting for another event that may never come.
+   */
+  private reconcileChildren(): void {
+    const running = [...this.childRunning.entries()]
+      .filter(([, live]) => live)
+      .map(([id]) => id);
+    if (running.length === 0 || this.reconcilingChildren !== undefined) {
+      return;
+    }
+    const request = this.api
+      .get<Record<string, unknown>>('/session/active')
+      .then((active) => {
+        if (active === undefined || this.disposed) {
+          return;
+        }
+        for (const id of running) {
+          if (!(id in active)) {
+            const child = this.childRefs.get(id) ?? { sessionId: id };
+            this.reportChild(child, false, Date.now());
+          }
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.reconcilingChildren === request) {
+          this.reconcilingChildren = undefined;
+        }
+      });
+    this.reconcilingChildren = request;
+  }
+
+  /** Periodic backstop for live work: reconcile statuses and revive a quiet stream. */
+  private tickWatchdog(): void {
+    if (this.disposed) {
+      return;
+    }
+    if (!this.box.streaming && ![...this.childRunning.values()].some(Boolean)) {
+      clearInterval(this.watchdog);
+      this.watchdog = undefined;
+      return;
+    }
+    this.reconcileChildren();
+    void this.stream.restartIfStale(STREAM_STALE_MS);
+  }
+
+  /**
+   * Listens to a spawned child's own session, so its run is reported after the
+   * tool row closed: OpenCode's subagents always run in the background, and the
+   * `task` call hands back the child's id within milliseconds. What the child's
+   * events say about its liveness is folded into `agent/child` reports on this
+   * session's stream; the child's record covers a start that happened before
+   * the id was known.
+   */
+  private watchChild(child: AgentChildSessionRef): void {
+    const id = child.sessionId;
+    if (this.childWatches.has(id)) {
+      return;
+    }
+    const report = (running: boolean, at: number): void => this.reportChild(child, running, at);
+    this.childRefs.set(id, child);
+    let live = false;
+    this.childWatches.set(
+      id,
+      this.stream.subscribe(id, (event) => {
+        const running = childRunningOf(event.type, event.data);
+        if (running !== undefined) {
+          live = true;
+          report(running, event.created);
+        }
+      }),
+    );
+    void this.api
+      .get<ApiSessionInfo>(`/session/${encodeURIComponent(id)}`)
+      .then(
+        (record) => {
+          // A report from the stream is the fresher truth; the record only
+          // covers a child that started before anything named it.
+          if (!this.disposed && !live && this.childWatches.has(id) && sessionBusy(record) === true) {
+            report(true, Date.now());
+          }
+        },
+        () => undefined,
+      );
+  }
 
   private attach(): void {
     this.unsubscribe = this.stream.subscribe(this.engineId, (event) => this.handle(event));
@@ -968,6 +1114,9 @@ export class OpenCodeAgent extends Session {
         this.announced.add(mappedEvent.request.requestId);
         this.pending.set(mappedEvent.request.requestId, kind);
       }
+      if ('childSession' in mappedEvent && mappedEvent.childSession !== undefined) {
+        this.watchChild(mappedEvent.childSession);
+      }
       this.emit(mappedEvent);
     }
     const title = asRecord(event.data)['title'];
@@ -988,6 +1137,11 @@ export class OpenCodeAgent extends Session {
           asString(data['requestID']) ??
           asString(data['id']),
       );
+    }
+    if (event.type === 'stream.connected') {
+      // Frames may have been lost in the gap: a child's idle can be one of
+      // them, so re-read the engine's active list before trusting old marks.
+      void this.reconcileChildren();
     }
     if (
       event.type === 'stream.connected' ||

@@ -119,6 +119,18 @@ export interface AgentChildSessionRef {
   agent?: string;
 }
 
+/**
+ * A session a tool call spawned is running, or has gone idle, as the engine
+ * that owns the child reports it. A background subagent outlives its tool row
+ * — OpenCode's `task` returns the child's id within milliseconds — so a host
+ * tracks a child's liveness by these, not by the row.
+ */
+export interface AgentChildEvent extends AgentEventBase {
+  type: 'agent/child';
+  childSession: AgentChildSessionRef;
+  running: boolean;
+}
+
 /** The turn ended, with the reason it ended. */
 export interface AgentRunEndEvent extends AgentEventBase {
   type: 'agent/run-end';
@@ -168,6 +180,7 @@ export type AgentEvent =
   | AgentToolStartEvent
   | AgentToolUpdateEvent
   | AgentToolEndEvent
+  | AgentChildEvent
   | AgentRunEndEvent
   | AgentInteractionEvent
   | AgentNoticeEvent

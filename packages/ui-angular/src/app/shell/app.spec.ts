@@ -1001,12 +1001,14 @@ describe('App · running subagents above the composer', () => {
     ]);
     const activity = signal(new Map([['kid', { sessionKey: 'kid', streaming: true }]]));
     const activate = vi.fn();
+    const stop = vi.fn();
     Object.defineProperty(morse, 'state', { value: state });
     Object.defineProperty(morse, 'activeIsSubagent', { value: signal(false) });
     Object.defineProperty(morse, 'sessions', { value: sessions });
     Object.defineProperty(morse, 'sessionActivity', { value: activity });
     Object.defineProperty(morse, 'items', { value: items });
     Object.defineProperty(morse, 'activateSession', { value: activate });
+    Object.defineProperty(morse, 'stopSubagent', { value: stop });
 
     fixture.detectChanges();
 
@@ -1021,26 +1023,35 @@ describe('App · running subagents above the composer', () => {
     head?.click();
     fixture.detectChanges();
 
-    const child = panel?.querySelector<HTMLButtonElement>('.subagents-list .subagents-row');
+    const child = panel?.querySelector<HTMLButtonElement>('.subagents-list .subagents-open');
     expect(child?.textContent).toContain('explore');
     expect(child?.textContent).toContain('Split the module');
     expect(child?.textContent).toContain('Working');
     expect(child?.querySelector('.live')).not.toBeNull();
+    panel?.querySelector<HTMLButtonElement>('.subagents-stop')?.click();
+    expect(stop).toHaveBeenCalledWith('kid', 'parent');
 
-    // Once the tool row settles the child stays in the list, marked done —
+    // A background subagent outlives its tool row: with the row closed but the
+    // activity still streaming, the child reads as working.
+    const running = items()[0];
+    if (running?.kind === 'tool') {
+      items.set([{ ...running, status: 'ok' }]);
+    }
+    fixture.detectChanges();
+    expect(head?.querySelector('.subagents-working')?.textContent).toContain('1 working');
+    expect(panel?.querySelector('.subagents-list .subagents-row .live')).not.toBeNull();
+
+    // Once the activity settles too the child stays in the list, marked done —
     // otherwise it would vanish exactly when the reader checks which ended.
     activity.set(new Map([['kid', { sessionKey: 'kid', streaming: false }]]));
-    const row = items()[0];
-    if (row?.kind === 'tool') {
-      items.set([{ ...row, status: 'ok' }]);
-    }
     fixture.detectChanges();
 
     expect(head?.querySelector('.subagents-working')).toBeNull();
-    const settled = panel?.querySelector<HTMLButtonElement>('.subagents-list .subagents-row');
+    const settled = panel?.querySelector<HTMLButtonElement>('.subagents-list .subagents-open');
     expect(settled?.textContent).toContain('Done');
     expect(settled?.querySelector('.live')).toBeNull();
     expect(settled?.querySelector('.done-mark')).not.toBeNull();
+    expect(panel?.querySelector('.subagents-stop')).toBeNull();
 
     settled?.click();
     expect(activate).toHaveBeenCalledWith('kid');

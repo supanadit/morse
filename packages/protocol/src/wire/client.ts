@@ -86,7 +86,8 @@ export interface ChatBranchMessage extends ClientMessageBase {
 
 export interface ChatAbortMessage extends ClientMessageBase {
   type: 'chat/abort';
-  payload: Record<string, never>;
+  /** A child spawned by this conversation, stopped through its parent's engine. */
+  payload: { childSessionId?: string; parentSessionId?: string };
 }
 
 /**

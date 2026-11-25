@@ -68,6 +68,14 @@ export class OpenCodeEventMapper {
     return this.running;
   }
 
+  /**
+   * Attached mid-run: the start event was missed, so the mapper must still let
+   * the end close the run (see `sessionBusy`).
+   */
+  resume(): void {
+    this.running = true;
+  }
+
   map(event: OpenCodeEvent): MappedRecord {
     const type = normalizeType(event.type);
     const data = event.data;
@@ -454,6 +462,36 @@ export class OpenCodeEventMapper {
 /** The type without OpenCode's `session.next.` variant prefix. */
 export function normalizeType(type: string): string {
   return type.replace(/^session\.next\./, 'session.');
+}
+
+/**
+ * What a session's own event says about whether it is running: a start or a
+ * busy status is `true`, an execution end or an idle report is `false`, and
+ * anything else says nothing. A spawned child's events are read through this
+ * (see `OpenCodeAgent.watchChild`), since OpenCode's subagents run on after
+ * the `task` call that spawned them has returned.
+ */
+export function childRunningOf(
+  type: string,
+  data: Record<string, unknown>,
+): boolean | undefined {
+  switch (normalizeType(type)) {
+    case 'session.execution.started':
+      return true;
+    case 'session.execution.succeeded':
+    case 'session.execution.failed':
+    case 'session.execution.interrupted':
+    case 'session.execution.cancelled':
+    case 'session.execution.aborted':
+    case 'session.idle':
+      return false;
+    case 'session.status': {
+      const status = asString(asRecord(data['status'])?.['type']);
+      return status === 'busy' ? true : status === 'idle' ? false : undefined;
+    }
+    default:
+      return undefined;
+  }
 }
 
 /** The tool result's text, from `content: [{type:'text',text}]` or a direct field. */

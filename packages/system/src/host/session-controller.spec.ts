@@ -3269,6 +3269,7 @@ describe('HostSessionController session-scoped dialogs', () => {
       clone: () => Promise.resolve({ cancelled: true }),
       fork: () => Promise.resolve({ text: '', cancelled: true }),
       abort: () => Promise.resolve(),
+      abortChild: vi.fn(async () => undefined),
       setModel: () => Promise.resolve(),
       setThinkingLevel: () => Promise.resolve(),
       compact: () => Promise.resolve(),
@@ -3404,6 +3405,58 @@ describe('HostSessionController session-scoped dialogs', () => {
     await Promise.resolve();
 
     expect(activity()?.payload.sessions.some((s) => s.sessionKey === 'kid')).toBe(false);
+  });
+
+  it('keeps a background child running after its row and the parent run end, until the engine reports it idle', async () => {
+    const { host, messages, created } = await twoSessions();
+    const activity = () => messages.filter((message) => message.type === 'session/activity').at(-1);
+    const kid = () => activity()?.payload.sessions.find((s) => s.sessionKey === 'kid');
+
+    // OpenCode's `task` returns at once; the child runs on, and only the engine
+    // says when it is done.
+    created[0].emit({
+      type: 'agent/tool-start',
+      at: Date.now(),
+      toolCallId: 'call-1',
+      name: 'task',
+      title: 'explore',
+      childSession: { sessionId: 'kid' },
+    });
+    created[0].emit({ type: 'agent/tool-end', at: Date.now(), toolCallId: 'call-1', status: 'ok' });
+    created[0].emit({
+      type: 'agent/child',
+      at: Date.now(),
+      childSession: { sessionId: 'kid' },
+      running: true,
+    });
+    await Promise.resolve();
+    expect(kid()?.streaming).toBe(true);
+
+    // The parent's turn can end while the child is still working.
+    created[0].emit({ type: 'agent/run-end', at: Date.now(), reason: 'settled' });
+    await Promise.resolve();
+    expect(kid()?.streaming).toBe(true);
+
+    created[0].emit({
+      type: 'agent/child',
+      at: Date.now(),
+      childSession: { sessionId: 'kid' },
+      running: false,
+    });
+    await Promise.resolve();
+    expect(activity()?.payload.sessions.some((s) => s.sessionKey === 'kid')).toBe(false);
+  });
+
+  it('stops a spawned session through its parent, without stopping the parent run', async () => {
+    const { host, created } = await twoSessions();
+
+    await host.handleClientMessage({
+      type: 'chat/abort',
+      payload: { childSessionId: 'kid', parentSessionId: 'sess-a' },
+    });
+
+    expect(created[0].gateway.abortChild).toHaveBeenCalledWith('kid');
+    expect(created[1].gateway.abortChild).not.toHaveBeenCalled();
   });
 
   it('sends a form to the frontend even when this host answers other kinds natively', async () => {

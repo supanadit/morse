@@ -391,6 +391,11 @@ export class MorseService {
     this.actions.abort();
   }
 
+  /** Stops a spawned session from the parent's panel. */
+  stopSubagent(childSessionId: string, parentSessionId: string): void {
+    this.actions.abortChild(childSessionId, parentSessionId);
+  }
+
   newSession(cwd?: string): void {
     this.actions.newSession(cwd);
   }

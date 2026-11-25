@@ -321,7 +321,9 @@ morse-bottom-panel {
      host, so subtract the same 20px to line up edge-for-edge with the box. */
   width: calc(100% - 20px);
   max-width: 780px;
-  margin: 0 auto 8px;
+  /* No margin below: whatever is docked under it owns that gap — the composer
+     host's 10px padding, so the panel closes up on the box or its queue. */
+  margin: 0 auto;
   border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-md);
   background: var(--morse-panel, var(--morse-hover));
@@ -343,6 +345,11 @@ morse-bottom-panel {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   cursor: pointer;
+}
+/* A pending question under the panel keeps the 8px it had: its own host has
+   no top padding, so the two cards would otherwise touch. */
+.subagents ~ morse-interaction-panel {
+  padding-top: 8px;
 }
 .subagents-head:hover {
   background: var(--morse-hover);
@@ -405,8 +412,22 @@ morse-bottom-panel {
 .subagents-row {
   display: flex;
   align-items: center;
-  gap: 8px;
   width: 100%;
+  min-height: 36px;
+}
+.subagents-row + .subagents-row {
+  border-top: 1px solid var(--morse-hover);
+}
+.subagents-row:hover,
+.subagents-row:focus-within {
+  background: var(--morse-hover);
+}
+.subagents-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   min-height: 36px;
   padding: 5px 10px;
   border: 0;
@@ -417,12 +438,21 @@ morse-bottom-panel {
   text-align: left;
   cursor: pointer;
 }
-.subagents-row + .subagents-row {
-  border-top: 1px solid var(--morse-hover);
+.subagents-stop {
+  flex: none;
+  min-width: 24px;
+  margin-right: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+  cursor: pointer;
 }
-.subagents-row:hover,
-.subagents-row:focus-visible {
-  background: var(--morse-hover);
+.subagents-stop:hover {
+  color: var(--morse-error);
+  border-color: var(--morse-error);
 }
 .subagents-row .done-mark {
   flex: none;

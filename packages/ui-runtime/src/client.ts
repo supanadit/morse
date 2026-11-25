@@ -52,6 +52,8 @@ export interface MorseActions {
     timeoutMs?: number,
   ): Promise<unknown>;
   abort(): void;
+  /** Stops a subagent through its parent, without leaving the current tab. */
+  abortChild(childSessionId: string, parentSessionId: string): void;
   /**
    * Relays one session's composer text to the host, which echoes it to the other
    * connected clients. Hosts without `sharedComposer` ignore it.
@@ -330,6 +332,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     branchMessage: (itemId) => send({ type: 'chat/branch', payload: { itemId } }),
     hostCommand: (command, args, timeoutMs) => requestHostCommand(command, args, timeoutMs),
     abort: () => send({ type: 'chat/abort', payload: {} }),
+    abortChild: (childSessionId, parentSessionId) =>
+      send({ type: 'chat/abort', payload: { childSessionId, parentSessionId } }),
     composerDraft: (draft) => send({ type: 'composer/draft', payload: draft }),
     composerQueue: (command) => send({ type: 'composer/queue', payload: command }),
     newSession: (cwd) => send({ type: 'session/new', payload: { cwd } }),

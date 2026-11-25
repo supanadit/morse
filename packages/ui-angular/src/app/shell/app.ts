@@ -348,8 +348,10 @@ export class App {
    * composer. Finished children stay in it — otherwise the strip vanishes the
    * moment the last run settles, exactly when the reader is looking for which
    * agent finished. A child has no process of its own: the host marks it
-   * streaming while its spawning tool row runs, and the transcript fills in a
-   * child the catalog has not listed yet and names the agent running it.
+   * streaming while its spawning tool row runs — or, for an engine whose
+   * subagents run on in the background, until the engine reports the child
+   * idle — and the transcript fills in a child the catalog has not listed yet
+   * and names the agent running it.
    */
   protected readonly subagents = computed<SubagentEntry[]>(() => {
     const parentId = this.morse.state().sessionId;
@@ -390,9 +392,10 @@ export class App {
       rows.set(item.child.sessionId, {
         ...item.child,
         title: known?.title ?? item.title,
-        // The tool row is the authority while it is here: it knows a just-ended
-        // child before the catalog's activity does.
-        running: item.status === 'running',
+        // The tool row knows a just-ended child before the activity does; the
+        // activity knows a background child still running after its row closed.
+        running:
+          item.status === 'running' || activity.get(item.child.sessionId)?.streaming === true,
         at: known?.at ?? item.at,
       });
     }
@@ -414,6 +417,14 @@ export class App {
   protected pickSubagent(child: SubagentEntry): void {
     this.subagentsOpen.set(false);
     this.openSubagent(child);
+  }
+
+  /** Stops a child from the parent's panel, without switching conversations. */
+  protected stopSubagent(child: SubagentEntry): void {
+    const parentId = this.morse.state().sessionId;
+    if (parentId !== undefined) {
+      this.morse.stopSubagent(child.sessionId, parentId);
+    }
   }
 
   /**

@@ -189,6 +189,21 @@ describe('OpenCodeEventStream', () => {
     expect(stream.connectionCount).toBe(2);
   });
 
+  it('restarts a stalled connection, and leaves a healthy one alone', async () => {
+    stream = build();
+    const seen: OpenCodeEvent[] = [];
+    stream.subscribe('ses_a', (event) => seen.push(event));
+    await until(() => server!.connections() === 1);
+
+    expect(await stream.restartIfStale(60_000)).toBe(false);
+    expect(server!.connections()).toBe(1);
+
+    expect(await stream.restartIfStale(0)).toBe(true);
+    await until(() => server!.connections() === 2);
+    expect(stream.connectionCount).toBe(2);
+    expect(seen.filter((event) => event.type === 'stream.connected')).toHaveLength(2);
+  });
+
   it('reports a death once to every open session after repeated failures, and recovers', async () => {
     stream = build({ fatalAfter: 2, reconnectBaseMs: 5 });
     const a: OpenCodeEvent[] = [];

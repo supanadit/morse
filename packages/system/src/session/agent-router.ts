@@ -619,8 +619,11 @@ export class RoutedGateway implements AgentGateway {
    * reload never reaches this conversation.
    */
   readonly refreshConfig: (() => Promise<void>) | undefined;
-  /** Given through only when the harness gateway has it, so presence mirrors it. */
   readonly refreshHistory: (() => Promise<void>) | undefined;
+  /** Given through only when the harness gateway has it, so a child can be stopped from its parent's panel. */
+  readonly abortChild: ((childSessionId: string) => Promise<void>) | undefined;
+  /** Morse child id → the engine id its adapter knows, learned from tool events. */
+  private readonly childIds = new Map<string, string>();
 
   constructor(options: RoutedOptions) {
     this.options = options;
@@ -637,6 +640,15 @@ export class RoutedGateway implements AgentGateway {
       inner.refreshConfig === undefined ? undefined : () => inner.refreshConfig!();
     this.refreshHistory =
       inner.refreshHistory === undefined ? undefined : () => inner.refreshHistory!();
+    this.abortChild =
+      inner.abortChild === undefined
+        ? undefined
+        : async (childSessionId) => {
+            const engineId = this.childIds.get(childSessionId);
+            if (engineId !== undefined) {
+              await inner.abortChild!(engineId);
+            }
+          };
   }
 
   subscribe(listener: (event: AgentEvent) => void): () => void {
@@ -775,18 +787,18 @@ export class RoutedGateway implements AgentGateway {
    * the id scheme, translates.
    */
   private rekeyChild(child: AgentChildSessionRef): AgentChildSessionRef {
-    return {
-      ...child,
-      sessionId: deriveSessionId({ engine: this.kind, sessionId: child.sessionId }),
-    };
+    const sessionId = deriveSessionId({ engine: this.kind, sessionId: child.sessionId });
+    this.childIds.set(sessionId, child.sessionId);
+    return { ...child, sessionId };
   }
 
-  /** Translates a tool event's child link, when the event carries one. */
+  /** Translates an event's child link, when the event carries one. */
   private rekeyChildInEvent(event: AgentEvent): AgentEvent {
     if (
       (event.type !== 'agent/tool-start' &&
         event.type !== 'agent/tool-update' &&
-        event.type !== 'agent/tool-end') ||
+        event.type !== 'agent/tool-end' &&
+        event.type !== 'agent/child') ||
       event.childSession === undefined
     ) {
       return event;
