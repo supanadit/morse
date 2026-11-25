@@ -45,9 +45,16 @@
           type="button"
           class="head-action compact"
           title="Ask every bot's engine to summarise what it holds, keeping this history"
+          [disabled]="compacting()"
+          [attr.aria-busy]="compacting()"
           (click)="compact(); menuOpen.set(false)"
         >
-          Compact
+          @if (compacting()) {
+            <span class="head-spinner" aria-hidden="true"></span>
+            Compacting…
+          } @else {
+            Compact
+          }
         </button>
         <button
           type="button"
@@ -386,6 +393,7 @@
         [botMembers]="mentionMembers()"
         [botBroadcast]="canBroadcast()"
         [botUsage]="usage()"
+        [botCompacting]="compacting()"
         (botSend)="send($event)"
       />
     </div>

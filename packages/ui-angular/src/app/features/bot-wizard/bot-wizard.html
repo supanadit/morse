@@ -131,6 +131,17 @@
                button. Clicking it (focusing it) is what picks the provider, and
                the third column answers with that provider's models. -->
           <div class="brain-keys" aria-label="Provider keys">
+            @if (engineKind() === 'opencode') {
+              <label class="brain-go">
+                <input
+                  type="checkbox"
+                  [checked]="useGoAuth()"
+                  (change)="setGoAuth($event)"
+                />
+                Use my OpenCode Go login
+                <small>No key needed — uses this machine's login.</small>
+              </label>
+            }
             @for (row of providerRows(); track row.id) {
               <input
                 type="password"

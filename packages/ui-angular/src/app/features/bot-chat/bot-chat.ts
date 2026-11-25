@@ -130,6 +130,8 @@ export class BotChat {
     }
     return this.morse.bot.roster()?.conversations.find((conversation) => conversation.id === id);
   });
+  /** The roster carries this across refreshes and other devices on this host. */
+  protected readonly compacting = computed(() => this.conversation()?.compacting === true);
   /** The lines held for it, in the order the host sent them. */
   protected readonly entries = computed<BotTranscriptEntry[]>(() => {
     const id = this.morse.bot.activeId();

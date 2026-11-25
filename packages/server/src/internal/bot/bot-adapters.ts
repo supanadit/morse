@@ -9,6 +9,7 @@ import {
   OPENCODE_BOT_CAPABILITIES,
   openCodeBotLayout,
   opencodeBotAdapterFactory,
+  importOpenCodeGoCredential,
 } from '@morse/integration-opencode';
 
 /**
@@ -39,6 +40,9 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // OpenCode's bot engine builds its own environment from the bot's config
       // directory, so the host env is applied inside the adapter, not here.
       createFactory: (botRoot) => opencodeBotAdapterFactory(botRoot, logger),
+      // A Go login lives in the user's OpenCode store, not in a field. The host
+      // reads it when a probe or a save asks for Go; it never reaches a client.
+      importGoCredential: (botRoot) => importOpenCodeGoCredential(botRoot, logger),
       // OpenCode's `opencode.json` follows opencode.ai/config.json: model,
       // providers, agents and instructions, beside its own auth store.
       layout: openCodeBotLayout,

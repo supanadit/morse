@@ -114,6 +114,34 @@
 .head-action:hover {
   background: color-mix(in srgb, var(--morse-fg) 8%, transparent);
 }
+.head-action:disabled {
+  cursor: default;
+  color: var(--morse-fg-muted);
+}
+.head-action:disabled:hover {
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
+}
+.head-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border: 1.5px solid var(--morse-fg-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: head-spin 0.8s linear infinite;
+}
+@keyframes head-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .head-spinner {
+    animation: none;
+  }
+}
 /* The one action here that cannot be undone, so it reads as the exception. */
 .head-action.danger:hover {
   background: color-mix(in srgb, var(--morse-danger, #e5484d) 16%, transparent);

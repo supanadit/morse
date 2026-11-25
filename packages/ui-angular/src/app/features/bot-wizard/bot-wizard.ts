@@ -94,6 +94,8 @@ export class BotWizard {
   protected readonly engineKind = signal('');
   /** Catalog provider keys: `{provider, apiKey}` rows, written to `auth.json`. */
   protected readonly credentials = signal<{ provider: string; apiKey: string }[]>([]);
+  /** Use the machine's OpenCode Go login instead of a pasted API key. */
+  protected readonly useGoAuth = signal(false);
   /** Custom providers, written into the engine's own provider config. */
   protected readonly providers = signal<ProviderDraft[]>([]);
   /** The custom-provider form, while it is open. */
@@ -616,6 +618,7 @@ export class BotWizard {
     if (kind !== this.engineKind()) {
       this.engineKind.set(kind);
       this.credentials.set([]);
+      this.useGoAuth.set(false);
       this.providers.set([]);
       this.modelKey.set('');
       // The engine's catalog is a different set of providers, so the column goes
@@ -642,6 +645,11 @@ export class BotWizard {
    */
   protected refreshCatalog(): void {
     this.probeCatalog();
+  }
+
+  protected setGoAuth(event: Event): void {
+    this.useGoAuth.set((event.target as HTMLInputElement).checked);
+    this.probeCatalog(true);
   }
 
   /** What is typed in one provider's key field, so a re-render keeps it. */
@@ -921,6 +929,7 @@ export class BotWizard {
     }
     const signature = JSON.stringify([
       this.engineKind(),
+      this.useGoAuth(),
       this.collectedCredentials(),
       parseEnvVars(this.envVars()),
       this.envText(),
@@ -939,6 +948,7 @@ export class BotWizard {
       this.collectedCredentials(),
       requestId,
       parseEnvText(this.envText()).values,
+      this.useGoAuth(),
     );
   }
 
@@ -991,6 +1001,7 @@ export class BotWizard {
     this.toolsEdited.set(config.tools !== undefined);
     this.pinnedModel.set(config.model);
     this.modelKey.set(config.model === undefined ? '' : this.modelOptionKey(config.model));
+    this.useGoAuth.set(config.model?.provider === 'opencode-go');
     // An edit is one page, not a walk onto a step: the catalog has to be asked
     // here, or the model list would hold nothing but the model already saved.
     this.probeCatalog(true);
@@ -1134,6 +1145,7 @@ export class BotWizard {
         subagents,
         // Only a pasted key replaces the stored ones; an untouched form keeps them.
         ...(credentials.length === 0 ? {} : { credentials }),
+        ...(this.useGoAuth() ? { useGoAuth: true } : {}),
         // Model capabilities the reader corrected, written back into the engine's
         // own provider config around the credential already there.
         ...(this.engineProviders().length === 0 ? {} : { providers: this.engineProviders() }),
@@ -1160,6 +1172,7 @@ export class BotWizard {
       ...(this.avatar().trim().length > 0 ? { avatar: this.avatar().trim() } : {}),
       engineKind: this.engineKind(),
       credentials: this.collectedCredentials(),
+      ...(this.useGoAuth() ? { useGoAuth: true } : {}),
       envVars: parseEnvVars(this.envVars()),
       ...(extraEnv === undefined ? {} : { env: extraEnv }),
       persona: this.persona(),

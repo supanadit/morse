@@ -186,6 +186,12 @@ export class ChatComposer {
   /** Whether `@all` / `@everyone` belong in the list (a room with several bots). */
   @Input() botBroadcast = false;
   /**
+   * The open bot conversation is being compacted: hold its composer so the
+   * next line cannot be sent while the host rewrites that conversation's
+   * engine context. Only the bot variant reads this.
+   */
+  @Input() botCompacting = false;
+  /**
    * What the open bot conversation's last answer cost, for the context ring.
    *
    * Bot mode has no session view of its own: its counters belong to a bot's
@@ -230,14 +236,14 @@ export class ChatComposer {
    * spawn failure must not lock the bot composer.
    */
   protected canType(): boolean {
-    return this.variant === 'bot' ? this.connected() : this.canSend();
+    return this.variant === 'bot' ? this.connected() && !this.botCompacting : this.canSend();
   }
   /**
    * Whether a line can leave. The bot variant waits only for the handshake; the
    * session variant also waits for a model pick's thinking levels to settle.
    */
   protected canSubmit(): boolean {
-    return this.variant === 'bot' ? this.connected() : this.canSend() && this.settingsSettled();
+    return this.variant === 'bot' ? this.connected() && !this.botCompacting : this.canSend() && this.settingsSettled();
   }
   /**
    * A send must wait for a model pick's thinking levels to land. The host orders
@@ -1149,6 +1155,11 @@ export class ChatComposer {
   }
 
   protected sendWith(mode: PromptMode): void {
+    // A compaction in this conversation holds its line; Enter and the button
+    // both come through here, so neither can slip past the disabled controls.
+    if (this.variant === 'bot' && this.botCompacting) {
+      return;
+    }
     // The bot variant's line is the whole prompt: no slash commands, no
     // attachments, nothing for a session to expand. A blank line sends nothing.
     if (this.variant === 'bot') {

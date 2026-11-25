@@ -130,6 +130,8 @@ export interface BotEngineAdapter {
    * call would start a second server for the same bot.
    */
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): BotGatewayFactory;
+  /** Copies a login into one bot's isolated store, when the engine supports it. */
+  importGoCredential?(botRoot: string): Promise<boolean>;
   /**
    * Where this engine keeps its configuration, what each file is called and what
    * goes in it. The whole engine-specific knowledge lives here: the service asks
@@ -473,6 +475,8 @@ export class BotService {
    */
   private readonly usageByBot = new Map<string, BotUsage>();
   private readonly listeners = new Set<(event: BotEvent) => void>();
+  /** Conversations whose engines are summarising right now, so every client sees one. */
+  private readonly compacting = new Set<string>();
   /** The token and turn files each bot's engine calls the bus back with. */
   private readonly bus: BotBusCredentials;
   /** When each bot last sent over the bus, for the hourly backstop. */
@@ -598,6 +602,7 @@ export class BotService {
       );
       writeBotIdentity(botRoot, record);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
+      await this.importGoAuth(adapter, botRoot, input.useGoAuth === true);
       // The probe runs as the bot itself — its root, its credentials — so a bad
       // key fails here instead of on the reader's first message.
       await this.readModels(factory, this.workspaceOf(record.username));
@@ -721,6 +726,23 @@ export class BotService {
     this.emit({ type: 'roster' });
   }
 
+  /** Brings the machine's Go login into a bot before its engine is asked to run. */
+  private async importGoAuth(
+    adapter: BotEngineAdapter,
+    botRoot: string,
+    requested: boolean,
+  ): Promise<void> {
+    if (!requested) {
+      return;
+    }
+    const imported = await adapter.importGoCredential?.(botRoot);
+    if (imported !== true) {
+      throw new Error(
+        'This machine has no OpenCode Go login for that bot. Run `opencode auth login` first.',
+      );
+    }
+  }
+
   /**
    * Hands the bot's whole configuration to its engine's layout, which writes the
    * files that engine reads. Morse keeps no copy of what lands there.
@@ -738,6 +760,7 @@ export class BotService {
       persona: input.persona,
       ...(input.agentsMd === undefined ? {} : { agentsMd: input.agentsMd }),
       credentials,
+      useGoAuth: (input as { useGoAuth?: boolean }).useGoAuth,
       // An edit may correct model fields without holding the credential, so a
       // provider arrives with `api`/`credential` possibly absent and the layout
       // keeps whatever the engine file already says.
@@ -823,6 +846,7 @@ export class BotService {
     // boundary create enforces applies here — before identity or settings change.
     assertSubagentNames(input.subagents);
     assertMcpServers(input.mcpServers ?? []);
+    await this.importGoAuth(adapter, this.botRoot(bot.username), input.useGoAuth === true);
     // An absent map keeps the saved values; an explicit one replaces them, even
     // when the form emptied it.
     const extraEnv = input.env === undefined ? bot.env : input.env;
@@ -1113,6 +1137,7 @@ export class BotService {
     envVars: string[],
     credentials: { provider: string; apiKey: string }[],
     extraEnv?: Record<string, string>,
+    useGoAuth = false,
   ): Promise<ModelRef[]> {
     const adapter = this.options.adapters[kind];
     if (adapter === undefined) {
@@ -1138,6 +1163,7 @@ export class BotService {
         credentials,
         providers: [],
       });
+      await this.importGoAuth(adapter, probeRoot, useGoAuth);
       factory = adapter.createFactory(probeRoot, this.engineEnv(envVars, undefined, extraEnv));
       return await this.readModels(factory, workspace);
     } finally {
@@ -1588,6 +1614,21 @@ export class BotService {
       );
       return;
     }
+    // A second device asking for the same gesture cannot start it twice.
+    if (this.compacting.has(conversationId)) {
+      return;
+    }
+    this.compacting.add(conversationId);
+    this.emit({ type: 'roster' });
+    try {
+      await this.runCompact(conversationId, conversation);
+    } finally {
+      this.compacting.delete(conversationId);
+      this.emit({ type: 'roster' });
+    }
+  }
+
+  private async runCompact(conversationId: string, conversation: ConversationRecord): Promise<void> {
     const failures: string[] = [];
     let compacted = 0;
     for (const member of conversation.members) {
@@ -2894,6 +2935,7 @@ export class BotService {
       // wire until the UI stops asking for it, and reports one constant.
       chainCap: REPORTED_CHAIN_CAP,
       updatedAt: conversation.updatedAt,
+      ...(this.compacting.has(conversation.id) ? { compacting: true } : {}),
     };
   }
 

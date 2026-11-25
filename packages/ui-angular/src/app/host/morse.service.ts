@@ -614,10 +614,18 @@ export class MorseService {
     credentials: { provider: string; apiKey: string }[],
     requestId: string,
     env?: Record<string, string>,
+    useGoAuth?: boolean,
   ): void {
     this.transport.send({
       type: 'bot/probeModels',
-      payload: { kind, envVars, ...(env === undefined ? {} : { env }), credentials, requestId },
+      payload: {
+        kind,
+        envVars,
+        ...(env === undefined ? {} : { env }),
+        credentials,
+        requestId,
+        ...(useGoAuth === true ? { useGoAuth: true } : {}),
+      },
     });
   }
 

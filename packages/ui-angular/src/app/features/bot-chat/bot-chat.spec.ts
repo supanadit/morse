@@ -1280,6 +1280,50 @@ describe('BotChat', () => {
     });
   });
 
+  it('disables Compact with a spinner while the host reports a compaction', async () => {
+    const { fixture, host, morse, sent } = await render();
+    open(morse, workshop, [entry('1', { role: 'user' }, 'hi')]);
+    fixture.detectChanges();
+    const roster = (compacting: boolean) => ({
+      bots: [forge, sable],
+      conversations: [dm, { ...workshop, ...(compacting ? { compacting: true } : {}) }],
+    });
+    const button = () => host.querySelector<HTMLButtonElement>('.head-action.compact');
+
+    expect(button()?.disabled).toBe(false);
+    morse.bot.onRoster(roster(true));
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(true);
+    expect(button()?.getAttribute('aria-busy')).toBe('true');
+    expect(button()?.textContent).toContain('Compacting');
+    expect(button()?.querySelector('.head-spinner')).not.toBeNull();
+    expect(
+      host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.disabled,
+    ).toBe(true);
+
+    // The mark belongs to one conversation: another bot's room stays usable.
+    morse.bot.open(dm.id);
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(false);
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.disabled).toBe(
+      false,
+    );
+    morse.bot.open(workshop.id);
+    fixture.detectChanges();
+
+    const before = sent.length;
+    button()?.click();
+    expect(sent.length).toBe(before);
+
+    morse.bot.onRoster(roster(false));
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(false);
+    expect(button()?.textContent).toContain('Compact');
+    expect(
+      host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.disabled,
+    ).toBe(false);
+  });
+
   it('leaves the per-line face off a DM, where the header already wears it', async () => {
     const { fixture, host, morse } = await render();
     open(morse, dm, [

@@ -930,6 +930,21 @@
   overflow-y: auto;
   border-right: 1px solid var(--morse-border);
 }
+.brain-go {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-sm);
+  color: var(--morse-fg);
+  font-size: 11px;
+  cursor: pointer;
+}
+.brain-go small {
+  color: var(--morse-fg-muted);
+  font-size: 10px;
+}
 
 /* The engine choice: plain text until it is the one, then a solid accent chip. */
 .brain-pick {

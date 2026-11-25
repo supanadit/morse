@@ -50,6 +50,8 @@ export interface BotConversationSummary {
    */
   chainCap: number;
   updatedAt: number;
+  /** True while the host is summarising every member's engine context. */
+  compacting?: boolean;
 }
 
 /**
@@ -364,6 +366,8 @@ export interface BotCreateInput {
   engineKind: string;
   /** The bot's own credentials; never copied from the reader's global config. */
   credentials: BotCredentialInput[];
+  /** Use the OpenCode Go login already stored on this machine (OpenCode bots only). */
+  useGoAuth?: boolean;
   /** Names of the host's environment variables the bot's engine inherits. */
   envVars: string[];
   /** Values defined only for this bot; they override host variables of the same name. */
@@ -457,6 +461,8 @@ export interface BotUpdateInput {
   subagents?: Array<{ name: string; prompt: string }>;
   /** Credentials to write into the bot's config; omitted leaves the stored ones. */
   credentials?: BotCredentialInput[];
+  /** Use the machine's OpenCode Go login for this bot (OpenCode bots only). */
+  useGoAuth?: boolean;
   /**
    * Providers whose model fields the reader corrected — a context window, an output
    * cap, an image modality. Written into the engine's own config around the

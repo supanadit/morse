@@ -317,6 +317,40 @@ describe('ChatComposer bot variant', () => {
     expect(botPrompt(host).value).toBe('');
   });
 
+  it('holds the bot composer while its conversation is compacting', async () => {
+    const { fixture, host } = await mountComposer();
+    const emitted: string[] = [];
+    fixture.componentInstance.botSend.subscribe((line) => emitted.push(line.text));
+    fixture.componentRef.setInput('variant', 'bot');
+    fixture.detectChanges();
+    expect(botPrompt(host).disabled).toBe(false);
+
+    fixture.componentRef.setInput('botCompacting', true);
+    fixture.detectChanges();
+    expect(botPrompt(host).disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button.send')?.disabled).toBe(true);
+
+    typeInto(host, 'keep this thought');
+    pressSend(host);
+    host.querySelector<HTMLButtonElement>('button.send')?.click();
+    fixture.detectChanges();
+    expect(emitted).toEqual([]);
+    expect(botPrompt(host).value).toBe('keep this thought');
+
+    fixture.componentRef.setInput('botCompacting', false);
+    fixture.detectChanges();
+    expect(botPrompt(host).disabled).toBe(false);
+    pressSend(host);
+    expect(emitted).toEqual(['keep this thought']);
+  });
+
+  it('ignores a bot compaction in a code-mode composer', async () => {
+    const { fixture, host } = await mountComposer();
+    fixture.componentRef.setInput('botCompacting', true);
+    fixture.detectChanges();
+    expect(botPrompt(host).disabled).toBe(false);
+  });
+
   it('treats an empty or whitespace-only line as a no-op', async () => {
     const { fixture, host } = await mountComposer();
     const emitted: string[] = [];

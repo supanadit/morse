@@ -31,7 +31,7 @@ export interface KnownProviderPreset {
  * field that engine cannot use.
  */
 export const KNOWN_PROVIDERS: KnownProviderPreset[] = [
-  { credential: 'opencode', label: 'OpenCode Zen & Go', engines: ['opencode'] },
+  { credential: 'opencode', label: 'OpenCode Zen (API key)', engines: ['opencode'] },
   { credential: 'anthropic', label: 'Anthropic', engines: ['opencode', 'pi'] },
   { credential: 'openai', label: 'OpenAI', engines: ['opencode', 'pi'] },
   { credential: 'google', label: 'Google', engines: ['opencode', 'pi'] },

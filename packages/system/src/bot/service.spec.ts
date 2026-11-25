@@ -438,6 +438,7 @@ class FakeAdapter implements BotEngineAdapter {
   readonly capabilities: BotEngineCapabilities;
   readonly factories: FakeFactory[] = [];
   readonly layout: FakeLayout;
+  importGoCredential?: (botRoot: string) => Promise<boolean>;
   readonly envs: NodeJS.ProcessEnv[] = [];
 
   constructor(
@@ -655,6 +656,21 @@ async function twoBots(service: BotService): Promise<void> {
 }
 
 describe('BotService creation', () => {
+  it('createBot imports the machine’s Go login when the wizard asks for it', async () => {
+    const { adapter, service } = harness({ models: [MODEL] });
+    const imported = vi.fn(async () => true);
+    adapter.importGoCredential = imported;
+
+    await service.createBot(botInput({ useGoAuth: true }));
+    expect(imported).toHaveBeenCalledTimes(1);
+    expect(imported.mock.calls[0]?.[0]).toContain('/forge');
+
+    adapter.importGoCredential = async () => false;
+    await expect(
+      service.createBot(botInput({ username: 'sable', useGoAuth: true })),
+    ).rejects.toThrow(/opencode auth login/);
+  });
+
   it('createBot writes engine.json and credentials and probes', async () => {
     const { root, adapter, service } = harness({ models: [MODEL] });
     const input = botInput({
@@ -2633,6 +2649,32 @@ describe('BotService sessions', () => {
     expect(service.transcript(group.id).map((entry) => entry.text)).toContain(
       'Compacted. The engine summarised what it held.',
     );
+  });
+
+  it('publishes a compaction in the roster until the engine finishes, and ignores repeat asks', async () => {
+    const { service } = harness({ script: () => ({ text: 'noted' }) });
+    await twoBots(service);
+    await service.send('dm-forge', 'hello');
+    await settle(service);
+    const rosters: boolean[] = [];
+    service.subscribe((event) => {
+      if (event.type === 'roster') {
+        rosters.push(
+          service.roster().conversations.find((one) => one.id === 'dm-forge')?.compacting === true,
+        );
+      }
+    });
+    const state = () => service.roster().conversations.find((one) => one.id === 'dm-forge');
+
+    const run = service.compact('dm-forge');
+    expect(state()?.compacting).toBe(true);
+    // Another device cannot start a second pass while the first is in flight.
+    await service.compact('dm-forge');
+    await run;
+
+    expect(state()?.compacting).toBeUndefined();
+    expect(rosters).toContain(true);
+    expect(rosters.at(-1)).toBe(false);
   });
 
   it('compact starts a cold member from its stored session, and skips one with none', async () => {
@@ -4708,6 +4750,18 @@ describe('BotService model probes', () => {
     expect(adapter.credentialWrites).toEqual([{ botRoot: factory?.botRoot, entries: CREDENTIALS }]);
     expect(factory?.disposes).toBe(1);
     expect(readdirSync(root).some((name) => name.startsWith('.probe-'))).toBe(false);
+  });
+
+  it('probeModels imports the Go login into the throwaway root before asking for models', async () => {
+    const { root, adapter, service } = harness({ models: [MODEL] });
+    const imported = vi.fn(async () => true);
+    adapter.importGoCredential = imported;
+
+    await service.probeModels('fake', [], CREDENTIALS, undefined, true);
+
+    expect(imported).toHaveBeenCalledTimes(1);
+    expect(imported.mock.calls[0]?.[0]).toContain(join(root, '.probe-'));
+    expect(adapter.credentialWrites[0]?.entries).toEqual(CREDENTIALS);
   });
 
   it('probeModels gives the throwaway root the wizard-only env values', async () => {

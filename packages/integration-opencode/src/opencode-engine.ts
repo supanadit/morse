@@ -144,6 +144,11 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
     return this.deps.connection.baseUrl;
   }
 
+  /** The password a host-side CLI needs when it imports credentials into this server. */
+  get serverPassword(): string {
+    return this.deps.connection.password;
+  }
+
   /** True when Morse started the server and will stop it on dispose. */
   get owned(): boolean {
     return this.deps.connection.owned;

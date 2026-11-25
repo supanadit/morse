@@ -115,6 +115,7 @@ interface ProbeSpy {
       { provider: string; apiKey: string }[],
       string,
       Record<string, string>?,
+      boolean?,
     ][];
   };
 }
@@ -435,6 +436,19 @@ describe('BotWizard', () => {
         one.textContent?.trim(),
       ),
     ).toEqual(['GLM-5.2']);
+  });
+
+  it('asks for the machine’s OpenCode Go login without a key field', async () => {
+    const { fixture, host, morse, probe } = await render();
+    walkToConnect(fixture, host, morse, 'opencode');
+
+    const toggle = host.querySelector<HTMLInputElement>('.brain-go input');
+    expect(toggle).not.toBeNull();
+    toggle!.checked = true;
+    toggle!.dispatchEvent(new Event('change'));
+    tick(fixture);
+
+    expect(probe.mock.calls.at(-1)?.[5]).toBe(true);
   });
 
   it('commits a key from the provider row and asks the catalog again', async () => {
