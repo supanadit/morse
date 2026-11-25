@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.32.0 — 25 November 2026
+
+## 🚀 New Features
+
+- **A searchable tab drawer on phones** — find any tab by title, path or folder
+- **One settings sheet** for engine, mode, model and thinking
+- **A collapsible composer queue** — fold queued follow-ups away, keep the count
+- **Drop explorer paths as annotatable chips** — pin a file with a note
+- **Bots can reuse your existing OpenCode login** — nothing to paste in
+- **Per-bot environment variables** — set KEY=value values for one bot
+- **Stop and usage sit on the bot's name line**
+- **Attached images open full size** in a bot room
+
+## 🐛 Bug Fixes
+
+- Wide tables stay readable and scroll sideways instead of wrapping
+- A stopped or crashed run no longer leaves the session marked working
+- A rename in the browser now reaches VS Code, and back
+- Answering a question on one device closes it everywhere
+- Prompts queued behind a running OpenCode answer now drain when it ends
+- A new draft session no longer drops its first prompt
+- A failed spawn can be dismissed, and the composer still takes typing
+- Running subagents stay visible after a refresh or a tab switch
+- Finished subagents stay listed above the composer, running ones first
+- The transcript stays pinned to the bottom when the phone keyboard opens
+- Composer controls keep full names on phones, and scroll without lag
+- Prompts sent while a session compacts wait in that session's queue
+- A stuck bot turn waits for you to stop it
+- Compacting one room no longer blocks every other bot room
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.31.0...v0.32.0`](https://github.com/supanadit/morse/compare/v0.31.0...v0.32.0)
+
 ## 0.31.0 — 21 November 2026
 
 ## 🚀 New Features
