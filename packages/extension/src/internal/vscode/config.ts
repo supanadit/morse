@@ -46,12 +46,6 @@ export function readOpenCodeConfig(): { url?: string; password?: string; bin?: s
   };
 }
 
-/** How many `pi` processes the window keeps alive at once. */
-export function readHotLimit(): number {
-  const value = vscode.workspace.getConfiguration('morse').get<number>('sessions.hotLimit', 4);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 4;
-}
-
 /** The folders this window is scoped to (the agent may not leave them). */
 export function readWorkspaceRoots(): string[] {
   const folders = vscode.workspace.workspaceFolders ?? [];

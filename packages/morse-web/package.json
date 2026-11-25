@@ -48,12 +48,14 @@
     "prepack": "node build.mjs"
   },
   "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.18",
     "@nestjs/common": "^12.1.2",
     "@nestjs/core": "^12.1.2",
     "@nestjs/platform-express": "^12.1.2",
     "@nestjs/platform-ws": "^12.1.2",
     "@nestjs/websockets": "^12.1.2",
-    "@lydell/node-pty": "1.2.0-beta.18",
+    "knex": "^3.3.0",
+    "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "ws": "^8.22.0",
@@ -61,9 +63,9 @@
   },
   "devDependencies": {
     "@morse/agent": "*",
-    "@morse/system": "*",
     "@morse/integration-pi": "*",
     "@morse/protocol": "*",
+    "@morse/system": "*",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.1",
     "typescript": "^6.0.3"

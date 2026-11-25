@@ -54,6 +54,10 @@ const runtimeExternals = [
   'ws',
   '@lydell/node-pty',
   'yaml',
+  // The multi-user Postgres session index: CJS, loaded at runtime by the
+  // bundled server through knex. Never inlined (see `assertServerLoads`).
+  'knex',
+  'pg',
 ];
 
 async function requireBuild(path, hint) {

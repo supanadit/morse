@@ -1,0 +1,194 @@
+/*
+ * The login / first-run gate. A split card after the product reference: the
+ * brand panel with the steps on the left, the form on the right — skinned in
+ * Morse's own variables so it reads as this app in both colour schemes.
+ */
+:host {
+  display: contents;
+}
+
+.auth-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 32px 16px;
+  background: var(--morse-bg);
+}
+
+.auth-card {
+  display: flex;
+  width: min(760px, 100%);
+  border: 1px solid var(--morse-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--morse-bg-raised, var(--morse-bg));
+}
+
+.brand {
+  flex: 1 1 46%;
+  padding: 36px 32px;
+  color: #f2ecff;
+  background: linear-gradient(160deg, #2a2145 0%, #171226 60%, #0e0b18 100%);
+}
+
+.brand-mark {
+  font-size: 22px;
+  margin-bottom: 64px;
+}
+
+.brand h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.brand p {
+  margin: 0 0 28px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #b9b0d6;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #8f86ad;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.steps li.current {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.steps .n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.form {
+  flex: 1 1 54%;
+  padding: 36px 32px;
+}
+
+.form h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.sub {
+  margin: 0 0 24px;
+  font-size: 12.5px;
+  color: var(--morse-fg-muted);
+}
+
+.field {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: 9px;
+  font: inherit;
+  color: var(--morse-fg);
+  background: var(--morse-bg);
+}
+
+.field input:focus {
+  outline: 2px solid var(--morse-accent, #7c5cff);
+  outline-offset: -1px;
+}
+
+.password-row {
+  display: flex;
+  gap: 8px;
+}
+
+.password-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.peek {
+  border: 1px solid var(--morse-border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--morse-fg-muted);
+  cursor: pointer;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.hint {
+  margin: -6px 0 16px;
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+}
+
+.error {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #ff8f8f;
+  background: rgba(255, 80, 80, 0.1);
+}
+
+.primary {
+  width: 100%;
+  padding: 11px;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  color: #fff;
+  background: var(--morse-accent, #7c5cff);
+}
+
+.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .auth-card {
+    flex-direction: column;
+  }
+  .brand-mark {
+    margin-bottom: 24px;
+  }
+}

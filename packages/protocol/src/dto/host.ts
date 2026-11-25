@@ -1,6 +1,20 @@
 import type { HostKind, HostScope } from './primitives.js';
 
 /**
+ * A login identity in multi-user Morse. Travels in `host/ready` (so the
+ * frontend can gate the admin surface) and through host-command closures
+ * server-side (so admin commands can refuse non-admins). Never on the wire
+ * for single-user hosts, which send `user: null`.
+ */
+export type AuthRole = 'admin' | 'regular';
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: AuthRole;
+}
+
+/**
  * One agent engine the host can start, as the frontend's engine picker names it.
  * The list is fixed for the host's lifetime; choosing one is a draft decision,
  * not a capability.
@@ -213,6 +227,12 @@ export interface DeclaredHostCapabilities {
    * sidebar's session menu keeps its two entries.
    */
   sessionTabs: boolean;
+  /**
+   * Host scopes sessions per login user (`morse config set multiuser true`)
+   * instead of serving one shared index. Only the browser host turns it on;
+   * the VS Code host declares false and keeps its single-user behavior.
+   */
+  multiuser: boolean;
   /**
    * Host runs Bot mode: the roster of isolated bots, their conversations and the
    * routing between them. Only the browser host offers it in MVP, so the

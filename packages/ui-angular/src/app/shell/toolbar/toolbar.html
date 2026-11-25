@@ -245,4 +245,13 @@
   </button>
   }
 
+  @if (currentUser(); as user) {
+    <span class="user" [title]="user.role === 'admin' ? 'Admin — user management is on the rail' : 'Signed in'">
+      <span class="user-name">{{ user.username }}</span>
+      <button type="button" class="logout" title="Log out" aria-label="Log out" (click)="logout()">
+        ⏻
+      </button>
+    </span>
+  }
+
 </div>

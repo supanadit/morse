@@ -234,12 +234,26 @@ agent is unavailable — set `MORSE_PI_PATH` in the environment you launch from.
 
 ### 2.6 Environment
 
-`MORSE_HOME`, `MORSE_PORT`, `MORSE_HOST`, `MORSE_WORKSPACE`, `MORSE_PROJECTS`, `MORSE_HOT_SESSIONS` (4),
+`MORSE_HOME`, `MORSE_PORT`, `MORSE_HOST`, `MORSE_WORKSPACE`, `MORSE_PROJECTS`,
 `MORSE_PI_PATH`, `MORSE_PI_ENTRY`, `MORSE_SESSION_DIR`, `MORSE_NO_SESSION`, `MORSE_REQUEST_TIMEOUT_MS`,
-`MORSE_UPLOAD_DIR`, `MORSE_UI_DIR`, `MORSE_TERMINAL_IDLE_MS`.
+`MORSE_UPLOAD_DIR`, `MORSE_UI_DIR`, `MORSE_TERMINAL_IDLE_MS`, `MORSE_MULTIUSER`, `MORSE_PG_HOST`,
+`MORSE_PG_PORT`, `MORSE_PG_USER`, `MORSE_PG_PASSWORD`, `MORSE_PG_DATABASE`, `MORSE_WORKSPACE_ROOT`.
 
 `MORSE_PROJECTS` is the security boundary: when set (`/a:/b`), the agent only works inside those roots. Unset
 means any absolute path is accepted — fine for `127.0.0.1`, not for `--lan`.
+
+### 2.7 Multi-user (Postgres) and the container
+
+`morse config set multiuser true` scopes sessions per login user (backed by Postgres via `MORSE_PG_*`;
+`morse config get` shows file vs effective values). The first browser visit creates the admin account; later
+users are managed from the rail's Users page. Flipping back to `false` shows the union of every owner's
+sessions — owner metadata is preserved for the flip back. Without `MORSE_PG_*`, Morse keeps its file index.
+
+The enterprise deployment is the container (`packages/morse-web/container/`, built and supervised per the
+`containers/container-scripts` methodology: pinned engines, env-driven, ezx PID 1, non-root app): server
+mode only, multi-user on, one workspace per user under `MORSE_WORKSPACE_ROOT`, Postgres on the shared
+podman network. Fresh hosts start from the quadlet in `~/.config/containers/systemd/morse.container` — no
+`morse` CLI involved.
 
 ### 2.7 Uninstall
 

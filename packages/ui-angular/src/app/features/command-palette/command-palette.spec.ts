@@ -103,7 +103,7 @@ class PaletteTransport extends BaseHostTransport {
         });
         this.emitMessage({
           type: 'host/ready',
-          payload: { protocolVersion: PROTOCOL_VERSION, capabilities: CAPABILITIES, state: STATE },
+          payload: { protocolVersion: PROTOCOL_VERSION, user: null, capabilities: CAPABILITIES, state: STATE },
         });
         return;
       case 'host/command':

@@ -1,0 +1,12 @@
+# Keep the build context small: sources only. Never send dependency trees,
+//output or history to the daemon.
+node_modules
+**/node_modules
+**/dist
+.git
+.gitignore
+*.log
+.morse
+tmp
+coverage
+.turbo

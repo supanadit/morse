@@ -41,8 +41,8 @@ export class SessionTranscriptStore {
 
   /**
    * How many sessions this store is holding a transcript for. Exposed for the
-   * leak guard (and tests): warm transcripts must track the registry's hot set,
-   * not grow with every session ever seen.
+   * leak guard (and tests): warm transcripts must track the registry's live
+   * set — every close drops its transcript — not grow without bound.
    */
   get size(): number {
     return this.projectors.size;
@@ -221,17 +221,16 @@ export interface TranscriptEvictionSource {
 }
 
 /**
- * Ties a store's lifetime to the registry's hot set: when a session leaves it —
- * an LRU eviction, an explicit close, a delete — its transcript and paging
- * cursor are dropped with it.
+ * Ties a store's lifetime to the registry's live set: when a session closes —
+ * an explicit close or a delete — its transcript and paging cursor are dropped
+ * with it.
  *
  * This is the fix for the warm-transcript leak. The controller only cleared a
  * transcript when a *client* asked to close or delete a session; a session
- * retired by the registry's hot limit was freed (process, gateway) but left its
- * `TranscriptProjector` — the whole conversation plus its tool index — in the
- * store forever, because the store is a singleton that outlives every client.
- * Subscribing here closes that gap at the one place every departure flows
- * through.
+ * retired behind the client's back left its `TranscriptProjector` — the whole
+ * conversation plus its tool index — in the store forever, because the store
+ * is a singleton that outlives every client. Subscribing here closes that gap
+ * at the one place every departure flows through.
  *
  * Returns the detach, for a host composition root to register with its own
  * disposal (VS Code's `context.subscriptions`, a Nest `onModuleDestroy`).

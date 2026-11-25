@@ -1,0 +1,61 @@
+<section class="admin" aria-label="User management">
+  <header class="admin-head">
+    <div>
+      <h2>Users</h2>
+      <p class="sub">Everyone who can sign in to this host. Sessions stay per user — deleting one removes their sessions too.</p>
+    </div>
+    <button type="button" class="ghost" (click)="refresh()" [disabled]="loading()">↻ Refresh</button>
+  </header>
+
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+  @if (notice(); as message) {
+    <p class="notice" role="status">{{ message }}</p>
+  }
+
+  @if (loading() && users().length === 0) {
+    <p class="muted">Loading…</p>
+  } @else {
+    <ul class="roster">
+      @for (user of users(); track user.id) {
+        <li class="row">
+          <span class="who">
+            <strong>{{ user.username }}</strong>
+            <span class="role" [class.admin]="user.role === 'admin'">{{ user.role }}</span>
+          </span>
+          <span class="row-actions">
+            @if (user.role === 'regular') {
+              <button type="button" class="ghost" (click)="setRole(user, 'admin')">Make admin</button>
+            } @else {
+              <button type="button" class="ghost" (click)="setRole(user, 'regular')">Make regular</button>
+            }
+            <button type="button" class="danger" (click)="deleteUser(user)">Delete</button>
+          </span>
+        </li>
+      }
+    </ul>
+  }
+
+  <form class="create" (submit)="createUser(); $event.preventDefault()" aria-label="Create a user">
+    <h3>New user</h3>
+    <div class="grid">
+      <label>
+        <span>Username</span>
+        <input type="text" name="new-username" autocomplete="off" placeholder="eg. bob" [ngModel]="newUsername()" (ngModelChange)="newUsername.set($event)" />
+      </label>
+      <label>
+        <span>Password</span>
+        <input type="password" name="new-password" autocomplete="new-password" placeholder="At least 8 characters" [ngModel]="newPassword()" (ngModelChange)="newPassword.set($event)" />
+      </label>
+      <label>
+        <span>Role</span>
+        <select name="new-role" [ngModel]="newRole()" (ngModelChange)="newRole.set($event)">
+          <option value="regular">regular</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit" class="primary" [disabled]="!canCreate()">Create user</button>
+  </form>
+</section>

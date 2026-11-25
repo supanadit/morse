@@ -60,6 +60,8 @@ interface ServerState {
 
 interface Options {
   command: string;
+  /** Extra positionals after the command (only `config` uses them). */
+  positionals?: string[];
   port?: number;
   host?: string;
   workspace?: string;
@@ -98,6 +100,7 @@ const COMMANDS = new Set([
   'update',
   'status',
   'logs',
+  'config',
   'help',
   'version',
 ]);
@@ -140,6 +143,7 @@ function parseArgs(argv: string[]): Options {
       case 'update':
       case 'status':
       case 'logs':
+      case 'config':
       case 'help':
       case 'version':
         options.command = flag;
@@ -196,6 +200,11 @@ function parseArgs(argv: string[]): Options {
         if (!arg.startsWith('-') && !commandSeen) {
           options.command = arg;
           commandSeen = true;
+          break;
+        }
+        // `config` takes positional operands (`morse config set multiuser true`).
+        if (!arg.startsWith('-') && options.command === 'config') {
+          (options.positionals ??= []).push(arg);
           break;
         }
         throw new Error(`Unknown option "${arg}". Run \`morse help\`.`);
@@ -698,6 +707,97 @@ async function logs(options: Options): Promise<number> {
   return 0;
 }
 
+const CONFIG_FILE = join(MORSE_HOME, 'config.json');
+
+/** Keys `morse config set` accepts, with how each value parses. */
+const CONFIG_KEYS = new Set(['multiuser']);
+
+interface HostConfig {
+  multiuser?: boolean;
+}
+
+/** The persisted host settings (`morse config set`). Missing file means defaults. */
+function readHostConfig(): HostConfig {
+  try {
+    const parsed = JSON.parse(readFileSync(CONFIG_FILE, 'utf8')) as HostConfig;
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeHostConfig(config: HostConfig): void {
+  mkdirSync(MORSE_HOME, { recursive: true });
+  writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * `morse config get [key]` / `morse config set <key> <value>`. The file value
+ * is what the server reads at boot when the matching `MORSE_*` env var is
+ * unset; `get` prints both the file value and the effective value so an env
+ * override never confuses. A running daemon needs a restart to pick a flip up.
+ */
+async function configCmd(options: Options): Promise<number> {
+  const [action, key, value] = options.positionals ?? [];
+  if (action === 'get') {
+    const stored = readHostConfig();
+    if (key === undefined) {
+      console.log(JSON.stringify(stored, null, 2));
+      return 0;
+    }
+    if (!CONFIG_KEYS.has(key)) {
+      console.error(`${red('morse:')} unknown config key "${key}". Known keys: ${[...CONFIG_KEYS].join(', ')}.`);
+      return 1;
+    }
+    console.log(JSON.stringify({ file: stored[key as keyof HostConfig] ?? null, effective: effectiveConfigValue(key) }));
+    return 0;
+  }
+  if (action === 'set') {
+    if (key === undefined || value === undefined) {
+      console.error(`${red('morse:')} usage: morse config set multiuser true|false`);
+      return 1;
+    }
+    if (!CONFIG_KEYS.has(key)) {
+      console.error(`${red('morse:')} unknown config key "${key}". Known keys: ${[...CONFIG_KEYS].join(', ')}.`);
+      return 1;
+    }
+    const parsed = parseConfigValue(key, value);
+    if (parsed === undefined) {
+      console.error(`${red('morse:')} "${key}" expects ${key === 'multiuser' ? 'true or false' : 'a value'}.`);
+      return 1;
+    }
+    const stored = readHostConfig();
+    writeHostConfig({ ...stored, [key]: parsed });
+    console.log(`${green('●')} ${key} = ${JSON.stringify(parsed)} (effective: ${JSON.stringify(effectiveConfigValue(key))}). Restart the daemon (morse restart) to apply it.`);
+    return 0;
+  }
+  console.error(`${red('morse:')} usage: morse config get [key] | morse config set <key> <value>`);
+  return 1;
+}
+
+function parseConfigValue(key: string, value: string): boolean | undefined {
+  if (key === 'multiuser') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'on', 'yes'].includes(normalized)) return true;
+    if (['0', 'false', 'off', 'no'].includes(normalized)) return false;
+    return undefined;
+  }
+  return undefined;
+}
+
+/** What the server would boot with for `key`: env override wins over the file. */
+function effectiveConfigValue(key: string): unknown {
+  if (key === 'multiuser') {
+    const env = process.env.MORSE_MULTIUSER?.trim().toLowerCase();
+    if (env !== undefined && env.length > 0) {
+      if (['1', 'true', 'on', 'yes'].includes(env)) return true;
+      if (['0', 'false', 'off', 'no'].includes(env)) return false;
+    }
+    return readHostConfig().multiuser ?? false;
+  }
+  return undefined;
+}
+
 function openBrowser(url: string): void {
   const command =
     process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
@@ -739,6 +839,7 @@ function printHelp(): void {
    update           Install the latest release, then restart (--to <version>)
    status           Show whether the server is running
    logs             Print the server log (--follow to tail)
+   config           Get/set host settings (morse config set multiuser true|false)
    help             Show this help
    version          Print the version
 
@@ -765,7 +866,13 @@ function printHelp(): void {
    MORSE_PROJECTS         Roots the agent may open
    MORSE_UPDATE_CHECK     Ask the registry whether a newer Morse is out (0 disables)
    MORSE_SELF_UPDATE      Allow the browser's update button to install and restart (1 enables)
-   MORSE_HOT_SESSIONS     How many pi processes stay alive (default: 4)
+   MORSE_MULTIUSER        Scope sessions per user with login (1 enables; default: 0)
+   MORSE_PG_HOST          PostgreSQL host for multi-user sessions
+   MORSE_PG_PORT          PostgreSQL port (default: 5432)
+   MORSE_PG_USER          PostgreSQL user
+   MORSE_PG_PASSWORD      PostgreSQL password
+   MORSE_PG_DATABASE      PostgreSQL database
+   MORSE_WORKSPACE_ROOT   Per-user workspace fence (multi-user container)
    MORSE_PI_PATH          Path to the pi executable (default: pi on PATH)
    MORSE_PI_ENTRY         Run a pi RPC entry with node instead of the binary
 
@@ -809,6 +916,8 @@ async function run(argv: string[]): Promise<number> {
       return status(options);
     case 'logs':
       return logs(options);
+    case 'config':
+      return configCmd(options);
     default:
       printHelp();
       return 0;

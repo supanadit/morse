@@ -35,6 +35,7 @@ class PickersTransport extends BaseHostTransport {
       type: 'host/ready',
       payload: {
         protocolVersion: PROTOCOL_VERSION,
+        user: null,
         capabilities: this.capabilities,
         state: this.view,
       },

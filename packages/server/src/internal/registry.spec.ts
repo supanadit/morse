@@ -69,7 +69,6 @@ function config(overrides: Partial<MorseServerConfig> = {}): MorseServerConfig {
     noSession: true,
     requestTimeoutMs: 1000,
     sessionsPerProject: 10,
-    hotSessions: 2,
     projects: [],
     uploadDir: '/tmp/uploads',
     dataDir: mkdtempSync(join(tmpdir(), 'morse-registry-')),

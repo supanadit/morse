@@ -1,4 +1,5 @@
 import type {
+  AuthUser,
   FrontendIdentity,
   HostCapabilities,
   InteractionRequest,
@@ -32,6 +33,11 @@ export interface SessionView {
   hostEpoch: number;
   frontend?: FrontendIdentity;
   capabilities: HostCapabilities | null;
+  /**
+   * Who this connection authenticated as (`host/ready` carries it). Null on
+   * single-user hosts; the admin surface gates on `role === 'admin'`.
+   */
+  user: AuthUser | null;
   state: SessionViewState;
   items: TranscriptItem[];
   sessions: SessionSummary[];
@@ -65,6 +71,7 @@ export function createInitialView(
     connection: 'connecting',
     hostEpoch: 0,
     capabilities: null,
+    user: null,
     state: {
       workspace,
       thinkingLevel: 'off',
@@ -109,6 +116,7 @@ export function reduceSessionView(view: SessionView, message: HostToClientMessag
         hostEpoch: reconnected ? view.hostEpoch + 1 : view.hostEpoch,
         protocolVersion: message.payload.protocolVersion,
         capabilities: message.payload.capabilities,
+        user: message.payload.user,
         state: message.payload.state,
         frontend: message.payload.frontend ?? view.frontend,
       };

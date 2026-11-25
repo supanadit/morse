@@ -147,11 +147,25 @@ export async function reconcileSessions(deps: {
    * first reconcile of a large catalog is otherwise a silent ten thousand awaits.
    */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Whether engine sessions the index has never seen are adopted as new rows.
+   * Defaults to true (single-user: a terminal-started session appears in the
+   * sidebar). A user-scoped store passes false: the engines are shared, so an
+   * adoption would copy every harness session on the machine into each user's
+   * index — rows are only ever created for sessions that user opened through
+   * Morse. Updates and removals of already-owned rows still apply either way.
+   */
+  adoptUnknown?: boolean;
 }): Promise<ReconcileResult> {
   const reported = await deps.scan();
   const records = await deps.store.list();
   const tokens = (await deps.store.tokens?.()) ?? deps.tokens ?? new Map<string, string>();
   const plan = planReconcile(deps.kind, reported, records, tokens, deps.running);
+  if (deps.adoptUnknown === false) {
+    const known = new Set(records.map((record) => record.id));
+    plan.upserts = plan.upserts.filter((record) => known.has(record.id));
+    plan.upsertTokens = new Map([...plan.upsertTokens].filter(([id]) => known.has(id)));
+  }
   const total = plan.upserts.length + plan.removals.length;
   let done = 0;
   const tick = (): void => {

@@ -30,6 +30,9 @@ import { TabStrip } from '../features/tab-strip/tab-strip';
 import { GitPanel } from '../features/git-panel/git-panel';
 import { SearchPanel } from '../features/search-panel/search-panel';
 import { ActivityRail } from '../features/activity-rail/activity-rail';
+import { AdminPanel } from '../features/admin/admin-panel';
+import { AuthScreen } from '../features/auth/auth-screen';
+import { AuthState } from '../host/auth-state';
 import { FileExplorer } from '../features/file-explorer/file-explorer';
 import { Splitter } from '../ui/splitter/splitter';
 import { AnimationService } from '../ui/animation.service';
@@ -119,6 +122,8 @@ interface SubagentEntry extends ChildSessionRef {
     GitPanel,
     SearchPanel,
     ActivityRail,
+    AdminPanel,
+    AuthScreen,
     FileExplorer,
     Splitter,
     EnterDirective,
@@ -139,7 +144,14 @@ export class App {
    * the default `false` is the standalone app.
    */
   readonly embedded = input(false);
+  private readonly auth = inject(AuthState);
   private readonly modePrefs = inject(ModePrefs);
+  /**
+   * The shell steps aside for login while the host has no user for this
+   * connection (multi-user only; single-user hosts never set it).
+   */
+  protected readonly needsAuth = computed(() => this.auth.needsAuth());
+  protected readonly authLoading = computed(() => this.auth.status() === null);
   /**
    * Which product the window is in. Code is the shell as it has always been;
    * Bot swaps the sidebar for the roster and the conversation column for the bot
@@ -153,6 +165,8 @@ export class App {
   private readonly morse = inject(MorseService);
   private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
+  /** User management takes the center column while the rail's entry is up. */
+  protected readonly adminOpen = this.shell.adminOpen;
   private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
   private readonly tabs = inject(WorkspaceTabs);
@@ -731,6 +745,11 @@ export class App {
     // A reconnection arms the full-screen state again, so a mid-session drop
     // still explains itself even after the reader once dismissed it. A retry
     // that flips back to `connecting` must not clear it: only `ready` does.
+    effect(() => {
+      if (this.morse.connectionDetail() === 'login required') {
+        void this.auth.refresh();
+      }
+    });
     effect(() => {
       const connection = this.morse.connection();
       if (connection === 'ready') {

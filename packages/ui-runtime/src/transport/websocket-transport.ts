@@ -1,4 +1,9 @@
-import { encodeWireMessage, parseHostMessage, type ClientToHostMessage } from '@morse/protocol';
+import {
+  LOGIN_REQUIRED_CLOSE_CODE,
+  encodeWireMessage,
+  parseHostMessage,
+  type ClientToHostMessage,
+} from '@morse/protocol';
 import { BaseHostTransport } from './host-transport.js';
 
 export interface WebSocketHostTransportOptions {
@@ -80,10 +85,16 @@ export class WebSocketHostTransport extends BaseHostTransport {
       this.emitStatus('error', `Cannot reach the Morse server at ${this.options.url}.`);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       this.socket = undefined;
       if (this.disposed) {
         this.emitStatus('closed');
+        return;
+      }
+      // The host has no user for this socket: reconnecting would only earn
+      // another 4401. The frontend shows login instead (see `AuthState`).
+      if ((event as CloseEvent).code === LOGIN_REQUIRED_CLOSE_CODE) {
+        this.emitStatus('closed', 'login required');
         return;
       }
       this.emitStatus('closed', 'Connection lost — retrying…');

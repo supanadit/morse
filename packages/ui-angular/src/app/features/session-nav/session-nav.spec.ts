@@ -82,6 +82,7 @@ class ScopedHostTransport extends BaseHostTransport {
       type: 'host/ready',
       payload: {
         protocolVersion: PROTOCOL_VERSION,
+        user: null,
         capabilities: {
           hostKind: scoped ? 'vscode' : 'server',
           scope: this.scope,

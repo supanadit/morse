@@ -104,6 +104,7 @@ class MissingAgentTransport extends BaseHostTransport {
       type: 'host/ready',
       payload: {
         protocolVersion: PROTOCOL_VERSION,
+        user: null,
         capabilities: capabilities(this.hostKind, this.engine, this.noEngine),
         state,
       },

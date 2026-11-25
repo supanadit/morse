@@ -8,21 +8,27 @@ import type { IncomingMessage } from 'node:http';
 import type { RawData, WebSocket } from 'ws';
 import {
   DEFAULT_WS_PATH,
+  LOGIN_REQUIRED_CLOSE_CODE,
   encodeWireMessage,
   parseClientMessage,
   type HostToClientMessage,
 } from '@morse/protocol';
 import { HostSessionController } from '@morse/system';
 import type { MorseLogger } from '@morse/system';
-import { MORSE_CONFIG, MORSE_LOGGER } from '../../app/tokens.js';
+import type { Knex } from 'knex';
+import type { AuthUser } from '@morse/protocol';
+import { MORSE_CONFIG, MORSE_DB, MORSE_LOGGER } from '../../app/tokens.js';
 import { isAuthorized } from '../http/basic-auth.js';
+import { authUserOfRequest } from '../http/auth.controller.js';
 import { MorseSessionFactory } from './session-factory.service.js';
 
 /**
- * Driving adapter: one WebSocket per client, one controller per connection, and
- * a shared session registry — so sessions in several projects keep running while
- * clients connect, refresh or disconnect. Everything protocol-shaped is
- * delegated to `HostSessionController`, which the VS Code host also uses.
+ * Driving adapter: one WebSocket per client, one controller per connection.
+ * Single-user hosts share one registry; multi-user hosts resolve the login
+ * cookie and hand the connection its owner's bundle — so sessions in several
+ * projects keep running while clients connect, refresh or disconnect.
+ * Everything protocol-shaped is delegated to `HostSessionController`, which
+ * the VS Code host also uses.
  */
 @WebSocketGateway({ path: DEFAULT_WS_PATH })
 export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -35,10 +41,31 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     @Inject(MorseSessionFactory) private readonly sessions: MorseSessionFactory,
     @Inject(MORSE_LOGGER) private readonly logger: MorseLogger,
-    @Inject(MORSE_CONFIG) private readonly config: { authPassword?: string; authUsername?: string },
+    @Inject(MORSE_CONFIG)
+    private readonly config: {
+      authPassword?: string;
+      authUsername?: string;
+      multiuser: boolean;
+    },
+    @Inject(MORSE_DB) private readonly db: Knex | undefined,
   ) {}
 
-  handleConnection(client: WebSocket, request?: IncomingMessage): void {
+  async handleConnection(client: WebSocket, request?: IncomingMessage): Promise<void> {
+    // Multi-user: the login cookie names the connection's owner (browsers
+    // replay cookies on the same-origin upgrade). No valid login means no
+    // session — 4401 tells the frontend to show login instead of retrying.
+    if (this.config.multiuser) {
+      const user =
+        request === undefined
+          ? undefined
+          : await authUserOfRequest(this.db, request.headers as Record<string, unknown>);
+      if (user === undefined) {
+        client.close(LOGIN_REQUIRED_CLOSE_CODE, 'login required');
+        return;
+      }
+      this.serve(client, request, { user });
+      return;
+    }
     // Browsers replay the Basic credentials from the page load on a same-origin
     // upgrade; anything that arrives without them never reaches a session.
     if (this.config.authPassword !== undefined &&
@@ -47,6 +74,14 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.close(1008, 'unauthorized');
       return;
     }
+    this.serve(client, request, {});
+  }
+
+  private serve(
+    client: WebSocket,
+    request: IncomingMessage | undefined,
+    identity: { user?: AuthUser },
+  ): void {
     const emit = (message: HostToClientMessage): void => {
       if (client.readyState === 1) {
         client.send(encodeWireMessage(message));
@@ -57,7 +92,10 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Nest's ws adapter hands the upgrade request as the second argument; a
     // missing one simply means the command cannot be used.
     const remoteAddress = request?.socket?.remoteAddress;
-    const controller = this.sessions.createFor(emit, remoteAddress);
+    const controller = this.sessions.createFor(emit, {
+      ...(remoteAddress === undefined ? {} : { remoteAddress }),
+      ...identity,
+    });
     this.clients.set(client, { controller, emit });
 
     client.on('message', (data: RawData) => {

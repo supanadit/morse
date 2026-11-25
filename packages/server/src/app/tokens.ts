@@ -8,6 +8,12 @@ export const MORSE_AGENT_ROUTER = 'MORSE_AGENT_ROUTER';
 export const MORSE_SESSION_REGISTRY = 'MORSE_SESSION_REGISTRY';
 export const MORSE_TRANSCRIPT_STORE = 'MORSE_TRANSCRIPT_STORE';
 export const MORSE_PROJECT_POLICY = 'MORSE_PROJECT_POLICY';
+/**
+ * The multi-user Postgres handle, or undefined on single-user hosts.
+ * Opened once per host and shared by the session store, the per-user routers
+ * and the auth controller; closed with the host.
+ */
+export const MORSE_DB = 'MORSE_DB';
 /** The host's one bot roster, shared by every connection (bot mode). */
 export const MORSE_BOT_SERVICE = 'MORSE_BOT_SERVICE';
 /**

@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { LayoutState } from '../../state/layout-state';
 import { ShellState, type LeftPane } from '../../state/shell-state';
+import { MorseService } from '../../host/morse.service';
 
 /**
  * The web shell's activity rail: the far-left strip that picks which face the
@@ -22,8 +23,12 @@ import { ShellState, type LeftPane } from '../../state/shell-state';
 export class ActivityRail {
   private readonly shell = inject(ShellState);
   private readonly layout = inject(LayoutState);
+  private readonly morse = inject(MorseService);
 
   protected readonly leftPane = this.shell.leftPane;
+  /** Multi-user admins get the third entry: user management. */
+  protected readonly adminVisible = computed(() => this.morse.user()?.role === 'admin');
+  protected readonly adminOpen = this.shell.adminOpen;
 
   protected select(pane: LeftPane): void {
     // CSS decides which toggle is on screen; the handler only has to match it.
@@ -42,5 +47,9 @@ export class ActivityRail {
     } else {
       this.shell.toggleNavigation();
     }
+  }
+
+  protected toggleAdmin(): void {
+    this.shell.toggleAdmin();
   }
 }

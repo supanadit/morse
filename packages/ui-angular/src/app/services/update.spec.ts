@@ -50,6 +50,7 @@ class ScriptedTransport extends BaseHostTransport {
         type: 'host/ready',
         payload: {
           protocolVersion: 1,
+          user: null,
           capabilities: this.capabilities,
           state: {} as never,
         },

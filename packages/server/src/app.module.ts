@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { createPiRpcAdapter, type PiRpcAdapter } from '@morse/integration-pi';
 import {
   AgentRouter,
@@ -10,11 +11,13 @@ import {
 import type { ProjectPolicy } from '@morse/system';
 import { SessionTranscriptStore } from '@morse/system';
 import { BotBusController } from './internal/http/bot-bus.controller.js';
+import { AuthController } from './internal/http/auth.controller.js';
 import { HealthController } from './internal/http/health.controller.js';
 import { NestMorseLogger } from './internal/logging/nest-logger.js';
 import { ServerProjectPolicy } from './internal/projects/project-policy.js';
 import { ServerTerminalBackend } from './internal/terminal/terminal.service.js';
 import { ptyAvailable } from './internal/terminal/pty.js';
+import { openMultiuserDb } from './db/factory.js';
 import {
   createAgentRouter,
   createBotService,
@@ -29,6 +32,7 @@ import {
   MORSE_BOT_BUS,
   MORSE_BOT_SERVICE,
   MORSE_CONFIG,
+  MORSE_DB,
   MORSE_LOGGER,
   MORSE_PI_ADAPTER,
   MORSE_PROJECT_POLICY,
@@ -45,7 +49,7 @@ import {
  * controller is created and disposed with the WebSocket.
  */
 @Module({
-  controllers: [HealthController, BotBusController],
+  controllers: [HealthController, BotBusController, AuthController],
   providers: [
     {
       provide: MORSE_CONFIG,
@@ -76,13 +80,22 @@ import {
       inject: [MORSE_CONFIG, MORSE_LOGGER],
     },
     {
+      // One Postgres handle for the host, shared by the session store, the
+      // per-user routers and the auth controller. Undefined on single-user
+      // hosts, which keep the file index and never touch the database.
+      provide: MORSE_DB,
+      useFactory: (config: MorseServerConfig): Promise<Knex | undefined> => openMultiuserDb(config),
+      inject: [MORSE_CONFIG, MORSE_LOGGER],
+    },
+    {
       provide: MORSE_AGENT_ROUTER,
       useFactory: (
         adapter: PiRpcAdapter,
         config: MorseServerConfig,
         logger: MorseLogger,
-      ): Promise<AgentRouter> => createAgentRouter(adapter, config, logger),
-      inject: [MORSE_PI_ADAPTER, MORSE_CONFIG, MORSE_LOGGER],
+        db: Knex | undefined,
+      ): Promise<AgentRouter> => createAgentRouter(adapter, config, logger, { db }),
+      inject: [MORSE_PI_ADAPTER, MORSE_CONFIG, MORSE_LOGGER, MORSE_DB],
     },
     {
       provide: MORSE_SESSION_REGISTRY,

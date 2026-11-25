@@ -252,6 +252,14 @@ export class ShellState {
   readonly mcpOpen = this.mcp.asReadonly();
 
   /**
+   * User management (multi-user admins only). Like the MCP manager it takes
+   * the whole center column while up; unlike the dialogs it is not modal, so
+   * `modalOpen` does not track it.
+   */
+  private readonly admin = signal(false);
+  readonly adminOpen = this.admin.asReadonly();
+
+  /**
    * The prompt-template editor. Shell state like the MCP manager: the toolbar's
    * document button toggles it, and while it is up the browser host replaces the
    * tab strip and chat with the editor (the toolbar stays, so MCP/git/search
@@ -384,8 +392,27 @@ export class ShellState {
     this.mcp.set(true);
   }
 
+  /** Opens user management (the activity rail's admin entry). */
+  openAdmin(): void {
+    this.closePromptEditor();
+    this.admin.set(true);
+  }
+
+  /** The rail's admin entry toggles the page closed when it is already in front. */
+  toggleAdmin(): void {
+    this.admin.update((open) => !open);
+    if (this.admin()) {
+      this.closePromptEditor();
+    }
+  }
+
+  closeAdmin(): void {
+    this.admin.set(false);
+  }
+
   /** Toggles the full-page prompt-template editor (the toolbar's document button). */
   togglePromptEditor(): void {
+    this.closeAdmin();
     this.promptEditor.update((open) => !open);
   }
 

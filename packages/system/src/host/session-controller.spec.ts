@@ -2623,9 +2623,9 @@ describe('HostSessionController agent config reload and draft probe', () => {
   });
 });
 
-describe('SessionRegistry hot limit', () => {
+describe('SessionRegistry keeps every session live', () => {
   /** Session ids in spawn order, with a live state a test can flip. */
-  function registryWith(hotLimit: number) {
+  function registryWith() {
     const records = new Map<string, AgentSessionState>();
     const disposed: string[] = [];
     let spawned = 0;
@@ -2659,59 +2659,54 @@ describe('SessionRegistry hot limit', () => {
       factory,
       catalog: { list: () => Promise.resolve([]) },
       defaultWorkspace: WORKSPACE,
-      hotLimit,
       logger: silentLogger,
     });
     return { registry, records, disposed };
   }
 
-  it('retires the coldest idle session when the limit is exceeded', async () => {
-    const { registry, disposed } = registryWith(1);
+  it('keeps every session live however many open: no limit, no eviction', async () => {
+    const { registry, disposed } = registryWith();
     const first = await registry.open({ workspace: WORKSPACE });
     const second = await registry.open({ workspace: WORKSPACE });
-
-    expect(disposed).toEqual([first.key]);
-    expect(registry.hotKeys()).toEqual([second.key]);
-  });
-
-  it('never retires a session that is answering, even over the limit', async () => {
-    const { registry, records, disposed } = registryWith(2);
-    const running = await registry.open({ workspace: WORKSPACE });
-    const idle = await registry.open({ workspace: WORKSPACE });
-    // The oldest session is mid-answer when a third one pushes past the limit.
-    records.get(running.key)!.streaming = true;
-
     const third = await registry.open({ workspace: WORKSPACE });
 
-    // The limit still holds — the idle one goes — but the running agent lives.
-    expect(disposed).toEqual([idle.key]);
-    expect(registry.hotKeys()).toEqual([running.key, third.key]);
+    expect(disposed).toEqual([]);
+    expect(registry.hotKeys()).toEqual([first.key, second.key, third.key]);
   });
 
-  it('goes over the limit rather than killing work when every session is running', async () => {
-    const { registry, records, disposed } = registryWith(2);
-    const first = await registry.open({ workspace: WORKSPACE });
-    const second = await registry.open({ workspace: WORKSPACE });
-    records.get(first.key)!.streaming = true;
-    records.get(second.key)!.streaming = true;
+  it('a streaming session and an idle one both stay live', async () => {
+    const { registry, records, disposed } = registryWith();
+    const running = await registry.open({ workspace: WORKSPACE });
+    const idle = await registry.open({ workspace: WORKSPACE });
+    records.get(running.key)!.streaming = true;
 
     await registry.open({ workspace: WORKSPACE });
 
     expect(disposed).toEqual([]);
-    expect(registry.hotKeys()).toHaveLength(3);
+    expect(registry.hotKeys()).toContain(running.key);
+    expect(registry.hotKeys()).toContain(idle.key);
+  });
+
+  it('an explicit close still disposes the process and drops the key', async () => {
+    const { registry, disposed } = registryWith();
+    const first = await registry.open({ workspace: WORKSPACE });
+    const second = await registry.open({ workspace: WORKSPACE });
+
+    await registry.close(first.key);
+
+    expect(disposed).toEqual([first.key]);
+    expect(registry.hotKeys()).toEqual([second.key]);
   });
 });
 
 /**
- * The warm-transcript leak: the store is a singleton that outlives every client,
- * and the controller only cleared a transcript when a *client* asked to close or
- * delete a session. A session the registry retired on its own (the hot-limit LRU)
- * freed its process but left its transcript + paging cursor in the store forever.
- * `bindTranscriptsToRegistry` closes that gap at the one place every departure
- * flows through.
+ * The warm-transcript lifetime: the store is a singleton that outlives every
+ * client, and without a hot limit nothing retires sessions on its own — so an
+ * explicit close or delete is what drops a transcript. `bindTranscriptsToRegistry`
+ * closes that gap at the one place every departure flows through.
  */
-describe('warm transcript eviction follows the registry hot set', () => {
-  function registryAndStore(hotLimit: number) {
+describe('warm transcripts follow the registry live set', () => {
+  function registryAndStore() {
     const records = new Map<string, AgentSessionState>();
     let spawned = 0;
     const factory: AgentGatewayFactory = {
@@ -2741,7 +2736,6 @@ describe('warm transcript eviction follows the registry hot set', () => {
         remove: () => Promise.resolve(),
       },
       defaultWorkspace: WORKSPACE,
-      hotLimit,
       logger: silentLogger,
     });
     const transcripts = new SessionTranscriptStore();
@@ -2749,65 +2743,47 @@ describe('warm transcript eviction follows the registry hot set', () => {
     return { registry, transcripts, detach };
   }
 
-  it('drops a transcript when its session is retired by the hot limit', async () => {
-    const { registry, transcripts } = registryAndStore(1);
+  it('keeps transcripts for every live session: nothing is retired behind the client', async () => {
+    const { registry, transcripts } = registryAndStore();
     const first = await registry.open({ workspace: WORKSPACE });
-    transcripts.userPrompt(first.key, 'the one that will be retired');
-    expect(transcripts.size).toBe(1);
-
-    // A second session over the limit retires the first. No client asked to
-    // close it, so nothing but the removal signal can clear its transcript.
+    transcripts.userPrompt(first.key, 'the first conversation');
     const second = await registry.open({ workspace: WORKSPACE });
-    transcripts.userPrompt(second.key, 'the one that stays');
+    transcripts.userPrompt(second.key, 'the second conversation');
 
-    expect(registry.hotKeys()).toEqual([second.key]);
-    // One projector, and it is the survivor's: the retired session's is gone.
-    expect(transcripts.size).toBe(1);
-    expect(transcripts.items(first.key)).toEqual([]);
+    // No limit, no eviction: both projectors stay, both readable.
+    expect(registry.hotKeys()).toEqual([first.key, second.key]);
+    expect(transcripts.size).toBe(2);
+    expect(transcripts.items(first.key)).not.toEqual([]);
     expect(transcripts.items(second.key)).not.toEqual([]);
   });
 
-  it('holds at most `hotLimit` transcripts however many sessions cycle through', async () => {
-    const { registry, transcripts } = registryAndStore(2);
-
-    // Ten sessions open one after another: without the binding this leaks all
-    // ten projectors into the singleton store.
-    for (let i = 0; i < 10; i += 1) {
-      const opened = await registry.open({ workspace: WORKSPACE });
-      transcripts.userPrompt(opened.key, `prompt ${i}`);
-    }
-
-    expect(registry.hotKeys()).toHaveLength(2);
-    expect(transcripts.size).toBeLessThanOrEqual(2);
-  });
-
-  it('clears the paging cursor with the transcript, so a reopened session starts fresh', async () => {
-    const { registry, transcripts } = registryAndStore(1);
-    const first = await registry.open({ workspace: WORKSPACE });
-    transcripts.userPrompt(first.key, 'hello');
-    transcripts.setHistoryCursor(first.key, { before: 'cursor-1', hasOlder: true });
-
-    await registry.open({ workspace: WORKSPACE });
-
-    expect(transcripts.historyCursor(first.key)).toEqual({ hasOlder: false });
-  });
-
-  it('clears on an explicit close and delete too, not only on eviction', async () => {
-    const { registry, transcripts } = registryAndStore(4);
+  it('clears the transcript and paging cursor on an explicit close', async () => {
+    const { registry, transcripts } = registryAndStore();
     const closed = await registry.open({ workspace: WORKSPACE });
-    const removed = await registry.open({ workspace: WORKSPACE });
+    const kept = await registry.open({ workspace: WORKSPACE });
     transcripts.userPrompt(closed.key, 'x');
-    transcripts.userPrompt(removed.key, 'y');
+    transcripts.userPrompt(kept.key, 'y');
+    transcripts.setHistoryCursor(closed.key, { before: 'cursor-1', hasOlder: true });
 
     await registry.close(closed.key);
+
     expect(transcripts.size).toBe(1);
+    expect(transcripts.items(closed.key)).toEqual([]);
+    expect(transcripts.historyCursor(closed.key)).toEqual({ hasOlder: false });
+    expect(registry.hotKeys()).toEqual([kept.key]);
+  });
+
+  it('clears the transcript on an explicit delete', async () => {
+    const { registry, transcripts } = registryAndStore();
+    const removed = await registry.open({ workspace: WORKSPACE });
+    transcripts.userPrompt(removed.key, 'y');
 
     await registry.remove(removed.key);
     expect(transcripts.size).toBe(0);
   });
 
-  it('detaching the binding stops the eviction and disposes the store', async () => {
-    const { registry, transcripts, detach } = registryAndStore(1);
+  it('detaching the binding stops cleanup and disposes the store', async () => {
+    const { registry, transcripts, detach } = registryAndStore();
     const first = await registry.open({ workspace: WORKSPACE });
     transcripts.userPrompt(first.key, 'kept');
 
@@ -2816,7 +2792,7 @@ describe('warm transcript eviction follows the registry hot set', () => {
     detach();
     expect(transcripts.size).toBe(0);
 
-    // A later eviction finds no listener, so it cannot clear a store that is
+    // A later close finds no listener, so it cannot clear a store that is
     // already gone — and the registry itself stays usable.
     const second = await registry.open({ workspace: WORKSPACE });
     transcripts.userPrompt(second.key, 'still here');
@@ -2828,7 +2804,7 @@ describe('warm transcript eviction follows the registry hot set', () => {
     // controller re-homes the transcript with `transcripts.move`. A removal here
     // would wrongly wipe the conversation that just moved, so the registry must
     // announce only real departures — close/delete/eviction.
-    const { registry, transcripts } = registryAndStore(4);
+    const { registry, transcripts } = registryAndStore();
     const removals: string[] = [];
     registry.onRemoval((key) => removals.push(key));
     const first = await registry.open({ workspace: WORKSPACE });

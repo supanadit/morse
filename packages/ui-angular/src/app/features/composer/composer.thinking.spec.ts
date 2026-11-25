@@ -48,6 +48,7 @@ class SettlingHostTransport extends BaseHostTransport {
       type: 'host/ready',
       payload: {
         protocolVersion: PROTOCOL_VERSION,
+        user: null,
         capabilities: {
           hostKind: 'vscode',
           scope: 'workspace',

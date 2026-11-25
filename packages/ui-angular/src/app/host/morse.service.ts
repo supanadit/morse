@@ -58,6 +58,8 @@ export class MorseService {
 
   readonly connection = computed(() => this.view().connection);
   readonly connectionDetail = computed(() => this.view().connectionDetail);
+  /** Who this connection authenticated as (null on single-user hosts). */
+  readonly user = computed(() => this.view().user);
   /** True when the host owns the queue and relays drafts (`composer/*` messages). */
   readonly sharedComposer = computed(() => this.view().capabilities?.sharedComposer === true);
   /** Listeners for a session's shared queue state, applied by `ComposerSync`. */

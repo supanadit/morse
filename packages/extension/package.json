@@ -185,12 +185,6 @@
           "default": "",
           "markdownDescription": "The password the OpenCode server printed on startup (its Basic-auth secret). Prefer `MORSE_OPENCODE_PASSWORD` in the environment when you do not want it in settings."
         },
-        "morse.sessions.hotLimit": {
-          "type": "number",
-          "default": 4,
-          "minimum": 1,
-          "markdownDescription": "How many pi sessions (one process each) stay alive at once. When the limit is reached the least recently used session is retired; it can still be resumed from its session file."
-        },
         "morse.sessions.perProject": {
           "type": "number",
           "default": 10,

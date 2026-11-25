@@ -1,0 +1,68 @@
+<div class="auth-page" role="main" aria-label="Morse login">
+  <div class="auth-card">
+    <section class="brand" aria-hidden="true">
+      <div class="brand-mark">◍</div>
+      <h1>{{ setupRequired() ? 'Claim your Morse' : 'Welcome back' }}</h1>
+      <p>
+        {{
+          setupRequired()
+            ? 'Create the first account. It is the admin — it manages everyone who comes after.'
+            : 'Sign in to reach your sessions. Another user’s conversations stay theirs.'
+        }}
+      </p>
+      <ol class="steps">
+        <li class="current"><span class="n">1</span> {{ setupRequired() ? 'Create your admin account' : 'Sign in to your account' }}</li>
+        <li><span class="n">2</span> Open your sessions</li>
+        <li><span class="n">3</span> Ask pi to build something</li>
+      </ol>
+    </section>
+    <section class="form" aria-label="{{ setupRequired() ? 'Create the admin account' : 'Log in' }}">
+      <h2>{{ setupRequired() ? 'Create admin account' : 'Log in' }}</h2>
+      <p class="sub">
+        {{ setupRequired() ? 'This only ever happens once.' : 'Your sessions pick up where you left them.' }}
+      </p>
+      <form (submit)="submit(); $event.preventDefault()">
+        <label class="field">
+          <span>Username</span>
+          <input
+            type="text"
+            name="username"
+            autocomplete="username"
+            placeholder="eg. adit"
+            [ngModel]="username()"
+            (ngModelChange)="username.set($event)"
+          />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <div class="password-row">
+            <input
+              [type]="showPassword() ? 'text' : 'password'"
+              name="password"
+              autocomplete="{{ setupRequired() ? 'new-password' : 'current-password' }}"
+              placeholder="Enter your password"
+              [ngModel]="password()"
+              (ngModelChange)="password.set($event)"
+            />
+            <button
+              type="button"
+              class="peek"
+              [attr.aria-pressed]="showPassword()"
+              title="{{ showPassword() ? 'Hide password' : 'Show password' }}"
+              (click)="togglePassword()"
+            >
+              {{ showPassword() ? '◉' : '◎' }}
+            </button>
+          </div>
+        </label>
+        <p class="hint">Must be at least 8 characters.</p>
+        @if (error(); as message) {
+          <p class="error" role="alert">{{ message }}</p>
+        }
+        <button type="submit" class="primary" [disabled]="!canSubmit()">
+          {{ working() ? '…' : setupRequired() ? 'Create account' : 'Log in' }}
+        </button>
+      </form>
+    </section>
+  </div>
+</div>

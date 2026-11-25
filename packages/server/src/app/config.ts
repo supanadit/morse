@@ -32,8 +32,6 @@ export interface MorseServerConfig {
   requestTimeoutMs: number;
   /** Sessions of one project the sidebar lists before "Load more". */
   sessionsPerProject: number;
-  /** How many `pi` processes stay alive at once (least recently used first). */
-  hotSessions: number;
   /** Roots the agent may work in; empty means "any absolute path". */
   projects: string[];
   /** Where browser uploads land: relative to a session cwd, or absolute. */
@@ -73,6 +71,14 @@ export interface MorseServerConfig {
    */
   instance?: string;
   /**
+   * Per-user workspace roots (`MORSE_WORKSPACE_ROOT`): when set, every login
+   * user gets their own directory (`<root>/<username>`, created on demand) as
+   * their default workspace, and the project policy narrows to it — so git
+   * operations and terminals cannot cross into another user's tree. Unset
+   * keeps today's global workspace. Only meaningful with `multiuser`.
+   */
+  workspaceRoot?: string;
+  /**
    * Password protecting every browser-facing route with HTTP Basic auth
    * (`MORSE_AUTH_PASSWORD`). Undefined means no gate: the default loopback host
    * needs none, and a LAN-exposed host opts in deliberately. The CLI health
@@ -85,6 +91,24 @@ export interface MorseServerConfig {
    * Undefined means any user name is accepted; the password alone gates.
    */
   authUsername?: string;
+  /**
+   * Per-user session isolation with login (`MORSE_MULTIUSER=1`, or
+   * `morse config set multiuser true`). Env wins; otherwise the CLI's
+   * `<MORSE_HOME>/config.json`; default off (today's single-user behavior).
+   * Off means the union of every user's rows with no gate; owner metadata is
+   * still preserved on the rows for the flip back.
+   */
+  multiuser: boolean;
+  /**
+   * PostgreSQL for multi-user sessions (`MORSE_PG_HOST/PORT/USER/PASSWORD/
+   * DATABASE`). Only the `morse-web` host reads these; `server` dev and the
+   * extension never touch Postgres.
+   */
+  pgHost?: string;
+  pgPort: number;
+  pgUser?: string;
+  pgPassword?: string;
+  pgDatabase?: string;
   /**
    * The bundle this host serves, as its own manifest declares it. Relayed to
    * clients in `host/ready`, so a frontend can name itself (the About dialog) and
@@ -114,6 +138,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
       : join(process.cwd(), configuredUiDir)
     : defaultUiDir;
 
+  const dataDir = resolveDataDir(env);
+
   return {
     host: env.MORSE_HOST ?? defaultHost,
     port: parsePositiveInt(env.MORSE_PORT, 4399),
@@ -130,10 +156,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     noSession: env.MORSE_NO_SESSION === '1',
     requestTimeoutMs: parsePositiveInt(env.MORSE_REQUEST_TIMEOUT_MS, 30_000),
     sessionsPerProject: parsePositiveInt(env.MORSE_SESSIONS_PER_PROJECT, 10),
-    hotSessions: parsePositiveInt(env.MORSE_HOT_SESSIONS, 4),
     projects: parseList(env.MORSE_PROJECTS),
+    workspaceRoot: env.MORSE_WORKSPACE_ROOT?.trim() || undefined,
     uploadDir: env.MORSE_UPLOAD_DIR?.trim() || DEFAULT_UPLOAD_DIR,
-    dataDir: resolveDataDir(env),
+    dataDir,
+    multiuser: readMultiuser(env, dataDir),
+    pgHost: env.MORSE_PG_HOST?.trim() || undefined,
+    pgPort: parsePositiveInt(env.MORSE_PG_PORT, 5432),
+    pgUser: env.MORSE_PG_USER?.trim() || undefined,
+    pgPassword: env.MORSE_PG_PASSWORD ?? undefined,
+    pgDatabase: env.MORSE_PG_DATABASE?.trim() || undefined,
     terminalIdleMs: parsePositiveInt(env.MORSE_TERMINAL_IDLE_MS, 30 * 60_000),
     updateCheck: !isOff(env.MORSE_UPDATE_CHECK),
     selfUpdate: isOn(env.MORSE_SELF_UPDATE),
@@ -161,6 +193,26 @@ function readFrontendIdentity(uiDir: string): FrontendIdentity | undefined {
 /** `MORSE_HOME` wins, else the same `~/.morse` the CLI uses — one helper shared with the VS Code host. */
 function resolveDataDir(env: NodeJS.ProcessEnv): string {
   return morseDataDir(env);
+}
+
+/**
+ * Whether sessions are scoped per user. Env (`MORSE_MULTIUSER`) wins when set;
+ * otherwise the CLI-persisted `<dataDir>/config.json` (`morse config set
+ * multiuser true|false`); default off so upgrades never lock an operator out.
+ */
+function readMultiuser(env: NodeJS.ProcessEnv, dataDir: string): boolean {
+  const fromEnv = env.MORSE_MULTIUSER?.trim().toLowerCase();
+  if (fromEnv !== undefined && fromEnv.length > 0) {
+    return isOn(env.MORSE_MULTIUSER);
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as {
+      multiuser?: unknown;
+    };
+    return parsed.multiuser === true;
+  } catch {
+    return false;
+  }
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

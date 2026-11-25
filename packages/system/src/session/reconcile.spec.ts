@@ -81,6 +81,43 @@ describe('reconcileSessions', () => {
     expect(store.records.size).toBe(2);
   });
 
+  it('adopts nothing unknown when adoptUnknown is false, but updates and prunes owned rows', async () => {
+    const store = new MemoryStore();
+    const report = [
+      info({ sessionId: 'engine-1', token: 't1' }),
+      info({ sessionId: 'engine-2', token: 't2' }),
+    ];
+    // Unknown engine sessions stay out of a user-scoped index.
+    const skipped = await reconcileSessions({
+      kind: 'test',
+      scan: () => Promise.resolve(report),
+      store,
+      adoptUnknown: false,
+    });
+    expect(skipped.upserts).toEqual([]);
+    expect(store.records.size).toBe(0);
+
+    // A row the user owns (opened through Morse) still updates on new tokens…
+    const owned = toSessionRecord('test', report[0]!);
+    await store.write(owned, 't0');
+    const updated = await reconcileSessions({
+      kind: 'test',
+      scan: () => Promise.resolve(report),
+      store,
+      adoptUnknown: false,
+    });
+    expect(updated.upserts.map((record) => record.id)).toEqual([owned.id]);
+    // …and is pruned when the engine no longer reports it.
+    const pruned = await reconcileSessions({
+      kind: 'test',
+      scan: () => Promise.resolve([report[1]!]),
+      store,
+      adoptUnknown: false,
+    });
+    expect(pruned.removals).toEqual([owned.id]);
+    expect(store.records.size).toBe(0);
+  });
+
   it('updates a session whose token changed and keeps the others untouched', async () => {
     const store = new MemoryStore();
     let tokens = 't1';

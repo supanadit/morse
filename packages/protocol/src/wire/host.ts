@@ -4,6 +4,7 @@
  */
 
 import type {
+  AuthUser,
   BotConfig,
   BotConversationSummary,
   BotRoutingState,
@@ -172,7 +173,15 @@ export type ServerHostCommand =
    * where `capabilities.selfUpdate` is set — an npm-global install the host can
    * rewrite — and answered with an `UpdateHostResult`.
    */
-  | 'updateHost';
+  | 'updateHost'
+  /** Every login identity on this host, newest last (admin only). */
+  | 'adminUsers'
+  /** Create a login identity `{ username, password, role? }` (admin only). */
+  | 'adminCreateUser'
+  /** Change one identity's role `{ userId, role }` (admin only). */
+  | 'adminSetRole'
+  /** Delete one identity `{ userId }` (admin only, never the last admin). */
+  | 'adminDeleteUser';
 
 /**
  * Commands only the VS Code host answers: they reach into the editor, the workbench
@@ -238,6 +247,13 @@ export interface HostReadyMessage extends HostMessageBase {
     capabilities: HostCapabilities;
     state: SessionViewState;
     frontend?: FrontendIdentity;
+    /**
+     * Who this connection authenticated as. Null on single-user hosts (and
+     * for the pre-login handshake, which never reaches `ready`). The
+     * frontend gates the admin surface on `role === 'admin'`; the backend
+     * re-checks per command, so this is display, not authority.
+     */
+    user: AuthUser | null;
   };
 }
 

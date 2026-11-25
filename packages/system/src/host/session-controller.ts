@@ -24,6 +24,7 @@ import {
   PROTOCOL_VERSION,
   isBotClientMessage,
   type AgentFailure,
+  type AuthUser,
   type ChatPin,
   type ClientToHostMessage,
   type FrontendIdentity,
@@ -124,6 +125,12 @@ export type HostScopeOptions = GlobalHostScope | WorkspaceHostScope;
 export interface HostSessionControllerOptions {
   services: HostSessionServices;
   capabilities: HostCapabilities;
+  /**
+   * Who this connection authenticated as. Null on single-user hosts. The
+   * controller only relays it in `host/ready` for display; services handed
+   * here are already scoped, so this carries no authority.
+   */
+  user?: AuthUser | null;
   emit: (message: HostToClientMessage) => void;
   logger: MorseLogger;
   /**
@@ -2506,6 +2513,7 @@ export class HostSessionController {
         capabilities: this.options.capabilities,
         state: this.currentState(),
         frontend: this.options.frontend,
+        user: this.options.user ?? null,
       },
     });
     this.publishActivity();
@@ -2658,7 +2666,7 @@ export class HostSessionController {
     }
   }
 
-  /** A parent that leaves the hot set: nobody is left to report its children's end. */
+  /** A parent that closed while children were still reported under it. */
   private forgetChildren(sessionKey: string): void {
     this.clearChildren(sessionKey);
     for (const [child, owner] of this.reportedChildren) {

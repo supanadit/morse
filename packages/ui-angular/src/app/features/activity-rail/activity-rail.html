@@ -25,4 +25,19 @@
       <use href="#morse-folder" />
     </svg>
   </button>
+  @if (adminVisible()) {
+    <button
+      type="button"
+      class="entry"
+      [class.active]="adminOpen()"
+      [attr.aria-pressed]="adminOpen()"
+      aria-label="User management"
+      title="Users"
+      (click)="toggleAdmin()"
+    >
+      <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+        <use href="#morse-admin" />
+      </svg>
+    </button>
+  }
 </nav>

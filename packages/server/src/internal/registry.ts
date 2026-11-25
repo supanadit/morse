@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { Inject, Injectable, Optional, type OnModuleDestroy } from '@nestjs/common';
+import type { Knex } from 'knex';
 import {
   AgentRouter,
   BotService,
@@ -7,6 +8,7 @@ import {
   SessionRegistry,
   planEngineRegistration,
   type MorseLogger,
+  type SessionStore,
 } from '@morse/system';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
@@ -15,10 +17,13 @@ import type { MorseServerConfig } from '../app/config.js';
 import {
   MORSE_AGENT_ROUTER,
   MORSE_BOT_SERVICE,
+  MORSE_DB,
   MORSE_SESSION_REGISTRY,
   MORSE_TRANSCRIPT_STORE,
 } from '../app/tokens.js';
+import { MorseSessionFactory } from './ws/session-factory.service.js';
 import { clearWorkspaceIndex } from './workspace/workspace-index.js';
+import { createMultiuserSessionStore, openMultiuserDb, pgConfigured } from '../db/factory.js';
 import { createRequire } from 'node:module';
 import { createBotAdapters } from './bot/bot-adapters.js';
 import {
@@ -40,17 +45,67 @@ import {
  * configured or its binary is on PATH. A single-engine machine therefore reports
  * one engine, and the frontend offers no choice at all.
  */
+
+/** Postgres handles behind each router, so shutdown closes what boot opened. */
+const routerDatabases = new WeakMap<AgentRouter, Knex>();
+
+/** Closes the multi-user database behind a router, if it has one. */
+export async function closeAgentRouterDb(router: AgentRouter): Promise<void> {
+  const db = routerDatabases.get(router);
+  if (db !== undefined) {
+    routerDatabases.delete(router);
+    await db.destroy().catch(() => undefined);
+  }
+}
+
+/**
+ * Session-store seam for multi-user: `morse-web` passes its Postgres store
+ * when `multiuser` is on; every other host keeps the file-backed index.
+ */
+export interface AgentRouterOptions {
+  store?: SessionStore;
+  /**
+   * The shared multi-user database, opened once per host. When `multiuser` is
+   * on and no explicit store is passed, the router migrates and builds its
+   * Postgres store over this handle instead of opening its own.
+   */
+  db?: Knex;
+}
+
 export async function createAgentRouter(
   adapter: PiRpcAdapter,
   config: MorseServerConfig,
   logger: MorseLogger,
+  options: AgentRouterOptions = {},
 ): Promise<AgentRouter> {
-  const store = new FileSessionStore(join(config.dataDir, 'sessions'));
+  // Multi-user (`morse config set multiuser true`) replaces the file index
+  // with Postgres — migrated and backfilled before anything reads it. Every
+  // other host keeps the file-backed index, untouched.
+  let db: Knex | undefined;
+  let ownedDb = false;
+  let store = options.store;
+  // Postgres whenever it is configured: scoped per user under `multiuser`,
+  // the unscoped union otherwise — so a flip back to single-user shows every
+  // owner's sessions instead of an empty file index.
+  if (store === undefined && (config.multiuser || pgConfigured(config))) {
+    if (options.db !== undefined) {
+      db = options.db;
+    } else {
+      // No shared handle (a test, or a host without the DB provider): the
+      // router opens and owns its own, closed with the router.
+      db = await openMultiuserDb(config);
+      ownedDb = true;
+    }
+    store = await createMultiuserSessionStore(db!, config, logger);
+  }
   const router = new AgentRouter({
-    store,
+    store: store ?? new FileSessionStore(join(config.dataDir, 'sessions')),
     defaultWorkspace: config.workspace,
     logger,
   });
+  if (db !== undefined && ownedDb) {
+    routerDatabases.set(router, db);
+  }
 
   const openCode = await openOpenCodeEngine({
     logger,
@@ -139,7 +194,6 @@ export function createSessionRegistry(
     factory: router,
     catalog: router,
     defaultWorkspace: config.workspace,
-    hotLimit: config.hotSessions,
     logger,
     engines: router.registeredEngines(),
   });
@@ -245,13 +299,15 @@ export class MorseRegistryLifecycle implements OnModuleDestroy {
     @Inject(MORSE_SESSION_REGISTRY) private readonly registry: SessionRegistry,
     @Inject(MORSE_TRANSCRIPT_STORE) transcripts: SessionTranscriptStore,
     @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
+    @Inject(MorseSessionFactory) private readonly sessions: MorseSessionFactory,
+    @Optional() @Inject(MORSE_DB) private readonly db?: Knex,
     // Bot mode is optional at the composition root: a host without the provider
     // (the extension, a bare test module) simply has nothing to shut down here.
     @Optional() @Inject(MORSE_BOT_SERVICE) private readonly bot?: BotService,
   ) {
-    // A session retired by the hot limit (or closed, or deleted) drops its warm
-    // transcript and paging cursor with its process, so the singleton store
-    // tracks the hot set instead of every session the server has ever seen.
+    // A closed (or deleted) session drops its warm transcript and paging
+    // cursor with its process, so the singleton store tracks the live set
+    // instead of every session the server has ever seen.
     this.detachTranscripts = bindTranscriptsToRegistry(registry, transcripts);
   }
 
@@ -264,10 +320,20 @@ export class MorseRegistryLifecycle implements OnModuleDestroy {
     // Bot engines outlive an individual turn, so they are torn down with the
     // host: a bot's warm gateway may be a whole engine server process.
     await this.bot?.dispose();
+    // Every per-user bundle (their processes, transcripts, queues) goes with
+    // the host; then the shared single-user registry.
+    await this.sessions.disposeBundles();
     await this.registry.dispose();
     // An owned OpenCode server stops with the host; an attached one is untouched.
     for (const engine of this.router.registeredEngines()) {
       await engine.dispose?.().catch(() => undefined);
+    }
+    // The multi-user database handle: the shared provider's, or the one this
+    // router opened for itself (a host without the provider).
+    if (this.db !== undefined) {
+      await this.db.destroy().catch(() => undefined);
+    } else {
+      await closeAgentRouterDb(this.router);
     }
   }
 }

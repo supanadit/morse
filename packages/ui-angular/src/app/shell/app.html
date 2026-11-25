@@ -1,3 +1,6 @@
+@if (needsAuth() && !authLoading()) {
+  <morse-auth-screen />
+} @else {
 <div
   class="shell"
   morseSelectionFocus
@@ -106,6 +109,11 @@
       <circle cx="4.6" cy="12.2" r="1.8" />
       <circle cx="11.4" cy="6.4" r="1.8" />
       <path d="M4.6 5.6v4.8M10.4 7.8c-1.6 1.6-3.4 2-5.8 2.2" stroke-linecap="round" />
+    </symbol>
+    <symbol id="morse-admin" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      stroke-width="1.2" stroke-linejoin="round">
+      <circle cx="8" cy="5" r="2.6" />
+      <path d="M2.6 13.8c.6-2.8 2.8-4.4 5.4-4.4s4.8 1.6 5.4 4.4" stroke-linecap="round" />
     </symbol>
   </svg>
 
@@ -345,7 +353,11 @@
         </div>
       }
 
-      @if (promptEditorOpen()) {
+      @if (adminOpen()) {
+        <!-- User management for multi-user admins: the rail's third entry.
+             Like the bot column it takes the whole center while up. -->
+        <morse-admin-panel />
+      } @else if (promptEditorOpen()) {
         <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
              its own chunk instead of joining the initial bundle. -->
         <ng-container [ngComponentOutlet]="promptEditorComponent()" />
@@ -588,3 +600,4 @@
     <morse-status-bar />
   }
 </div>
+}

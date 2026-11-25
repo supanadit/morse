@@ -317,6 +317,7 @@ describe('reduceSessionView', () => {
         type: 'host/ready',
         payload: {
           protocolVersion: PROTOCOL_VERSION,
+          user: null,
           capabilities: {} as HostCapabilities,
           state: view.state,
         },

@@ -20,7 +20,11 @@ async function bootstrap(): Promise<void> {
   app.useWebSocketAdapter(new WsAdapter(app));
   // Gate every browser-facing route (frontend, /api, /ws upgrade) behind HTTP
   // Basic auth when MORSE_AUTH_PASSWORD is set; health and the bot bus stay open.
-  app.use(basicAuthMiddleware(config.authPassword, config.authUsername));
+  // Multi-user hosts skip this gate: the login form (cookie + /api/auth) owns
+  // identity there, and the static login page must load unauthenticated.
+  if (!config.multiuser) {
+    app.use(basicAuthMiddleware(config.authPassword, config.authUsername));
+  }
   // Serves the built Angular frontend. No SPA fallback is registered, so
   // /api/* and /ws keep working.
   app.useStaticAssets(config.uiDir);
@@ -36,7 +40,9 @@ async function bootstrap(): Promise<void> {
   logger.log(`Morse server listening on http://${config.host}:${config.port}`);
   logger.log(`WebSocket endpoint: ws://${config.host}:${config.port}${DEFAULT_WS_PATH}`);
   logger.log(`Frontend served from ${config.uiDir}`);
-  if (config.authPassword !== undefined) {
+  if (config.multiuser) {
+    logger.log('Multi-user mode: sessions are scoped per login user');
+  } else if (config.authPassword !== undefined) {
     logger.log('HTTP Basic auth enabled (MORSE_AUTH_PASSWORD)');
   }
   logger.log(`Workspace: ${config.workspace.cwd} (override with MORSE_WORKSPACE)`);

@@ -211,6 +211,8 @@ function buildCapabilities(deps: ChatViewProviderDeps): DeclaredHostCapabilities
     // One webview per window: the composer's queue and drafts stay in the
     // frontend, not on a host other clients would share.
     sharedComposer: false,
+    // Single-user only: the VS Code window never scopes sessions per login.
+    multiuser: false,
   };
 }
 

@@ -52,6 +52,13 @@ export interface AgentRouterDeps {
   logger: MorseLogger;
   /** How long a fresh index is trusted before an open re-reads the engines. */
   freshMs?: number;
+  /**
+   * Whether engine sessions the index has never seen are adopted as new rows.
+   * A per-user router passes false (see `reconcileSessions.adoptUnknown`):
+   * shared engines must never copy another user's harness sessions into this
+   * user's index. Defaults to true.
+   */
+  adoptUnknown?: boolean;
 }
 
 /** One engine a host can start, as the frontend's picker names it. */
@@ -134,6 +141,21 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
   /** Every registered engine, for a registry that reconciles them. */
   registeredEngines(): SessionEngine[] {
     return [...this.engines.values()].map((entry) => entry.engine);
+  }
+
+  /**
+   * The registrations needed to clone this router's engine map into another
+   * router (a per-user router sharing the same engine adapters). Order and
+   * default are preserved, so the clone behaves identically.
+   */
+  registrations(): Array<AgentRouterRegistration & { engine: SessionEngine }> {
+    return [...this.engines.entries()].map(([kind, entry]) => ({
+      engine: entry.engine,
+      label: entry.label,
+      ...(entry.catalog === undefined ? {} : { catalog: entry.catalog }),
+      ...(entry.extras === undefined ? {} : { extras: entry.extras }),
+      ...(kind === this.defaultKind ? { default: true as const } : {}),
+    }));
   }
 
   /**
@@ -517,6 +539,7 @@ export class AgentRouter implements AgentGatewayFactory, SessionCatalog {
           scan: () => scan.call(engine),
           store: this.deps.store,
           running: this.running,
+          ...(this.deps.adoptUnknown === false ? { adoptUnknown: false as const } : {}),
         });
       } catch (error: unknown) {
         this.deps.logger.warn(`Could not reconcile ${kind} sessions into the index`, error);

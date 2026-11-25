@@ -35,7 +35,6 @@ import {
 import { MorseChatViewProvider } from '../internal/vscode/chat-view-provider';
 import {
   readDefaultEngine,
-  readHotLimit,
   readOpenCodeConfig,
   readPiAdapterConfig,
   readWorkspaceRef,
@@ -198,7 +197,6 @@ async function startHost(
     factory: router,
     catalog: router,
     defaultWorkspace: workspace,
-    hotLimit: readHotLimit(),
     logger,
     engines: router.registeredEngines(),
   });
@@ -206,9 +204,8 @@ async function startHost(
   const editor = new VsCodeContextProvider();
 
   const transcripts = new SessionTranscriptStore();
-  // Warm transcripts follow the registry's hot set: a session retired by the hot
-  // limit drops its transcript and paging cursor with its process, instead of
-  // holding them in the singleton store until the window closes.
+  // Warm transcripts follow the registry's live set: a closed session drops
+  // its transcript and paging cursor with its process.
   const detachTranscripts = bindTranscriptsToRegistry(sessions, transcripts);
 
   const provider = new MorseChatViewProvider({

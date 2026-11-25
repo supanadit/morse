@@ -13,9 +13,13 @@ import type { SessionCatalog, SessionFactory, SessionPage, SessionStore } from '
 import { reconcileSessions, type ReconcileResult } from './reconcile.js';
 
 /**
- * Session use case: owns every live agent gateway, keeps the most recent ones hot
- * (LRU), fans their events out tagged with the session key, and reads the session
- * catalog for the sidebar.
+ * Session use case: owns every live agent gateway, fans their events out
+ * tagged with the session key, and reads the session catalog for the sidebar.
+ *
+ * Every opened session stays live until it is explicitly closed, removed, or
+ * the host shuts down — there is no hot limit and no eviction. A session the
+ * reader opened is a running process, so switching back to it is always
+ * instant; the cost is one process per open session for the host's lifetime.
  *
  * The ports it consumes are in `ports.ts`; the record it writes is in `record.ts`
  * and `reconcile.ts`. Only the use case lives here.
@@ -61,8 +65,6 @@ export interface SessionRegistryDeps {
   catalog: SessionCatalog;
   /** Workspace for sessions started without an explicit project. */
   defaultWorkspace: WorkspaceRef;
-  /** How many agent sessions stay hot at once (least recently used first). */
-  hotLimit?: number;
   logger: MorseLogger;
   /**
    * The engines behind this registry, when the host has several. Used only by
@@ -71,8 +73,6 @@ export interface SessionRegistryDeps {
    */
   engines?: readonly SessionEngine[];
 }
-
-const DEFAULT_HOT_LIMIT = 4;
 
 interface HotSession {
   key: string;
@@ -83,8 +83,8 @@ interface HotSession {
 }
 
 /**
- * Session use case: owns every live agent gateway, keeps the most recent ones
- * hot (LRU), and fans their events out tagged with the session key.
+ * Session use case: owns every live agent gateway and fans their events out
+ * tagged with the session key.
  *
  * Multiple projects and multiple sessions therefore run at the same time, which
  * is what a browser host needs — and because `AgentGatewayFactory.create()`
@@ -92,19 +92,14 @@ interface HotSession {
  */
 export class SessionRegistry {
   private readonly hot = new Map<string, HotSession>();
-  /** Least recently used first. */
-  private readonly recency: string[] = [];
   private readonly listeners = new Set<(event: TaggedAgentEvent) => void>();
   /**
-   * Notified whenever a session leaves the hot set — an LRU eviction, an
-   * explicit close, or a delete. This is the registry's own teardown signal:
-   * the hot process is gone, so anything a host kept keyed by that session key
-   * (a warm transcript, a paging cursor) must be dropped with it. Without this,
-   * a session retired by the hot limit leaks its transcript for the host's
-   * entire lifetime, because no client ever asked to close it.
+   * Notified whenever a session stops being live — an explicit close or a
+   * delete. This is the registry's own teardown signal: the process is gone,
+   * so anything a host kept keyed by that session key (a warm transcript, a
+   * paging cursor) must be dropped with it.
    */
   private readonly removals = new Set<(key: string) => void>();
-  private readonly hotLimit: number;
   private activeKey: string | undefined;
   private syntheticKeys = 0;
   /** Cached snapshots of never-recording probes, keyed by engine, model, mode, project and signature. */
@@ -118,9 +113,7 @@ export class SessionRegistry {
    */
   private readonly draftSignatures = new Map<string, string>();
 
-  constructor(private readonly deps: SessionRegistryDeps) {
-    this.hotLimit = Math.max(1, deps.hotLimit ?? DEFAULT_HOT_LIMIT);
-  }
+  constructor(private readonly deps: SessionRegistryDeps) {}
 
   get defaultWorkspace(): WorkspaceRef {
     return this.deps.defaultWorkspace;
@@ -134,9 +127,9 @@ export class SessionRegistry {
   }
 
   /**
-   * Observes sessions leaving the hot set, whatever the reason. A host uses it
-   * to release per-session state (the warm transcript) at exactly the moment its
-   * process is retired, instead of holding it until the host shuts down.
+   * Observes sessions closing, for any reason. A host uses it to release
+   * per-session state (the warm transcript) at exactly the moment its process
+   * is retired, instead of holding it until the host shuts down.
    */
   onRemoval(listener: (key: string) => void): () => void {
     this.removals.add(listener);
@@ -180,7 +173,7 @@ export class SessionRegistry {
   }
 
   hotKeys(): string[] {
-    return [...this.recency];
+    return [...this.hot.keys()];
   }
 
   /**
@@ -321,7 +314,6 @@ export class SessionRegistry {
       await gateway.dispose().catch((error: unknown) => {
         this.deps.logger.warn('Failed to dispose a duplicate agent gateway', error);
       });
-      this.touch(key);
       this.activeKey = key;
       return { key, state: alreadyHot.state, reused: true };
     }
@@ -335,9 +327,7 @@ export class SessionRegistry {
       }),
       state,
     });
-    this.touch(key);
     this.activeKey = key;
-    await this.evictBeyondLimit();
     return { key, state, reused: false };
   }
 
@@ -345,7 +335,6 @@ export class SessionRegistry {
   async activate(key: string, workspace?: WorkspaceRef): Promise<OpenedSession> {
     const existing = this.hot.get(key);
     if (existing) {
-      this.touch(key);
       this.activeKey = key;
       return { key, state: existing.state, reused: true };
     }
@@ -425,12 +414,6 @@ export class SessionRegistry {
         this.emit({ sessionKey: key, event: this.absorb(key, event) });
       }),
     });
-    const index = this.recency.indexOf(previousKey);
-    if (index >= 0) {
-      this.recency[index] = key;
-    } else {
-      this.recency.push(key);
-    }
     // Only adopt the branch as the host-wide session in front when this call was
     // for it: a pinned tab branching its own conversation must not steal the
     // sidebar's pointer.
@@ -485,6 +468,12 @@ export class SessionRegistry {
     /** Used only when the store cannot report its own tokens. */
     tokens?: ReadonlyMap<string, string>;
     onProgress?: (done: number, total: number) => void;
+    /**
+     * Whether engine sessions the index has never seen are adopted as new
+     * rows. Forwarded to every engine's reconcile (see
+     * `reconcileSessions.adoptUnknown`); per-user callers pass false.
+     */
+    adoptUnknown?: boolean;
   }): Promise<ReconcileResult[]> {
     const results: ReconcileResult[] = [];
     for (const engine of this.deps.engines ?? []) {
@@ -500,6 +489,7 @@ export class SessionRegistry {
           store: options.store,
           ...(options.tokens === undefined ? {} : { tokens: options.tokens }),
           ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
+          ...(options.adoptUnknown === false ? { adoptUnknown: false as const } : {}),
         }),
       );
     }
@@ -647,7 +637,6 @@ export class SessionRegistry {
   async dispose(): Promise<void> {
     const sessions = [...this.hot.values()];
     this.hot.clear();
-    this.recency.length = 0;
     this.listeners.clear();
     this.removals.clear();
     this.activeKey = undefined;
@@ -682,20 +671,8 @@ export class SessionRegistry {
     }
   }
 
-  private touch(key: string): void {
-    const index = this.recency.indexOf(key);
-    if (index >= 0) {
-      this.recency.splice(index, 1);
-    }
-    this.recency.push(key);
-  }
-
   /** Returns whether the key was actually hot (so callers do not double-report). */
   private forget(key: string): boolean {
-    const index = this.recency.indexOf(key);
-    if (index >= 0) {
-      this.recency.splice(index, 1);
-    }
     const existed = this.hot.delete(key);
     if (this.activeKey === key) {
       this.activeKey = undefined;
@@ -712,28 +689,6 @@ export class SessionRegistry {
         this.deps.logger.error('Session removal listener failed', error);
       }
     }
-  }
-
-  /**
-   * Keeps at most `hotLimit` processes alive, retiring the coldest one that is
-   * not working. A running session is never killed: when every candidate is
-   * mid-run the registry goes over the limit instead, because dropping a
-   * parallel conversation is worse than a few extra processes.
-   */
-  private async evictBeyondLimit(): Promise<void> {
-    while (this.recency.length > this.hotLimit) {
-      const coldest = this.recency.find((key) => key !== this.activeKey && !this.isWorking(key));
-      if (coldest === undefined) {
-        return;
-      }
-      this.deps.logger.info(`Retiring idle session ${coldest} (hot limit ${this.hotLimit})`);
-      await this.close(coldest);
-    }
-  }
-
-  /** A session the agent is answering in is off limits for the LRU. */
-  private isWorking(key: string): boolean {
-    return this.hot.get(key)?.state.streaming === true;
   }
 
   /** How many hot sessions of one engine are mid-turn; another engine's never count. */

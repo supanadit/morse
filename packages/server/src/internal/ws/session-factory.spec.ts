@@ -130,6 +130,7 @@ function factoryWith(
     options.terminal,
     router as FactoryArgs[6],
     {} as FactoryArgs[7],
+    undefined,
     bot,
   );
 }

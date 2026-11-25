@@ -33,6 +33,7 @@ class FolderHostTransport extends BaseHostTransport {
         type: 'host/ready',
         payload: {
           protocolVersion: PROTOCOL_VERSION,
+          user: null,
           capabilities: {
             hostKind: 'server',
             scope: 'global',

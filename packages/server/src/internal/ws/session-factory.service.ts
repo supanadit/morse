@@ -1,4 +1,7 @@
+import { mkdirSync } from 'node:fs';
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import type { Knex } from 'knex';
+import { join } from 'node:path';
 import {
   AgentRouter,
   ChatService,
@@ -6,10 +9,12 @@ import {
   InteractionHub,
   SessionRegistry,
   UnsupportedByHostError,
+  bindTranscriptsToRegistry,
   type AgentExtras,
   type BotEvent,
   type BotService,
   type MorseLogger,
+  type TerminalBackend,
 } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
 import {
@@ -22,12 +27,13 @@ import {
 import { OPENCODE_INSTALL_COMMAND } from '@morse/integration-opencode';
 import {
   HostSessionController,
+  SessionTranscriptStore,
   type HostCommandContext,
   type HostHandlerCommand,
   type HostSessionServices,
-  type SessionTranscriptStore,
 } from '@morse/system';
 import type {
+  AuthUser,
   DeclaredHostCapabilities,
   HostToClientMessage,
   UpdateHostResult,
@@ -36,6 +42,7 @@ import type {
 import type { MorseServerConfig } from '../../app/config.js';
 import {
   MORSE_CONFIG,
+  MORSE_DB,
   MORSE_LOGGER,
   MORSE_AGENT_ROUTER,
   MORSE_BOT_SERVICE,
@@ -44,6 +51,8 @@ import {
   MORSE_SESSION_REGISTRY,
   MORSE_TRANSCRIPT_STORE,
 } from '../../app/tokens.js';
+import { PgSessionStore } from '../../db/pg-store.js';
+import { createUser, deleteUser, listUsers, setUserRole } from '../../db/users.js';
 import {
   describeError,
   mcpScope,
@@ -92,6 +101,31 @@ import { canSelfUpdate, performSelfUpdate } from '../self-update/self-update.js'
  * The session registry is shared by every connection, so sessions and projects
  * keep running while clients come and go.
  */
+/**
+ * Everything one login user (or the single user, when `multiuser` is off)
+ * owns: their router over their store slice, their live processes, their
+ * transcripts, their composer queue and their pending questions. Bundles are
+ * built lazily and never shared — one user's sessions, drafts and queue are
+ * unreachable from another user's connection.
+ */
+interface UserBundle {
+  registry: SessionRegistry;
+  transcripts: SessionTranscriptStore;
+  chat: ChatService;
+  composer: ComposerHub;
+  interactions: InteractionHub;
+  mcpWatch: McpWatcher | undefined;
+  detachTranscripts: () => void;
+  /** The project fence for this user: their workspace root when fenced. */
+  policy: ServerProjectPolicy;
+}
+
+/** Who connected on a socket: the login user, or undefined on single-user hosts. */
+export interface ClientIdentity {
+  remoteAddress?: string;
+  user?: AuthUser;
+}
+
 @Injectable()
 export class MorseSessionFactory {
   private readonly mcpWatch: McpWatcher | undefined;
@@ -104,8 +138,16 @@ export class MorseSessionFactory {
   /** Each live connection's emitter, so host-wide state can reach every client. */
   private readonly connections = new Map<
     HostSessionController,
-    (message: HostToClientMessage) => void
+    { emit: (message: HostToClientMessage) => void; userId: string | undefined }
   >();
+  /**
+   * Per-user bundles (multi-user only). The key is the login user id; each
+   * bundle owns that user's router (over their store slice), live processes,
+   * transcripts, composer queue and pending questions. Built lazily on first
+   * connection and kept for the host's lifetime — sessions keep running while
+   * their owner is disconnected, exactly like the single-user registry does.
+   */
+  private readonly bundles = new Map<string, UserBundle>();
   /**
    * The queue and live draft state shared by every client: one owner, one
    * dispatcher, and a file under the host's own directory. Created here so it
@@ -124,6 +166,7 @@ export class MorseSessionFactory {
     @Inject(ServerTerminalBackend) private readonly terminal: ServerTerminalBackend | undefined,
     @Inject(MORSE_AGENT_ROUTER) private readonly router: AgentRouter,
     @Inject(MORSE_PI_ADAPTER) private readonly pi: PiRpcAdapter,
+    @Inject(MORSE_DB) private readonly db: Knex | undefined,
     // Bot mode is optional at the composition root: only a host that provides the
     // service reports `capabilities.bot` and routes `bot/*`.
     @Optional() @Inject(MORSE_BOT_SERVICE) private readonly bot?: BotService,
@@ -159,10 +202,142 @@ export class MorseSessionFactory {
       logger: this.logger,
     });
     this.composer.subscribe((message) => {
-      for (const emit of this.connections.values()) {
-        emit(message);
+      // Single-user: every connection is the same user. Multi-user never
+      // reaches here with more than one user's connections — each bundle owns
+      // its own composer and fans out with a user filter (see `bundleFor`).
+      for (const entry of this.connections.values()) {
+        entry.emit(message);
       }
     });
+  }
+
+  /**
+   * The bundle serving one login user: their router over their store slice,
+   * their live processes, transcripts, composer queue and pending questions —
+   * sharing only the engine adapters with every other bundle. Built once,
+   * kept for the host's lifetime.
+   */
+  private bundleFor(user: AuthUser): UserBundle {
+    const userId = user.id;
+    const existing = this.bundles.get(userId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    if (this.db === undefined) {
+      throw new UnsupportedByHostError('Multi-user mode needs PostgreSQL, which is not connected.');
+    }
+    // Own workspace, own fence: when `MORSE_WORKSPACE_ROOT` is set the user
+    // works under `<root>/<username>` (created on demand) and the policy
+    // narrows to it, so git and terminals cannot cross into another user's
+    // tree. Unset keeps the host's global workspace for everyone.
+    const fenced = this.config.workspaceRoot !== undefined;
+    const cwd = fenced ? join(this.config.workspaceRoot as string, user.username) : this.config.workspace.cwd;
+    if (fenced) {
+      mkdirSync(cwd, { recursive: true });
+    }
+    const workspace = fenced ? { cwd, name: user.username } : this.config.workspace;
+    const policy = fenced ? new ServerProjectPolicy([cwd]) : this.policy;
+    const userRouter = new AgentRouter({
+      store: new PgSessionStore(this.db, userId),
+      defaultWorkspace: workspace,
+      logger: this.logger,
+      // Shared engines must never adopt another user's harness sessions into
+      // this user's index: rows appear only for sessions they opened.
+      adoptUnknown: false,
+    });
+    for (const registration of this.router.registrations()) {
+      userRouter.register(registration.engine, registration);
+    }
+    const registry = new SessionRegistry({
+      factory: userRouter,
+      catalog: userRouter,
+      defaultWorkspace: workspace,
+      logger: this.logger,
+      engines: userRouter.registeredEngines(),
+    });
+    const transcripts = new SessionTranscriptStore();
+    const detachTranscripts = bindTranscriptsToRegistry(registry, transcripts);
+    const chat = new ChatService({ agent: registry, logger: this.logger });
+    const dataDir = this.userDataDir(userId);
+    const composer = new ComposerHub({
+      chat,
+      transcripts,
+      registry,
+      dataDir,
+      logger: this.logger,
+    });
+    composer.subscribe((message) => {
+      for (const entry of this.connections.values()) {
+        if (entry.userId === userId) {
+          entry.emit(message);
+        }
+      }
+    });
+    const mcp = userRouter.defaultExtras()?.mcp;
+    const mcpWatch =
+      mcp === undefined
+        ? undefined
+        : new McpWatcher({
+            signature: (cwd) => mcp.configSignature(cwd),
+            cwds: () =>
+              registry
+                .hotKeys()
+                .map((key) => registry.stateOf(key)?.workspace.cwd ?? '')
+                .filter((cwd) => cwd.length > 0),
+          });
+    const bundle: UserBundle = {
+      registry,
+      transcripts,
+      chat,
+      composer,
+      interactions: new InteractionHub(),
+      mcpWatch,
+      detachTranscripts,
+      policy,
+    };
+    this.bundles.set(userId, bundle);
+    return bundle;
+  }
+
+  /** Where one user's host-owned files (composer queue, workbench, drafts) live. */
+  private userDataDir(userId: string): string {
+    return join(this.config.dataDir, 'users', userId);
+  }
+
+  /**
+   * The host-owned file directory for a connection: the shared `<MORSE_HOME>`
+   * on single-user hosts, that user's directory once `multiuser` is on.
+   */
+  private dataDirFor(userId: string | undefined): string {
+    return userId === undefined ? this.config.dataDir : this.userDataDir(userId);
+  }
+
+  /**
+   * Namespaces terminal ids per user, so one user's bottom panel can never
+   * attach to (or close) another user's shell by id.
+   */
+  private scopedTerminal(userId: string): TerminalBackend | undefined {
+    const backend = this.terminal;
+    if (backend === undefined) {
+      return undefined;
+    }
+    const prefix = `${userId}:`;
+    return {
+      attach: (terminalId, options, sink) => backend.attach(prefix + terminalId, options, sink),
+      close: (terminalId) => backend.close(prefix + terminalId),
+    };
+  }
+
+  /** Tears every per-user bundle down with the host: processes, transcripts, queues. */
+  async disposeBundles(): Promise<void> {
+    const bundles = [...this.bundles.values()];
+    this.bundles.clear();
+    await Promise.all(
+      bundles.map(async (bundle) => {
+        bundle.detachTranscripts();
+        await bundle.registry.dispose();
+      }),
+    );
   }
 
   capabilities(): DeclaredHostCapabilities {
@@ -276,19 +451,36 @@ export class MorseSessionFactory {
       // Several devices share this host, so the composer's queue and the words
       // being typed belong to the host, not to whichever browser is in front.
       sharedComposer: true,
+      // Sessions are scoped per login user (`morse config set multiuser
+      // true`): login gates the socket and every bundle below is per user.
+      // VS Code declares false and keeps its single-user behavior.
+      multiuser: this.config.multiuser,
     };
   }
 
   createFor(
     emit: (message: HostToClientMessage) => void,
-    remoteAddress?: string,
+    client?: ClientIdentity,
   ): HostSessionController {
+    const user = this.config.multiuser ? client?.user ?? null : null;
+    if (this.config.multiuser && (user === null || this.db === undefined)) {
+      throw new UnsupportedByHostError(
+        user === null
+          ? 'Login is required on this host.'
+          : 'Multi-user mode needs PostgreSQL, which is not connected.',
+      );
+    }
+    const userId = user?.id;
+    // Multi-user: the caller's bundle (their router, processes, transcripts,
+    // queue and questions). Single-user: the host singletons, as before.
+    const bundle = user === null || user === undefined ? undefined : this.bundleFor(user);
+    const mcpWatch = bundle?.mcpWatch ?? this.mcpWatch;
     const services: HostSessionServices = {
-      registry: this.registry,
-      chat: new ChatService({ agent: this.registry, logger: this.logger }),
-      composer: this.composer,
-      interactions: this.interactions,
-      ...(this.mcpWatch === undefined ? {} : { mcpWatch: this.mcpWatch }),
+      registry: bundle?.registry ?? this.registry,
+      chat: bundle?.chat ?? new ChatService({ agent: this.registry, logger: this.logger }),
+      composer: bundle?.composer ?? this.composer,
+      interactions: bundle?.interactions ?? this.interactions,
+      ...(mcpWatch === undefined ? {} : { mcpWatch }),
     };
 
     const controller = new HostSessionController({
@@ -296,9 +488,12 @@ export class MorseSessionFactory {
       capabilities: this.capabilities(),
       emit,
       logger: this.logger,
-      transcripts: this.transcripts,
-      policy: this.policy,
+      transcripts: bundle?.transcripts ?? this.transcripts,
+      policy: bundle?.policy ?? this.policy,
       scope: { kind: 'global' },
+      // Who this connection authenticated as (display only — the services
+      // above are already scoped, so this carries no authority).
+      ...(user === undefined ? {} : { user }),
       // The bundle this host serves, so the panel can name its own version.
       ...(this.config.frontend ? { frontend: this.config.frontend } : {}),
       // The registry outlives this connection on purpose.
@@ -308,9 +503,16 @@ export class MorseSessionFactory {
       // The caller's address rides along so `updateHost` can refuse anyone who is
       // not on this machine.
       onHostCommand: (command, args, context) =>
-        this.runHostCommand(command, args, context, remoteAddress),
-      // The bottom panel's shell, when this host has a PTY backend at all.
-      terminal: this.terminal,
+        this.runHostCommand(
+          command,
+          args,
+          context,
+          client?.remoteAddress,
+          user,
+          bundle?.policy ?? this.policy,
+        ),
+      // The bottom panel's shell, namespaced per user when `multiuser` is on.
+      terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId),
       agentHint:
         'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',
       // Bot mode's commands, when this host has the service. The same socket's
@@ -320,7 +522,7 @@ export class MorseSessionFactory {
     if (this.bot !== undefined) {
       this.botFeeds.set(controller, this.subscribeBot(this.bot, emit));
     }
-    this.connections.set(controller, emit);
+    this.connections.set(controller, { emit, userId });
     return controller;
   }
 
@@ -388,6 +590,8 @@ export class MorseSessionFactory {
     args: Record<string, unknown> | undefined,
     context?: HostCommandContext,
     remoteAddress?: string,
+    user?: AuthUser | null,
+    policy: ServerProjectPolicy = this.policy,
   ): Promise<unknown> {
     switch (command) {
       case 'listDirectories': {
@@ -396,30 +600,30 @@ export class MorseSessionFactory {
         // may run there, so the result says so (`canOpen`).
         const requested = typeof args?.path === 'string' ? args.path : undefined;
         const listing = await browseDirectory(requested, {
-          roots: this.policy.allowList,
+          roots: policy.allowList,
           defaultPath: this.registry.defaultWorkspace.cwd,
         });
-        return { ...listing, canOpen: this.policy.canOpen(listing.path) };
+        return { ...listing, canOpen: policy.canOpen(listing.path) };
       }
       case 'readWorkbench': {
-        // The shell layout the reader left behind. Read-only and host-scoped (a
-        // file under `MORSE_HOME`), so it never consults the project policy.
-        return readWorkbench(this.config.dataDir) ?? null;
+        // The shell layout the reader left behind. Read-only and host-scoped —
+        // per user once `multiuser` is on — so it never consults the policy.
+        return readWorkbench(this.dataDirFor(user?.id)) ?? null;
       }
       case 'saveWorkbench': {
         // The frontend owns the inner shape; the store guards version and size.
-        return { ok: saveWorkbench(this.config.dataDir, args) };
+        return { ok: saveWorkbench(this.dataDirFor(user?.id), args) };
       }
       case 'readDrafts': {
         // The half-written prompts, keyed by tab. Same host-scoped file as the
         // layout, but its own file because a draft can carry inline images.
-        return readDrafts(this.config.dataDir) ?? null;
+        return readDrafts(this.dataDirFor(user?.id)) ?? null;
       }
       case 'saveDrafts': {
-        return { ok: saveDrafts(this.config.dataDir, args) };
+        return { ok: saveDrafts(this.dataDirFor(user?.id), args) };
       }
       case 'listFiles': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         // There is no workspace folder here, so the list is the directory the
         // client is viewing (its session, or the draft it is about to open) —
         // exactly what pi resolves a mention against. `fresh` skips the index
@@ -434,14 +638,14 @@ export class MorseSessionFactory {
         // which is what the flat index's `git ls-files` could not promise. A
         // directory deleted since the row was drawn answers `missing`, so the
         // tree can drop it instead of showing an empty ghost.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         const path = typeof args?.path === 'string' ? args.path : '';
         return await listProjectDirectory(cwd, path);
       }
       case 'readFile': {
         // The Explorer and the preview tabs. `readWorkspaceFile` resolves the
         // path inside the session's directory and refuses anything that escapes.
-        const cwd = this.commandCwd(context, args);
+        const cwd = this.commandCwd(context, args, policy);
         const path = typeof args?.path === 'string' ? args.path : '';
         if (path.length === 0) {
           throw new UnsupportedByHostError('readFile needs a "path" argument.');
@@ -452,7 +656,7 @@ export class MorseSessionFactory {
         // The search panel's grep over the project in view. `commandCwd` is
         // `readFile`'s rule — a restored preview tab names its own project —
         // and the engine validates the query and the patterns themselves.
-        const cwd = this.commandCwd(context, args);
+        const cwd = this.commandCwd(context, args, policy);
         return searchWorkspace(cwd, {
           query: typeof args?.query === 'string' ? args.query : '',
           caseSensitive: typeof args?.caseSensitive === 'boolean' ? args.caseSensitive : undefined,
@@ -461,7 +665,7 @@ export class MorseSessionFactory {
         });
       }
       case 'uploadFile': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         const saved = await saveUpload(cwd, args ?? {}, this.config.uploadDir);
         this.logger.info(`Upload stored: ${saved.path} (${saved.bytes} bytes)`);
         return saved;
@@ -470,14 +674,14 @@ export class MorseSessionFactory {
         // The repositories under the viewing project: its own, plus any nested
         // ones (submodules, separate checkouts). The panel lists one accordion
         // section per repository, the way VS Code's source-control view does.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return readGitRepos(cwd);
       }
       case 'gitLog': {
         // The git panel's history and graph. Like `readFile`, the repository is
         // the viewing session's directory, never a path the client names. `skip`
         // pages towards the root commit as the panel scrolls.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         const max = typeof args?.max === 'number' ? args.max : undefined;
         const skip = typeof args?.skip === 'number' ? args.skip : undefined;
         const ref = typeof args?.ref === 'string' ? args.ref : undefined;
@@ -486,13 +690,13 @@ export class MorseSessionFactory {
       case 'gitStatus': {
         // The working tree's changes, for the Explorer's per-file badges. Polled
         // alongside `listFiles`, so the two always describe the same moment.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return readGitStatus(cwd, repoArg(args));
       }
       case 'gitDiff': {
         // One file's unified diff for the preview's diff modes. The path is
         // resolved inside the session's directory, exactly like `readFile`.
-        const cwd = this.commandCwd(context, args);
+        const cwd = this.commandCwd(context, args, policy);
         const path = typeof args?.path === 'string' ? args.path : '';
         if (path.length === 0) {
           throw new UnsupportedByHostError('gitDiff needs a "path" argument.');
@@ -503,22 +707,22 @@ export class MorseSessionFactory {
         // Staging writes the index of the viewing session's repository. Paths are
         // resolved inside it, exactly like `readFile`, and the answer is the
         // fresh working tree so the panel updates in one round trip.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return stageGitPaths(cwd, gitPaths(args), repoArg(args));
       }
       case 'gitUnstage': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return unstageGitPaths(cwd, gitPaths(args), repoArg(args));
       }
       case 'gitCommitFiles': {
         // The graph's expandable row: the paths one commit touched. The hash is
         // client-named, so it is validated as a hex object id, never a ref.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         const hash = typeof args?.hash === 'string' ? args.hash : '';
         return readCommitFiles(cwd, hash, repoArg(args));
       }
       case 'gitCommitDiff': {
-        const cwd = this.commandCwd(context, args);
+        const cwd = this.commandCwd(context, args, policy);
         const hash = typeof args?.hash === 'string' ? args.hash : '';
         const path = typeof args?.path === 'string' ? args.path : '';
         if (path.length === 0) {
@@ -528,33 +732,33 @@ export class MorseSessionFactory {
       }
       case 'gitSync': {
         // How far HEAD is from its upstream, for the panel's pull/push controls.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return readGitSync(cwd, repoArg(args));
       }
       case 'gitPull': {
         // Network commands: git runs with prompts disabled, so a missing
         // credential fails instead of blocking the host on stdin.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return pullGit(cwd, repoArg(args));
       }
       case 'gitPush': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return pushGit(cwd, repoArg(args));
       }
       case 'gitCommit': {
         // Commits the staged changes. The message is client-named but passed as
         // a single argv element, never through a shell.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         const message = typeof args?.message === 'string' ? args.message : '';
         const amend = args?.amend === true;
         return commitGit(cwd, message, repoArg(args), amend);
       }
       case 'gitBranches': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return readGitBranches(cwd, repoArg(args));
       }
       case 'gitCheckout': {
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         const branch = typeof args?.branch === 'string' ? args.branch : '';
         return checkoutGit(cwd, branch, args?.create === true, repoArg(args));
       }
@@ -564,7 +768,7 @@ export class MorseSessionFactory {
         // it) rather than thrown — the panel has something to say either way.
         // `scope: 'global'` is the empty-session view: no project, so no session
         // is required and only the user's `mcp.json` is read.
-        const cwd = args?.scope === 'global' ? undefined : this.requireWritableCwd(context);
+        const cwd = args?.scope === 'global' ? undefined : this.requireWritableCwd(context, policy);
         const mcp = this.mcpFor(args);
         try {
           return await mcp.status(cwd, { probe: args?.probe === true });
@@ -574,7 +778,7 @@ export class MorseSessionFactory {
       }
       case 'mcpAdd': {
         const input = parseMcpServerInput(args);
-        const cwd = input.scope === 'project' ? this.requireWritableCwd(context) : undefined;
+        const cwd = input.scope === 'project' ? this.requireWritableCwd(context, policy) : undefined;
         return this.mcpFor(args).add(input, cwd);
       }
       case 'mcpInspect': {
@@ -583,7 +787,7 @@ export class MorseSessionFactory {
         // the reader commits an entry to `mcp.json`. With no project the probe
         // runs in the host's default workspace.
         const spec = parseMcpServerSpec(args);
-        const cwd = this.optionalCwd(context, args);
+        const cwd = this.optionalCwd(context, args, policy);
         if (spec.cwd === undefined && cwd.length > 0) {
           spec.cwd = cwd;
         }
@@ -594,12 +798,12 @@ export class MorseSessionFactory {
       }
       case 'mcpRemove': {
         const scope = mcpScope(args);
-        const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
+        const cwd = scope === 'project' ? this.requireWritableCwd(context, policy) : undefined;
         return this.mcpFor(args).remove(stringArg(args, 'name'), cwd, scope);
       }
       case 'mcpSetEnabled': {
         const scope = mcpScope(args);
-        const cwd = scope === 'project' ? this.requireWritableCwd(context) : undefined;
+        const cwd = scope === 'project' ? this.requireWritableCwd(context, policy) : undefined;
         return this.mcpFor(args).setEnabled(
           stringArg(args, 'name'),
           args?.enabled === true,
@@ -611,25 +815,25 @@ export class MorseSessionFactory {
         // Trusting loads the project's `.pi` resources for every future pi
         // process (mcp.json, settings, skills, prompts), the same decision pi's
         // own prompt writes. Nothing else about the project is touched.
-        const cwd = this.requireWritableCwd(context);
+        const cwd = this.requireWritableCwd(context, policy);
         return this.mcpFor(args).trustProject(cwd);
       }
       case 'promptTemplates': {
         // The user's prompts, plus this project's once it is trusted. No session
         // is required: with no directory, the user templates still list.
-        return this.promptsFor(args).list(this.optionalCwd(context, args));
+        return this.promptsFor(args).list(this.optionalCwd(context, args, policy));
       }
       case 'promptTemplateSave': {
         return this.promptsFor(args).save(
           parsePromptTemplateInput(args),
-          this.optionalCwd(context, args),
+          this.optionalCwd(context, args, policy),
         );
       }
       case 'promptTemplateDelete': {
         return this.promptsFor(args).delete(
           stringArg(args, 'name'),
           promptScope(args),
-          this.optionalCwd(context, args),
+          this.optionalCwd(context, args, policy),
           typeof args?.['source'] === 'string' ? args['source'] : undefined,
         );
       }
@@ -651,13 +855,60 @@ export class MorseSessionFactory {
         if (scope === undefined) {
           throw new UnsupportedByHostError('configFix needs a "scope" of "global" or "project".');
         }
-        const cwd = this.fixCwd(context, args, scope);
+        const cwd = this.fixCwd(context, args, scope, policy);
         return this.fixFor(args)({
           fileId,
           path,
           scope,
           ...(cwd === undefined ? {} : { cwd }),
         });
+      }
+      case 'adminUsers': {
+        // Every login identity, newest last — the admin page's roster.
+        // Password hashes never leave this host.
+        return listUsers(this.requireAdminDb(user));
+      }
+      case 'adminCreateUser': {
+        const db = this.requireAdminDb(user);
+        const username = typeof args?.username === 'string' ? args.username : '';
+        const password = typeof args?.password === 'string' ? args.password : '';
+        const role = args?.role === 'admin' ? 'admin' : 'regular';
+        try {
+          const created = await createUser(db, { username, password, role });
+          this.logger.info(`Admin ${user?.username} created user "${created.username}" (${created.role}).`);
+          return { id: created.id, username: created.username, role: created.role, createdAt: created.createdAt };
+        } catch (error: unknown) {
+          throw new UnsupportedByHostError(error instanceof Error ? error.message : 'Could not create the user.');
+        }
+      }
+      case 'adminSetRole': {
+        const db = this.requireAdminDb(user);
+        const userId = typeof args?.userId === 'string' ? args.userId : '';
+        const role = args?.role === 'admin' ? 'admin' : 'regular';
+        if (userId.length === 0) {
+          throw new UnsupportedByHostError('adminSetRole needs a "userId" argument.');
+        }
+        if (!(await setUserRole(db, userId, role))) {
+          throw new UnsupportedByHostError('No such user.');
+        }
+        this.logger.info(`Admin ${user?.username} set ${userId} to ${role}.`);
+        return { ok: true };
+      }
+      case 'adminDeleteUser': {
+        const db = this.requireAdminDb(user);
+        const userId = typeof args?.userId === 'string' ? args.userId : '';
+        if (userId.length === 0) {
+          throw new UnsupportedByHostError('adminDeleteUser needs a "userId" argument.');
+        }
+        if (userId === user?.id) {
+          throw new UnsupportedByHostError('You cannot delete your own account.');
+        }
+        const result = await deleteUser(db, userId);
+        if (!result.deleted) {
+          throw new UnsupportedByHostError(result.reason ?? 'No such user.');
+        }
+        this.logger.info(`Admin ${user?.username} deleted user ${userId} (and their sessions).`);
+        return { ok: true };
       }
       case 'updateHost': {
         return this.updateHost(remoteAddress);
@@ -678,6 +929,21 @@ export class MorseSessionFactory {
         );
       }
     }
+  }
+
+  /**
+   * The multi-user database for admin commands. Refuses when the caller is not
+   * an admin — the frontend gates the page on `role`, but this is the real
+   * boundary, checked per command at the moment of the call.
+   */
+  private requireAdminDb(user?: AuthUser | null): Knex {
+    if (!this.config.multiuser || this.db === undefined) {
+      throw new UnsupportedByHostError('User management needs multi-user mode.');
+    }
+    if (user?.role !== 'admin') {
+      throw new UnsupportedByHostError('Only an admin can manage users.');
+    }
+    return this.db;
   }
 
   /**
@@ -756,29 +1022,33 @@ export class MorseSessionFactory {
     context: HostCommandContext | undefined,
     args: Record<string, unknown> | undefined,
     scope: 'global' | 'project',
+    policy: ServerProjectPolicy,
   ): string | undefined {
     if (scope === 'project') {
-      return this.commandCwd(context, args);
+      return this.commandCwd(context, args, policy);
     }
     const requested = args?.['cwd'];
     if (typeof requested === 'string' && requested.length > 0) {
-      if (!this.policy.canOpen(requested)) {
+      if (!policy.canOpen(requested)) {
         throw new UnsupportedByHostError(`Morse is not allowed to work in ${requested}.`);
       }
       return requested;
     }
     const active = context?.cwd ?? this.activeCwd();
-    return active !== undefined && active.length > 0 && this.policy.canOpen(active)
+    return active !== undefined && active.length > 0 && policy.canOpen(active)
       ? active
       : undefined;
   }
 
-  private requireWritableCwd(context?: HostCommandContext): string {
+  private requireWritableCwd(
+    context: HostCommandContext | undefined,
+    policy: ServerProjectPolicy,
+  ): string {
     const cwd = context?.cwd ?? this.activeCwd();
     if (!cwd) {
       throw new UnsupportedByHostError('No active Morse session yet.');
     }
-    if (!this.policy.canOpen(cwd)) {
+    if (!policy.canOpen(cwd)) {
       throw new UnsupportedByHostError(`Morse is not allowed to work in ${cwd}.`);
     }
     return cwd;
@@ -790,30 +1060,38 @@ export class MorseSessionFactory {
    * another session when that tab is loaded; the policy checks it exactly like a
    * terminal's directory. Without one, the viewing session's directory is used.
    */
-  private commandCwd(context?: HostCommandContext, args?: Record<string, unknown>): string {
+  private commandCwd(
+    context: HostCommandContext | undefined,
+    args: Record<string, unknown> | undefined,
+    policy: ServerProjectPolicy,
+  ): string {
     const requested = args?.cwd;
     if (typeof requested === 'string' && requested.length > 0) {
-      if (!this.policy.canOpen(requested)) {
+      if (!policy.canOpen(requested)) {
         throw new UnsupportedByHostError(`Morse is not allowed to work in ${requested}.`);
       }
       return requested;
     }
-    return this.requireWritableCwd(context);
+    return this.requireWritableCwd(context, policy);
   }
 
   /**
    * Like `commandCwd`, but an absent directory is not an error: `''` means "no
    * project", which the prompt editor uses to edit only the user templates.
    */
-  private optionalCwd(context?: HostCommandContext, args?: Record<string, unknown>): string {
+  private optionalCwd(
+    context: HostCommandContext | undefined,
+    args: Record<string, unknown> | undefined,
+    policy: ServerProjectPolicy,
+  ): string {
     // An explicit `cwd` is authoritative, even when empty: the editor sends `''`
     // for "no project in front", which must not fall back to a default workspace.
     if (args !== undefined && typeof args['cwd'] === 'string') {
       const requested = args['cwd'];
-      return requested.length > 0 && this.policy.canOpen(requested) ? requested : '';
+      return requested.length > 0 && policy.canOpen(requested) ? requested : '';
     }
     const active = context?.cwd ?? this.activeCwd();
-    return active && this.policy.canOpen(active) ? active : '';
+    return active && policy.canOpen(active) ? active : '';
   }
 
   /** The cwd of the session this connection is showing. */
