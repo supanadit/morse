@@ -137,6 +137,9 @@ export class PiRpcAgent extends Session {
       },
       onExit: (info) => {
         this.ready = false;
+        // A dead process cannot end its run: clear Working, or Stop keeps
+        // pointing at a child that no longer exists.
+        this.patch({ streaming: false }, this.now());
         if (!this.disposed) {
           // pi writes its uncaught-exception trace to stderr, which the JSONL
           // stream never carries. Passing the tail along as `detail` is what
@@ -249,6 +252,11 @@ export class PiRpcAgent extends Session {
   }
 
   async abort(): Promise<void> {
+    // Nothing to stop when the child is already gone; the host still needs the
+    // stop to land so its queue stays paused.
+    if (!this.client.running) {
+      return;
+    }
     await this.client.request({ type: 'abort' });
   }
 

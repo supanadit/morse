@@ -203,6 +203,9 @@ export class TranscriptProjector {
         break;
       case 'agent/run-end':
         this.finishAssistant(event.reason === 'error' ? undefined : event.reason);
+        // An aborted run can end without ending the tools it started. No spinner
+        // may outlive the run: settle whatever never reported its own end.
+        this.finishRunningTools(event.reason === 'settled' ? 'ok' : 'error');
         break;
       case 'agent/notice':
         this.notice(event.level, event.text);
@@ -215,6 +218,9 @@ export class TranscriptProjector {
         break;
       case 'agent/fatal':
         this.error(event.message, event.detail);
+        // A crashed agent cannot end its tools either; a spinner on a dead run
+        // is a lie.
+        this.finishRunningTools('error');
         break;
       default:
         break;
@@ -253,6 +259,15 @@ export class TranscriptProjector {
       this.options.emit({ type: 'transcript/update', payload: { ...item } });
     }
     this.assistantIndex = -1;
+  }
+
+  private finishRunningTools(status: 'ok' | 'error'): void {
+    for (const toolCallId of [...this.toolIndexes.keys()]) {
+      const item = this.toolItem(toolCallId);
+      if (item?.status === 'running') {
+        this.applyToolEnd(toolCallId, status, undefined, undefined, undefined);
+      }
+    }
   }
 
   private applyToolStart(

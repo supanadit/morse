@@ -91,6 +91,55 @@ describe('TranscriptProjector tool elapsed', () => {
     });
   });
 
+  it('settles a tool whose end never arrived when the run ends', () => {
+    const emitted: HostToClientMessage[] = [];
+    let clock = 1_000;
+    const projector = new TranscriptProjector({
+      emit: (message) => emitted.push(message),
+      now: () => clock,
+    });
+
+    projector.apply({
+      type: 'agent/tool-start',
+      at: clock,
+      toolCallId: 'c1',
+      name: 'bash',
+      title: 'bash: npm test',
+    });
+    clock = 2_500;
+    projector.apply({ type: 'agent/run-end', at: clock, reason: 'aborted' });
+
+    const item = projector.snapshot().find((entry) => entry.kind === 'tool');
+    expect(item).toMatchObject({
+      kind: 'tool',
+      status: 'error',
+      durationMs: 1_500,
+    });
+    expect(emitted.at(-1)).toMatchObject({ type: 'transcript/update' });
+  });
+
+  it('stops a tool spinner when the agent crashes', () => {
+    const projector = new TranscriptProjector({ emit: () => {}, now: () => 1_000 });
+    projector.apply({
+      type: 'agent/tool-start',
+      at: 1_000,
+      toolCallId: 'c1',
+      name: 'bash',
+      title: 'bash: npm test',
+    });
+    projector.apply({
+      type: 'agent/fatal',
+      at: 1_000,
+      message: 'The pi agent stopped (code=1).',
+    });
+
+    expect(projector.snapshot().find((entry) => entry.kind === 'tool')).toMatchObject({
+      kind: 'tool',
+      status: 'error',
+      durationMs: 0,
+    });
+  });
+
   it('keeps a duration the event did report', () => {
     const emitted: HostToClientMessage[] = [];
     const projector = new TranscriptProjector({

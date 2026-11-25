@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentSessionState } from '@morse/agent';
+import type { AgentEvent, AgentSessionState } from '@morse/agent';
 import { appendPinMentions } from '@morse/system';
 import { loadSpeed } from './session-speed.js';
 import {
@@ -552,6 +552,59 @@ process.stdin.on('data', (chunk) => {
       await agent.dispose();
       agent = undefined;
     }
+  });
+
+  it('accepts a stop after pi is gone, so the host can keep its queue paused', async () => {
+    const cwd = await tempRoot();
+    const agentRoot = await tempRoot();
+    agent = new PiRpcAgent({
+      spawn: { command: process.execPath, args: ['-e', fakePi], source: 'node-entry' },
+      workspace: { cwd, name: 'morse-spec' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
+    });
+
+    await expect(agent.abort()).resolves.toBeUndefined();
+  });
+
+  it('clears Working when pi dies mid-run', async () => {
+    const cwd = await tempRoot();
+    const agentRoot = await tempRoot();
+    const crashPi = `
+const write = (line) => process.stdout.write(JSON.stringify(line) + '\\n');
+write({ type: 'agent_start', at: Date.now() });
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  for (const line of String(chunk).split('\\n')) {
+    if (!line.trim()) continue;
+    const req = JSON.parse(line);
+    write({ type: 'response', id: req.id, command: req.type, success: true,
+      data: req.type === 'get_state'
+        ? { sessionFile: '/tmp/morse-crash.jsonl', sessionId: 'crash-session' }
+        : {} });
+  }
+});
+setTimeout(() => process.exit(1), 20);
+`;
+    const events: AgentEvent[] = [];
+    agent = new PiRpcAgent({
+      spawn: { command: process.execPath, args: ['-e', crashPi], source: 'node-entry' },
+      workspace: { cwd, name: 'morse-spec' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
+    });
+    agent.subscribe((event) => events.push(event));
+
+    await agent.initialize().catch(() => undefined);
+    await vi.waitFor(() => {
+      expect(events.some((event) => event.type === 'agent/fatal')).toBe(true);
+    }, { timeout: 5_000, interval: 10 });
+
+    const states = events.flatMap((event) =>
+      event.type === 'agent/state' ? [event.state] : [],
+    );
+    expect(states.some((state) => state.streaming)).toBe(true);
+    expect(states.at(-1)?.streaming).toBe(false);
   });
 
   it('re-pulls the totals when a message lands, before the run settles', async () => {
