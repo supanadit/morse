@@ -545,24 +545,57 @@ code {
   text-underline-offset: 2px;
 }
 
-.md table {
-  border-collapse: collapse;
+/*
+ * A table is sized to its content and scrolls sideways inside its wrapper.
+ * Fitting it into the message width instead squeezed every column until cells
+ * wrapped one word per line; now only a long cell wraps, at a readable line
+ * length. Borders are separate so the wrapper draws the rounded outer frame.
+ */
+.md .table-wrap {
+  max-width: 100%;
   margin: 0 0 0.9em;
-  font-size: 0.95em;
-  display: block;
   overflow-x: auto;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+}
+
+.md table {
+  width: max-content;
+  min-width: 100%;
+  border-spacing: 0;
+  font-size: 0.95em;
 }
 
 .md th,
 .md td {
-  border: 1px solid var(--morse-border);
-  padding: 4px 10px;
+  max-width: 44ch;
+  padding: 6px 12px;
   text-align: left;
+  vertical-align: top;
+  border-right: 1px solid var(--morse-border);
+  border-bottom: 1px solid var(--morse-border);
+}
+
+.md th:last-child,
+.md td:last-child {
+  border-right: 0;
+}
+
+.md tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .md th {
-  background: var(--morse-hover);
+  background: var(--morse-code-head);
   font-weight: 600;
+}
+
+.md [align='center'] {
+  text-align: center;
+}
+
+.md [align='right'] {
+  text-align: right;
 }
 
 .md code:not(pre code) {

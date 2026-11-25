@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify';
-import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked';
+import { Marked, Renderer, type RendererObject, type TokenizerAndRendererExtension } from 'marked';
 import { escapeHtml, highlightCode } from './highlight.js';
 
 /**
@@ -92,7 +92,9 @@ function count(text: string, char: string): number {
 
 /**
  * The custom renderer both Marked instances share: highlighted code blocks with
- * a copy button, and links that always open in a new tab.
+ * a copy button, links that always open in a new tab, and tables in a wrapper
+ * that scrolls sideways (the styles size a table to its content, so a wide one
+ * must not be squeezed into the message width).
  */
 function renderer(): RendererObject {
   return {
@@ -109,6 +111,9 @@ function renderer(): RendererObject {
       const safeHref = href.replace(/"/g, '&quot;');
       const titleAttr = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
       return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noreferrer noopener">${text}</a>`;
+    },
+    table(token) {
+      return `<div class="table-wrap">${Renderer.prototype.table.call(this, token)}</div>`;
     },
   };
 }

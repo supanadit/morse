@@ -25,6 +25,13 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('file main.ts')).not.toContain('<a ');
     expect(renderMarkdown('versi 1.2.3')).not.toContain('<a ');
   });
+
+  it('wraps a table in a sideways-scrolling container, keeping column alignment', () => {
+    const html = renderMarkdown('| a | b |\n|---|:-:|\n| 1 | 2 |');
+    expect(html).toMatch(/<div class="table-wrap">\s*<table>/);
+    expect(html).toContain('<th align="center">b</th>');
+    expect(html).toContain('<td align="center">2</td>');
+  });
 });
 
 describe('renderUserMarkdown', () => {
