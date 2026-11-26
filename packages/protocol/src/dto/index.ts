@@ -10,6 +10,7 @@ export * from './host.js';
 export * from './git.js';
 export * from './search.js';
 export * from './mcp.js';
+export * from './provider.js';
 export * from './transcript.js';
 export * from './interaction.js';
 export * from './identity.js';

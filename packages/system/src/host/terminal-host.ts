@@ -14,6 +14,11 @@ export interface TerminalHostPort {
   readonly logger: MorseLogger;
   /** The viewing session's cwd, used when an open names no directory. */
   readonly currentCwd: () => string;
+  /**
+   * A command the host registered for a terminal id (an engine's login TUI),
+   * consumed once when that terminal opens. The client never names a command.
+   */
+  readonly takeCommand?: (terminalId: string) => { file: string; args: string[] } | undefined;
 }
 
 export class TerminalHost {
@@ -90,11 +95,14 @@ export class TerminalHost {
     const cwd = payload.cwd ?? this.port.currentCwd();
     const cols = clampGeometry(payload.cols, 80);
     const rows = clampGeometry(payload.rows, 24);
+    // A host command may have registered the engine's login TUI for this id.
+    // It can only be taken once, by the open that starts that shell.
+    const command = this.port.takeCommand?.(payload.terminalId);
     let session: TerminalSession;
     try {
       session = await backend.attach(
         payload.terminalId,
-        { cwd, cols, rows },
+        { cwd, cols, rows, ...(command === undefined ? {} : { command }) },
         {
           output: (data) => {
             if (this.terminalGenerations.get(payload.terminalId) === generation) {

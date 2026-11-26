@@ -119,6 +119,8 @@ export interface ChatViewProviderDeps {
   prompts?: AgentPromptExtras;
   /** The selected engine's config-Fix action; absent hides Fix in the panels. */
   fix?: AgentExtras['fix'];
+  /** The selected engine's provider sign-ins; absent hides the provider page. */
+  providers?: AgentExtras['providers'];
   mcpAvailable: boolean;
   /** The installed pi version, for the "a newer pi is out" notice. */
   piVersion?: string;
@@ -867,6 +869,43 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     return this.deps.mcp;
   }
 
+  /** The provider port, or a refusal for an engine without one. */
+  private requireProviders(): NonNullable<AgentExtras['providers']> {
+    if (this.deps.providers === undefined) {
+      throw new UnsupportedByHostError('The selected agent engine has no provider management.');
+    }
+    return this.deps.providers;
+  }
+
+  /**
+   * Subscription sign-ins run the engine's own login TUI. VS Code has an
+   * integrated terminal, so the command opens there instead of the webview's
+   * bottom panel (which this host leaves off).
+   */
+  private async openProviderLogin(args: Record<string, unknown> | undefined): Promise<unknown> {
+    const providers = this.requireProviders();
+    if (providers.loginCommand === undefined) {
+      return { ok: false, message: 'This engine has no TUI sign-in.' };
+    }
+    const login = await providers.loginCommand({ providerId: args?.['providerId'] });
+    const data =
+      typeof login === 'object' && login !== null && !Array.isArray(login)
+        ? (login as Record<string, unknown>)
+        : undefined;
+    const file = typeof data?.['file'] === 'string' ? data['file'] : '';
+    const rawArgs = Array.isArray(data?.['args']) ? data['args'] : [];
+    if (file.length === 0 || rawArgs.some((one) => typeof one !== 'string')) {
+      return { ok: false, message: 'This provider has no usable sign-in command.' };
+    }
+    const terminal = vscode.window.createTerminal({
+      name: `Sign in: ${String(args?.['providerId'] ?? 'provider')}`,
+      shellPath: file,
+      shellArgs: rawArgs as string[],
+    });
+    terminal.show();
+    return { ok: true };
+  }
+
   /** The prompt-template port, or a refusal for an engine without one. */
   private requirePrompts(): AgentPromptExtras {
     if (this.deps.prompts === undefined) {
@@ -1008,6 +1047,20 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         }
         return fix({ fileId, path, scope, ...(cwd === undefined ? {} : { cwd }) });
       }
+      case 'providerStatus':
+        return this.requireProviders().list();
+      case 'providerConnect':
+        return this.requireProviders().connect(args);
+      case 'providerDisconnect':
+        return this.requireProviders().disconnect(args);
+      case 'providerDiscover': {
+        const discover = this.requireProviders().discover;
+        return discover === undefined
+          ? { ok: false, message: 'This engine has no model discovery.' }
+          : discover(args);
+      }
+      case 'providerLogin':
+        return this.openProviderLogin(args);
       case 'mcpAdd':
         return this.requireMcp().add(parseMcpServerInput(args), this.mcpCwd(context));
       case 'mcpInspect': {

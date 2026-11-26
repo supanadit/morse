@@ -583,6 +583,14 @@ export class MorseService {
     return this.client.onMcpChanged(listener);
   }
 
+  /**
+   * An engine's provider files changed in another window or this one. Every
+   * consumer re-reads the provider list and model catalog without a reload.
+   */
+  onProvidersChanged(listener: (event: { engine: string }) => void): () => void {
+    return this.client.onProvidersChanged(listener);
+  }
+
   /*
    * Bot mode's frames. The shared client's actions encode the code-mode ones;
    * bot mode's state lives in this frontend (`BotState`), so its frames are

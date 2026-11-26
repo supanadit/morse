@@ -141,6 +141,30 @@ export class TerminalStore {
   }
 
   /**
+   * Opens a terminal under an id the host already staged (an engine login TUI),
+   * so the component's `terminal/open` attaches to that command. The id is
+   * host-generated; the reader only chooses whether to watch it.
+   */
+  openForTerminal(id: string, title: string): TerminalInstance {
+    if (this.items().some((pane) => pane.id === id)) {
+      this.focus(id);
+      return this.items().find((pane) => pane.id === id)!;
+    }
+    const pane: TerminalInstance = {
+      id,
+      owner: undefined,
+      group: id,
+      title,
+      fallbackTitle: title,
+      custom: title,
+    };
+    this.items.update((list) => [...list, pane]);
+    this.setActivePane(id, id);
+    this.setActive(undefined, id);
+    return pane;
+  }
+
+  /**
    * Splits a terminal: adds a pane to `groupId`'s split and puts it in front.
    * Returns the new pane's id, or `undefined` when the terminal is gone.
    */

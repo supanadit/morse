@@ -143,6 +143,7 @@ async function startHost(
       label: 'pi',
       engine: adapter.engine,
       catalog: adapter.catalog,
+      extras: adapter.extras,
       available: piAvailable,
       preferred: preferredEngine !== 'opencode',
     },
@@ -154,6 +155,7 @@ async function startHost(
             label: 'OpenCode',
             engine: openCode.engine,
             catalog: openCode.catalog,
+            extras: openCode.extras,
             available: true,
             preferred: preferredEngine === 'opencode',
           },
@@ -181,6 +183,7 @@ async function startHost(
     router.register(candidate.engine, {
       label: candidate.label,
       catalog: candidate.catalog,
+      extras: candidate.extras,
       default: planned.default,
     });
   }
@@ -240,6 +243,7 @@ async function startHost(
     inspector: adapter.inspector,
     ...(extras?.prompts === undefined ? {} : { prompts: extras.prompts }),
     ...(extras?.fix === undefined ? {} : { fix: extras.fix }),
+    ...(extras?.providers === undefined ? {} : { providers: extras.providers }),
     mcpAvailable: extras?.mcp !== undefined && extras.cli !== undefined,
     ...(extras?.version === undefined ? {} : { piVersion: extras.version() }),
     workbenchDataDir: workbenchDataDir(context),

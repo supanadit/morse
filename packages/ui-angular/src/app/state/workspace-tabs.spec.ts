@@ -116,6 +116,20 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('settings:members');
   });
 
+  it('opens one Providers tab beside Members and re-focuses it', () => {
+    const { tabs } = setup();
+
+    tabs.openSettingsPage();
+    tabs.openProvidersPage();
+    tabs.openFile('README.md');
+    tabs.openProvidersPage();
+
+    const pages = tabs.tabs().filter((tab) => tab.kind === 'settings');
+    expect(pages.map((tab) => tab.id)).toEqual(['settings:members', 'settings:providers']);
+    expect(pages[1]).toMatchObject({ title: 'Providers', page: 'providers' });
+    expect(tabs.activeId()).toBe('settings:providers');
+  });
+
   it('toggles the full-page prompt editor on a host with a tab strip', () => {
     const { tabs, fake } = setup(() => undefined, { filePreview: true });
     const shell = TestBed.inject(ShellState);

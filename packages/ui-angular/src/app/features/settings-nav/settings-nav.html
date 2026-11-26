@@ -16,4 +16,17 @@
     <span class="label">Members</span>
     <span class="hint">Users who can sign in</span>
   </button>
+  <button
+    type="button"
+    class="row"
+    [class.active]="providersOpen()"
+    [attr.aria-current]="providersOpen() ? 'page' : null"
+    (click)="openProviders()"
+  >
+    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+      <use href="#morse-plug" />
+    </svg>
+    <span class="label">Providers</span>
+    <span class="hint">Models and API keys</span>
+  </button>
 </morse-pane>

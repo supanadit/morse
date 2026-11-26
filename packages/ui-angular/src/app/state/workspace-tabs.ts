@@ -112,7 +112,7 @@ export interface SettingsTab {
   id: string;
   title: string;
   /** Which settings page this tab shows. More pages reuse the same shape. */
-  page: 'members';
+  page: 'members' | 'providers';
 }
 
 import type {
@@ -153,6 +153,7 @@ const FILE_PREFIX = 'file:';
 export const MCP_TAB_ID = 'mcp:servers';
 /** The settings pages the strip can show, by tab id. */
 export const SETTINGS_MEMBERS_TAB_ID = 'settings:members';
+export const SETTINGS_PROVIDERS_TAB_ID = 'settings:providers';
 
 /**
  * The browser host's tab strip: sessions and files open side by side, one active
@@ -613,6 +614,16 @@ export class WorkspaceTabs {
     });
   }
 
+  /** Opens the Providers page below Members in the settings menu. */
+  openProvidersPage(): void {
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_PROVIDERS_TAB_ID,
+      title: 'Providers',
+      page: 'providers',
+    });
+  }
+
   /**
    * Focuses an open tab, or appends it. Every singleton page goes through here:
    * the tab store holds one list and one active id, whatever the tab shows.
@@ -933,6 +944,24 @@ export class WorkspaceTabs {
     const target = next.findIndex((tab) => tab.id === targetId);
     next.splice(from < to ? target + 1 : target, 0, moved);
     this.items.set(next);
+  }
+
+  /** True while an admin settings page is open, even if it is not in front. */
+  hasSettingsTabs(): boolean {
+    return this.items().some((tab) => tab.kind === 'settings');
+  }
+
+  /**
+   * Drops every admin settings page. Called when the signed-in user is not an
+   * admin, so a workbench restored from a previous admin login cannot keep those
+   * pages alive for a regular user. No host command rides on these tabs.
+   */
+  dropSettingsTabs(): void {
+    this.items.update((list) => list.filter((tab) => tab.kind !== 'settings'));
+    const active = this.active();
+    if (active !== undefined && !this.items().some((tab) => tab.id === active)) {
+      this.active.set(this.items().find((tab) => tab.kind === 'session')?.id);
+    }
   }
 
   /**

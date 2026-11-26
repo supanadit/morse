@@ -18,6 +18,7 @@ import {
 import type { McpConfigScope, McpServerInput } from '@morse/protocol';
 import { OpenCodeMcp, type OpenCodeMcpStatusOptions } from './opencode-mcp.js';
 import { OpenCodePrompts } from './opencode-prompts.js';
+import { OpenCodeProviders } from './providers/open-code-providers.js';
 import {
   connectOpenCode,
   type OpenCodeConnection,
@@ -91,7 +92,18 @@ export class OpenCodeEngine extends SessionEngine implements AgentIntegration {
     // Small wrappers rather than the class itself: the ports speak in
     // `Record<string, unknown>` and `string` scopes, because `@morse/system`
     // must not know OpenCode's payload types. The casts live at this edge.
+    const providers = new OpenCodeProviders({
+      api: deps.api,
+      ...(deps.configDir === undefined ? {} : { configDir: deps.configDir }),
+    });
     const extras: AgentExtras = {
+      providers: {
+        list: () => providers.list(),
+        connect: (input) => providers.connect(input),
+        disconnect: (input) => providers.disconnect(input),
+        loginCommand: (input) => providers.loginCommand(input),
+        discover: (input) => providers.discover(input),
+      },
       // The manager owns the tree (config dir, ownership, a bot's root), so it
       // is also the one that decides which paths a fix may rewrite.
       fix: (request) => Promise.resolve(mcp.fix(request)),

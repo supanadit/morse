@@ -151,6 +151,11 @@ export interface HostSessionControllerOptions {
    */
   terminal?: TerminalBackend;
   /**
+   * A command the host registered for a terminal id, consumed when that terminal
+   * opens. Set by the provider-login host command so only the host names a command.
+   */
+  takeTerminalCommand?: (terminalId: string) => { file: string; args: string[] } | undefined;
+  /**
    * Dispose the shared session registry together with this controller.
    * Defaults to false: registries outlive a client so a refresh reattaches.
    */
@@ -328,6 +333,7 @@ export class HostSessionController {
       emit: (message) => this.options.emit(message),
       logger: options.logger,
       currentCwd: () => this.currentState().workspace.cwd,
+      takeCommand: (terminalId) => this.options.takeTerminalCommand?.(terminalId),
     });
     this.botWire = new BotWire(options);
   }

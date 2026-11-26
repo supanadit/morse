@@ -188,6 +188,30 @@ export class SessionRegistry {
   }
 
   /**
+   * Re-reads the model catalog of every live session. A provider change (new
+   * credential, endpoint or model) is host-wide, so every active client's
+   * picker must see it on the next frame rather than after a restart or reload.
+   */
+  async refreshAllModels(): Promise<void> {
+    const refreshes: Promise<void>[] = [];
+    for (const session of this.hot.values()) {
+      const refresh = session.gateway.refreshModels;
+      if (refresh === undefined) {
+        continue;
+      }
+      refreshes.push(
+        refresh.call(session.gateway).catch((error: unknown) => {
+          this.deps.logger.warn(
+            `Could not refresh models for session ${session.key} after a provider change`,
+            error,
+          );
+        }),
+      );
+    }
+    await Promise.all(refreshes);
+  }
+
+  /**
    * The catalog already probed for a draft's engine, model, mode and project,
    * when there is one. Synchronous on purpose: a reader switching back to a model
    * Morse has already read the levels of gets them in the same frame as the pick

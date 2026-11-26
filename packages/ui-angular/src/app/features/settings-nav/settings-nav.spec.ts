@@ -1,6 +1,10 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
-import { WorkspaceTabs, SETTINGS_MEMBERS_TAB_ID } from '../../state/workspace-tabs';
+import {
+  WorkspaceTabs,
+  SETTINGS_MEMBERS_TAB_ID,
+  SETTINGS_PROVIDERS_TAB_ID,
+} from '../../state/workspace-tabs';
 import { SettingsNav } from './settings-nav';
 
 function render(): ComponentFixture<SettingsNav> {
@@ -27,5 +31,20 @@ describe('SettingsNav', () => {
         'aria-current',
       ),
     ).toBe('page');
+  });
+
+  it('lists Providers directly below Members, opening its page on click', () => {
+    const fixture = render();
+    const tabs = TestBed.inject(WorkspaceTabs);
+    const rows = [...fixture.nativeElement.querySelectorAll('.row')] as HTMLButtonElement[];
+    expect(rows.map((row) => row.textContent?.trim())).toEqual([
+      expect.stringContaining('Members'),
+      expect.stringContaining('Providers'),
+    ]);
+
+    rows[1]!.click();
+    fixture.detectChanges();
+    expect(tabs.activeId()).toBe(SETTINGS_PROVIDERS_TAB_ID);
+    expect(rows[1]!.getAttribute('aria-current')).toBe('page');
   });
 });

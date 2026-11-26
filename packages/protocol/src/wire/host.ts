@@ -111,7 +111,32 @@ export type SharedHostCommand =
    * `{ engine?, fileId, path, scope, cwd? }`. The engine validates `path`
    * against its own resolved config paths, never an arbitrary file.
    */
-  | 'configFix';
+  | 'configFix'
+  /**
+   * The providers of one engine (`{ engine? }` → `ProviderStatus`), read from
+   * that engine's own auth and provider config so the CLI sees the same sign-ins.
+   */
+  | 'providerStatus'
+  /**
+   * Store a provider credential for one engine (`{ engine?, ...ProviderConnectInput }`
+   * → `ProviderMutation`). A custom provider also writes its endpoint and models
+   * to the engine's config before the key; no secret is returned to the client.
+   */
+  | 'providerConnect'
+  /** Remove a provider's stored sign-in for one engine (`{ engine?, providerId }`). */
+  | 'providerDisconnect'
+  /**
+   * List the models a custom endpoint serves (`{ engine?, baseURL, key?, api? }`
+   * → `ProviderDiscoverResult`), so the model editor can fill from the endpoint
+   * instead of asking the reader to type every id and capability by hand.
+   */
+  | 'providerDiscover'
+  /**
+   * Open the engine's own login TUI for a subscription/OAuth provider
+   * (`{ engine?, providerId }` → `ProviderLoginResult`). The credential stays
+   * with the engine; Morse only learns when the terminal closes.
+   */
+  | 'providerLogin';
 
 /**
  * Commands only the browser host answers: it has no Source Control view, no
@@ -350,6 +375,16 @@ export interface McpChangedMessage extends HostMessageBase {
   payload: { cwd: string };
 }
 
+/**
+ * A provider sign-in, removal or custom endpoint changed an engine's own files.
+ * Every connected client re-reads its provider list and model catalog, so no
+ * restart and no manual refresh is needed for a model to become usable.
+ */
+export interface ProvidersChangedMessage extends HostMessageBase {
+  type: 'providers/changed';
+  payload: { engine: string };
+}
+
 export interface InteractionRequestMessage extends HostMessageBase {
   type: 'interaction/request';
   payload: InteractionRequest;
@@ -519,6 +554,7 @@ export interface BotModelsMessage extends HostMessageBase {
 
 /** Host -> frontend. */
 export type HostToClientMessage =
+  | ProvidersChangedMessage
   | HostReadyMessage
   | SessionStateMessage
   | ProjectListMessage

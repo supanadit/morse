@@ -1,0 +1,239 @@
+<!--
+  Provider management, the second row of Settings. The provider grid and each
+  provider's sign-in methods come from the selected engine. Clicking a card opens
+  its detail, where the API key is entered. Custom endpoints get model discovery
+  and full per-model editing in their own detail form.
+-->
+<section class="providers">
+  <header class="page-head">
+    <div>
+      <h2>Providers</h2>
+      <p class="sub">Every provider {{ engine() }} knows is here. Open one, paste its API key, done.</p>
+    </div>
+    <div class="head-actions">
+      <label class="engine">
+        <span>Engine</span>
+        <select [ngModel]="engine()" (ngModelChange)="switchEngine($event)">
+          @for (option of engines(); track option.kind) {
+            <option [value]="option.kind">{{ option.label }}</option>
+          }
+        </select>
+      </label>
+      <button type="button" class="secondary" [disabled]="loading()" (click)="refresh()">
+        {{ loading() ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
+  </header>
+
+  @if (error()) {
+    <div class="alert" role="alert">{{ error() }}</div>
+  }
+  @if (notice()) {
+    <div class="notice" role="status">{{ notice() }}</div>
+  }
+
+  @if (step() === 'grid') {
+    <div class="toolbar">
+      <label class="search">
+        <input type="search" placeholder="Search providers" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+      </label>
+      <span class="summary">{{ builtins().length }} providers · {{ connectedCount() }} connected</span>
+    </div>
+
+    <div class="grid">
+      @for (provider of builtins(); track provider.id) {
+        <button type="button" class="card" [class.connected]="provider.connected" (click)="open(provider)">
+          <span class="mark">{{ provider.name.charAt(0) }}</span>
+          <span class="card-body">
+            <strong>{{ provider.name }}</strong>
+            <small>{{ provider.id }} · {{ provider.description }}</small>
+          </span>
+          @if (provider.connected) {
+            <span class="badge">Connected</span>
+          }
+        </button>
+      }
+      @for (provider of custom(); track provider.id) {
+        <button type="button" class="card" (click)="editCustom(provider)">
+          <span class="mark">{{ provider.name.charAt(0) }}</span>
+          <span class="card-body">
+            <strong>{{ provider.name }}</strong>
+            <small>{{ provider.baseURL || provider.id }} · {{ (provider.models || []).length }} models</small>
+          </span>
+          @if (provider.connected) {
+            <span class="badge">Connected</span>
+          }
+        </button>
+      }
+      <button type="button" class="card custom" (click)="addCustom()">
+        <span class="mark plus">+</span>
+        <span class="card-body">
+          <strong>Custom endpoint</strong>
+          <small>OpenAI- or Anthropic-compatible, with model discovery</small>
+        </span>
+      </button>
+    </div>
+  } @else if (step() === 'detail') {
+    @if (selected(); as provider) {
+      <div class="form">
+        <button type="button" class="back" (click)="back()">‹ Back to providers</button>
+        <div class="detail-head">
+          <span class="mark">{{ provider.name.charAt(0) }}</span>
+          <div>
+            <h3>{{ provider.name }}</h3>
+            <p class="sub">{{ provider.id }} · {{ provider.description }}</p>
+          </div>
+        </div>
+
+        @if (provider.connected) {
+          <p class="notice">Connected via {{ provider.source || 'engine' }}.</p>
+        }
+
+        @if (hasKey()) {
+          <label class="field">
+            <span>API key for {{ provider.name }}</span>
+            <input
+              type="password"
+              autocomplete="off"
+              placeholder="sk-…"
+              [ngModel]="formKey()"
+              (ngModelChange)="formKey.set($event)"
+              (keydown.enter)="saveKey()"
+            />
+          </label>
+          <div class="actions">
+            <button type="button" class="secondary" (click)="back()">Cancel</button>
+            <button type="button" class="primary" [disabled]="!canConnect()" (click)="saveKey()">
+              {{ busy() ? 'Saving…' : provider.connected ? 'Update key' : 'Connect' }}
+            </button>
+          </div>
+          @if (provider.auth?.signIn) {
+            <button type="button" class="secondary" [disabled]="busy()" (click)="signIn(provider)">
+              Use account sign-in instead
+            </button>
+          }
+        } @else {
+          <p class="hint">{{ provider.name }} signs in with an account, not an API key.</p>
+          <button type="button" class="primary" [disabled]="busy()" (click)="signIn(provider)">Sign in</button>
+        }
+
+        @if (provider.connected) {
+          <div class="danger-zone">
+            <button type="button" class="text danger" [disabled]="busy()" (click)="disconnect(provider)">
+              Disconnect {{ provider.name }}
+            </button>
+          </div>
+        }
+      </div>
+    }
+  } @else {
+    <div class="form wide">
+      <button type="button" class="back" (click)="back()">‹ Back to providers</button>
+      <h3>{{ editing() ? 'Edit endpoint' : 'Custom endpoint' }}</h3>
+      <p class="lede">Add an endpoint, then discover its models or enter them by hand. Every model's limits, modalities and thinking levels are editable below.</p>
+      <form (ngSubmit)="save()">
+        <div class="form-grid">
+          <label class="field">
+            <span>Provider ID</span>
+            <input name="id" placeholder="my-gateway" [disabled]="editing() !== undefined" [ngModel]="formId()" (ngModelChange)="formId.set($event)" />
+          </label>
+          <label class="field">
+            <span>Display name</span>
+            <input name="name" placeholder="My gateway" [ngModel]="formName()" (ngModelChange)="formName.set($event)" />
+          </label>
+        </div>
+        <div class="form-grid">
+          <label class="field">
+            <span>Base URL</span>
+            <input name="baseURL" placeholder="https://api.example.com/v1" [ngModel]="formBaseURL()" (ngModelChange)="formBaseURL.set($event)" />
+          </label>
+          <label class="field">
+            <span>API protocol</span>
+            <select name="api" [ngModel]="formApi()" (ngModelChange)="formApi.set($event)">
+              @for (api of apis; track api) { <option [value]="api">{{ api }}</option> }
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" name="key" autocomplete="off" placeholder="sk-… or &#123;env:MY_KEY&#125;" [ngModel]="formKey()" (ngModelChange)="formKey.set($event)" />
+        </label>
+
+        <div class="models-head">
+          <h4>Models</h4>
+          <div class="model-tools">
+            <button type="button" class="secondary" [disabled]="discovering() || formBaseURL().trim().length === 0" (click)="discover()">
+              {{ discovering() ? 'Discovering…' : 'Discover models' }}
+            </button>
+            <button type="button" class="secondary" (click)="addModel()">+ Add model</button>
+          </div>
+        </div>
+        <p class="hint">Discovery reads the endpoint's <code>/models</code> listing. Blank limits leave {{ engine() }}'s own default; corrections here always win.</p>
+
+        @for (model of models(); track $index) {
+          <div class="model-row">
+            <div class="form-grid">
+              <label class="field">
+                <span>Model ID</span>
+                <input [value]="model.id" placeholder="gpt-5" (input)="setModel($index, 'id', $any($event.target).value)" />
+              </label>
+              <label class="field">
+                <span>Display name</span>
+                <input [value]="model.name" placeholder="GPT-5" (input)="setModel($index, 'name', $any($event.target).value)" />
+              </label>
+            </div>
+            <div class="form-grid three">
+              <label class="field">
+                <span>Context window</span>
+                <input type="number" min="1" [value]="model.context" placeholder="131072" (input)="setModel($index, 'context', $any($event.target).value)" />
+              </label>
+              <label class="field">
+                <span>Max output</span>
+                <input type="number" min="1" [value]="model.output" placeholder="32768" (input)="setModel($index, 'output', $any($event.target).value)" />
+              </label>
+              <label class="field check">
+                <span>Reasoning</span>
+                <input type="checkbox" [checked]="model.reasoning" (change)="setModel($index, 'reasoning', $any($event.target).checked)" />
+              </label>
+            </div>
+            <div class="field">
+              <span>Input modalities</span>
+              <div class="input-list">
+                @for (input of inputs; track input) {
+                  <label class="chip">
+                    <input type="checkbox" [checked]="hasInput($index, input)" (change)="toggleInput($index, input)" />
+                    {{ input }}
+                  </label>
+                }
+              </div>
+            </div>
+            @if (model.reasoning) {
+              <div class="form-grid">
+                <label class="field">
+                  <span>Minimum thinking level</span>
+                  <select [value]="model.min" (change)="setModel($index, 'min', $any($event.target).value)">
+                    <option value="">Engine default</option>
+                    @for (level of levels; track level) { <option [value]="level">{{ level }}</option> }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Maximum thinking level</span>
+                  <select [value]="model.max" (change)="setModel($index, 'max', $any($event.target).value)">
+                    <option value="">Engine default</option>
+                    @for (level of levels; track level) { <option [value]="level">{{ level }}</option> }
+                  </select>
+                </label>
+              </div>
+            }
+            <button type="button" class="text danger remove-model" (click)="removeModel($index)">Remove model</button>
+          </div>
+        }
+
+        <div class="actions">
+          <button type="button" class="secondary" (click)="back()">Cancel</button>
+          <button type="submit" class="primary" [disabled]="!canSave()">{{ busy() ? 'Saving…' : 'Save endpoint' }}</button>
+        </div>
+      </form>
+    </div>
+  }
+</section>

@@ -120,6 +120,11 @@
       <circle cx="8" cy="8" r="2.2" />
       <path d="M8 1.6v2.2M8 12.2v2.2M1.6 8h2.2M12.2 8h2.2M3.5 3.5l1.6 1.6M10.9 10.9l1.6 1.6M12.5 3.5l-1.6 1.6M5.1 10.9l-1.6 1.6" />
     </symbol>
+    <symbol id="morse-plug" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 1.8v3M11 1.8v3M3.2 4.8h9.6v2.4c0 2.6-1.8 4.4-4.8 4.4s-4.8-1.8-4.8-4.4V4.8Z" />
+      <path d="M8 11.6v2.6" />
+    </symbol>
   </svg>
 
   <!--
@@ -179,11 +184,13 @@
           <morse-file-explorer class="left-view" [hidden]="leftPane() !== 'files'" />
         }
         <!--
-          Host settings: the rail cog's menu — Members today, more settings
-          as they grow. Mounted like the Explorer (its choice is a settings
-          page in the center, and a swap away must not lose it).
+          Host settings: the rail cog's menu. Mounted only for an admin — a
+          regular user whose layout still holds `leftPane: 'settings'` from a
+          previous admin login must not see the menu or its pages.
         -->
-        <morse-settings-nav class="left-view" [hidden]="leftPane() !== 'settings'" />
+        @if (settingsAllowed()) {
+          <morse-settings-nav class="left-view" [hidden]="leftPane() !== 'settings'" />
+        }
       }
     </div>
   }
@@ -384,6 +391,9 @@
           survives a trip to a session and back.
         -->
         <morse-admin-panel />
+      } @else if (activeSettingsPage() === 'providers') {
+        <!-- The settings menu's Providers page: connect models without a TUI. -->
+        <morse-providers-panel />
       } @else if (promptEditorOpen()) {
         <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
              its own chunk instead of joining the initial bundle. -->

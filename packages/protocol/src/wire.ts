@@ -28,6 +28,7 @@ export const HOST_MESSAGE_TYPES = [
   'transcript/prepend',
   'session/list',
   'mcp/changed',
+  'providers/changed',
   'interaction/request',
   'interaction/dismiss',
   'notice',

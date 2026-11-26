@@ -186,6 +186,8 @@ export interface MorseClient {
    * state changes, so this is a side channel like a terminal stream.
    */
   onMcpChanged(listener: (event: { cwd: string }) => void): () => void;
+  /** An engine's provider files changed (`providers/changed`); re-read the list and models. */
+  onProvidersChanged(listener: (event: { engine: string }) => void): () => void;
   readonly actions: MorseActions;
   dispose(): void;
 }
@@ -239,6 +241,8 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
   >();
   /** Listeners for a watched `mcp.json` changing (`mcp/changed`). */
   const mcpChangedListeners = new Set<(event: { cwd: string }) => void>();
+  /** Listeners for an engine's provider files changing (`providers/changed`). */
+  const providersChangedListeners = new Set<(event: { engine: string }) => void>();
 
   const requestHostCommand = (
     command: HostCommand,
@@ -299,6 +303,12 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     }
     if (message.type === 'mcp/changed') {
       for (const listener of [...mcpChangedListeners]) {
+        listener(message.payload);
+      }
+      return;
+    }
+    if (message.type === 'providers/changed') {
+      for (const listener of [...providersChangedListeners]) {
         listener(message.payload);
       }
       return;
@@ -417,6 +427,12 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
       mcpChangedListeners.add(listener);
       return () => {
         mcpChangedListeners.delete(listener);
+      };
+    },
+    onProvidersChanged: (listener) => {
+      providersChangedListeners.add(listener);
+      return () => {
+        providersChangedListeners.delete(listener);
       };
     },
     actions,

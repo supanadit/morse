@@ -1,5 +1,6 @@
 import {
   PROTOCOL_VERSION,
+  type AuthUser,
   type ClientToHostMessage,
   type HostToClientMessage,
   type McpServerState,
@@ -1039,5 +1040,18 @@ export class MemoryHostTransport extends BaseHostTransport {
 
   private emit(message: HostToClientMessage): void {
     this.emitMessage(message);
+  }
+
+  /** Tests can re-handshake as a named user without a real host. */
+  readyAs(user: AuthUser | null): void {
+    this.emit({
+      type: 'host/ready',
+      payload: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: CAPABILITIES,
+        state: this.state,
+        user,
+      },
+    });
   }
 }

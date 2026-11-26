@@ -554,6 +554,41 @@ describe('mcpStatus probing', () => {
  * that knows its config files), so the host only refuses what it cannot even
  * describe — a missing fileId, path or scope — and forwards the rest intact.
  */
+describe('provider commands', () => {
+  async function ask(command: string, args: Record<string, unknown>, extras: AgentExtras) {
+    const host = connect(factoryWith(undefined, extras));
+    await host.controller.handleClientMessage({
+      type: 'host/command',
+      payload: { command, args, requestId: 'provider-1' },
+    });
+    const last = host.messages.at(-1);
+    return last?.type === 'host/command/result' ? last.payload : undefined;
+  }
+
+  it('routes every provider command to the named engine’s port', async () => {
+    const providers = {
+      list: vi.fn(async () => ({ engine: 'opencode', providers: [], issues: [] })),
+      connect: vi.fn(async () => ({ ok: true })),
+      disconnect: vi.fn(async () => ({ ok: true })),
+    };
+    const extras = { providers } as AgentExtras;
+
+    const status = await ask('providerStatus', { engine: 'opencode' }, extras);
+    await ask('providerConnect', { engine: 'opencode', providerId: 'openai', key: 'sk' }, extras);
+    await ask('providerDisconnect', { engine: 'opencode', providerId: 'openai' }, extras);
+
+    expect(status).toMatchObject({ ok: true, data: { engine: 'opencode' } });
+    expect(providers.list).toHaveBeenCalledTimes(1);
+    expect(providers.connect).toHaveBeenCalledWith({ engine: 'opencode', providerId: 'openai', key: 'sk' });
+    expect(providers.disconnect).toHaveBeenCalledWith({ engine: 'opencode', providerId: 'openai' });
+  });
+
+  it('refuses an engine without provider administration', async () => {
+    const result = await ask('providerStatus', { engine: 'codex' }, {} as AgentExtras);
+    expect(result).toMatchObject({ ok: false });
+  });
+});
+
 describe('configFix', () => {
   async function fix(
     extras: AgentExtras | undefined,

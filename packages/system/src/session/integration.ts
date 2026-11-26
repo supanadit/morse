@@ -45,7 +45,31 @@ export interface AgentPromptExtras {
   delete(name: string, scope: string, cwd: string, source?: string): Promise<unknown>;
 }
 
+/**
+ * Provider sign-in administration, in the vocabulary the settings page needs.
+ *
+ * The payloads are `unknown` here on purpose: the DTO belongs to `@morse/protocol`
+ * and the payload is produced by the engine's own config files. The host gates
+ * on the presence of this port, not on a payload shape.
+ */
+export interface AgentProviderExtras {
+  list(): Promise<unknown>;
+  connect(input: unknown): Promise<unknown>;
+  disconnect(input: unknown): Promise<unknown>;
+  /**
+   * The engine's own sign-in command for a subscription/OAuth provider, as an
+   * argv the host can run in an interactive terminal. `undefined` means this
+   * engine has no TUI login for that provider. The credential is written by the
+   * engine, so Morse never handles it.
+   */
+  loginCommand?(input: unknown): Promise<unknown>;
+  /** List the models a custom endpoint serves, best effort. */
+  discover?(input: unknown): Promise<unknown>;
+}
+
 export interface AgentExtras {
+  /** Managing provider sign-ins, when the engine keeps its own auth file. */
+  providers?: AgentProviderExtras;
   /** Managing MCP servers, when the engine has a config to manage. */
   mcp?: AgentMcpExtras;
   /** Editing prompt templates, when the engine loads them from files. */

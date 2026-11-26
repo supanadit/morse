@@ -35,6 +35,28 @@ describe('App', () => {
     }).compileComponents();
   });
 
+  it('never shows an admin settings page to a regular user, even from a restored tab', async () => {
+    const { host, fixture, transport } = await renderApp();
+    const tabs = TestBed.inject(WorkspaceTabs);
+    const shell = TestBed.inject(ShellState);
+    // A previous admin login left this page open in the restored workbench.
+    tabs.openProvidersPage();
+    shell.setLeftPane('settings');
+    fixture.detectChanges();
+    expect(host.querySelector('morse-providers-panel')).not.toBeNull();
+
+    // The host re-handshakes as a regular user: the pages vanish and the stale
+    // tabs are dropped, so the account switch cannot inherit the admin surface.
+    transport.readyAs({ id: 'u-2', username: 'bob', name: 'Bob', role: 'regular' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(host.querySelector('morse-providers-panel')).toBeNull();
+    expect(host.querySelector('morse-admin-panel')).toBeNull();
+    expect(tabs.hasSettingsTabs()).toBe(false);
+  });
+
   it('renders the workspace reported by the host', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
@@ -433,6 +455,7 @@ async function renderApp(): Promise<{
   host: HTMLElement;
   fixture: ComponentFixture<App>;
   sent: ClientToHostMessage[];
+  transport: RecordingHost;
 }> {
   TestBed.resetTestingModule();
   localStorage.clear();
@@ -443,7 +466,7 @@ async function renderApp(): Promise<{
   }).compileComponents();
   const fixture = TestBed.createComponent(App);
   fixture.detectChanges();
-  return { host: fixture.nativeElement as HTMLElement, fixture, sent: transport.sent };
+  return { host: fixture.nativeElement as HTMLElement, fixture, sent: transport.sent, transport };
 }
 
 const compactions = (sent: ClientToHostMessage[]): ClientToHostMessage[] =>

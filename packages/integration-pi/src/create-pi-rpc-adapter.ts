@@ -3,6 +3,7 @@ import type { AgentExtras, AgentIntegration, MorseLogger, SessionCatalog } from 
 import { PiRpcAgentFactory, type PiRpcAgentFactoryOptions } from './pi-rpc-agent-factory.js';
 import { PiMcp, type McpConfigScope, type McpServerInput } from './pi-mcp.js';
 import { PiPrompts, type PromptScope, type PromptTemplateInput } from './pi-prompts.js';
+import { PiProviders } from './providers/pi-providers.js';
 import { McpInspector } from './internal/mcp-client.js';
 import { PiRpcSessionCatalog } from './pi-rpc-session-catalog.js';
 import {
@@ -75,6 +76,8 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
   readonly catalog: SessionCatalog;
   readonly mcp: PiMcp;
   readonly prompts: PiPrompts;
+  /** pi's provider sign-ins, in its own auth.json and models.json. */
+  private readonly providers: PiProviders;
   readonly inspector: McpInspector;
   /** The unpaged catalog `scan()` reads, so a reconcile never mistakes a page for the whole. */
   private readonly scanCatalog: PiRpcSessionCatalog;
@@ -111,10 +114,18 @@ class PiRpcEngine extends SessionEngine implements PiRpcAdapter, AgentIntegratio
       inspector: this.inspector,
     });
     this.prompts = new PiPrompts({ env: config.env });
+    this.providers = new PiProviders({ env: config.env });
     // Small wrappers rather than the classes themselves: the ports speak in
     // `Record<string, unknown>` and `string` scopes, because `@morse/system` must
     // not know pi's payload types. The casts live here, at the adapter edge.
     this.extras = {
+      providers: {
+        list: () => this.providers.list(),
+        connect: (input) => this.providers.connect(input),
+        disconnect: (input) => this.providers.disconnect(input),
+        loginCommand: (input) => this.providers.loginCommand(input),
+        discover: (input) => this.providers.discover(input),
+      },
       mcp: {
         configSignature: (cwd) => this.mcp.configSignature(cwd),
         status: (cwd, options) => this.mcp.status(cwd, options),

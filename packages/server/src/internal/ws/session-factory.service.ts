@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
@@ -68,6 +69,7 @@ import {
   repoArg,
   resolveFixExtras,
   resolveMcpExtras,
+  resolveProviderExtras,
   resolvePromptExtras,
 } from './session-factory-helpers.js';
 import { saveUpload } from '../uploads/upload-store.js';
@@ -157,6 +159,17 @@ export class MorseSessionFactory {
    * their owner is disconnected, exactly like the single-user registry does.
    */
   private readonly bundles = new Map<string, UserBundle>();
+  /**
+   * Login TUIs a host command staged, keyed by terminal id. The frontend only
+   * sends `terminal/open` with that id; the command is injected host-side at open
+   * time and never travels over the wire. One-shot: a restart cannot reuse it.
+   */
+  private readonly pendingTerminalCommands = new Map<
+    string,
+    { file: string; args: string[] }
+  >();
+  /** The engine each staged login TUI belongs to, for the exit broadcast. */
+  private readonly providerLoginEngines = new Map<string, string>();
   /**
    * The queue and live draft state shared by every client: one owner, one
    * dispatcher, and a file under the host's own directory. Created here so it
@@ -498,7 +511,17 @@ export class MorseSessionFactory {
     const controller = new HostSessionController({
       services,
       capabilities: this.capabilities(),
-      emit,
+      emit: (message) => {
+        emit(message);
+        // A provider login TUI just ended: its credential was written by the
+        // engine, so refresh every client's providers and models. The map entry
+        // carries the engine the TUI was staged for.
+        if (message.type === 'terminal/exit' && message.payload.terminalId.startsWith('provider-')) {
+          const engine = this.providerLoginEngines.get(message.payload.terminalId) ?? '';
+          this.providerLoginEngines.delete(message.payload.terminalId);
+          void this.broadcastProvidersChanged({ engine }, user);
+        }
+      },
       logger: this.logger,
       transcripts: bundle?.transcripts ?? this.transcripts,
       policy: bundle?.policy ?? this.policy,
@@ -525,6 +548,11 @@ export class MorseSessionFactory {
         ),
       // The bottom panel's shell, namespaced per user when `multiuser` is on.
       terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId),
+      takeTerminalCommand: (terminalId) => {
+        const command = this.pendingTerminalCommands.get(terminalId);
+        this.pendingTerminalCommands.delete(terminalId);
+        return command;
+      },
       agentHint:
         'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',
       // Bot mode's commands, through this connection's lens when multi-user
@@ -905,6 +933,40 @@ export class MorseSessionFactory {
           ...(cwd === undefined ? {} : { cwd }),
         });
       }
+      case 'providerStatus': {
+        // The engine named by the command (or the default one) reads its own
+        // auth/config files. No credential value comes back to the client.
+        this.assertProviderAdmin(user);
+        return this.providersFor(args).list();
+      }
+      case 'providerConnect': {
+        this.assertProviderAdmin(user);
+        const result = await this.providersFor(args).connect(args);
+        // The engine's config just changed; tell every client on this host so
+        // their provider page and model picker re-read without a refresh.
+        await this.broadcastProvidersChanged(args, user);
+        return result;
+      }
+      case 'providerDisconnect': {
+        this.assertProviderAdmin(user);
+        const result = await this.providersFor(args).disconnect(args);
+        await this.broadcastProvidersChanged(args, user);
+        return result;
+      }
+      case 'providerDiscover': {
+        this.assertProviderAdmin(user);
+        const discover = this.providersFor(args).discover;
+        if (discover === undefined) {
+          return { ok: false, message: 'This engine has no model discovery.' };
+        }
+        return discover(args);
+      }
+      case 'providerLogin': {
+        this.assertProviderAdmin(user);
+        // The engine's own login TUI signs providers in; its exit is broadcast
+        // by the terminal close path (see onModuleDestroy / terminal/exit).
+        return this.stageProviderLogin(args);
+      }
       case 'adminUsers': {
         // Every login identity, newest last — the admin page's roster.
         // Password hashes never leave this host.
@@ -1026,6 +1088,46 @@ export class MorseSessionFactory {
    * an admin — the frontend gates the page on `role`, but this is the real
    * boundary, checked per command at the moment of the call.
    */
+  /**
+   * Provider credentials are host-wide, so in multi-user mode the UI's admin
+   * gate is not enough: every provider command checks the caller too. A
+   * single-user host has no roles and stays usable.
+   */
+  private assertProviderAdmin(user?: AuthUser | null): void {
+    if (this.config.multiuser && user?.role !== 'admin') {
+      throw new UnsupportedByHostError('Only an admin can manage provider sign-ins.');
+    }
+  }
+
+  /**
+   * A provider change is host-wide: credentials are per engine, shared by every
+   * session on this machine. Re-read the draft catalog (what new sessions offer)
+   * and every live session's model list, then tell every connected client to
+   * refresh its provider page and model picker. No restart, no manual refresh.
+   */
+  private async broadcastProvidersChanged(
+    args: Record<string, unknown> | undefined,
+    user?: AuthUser | null,
+  ): Promise<void> {
+    const engine = typeof args?.['engine'] === 'string' ? args['engine'] : undefined;
+    const registries = user === undefined || user === null
+      ? [this.registry]
+      : [...this.bundles.values()].map((bundle) => bundle.registry);
+    for (const registry of registries) {
+      registry.refreshDraftDefaults();
+      await registry.refreshAllModels();
+    }
+    const message: HostToClientMessage = {
+      type: 'providers/changed',
+      payload: { engine: engine ?? '' },
+    };
+    for (const entry of this.connections.values()) {
+      if (user === undefined || user === null || entry.userId === user.id) {
+        entry.emit(message);
+      }
+    }
+  }
+
   private requireAdminDb(user?: AuthUser | null): Knex {
     if (!this.config.multiuser || this.db === undefined) {
       throw new UnsupportedByHostError('User management needs multi-user mode.');
@@ -1100,6 +1202,45 @@ export class MorseSessionFactory {
   /** The config-Fix port of the engine the command names, or the default engine's. */
   private fixFor(args?: Record<string, unknown>): NonNullable<AgentExtras['fix']> {
     return resolveFixExtras(this.router, args?.['engine']);
+  }
+
+  /**
+   * Stage an engine's own login TUI under a terminal id and return that id. The
+   * frontend opens a terminal pane with the id; the command is injected host-side
+   * when that pane attaches, so a client can never name the program it runs.
+   */
+  private async stageProviderLogin(
+    args: Record<string, unknown> | undefined,
+  ): Promise<{ ok: boolean; terminalId?: string; message?: string }> {
+    const providers = this.providersFor(args);
+    if (providers.loginCommand === undefined) {
+      return { ok: false, message: 'This engine has no TUI sign-in.' };
+    }
+    const login = await providers.loginCommand({ providerId: args?.['providerId'] });
+    const data =
+      typeof login === 'object' && login !== null && !Array.isArray(login)
+        ? (login as Record<string, unknown>)
+        : undefined;
+    const file = typeof data?.['file'] === 'string' ? data['file'] : '';
+    const rawArgs = Array.isArray(data?.['args']) ? data['args'] : [];
+    if (
+      file.length === 0 ||
+      rawArgs.some((one) => typeof one !== 'string')
+    ) {
+      return { ok: false, message: 'This provider has no usable sign-in command.' };
+    }
+    const terminalId = `provider-${randomUUID()}`;
+    this.pendingTerminalCommands.set(terminalId, { file, args: rawArgs as string[] });
+    this.providerLoginEngines.set(
+      terminalId,
+      typeof args?.['engine'] === 'string' ? args['engine'] : '',
+    );
+    return { ok: true, terminalId };
+  }
+
+  /** The provider-sign-in port of the engine the command names, or the default engine's. */
+  private providersFor(args?: Record<string, unknown>): NonNullable<AgentExtras['providers']> {
+    return resolveProviderExtras(this.router, args?.['engine']);
   }
 
   /**

@@ -276,9 +276,12 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
     if (!this.policy.canOpen(options.cwd)) {
       throw new UnsupportedByHostError(`Morse is not allowed to run a terminal in ${options.cwd}.`);
     }
-    const shell = defaultShell();
+    // A host command can name the engine's own login TUI; the frontend never
+    // sends a command, so a client cannot turn the panel into an arbitrary shell.
+    const file = options.command?.file ?? defaultShell();
+    const args = options.command?.args ?? [];
     const generation = ++entry.generation;
-    const pty = spawnPty(shell, [], {
+    const pty = spawnPty(file, args, {
       name: 'xterm-256color',
       cols: options.cols,
       rows: options.rows,
@@ -286,7 +289,7 @@ export class ServerTerminalBackend implements TerminalBackend, OnModuleDestroy {
       env: terminalShellEnv(),
     });
     entry.pty = pty;
-    this.logger.info(`Terminal opened in ${options.cwd} (${shell}, pid ${pty.pid})`);
+    this.logger.info(`Terminal opened in ${options.cwd} (${file}, pid ${pty.pid})`);
 
     pty.onData((chunk) => {
       if (entry.generation !== generation) {

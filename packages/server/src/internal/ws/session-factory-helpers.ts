@@ -45,11 +45,22 @@ export function resolveFixExtras(
 }
 
 /**
+ * The provider-sign-in port of the engine a command names, or the default
+ * engine's. Same rule as the other ports: no borrowing another engine's files.
+ */
+export function resolveProviderExtras(
+  router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
+  engine: unknown,
+): NonNullable<AgentExtras['providers']> {
+  return resolveEngineExtras(router, engine, 'providers', 'provider management');
+}
+
+/**
  * The extras port named by `key`, of the engine the command names, or the
  * default engine's when it names none. A named engine without that port is a
  * refusal naming the engine — the one rule that keeps the engines from mixing.
  */
-function resolveEngineExtras<K extends 'mcp' | 'prompts' | 'fix'>(
+function resolveEngineExtras<K extends 'mcp' | 'prompts' | 'fix' | 'providers'>(
   router: Pick<AgentRouter, 'extrasFor' | 'defaultExtras'>,
   engine: unknown,
   key: K,

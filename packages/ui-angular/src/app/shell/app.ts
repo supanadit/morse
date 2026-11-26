@@ -31,6 +31,7 @@ import { GitPanel } from '../features/git-panel/git-panel';
 import { SearchPanel } from '../features/search-panel/search-panel';
 import { ActivityRail } from '../features/activity-rail/activity-rail';
 import { AdminPanel } from '../features/admin/admin-panel';
+import { ProvidersPanel } from '../features/providers/providers-panel';
 import { AuthScreen } from '../features/auth/auth-screen';
 import { AuthState } from '../host/auth-state';
 import { FileExplorer } from '../features/file-explorer/file-explorer';
@@ -125,6 +126,7 @@ interface SubagentEntry extends ChildSessionRef {
     SearchPanel,
     ActivityRail,
     AdminPanel,
+    ProvidersPanel,
     AuthScreen,
     FileExplorer,
     Splitter,
@@ -167,9 +169,19 @@ export class App {
   private readonly morse = inject(MorseService);
   private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
-  /** User management takes the center column while the rail's entry is up. */
-  /** The settings page in front, if a settings tab is the active one. */
+  /**
+   * Host settings (Members and Providers) are an admin surface. On a single-user
+   * host `user` is null and there are no roles, so settings stay available; on a
+   * multi-user host only an admin may see them. A persisted tab from a previous
+   * admin login must never render a page for the regular user now signed in.
+   */
+  protected readonly settingsAllowed = computed(
+    () => this.morse.user() === null || this.morse.user()?.role === 'admin',
+  );
   protected readonly activeSettingsPage = computed(() => {
+    if (!this.settingsAllowed()) {
+      return undefined;
+    }
     const tab = this.tabs.activeTab();
     return tab?.kind === 'settings' ? tab.page : undefined;
   });
@@ -664,6 +676,22 @@ export class App {
     // call site that could forget to switch the strip.
     this.tabs.setMode(this.mode());
     effect(() => this.tabs.setMode(this.mode()));
+    // A regular user must never inherit an admin's open settings pages. Tabs are
+    // restored from the host workbench before the handshake names the user, so
+    // drop them as soon as we know this connection is not an admin. The pages
+    // themselves are gated by `settingsAllowed()` too, so the drop is defense in
+    // depth against a stale tab surviving a reload.
+    effect(() => {
+      if (!this.settingsAllowed() && this.tabs.hasSettingsTabs()) {
+        this.tabs.dropSettingsTabs();
+      }
+    });
+    // A provider changed on this host (here or in another window): re-read the
+    // model catalog so every active client's picker offers the new models at
+    // once, without a refresh or a restart.
+    this.destroyRef.onDestroy(
+      this.morse.onProvidersChanged(() => this.morse.refreshModels()),
+    );
     // A dismissed failure comes back when the agent has a new one to report:
     // clearing it resets the dismissal, so only the exact text stays hidden.
     effect(() => {

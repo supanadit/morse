@@ -13,6 +13,12 @@ export interface TerminalOpenOptions {
   cwd: string;
   cols: number;
   rows: number;
+  /**
+   * Run this program instead of a shell. Host-only: the frontend never names a
+   * command, so a client cannot turn the bottom panel into an arbitrary shell.
+   * Used by the engine's own login TUI, which writes its credential itself.
+   */
+  command?: { file: string; args: string[] };
 }
 
 /** Where a terminal's output and end go. Called from the host's process callbacks. */
