@@ -180,61 +180,149 @@
         </div>
         <p class="hint">Discovery reads the endpoint's <code>/models</code> listing. Blank limits leave {{ engine() }}'s own default; corrections here always win.</p>
 
-        @for (model of models(); track $index; let mi = $index) {
-          <div class="model-card" [attr.data-model]="model.id || mi">
-            <div class="model-head">
-              <label class="field model-id">
-                <span>Model ID</span>
-                <input [value]="model.id" placeholder="gpt-5" (input)="setModel(mi, 'id', $any($event.target).value)" />
-              </label>
-              <label class="field model-name">
-                <span>Display name</span>
-                <input [value]="model.name" placeholder="GPT-5" (input)="setModel(mi, 'name', $any($event.target).value)" />
-              </label>
-              <button type="button" class="model-remove" aria-label="Remove model" title="Remove model" (click)="removeModel(mi)">×</button>
-            </div>
+        <div class="table-scroll">
+          <table class="models-table">
+            <thead>
+              <tr>
+                <th>Model ID</th>
+                <th>Display name</th>
+                <th class="col-num">Context limit</th>
+                <th class="col-num">Max output</th>
+                <th class="col-caps">Capabilities</th>
+                <th class="col-think">Thinking</th>
+                <th class="col-remove"><span class="sr-only">Remove</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (model of models(); track $index; let mi = $index) {
+                <tr class="model-main" [attr.data-model]="model.id || mi">
+                  <td>
+                    <input aria-label="Model ID" [value]="model.id" placeholder="gpt-5"
+                      (input)="setModel(mi, 'id', $any($event.target).value)" />
+                  </td>
+                  <td>
+                    <input aria-label="Display name" [value]="model.name" placeholder="GPT-5"
+                      (input)="setModel(mi, 'name', $any($event.target).value)" />
+                  </td>
+                  <td class="col-num">
+                    <input aria-label="Context limit" type="number" min="1" [value]="model.context"
+                      placeholder="131072" (input)="setModel(mi, 'context', $any($event.target).value)" />
+                  </td>
+                  <td class="col-num">
+                    <input aria-label="Max output" type="number" min="1" [value]="model.output"
+                      placeholder="32768" (input)="setModel(mi, 'output', $any($event.target).value)" />
+                  </td>
+                  <td class="col-caps">
+                    <button type="button" class="menu-trigger" aria-haspopup="true"
+                      [attr.aria-expanded]="menuOpen(mi, 'caps')"
+                      [title]="'Capabilities of ' + (model.id || 'this model')"
+                      (click)="toggleMenu(mi, 'caps', $event)">
+                      @if (model.reasoning) {
+                        <svg class="brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                          @for (path of brainPaths; track path) {
+                            <path [attr.d]="path" />
+                          }
+                        </svg>
+                      }
+                      @if (capsList(mi).length > 0) {
+                        <morse-model-inputs [input]="capsList(mi)" />
+                      } @else if (!model.reasoning) {
+                        <span class="none">—</span>
+                      }
+                      <span class="caret" aria-hidden="true">▾</span>
+                    </button>
+                  </td>
+                  <td class="col-think">
+                    <button type="button" class="menu-trigger think-trigger" aria-haspopup="dialog"
+                      [disabled]="!model.reasoning"
+                      [attr.aria-expanded]="model.reasoning && menuOpen(mi, 'think')"
+                      [attr.aria-label]="'Thinking levels: ' + thinkLabel(mi)"
+                      [title]="model.reasoning ? 'Thinking levels: ' + thinkLabel(mi) : 'Enable reasoning to set thinking levels'"
+                      (click)="toggleMenu(mi, 'think', $event)">
+                      @if (thinkLevels(mi); as picked) {
+                        @if (picked.length > 0) {
+                          @for (level of picked.slice(0, 3); track level; let last = $last) {
+                            <svg class="brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
+                              [style.color]="levelColors[level]">
+                              @for (path of brainPaths; track path) {
+                                <path [attr.d]="path" />
+                              }
+                            </svg>@if (!last) {<span class="sep" aria-hidden="true">,</span>}
+                          }
+                          @if (picked.length > 3) {
+                            <span class="more" aria-hidden="true">+{{ picked.length - 3 }}</span>
+                          }
+                        } @else {
+                          <span class="none">—</span>
+                        }
+                      }
+                      <span class="caret" aria-hidden="true">▾</span>
+                    </button>
+                  </td>
+                  <td class="col-remove">
+                    <button type="button" class="model-remove" aria-label="Remove model"
+                      title="Remove model" (click)="removeModel(mi)">×</button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
 
-            <div class="model-limits">
-              <label class="field">
-                <span>Context window</span>
-                <input type="number" min="1" [value]="model.context" placeholder="131072" (input)="setModel(mi, 'context', $any($event.target).value)" />
-              </label>
-              <label class="field">
-                <span>Max output</span>
-                <input type="number" min="1" [value]="model.output" placeholder="32768" (input)="setModel(mi, 'output', $any($event.target).value)" />
-              </label>
-            </div>
-
-            <div class="cap-line">
-              <span class="cap-label">Capabilities</span>
-              <div class="chips">
-                <button type="button" class="chip" [class.on]="model.reasoning"
-                  [attr.aria-pressed]="model.reasoning" (click)="setModel(mi, 'reasoning', !model.reasoning)">
-                  reasoning
+        @if (openMenu(); as menu) {
+          @if (models()[menu.row]; as menuModel) {
+            <div class="menu" [class.think-menu]="menu.kind === 'think'"
+              [style.top.px]="menuPos().top" [style.left.px]="menuPos().left"
+              [attr.role]="menu.kind === 'caps' ? 'menu' : 'dialog'"
+              aria-label="Model settings" (keydown.escape)="closeMenu()">
+              @if (menu.kind === 'caps') {
+                <button type="button" class="menu-row" role="menuitemcheckbox"
+                  [attr.aria-checked]="menuModel.reasoning"
+                  (click)="setModel(menu.row, 'reasoning', !menuModel.reasoning)">
+                  <span class="check" aria-hidden="true">@if (menuModel.reasoning) {✓}</span>
+                  <svg class="brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                    @for (path of brainPaths; track path) {
+                      <path [attr.d]="path" />
+                    }
+                  </svg>
+                  <span class="menu-name">Reason</span>
                 </button>
-                @for (input of inputs; track input) {
-                  <button type="button" class="chip" [class.on]="hasInput(mi, input)"
-                    [attr.aria-pressed]="hasInput(mi, input)" (click)="toggleInput(mi, input)">
-                    {{ input }}
+                @for (badge of badges; track badge.modality) {
+                  <button type="button" class="menu-row" role="menuitemcheckbox"
+                    [attr.aria-checked]="hasInput(menu.row, badge.modality)"
+                    (click)="toggleInput(menu.row, badge.modality)">
+                    <span class="check" aria-hidden="true">@if (hasInput(menu.row, badge.modality)) {✓}</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                      @for (path of badge.paths; track path) {
+                        <path [attr.d]="path" />
+                      }
+                    </svg>
+                    <span class="menu-name">{{ badge.label }}</span>
                   </button>
                 }
-              </div>
+              } @else {
+                @for (level of levels; track level) {
+                  <button type="button" class="menu-row" role="menuitemcheckbox"
+                    [attr.aria-checked]="models()[menu.row]?.thinking.has(level)"
+                    (click)="toggleThinking(menu.row, level)">
+                    <span class="check" aria-hidden="true">@if (models()[menu.row]?.thinking.has(level)) {✓}</span>
+                    <svg class="brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
+                      [style.color]="levelColors[level]">
+                      @for (path of brainPaths; track path) {
+                        <path [attr.d]="path" />
+                      }
+                    </svg>
+                    <span class="menu-name">{{ level }}</span>
+                  </button>
+                }
+                <button type="button" class="menu-reset"
+                  [disabled]="menuModel.thinking.size === 0"
+                  (click)="resetThink(menu.row)">
+                  Engine default
+                </button>
+              }
             </div>
-
-            @if (model.reasoning) {
-              <div class="cap-line thinking-line">
-                <span class="cap-label">Thinking levels</span>
-                <div class="chips">
-                  @for (level of levels; track level) {
-                    <button type="button" class="chip" [class.on]="hasThinking(mi, level)"
-                      [attr.aria-pressed]="hasThinking(mi, level)" (click)="toggleThinking(mi, level)">
-                      {{ level }}
-                    </button>
-                  }
-                </div>
-              </div>
-            }
-          </div>
+          }
         }
 
         <div class="actions">

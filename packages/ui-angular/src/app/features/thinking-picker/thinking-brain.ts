@@ -17,7 +17,7 @@ import { AnimationService } from '../../ui/animation.service';
  * Lucide's `brain` glyph, as stroke paths, so it stays crisp at 16px and inherits
  * `currentColor` (the level's colour) instead of shipping a raster asset.
  */
-const BRAIN_PATHS = [
+export const BRAIN_PATHS = [
   'M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z',
   'M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z',
   'M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4',

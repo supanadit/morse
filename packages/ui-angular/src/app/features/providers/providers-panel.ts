@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, HostListener, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   asProviderDiscover,
@@ -11,6 +11,8 @@ import {
   type ProviderStatus,
   type ThinkingLevel,
 } from '@morse/protocol';
+import { ModelInputs, modelInputBadges } from '../model-picker/model-inputs';
+import { BRAIN_PATHS } from '../thinking-picker/thinking-brain';
 import { MorseService } from '../../host/morse.service';
 import { PanelState } from '../../state/panel-state';
 import { TerminalStore } from '../../state/terminal-store';
@@ -21,6 +23,17 @@ type Step = 'grid' | 'detail' | 'custom';
 const INPUTS: readonly ModelInput[] = ['text', 'image', 'audio', 'video', 'pdf'];
 const LEVELS: readonly ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const APIS = ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'];
+
+/** One colour per level, the composer's own palette: louder is warmer. */
+const LEVEL_COLORS: Record<ThinkingLevel, string> = {
+  off: 'var(--morse-fg-muted)',
+  minimal: 'var(--morse-info)',
+  low: 'var(--morse-success)',
+  medium: 'var(--morse-warn)',
+  high: 'var(--morse-error)',
+  xhigh: 'color-mix(in srgb, var(--morse-error) 55%, var(--morse-typename))',
+  max: 'var(--morse-typename)',
+};
 
 /** An editable model row. Blank numbers stay blank so the engine keeps its default. */
 interface ModelRow {
@@ -58,11 +71,11 @@ function fromRow(row: ModelRow): ProviderModel | undefined {
   }
   const context = Number.parseInt(row.context, 10);
   const output = Number.parseInt(row.output, 10);
-  // pi writes a level→value map; OpenCode writes variants. Both are filled from
-  // the same chips, and an explicit null disables a level pi otherwise infers.
+  // pi writes a level→value map; OpenCode writes variants. An empty set means
+  // the engine's own default, so only an explicit range is written at all.
   const thinking: Partial<Record<ThinkingLevel, string | null>> = {};
   const thinkingLevels: ThinkingLevel[] = [];
-  if (row.reasoning) {
+  if (row.reasoning && row.thinking.size > 0) {
     for (const level of LEVELS) {
       const on = row.thinking.has(level);
       thinking[level] = on ? level : null;
@@ -78,7 +91,7 @@ function fromRow(row: ModelRow): ProviderModel | undefined {
     ...(Number.isFinite(output) && output > 0 ? { maxTokens: output } : {}),
     ...(row.input.size > 0 ? { input: [...row.input] } : {}),
     ...(row.reasoning ? { reasoning: true } : {}),
-    ...(row.reasoning ? { thinking, thinkingLevels } : {}),
+    ...(row.reasoning && row.thinking.size > 0 ? { thinking, thinkingLevels } : {}),
   };
 }
 
@@ -90,7 +103,7 @@ function fromRow(row: ModelRow): ProviderModel | undefined {
  */
 @Component({
   selector: 'morse-providers-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, ModelInputs],
   templateUrl: './providers-panel.html',
   styleUrl: './providers-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -99,6 +112,7 @@ export class ProvidersPanel {
   private readonly morse = inject(MorseService);
   private readonly store = inject(TerminalStore);
   private readonly panel = inject(PanelState);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   protected readonly engines = this.morse.engines;
   protected readonly engine = signal('');
@@ -119,11 +133,40 @@ export class ProvidersPanel {
   protected readonly formApi = signal('openai-completions');
   protected readonly formKey = signal('');
   protected readonly models = signal<ModelRow[]>([]);
+  /** The one open row popup, if any: capabilities multi-select or thinking range. */
+  protected readonly openMenu = signal<{ row: number; kind: 'caps' | 'think' } | null>(null);
+  /** Viewport rect of the trigger that opened it; the popup floats from here. */
+  protected readonly menuAnchor = signal<{ top: number; bottom: number; left: number; right: number } | null>(null);
 
-  protected readonly inputs = INPUTS;
+  /** Fixed position for the open popup, flipped inside the viewport when needed. */
+  protected readonly menuPos = computed(() => {
+    const menu = this.openMenu();
+    const anchor = this.menuAnchor();
+    if (!menu || !anchor) {
+      return { top: 0, left: 0 };
+    }
+    const width = menu.kind === 'think' ? 250 : 210;
+    const height = menu.kind === 'think' ? 210 : 220;
+    const gap = 6;
+    const margin = 8;
+    const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    const left = Math.min(Math.max(menu.kind === 'think' ? anchor.right - width : anchor.left, margin), maxLeft);
+    const below = anchor.bottom + gap;
+    const top = below + height > window.innerHeight - margin
+      ? Math.max(margin, anchor.top - gap - height)
+      : below;
+    return { top, left };
+  });
+
   protected readonly levels = LEVELS;
   protected readonly apis = APIS;
   protected readonly customId = CUSTOM_ID;
+  /** Modality rows for the capabilities popup, with the composer's own icons. */
+  protected readonly badges = modelInputBadges(INPUTS);
+  /** The thinking picker's brain, for the Reason row. */
+  protected readonly brainPaths = BRAIN_PATHS;
+  /** Brain colour per thinking level, the composer's own palette. */
+  protected readonly levelColors = LEVEL_COLORS;
 
   private readonly matches = computed(() => {
     const text = this.query().trim().toLowerCase();
@@ -169,6 +212,20 @@ export class ProvidersPanel {
         void this.refresh();
       }
       this.morse.refreshModels();
+    });
+    // A floating popup cannot follow its row while anything scrolls or the
+    // viewport changes, so it dismisses instead of pointing stale.
+    effect((onCleanup) => {
+      if (!this.openMenu()) {
+        return;
+      }
+      const close = (): void => this.closeMenu();
+      document.addEventListener('scroll', close, true);
+      window.addEventListener('resize', close);
+      onCleanup(() => {
+        document.removeEventListener('scroll', close, true);
+        window.removeEventListener('resize', close);
+      });
     });
   }
 
@@ -341,6 +398,41 @@ export class ProvidersPanel {
 
   protected removeModel(index: number): void {
     this.models.update((list) => list.filter((_, at) => at !== index));
+    this.openMenu.update((menu) => (menu !== null && menu.row === index ? null : menu));
+  }
+
+  /** Whether one row's popup of a kind is open. */
+  protected menuOpen(row: number, kind: 'caps' | 'think'): boolean {
+    const menu = this.openMenu();
+    return menu !== null && menu.row === row && menu.kind === kind;
+  }
+
+  protected toggleMenu(row: number, kind: 'caps' | 'think', event?: MouseEvent): void {
+    const menu = this.openMenu();
+    if (menu !== null && menu.row === row && menu.kind === kind) {
+      this.openMenu.set(null);
+      this.menuAnchor.set(null);
+      return;
+    }
+    const rect = (event?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
+    this.menuAnchor.set(
+      rect ? { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right } : null,
+    );
+    this.openMenu.set({ row, kind });
+  }
+
+  protected closeMenu(): void {
+    this.openMenu.set(null);
+    this.menuAnchor.set(null);
+  }
+
+  /** Click anywhere outside the panel's popups closes the open one. */
+  @HostListener('document:pointerdown', ['$event'])
+  protected onDocumentPointerdown(event: PointerEvent): void {
+    const target = event.target as Node | null;
+    if (this.openMenu() && target && !this.host.nativeElement.contains(target)) {
+      this.closeMenu();
+    }
   }
 
   protected toggleInput(index: number, input: ModelInput): void {
@@ -364,6 +456,11 @@ export class ProvidersPanel {
     return this.models()[index]?.input.has(input) ?? false;
   }
 
+  /** The selected modalities of a row, for the composer's icon badge. */
+  protected capsList(index: number): ModelInput[] {
+    return [...(this.models()[index]?.input ?? [])];
+  }
+
   protected toggleThinking(index: number, level: ThinkingLevel): void {
     this.models.update((list) =>
       list.map((row, at) => {
@@ -381,8 +478,44 @@ export class ProvidersPanel {
     );
   }
 
-  protected hasThinking(index: number, level: ThinkingLevel): boolean {
-    return this.models()[index]?.thinking.has(level) ?? false;
+  /** Ordered picked levels of a row, for the comma-separated icon trigger. */
+  protected thinkLevels(index: number): ThinkingLevel[] {
+    const row = this.models()[index];
+    if (row === undefined) {
+      return [];
+    }
+    return LEVELS.filter((level) => row.thinking.has(level));
+  }
+
+  /** Thinking label: Default, a span when contiguous, or the picked levels. */
+  protected thinkLabel(index: number): string {
+    const row = this.models()[index];
+    if (row === undefined || !row.reasoning) {
+      return '—';
+    }
+    if (row.thinking.size === 0) {
+      return 'Default';
+    }
+    const ordered = LEVELS.map((level, at) => (row.thinking.has(level) ? at : -1)).filter(
+      (at) => at >= 0,
+    );
+    const first = ordered[0]!;
+    const last = ordered[ordered.length - 1]!;
+    if (last - first + 1 === ordered.length) {
+      return ordered.length > 1 ? `${LEVELS[first]}–${LEVELS[last]}` : `${LEVELS[first]}`;
+    }
+    return ordered.map((at) => LEVELS[at]).join(', ');
+  }
+
+  /** Clear the range so the engine picks its own default levels. */
+  protected resetThink(index: number): void {
+    this.models.update((list) =>
+      list.map((row, at) =>
+        at === index
+          ? { ...row, input: new Set(row.input), thinking: new Set<ThinkingLevel>() }
+          : { ...row, input: new Set(row.input), thinking: new Set(row.thinking) },
+      ),
+    );
   }
 
   /** Ask the endpoint for its models and fill the editor with what it reports. */

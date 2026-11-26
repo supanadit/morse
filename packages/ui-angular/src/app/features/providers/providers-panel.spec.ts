@@ -158,17 +158,73 @@ describe('ProvidersPanel', () => {
     expect(state.hasInput(0, 'image')).toBe(false);
     expect(state.hasInput(1, 'image')).toBe(false);
 
-    // Click the real chip in the first model card: with nested `@for` loops the
-    // template must pass the model row, not the inner chip index.
-    const cards = () => [...host.querySelectorAll('.model-card')] as HTMLElement[];
-    const imageChip = (row: number) =>
-      [...(cards()[row]?.querySelectorAll('.chip') ?? [])].find(
-        (chip) => chip.textContent?.trim() === 'image',
-      ) as HTMLButtonElement;
-    imageChip(0).click();
+    // Open the first row's capabilities popup: with nested `@for` loops the
+    // template must pass the model row, not the inner option index.
+    const rows = () => [...host.querySelectorAll('tr.model-main')] as HTMLElement[];
+    (rows()[0]?.querySelector('.col-caps .menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const imageOption = [...host.querySelectorAll('.menu-row')].find(
+      (row) => row.textContent?.includes('Vision (images)'),
+    ) as HTMLButtonElement;
+    imageOption.click();
     fixture.detectChanges();
     expect(state.hasInput(0, 'image')).toBe(true);
     expect(state.hasInput(1, 'image')).toBe(false);
+    // Multi-select: the popup stays open for the next pick.
+    expect(host.querySelector('.menu')).not.toBeNull();
+  });
+
+  it('disables the thinking trigger until reasoning is on', async () => {
+    const { fixture, host } = await render();
+    await openCard(fixture, host, 'My gateway');
+    const think = host.querySelector('.col-think .menu-trigger') as HTMLButtonElement;
+    expect(think.disabled).toBe(true);
+
+    // Enabling reasoning unlocks the levels popup at the engine default.
+    const caps = host.querySelector('.col-caps .menu-trigger') as HTMLButtonElement;
+    caps.click();
+    fixture.detectChanges();
+    const reasoning = [...host.querySelectorAll('.menu-row')].find(
+      (row) => row.textContent?.trim() === 'Reason',
+    ) as HTMLButtonElement;
+    reasoning.click();
+    fixture.detectChanges();
+    expect(think.disabled).toBe(false);
+    expect(think.title).toContain('Default');
+  });
+
+  it('picks non-adjacent thinking levels and resets to default', async () => {
+    const { fixture, host } = await render();
+    (host.querySelector('button.card.custom') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const panel = fixture.componentInstance as unknown as {
+      models: { update(fn: (list: unknown[]) => unknown[]): void };
+      thinkLabel(index: number): string;
+    };
+    panel.models.update(() => [
+      { id: 'a', name: '', context: '', output: '', input: new Set(['text']), reasoning: true, thinking: new Set() },
+    ]);
+    fixture.detectChanges();
+
+    (host.querySelector('.col-think .menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const levelOption = (name: string) =>
+      [...host.querySelectorAll('.menu-row')].find(
+        (row) => row.textContent?.trim() === name,
+      ) as HTMLButtonElement;
+    levelOption('low').click();
+    fixture.detectChanges();
+    levelOption('high').click();
+    fixture.detectChanges();
+    // No range to satisfy: low and high stay picked without medium.
+    expect(panel.thinkLabel(0)).toBe('low, high');
+    fixture.detectChanges();
+    const brains = host.querySelectorAll('.col-think .menu-trigger svg.brain');
+    expect(brains).toHaveLength(2);
+
+    (host.querySelector('.menu-reset') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(panel.thinkLabel(0)).toBe('Default');
   });
 
   it('opens a custom provider in the full model editor, not the key form', async () => {
