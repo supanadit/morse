@@ -1,6 +1,7 @@
 <div class="auth-page" role="main" aria-label="Morse login">
-  <section class="brand" aria-hidden="true">
-      <div class="brand-mark">◍</div>
+  <section class="brand">
+    <div class="brand-mark">Morse</div>
+    <div class="brand-copy">
       <h1>{{ setupRequired() ? 'Claim your Morse' : 'Welcome back' }}</h1>
       <p>
         {{
@@ -9,12 +10,15 @@
             : 'Sign in to reach your sessions. Another user’s conversations stay theirs.'
         }}
       </p>
-      <ol class="steps">
-        <li class="current"><span class="n">1</span> {{ setupRequired() ? 'Create your admin account' : 'Sign in to your account' }}</li>
-        <li><span class="n">2</span> Open your sessions</li>
-        <li><span class="n">3</span> Ask pi to build something</li>
-      </ol>
-    </section>
+      <a
+        class="credit"
+        href="https://unsplash.com/photos/wooden-cabin-in-the-dolomites-3OnNzf7eayk"
+        target="_blank"
+        rel="noopener noreferrer"
+        >Photo by Sarmat Batagov on Unsplash</a
+      >
+    </div>
+  </section>
     <section class="form" aria-label="{{ setupRequired() ? 'Create the admin account' : 'Log in' }}">
       <div class="form-inner">
       <h2>{{ setupRequired() ? 'Create admin account' : 'Log in' }}</h2>
@@ -22,6 +26,30 @@
         {{ setupRequired() ? 'This only ever happens once.' : 'Your sessions pick up where you left them.' }}
       </p>
       <form (submit)="submit(); $event.preventDefault()">
+        @if (setupRequired()) {
+          <label class="field">
+            <span>Full name</span>
+            <input
+              type="text"
+              name="name"
+              autocomplete="name"
+              placeholder="eg. Adit Pratama"
+              [ngModel]="name()"
+              (ngModelChange)="name.set($event)"
+            />
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input
+              type="email"
+              name="email"
+              autocomplete="email"
+              placeholder="eg. adit@example.com"
+              [ngModel]="email()"
+              (ngModelChange)="email.set($event)"
+            />
+          </label>
+        }
         <label class="field">
           <span>Username</span>
           <input

@@ -1,6 +1,6 @@
 /*
- * The admin page: the roster and the creation form. A plain column in the
- * shell's vocabulary — headings, rows and the same buttons the dialogs use.
+ * Member management: a desktop table that becomes stacked cards on a phone,
+ * plus the shared dialog shell for create/edit and the confirm dialog for delete.
  */
 :host {
   display: contents;
@@ -10,151 +10,360 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px;
-  max-width: 640px;
+  padding: 24px 28px 40px;
+  width: 100%;
+  max-width: 1040px;
+  box-sizing: border-box;
 }
 
-.admin-head {
+.page-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
-.admin-head h2 {
+.page-head h2 {
   margin: 0 0 4px;
-  font-size: 17px;
+  font-size: 20px;
+  font-weight: 650;
 }
 
 .sub {
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--morse-fg-muted);
 }
 
-.error {
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(340px, 100%);
+  padding: 0 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: 9px;
+  background: var(--morse-input-bg, var(--morse-bg));
+}
+
+.search svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--morse-fg-muted);
+  stroke-width: 1.5;
+}
+
+.search input {
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--morse-input-fg, var(--morse-fg));
+  background: transparent;
+}
+
+.search:focus-within {
+  border-color: var(--morse-accent, #7c5cff);
+}
+
+.summary {
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+}
+
+.error,
+.notice {
+  margin: 0 0 12px;
   padding: 8px 12px;
   border-radius: 9px;
   font-size: 12.5px;
+}
+
+.error {
   color: #ff8f8f;
   background: rgba(255, 80, 80, 0.1);
 }
 
 .notice {
-  padding: 8px 12px;
-  border-radius: 9px;
-  font-size: 12.5px;
   color: var(--morse-fg);
   background: rgba(120, 200, 120, 0.12);
 }
 
-.muted {
-  color: var(--morse-fg-muted);
-  font-size: 12.5px;
-}
-
-.roster {
-  list-style: none;
-  margin: 0 0 24px;
-  padding: 0;
+.table {
   border: 1px solid var(--morse-border);
-  border-radius: 10px;
+  border-radius: 11px;
   overflow: hidden;
 }
 
-.row {
-  display: flex;
+.thead,
+.trow {
+  display: grid;
+  grid-template-columns: minmax(200px, 2fr) minmax(180px, 1.5fr) 130px 130px;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
 }
 
-.row + .row {
+.thead {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--morse-fg-muted);
+  background: var(--morse-panel, var(--morse-bg));
+  border-bottom: 1px solid var(--morse-border);
+}
+
+.trow + .trow {
   border-top: 1px solid var(--morse-border);
+}
+
+.trow:hover {
+  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
+}
+
+.cell {
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--morse-accent-fg, #fff);
+  background: var(--morse-accent, #7c5cff);
 }
 
 .who {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-.role {
+.who strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.handle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--morse-border);
   color: var(--morse-fg-muted);
 }
 
-.role.admin {
-  /* The web accent is near-white, so the label must be the accent's
-   * foreground — plain white vanishes on it. */
-  color: var(--morse-accent-fg, #fff);
+.you {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--morse-border);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+}
+
+.role-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.badge {
+  padding: 3px 9px;
+  border: 1px solid var(--morse-border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--morse-fg-muted);
+}
+
+.badge.is-admin {
   border-color: transparent;
+  color: var(--morse-accent-fg, #fff);
   background: var(--morse-accent, #7c5cff);
 }
 
-.row-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.ghost {
-  border: 1px solid var(--morse-border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--morse-fg);
+.role-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  opacity: 0;
   font: inherit;
   font-size: 12px;
-  padding: 5px 10px;
   cursor: pointer;
 }
 
-.ghost:disabled {
+.trow:hover .role-select,
+.role-select:focus {
+  opacity: 1;
+}
+
+.role-select:disabled {
+  cursor: default;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.danger {
-  border: 1px solid rgba(255, 80, 80, 0.5);
+.secondary,
+.primary {
+  padding: 8px 14px;
   border-radius: 8px;
-  background: transparent;
-  color: #ff8f8f;
-  font: inherit;
-  font-size: 12px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-
-.create h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 130px;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.grid label {
-  display: block;
   font-size: 12px;
   font-weight: 600;
 }
 
-.grid label span {
-  display: block;
-  margin-bottom: 6px;
+.secondary {
+  border: 1px solid var(--morse-border);
+  color: var(--morse-fg);
+  background: transparent;
 }
 
-.grid input,
-.grid select {
+.primary {
+  border: 0;
+  color: var(--morse-accent-fg, #fff);
+  background: var(--morse-accent, #7c5cff);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--morse-accent-hover, var(--morse-accent, #7c5cff));
+}
+
+.primary:disabled {
+  color: var(--morse-fg-muted);
+  background: var(--morse-button-secondary, rgb(128 128 128 / 25%));
+}
+
+.text {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--morse-fg);
+  background: transparent;
+}
+
+.text:hover {
+  background: color-mix(in srgb, var(--morse-fg) 10%, transparent);
+}
+
+.text.danger {
+  color: #ff8f8f;
+}
+
+.empty {
+  margin: 0;
+  padding: 28px 14px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--morse-fg-muted);
+}
+
+/* The shared dialog shell, measured for a short form. */
+morse-dialog {
+  --morse-card-width: min(560px, 94vw);
+  --morse-card-max-height: min(86vh, 720px);
+  --morse-card-padding: 18px;
+  --morse-card-gap: 10px;
+  --morse-card-overflow: auto;
+}
+
+.member-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.member-form h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.lede,
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--morse-fg-muted);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
@@ -166,25 +375,70 @@
   background: var(--morse-input-bg, var(--morse-bg));
 }
 
-.primary {
-  padding: 9px 18px;
-  border: 0;
-  border-radius: 9px;
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-  color: var(--morse-accent-fg, #fff);
-  background: var(--morse-accent, #7c5cff);
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
-.primary:hover:not(:disabled) {
-  background: var(--morse-accent-hover, var(--morse-accent, #7c5cff));
-}
+@media (max-width: 760px) {
+  .admin {
+    padding: 18px 16px 32px;
+  }
 
-/* A disabled submit is a quiet secondary surface, not the accent at half
- * opacity — the wash read as a rendering bug, not a state. */
-.primary:disabled {
-  color: var(--morse-fg-muted);
-  background: var(--morse-button-secondary, rgb(128 128 128 / 25%));
-  cursor: default;
+  .head-actions,
+  .primary,
+  .secondary {
+    min-height: 36px;
+  }
+
+  .thead {
+    display: none;
+  }
+
+  .trow {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 14px;
+  }
+
+  .member,
+  .actions {
+    grid-column: 1 / -1;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+
+  .cell:not(.member)::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--morse-fg-muted);
+  }
+
+  .badge {
+    display: none;
+  }
+
+  .role-select {
+    position: static;
+    width: auto;
+    opacity: 1;
+    padding: 4px 6px;
+    border: 1px solid var(--morse-border);
+    border-radius: 7px;
+    background: var(--morse-input-bg, var(--morse-bg));
+    color: var(--morse-fg);
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }

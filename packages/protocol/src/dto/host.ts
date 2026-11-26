@@ -12,6 +12,10 @@ export interface AuthUser {
   id: string;
   username: string;
   role: AuthRole;
+  /** Display name. Optional so hosts on an older schema stay readable. */
+  name?: string;
+  /** Contact email. Optional for the same reason. */
+  email?: string;
 }
 
 /**

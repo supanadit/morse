@@ -170,7 +170,7 @@ describe('ActivityRail', () => {
     expect(member.nativeElement.querySelectorAll('.card .row')).toHaveLength(1);
   });
 
-  it('opens host settings from the cog; the page is a tab and survives a list', () => {
+  it('shows the settings menu from the cog without opening Members', () => {
     const fixture = renderAs('adit', 'admin');
     const shell = TestBed.inject(ShellState);
     const tabs = TestBed.inject(WorkspaceTabs);
@@ -182,9 +182,11 @@ describe('ActivityRail', () => {
     cog.click();
     fixture.detectChanges();
     expect(shell.leftPane()).toBe('settings');
-    expect(tabs.activeId()).toBe('settings:members');
+    expect(tabs.tabs()).toHaveLength(0);
+    expect(tabs.activeId()).toBeUndefined();
 
-    // Leaving for a list keeps the page: it is a tab, closed from the strip.
+    // Opening a page is an explicit choice, and the tab survives a trip to a list.
+    tabs.openSettingsPage();
     entries(fixture)[0].click();
     fixture.detectChanges();
     expect(shell.leftPane()).toBe('sessions');

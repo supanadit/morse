@@ -151,6 +151,14 @@
   font-size: 13px;
   color: var(--morse-fg);
 }
+.handle {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--morse-fg-muted);
+}
 .role {
   padding: 1px 7px;
   border: 1px solid var(--morse-border);

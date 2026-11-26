@@ -54,7 +54,8 @@ import {
   MORSE_TRANSCRIPT_STORE,
 } from '../../app/tokens.js';
 import { PgSessionStore } from '../../db/pg-store.js';
-import { createUser, deleteUser, listUsers, setUserRole } from '../../db/users.js';
+import { revokeUserTokens } from '../../db/tokens.js';
+import { createUser, deleteUser, listUsers, setUserRole, updateUser } from '../../db/users.js';
 import {
   describeError,
   mcpScope,
@@ -913,11 +914,20 @@ export class MorseSessionFactory {
         const db = this.requireAdminDb(user);
         const username = typeof args?.username === 'string' ? args.username : '';
         const password = typeof args?.password === 'string' ? args.password : '';
+        const name = typeof args?.name === 'string' ? args.name : undefined;
+        const email = typeof args?.email === 'string' ? args.email : undefined;
         const role = args?.role === 'admin' ? 'admin' : 'regular';
         try {
-          const created = await createUser(db, { username, password, role });
+          const created = await createUser(db, { username, password, name, email, role });
           this.logger.info(`Admin ${user?.username} created user "${created.username}" (${created.role}).`);
-          return { id: created.id, username: created.username, role: created.role, createdAt: created.createdAt };
+          return {
+            id: created.id,
+            username: created.username,
+            name: created.name,
+            email: created.email,
+            role: created.role,
+            createdAt: created.createdAt,
+          };
         } catch (error: unknown) {
           throw new UnsupportedByHostError(error instanceof Error ? error.message : 'Could not create the user.');
         }
@@ -934,6 +944,45 @@ export class MorseSessionFactory {
         }
         this.logger.info(`Admin ${user?.username} set ${userId} to ${role}.`);
         return { ok: true };
+      }
+      case 'adminUpdateUser': {
+        const db = this.requireAdminDb(user);
+        const userId = typeof args?.userId === 'string' ? args.userId : '';
+        if (userId.length === 0) {
+          throw new UnsupportedByHostError('adminUpdateUser needs a "userId" argument.');
+        }
+        const patch: {
+          name?: string;
+          email?: string;
+          role?: 'admin' | 'regular';
+          password?: string;
+        } = {};
+        if (typeof args?.name === 'string') {
+          patch.name = args.name;
+        }
+        if (typeof args?.email === 'string') {
+          patch.email = args.email;
+        }
+        if (args?.role === 'admin' || args?.role === 'regular') {
+          patch.role = args.role;
+        }
+        if (typeof args?.password === 'string' && args.password.length > 0) {
+          patch.password = args.password;
+        }
+        try {
+          const updated = await updateUser(db, userId, patch);
+          if (updated === undefined) {
+            throw new UnsupportedByHostError('No such user.');
+          }
+          // A new password invalidates every session still held for that user.
+          if (patch.password !== undefined) {
+            await revokeUserTokens(db, userId);
+          }
+          this.logger.info(`Admin ${user?.username} updated user ${userId}.`);
+          return updated;
+        } catch (error: unknown) {
+          throw new UnsupportedByHostError(error instanceof Error ? error.message : 'Could not update the user.');
+        }
       }
       case 'adminDeleteUser': {
         const db = this.requireAdminDb(user);

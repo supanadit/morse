@@ -80,7 +80,11 @@
             {{ avatarInitial() }}
           </span>
           <span class="who">
-            <strong class="name">{{ user.username }}</strong>
+            <strong class="name">{{ user.name || user.username }}</strong>
+            <span class="handle">@{{ user.username }}</span>
+            @if (user.email) {
+              <span class="handle">{{ user.email }}</span>
+            }
             <span class="role" [class.admin]="user.role === 'admin'">
               {{ user.role === 'admin' ? 'Admin' : 'Member' }}
             </span>

@@ -49,8 +49,17 @@ export class AuthState {
     return this.post('/api/auth/login', { username, password });
   }
 
-  async setup(username: string, password: string): Promise<boolean> {
-    return this.post('/api/auth/setup', { username, password });
+  async setup(
+    username: string,
+    password: string,
+    profile?: { name?: string; email?: string },
+  ): Promise<boolean> {
+    return this.post('/api/auth/setup', {
+      username,
+      password,
+      name: profile?.name ?? '',
+      email: profile?.email ?? '',
+    });
   }
 
   async logout(): Promise<void> {
@@ -64,7 +73,10 @@ export class AuthState {
     }
   }
 
-  private async post(url: string, body: { username: string; password: string }): Promise<boolean> {
+  private async post(
+    url: string,
+    body: { username: string; password: string; name?: string; email?: string },
+  ): Promise<boolean> {
     this.working.set(true);
     this.error.set(null);
     try {

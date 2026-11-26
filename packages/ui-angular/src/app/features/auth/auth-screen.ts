@@ -7,8 +7,8 @@ import { AuthState } from '../../host/auth-state';
  * the shell steps aside (see `app.html`): login when users exist, the
  * create-first-admin wizard when the table is empty.
  *
- * The layout follows the product reference — a brand panel with the steps on
- * the left, the form on the right — skinned in Morse's own CSS variables.
+ * The layout follows the product reference — a photo panel on the left, the
+ * form on the right — skinned in Morse's own CSS variables.
  * Local credentials only: no OAuth buttons (those need per-deploy secrets).
  */
 @Component({
@@ -26,6 +26,8 @@ export class AuthScreen {
   protected readonly error = this.auth.error;
   protected readonly username = signal('');
   protected readonly password = signal('');
+  protected readonly name = signal('');
+  protected readonly email = signal('');
   protected readonly showPassword = signal(false);
 
   protected canSubmit(): boolean {
@@ -39,7 +41,7 @@ export class AuthScreen {
     const username = this.username().trim();
     const password = this.password();
     if (this.setupRequired()) {
-      await this.auth.setup(username, password);
+      await this.auth.setup(username, password, { name: this.name(), email: this.email() });
     } else {
       await this.auth.login(username, password);
     }

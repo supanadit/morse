@@ -108,7 +108,7 @@ export class AuthController {
    */
   @Post('setup')
   async setup(
-    @Body() body: { username?: unknown; password?: unknown },
+    @Body() body: { username?: unknown; password?: unknown; name?: unknown; email?: unknown },
     @Res({ passthrough: true }) rawResponse: unknown,
   ): Promise<{ user: AuthUser }> {
     const response = rawResponse as AuthResponse;
@@ -118,14 +118,24 @@ export class AuthController {
     }
     const username = typeof body.username === 'string' ? body.username : '';
     const password = typeof body.password === 'string' ? body.password : '';
+    const name = typeof body.name === 'string' ? body.name : undefined;
+    const email = typeof body.email === 'string' ? body.email : undefined;
     try {
-      const created = await createUser(db, { username, password });
+      const created = await createUser(db, { username, password, name, email });
       // Sessions adopted (and written) before anyone existed belong to them.
       await adoptLocalRowsToUser(db, created.id);
       const token = await createToken(db, created.id);
       setAuthCookie(response, token);
       this.logger.info(`First admin "${created.username}" created; multi-user setup complete.`);
-      return { user: { id: created.id, username: created.username, role: created.role } };
+      return {
+        user: {
+          id: created.id,
+          username: created.username,
+          role: created.role,
+          name: created.name,
+          email: created.email,
+        },
+      };
     } catch (error: unknown) {
       throw refuse(HttpStatus.BAD_REQUEST, error instanceof Error ? error.message : 'Setup failed.');
     }
@@ -149,7 +159,15 @@ export class AuthController {
     }
     const token = await createToken(db, user.id);
     setAuthCookie(response, token);
-    return { user: { id: user.id, username: user.username, role: user.role } };
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+      },
+    };
   }
 
   /** Logout: revokes the cookie's token and clears it. */

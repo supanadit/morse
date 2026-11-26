@@ -180,6 +180,11 @@ export type ServerHostCommand =
   | 'adminCreateUser'
   /** Change one identity's role `{ userId, role }` (admin only). */
   | 'adminSetRole'
+  /**
+   * Edit one identity `{ userId, name?, email?, role?, password? }` (admin only).
+   * A password change revokes that user's existing login sessions.
+   */
+  | 'adminUpdateUser'
   /** Delete one identity `{ userId }` (admin only, never the last admin). */
   | 'adminDeleteUser';
 

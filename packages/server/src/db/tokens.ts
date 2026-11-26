@@ -48,7 +48,13 @@ export async function resolveToken(db: Knex, token: string): Promise<AuthUser | 
   const user = await findUserById(db, entry.user_id);
   return user === undefined
     ? undefined
-    : { id: user.id, username: user.username, role: user.role };
+    : {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+      };
 }
 
 /** Ends one login session. True when a row was actually revoked. */

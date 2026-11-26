@@ -1,11 +1,35 @@
-<section class="admin" aria-label="User management">
-  <header class="admin-head">
-    <div>
-      <h2>Users</h2>
-      <p class="sub">Everyone who can sign in to this host. Sessions stay per user — deleting one removes their sessions too.</p>
+<section class="admin" aria-label="Member management">
+  <header class="page-head">
+    <div class="heading">
+      <h2>Members</h2>
+      <p class="sub">
+        Manage who can sign in to this host. Each member keeps their own sessions.
+      </p>
     </div>
-    <button type="button" class="ghost" (click)="refresh()" [disabled]="loading()">↻ Refresh</button>
+    <div class="head-actions">
+      <button type="button" class="secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+      <button type="button" class="primary" (click)="openCreate()">Add member</button>
+    </div>
   </header>
+
+  <div class="toolbar">
+    <label class="search">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5" />
+        <path d="m10.5 10.5 3 3" />
+      </svg>
+      <input
+        type="search"
+        aria-label="Search members"
+        placeholder="Search by name, username or email"
+        [ngModel]="query()"
+        (ngModelChange)="query.set($event)"
+      />
+    </label>
+    <span class="summary">
+      {{ filtered().length }} of {{ users().length }} members · {{ adminCount() }} admins
+    </span>
+  </div>
 
   @if (error(); as message) {
     <p class="error" role="alert">{{ message }}</p>
@@ -14,48 +38,155 @@
     <p class="notice" role="status">{{ message }}</p>
   }
 
-  @if (loading() && users().length === 0) {
-    <p class="muted">Loading…</p>
-  } @else {
-    <ul class="roster">
-      @for (user of users(); track user.id) {
-        <li class="row">
-          <span class="who">
-            <strong>{{ user.username }}</strong>
-            <span class="role" [class.admin]="user.role === 'admin'">{{ user.role }}</span>
-          </span>
-          <span class="row-actions">
-            @if (user.role === 'regular') {
-              <button type="button" class="ghost" (click)="setRole(user, 'admin')">Make admin</button>
-            } @else {
-              <button type="button" class="ghost" (click)="setRole(user, 'regular')">Make regular</button>
-            }
-            <button type="button" class="danger" (click)="deleteUser(user)">Delete</button>
-          </span>
-        </li>
-      }
-    </ul>
-  }
-
-  <form class="create" (submit)="createUser(); $event.preventDefault()" aria-label="Create a user">
-    <h3>New user</h3>
-    <div class="grid">
-      <label>
-        <span>Username</span>
-        <input type="text" name="new-username" autocomplete="off" placeholder="eg. bob" [ngModel]="newUsername()" (ngModelChange)="newUsername.set($event)" />
-      </label>
-      <label>
-        <span>Password</span>
-        <input type="password" name="new-password" autocomplete="new-password" placeholder="At least 8 characters" [ngModel]="newPassword()" (ngModelChange)="newPassword.set($event)" />
-      </label>
-      <label>
-        <span>Role</span>
-        <select name="new-role" [ngModel]="newRole()" (ngModelChange)="newRole.set($event)">
-          <option value="regular">regular</option>
-          <option value="admin">admin</option>
-        </select>
-      </label>
+  <div class="table" role="table" aria-label="Members">
+    <div class="thead" role="row" aria-hidden="true">
+      <span role="columnheader">Member</span>
+      <span role="columnheader">Email</span>
+      <span role="columnheader">Role</span>
+      <span role="columnheader">Actions</span>
     </div>
-    <button type="submit" class="primary" [disabled]="!canCreate()">Create user</button>
-  </form>
+
+    @if (loading() && users().length === 0) {
+      <p class="empty">Loading members…</p>
+    } @else if (filtered().length === 0) {
+      <p class="empty">
+        {{ query().length > 0 ? 'No members match your search.' : 'No members yet — add the first one.' }}
+      </p>
+    } @else {
+      @for (user of filtered(); track user.id) {
+        <div class="trow" role="row">
+          <span class="cell member" role="cell">
+            <span class="avatar" aria-hidden="true">{{ initial(user) }}</span>
+            <span class="who">
+              <strong>{{ displayName(user) }}</strong>
+              <span class="handle">
+                &#64;{{ user.username }}
+                @if (me()?.id === user.id) {
+                  <span class="you">You</span>
+                }
+              </span>
+            </span>
+          </span>
+          <span class="cell email" role="cell" data-label="Email">
+            {{ user.email || '—' }}
+          </span>
+          <span class="cell role-cell" role="cell" data-label="Role">
+            <span class="badge" [class.is-admin]="user.role === 'admin'">{{ user.role }}</span>
+            <select
+              class="role-select"
+              aria-label="Role for {{ displayName(user) }}"
+              [disabled]="me()?.id === user.id"
+              [ngModel]="user.role"
+              (ngModelChange)="setRole(user, $event)"
+            >
+              <option value="regular">regular</option>
+              <option value="admin">admin</option>
+            </select>
+          </span>
+          <span class="cell actions" role="cell" data-label="Actions">
+            <button type="button" class="text" (click)="openEdit(user)">Edit</button>
+            @if (me()?.id !== user.id) {
+              <button type="button" class="text danger" (click)="askDelete(user)">Delete</button>
+            }
+          </span>
+        </div>
+      }
+    }
+  </div>
 </section>
+
+@if (editor(); as edit) {
+  <morse-dialog labelledBy="member-dialog-title" (dismiss)="closeEditor()">
+    <form class="member-form" (submit)="save(); $event.preventDefault()">
+      <h2 id="member-dialog-title">
+        {{ edit.mode === 'create' ? 'Add member' : 'Edit member' }}
+      </h2>
+      <p class="lede">
+        {{
+          edit.mode === 'create'
+            ? 'Create an account for someone who can sign in to this host.'
+            : 'Update this member’s profile, role or password.'
+        }}
+      </p>
+
+      @if (edit.mode === 'create') {
+        <label class="field">
+          <span>Username</span>
+          <input
+            type="text"
+            name="username"
+            autocomplete="off"
+            placeholder="eg. bob"
+            [ngModel]="formUsername()"
+            (ngModelChange)="formUsername.set($event)"
+          />
+        </label>
+      }
+      <div class="form-grid">
+        <label class="field">
+          <span>Full name</span>
+          <input
+            type="text"
+            name="name"
+            autocomplete="name"
+            placeholder="eg. Bob Builder"
+            [ngModel]="formName()"
+            (ngModelChange)="formName.set($event)"
+          />
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input
+            type="email"
+            name="email"
+            autocomplete="email"
+            placeholder="eg. bob@example.com"
+            [ngModel]="formEmail()"
+            (ngModelChange)="formEmail.set($event)"
+          />
+        </label>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>Role</span>
+          <select name="role" [ngModel]="formRole()" (ngModelChange)="formRole.set($event)">
+            <option value="regular">regular</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>{{ edit.mode === 'create' ? 'Password' : 'New password' }}</span>
+          <input
+            type="password"
+            name="password"
+            autocomplete="new-password"
+            placeholder="At least 8 characters"
+            [ngModel]="formPassword()"
+            (ngModelChange)="formPassword.set($event)"
+          />
+        </label>
+      </div>
+      @if (edit.mode === 'edit') {
+        <p class="hint">Leave the password blank to keep the current one.</p>
+      }
+
+      <div class="dialog-actions">
+        <button type="button" class="secondary" (click)="closeEditor()">Cancel</button>
+        <button type="submit" class="primary" [disabled]="!canSave()">
+          {{ saving() ? 'Saving…' : edit.mode === 'create' ? 'Add member' : 'Save changes' }}
+        </button>
+      </div>
+    </form>
+  </morse-dialog>
+}
+
+@if (pendingDelete(); as user) {
+  <morse-confirm-dialog
+    [title]="'Delete ' + displayName(user) + '?'"
+    [body]="'This removes their account and every session they own.'"
+    note="This cannot be undone."
+    confirmLabel="Delete member"
+    (confirmed)="confirmDelete()"
+    (cancelled)="pendingDelete.set(null)"
+  />
+}

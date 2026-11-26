@@ -75,6 +75,18 @@ const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 3,
+    name: 'user profile fields',
+    up: async (db) => {
+      // Additive only: existing rows keep working, with the username standing in
+      // as the display name until an admin edits the profile.
+      await db.schema.alterTable('morse_users', (table) => {
+        table.text('name').notNullable().defaultTo('');
+        table.text('email').notNullable().defaultTo('');
+      });
+    },
+  },
 ];
 
 /**

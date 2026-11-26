@@ -8,7 +8,8 @@ import { AgentRouter, SessionTranscriptStore, silentLogger } from '@morse/system
 import type { AuthUser, HostToClientMessage } from '@morse/protocol';
 import { migrateToLatest } from '../../db/migrations.js';
 import { PgSessionStore } from '../../db/pg-store.js';
-import { createUser } from '../../db/users.js';
+import { createToken, resolveToken } from '../../db/tokens.js';
+import { createUser, findUserById } from '../../db/users.js';
 import { MorseSessionFactory } from './session-factory.service.js';
 import type { MorseServerConfig } from '../../app/config.js';
 
@@ -221,7 +222,10 @@ describe('MorseSessionFactory multi-user bundles', () => {
     const forAdmin = factory.createFor((message) => adminMessages.push(message), {
       user: userOf(admin.id, 'admin', 'adit'),
     });
-    const ask = async (command: 'adminCreateUser' | 'adminSetRole' | 'adminDeleteUser', args: Record<string, unknown>) => {
+    const ask = async (
+      command: 'adminCreateUser' | 'adminSetRole' | 'adminUpdateUser' | 'adminDeleteUser',
+      args: Record<string, unknown>,
+    ) => {
       await forAdmin.handleClientMessage({ type: 'host/command', payload: { requestId: command, command, args } });
       return adminMessages.at(-1) as { payload: { ok: boolean; data?: unknown; error?: string } };
     };
@@ -242,6 +246,37 @@ describe('MorseSessionFactory multi-user bundles', () => {
     expect(deleted.payload.ok).toBe(true);
     // Her sessions went with her; everyone else's stayed.
     expect(await new PgSessionStore(db).list()).toHaveLength(2);
+    await forAdmin.dispose().catch(() => undefined);
+  });
+
+  it('lets admins edit a profile and password, revoking sessions on a password change', async () => {
+    const messages: HostToClientMessage[] = [];
+    const forAdmin = factory.createFor((message) => messages.push(message), {
+      user: userOf(admin.id, 'admin', 'adit'),
+    });
+    const ask = async (args: Record<string, unknown>) => {
+      await forAdmin.handleClientMessage({
+        type: 'host/command',
+        payload: { requestId: 'edit', command: 'adminUpdateUser', args },
+      });
+      return messages.at(-1) as { payload: { ok: boolean; error?: string } };
+    };
+
+    const token = await createToken(db, bob.id);
+    const edited = await ask({ userId: bob.id, name: 'Bob Builder', email: 'bob@example.com' });
+    expect(edited.payload.ok).toBe(true);
+    expect(await findUserById(db, bob.id)).toMatchObject({
+      name: 'Bob Builder',
+      email: 'bob@example.com',
+    });
+    // Editing a profile leaves the user's login session alone.
+    expect(await resolveToken(db, token)).toMatchObject({ id: bob.id });
+
+    expect((await ask({ userId: bob.id, email: 'not-an-email' })).payload.ok).toBe(false);
+    expect((await ask({ userId: bob.id, password: 'short' })).payload.ok).toBe(false);
+
+    expect((await ask({ userId: bob.id, password: 'newsecret9' })).payload.ok).toBe(true);
+    expect(await resolveToken(db, token)).toBeUndefined();
     await forAdmin.dispose().catch(() => undefined);
   });
 });

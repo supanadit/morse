@@ -1,7 +1,6 @@
 /*
- * The login / first-run gate. A full-screen split: the brand panel owns the
- * left half edge to edge, the form the right — no floating card, so the page
- * reads as a place rather than a dialog that missed its backdrop.
+ * The login / first-run gate. Full-screen split: the photo panel owns the
+ * left half edge to edge, the form the right — no floating card.
  */
 :host {
   display: contents;
@@ -9,74 +8,70 @@
 
 .auth-page {
   display: grid;
-  grid-template-columns: minmax(340px, 42%) 1fr;
+  grid-template-columns: minmax(340px, 46%) 1fr;
   min-height: 100dvh;
   background: var(--morse-bg);
 }
 
 .brand {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  min-height: 100dvh;
   padding: 40px;
-  color: #f2ecff;
-  background: linear-gradient(160deg, #2a2145 0%, #171226 60%, #0e0b18 100%);
+  color: #fff;
+  background: url('/login.jpg') center / cover no-repeat;
+}
+
+/* Keeps the tagline legible over the bright parts of the photo. */
+.brand::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: '';
+  background: linear-gradient(
+    180deg,
+    rgb(0 0 0 / 42%) 0%,
+    rgb(0 0 0 / 5%) 35%,
+    rgb(0 0 0 / 35%) 60%,
+    rgb(0 0 0 / 82%) 100%
+  );
 }
 
 .brand-mark {
-  font-size: 22px;
-  margin-bottom: clamp(48px, 12vh, 128px);
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
 .brand h1 {
   margin: 0 0 10px;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .brand p {
-  margin: 0 0 28px;
-  max-width: 36ch;
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: #b9b0d6;
-}
-
-.steps {
-  list-style: none;
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 36ch;
+  max-width: 40ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgb(255 255 255 / 82%);
 }
 
-.steps li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 9px;
-  font-size: 12.5px;
-  color: #8f86ad;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.steps li.current {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.steps .n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
+.credit {
+  display: inline-block;
+  margin-top: 12px;
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.16);
+  color: rgb(255 255 255 / 62%);
+  text-decoration-color: rgb(255 255 255 / 40%);
+  text-underline-offset: 2px;
+}
+
+.credit:hover {
+  color: #fff;
 }
 
 .form {
@@ -194,15 +189,10 @@
     grid-template-columns: 1fr;
   }
   .brand {
-    padding: 28px 24px;
+    min-height: 240px;
+    padding: 24px;
   }
-  .brand-mark {
-    margin-bottom: 20px;
-  }
-  .brand p {
-    margin-bottom: 0;
-  }
-  .steps {
-    display: none;
+  .form {
+    padding: 32px 24px;
   }
 }

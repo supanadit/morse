@@ -37,29 +37,27 @@ export class ActivityRail {
   protected readonly currentUser = computed(() => this.morse.user());
   /** The account card open under the rail's foot. */
   protected readonly menuOpen = signal(false);
-  /** A stable tint for the avatar, hashed from the username. */
+  /** A stable tint for the avatar, hashed from the display name. */
   protected readonly avatarHue = computed(() => {
-    const name = this.currentUser()?.username ?? '';
+    const name = this.currentUser()?.name || this.currentUser()?.username || '';
     let hash = 0;
     for (let index = 0; index < name.length; index += 1) {
       hash = (hash * 31 + name.charCodeAt(index)) | 0;
     }
     return Math.abs(hash) % 360;
   });
-  protected readonly avatarInitial = computed(
-    () => this.currentUser()?.username.charAt(0).toUpperCase() ?? '',
-  );
+  protected readonly avatarInitial = computed(() => {
+    const name = this.currentUser()?.name || this.currentUser()?.username || '';
+    return name.charAt(0).toUpperCase();
+  });
 
   protected select(pane: LeftPane): void {
     // CSS decides which toggle is on screen; the handler only has to match it.
     const wide = globalThis.matchMedia?.('(min-width: 760px)').matches ?? true;
     if (pane !== this.shell.leftPane()) {
       this.shell.setLeftPane(pane);
-      // The settings menu's page is a tab: opening the cog shows the menu
-      // with the Members page, and the tab survives a trip to any list.
-      if (pane === 'settings') {
-        this.tabs.openSettingsPage();
-      }
+      // The cog shows the settings menu only. Opening a page is an explicit
+      // choice from that menu (or the admin's own card), never a side effect.
       if (wide) {
         this.layout.setVisible('left', true);
       } else {
