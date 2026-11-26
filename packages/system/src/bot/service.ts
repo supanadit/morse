@@ -631,6 +631,16 @@ export class BotService {
    */
   async deleteBot(username: string): Promise<void> {
     const bot = this.botOrThrow(username);
+    // Every DM room with this bot — legacy and per-owner — goes with it: the
+    // ids are collected before the member-strip below rewrites them.
+    const dmIds = this.registry.conversations
+      .filter(
+        (conversation) =>
+          conversation.kind === 'dm' &&
+          conversation.members.length === 1 &&
+          conversation.members[0] === bot.username,
+      )
+      .map((conversation) => conversation.id);
     // Any turn speaking for this bot is over, including one it is answering in a
     // group whose other members remain. Only this bot's work stops: a room-wide
     // stop would also cancel a teammate's turn for no reason.
@@ -707,21 +717,26 @@ export class BotService {
           ...(lead === bot.username ? {} : { lead }),
         };
       });
+    // Every DM room with this bot — legacy and per-owner ids collected up
+    // front, before the member-strip above rewrote them — goes with it, or a
+    // recreated bot would inherit another reader's transcript the moment its
+    // room id is re-derived.
+    const gone = new Set([...dmIds, ...emptiedGroups]);
     this.registry.conversations = this.registry.conversations.filter(
-      (conversation) =>
-        conversation.id !== dmConversationId(bot.username) &&
-        !emptiedGroups.includes(conversation.id),
+      (conversation) => !gone.has(conversation.id),
     );
     for (const id of emptiedGroups) {
       this.transcripts.forget(id);
       this.deliveries.forget(id);
       this.forgetRoomUsage(id);
     }
-    const dm = dmConversationId(bot.username);
-    this.deliveries.forget(dm);
-    // The DM is gone with its bot, so every counter it held goes with it: nothing
-    // can open that conversation again to push a stale ring.
-    this.forgetRoomUsage(dm);
+    for (const dm of dmIds) {
+      this.transcripts.forget(dm);
+      this.deliveries.forget(dm);
+      // The DM is gone with its bot, so every counter it held goes with it:
+      // nothing can open that conversation again to push a stale ring.
+      this.forgetRoomUsage(dm);
+    }
     await this.saveRegistry();
     this.emit({ type: 'roster' });
   }
@@ -2344,6 +2359,7 @@ export class BotService {
       sender.username < target.username
         ? [sender.username, target.username]
         : [target.username, sender.username];
+    const parent = this.findConversation(parentId);
     const conversation: ConversationRecord = {
       id: threadConversationId(sender.username, target.username),
       kind: 'thread',
@@ -2353,6 +2369,8 @@ export class BotService {
       askedBy: sender.username,
       sessions: {},
       updatedAt: this.clock(),
+      // A thread belongs to whoever owned the room the ask came from.
+      ...(parent?.ownerId === undefined ? {} : { ownerId: parent.ownerId }),
     };
     this.registry.conversations.push(conversation);
     return conversation;
@@ -2978,8 +2996,8 @@ export class BotService {
   }
 
   /** Creates the DM conversation for a bot, or repairs a kept one after a recreate. */
-  private upsertDm(bot: BotRecord): void {
-    const id = dmConversationId(bot.username);
+  private upsertDm(bot: BotRecord, ownerId?: string): void {
+    const id = dmConversationId(bot.username, ownerId);
     const existing = this.registry.conversations.find((conversation) => conversation.id === id);
     if (existing !== undefined) {
       // The title follows the display name, which an edit can change.
@@ -2999,7 +3017,51 @@ export class BotService {
       members: [bot.username],
       sessions: {},
       updatedAt: this.clock(),
+      ...(ownerId === undefined ? {} : { ownerId }),
     });
+  }
+
+  /**
+   * One reader's DM with one bot (Slack semantics: two readers talking to the
+   * same bot never share a room). Finds the owned room, or creates it — so a
+   * DM is born on first open, not at bot creation.
+   */
+  resolveDm(username: string, ownerId: string): ConversationRecord {
+    const bot = this.botOrThrow(username);
+    const id = dmConversationId(username, ownerId);
+    const existing = this.registry.conversations.find((conversation) => conversation.id === id);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const room: ConversationRecord = {
+      id,
+      kind: 'dm',
+      title: bot.name,
+      members: [username],
+      sessions: {},
+      updatedAt: this.clock(),
+      ownerId,
+    };
+    this.registry.conversations.push(room);
+    this.saveRegistrySoon();
+    this.emit({ type: 'roster' });
+    return room;
+  }
+
+  /**
+   * Stamps a room's owner (group creation through the scoped port). Rooms are
+   * born unowned; only a login user claims them.
+   */
+  setConversationOwner(conversationId: string, ownerId: string): void {
+    const conversation = this.conversationOrThrow(conversationId);
+    conversation.ownerId = ownerId;
+    this.saveRegistrySoon();
+  }
+
+  /** Who owns a room — undefined for legacy rooms written before owners. */
+  ownerOf(conversationId: string): string | undefined {
+    return this.registry.conversations.find((conversation) => conversation.id === conversationId)
+      ?.ownerId;
   }
 
   /**

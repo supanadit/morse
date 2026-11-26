@@ -35,6 +35,7 @@ export * from './bot/providers.js';
 export * from './bot/mentions.js';
 export * from './bot/activity.js';
 export * from './bot/service.js';
+export * from './bot/scoped.js';
 export * from './bot/data.js';
 
 export * from './chat/service.js';

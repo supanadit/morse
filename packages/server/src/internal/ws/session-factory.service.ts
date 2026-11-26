@@ -7,10 +7,12 @@ import {
   ChatService,
   ComposerHub,
   InteractionHub,
+  ScopedBotPort,
   SessionRegistry,
   UnsupportedByHostError,
   bindTranscriptsToRegistry,
   type AgentExtras,
+  type BotControllerPort,
   type BotEvent,
   type BotService,
   type MorseLogger,
@@ -118,6 +120,12 @@ interface UserBundle {
   detachTranscripts: () => void;
   /** The project fence for this user: their workspace root when fenced. */
   policy: ServerProjectPolicy;
+  /**
+   * This reader's lens over the shared bot service (Slack semantics: their
+   * own DM rooms). Undefined with no bot service; the service itself on
+   * single-user hosts.
+   */
+  botPort: BotControllerPort | undefined;
 }
 
 /** Who connected on a socket: the login user, or undefined on single-user hosts. */
@@ -294,6 +302,7 @@ export class MorseSessionFactory {
       mcpWatch,
       detachTranscripts,
       policy,
+      botPort: this.bot === undefined ? undefined : new ScopedBotPort(this.bot, userId),
     };
     this.bundles.set(userId, bundle);
     return bundle;
@@ -475,6 +484,8 @@ export class MorseSessionFactory {
     // queue and questions). Single-user: the host singletons, as before.
     const bundle = user === null || user === undefined ? undefined : this.bundleFor(user);
     const mcpWatch = bundle?.mcpWatch ?? this.mcpWatch;
+    // Single-user keeps the service itself (unscoped: everything visible).
+    const botPort = bundle?.botPort ?? this.bot;
     const services: HostSessionServices = {
       registry: bundle?.registry ?? this.registry,
       chat: bundle?.chat ?? new ChatService({ agent: this.registry, logger: this.logger }),
@@ -515,12 +526,17 @@ export class MorseSessionFactory {
       terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId),
       agentHint:
         'Install the pi CLI and make sure it is on PATH, or start the server with MORSE_PI_PATH set.',
-      // Bot mode's commands, when this host has the service. The same socket's
-      // `emit` also carries the service's events (see `subscribeBot`).
-      ...(this.bot === undefined ? {} : { bot: this.bot }),
+      // Bot mode's commands, through this connection's lens when multi-user
+      // (their own rooms), or the service itself on single-user hosts. The
+      // same socket's `emit` also carries the service's events (see
+      // `subscribeBot`).
+      ...(botPort === undefined ? {} : { bot: botPort }),
     });
-    if (this.bot !== undefined) {
-      this.botFeeds.set(controller, this.subscribeBot(this.bot, emit));
+    if (this.bot !== undefined && botPort !== undefined) {
+      this.botFeeds.set(
+        controller,
+        this.subscribeBot(this.bot, botPort, userId, emit),
+      );
     }
     this.connections.set(controller, { emit, userId });
     return controller;
@@ -543,33 +559,58 @@ export class MorseSessionFactory {
    * host-wide, so every connected client sees the same roster, routing state and
    * transcript lines — a second window is a viewer, not a second owner.
    */
-  private subscribeBot(bot: BotService, emit: (message: HostToClientMessage) => void): () => void {
+  private subscribeBot(
+    bot: BotService,
+    port: BotControllerPort,
+    ownerId: string | undefined,
+    emit: (message: HostToClientMessage) => void,
+  ): () => void {
+    // Slack semantics per connection: a reader only ever sees their own rooms.
+    // Unscoped (single-user) passes everything through, as before.
+    const visible = (conversationId: string): boolean =>
+      ownerId === undefined || bot.ownerOf(conversationId) === ownerId;
+    const shownAs = (conversationId: string): string =>
+      port instanceof ScopedBotPort ? port.displayId(conversationId) : conversationId;
     return bot.subscribe((event: BotEvent) => {
       switch (event.type) {
         case 'roster':
           // The event names the change, not the new list: read it back so the
-          // client gets one authoritative roster.
-          emit({ type: 'bot/roster', payload: bot.roster() });
+          // client gets one authoritative roster (scoped to their rooms).
+          emit({ type: 'bot/roster', payload: port.roster() });
           return;
         case 'transcript':
+          if (!visible(event.conversationId)) {
+            return;
+          }
           emit({
             type: 'bot/transcript',
             payload: {
-              conversationId: event.conversationId,
+              conversationId: shownAs(event.conversationId),
               entries: event.entries,
               replace: event.replace,
             },
           });
           return;
         case 'routing':
+          if (!visible(event.conversationId)) {
+            return;
+          }
           emit({
             type: 'bot/routing',
-            payload: { conversationId: event.conversationId, state: event.state },
+            payload: { conversationId: shownAs(event.conversationId), state: event.state },
           });
           return;
-        case 'usage':
-          emit({ type: 'bot/usage', payload: event.usage });
+        case 'usage': {
+          const usage = event.usage;
+          if (!visible(usage.conversationId)) {
+            return;
+          }
+          emit({
+            type: 'bot/usage',
+            payload: { ...usage, conversationId: shownAs(usage.conversationId) },
+          });
           return;
+        }
       }
     });
   }

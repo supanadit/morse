@@ -204,9 +204,14 @@ export function writeBotIdentity(botRoot: string, record: BotRecord): void {
 /**
  * The conversation id a DM with this bot always has. Usernames are unique and
  * directory-safe, so the id is derived from the handle instead of stored.
+ *
+ * A login owner's DM is a different room from anyone else's (Slack semantics:
+ * two readers talking to the same bot never share a transcript), so an owned
+ * id carries the owner: `dm:<ownerId>:<bot>`. Unowned rooms keep the legacy
+ * `dm-<bot>` shape, which single-user hosts keep using untouched.
  */
-export function dmConversationId(username: string): string {
-  return `dm-${username}`;
+export function dmConversationId(username: string, ownerId?: string): string {
+  return ownerId === undefined ? `dm-${username}` : `dm__${ownerId}__${username}`;
 }
 
 /**

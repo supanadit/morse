@@ -79,6 +79,12 @@ export interface ConversationRecord {
   title: string;
   /** Member bot usernames; a DM has exactly one. */
   members: string[];
+  /**
+   * The login user this room belongs to (multi-user hosts). Absent on rooms
+   * written before per-user bots — and on every room while `multiuser` is
+   * off — which a scoped reader treats as unowned rather than theirs.
+   */
+  ownerId?: string;
   lead?: string;
   /**
    * The conversation the asking bot was working in when it opened this thread.
