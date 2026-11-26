@@ -286,6 +286,17 @@ morse-bottom-panel {
   position: relative;
 }
 
+/*
+ * Settings pages (Members, Providers) scroll in a full-width wrapper so the
+ * scrollbar sits at the column's right edge, not at the centred card grid's.
+ */
+.settings-scroll {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* A full-page feature mounted in the main column (the bot wizard) fills it. */
 .main-view {
   flex: 1;

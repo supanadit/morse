@@ -9,7 +9,6 @@
 .providers {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
   margin: 0 auto;
   padding: 24px 28px 40px;
   width: 100%;

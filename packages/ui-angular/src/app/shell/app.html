@@ -390,10 +390,14 @@
           admins. A tab like any other — the strip owns the router — so it
           survives a trip to a session and back.
         -->
-        <morse-admin-panel />
+        <div class="settings-scroll">
+          <morse-admin-panel />
+        </div>
       } @else if (activeSettingsPage() === 'providers') {
         <!-- The settings menu's Providers page: connect models without a TUI. -->
-        <morse-providers-panel />
+        <div class="settings-scroll">
+          <morse-providers-panel />
+        </div>
       } @else if (promptEditorOpen()) {
         <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps
              its own chunk instead of joining the initial bundle. -->
