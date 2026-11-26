@@ -43,7 +43,7 @@ export type BotDeliveryStatus =
  * the person — that is what keeps one bot's text from reading as approval.
  */
 export type BotDeliveryOrigin =
-  | { type: 'person'; id: string; name: string }
+  | { type: 'person'; id: string; name: string; username?: string }
   | { type: 'bot'; username: string }
   | { type: 'system'; source: 'webhook' | 'schedule' | 'api' };
 
@@ -163,6 +163,31 @@ export interface BotBusSendResult {
   deliveryId: string;
   conversationId: string;
   queued: boolean;
+}
+
+/**
+ * One human as `human_list` reports them: what a bot needs to address a
+ * person, and nothing else — never an email, a role or a credential.
+ */
+export interface BotHumanRosterEntry {
+  /** The stable login id `human_send` addresses. */
+  id: string;
+  /** The login username, shown as `@username` where a bot reads it. */
+  username: string;
+  /** Display name. Falls back to the username when the host has none. */
+  name: string;
+}
+
+/**
+ * What `human_send` sends. `to` is a login id or username, resolved in that
+ * order. Without `conversationId` the line lands in that human's DM with the
+ * sending bot (created on first send); with one it must name a room that human
+ * owns and the bot is a member of.
+ */
+export interface BotBusHumanSendInput {
+  to: string;
+  text: string;
+  conversationId?: string;
 }
 
 /**

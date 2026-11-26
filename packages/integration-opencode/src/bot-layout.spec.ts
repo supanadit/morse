@@ -395,7 +395,7 @@ describe('openCodeBotLayout', () => {
     mkdirSync(join(botRoot, 'config', 'opencode', 'plugins'), { recursive: true });
     writeFileSync(
       path,
-      `${OPENCODE_BUS_PLUGIN_START.replace('v1', 'v0')}\nexport default {};\n// morse-bot-bus:end\n`,
+      `${OPENCODE_BUS_PLUGIN_START.replace('v2', 'v0')}\nexport default {};\n// morse-bot-bus:end\n`,
     );
 
     openCodeBotLayout.repair?.(botRoot);

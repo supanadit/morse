@@ -13,6 +13,7 @@ import type {
 } from '@morse/agent';
 import type {
   BotAuthor,
+  BotBusHumanSendInput,
   BotBusSendInput,
   BotBusSendResult,
   BotConfig,
@@ -23,6 +24,7 @@ import type {
   BotCreateInput,
   BotGroupCreateInput,
   BotGroupUpdateInput,
+  BotHumanRosterEntry,
   BotMcpServerInput,
   BotOutgoingAttachments,
   BotProviderConfig,
@@ -184,6 +186,24 @@ export interface BotServiceOptions {
   busEndpoint?: string;
   /** Clock, for tests. */
   now?: () => number;
+  /**
+   * The humans a bot may address, in multi-user hosts. Absent on single-user
+   * hosts, where the only human is the host person. Set after construction by
+   * hosts whose user list lives in a database the service must not import.
+   */
+  users?: BotUserDirectory;
+}
+
+/** One login human a bot can be told about or send to: identity, never a credential. */
+export interface BotKnownUser {
+  id: string;
+  username: string;
+  name: string;
+}
+
+/** Where the service reads login humans from. Implemented by the host. */
+export interface BotUserDirectory {
+  listUsers(): BotKnownUser[] | Promise<BotKnownUser[]>;
 }
 
 /**
@@ -219,7 +239,10 @@ export type BotControllerPort = Pick<
  * bearer token names the caller and these are the only two tools a bot may ask
  * for, so transport code cannot reach a lane, a transcript or a registry write.
  */
-export type BotBusPort = Pick<BotService, 'resolveBusToken' | 'busRoster' | 'busSend'>;
+export type BotBusPort = Pick<
+  BotService,
+  'resolveBusToken' | 'busRoster' | 'busSend' | 'busHumanRoster' | 'busSendToHuman'
+>;
 
 /**
  * A bus call the host refuses, with the sentence a bot can act on.
@@ -1420,9 +1443,102 @@ export class BotService {
     return { deliveryId: delivery.id, conversationId: room.id, queued: true };
   }
 
+  /**
+   * The humans one bot may write to, as `human_list` reports them: the login
+   * users the host knows, or the single host person where there is no user
+   * directory. Identity only — never an email, a role or a credential.
+   */
+  async busHumanRoster(): Promise<BotHumanRosterEntry[]> {
+    const directory = this.options.users;
+    if (directory === undefined) {
+      const person = hostPerson();
+      return [{ id: HOST_PERSON_ID, username: HOST_PERSON_ID, name: person.name }];
+    }
+    return (await directory.listUsers()).map((user) => ({ ...user }));
+  }
+
+  /**
+   * Writes one bot's line into a human's room: their DM with that bot by
+   * default (created on first send), or the named room when `conversationId`
+   * is given. The room must belong to that human and hold the bot, so a bot
+   * cannot speak into a stranger's room or as a non-member.
+   *
+   * A bot-to-human line is chat, not a delivery: nobody is queued behind it,
+   * and the target's own clients are pushed the append by the shared event
+   * the service already emits for every transcript write.
+   */
+  async busSendToHuman(
+    username: string,
+    input: BotBusHumanSendInput,
+  ): Promise<BotBusSendResult> {
+    const sender = this.bot(username);
+    if (sender === undefined) {
+      throw new BotBusError('no active turn');
+    }
+    const text = input.text.trim();
+    if (text.length === 0) {
+      throw new BotBusError('a message to a human needs text');
+    }
+    // Liveness first, as in `busSend`: a cold probe after a timeout reads the
+    // sentence the host would give it, without guessing a room.
+    this.activeBusTurn(username);
+    const target = await this.resolveKnownUser(input.to);
+    if (target === undefined) {
+      throw new BotBusError(`unknown human "${input.to}"`);
+    }
+    let room: ConversationRecord;
+    if (input.conversationId === undefined) {
+      // Single-user hosts keep the legacy unowned DM (`dm-<bot>`); owned
+      // rooms would fork a second room the UI never opened.
+      room =
+        this.options.users === undefined
+          ? this.unownedDm(sender)
+          : this.resolveDm(sender.username, target.id);
+    } else {
+      const found = this.findConversation(input.conversationId);
+      // Single-user rooms are unowned; multi-user rooms carry their login id.
+      const ownedByTarget =
+        this.options.users === undefined ? found?.ownerId === undefined : found?.ownerId === target.id;
+      if (
+        found === undefined ||
+        !ownedByTarget ||
+        !found.members.includes(sender.username)
+      ) {
+        throw new BotBusError('that conversation is not that human\u2019s room with this bot');
+      }
+      room = found;
+    }
+    const entry = this.append(room.id, botAuthor(sender), text);
+    this.touched(room);
+    return { deliveryId: entry.id, conversationId: room.id, queued: true };
+  }
+
+  /** One login human by id, then by username — `undefined` when unknown. */
+  private async resolveKnownUser(ref: string): Promise<BotKnownUser | undefined> {
+    const directory = this.options.users;
+    if (directory === undefined) {
+      const person = hostPerson();
+      const single: BotKnownUser = { id: HOST_PERSON_ID, username: HOST_PERSON_ID, name: person.name };
+      return ref === single.id || ref === single.username ? single : undefined;
+    }
+    const users = await directory.listUsers();
+    return (
+      users.find((user) => user.id === ref) ?? users.find((user) => user.username === ref)
+    );
+  }
+
   /** Where one bot's bus credentials live: the mint and the turn writer agree here. */
   botBusPaths(username: string): { tokenFile: string; turnFile: string } {
     return this.bus.paths(username);
+  }
+
+  /**
+   * Points the service at the host's login humans. Called once by hosts whose
+   * user list lives in a database the service must not import; single-user
+   * hosts never call it and keep the host-person fallback.
+   */
+  setUserDirectory(directory: BotUserDirectory): void {
+    this.options.users = directory;
   }
 
   /**
@@ -1454,6 +1570,7 @@ export class BotService {
     conversationId: string,
     text: string,
     attachments?: BotOutgoingAttachments,
+    speaker?: BotKnownUser,
   ): Promise<void> {
     const conversation = this.conversationOrThrow(conversationId);
     // Housekeeping rides the one path that always runs while the host is alive:
@@ -1461,9 +1578,18 @@ export class BotService {
     this.maybePruneDeliveries();
     const images = attachments?.images ?? [];
     const files = attachments?.files ?? [];
+    const person =
+      speaker === undefined
+        ? { ...hostPerson() }
+        : { type: 'person' as const, id: speaker.id, name: speaker.name, username: speaker.username };
     const entry = this.append(
       conversation.id,
-      { role: 'user', personId: HOST_PERSON_ID, name: hostPerson().name },
+      {
+        role: 'user',
+        personId: person.id,
+        ...(person.username === undefined ? {} : { username: person.username }),
+        name: person.name,
+      },
       text,
       {
         ...(images.length === 0 ? {} : { images }),
@@ -1485,9 +1611,9 @@ export class BotService {
         rootId,
         conversationId: conversation.id,
         entryId: entry.id,
-        // A fresh object per delivery: `hostPerson()` is memoised, and a stored
-        // delivery must not share a mutable record with every other row.
-        from: { ...hostPerson() },
+        // A fresh object per delivery: the person record may be memoised, and
+        // a stored delivery must not share a mutable record with any other row.
+        from: { ...person },
         to: target.username,
         kind: 'message',
         reason: target.reason,
@@ -3057,12 +3183,36 @@ export class BotService {
   }
 
   /**
+   * The single-user DM with one bot (`dm-<bot>`, unowned). Finds it, or creates
+   * it — so a bot writing to its only human never forks an owned room the UI
+   * never opened.
+   */
+  private unownedDm(sender: BotRecord): ConversationRecord {
+    const id = dmConversationId(sender.username);
+    const existing = this.registry.conversations.find((conversation) => conversation.id === id);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const room: ConversationRecord = {
+      id,
+      kind: 'dm',
+      title: sender.name,
+      members: [sender.username],
+      sessions: {},
+      updatedAt: this.clock(),
+    };
+    this.registry.conversations.push(room);
+    this.saveRegistrySoon();
+    this.emit({ type: 'roster' });
+    return room;
+  }
+
+  /**
    * One reader's DM with one bot (Slack semantics: two readers talking to the
    * same bot never share a room). Finds the owned room, or creates it — so a
    * DM is born on first open, not at bot creation.
    */
-  resolveDm(username: string, ownerId: string): ConversationRecord {
-    const bot = this.botOrThrow(username);
+  resolveDm(username: string, ownerId: string): ConversationRecord {    const bot = this.botOrThrow(username);
     const id = dmConversationId(username, ownerId);
     const existing = this.registry.conversations.find((conversation) => conversation.id === id);
     if (existing !== undefined) {
@@ -3146,6 +3296,16 @@ export class BotService {
         ? 'A teammate answered the ask you sent. Use it to answer the person, and do not send it back.'
         : undefined;
     const lines: string[] = [];
+    // Who is speaking: a bot on a shared host answers many humans across many
+    // rooms, and the trigger carries the login identity. Said once per prompt,
+    // outside the trim, so a long room never pushes the addressee out of view.
+    if (delivery?.from.type === 'person') {
+      const who =
+        delivery.from.username !== undefined && delivery.from.username !== ''
+          ? `${delivery.from.name} (@${delivery.from.username})`
+          : delivery.from.name;
+      lines.push(`The human you are answering is ${who}.`);
+    }
     // Every prompt says what kind of room this is, because what a bot may ask for
     // differs by it: a personal chat holds nobody else, and a thread is not read
     // by the person at all. A model told neither invents an invite that cannot
@@ -3206,7 +3366,13 @@ export class BotService {
     if (entry.author.role === 'user') {
       const attached = attachmentSummary(entry.images?.length ?? 0, entry.files?.length ?? 0);
       const text = attached === '' ? entry.text : `${entry.text}\n${attached}`;
-      return relayLine(title, 'You', text);
+      // The prompt names who is speaking: a bot in a shared host talks to many
+      // humans, and "You" alone would leave it guessing which one.
+      const who =
+        entry.author.username !== undefined && entry.author.username !== ''
+          ? `${entry.author.name ?? entry.author.username} (@${entry.author.username})`
+          : (entry.author.name ?? 'You');
+      return relayLine(title, who, text);
     }
     if (entry.author.role === 'bot') {
       // Its own reply is its own turn in its session; Morse's notes and the

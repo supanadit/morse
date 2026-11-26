@@ -71,6 +71,8 @@ export type BotAuthor =
        * than a migration of the stored transcripts.
        */
       personId?: string;
+      /** The login username, so a bot knows which human is speaking. */
+      username?: string;
       /** The person's display name, so a room can show who spoke. */
       name?: string;
     }

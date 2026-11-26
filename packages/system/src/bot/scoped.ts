@@ -10,8 +10,10 @@ import type {
   BotUpdateInput,
   BotUsage,
 } from '@morse/protocol';
+import type { AuthUser } from '@morse/protocol';
 import type { ModelRef } from '@morse/agent';
 import type { BotProviderModel } from './types.js';
+import type { BotKnownUser } from './service.js';
 import type { TranscriptSlice } from './transcripts.js';
 import type { BotControllerPort, BotRoster, BotService } from './service.js';
 
@@ -29,10 +31,20 @@ import type { BotControllerPort, BotRoster, BotService } from './service.js';
  * exactly like talking to the service directly.
  */
 export class ScopedBotPort implements BotControllerPort {
+  private readonly ownerId?: string;
+  private readonly owner?: BotKnownUser;
+
   constructor(
     private readonly service: BotService,
-    private readonly ownerId?: string,
-  ) {}
+    owner?: string | AuthUser,
+  ) {
+    if (typeof owner === 'string' || owner === undefined) {
+      this.ownerId = owner;
+    } else {
+      this.ownerId = owner.id;
+      this.owner = { id: owner.id, username: owner.username, name: owner.name ?? owner.username };
+    }
+  }
 
   /** True for a conversation id this reader's UI may name. */
   private isAlias(id: string): boolean {
@@ -176,7 +188,7 @@ export class ScopedBotPort implements BotControllerPort {
   }
 
   send(conversationId: string, text: string, attachments?: BotOutgoingAttachments): Promise<void> {
-    return this.service.send(this.requireVisible(conversationId), text, attachments);
+    return this.service.send(this.requireVisible(conversationId), text, attachments, this.owner);
   }
 
   stop(conversationId: string, username?: string): void {

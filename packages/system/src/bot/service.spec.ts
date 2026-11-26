@@ -29,6 +29,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
 import { BUS_LIMITS } from './bus.js';
+import { hostPerson } from './person.js';
 import { DELIVERY_TTL_MS } from './deliveries.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
 import type { BotEngineConfig, BotEngineLayout, BotEngineState, BotMcpServer } from './types.js';
@@ -625,16 +626,23 @@ afterEach(async () => {
 /** The line a group's first prompt opens with: who is in the room, by handle. */
 const room = 'Group "Launch" — members: Forge (@forge), Sable (@sable).';
 
+/** The host person tests run as: prompts name the speaker, so expectations do too. */
+const SPEAKER = hostPerson().name;
+
+/** The line every prompt opens with: which login human the bot is answering. */
+const HUMAN_LINE = `The human you are answering is ${SPEAKER}.`;
+
 /**
  * The line every personal chat prompt opens with. A DM holds nobody else, so the
  * bot is told that up front — otherwise it asks the person to invite a bot to a
  * room that cannot hold one.
  */
 const personal = (bot: string) =>
+  `${HUMAN_LINE}\n\n` +
   'Personal chat: only the person and you are here, and nobody can be added to it. ' +
   'Another bot is asked with `bot_send` in a private thread, and its answer comes ' +
   'back to you to pass on in your own words.\n\n' +
-  `[${bot}] You: `;
+  `[${bot}] ${SPEAKER}: `;
 
 function botInput(overrides: Partial<BotCreateInput> = {}): BotCreateInput {
   return {
@@ -1525,7 +1533,7 @@ describe('BotService edits', () => {
     // An edit drops the session id, so the next turn starts a fresh engine session
     // — and is handed the conversation so far rather than continuing blind.
     expect(gateways.at(-1)?.prompts.at(-1)).toBe(
-      `${personal('Forge')}hi\n\n[Forge] You: again`,
+      `${personal('Forge')}hi\n\n[Forge] ${SPEAKER}: again`,
     );
   });
 
@@ -1897,8 +1905,8 @@ describe('BotService rounds', () => {
 
     // Two lanes, two turns: neither reads the other's answer, because each slice
     // is pinned to the person's line the delivery asks about.
-    expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${room}\n\n[Launch] You: @all standup`]);
-    expect(gatewayFor(adapter, 'sable').prompts).toEqual([`${room}\n\n[Launch] You: @all standup`]);
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @all standup`]);
+    expect(gatewayFor(adapter, 'sable').prompts).toEqual([`${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @all standup`]);
     expect(
       service
         .transcript(group.id)
@@ -2008,8 +2016,8 @@ describe('BotService rounds', () => {
     await settle(service, group.id);
     const sable = gatewayFor(adapter, 'sable');
     expect(sable.prompts[0]).toBe(
-      `${room}\n\n[Launch] You: @forge first\n\n[Launch] Forge: forge reply 1\n\n` +
-        '[Launch] You: @sable second',
+      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @forge first\n\n[Launch] Forge: forge reply 1\n\n` +
+        `[Launch] ${SPEAKER}: @sable second`,
     );
 
     // Third: Forge again. It already knows what it said itself, so its own words
@@ -2018,7 +2026,7 @@ describe('BotService rounds', () => {
     await settle(service, group.id);
     const forge = gatewayFor(adapter, 'forge');
     expect(forge.prompts[1]).toBe(
-      '[Launch] You: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] You: @forge third',
+      `${HUMAN_LINE}\n\n[Launch] ${SPEAKER}: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] ${SPEAKER}: @forge third`,
     );
     expect(forge.prompts[1]).not.toContain('forge reply 1');
     // Nothing is sent twice: the mark advanced with every accepted prompt.
@@ -2089,7 +2097,7 @@ describe('BotService rounds', () => {
       .at(-1);
     // Only the new line: the engine session id and the mark both persisted, so the
     // resumed session is neither re-introduced nor replayed.
-    expect(newest?.gateways[0]?.prompts).toEqual(['[Launch] You: @sable and now']);
+    expect(newest?.gateways[0]?.prompts).toEqual([`${HUMAN_LINE}\n\n[Launch] ${SPEAKER}: @sable and now`]);
   });
 
   it('a graceful shutdown requeues the in-flight ask instead of losing it', async () => {
@@ -2134,7 +2142,7 @@ describe('BotService rounds', () => {
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
       'You are the lead of the group "Launch". Answer, or ask a member with bot_send.\n\n' +
-        `${room}\n\n[Launch] You: what next`,
+        `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: what next`,
     ]);
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });
@@ -3125,6 +3133,156 @@ describe('BotService bus', () => {
 
     held.release();
     await settle(service, group.id);
+  });
+
+  it('stamps a named speaker so the prompt says which human is talking', async () => {
+    const { adapter, service } = harness({ script: () => ({ text: 'noted' }) });
+    await service.createBot(botInput());
+    const speaker = { id: 'u-ada', username: 'ada', name: 'Ada' };
+    const group = service.createGroup({ name: 'Launch', members: ['forge'] });
+
+    await service.send(group.id, 'hello', undefined, speaker);
+    await settle(service, group.id);
+
+    expect(service.transcript(group.id)[0]).toMatchObject({
+      author: { role: 'user', personId: 'u-ada', username: 'ada', name: 'Ada' },
+    });
+    expect(gatewayFor(adapter, 'forge').prompts[0]).toContain(
+      'The human you are answering is Ada (@ada).',
+    );
+  });
+
+  it('lists login humans for a bot, or the host person alone', async () => {
+    const { service } = harness();
+    await busBots(service);
+
+    // No directory (single-user host): the only human is the host person.
+    await expect(service.busHumanRoster()).resolves.toEqual([
+      { id: 'host', username: 'host', name: hostPerson().name },
+    ]);
+
+    service.setUserDirectory({
+      listUsers: async () => [
+        { id: 'u-ada', username: 'ada', name: 'Ada' },
+        { id: 'u-bob', username: 'bob', name: 'Bob' },
+      ],
+    });
+    await expect(service.busHumanRoster()).resolves.toEqual([
+      { id: 'u-ada', username: 'ada', name: 'Ada' },
+      { id: 'u-bob', username: 'bob', name: 'Bob' },
+    ]);
+  });
+
+  it('sends a bot line into the human’s DM with that bot', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    service.setUserDirectory({
+      listUsers: async () => [{ id: 'u-ada', username: 'ada', name: 'Ada' }],
+    });
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const events: BotEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    const result = await service.busSendToHuman('sigil', { to: 'ada', text: 'ready when you are' });
+
+    // The default room is that human's DM with the sending bot, created on
+    // first send — exactly the room the multi-user sidebar shows them.
+    expect(result).toMatchObject({ conversationId: 'dm__u-ada__sigil', queued: true });
+    const room = service.transcript('dm__u-ada__sigil');
+    expect(room).toHaveLength(1);
+    expect(room[0]).toMatchObject({
+      author: { role: 'bot', name: 'Sigil', username: 'sigil' },
+      text: 'ready when you are',
+    });
+    // The target's clients learn about it through the shared transcript event.
+    expect(events).toContainEqual({
+      type: 'transcript',
+      conversationId: 'dm__u-ada__sigil',
+      entries: [expect.objectContaining({ text: 'ready when you are' })],
+      replace: false,
+    });
+
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('sends into a named room that human owns with that bot in it', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    service.setUserDirectory({
+      listUsers: async () => [{ id: 'u-ada', username: 'ada', name: 'Ada' }],
+    });
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+    service.setConversationOwner(group.id, 'u-ada');
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const result = await service.busSendToHuman('sigil', {
+      to: 'u-ada',
+      text: 'in here',
+      conversationId: group.id,
+    });
+
+    expect(result.conversationId).toBe(group.id);
+    expect(service.transcript(group.id).at(-1)).toMatchObject({ text: 'in here' });
+
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('refuses a human send into a stranger’s room or as a non-member', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    service.setUserDirectory({
+      listUsers: async () => [
+        { id: 'u-ada', username: 'ada', name: 'Ada' },
+        { id: 'u-bob', username: 'bob', name: 'Bob' },
+      ],
+    });
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
+    service.setConversationOwner(group.id, 'u-ada');
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    // Bob's room, not Ada's — even though Sigil is in it.
+    await expect(
+      service.busSendToHuman('sigil', { to: 'u-bob', text: 'hi', conversationId: group.id }),
+    ).rejects.toThrow(/not that human/i);
+    // Unknown human entirely.
+    await expect(service.busSendToHuman('sigil', { to: 'nobody', text: 'hi' })).rejects.toThrow(
+      /unknown human/i,
+    );
+    // Empty text says nothing.
+    await expect(service.busSendToHuman('sigil', { to: 'u-ada', text: '  ' })).rejects.toThrow(
+      /needs text/i,
+    );
+
+    held.release();
+    await settle(service, 'dm-sigil');
+  });
+
+  it('refuses a human send with no live turn, like a cold probe', async () => {
+    const { service } = harness();
+    await busBots(service);
+    service.setUserDirectory({
+      listUsers: async () => [{ id: 'u-ada', username: 'ada', name: 'Ada' }],
+    });
+
+    await expect(service.busSendToHuman('sigil', { to: 'ada', text: 'hi' })).rejects.toThrow(
+      /no active turn/i,
+    );
+  });
+
+  it('writes into the legacy DM on a host with no user directory', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+
+    const result = await service.busSendToHuman('sigil', { to: 'host', text: 'still here' });
+
+    expect(result.conversationId).toBe('dm-sigil');
+    expect(service.transcript('dm-sigil').at(-1)).toMatchObject({ text: 'still here' });
+
+    held.release();
+    await settle(service, 'dm-sigil');
   });
 
   it('reads a handoff state from the delivery it created', async () => {

@@ -21,14 +21,14 @@ import {
 describe('openCodeBusPluginSource', () => {
   it('names the file OpenCode discovers and wraps it in the markers repair reads', () => {
     expect(OPENCODE_BUS_PLUGIN_FILE).toBe('morse-bot-bus.ts');
-    expect(OPENCODE_BUS_PLUGIN_START).toBe('// morse-bot-bus:start v1');
+    expect(OPENCODE_BUS_PLUGIN_START).toBe('// morse-bot-bus:start v2');
     expect(OPENCODE_BUS_PLUGIN_END).toBe('// morse-bot-bus:end');
     const source = openCodeBusPluginSource();
     expect(source.startsWith(`${OPENCODE_BUS_PLUGIN_START}\n`)).toBe(true);
     expect(source.trimEnd().endsWith(OPENCODE_BUS_PLUGIN_END)).toBe(true);
   });
 
-  it('registers both tools through the plugin tool transform', () => {
+  it('registers all four tools through the plugin tool transform', () => {
     const source = openCodeBusPluginSource();
 
     expect(source).toContain('Plugin.define');
@@ -37,6 +37,8 @@ describe('openCodeBusPluginSource', () => {
     expect(source).toContain('editor.add');
     expect(source).toContain('name: "bot_list"');
     expect(source).toContain('name: "bot_send"');
+    expect(source).toContain('name: "human_list"');
+    expect(source).toContain('name: "human_send"');
   });
 
   it('reads its endpoint, token and turn from the environment', () => {

@@ -29,7 +29,7 @@ export interface BusRequest {
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /** The only tools this endpoint serves; `bot_ask` is deliberately absent. */
-const TOOLS = new Set(['list', 'send']);
+const TOOLS = new Set(['list', 'send', 'human-list', 'human-send']);
 
 const KINDS: readonly BotDeliveryKind[] = ['message', 'assign', 'reply'];
 
@@ -113,6 +113,35 @@ function readSendInput(body: unknown): BotBusSendInput {
 }
 
 /**
+ * What `human_send` accepts: the human by login id or username, the text, and
+ * optionally the room. The room must belong to that human and hold the bot.
+ */
+function readHumanSendInput(body: unknown): { to: string; text: string; conversationId?: string } {
+  const row =
+    typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const to = row['to'];
+  const text = row['text'];
+  const conversationId = row['conversationId'];
+  if (
+    typeof to !== 'string' ||
+    typeof text !== 'string' ||
+    (conversationId !== undefined && typeof conversationId !== 'string')
+  ) {
+    throw refuse(
+      HttpStatus.BAD_REQUEST,
+      'A human send needs "to" and "text", with an optional "conversationId".',
+    );
+  }
+  return {
+    to,
+    text,
+    ...(conversationId === undefined ? {} : { conversationId }),
+  };
+}
+
+/**
  * The one endpoint a bot's engine calls: `POST /internal/bot-bus/<tool>`.
  *
  * Two credentials make a call: a peer that is this machine, and a bearer token
@@ -168,6 +197,12 @@ export class BotBusController {
     try {
       if (tool === 'list') {
         return { bots: bot.busRoster(username) };
+      }
+      if (tool === 'human-list') {
+        return { humans: await bot.busHumanRoster() };
+      }
+      if (tool === 'human-send') {
+        return await bot.busSendToHuman(username, readHumanSendInput(body));
       }
       return await bot.busSend(username, readSendInput(body));
     } catch (error: unknown) {

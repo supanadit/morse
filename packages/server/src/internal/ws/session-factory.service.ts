@@ -231,6 +231,19 @@ export class MorseSessionFactory {
         entry.emit(message);
       }
     });
+    // Bots address login humans by id: the service reads them through this
+    // lens so it never imports the host's database layer.
+    const directoryDb = this.db;
+    if (this.bot !== undefined && directoryDb !== undefined) {
+      this.bot.setUserDirectory({
+        listUsers: async () =>
+          (await listUsers(directoryDb)).map((user) => ({
+            id: user.id,
+            username: user.username,
+            name: user.name ?? user.username,
+          })),
+      });
+    }
   }
 
   /**
@@ -316,7 +329,7 @@ export class MorseSessionFactory {
       mcpWatch,
       detachTranscripts,
       policy,
-      botPort: this.bot === undefined ? undefined : new ScopedBotPort(this.bot, userId),
+      botPort: this.bot === undefined ? undefined : new ScopedBotPort(this.bot, user),
     };
     this.bundles.set(userId, bundle);
     return bundle;

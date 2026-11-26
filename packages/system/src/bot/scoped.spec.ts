@@ -138,4 +138,23 @@ describe('ScopedBotPort', () => {
       expect(service.roster().conversations).toEqual([]);
     });
   });
+
+  it('stamps a login user’s send with their identity, not the host person', async () => {
+    const adit = new ScopedBotPort(service, {
+      id: 'u-adit',
+      username: 'adit',
+      role: 'regular',
+      name: 'Adit',
+    });
+    adit.open('dm-nana');
+
+    await adit.send('dm-nana', 'hi');
+
+    // The lane has no engine here, so the turn fails — but the person's line
+    // is written first and already carries who spoke.
+    expect(service.transcript('dm__u-adit__nana')[0]).toMatchObject({
+      author: { role: 'user', personId: 'u-adit', username: 'adit', name: 'Adit' },
+      text: 'hi',
+    });
+  });
 });

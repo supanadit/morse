@@ -8,13 +8,15 @@ import { BotBusController, type BusRequest } from './bot-bus.controller.js';
 /**
  * The bus endpoint's whole contract is what the plugins in the two engine
  * packages already POST to: a loopback peer, a bearer token naming the bot, and
- * exactly two tools. Anything else is a refusal the plugin reads as a sentence.
+ * exactly four tools. Anything else is a refusal the plugin reads as a sentence.
  */
 
 function fakeBot(): {
   resolveBusToken: ReturnType<typeof vi.fn>;
   busRoster: ReturnType<typeof vi.fn>;
   busSend: ReturnType<typeof vi.fn>;
+  busHumanRoster: ReturnType<typeof vi.fn>;
+  busSendToHuman: ReturnType<typeof vi.fn>;
 } {
   return {
     resolveBusToken: vi.fn((token: string) => (token === 'good' ? 'sigil' : undefined)),
@@ -22,6 +24,12 @@ function fakeBot(): {
     busSend: vi.fn(async (_username: string, _input: BotBusSendInput) => ({
       deliveryId: 'delivery-1',
       conversationId: 'dm:sigil:loom',
+      queued: true,
+    })),
+    busHumanRoster: vi.fn(async (_username: string) => []),
+    busSendToHuman: vi.fn(async (_username: string, _input: unknown) => ({
+      deliveryId: 'entry-9',
+      conversationId: 'dm__u-ada__sigil',
       queued: true,
     })),
   };
@@ -176,6 +184,83 @@ describe('BotBusController', () => {
     expect(bot.busSend).toHaveBeenCalledWith('sigil', { to: 'loom', text: 'hi' });
   });
 
+  it('answers the humans for the caller the token names', async () => {
+    const bot = fakeBot();
+    const controller = new BotBusController(bot);
+
+    const body = await controller.call('human-list', {}, request({ auth: 'Bearer good' }));
+
+    expect(bot.busHumanRoster).toHaveBeenCalledWith();
+    expect(body).toEqual({ humans: [] });
+  });
+
+  it('reads only to, text and conversationId from a human send', async () => {
+    const bot = fakeBot();
+    const controller = new BotBusController(bot);
+
+    const body = await controller.call(
+      'human-send',
+      {
+        to: 'u-ada',
+        text: 'done',
+        conversationId: 'dm__u-ada__sigil',
+        status: 'done',
+      },
+      request({ auth: 'Bearer good' }),
+    );
+
+    expect(bot.busSendToHuman).toHaveBeenCalledWith('sigil', {
+      to: 'u-ada',
+      text: 'done',
+      conversationId: 'dm__u-ada__sigil',
+    });
+    expect(body).toEqual({
+      deliveryId: 'entry-9',
+      conversationId: 'dm__u-ada__sigil',
+      queued: true,
+    });
+  });
+
+  it('leaves conversationId out when the body has none, so the service DMs', async () => {
+    const bot = fakeBot();
+    const controller = new BotBusController(bot);
+
+    await controller.call('human-send', { to: 'u-ada', text: 'hi' }, request({ auth: 'Bearer good' }));
+
+    expect(bot.busSendToHuman).toHaveBeenCalledWith('sigil', { to: 'u-ada', text: 'hi' });
+  });
+
+  it('returns a tool error instead of throwing when a human send is refused', async () => {
+    const bot = fakeBot();
+    bot.busSendToHuman.mockRejectedValue(new BotBusError('unknown human "nobody"'));
+    const controller = new BotBusController(bot);
+
+    const body = await controller.call(
+      'human-send',
+      { to: 'nobody', text: 'x' },
+      request({ auth: 'Bearer good' }),
+    );
+
+    expect(body).toEqual({ error: 'unknown human "nobody"' });
+  });
+
+  it('refuses a human send whose fields are not what human_send accepts', async () => {
+    const bot = fakeBot();
+    const controller = new BotBusController(bot);
+
+    const answer = await refusal(
+      controller.call(
+        'human-send',
+        { to: 'u-ada', text: 'x', conversationId: 7 },
+        request({ auth: 'Bearer good' }),
+      ),
+    );
+
+    expect(answer.status).toBe(400);
+    expect(answer.body).toEqual({ error: expect.stringMatching(/human send/i) });
+    expect(bot.busSendToHuman).not.toHaveBeenCalled();
+  });
+
   it('returns a tool error instead of throwing when the bus refuses', async () => {
     const bot = fakeBot();
     bot.busSend.mockRejectedValue(new BotBusError('a bot cannot send to itself'));
@@ -232,6 +317,8 @@ describe('BotBusController', () => {
     expect(answer.body).toEqual({ error: expect.stringMatching(/ask/) });
     expect(bot.busSend).not.toHaveBeenCalled();
     expect(bot.busRoster).not.toHaveBeenCalled();
+    expect(bot.busHumanRoster).not.toHaveBeenCalled();
+    expect(bot.busSendToHuman).not.toHaveBeenCalled();
   });
 
   it('answers 503 when this host has no bot mode', async () => {

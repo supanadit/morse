@@ -28,7 +28,7 @@ export const OPENCODE_BUS_PLUGIN_FILE = 'morse-bot-bus.ts';
  * The first line of the generated block. `repair()` reads the versioned form: a
  * file whose line is not this one is an older Morse asset and is replaced.
  */
-export const OPENCODE_BUS_PLUGIN_START = '// morse-bot-bus:start v1';
+export const OPENCODE_BUS_PLUGIN_START = '// morse-bot-bus:start v2';
 
 /** The last line of the generated block. */
 export const OPENCODE_BUS_PLUGIN_END = '// morse-bot-bus:end';
@@ -135,7 +135,7 @@ function hasActiveTurn(): boolean {
 
 /** One POST to the host with the bot's credentials; resolves, never rejects. */
 async function callBus(
-  tool: "list" | "send",
+  tool: "list" | "send" | "human-list" | "human-send",
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Answer> {
@@ -216,6 +216,23 @@ function rosterText(body: Record<string, unknown>): string {
   return lines.join("\\n")
 }
 
+/** The humans a bot can read: one login person per line. */
+function humanRosterText(body: Record<string, unknown>): string {
+  const listed = body['humans']
+  if (!Array.isArray(listed)) return "Could not read the humans from Morse — answer the person."
+  const lines = listed.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return []
+    const human = entry as Record<string, unknown>
+    const id = oneLine(typeof human['id'] === "string" ? human['id'] : "")
+    const username = oneLine(typeof human['username'] === "string" ? human['username'] : "")
+    if (id.length === 0 || username.length === 0) return []
+    const name = oneLine(typeof human['name'] === "string" ? human['name'] : "") || username
+    return [\`@\${username} — \${name}\`]
+  })
+  if (lines.length === 0) return "No humans are on this Morse yet — answer the person."
+  return lines.join("\\n")
+}
+
 const botList = {
   name: "bot_list",
   description:
@@ -275,12 +292,66 @@ const botSend = {
   },
 }
 
+const humanList = {
+  name: "human_list",
+  description:
+    "List the humans on this Morse: login id, username and display name. Call it to learn who " +
+    "you are talking to and who else you may message — address a human by id or username.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  async execute(_input, context) {
+    const answer = await callBus("human-list", {}, context.signal)
+    if (answer.kind === "ok") return result(humanRosterText(answer.body))
+    if (answer.kind === "refused") return result(answer.reason)
+    return result(answer.text)
+  },
+}
+
+const humanSend = {
+  name: "human_send",
+  description:
+    "Send a message to a human by login id or username, as human_list shows them. Without a " +
+    "conversationId it lands in that human's direct chat with you; with one it must name a room " +
+    "that human owns and you are a member of. The human reads it as your words.",
+  input: {
+    type: "object",
+    properties: {
+      to: { type: "string", description: "One login id or username, exactly as human_list shows it." },
+      text: {
+        type: "string",
+        description: "The message, complete enough for the human to act on.",
+      },
+      conversationId: {
+        type: "string",
+        description: "Optional room both of you share; omit for their direct chat with you.",
+      },
+    },
+    required: ["to", "text"],
+    additionalProperties: false,
+  },
+  async execute(input, context) {
+    const answer = await callBus(
+      "human-send",
+      {
+        to: input.to,
+        text: input.text,
+        ...(input.conversationId === undefined ? {} : { conversationId: input.conversationId }),
+      },
+      context.signal,
+    )
+    if (answer.kind === "refused") return result(\`Morse did not send it: \${answer.reason}\`)
+    if (answer.kind === "local") return result(answer.text)
+    return result("Sent.")
+  },
+}
+
 export default Plugin.define({
   id: "morse.bot-bus",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
       editor.add(botList)
       editor.add(botSend)
+      editor.add(humanList)
+      editor.add(humanSend)
     })
   },
 })
