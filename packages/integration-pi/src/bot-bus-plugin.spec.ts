@@ -14,7 +14,7 @@ import {
 describe('piBusExtensionSource', () => {
   it('names the file pi auto-loads and wraps it in the markers repair reads', () => {
     expect(PI_BUS_EXTENSION_FILE).toBe('morse-bot-bus.ts');
-    expect(PI_BUS_EXTENSION_START).toBe('// morse-bot-bus:start v1');
+    expect(PI_BUS_EXTENSION_START).toBe('// morse-bot-bus:start v2');
     const source = piBusExtensionSource();
     expect(source.startsWith(`${PI_BUS_EXTENSION_START}\n`)).toBe(true);
     expect(source.trimEnd().endsWith('// morse-bot-bus:end')).toBe(true);
@@ -25,6 +25,8 @@ describe('piBusExtensionSource', () => {
 
     expect(source).toContain("name: 'bot_list'");
     expect(source).toContain("name: 'bot_send'");
+    expect(source).toContain("name: 'human_list'");
+    expect(source).toContain("name: 'human_send'");
     expect(source).toContain('registerTool');
     expect(source).toContain('MORSE_BUS_URL');
     expect(source).toContain('MORSE_BUS_TOKEN_FILE');

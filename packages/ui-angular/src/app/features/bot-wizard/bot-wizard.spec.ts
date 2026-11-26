@@ -543,6 +543,82 @@ describe('BotWizard', () => {
     ).toBe('sk-ant-123');
   });
 
+  it('probes a catalog provider that lists no models, with and without a key', async () => {
+    const { fixture, host, morse, status } = await render();
+    status.mockResolvedValue({
+      engine: 'pi',
+      providers: [
+        {
+          id: 'acme',
+          name: 'Acme',
+          description: 'Acme models',
+          kind: 'builtin',
+          connected: false,
+          auth: { key: true },
+          models: [],
+        },
+      ],
+      issues: [],
+    });
+    const probe = vi.spyOn(morse, 'probeModels');
+    await walkToConnect(fixture, host, 'pi');
+    // The page auto-picked the engine before the re-mock, so reload the
+    // catalog the way a reader would after the host's providers changed.
+    button(host, '.provider-toolbar .ghost').click();
+    tick(fixture);
+    await fixture.whenStable();
+    tick(fixture);
+
+    // The catalog names no models, so the wizard asks the engine itself —
+    // with no key yet, because a listing is not a sign-in.
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(probe.mock.calls[0]?.slice(0, 3)).toEqual(['pi', [], []]);
+    const first = probe.mock.calls[0]?.[3] ?? '';
+    morse.bot.onModels({
+      requestId: first,
+      kind: 'pi',
+      models: [{ provider: 'acme', id: 'acme-chat', name: 'Acme Chat' }],
+    });
+    tick(fixture);
+    expect(
+      [...host.querySelectorAll('.provider-detail .model-pick')].map((one) => one.textContent),
+    ).toEqual([expect.stringContaining('Acme Chat')]);
+
+    // Typing the key re-probes with it: a key can unlock models the
+    // anonymous listing hides.
+    fillAndCommit(host, '.provider-detail input[type="password"]', 'sk-acme');
+    tick(fixture);
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(probe.mock.calls[1]?.slice(0, 3)).toEqual([
+      'pi',
+      [],
+      [{ provider: 'acme', apiKey: 'sk-acme' }],
+    ]);
+    morse.bot.onModels({
+      requestId: probe.mock.calls[1]?.[3] ?? '',
+      kind: 'pi',
+      models: [
+        { provider: 'acme', id: 'acme-chat', name: 'Acme Chat' },
+        { provider: 'acme', id: 'acme-pro', name: 'Acme Pro' },
+      ],
+    });
+    tick(fixture);
+    expect(
+      [...host.querySelectorAll('.provider-detail .model-pick')].map((one) => one.textContent),
+    ).toEqual([expect.stringContaining('Acme Chat'), expect.stringContaining('Acme Pro')]);
+
+    // ...and the picked model still submits with the isolated key.
+    button(host, '.provider-detail .model-pick').click();
+    tick(fixture);
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      credentials: [{ provider: 'acme', apiKey: 'sk-acme' }],
+      model: { provider: 'acme', id: 'acme-chat' },
+    });
+  });
+
   it('adds a custom provider, discovers its models over HTTP, and saves it', async () => {
     const { fixture, host, morse } = await render();
     await walkToConnect(fixture, host, 'pi');

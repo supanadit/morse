@@ -283,7 +283,9 @@
                 </button>
               } @empty {
                 <p class="provider-empty">
-                  @if (pickedLocal()) {
+                  @if (catalogProbing()) {
+                    Loading models…
+                  } @else if (pickedLocal()) {
                     No models yet — open Edit to discover or add them.
                   } @else {
                     This provider listed no models.

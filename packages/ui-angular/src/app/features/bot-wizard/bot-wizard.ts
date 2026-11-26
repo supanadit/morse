@@ -121,6 +121,23 @@ export class BotWizard {
   protected readonly catalogLoading = signal(false);
   /** Why the provider catalog could not be read, said on the section. */
   protected readonly catalogError = signal<string | null>(null);
+  /**
+   * Models the engine reported for catalog providers that list none, keyed by
+   * provider id. A builtin's listing is not a sign-in: OpenCode's catalog names
+   * every model its server knows, with or without a key, so a probe with the
+   * keys typed so far (possibly none) fills what `providerStatus` leaves empty.
+   */
+  protected readonly probedModels = signal<Record<string, ModelOption[]>>({});
+  /** True while a catalog-provider probe is in flight. */
+  protected readonly catalogProbing = signal(false);
+  /** The probe request waiting for its `bot/models` answer, if any. */
+  private readonly probeRequestId = signal<string | null>(null);
+  /** Which provider the in-flight probe asks about. */
+  private readonly probeProvider = signal('');
+  /** The notice held when the in-flight probe started, so only a new one fails it. */
+  private readonly probeNotice = signal<unknown>(undefined);
+  /** What the filed probes asked, so a repeat answers from the record. */
+  private readonly probedPrint = signal<Record<string, string>>({});
   /** Which provider's models the detail shows: a global id or a local one. */
   protected readonly pickedProvider = signal('');
   /** The provider search box, filtering the cards. */
@@ -300,13 +317,16 @@ export class BotWizard {
       .map((provider) => {
         const keyedHere = keyed.has(provider.id);
         const viaGlobal = !keyedHere && snapshot && provider.connected;
+        // Probed models count too: a builtin lists none in the catalog, so
+        // without this its card — and the auto-pick — would read as unusable.
+        const probed = (this.probedModels()[provider.id] ?? []).length;
         return {
           id: provider.id,
           label: provider.name,
           hint: provider.kind === 'custom'
             ? `${(provider.models ?? []).length} models · shared endpoint`
             : provider.description,
-          models: (provider.models ?? []).length,
+          models: (provider.models ?? []).length + probed,
           connected: keyedHere || viaGlobal,
           viaGlobal,
           local: false,
@@ -433,9 +453,12 @@ export class BotWizard {
     const global = (this.catalog()?.providers ?? []).flatMap((provider) =>
       from(provider.id, provider.models ?? []),
     );
+    const probed = Object.entries(this.probedModels()).flatMap(([provider, models]) =>
+      from(provider, models),
+    );
     const local = this.localProviders().flatMap((provider) => from(provider.id, provider.models));
     const seen = new Set<string>();
-    const models = [...global, ...local].filter((model) => {
+    const models = [...global, ...probed, ...local].filter((model) => {
       const key = this.modelOptionKey(model);
       if (seen.has(key)) {
         return false;
@@ -487,7 +510,7 @@ export class BotWizard {
     if (this.model() !== undefined) {
       return '';
     }
-    if (this.catalogLoading()) {
+    if (this.catalogLoading() || this.catalogProbing()) {
       return "Loading this engine's providers…";
     }
     if (this.catalogError() !== null) {
@@ -643,6 +666,74 @@ export class BotWizard {
         this.editorError.set(notice.text);
       });
     });
+    // A catalog provider that lists no models is asked of the engine itself:
+    // the same probe a botless create would run, with the keys typed so far
+    // (possibly none — a listing is not a sign-in). Typing a key changes what
+    // the probe asks, so it refires; an answer already filed for the same
+    // question is reused instead.
+    effect(() => {
+      const engine = this.engineKind();
+      const picked = this.pickedProviderId();
+      if (engine.length === 0 || picked.length === 0 || this.probeRequestId() !== null) {
+        return;
+      }
+      if (this.localProviders().some((one) => one.id === picked)) {
+        return;
+      }
+      const entry = this.catalog()?.providers.find((one) => one.id === picked);
+      if (entry === undefined || (entry.models ?? []).length > 0) {
+        return;
+      }
+      const fingerprint = [engine, picked, JSON.stringify(this.collectedCredentials())].join('\n');
+      if (this.probedPrint()[picked] === fingerprint) {
+        return;
+      }
+      const requestId = nextRequestId();
+      untracked(() => {
+        this.probeProvider.set(picked);
+        this.probeRequestId.set(requestId);
+        this.probeNotice.set(this.morse.lastNotice());
+        this.catalogProbing.set(true);
+        this.morse.probeModels(
+          engine,
+          parseEnvVars(this.envVars()),
+          this.collectedCredentials(),
+          requestId,
+        );
+      });
+    });
+    // A catalog probe's answer fills that provider's models; a failed probe
+    // stops the spinner and leaves the empty list said as it was.
+    effect(() => {
+      const requestId = this.probeRequestId();
+      if (requestId === null) {
+        return;
+      }
+      const answer = this.morse.bot.models()[requestId];
+      if (answer === undefined) {
+        return;
+      }
+      untracked(() => {
+        const provider = this.probeProvider();
+        const fingerprint = [this.engineKind(), provider, JSON.stringify(this.collectedCredentials())].join('\n');
+        this.probedModels.update((held) => ({ ...held, [provider]: answer }));
+        this.probedPrint.update((held) => ({ ...held, [provider]: fingerprint }));
+        this.probeRequestId.set(null);
+        this.probeProvider.set('');
+        this.catalogProbing.set(false);
+      });
+    });
+    effect(() => {
+      const notice = this.morse.lastNotice();
+      if (!this.catalogProbing() || notice === undefined || notice === this.probeNotice()) {
+        return;
+      }
+      untracked(() => {
+        this.probeRequestId.set(null);
+        this.probeProvider.set('');
+        this.catalogProbing.set(false);
+      });
+    });
     // The providers are the page's first question, so the engine's catalog is
     // read as soon as there is an engine to ask about.
     effect(() => {
@@ -750,6 +841,11 @@ export class BotWizard {
       // The catalog belongs to another engine, so the picker goes back to
       // whichever provider it can actually list models for.
       this.pickedProvider.set('');
+      this.probedModels.set({});
+      this.probedPrint.set({});
+      this.probeRequestId.set(null);
+      this.probeProvider.set('');
+      this.catalogProbing.set(false);
       this.closeEditor();
       // Servers are engine-specific config (`mcp.json` vs `opencode.json`), so a
       // list collected for another engine would be written in the wrong shape.
@@ -776,6 +872,13 @@ export class BotWizard {
     const engine = this.engineKind();
     this.catalogLoading.set(true);
     this.catalogError.set(null);
+    // A reload answers for this engine only: drop filed probes and cancel the
+    // in-flight one, whose late answer no longer names this catalog.
+    this.probedModels.set({});
+    this.probedPrint.set({});
+    this.probeRequestId.set(null);
+    this.probeProvider.set('');
+    this.catalogProbing.set(false);
     try {
       const answer = await this.morse.requestHostCommand('providerStatus', { engine });
       if (this.engineKind() !== engine) {

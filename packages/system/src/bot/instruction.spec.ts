@@ -28,6 +28,11 @@ describe('BOT_BUS_INSTRUCTION', () => {
     expect(BOT_BUS_INSTRUCTION).toMatch(/never re-send text you have already sent/i);
   });
 
+  it('names the speaker when relaying between humans, and reads short replies as answers', () => {
+    expect(BOT_BUS_INSTRUCTION).toMatch(/Dari <name>/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/last question you carried/i);
+  });
+
   it('exposes the file name OpenCode names the instruction by', () => {
     expect(BOT_BUS_INSTRUCTION_FILE).toBe('morse-bot-bus.md');
   });

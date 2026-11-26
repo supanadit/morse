@@ -20,7 +20,7 @@ export const PI_BUS_EXTENSION_FILE = 'morse-bot-bus.ts';
  * The first line of the generated block. `repair()` reads the versioned form:
  * a file whose line is not this one is an older Morse asset and is replaced.
  */
-export const PI_BUS_EXTENSION_START = '// morse-bot-bus:start v1';
+export const PI_BUS_EXTENSION_START = '// morse-bot-bus:start v2';
 
 /** The last line of the generated block. */
 export const PI_BUS_EXTENSION_END = '// morse-bot-bus:end';
@@ -120,7 +120,7 @@ function hasActiveTurn(): boolean {
 }
 
 /** One POST to the host with the bot's credentials; resolves, never rejects. */
-async function callBus(tool: 'list' | 'send', body: Record<string, unknown>): Promise<Answer> {
+async function callBus(tool: 'list' | 'send' | 'human-list' | 'human-send', body: Record<string, unknown>): Promise<Answer> {
   const address = busAddress();
   if (address === undefined) return { kind: 'local', text: NO_ADDRESS };
   const token = readToken();
@@ -248,9 +248,68 @@ const botSend = defineTool({
   },
 });
 
+function humanRosterText(body: Record<string, unknown>): string {
+  const listed = body['humans'];
+  if (!Array.isArray(listed)) return 'Could not read the humans from Morse — answer the person.';
+  const lines = listed.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
+    const human = entry as Record<string, unknown>;
+    const id = oneLine(typeof human['id'] === 'string' ? human['id'] : '');
+    const username = oneLine(typeof human['username'] === 'string' ? human['username'] : '');
+    if (id.length === 0 || username.length === 0) return [];
+    const name = oneLine(typeof human['name'] === 'string' ? human['name'] : '') || username;
+    return [\`@\${username} — \${name}\`];
+  });
+  if (lines.length === 0) return 'No humans are on this Morse yet — answer the person.';
+  return lines.join('\\n');
+}
+
+const humanList = defineTool({
+  name: 'human_list',
+  label: 'List humans',
+  description:
+    'List the humans on this Morse: login id, username and display name. Call it to learn who ' +
+    'you are talking to and who else you may message — address a human by id or username.',
+  parameters: Type.Object({}),
+  async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+    const answer = await callBus('human-list', {});
+    if (answer.kind === 'ok') return result(humanRosterText(answer.body));
+    if (answer.kind === 'refused') return result(answer.reason);
+    return result(answer.text);
+  },
+});
+
+const humanSend = defineTool({
+  name: 'human_send',
+  label: 'Send to a human',
+  description:
+    'Send a message to a human by login id or username, as human_list shows them. Without a ' +
+    "conversationId it lands in that human's direct chat with you; with one it must name a room " +
+    'that human owns and you are a member of. The human reads it as your words.',
+  parameters: Type.Object({
+    to: Type.String({ description: 'One login id or username, exactly as human_list shows it.' }),
+    text: Type.String({ description: 'The message, complete enough for the human to act on.' }),
+    conversationId: Type.Optional(
+      Type.String({ description: 'Optional room both of you share; omit for their direct chat with you.' }),
+    ),
+  }),
+  async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    const answer = await callBus('human-send', {
+      to: params.to,
+      text: params.text,
+      ...(params.conversationId === undefined ? {} : { conversationId: params.conversationId }),
+    });
+    if (answer.kind === 'refused') return result(\`Morse did not send it: \${answer.reason}\`);
+    if (answer.kind === 'local') return result(answer.text);
+    return result('Sent.');
+  },
+});
+
 export default function (pi: ExtensionAPI) {
   pi.registerTool(botList);
   pi.registerTool(botSend);
+  pi.registerTool(humanList);
+  pi.registerTool(humanSend);
 }
 ${PI_BUS_EXTENSION_END}
 `;
