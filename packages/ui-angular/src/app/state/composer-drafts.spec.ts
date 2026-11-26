@@ -120,6 +120,27 @@ describe('ComposerDrafts', () => {
     expect(restoredAttachments.mentions()).toEqual([]);
   });
 
+  it('names the pinned scope while a view owns the draft', () => {
+    const { drafts } = setup();
+    expect(drafts.pinnedKey()).toBeUndefined();
+
+    const release = drafts.pinDraft('bot:dm-forge');
+    expect(drafts.pinnedKey()).toBe('bot:dm-forge');
+
+    release();
+    expect(drafts.pinnedKey()).toBeUndefined();
+  });
+
+  it('leaves sent drafts out of the snapshot', () => {
+    const { drafts } = setup();
+    drafts.use('s1');
+    drafts.setText('waiting to send');
+    drafts.use('s2');
+    drafts.setText('');
+
+    expect(drafts.snapshot().texts).toEqual({ s1: 'waiting to send' });
+  });
+
   it('does not clobber words typed before a restore lands', () => {
     const { drafts } = setup();
     drafts.use('s1');

@@ -13,6 +13,7 @@ import { clockTime, fullTime, MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { AttachmentStore } from '../../state/attachments';
+import { ComposerDrafts } from '../../state/composer-drafts';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotChat } from './bot-chat';
 
@@ -1574,6 +1575,24 @@ describe('BotChat', () => {
     open(morse, dm, []);
     fixture.detectChanges();
     expect(host.querySelector('morse-chat-composer')).not.toBeNull();
+  });
+
+  it('keeps each room’s draft apart and hands the scope back on leave', async () => {
+    const { fixture, host, morse } = await render();
+    const drafts = TestBed.inject(ComposerDrafts);
+    open(morse, dm, []);
+    fixture.detectChanges();
+    mentionInto(fixture, host, 'hello forge');
+    expect(drafts.text()).toBe('hello forge');
+
+    open(morse, workshop, []);
+    fixture.detectChanges();
+    // The workshop’s box starts empty — forge’s words did not leak into it.
+    expect(drafts.text()).toBe('');
+
+    open(morse, dm, []);
+    fixture.detectChanges();
+    expect(drafts.text()).toBe('hello forge');
   });
 
   it('says so when no conversation is open', async () => {

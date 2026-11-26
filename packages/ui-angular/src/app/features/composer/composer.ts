@@ -1016,9 +1016,14 @@ export class ChatComposer {
     this.refreshPaletteQuery(target.value, target.selectionStart);
   }
 
-  /** Relays the composer's text for the tab in front; a no-op without a shared host. */
+  /**
+   * Relays the composer’s text for the tab in front; a no-op without a shared
+   * host. A pinned bot room relays under its own key — the strip’s key names
+   * the code session behind the bot view, and relaying under it would write
+   * the bot’s words into that session’s draft on the other device.
+   */
   private relayDraft(text: string): void {
-    this.sync.draft(this.tabs.composerKey(), text);
+    this.sync.draft(this.drafts.pinnedKey() ?? this.tabs.composerKey(), text);
   }
 
   protected onKeydown(event: KeyboardEvent): void {

@@ -184,10 +184,21 @@ export class AttachmentStore {
     });
   }
 
-  /** Every draft's pending pieces, as the saved state keeps them. */
+  /**
+   * Every draft's pending pieces, as the saved state keeps them. Empty sets
+   * (everything sent or removed) stay out, so closed tabs leave no husks.
+   */
   snapshot(): Record<string, PendingSet> {
     const result: Record<string, PendingSet> = {};
     for (const [key, set] of Object.entries(this.sets())) {
+      if (
+        set.images.length === 0 &&
+        set.files.length === 0 &&
+        set.pins.length === 0 &&
+        set.mentions.length === 0
+      ) {
+        continue;
+      }
       result[key] = {
         images: set.images.map((image) => ({ ...image })),
         files: set.files.map((file) => ({ ...file })),

@@ -187,6 +187,16 @@ export class WorkspaceTabs {
   /** Names new-bot tabs, so several can be drafted at once without a clash. */
   private botEditorCounter = 0;
   /**
+   * The tab each product was last on. A mode switch comes back to this tab —
+   * an edit left half-done, the new bot being drafted — instead of the row's
+   * first one. A tab closed since only misses the lookup, and then the first
+   * tab stays the fallback.
+   */
+  private lastActiveByMode: Record<ShellMode, string | undefined> = {
+    code: undefined,
+    bot: undefined,
+  };
+  /**
    * The draft the host is holding right now. It becomes the next session the
    * host opens; `undefined` once the reader moves to a real session. Without it,
    * a draft left in the strip could be mistaken for the session that just opened.
@@ -218,8 +228,23 @@ export class WorkspaceTabs {
   readonly activeId = this.active.asReadonly();
   /** Whether a tab belongs in the strip the current mode shows. */
   private inMode(tab: WorkspaceTab, mode: ShellMode): boolean {
-    const bot = tab.kind === 'bot' || tab.kind === 'bot-editor';
-    return mode === 'bot' ? bot : !bot;
+    return this.modeOf(tab) === mode;
+  }
+
+  private modeOf(tab: WorkspaceTab): ShellMode {
+    return tab.kind === 'bot' || tab.kind === 'bot-editor' ? 'bot' : 'code';
+  }
+
+  /** Points the strip at `id`, remembering it as its mode's tab. */
+  private setActive(id: string | undefined): void {
+    this.active.set(id);
+    if (id === undefined) {
+      return;
+    }
+    const tab = this.items().find((candidate) => candidate.id === id);
+    if (tab !== undefined) {
+      this.lastActiveByMode[this.modeOf(tab)] = id;
+    }
   }
   /** The first row of this mode's strip: sessions (or bots), and standalone files. */
   readonly mainTabs = computed(() => {
@@ -314,7 +339,7 @@ export class WorkspaceTabs {
     if (existing === undefined) {
       this.items.update((tabs) => [...tabs, { kind: 'session', ...session }]);
       if (this.active() === undefined) {
-        this.active.set(session.id);
+        this.setActive(session.id);
       }
       return;
     }
@@ -361,7 +386,7 @@ export class WorkspaceTabs {
       ...tabs,
       { kind: 'session', id, title: 'New session', cwd, draft: true },
     ]);
-    this.active.set(id);
+    this.setActive(id);
     this.closePromptEditorIfOpen();
     this.pendingDraft = id;
   }
@@ -402,13 +427,13 @@ export class WorkspaceTabs {
         return;
       }
       if (active === undefined) {
-        this.active.set(session.id);
+        this.setActive(session.id);
       }
       return;
     }
     this.promoteDraft(session);
     this.ensureSession(session);
-    this.active.set(session.id);
+    this.setActive(session.id);
   }
 
   /**
@@ -533,7 +558,7 @@ export class WorkspaceTabs {
       parsed.activeId !== undefined && items.some((tab) => tab.id === parsed.activeId)
         ? parsed.activeId
         : undefined;
-    this.active.set(active);
+    this.setActive(active);
     this.restorePending = active !== undefined;
     // A restored "New session" is still pending the first prompt that fills it in.
     const activeTab = items.find((tab) => tab.id === active);
@@ -583,11 +608,19 @@ export class WorkspaceTabs {
     if (active === undefined || this.inMode(active, mode)) {
       return;
     }
-    const first = this.items().find((tab) => this.inMode(tab, mode));
+    // Back to the tab this mode was last on — an edit left half-done, the new
+    // bot being drafted — not the row's first one. A tab closed since only
+    // misses the lookup, and the first tab stays the fallback.
+    const remembered = this.lastActiveByMode[mode];
+    const target =
+      remembered !== undefined
+        ? this.items().find((tab) => tab.id === remembered && this.inMode(tab, mode))
+        : undefined;
+    const first = target ?? this.items().find((tab) => this.inMode(tab, mode));
     if (first !== undefined) {
       this.select(first.id);
     } else {
-      this.active.set(undefined);
+      this.setActive(undefined);
     }
   }
 
@@ -632,7 +665,7 @@ export class WorkspaceTabs {
     if (!this.items().some((candidate) => candidate.id === tab.id)) {
       this.items.update((tabs) => [...tabs, tab]);
     }
-    this.active.set(tab.id);
+    this.setActive(tab.id);
     this.closePromptEditorIfOpen();
   }
 
@@ -706,7 +739,7 @@ export class WorkspaceTabs {
     this.items.update((tabs) =>
       tabs.map((tab) => (tab.id === id && tab.kind === 'file' ? { ...tab, line } : tab)),
     );
-    this.active.set(id);
+    this.setActive(id);
     this.closePromptEditorIfOpen();
   }
 
@@ -808,7 +841,7 @@ export class WorkspaceTabs {
             : tab,
         ),
       );
-      this.active.set(id);
+      this.setActive(id);
       this.closePromptEditorIfOpen();
       if (reread || this.loader.needsLoad(standalone)) {
         void this.loader.load(id);
@@ -830,7 +863,7 @@ export class WorkspaceTabs {
         ...extra,
       },
     ]);
-    this.active.set(id);
+    this.setActive(id);
     this.closePromptEditorIfOpen();
     void this.loader.load(id);
   }
@@ -846,7 +879,7 @@ export class WorkspaceTabs {
     if (tab.sessionId !== sessionId || reread) {
       this.patch(id, { sessionId, projectCwd, ...(reread ? clearedPreview() : {}) });
     }
-    this.active.set(id);
+    this.setActive(id);
     this.closePromptEditorIfOpen();
     if (reread || this.loader.needsLoad(tab)) {
       void this.loader.load(id);
@@ -873,7 +906,7 @@ export class WorkspaceTabs {
         return;
       }
     }
-    this.active.set(id);
+    this.setActive(id);
     this.closePromptEditorIfOpen();
     if (tab.kind === 'bot') {
       this.activateBot(tab.id);
@@ -960,7 +993,7 @@ export class WorkspaceTabs {
     this.items.update((list) => list.filter((tab) => tab.kind !== 'settings'));
     const active = this.active();
     if (active !== undefined && !this.items().some((tab) => tab.id === active)) {
-      this.active.set(this.items().find((tab) => tab.kind === 'session')?.id);
+      this.setActive(this.items().find((tab) => tab.kind === 'session')?.id);
     }
   }
 
@@ -1011,6 +1044,9 @@ export class WorkspaceTabs {
       return;
     }
     this.remove(this.doomedWith(id), index, chipOwner(this.items()[index]));
+    // The host no longer has this session: unlike a closed tab, there is no
+    // room to come back to, so its draft goes with it.
+    this.drafts.forget(id);
   }
 
   /**
@@ -1055,7 +1091,7 @@ export class WorkspaceTabs {
     }
     const active = this.items().find((tab) => tab.id === this.active());
     if (active !== undefined && active.kind === 'session' && active.draft !== true) {
-      this.active.set(undefined);
+      this.setActive(undefined);
     }
   }
 
@@ -1133,7 +1169,7 @@ export class WorkspaceTabs {
     this.items.update((tabs) => tabs.filter((tab) => !closingIds.has(tab.id)));
     this.forgetClosedBots(closing);
     this.forgetDrafts(closingIds);
-    this.active.set(id);
+    this.setActive(id);
     if (keep.kind === 'session' && keep.draft !== true) {
       this.morse.activateSession(keep.id, keep.cwd);
     }
@@ -1201,7 +1237,7 @@ export class WorkspaceTabs {
         if (neighbour !== undefined) {
           this.select(neighbour.id);
         } else {
-          this.active.set(undefined);
+          this.setActive(undefined);
         }
       }
     }
@@ -1268,6 +1304,14 @@ export class WorkspaceTabs {
   private remove(doomed: Set<string>, index: number, ownerSessionId?: string): void {
     const active = this.active();
     const removed = this.items().filter((tab) => doomed.has(tab.id));
+    // The fallback is the visible strip's neighbour: the index counts the other
+    // mode's tabs too, so reading it back directly could land on a tab the
+    // reader cannot see — and, for a session, point the host at a conversation
+    // behind their back.
+    const mode = this.currentMode();
+    const slot = this.items()
+      .slice(0, index)
+      .filter((tab) => this.inMode(tab, mode)).length;
     this.items.update((tabs) => tabs.filter((tab) => !doomed.has(tab.id)));
     this.forgetClosedBots(removed);
     this.forgetDrafts(doomed);
@@ -1282,10 +1326,10 @@ export class WorkspaceTabs {
       this.select(ownerSessionId);
       return;
     }
-    const remaining = this.items();
-    const neighbour = remaining[Math.min(index, remaining.length - 1)];
+    const visible = this.items().filter((tab) => this.inMode(tab, mode));
+    const neighbour = visible[Math.min(slot, visible.length - 1)];
     if (neighbour === undefined) {
-      this.active.set(undefined);
+      this.setActive(undefined);
       return;
     }
     this.select(neighbour.id);
@@ -1314,7 +1358,12 @@ export class WorkspaceTabs {
       if (id === this.pendingDraft) {
         this.pendingDraft = undefined;
       }
-      this.drafts.forget(id);
+      // A tab's words and attachments stay with its session or bot: closing
+      // the tab forgets the view, not the draft, so reopening finds them.
+      // Only a never-sent local draft (`draft-N`) has nothing to come back to.
+      if (draftNumber(id) > 0) {
+        this.drafts.forget(id);
+      }
       // A terminal belongs to its session tab: closing the tab kills its shells.
       this.closeOwnerTerminals(id);
       // A queued follow-up belongs to the tab on a single-client host; a shared

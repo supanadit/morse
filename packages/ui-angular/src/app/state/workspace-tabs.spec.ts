@@ -1246,4 +1246,75 @@ describe('WorkspaceTabs', () => {
     expect(tabs.tabs()).toHaveLength(0);
     expect(fake.bot.activeId()).toBeNull();
   });
+
+  it('keeps a closed tab’s draft for its session or bot, and drops local scratch', () => {
+    const { tabs } = setup();
+    const drafts = TestBed.inject(ComposerDrafts);
+    tabs.focusSession({ id: 's1', title: 'One' });
+    drafts.setFor('s1', 'half-typed prompt');
+    tabs.openBotChat('dm-forge', 'Forge');
+    drafts.setFor('bot:dm-forge', 'half-typed bot line');
+    tabs.openDraft();
+    drafts.setFor('draft-1', 'scratch');
+
+    tabs.close('s1');
+    tabs.close('dm-forge');
+    tabs.close('draft-1');
+
+    // Reopening the session or bot finds its words; the scratch draft — with
+    // no room to come back to — is gone.
+    expect(drafts.isEmpty('s1')).toBe(false);
+    expect(drafts.isEmpty('bot:dm-forge')).toBe(false);
+    expect(drafts.isEmpty('draft-1')).toBe(true);
+  });
+
+  it('comes back to the bot tab left open, edit or new, instead of the row’s first', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotEditor('forge', 'Edit Forge');
+    tabs.openBotChat('dm-sable', 'Sable');
+    // The edit sat in the middle and was in front last; the first tab is not it.
+    tabs.select('bot:edit:forge');
+    expect(tabs.activeId()).toBe('bot:edit:forge');
+
+    tabs.setMode('code');
+    expect(tabs.activeId()).toBe('s1');
+    tabs.setMode('bot');
+
+    expect(tabs.activeId()).toBe('bot:edit:forge');
+  });
+
+  it('falls back to the row’s first bot tab when the remembered one closed', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotChat('dm-sable', 'Sable');
+
+    tabs.setMode('code');
+    tabs.close('dm-sable');
+    tabs.setMode('bot');
+
+    expect(tabs.activeId()).toBe('dm-forge');
+  });
+
+  it('closes onto the same mode’s neighbour when the other mode sits between', () => {
+    const { tabs, fake } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.focusSession({ id: 's2', title: 'Two' });
+    tabs.openBotChat('dm-sable', 'Sable');
+    tabs.setMode('bot');
+    tabs.select('dm-forge');
+    fake.activateSession.mockClear();
+    fake.openBotConversation.mockClear();
+
+    tabs.close('dm-forge');
+
+    // The full-list neighbour is s2, a session the reader cannot see here;
+    // the visible strip’s neighbour is Sable, and no code session is touched.
+    expect(tabs.activeId()).toBe('dm-sable');
+    expect(fake.activateSession).not.toHaveBeenCalledWith('s2', undefined);
+    expect(fake.openBotConversation).toHaveBeenCalledWith('dm-sable');
+  });
 });

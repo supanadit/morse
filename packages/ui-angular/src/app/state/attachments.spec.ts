@@ -401,8 +401,13 @@ describe('AttachmentStore snapshot', () => {
       text: 'selected',
     });
     store.addMentions(['b.ts']);
+    // An emptied scope leaves no husk in the saved file.
+    store.use('s2');
+    store.addMentions(['x.ts']);
+    store.takeMentions();
 
     const snapshot = store.snapshot();
+    expect(Object.keys(snapshot)).toEqual(['s1']);
     const restored = freshStore();
     restored.restore(snapshot);
     restored.use('s1');

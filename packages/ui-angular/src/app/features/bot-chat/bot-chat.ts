@@ -332,7 +332,12 @@ export class BotChat {
         return;
       }
       const release = untracked(() => this.drafts.pinDraft(`bot:${conversationId}`));
-      onCleanup(release);
+      onCleanup(() => {
+        release();
+        // The pin dies with this view: hand the scope back to the tab strip,
+        // or the next composer to mount would keep editing this room's draft.
+        untracked(() => this.drafts.use(this.tabs.composerKey()));
+      });
     });
     /*
      * The transcript reserves the floating composer's height at its end, so the

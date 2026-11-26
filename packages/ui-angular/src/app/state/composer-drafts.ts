@@ -41,6 +41,11 @@ export class ComposerDrafts {
    */
   private pinned: string | undefined;
 
+  /** The pinned scope’s key, when a view owns the draft — the relay key for bot rooms. */
+  pinnedKey(): string | undefined {
+    return this.pinned;
+  }
+
   /** Points the draft — and its attachments — at `key`; `''` when none is in front. */
   use(key: string | undefined): void {
     if (this.pinned !== undefined) {
@@ -114,7 +119,11 @@ export class ComposerDrafts {
     }
   }
 
-  /** A tab was closed: its draft has nowhere to return to. */
+  /**
+   * A draft is gone for good: its session was deleted on the host, or it was a
+   * never-sent local scratch tab. Closing a tab never comes here — the words
+   * and attachments stay with the session or bot for its reopening.
+   */
   forget(key: string): void {
     this.texts.update((map) => {
       if (!(key in map)) {
@@ -127,9 +136,16 @@ export class ComposerDrafts {
     this.attachments.forget(key);
   }
 
-  /** Every tab's half-written message, for the saved state. */
+  /** Every tab's half-written message, for the saved state. Sent (emptied)
+   * drafts stay out, so the saved file only holds words waiting to be sent. */
   snapshot(): DraftsSnapshot {
-    return { texts: { ...this.texts() }, attachments: this.attachments.snapshot() };
+    const texts: Record<string, string> = {};
+    for (const [key, text] of Object.entries(this.texts())) {
+      if (text.length > 0) {
+        texts[key] = text;
+      }
+    }
+    return { texts, attachments: this.attachments.snapshot() };
   }
 
   /**
