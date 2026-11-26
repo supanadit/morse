@@ -109,6 +109,14 @@ export interface BotTranscriptEntry {
   files?: string[];
   /** The peer's answer that woke this bot, folded under its own line. */
   reply?: BotTurnReply;
+  /**
+   * Set when this line was written into this room by one of the bot's other
+   * sessions through the bus (`human_send`): the room's own engine session
+   * never saw it, so unlike the bot's own replies it must be included when
+   * the next prompt is built. Absent on every line written before the bus
+   * existed, which keeps old transcripts reading as they always did.
+   */
+  via?: 'bus';
 }
 
 /**

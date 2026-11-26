@@ -62,6 +62,15 @@ export class BotNav {
   private readonly tabs = inject(WorkspaceTabs);
 
   protected readonly bots = computed(() => this.morse.bot.roster()?.bots ?? []);
+  /**
+   * Bot definitions are an admin surface: creating, editing or deleting one
+   * writes shared config (and reads bot env back), so regulars only chat.
+   * On a single-user host `user` is null and there are no roles, so the
+   * entries stay. The host enforces the same rule — this only hides the UI.
+   */
+  protected readonly manageAllowed = computed(
+    () => this.morse.user() === null || this.morse.user()?.role === 'admin',
+  );
   protected readonly groups = computed(() =>
     (this.morse.bot.roster()?.conversations ?? []).filter(
       (conversation) => conversation.kind === 'group',

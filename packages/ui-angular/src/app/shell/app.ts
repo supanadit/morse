@@ -178,6 +178,15 @@ export class App {
   protected readonly settingsAllowed = computed(
     () => this.morse.user() === null || this.morse.user()?.role === 'admin',
   );
+  /**
+   * Bot definitions are managed by admins only (same rule as Settings above):
+   * a persisted editor tab from a previous admin login must never render the
+   * wizard's form for the regular user now signed in. The host refuses the
+   * mutation itself — this only hides the form.
+   */
+  protected readonly botManageAllowed = computed(
+    () => this.morse.user() === null || this.morse.user()?.role === 'admin',
+  );
   protected readonly activeSettingsPage = computed(() => {
     if (!this.settingsAllowed()) {
       return undefined;

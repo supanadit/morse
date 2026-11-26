@@ -21,8 +21,12 @@ import type { BotControllerPort, BotRoster, BotService } from './service.js';
  * One reader's lens over the shared bot service (Slack semantics: two readers
  * talking to the same bot never share a room).
  *
- * Bot *definitions* stay global — every reader sees (and can manage) the same
- * apps — but every *conversation* belongs to the login user who opened it. The
+ * Bot *definitions* stay global — every reader sees the same apps — but only
+ * an admin may manage them: a scoped reader whose login role is not `admin`
+ * is refused at `createBot`, `updateBot`, `deleteBot` and `inspectBot` (the
+ * last reads stored keys and bot env, so it is management too). Chatting,
+ * groups and discussions stay per reader. Every *conversation* belongs to the
+ * login user who opened it. The
  * DM alias `dm-<bot>` the sidebar has always used resolves to the caller's own
  * room (`dm:<ownerId>:<bot>`, created on first open), so the frontend needs no
  * new wire: every id it already holds keeps working, per reader.
@@ -33,6 +37,8 @@ import type { BotControllerPort, BotRoster, BotService } from './service.js';
 export class ScopedBotPort implements BotControllerPort {
   private readonly ownerId?: string;
   private readonly owner?: BotKnownUser;
+  /** True when the login role behind this lens is not `admin`: definitions are read-only. */
+  private readonly manageDenied: boolean;
 
   constructor(
     private readonly service: BotService,
@@ -40,9 +46,11 @@ export class ScopedBotPort implements BotControllerPort {
   ) {
     if (typeof owner === 'string' || owner === undefined) {
       this.ownerId = owner;
+      this.manageDenied = false;
     } else {
       this.ownerId = owner.id;
       this.owner = { id: owner.id, username: owner.username, name: owner.name ?? owner.username };
+      this.manageDenied = owner.role !== 'admin';
     }
   }
 
@@ -86,6 +94,13 @@ export class ScopedBotPort implements BotControllerPort {
     return owner === this.ownerId;
   }
 
+  /** Throws when this reader may not manage bot definitions — unscoped lenses stay open. */
+  private requireManage(): void {
+    if (this.manageDenied) {
+      throw new Error('Only an admin can manage bots.');
+    }
+  }
+
   /** Throws when this reader may not touch the room — BotWire turns it into a notice. */
   private requireVisible(id: string): string {
     const storageId = this.isAlias(id) && this.ownerId !== undefined ? this.resolve(id) : id;
@@ -114,18 +129,22 @@ export class ScopedBotPort implements BotControllerPort {
   }
 
   createBot(input: BotCreateInput): Promise<void> {
+    this.requireManage();
     return this.service.createBot(input);
   }
 
   deleteBot(username: string): Promise<void> {
+    this.requireManage();
     return this.service.deleteBot(username);
   }
 
   inspectBot(username: string): BotConfig {
+    this.requireManage();
     return this.service.inspectBot(username);
   }
 
   updateBot(input: BotUpdateInput): Promise<void> {
+    this.requireManage();
     return this.service.updateBot(input);
   }
 

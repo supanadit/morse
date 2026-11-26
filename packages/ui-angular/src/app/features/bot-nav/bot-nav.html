@@ -253,11 +253,13 @@
   <div class="context-menu" role="menu" [style.left.px]="open.x" [style.top.px]="open.y">
     @switch (open.kind) {
       @case ('create') {
-        <button type="button" class="context-menu-item new-bot"
-          role="menuitem" (click)="newBot()">
-          <span class="item-glyph" aria-hidden="true">+</span>
-          New bot
-        </button>
+        @if (manageAllowed()) {
+          <button type="button" class="context-menu-item new-bot"
+            role="menuitem" (click)="newBot()">
+            <span class="item-glyph" aria-hidden="true">+</span>
+            New bot
+          </button>
+        }
         <button type="button" class="context-menu-item new-group"
           role="menuitem" (click)="newGroup()">
           <span class="item-glyph" aria-hidden="true">#</span>
@@ -265,36 +267,77 @@
         </button>
       }
       @case ('bot') {
-        @if (open.confirming) {
-          <p class="context-menu-question">Delete bot?</p>
-          <p class="context-menu-title">{{ open.bot.name }}</p>
-          <button type="button" class="context-menu-item"
-            role="menuitem"
-            (click)="closeMenu()">Cancel</button>
-          <button type="button" class="context-menu-item danger"
-            role="menuitem"
-            (click)="deleteNow(open.bot)">
-            Delete bot
-          </button>
+        @if (manageAllowed()) {
+          @if (open.confirming) {
+            <p class="context-menu-question">Delete bot?</p>
+            <p class="context-menu-title">{{ open.bot.name }}</p>
+            <button type="button" class="context-menu-item"
+              role="menuitem"
+              (click)="closeMenu()">Cancel</button>
+            <button type="button" class="context-menu-item danger"
+              role="menuitem"
+              (click)="deleteNow(open.bot)">
+              Delete bot
+            </button>
+          } @else {
+            <button type="button" class="context-menu-item"
+              role="menuitem"
+              (click)="openBot(open.bot)">
+              Open
+            </button>
+            <button
+              type="button"
+              class="context-menu-item edit-bot"
+              role="menuitem"
+              [disabled]="routingFor(open.bot)"
+              [title]="
+                routingFor(open.bot)
+                  ? 'This bot is answering — wait for the turn to end'
+                  : 'Edit ' + open.bot.name
+              "
+              (click)="editBot(open.bot)"
+            >
+              Edit bot…
+            </button>
+            <button
+              type="button"
+              class="context-menu-item"
+              role="menuitem"
+              (click)="startDiscussion('dm-' + open.bot.username)"
+            >
+              New discussion
+            </button>
+            @if (routingFor(open.bot)) {
+              <button
+                type="button"
+                class="context-menu-item stop-bot"
+                role="menuitem"
+                [title]="'Stop ' + open.bot.name + ' without disturbing anything else'"
+                (click)="stopDm(open.bot)"
+              >
+                Stop
+              </button>
+            }
+            <button
+              type="button"
+              class="context-menu-item danger delete-bot"
+              role="menuitem"
+              [disabled]="routingFor(open.bot)"
+              [title]="
+                routingFor(open.bot)
+                  ? 'This bot is answering — wait for the turn to end'
+                  : 'Delete ' + open.bot.name
+              "
+              (click)="askDelete(open.bot)"
+            >
+              Delete bot…
+            </button>
+          }
         } @else {
           <button type="button" class="context-menu-item"
             role="menuitem"
             (click)="openBot(open.bot)">
             Open
-          </button>
-          <button
-            type="button"
-            class="context-menu-item edit-bot"
-            role="menuitem"
-            [disabled]="routingFor(open.bot)"
-            [title]="
-              routingFor(open.bot)
-                ? 'This bot is answering — wait for the turn to end'
-                : 'Edit ' + open.bot.name
-            "
-            (click)="editBot(open.bot)"
-          >
-            Edit bot…
           </button>
           <button
             type="button"
@@ -315,20 +358,6 @@
               Stop
             </button>
           }
-          <button
-            type="button"
-            class="context-menu-item danger delete-bot"
-            role="menuitem"
-            [disabled]="routingFor(open.bot)"
-            [title]="
-              routingFor(open.bot)
-                ? 'This bot is answering — wait for the turn to end'
-                : 'Delete ' + open.bot.name
-            "
-            (click)="askDelete(open.bot)"
-          >
-            Delete bot…
-          </button>
         }
       }
       @case ('group') {

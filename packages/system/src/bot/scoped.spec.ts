@@ -157,4 +157,49 @@ describe('ScopedBotPort', () => {
       text: 'hi',
     });
   });
+
+  it('refuses bot management to a scoped regular, while admins stay open', async () => {
+    const regular = new ScopedBotPort(service, {
+      id: 'u-bob',
+      username: 'bob',
+      role: 'regular',
+      name: 'Bob',
+    });
+    const admin = new ScopedBotPort(service, {
+      id: 'u-adit',
+      username: 'adit',
+      role: 'admin',
+      name: 'Adit',
+    });
+
+    // inspect reads stored keys and bot env, so it is management too.
+    expect(() => regular.inspectBot('nana')).toThrow(/admin/);
+    // The mutations throw before any async work starts.
+    expect(() => regular.deleteBot('nana')).toThrow(/admin/);
+    expect(() =>
+      regular.createBot({
+        username: 'x',
+        name: 'X',
+        description: '',
+        engineKind: 'fake',
+        credentials: [],
+        envVars: [],
+        persona: '',
+      }),
+    ).toThrow(/admin/);
+    expect(() =>
+      regular.updateBot({
+        username: 'nana',
+        name: 'Nana',
+        description: '',
+        persona: '',
+        envVars: [],
+      }),
+    ).toThrow(/admin/);
+
+    // Admins and unscoped lenses (single-user hosts) keep working.
+    expect(admin.inspectBot('nana').username).toBe('nana');
+    expect(new ScopedBotPort(service, 'u-bob').inspectBot('nana').username).toBe('nana');
+    expect(new ScopedBotPort(service, undefined).inspectBot('nana').username).toBe('nana');
+  });
 });

@@ -3206,6 +3206,43 @@ describe('BotService bus', () => {
     await settle(service, 'dm-sigil');
   });
 
+  it('shows the relayed line to the target room’s next turn', async () => {
+    const { adapter, service } = harness({ script: holdsPersonTurns });
+    await busBots(service);
+    service.setUserDirectory({
+      listUsers: async () => [
+        { id: 'u-ada', username: 'ada', name: 'Ada' },
+        { id: 'u-bob', username: 'bob', name: 'Bob' },
+      ],
+    });
+    // Sigil's live turn is in Ada's room, so the send below has liveness —
+    // exactly how a relay happens in production.
+    const held = await holdTurn(service, adapter, 'dm-sigil', 'sigil');
+    await service.busSendToHuman('sigil', {
+      to: 'bob',
+      text: 'Dari adit: dia pulang telat hari ini.',
+    });
+    held.release();
+    await settle(service, 'dm-sigil');
+
+    // The relay lands tagged: Bob's room engine never saw it, so it must not
+    // read as the bot's own already-seen reply.
+    expect(service.transcript('dm__u-bob__sigil').at(-1)).toMatchObject({ via: 'bus' });
+
+    // Bob's "Oke" answers the relay, not thin air: the prompt carries it.
+    await service.send('dm__u-bob__sigil', 'Oke', undefined, {
+      id: 'u-bob',
+      username: 'bob',
+      name: 'Bob',
+    });
+    await waitForTurn(service, 'sigil');
+    gatewayFor(adapter, 'sigil', 1).release();
+    await settle(service, 'dm__u-bob__sigil');
+    expect(gatewayFor(adapter, 'sigil', 1).prompts.at(-1)).toContain(
+      'Dari adit: dia pulang telat hari ini.',
+    );
+  });
+
   it('sends into a named room that human owns with that bot in it', async () => {
     const { adapter, service } = harness({ script: holdsPersonTurns });
     await busBots(service);

@@ -295,8 +295,10 @@
                 [conversationId]="tab.id"
                 [active]="tab.id === tabs.activeId()"
               />
-            } @else {
+            } @else if (botManageAllowed()) {
               <morse-bot-wizard [tabId]="tab.id" [target]="tab.target" />
+            } @else {
+              <p class="bot-view-denied" role="note">Only an admin can manage bots.</p>
             }
           </div>
         } @empty {

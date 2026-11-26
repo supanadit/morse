@@ -318,6 +318,14 @@ morse-bottom-panel {
   display: flex;
 }
 
+/* A persisted bot-editor tab opened under a regular login: the wizard's form
+   stays hidden, and this says why instead of a blank tab. */
+.bot-view-denied {
+  margin: auto;
+  padding: 16px;
+  opacity: 0.7;
+}
+
 /*
  * The floating composer (and anything docked with it) rides over the conversation.
  * It stays a flex item — so the bottom panel keeps its place under it — and pulls

@@ -1508,7 +1508,7 @@ export class BotService {
       }
       room = found;
     }
-    const entry = this.append(room.id, botAuthor(sender), text);
+    const entry = this.append(room.id, botAuthor(sender), text, undefined, 'bus');
     this.touched(room);
     return { deliveryId: entry.id, conversationId: room.id, queued: true };
   }
@@ -2893,6 +2893,7 @@ export class BotService {
     author: BotAuthor,
     text: string,
     attachments?: { images?: PromptImage[]; files?: string[]; reply?: BotTurnReply },
+    via?: 'bus',
   ): BotTranscriptEntry {
     const entry = this.transcripts.append(conversationId, {
       id: randomUUID(),
@@ -2906,6 +2907,7 @@ export class BotService {
         ? {}
         : { files: attachments.files }),
       ...(attachments?.reply === undefined ? {} : { reply: attachments.reply }),
+      ...(via === undefined ? {} : { via }),
     });
     this.emit({ type: 'transcript', conversationId, entries: [entry], replace: false });
     return entry;
@@ -3265,7 +3267,9 @@ export class BotService {
    * `entryId`, framed the way a chat log reads.
    *
    * A bot's own words are left out — they are already its assistant turns in its
-   * own engine session, and repeating them would have it answer itself. Everyone
+   * own engine session, and repeating them would have it answer itself — with
+   * one exception: lines it wrote into this room from another session over the
+   * bus, which this engine session never saw. Everyone
    * else's are included, including work a bot did for somebody else: that is what
    * makes a room coherent, so a bot that sat a turn out is caught up when it is
    * finally called. `upTo` is the entry the slice ends at, so the cursor can only
@@ -3376,10 +3380,14 @@ export class BotService {
     }
     if (entry.author.role === 'bot') {
       // Its own reply is its own turn in its session; Morse's notes and the
-      // discussion boundaries are not conversation.
-      return entry.author.username === bot.username
-        ? undefined
-        : relayLine(title, entry.author.name, entry.text);
+      // discussion boundaries are not conversation. A line this bot wrote into
+      // this room from another session (`human_send`) is the exception: this
+      // engine session never saw it, so it reads as what it is — words the
+      // bot already sent here.
+      if (entry.author.username !== bot.username) {
+        return relayLine(title, entry.author.name, entry.text);
+      }
+      return entry.via === 'bus' ? relayLine(title, 'You (to this room)', entry.text) : undefined;
     }
     return undefined;
   }
