@@ -62,11 +62,11 @@ describe('OpenCodeProviders', () => {
     });
 
     const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    const model = config.providers['my-gateway'].models['model-a'];
+    const model = config.provider['my-gateway'].models['model-a'];
     expect(model).toMatchObject({
       name: 'Model A',
       limit: { context: 100000, output: 8000 },
-      capabilities: { input: ['text', 'image'] },
+      modalities: { input: ['text', 'image'] },
       reasoning: true,
     });
     expect(model.variants).toEqual([{ id: 'low' }, { id: 'high' }]);
@@ -82,8 +82,8 @@ describe('OpenCodeProviders', () => {
 
     await providers.disconnect({ providerId: 'my-gateway' });
     const after = JSON.parse(readFileSync(configPath, 'utf8'));
-    expect(after.providers['my-gateway'].settings.baseURL).toBe('https://llm.example.com/v1');
-    expect(after.providers['my-gateway'].settings.apiKey).toBeUndefined();
+    expect(after.provider['my-gateway'].settings.baseURL).toBe('https://llm.example.com/v1');
+    expect(after.provider['my-gateway'].settings.apiKey).toBeUndefined();
   });
 
   it('writes a pasted key for a known provider into OpenCode’s auth file', async () => {
@@ -128,6 +128,55 @@ describe('OpenCodeProviders', () => {
     expect(after.options).toMatchObject({ baseURL: 'https://llm.example.com/v2', apiKey: 'sk-new' });
     expect(after.settings).toBeUndefined();
     expect(Object.keys(after.models)).toEqual(['model-b']);
+  });
+
+  it('reads a native singular provider block with modalities and npm options', async () => {
+    const { configPath, providers } = setup();
+    const root = {
+      provider: {
+        'llm-eigen': {
+          name: 'LLM Eigen',
+          npm: '@ai-sdk/openai-compatible',
+          options: { baseURL: 'https://llm.eigen.co.id/v1', apiKey: '{env:KEY}' },
+          models: {
+            'kimi-k2.7-code': {
+              name: 'Kimi K2.7 Code',
+              limit: { context: 262144, output: 32768 },
+              modalities: { input: ['text', 'image'], output: ['text'] },
+              reasoning: true,
+            },
+          },
+        },
+      },
+    };
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(root));
+
+    const found = (await list(providers)).providers.find((one) => one.id === 'llm-eigen');
+    expect(found).toMatchObject({
+      kind: 'custom',
+      connected: true,
+      baseURL: 'https://llm.eigen.co.id/v1',
+    });
+    expect(found?.models?.[0]).toMatchObject({
+      id: 'kimi-k2.7-code',
+      contextWindow: 262144,
+      maxTokens: 32768,
+      input: ['text', 'image'],
+      reasoning: true,
+    });
+
+    // Saving keeps the entry under the native singular key OpenCode reads.
+    await providers.connect({
+      providerId: 'llm-eigen',
+      name: 'LLM Eigen',
+      baseURL: 'https://llm.eigen.co.id/v1',
+      models: [{ id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code' }],
+      key: 'sk-new',
+    });
+    const after = JSON.parse(readFileSync(configPath, 'utf8'));
+    expect(after.provider['llm-eigen'].options).toMatchObject({ baseURL: 'https://llm.eigen.co.id/v1' });
+    expect(after.providers).toBeUndefined();
   });
 
   it('hands any safe provider id to OpenCode’s own auth login', async () => {

@@ -154,12 +154,18 @@ describe('ProvidersPanel', () => {
 
     const state = fixture.componentInstance as unknown as {
       hasInput(index: number, input: string): boolean;
-      toggleInput(index: number, input: string): void;
     };
     expect(state.hasInput(0, 'image')).toBe(false);
     expect(state.hasInput(1, 'image')).toBe(false);
 
-    state.toggleInput(0, 'image');
+    // Click the real chip in the first model card: with nested `@for` loops the
+    // template must pass the model row, not the inner chip index.
+    const cards = () => [...host.querySelectorAll('.model-card')] as HTMLElement[];
+    const imageChip = (row: number) =>
+      [...(cards()[row]?.querySelectorAll('.chip') ?? [])].find(
+        (chip) => chip.textContent?.trim() === 'image',
+      ) as HTMLButtonElement;
+    imageChip(0).click();
     fixture.detectChanges();
     expect(state.hasInput(0, 'image')).toBe(true);
     expect(state.hasInput(1, 'image')).toBe(false);

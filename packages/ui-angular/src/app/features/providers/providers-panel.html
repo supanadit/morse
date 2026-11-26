@@ -180,28 +180,28 @@
         </div>
         <p class="hint">Discovery reads the endpoint's <code>/models</code> listing. Blank limits leave {{ engine() }}'s own default; corrections here always win.</p>
 
-        @for (model of models(); track $index) {
-          <div class="model-card" [attr.data-model]="model.id || $index">
+        @for (model of models(); track $index; let mi = $index) {
+          <div class="model-card" [attr.data-model]="model.id || mi">
             <div class="model-head">
               <label class="field model-id">
                 <span>Model ID</span>
-                <input [value]="model.id" placeholder="gpt-5" (input)="setModel($index, 'id', $any($event.target).value)" />
+                <input [value]="model.id" placeholder="gpt-5" (input)="setModel(mi, 'id', $any($event.target).value)" />
               </label>
               <label class="field model-name">
                 <span>Display name</span>
-                <input [value]="model.name" placeholder="GPT-5" (input)="setModel($index, 'name', $any($event.target).value)" />
+                <input [value]="model.name" placeholder="GPT-5" (input)="setModel(mi, 'name', $any($event.target).value)" />
               </label>
-              <button type="button" class="model-remove" aria-label="Remove model" title="Remove model" (click)="removeModel($index)">×</button>
+              <button type="button" class="model-remove" aria-label="Remove model" title="Remove model" (click)="removeModel(mi)">×</button>
             </div>
 
             <div class="model-limits">
               <label class="field">
                 <span>Context window</span>
-                <input type="number" min="1" [value]="model.context" placeholder="131072" (input)="setModel($index, 'context', $any($event.target).value)" />
+                <input type="number" min="1" [value]="model.context" placeholder="131072" (input)="setModel(mi, 'context', $any($event.target).value)" />
               </label>
               <label class="field">
                 <span>Max output</span>
-                <input type="number" min="1" [value]="model.output" placeholder="32768" (input)="setModel($index, 'output', $any($event.target).value)" />
+                <input type="number" min="1" [value]="model.output" placeholder="32768" (input)="setModel(mi, 'output', $any($event.target).value)" />
               </label>
             </div>
 
@@ -209,12 +209,12 @@
               <span class="cap-label">Capabilities</span>
               <div class="chips">
                 <button type="button" class="chip" [class.on]="model.reasoning"
-                  [attr.aria-pressed]="model.reasoning" (click)="setModel($index, 'reasoning', !model.reasoning)">
+                  [attr.aria-pressed]="model.reasoning" (click)="setModel(mi, 'reasoning', !model.reasoning)">
                   reasoning
                 </button>
                 @for (input of inputs; track input) {
-                  <button type="button" class="chip" [class.on]="hasInput($index, input)"
-                    [attr.aria-pressed]="hasInput($index, input)" (click)="toggleInput($index, input)">
+                  <button type="button" class="chip" [class.on]="hasInput(mi, input)"
+                    [attr.aria-pressed]="hasInput(mi, input)" (click)="toggleInput(mi, input)">
                     {{ input }}
                   </button>
                 }
@@ -226,8 +226,8 @@
                 <span class="cap-label">Thinking levels</span>
                 <div class="chips">
                   @for (level of levels; track level) {
-                    <button type="button" class="chip" [class.on]="hasThinking($index, level)"
-                      [attr.aria-pressed]="hasThinking($index, level)" (click)="toggleThinking($index, level)">
+                    <button type="button" class="chip" [class.on]="hasThinking(mi, level)"
+                      [attr.aria-pressed]="hasThinking(mi, level)" (click)="toggleThinking(mi, level)">
                       {{ level }}
                     </button>
                   }

@@ -162,7 +162,13 @@ export class OpenCodeProviders {
     const auth = readObject(this.authPath);
     const document = this.config();
     const root = isRecord(document.value) ? document.value : {};
-    const configured = isRecord(root['providers']) ? root['providers'] : {};
+    // OpenCode's native schema uses singular `provider`; older Morse writes used
+    // plural `providers`. Read both so a config block is never missed (a missed
+    // block would demote a custom endpoint to a key-only builtin).
+    const configured = {
+      ...(isRecord(root['providers']) ? root['providers'] : {}),
+      ...(isRecord(root['provider']) ? root['provider'] : {}),
+    };
     const providers = new Map<string, ProviderInfo>();
     const put = (next: ProviderInfo): void => {
       const previous = providers.get(next.id);
@@ -241,13 +247,25 @@ export class OpenCodeProviders {
         connected,
         ...(hasKey ? { source: 'config' as const } : {}),
         ...(typeof settings['baseURL'] === 'string' ? { baseURL: settings['baseURL'] } : {}),
-        ...(typeof one['package'] === 'string' ? { api: packageApi(one['package']) } : {}),
+        ...(typeof one['package'] === 'string'
+          ? { api: packageApi(one['package']) }
+          : typeof one['npm'] === 'string'
+            ? { api: packageApi(one['npm']) }
+            : {}),
         ...(isRecord(one['models'])
           ? {
               models: Object.entries(one['models']).flatMap(([modelId, raw]) => {
                 const row = isRecord(raw) ? raw : {};
                 const limit = isRecord(row['limit']) ? row['limit'] : {};
+                // OpenCode writes `modalities: { input: [...] }`; older Morse
+                // writes used `capabilities: { input: [...] }`. Read both.
+                const modalities = isRecord(row['modalities']) ? row['modalities'] : {};
                 const capabilities = isRecord(row['capabilities']) ? row['capabilities'] : {};
+                const input = Array.isArray(modalities['input'])
+                  ? modalities['input']
+                  : Array.isArray(capabilities['input'])
+                    ? capabilities['input']
+                    : undefined;
                 const variants = Array.isArray(row['variants'])
                   ? row['variants'].flatMap((variant) => {
                       const v = isRecord(variant) ? variant : {};
@@ -259,9 +277,7 @@ export class OpenCodeProviders {
                   ...row,
                   ...(typeof limit['context'] === 'number' ? { contextWindow: limit['context'] } : {}),
                   ...(typeof limit['output'] === 'number' ? { maxTokens: limit['output'] } : {}),
-                  ...(isRecord(capabilities) && Array.isArray(capabilities['input'])
-                    ? { input: capabilities['input'] }
-                    : {}),
+                  ...(input === undefined ? {} : { input }),
                   ...(variants.length > 0 ? { thinkingLevels: variants } : {}),
                 }) ?? [];
               }),
@@ -312,7 +328,19 @@ export class OpenCodeProviders {
 
     const document = this.config();
     const root = isRecord(document.value) ? document.value : {};
-    const configured = isRecord(root['providers']) ? root['providers'] : {};
+    // Native schema is singular `provider`; keep writing where the entry lives
+    // so OpenCode keeps reading it. New entries use the native singular key.
+    const blockKey = isRecord(root['provider']) &&
+        (input.providerId in root['provider'] || !isRecord(root['providers']) || !(input.providerId in root['providers']))
+      ? 'provider'
+      : isRecord(root['providers']) && input.providerId in root['providers'] && !isRecord(root['provider'])
+        ? 'providers'
+        : isRecord(root['provider'])
+          ? 'provider'
+          : isRecord(root['providers'])
+            ? 'providers'
+            : 'provider';
+    const configured = isRecord(root[blockKey]) ? root[blockKey] : {};
     const keptProvider = configured[input.providerId];
     const previous = isRecord(keptProvider) ? keptProvider : {};
     // Preserve whichever schema the existing block uses. Writing `settings` into
@@ -341,27 +369,36 @@ export class OpenCodeProviders {
         const keptModel = models[model.id];
         const kept = isRecord(keptModel) ? keptModel : {};
         const keptLimit = isRecord(kept['limit']) ? kept['limit'] : {};
-        const keptCaps = isRecord(kept['capabilities']) ? kept['capabilities'] : {};
+        const keptModalities = isRecord(kept['modalities']) ? kept['modalities'] : {};
         const context = model.contextWindow ?? (typeof keptLimit['context'] === 'number' ? keptLimit['context'] : undefined);
         const output = model.maxTokens ?? (typeof keptLimit['output'] === 'number' ? keptLimit['output'] : undefined);
         const variants = model.thinkingLevels ?? (Array.isArray(kept['variants']) ? kept['variants'] : undefined);
-        return [model.id, {
-          ...kept,
-          name: model.name ?? (typeof kept['name'] === 'string' ? kept['name'] : model.id),
-          ...(context === undefined && output === undefined ? {} : {
-            limit: {
-              ...keptLimit,
-              ...(context === undefined ? {} : { context }),
-              ...(output === undefined ? {} : { output }),
-            },
-          }),
-          ...(model.input === undefined ? {} : { capabilities: { ...keptCaps, input: model.input } }),
-          ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
-          ...(variants === undefined ? {} : { variants: variants.map((level) => ({ id: level })) }),
-        }];
+        return [model.id, (() => {
+          const { capabilities: _dropped, ...rest } = kept;
+          return {
+            ...rest,
+            name: model.name ?? (typeof kept['name'] === 'string' ? kept['name'] : model.id),
+            ...(context === undefined && output === undefined ? {} : {
+              limit: {
+                ...keptLimit,
+                ...(context === undefined ? {} : { context }),
+                ...(output === undefined ? {} : { output }),
+              },
+            }),
+            // Native schema is `modalities: { input, output }`.
+            ...(model.input === undefined && !isRecord(kept['modalities']) ? {} : {
+              modalities: {
+                ...keptModalities,
+                ...(model.input === undefined ? {} : { input: model.input }),
+              },
+            }),
+            ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+            ...(variants === undefined ? {} : { variants: variants.map((level) => ({ id: level })) }),
+          };
+        })()];
       })),
     };
-    const written = await this.writeConfig({ ...root, providers: { ...configured, [input.providerId]: entry } });
+    const written = await this.writeConfig({ ...root, [blockKey]: { ...configured, [input.providerId]: entry } });
     return written.ok
       ? { ok: true, message: `Connected ${input.name ?? input.providerId} for OpenCode.` }
       : { ok: false, message: written.message ?? 'Could not update the OpenCode config.', ...(written.issues ? { issues: written.issues } : {}) };
@@ -429,7 +466,16 @@ export class OpenCodeProviders {
 
     const document = this.config();
     const root = isRecord(document.value) ? document.value : {};
-    const configured = isRecord(root['providers']) ? root['providers'] : {};
+    // The entry may live under native `provider` or legacy `providers`; clean
+    // whichever block holds it.
+    const blockKey = isRecord(root['provider']) && providerId in root['provider']
+      ? 'provider'
+      : isRecord(root['providers']) && providerId in root['providers']
+        ? 'providers'
+        : isRecord(root['provider'])
+          ? 'provider'
+          : 'providers';
+    const configured = isRecord(root[blockKey]) ? root[blockKey] : {};
     const keptEntry = configured[providerId];
     const entry = isRecord(keptEntry) ? keptEntry : undefined;
     if (entry !== undefined) {
@@ -440,7 +486,7 @@ export class OpenCodeProviders {
         delete next['apiKey'];
         const provider: Record<string, unknown> = { ...entry, [field]: next };
         delete provider['env'];
-        const written = await this.writeConfig({ ...root, providers: { ...configured, [providerId]: provider } });
+        const written = await this.writeConfig({ ...root, [blockKey]: { ...configured, [providerId]: provider } });
         if (!written.ok) {
           return { ok: false, message: written.message ?? 'Could not update the OpenCode config.', ...(written.issues ? { issues: written.issues } : {}) };
         }
