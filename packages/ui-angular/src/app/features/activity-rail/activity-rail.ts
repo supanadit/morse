@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LayoutState } from '../../state/layout-state';
 import { ShellState, type LeftPane } from '../../state/shell-state';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { MorseService } from '../../host/morse.service';
 import { AuthState } from '../../host/auth-state';
 
@@ -24,6 +25,7 @@ import { AuthState } from '../../host/auth-state';
 export class ActivityRail {
   private readonly shell = inject(ShellState);
   private readonly layout = inject(LayoutState);
+  private readonly tabs = inject(WorkspaceTabs);
   private readonly morse = inject(MorseService);
   private readonly auth = inject(AuthState);
 
@@ -53,12 +55,10 @@ export class ActivityRail {
     const wide = globalThis.matchMedia?.('(min-width: 760px)').matches ?? true;
     if (pane !== this.shell.leftPane()) {
       this.shell.setLeftPane(pane);
-      // The settings page belongs to its menu: opening the cog shows the
-      // Members page, leaving it for a list closes the page again.
+      // The settings menu's page is a tab: opening the cog shows the menu
+      // with the Members page, and the tab survives a trip to any list.
       if (pane === 'settings') {
-        this.shell.openAdmin();
-      } else {
-        this.shell.closeAdmin();
+        this.tabs.openSettingsPage();
       }
       if (wide) {
         this.layout.setVisible('left', true);
@@ -87,9 +87,7 @@ export class ActivityRail {
   protected manageUsers(): void {
     this.closeMenu();
     this.shell.setLeftPane('settings');
-    if (!this.shell.adminOpen()) {
-      this.shell.openAdmin();
-    }
+    this.tabs.openSettingsPage();
   }
 
   /** Ends this login session and reloads into the login screen. */

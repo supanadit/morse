@@ -186,16 +186,27 @@ export class CommandPalette {
           ? tab.path
           : tab.kind === 'session'
             ? tab.cwd
-            : 'MCP servers',
+            : tab.kind === 'settings'
+              ? 'Host settings'
+              : 'MCP servers',
       badge:
         tab.kind === 'file'
           ? 'file'
           : tab.kind === 'mcp'
             ? 'mcp'
-            : tab.draft === true
-              ? 'draft'
-              : 'session',
-      icon: tab.kind === 'file' ? '≡' : tab.kind === 'mcp' ? '⚙' : '▸',
+            : tab.kind === 'settings'
+              ? 'settings'
+              : tab.draft === true
+                ? 'draft'
+                : 'session',
+      icon:
+        tab.kind === 'file'
+          ? '≡'
+          : tab.kind === 'mcp'
+            ? '⚙'
+            : tab.kind === 'settings'
+              ? '▣'
+              : '▸',
     }));
   });
 

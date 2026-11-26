@@ -1,6 +1,6 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
-import { ShellState } from '../../state/shell-state';
+import { WorkspaceTabs, SETTINGS_MEMBERS_TAB_ID } from '../../state/workspace-tabs';
 import { SettingsNav } from './settings-nav';
 
 function render(): ComponentFixture<SettingsNav> {
@@ -13,7 +13,7 @@ function render(): ComponentFixture<SettingsNav> {
 describe('SettingsNav', () => {
   it('lists Members, opening its page on click', () => {
     const fixture = render();
-    const shell = TestBed.inject(ShellState);
+    const tabs = TestBed.inject(WorkspaceTabs);
 
     const row = fixture.nativeElement.querySelector('.row') as HTMLButtonElement;
     expect(row.textContent).toContain('Members');
@@ -21,7 +21,7 @@ describe('SettingsNav', () => {
 
     row.click();
     fixture.detectChanges();
-    expect(shell.adminOpen()).toBe(true);
+    expect(tabs.activeId()).toBe(SETTINGS_MEMBERS_TAB_ID);
     expect(
       (fixture.nativeElement.querySelector('.row') as HTMLButtonElement).getAttribute(
         'aria-current',

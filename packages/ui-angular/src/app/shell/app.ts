@@ -168,7 +168,11 @@ export class App {
   private readonly restore = inject(RestoreState);
   private readonly shell = inject(ShellState);
   /** User management takes the center column while the rail's entry is up. */
-  protected readonly adminOpen = this.shell.adminOpen;
+  /** The settings page in front, if a settings tab is the active one. */
+  protected readonly activeSettingsPage = computed(() => {
+    const tab = this.tabs.activeTab();
+    return tab?.kind === 'settings' ? tab.page : undefined;
+  });
   private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
   private readonly tabs = inject(WorkspaceTabs);

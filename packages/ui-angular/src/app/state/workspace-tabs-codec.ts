@@ -13,7 +13,7 @@ import type { FileTab, WorkspaceTab } from './workspace-tabs.js';
  */
 /** The shape every restorable tab shares: which kind, its id, and its label. */
 export interface PersistedTabBase {
-  kind: 'session' | 'mcp' | 'file';
+  kind: 'session' | 'mcp' | 'settings' | 'file';
   id: string;
   title: string;
 }
@@ -29,6 +29,12 @@ export interface PersistedMcpTab extends PersistedTabBase {
   kind: 'mcp';
 }
 
+/** A settings page; the page reopens, its form starts fresh. */
+export interface PersistedSettingsTab extends PersistedTabBase {
+  kind: 'settings';
+  page: 'members';
+}
+
 /** A file or diff preview, optionally tied to a session or a commit. */
 export interface PersistedFileTab extends PersistedTabBase {
   kind: 'file';
@@ -42,7 +48,7 @@ export interface PersistedFileTab extends PersistedTabBase {
 }
 
 /** A tab the strip restores after a reload. */
-export type PersistedTab = PersistedSessionTab | PersistedMcpTab | PersistedFileTab;
+export type PersistedTab = PersistedSessionTab | PersistedMcpTab | PersistedSettingsTab | PersistedFileTab;
 
 /** What the strip remembers across a reload: its tabs, and which one was in front. */
 export interface TabsSnapshot {
@@ -136,6 +142,14 @@ export function asPersistedTab(value: unknown): PersistedTab | undefined {
       return undefined;
     }
     return { kind: 'mcp', id, title };
+  }
+  if (candidate['kind'] === 'settings') {
+    const title = candidate['title'];
+    // One known page today; an unknown one is not worth guessing at.
+    if (typeof title !== 'string' || candidate['page'] !== 'members') {
+      return undefined;
+    }
+    return { kind: 'settings', id, title, page: 'members' };
   }
   if (candidate['kind'] !== 'file') {
     return undefined;

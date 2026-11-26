@@ -96,6 +96,23 @@ describe('WorkspaceTabs', () => {
     expect(tabs.activeId()).toBe('mcp:servers');
   });
 
+  it('opens one Members tab and re-focuses it instead of stacking a second', () => {
+    const { tabs } = setup();
+
+    tabs.openSettingsPage();
+    tabs.openFile('README.md');
+    tabs.openSettingsPage();
+
+    const members = tabs.tabs().filter((tab) => tab.kind === 'settings');
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({
+      id: 'settings:members',
+      title: 'Members',
+      page: 'members',
+    });
+    expect(tabs.activeId()).toBe('settings:members');
+  });
+
   it('toggles the full-page prompt editor on a host with a tab strip', () => {
     const { tabs, fake } = setup(() => undefined, { filePreview: true });
     const shell = TestBed.inject(ShellState);
@@ -921,6 +938,27 @@ describe('WorkspaceTabs', () => {
     restored.restore(snapshot);
     expect(restored.tabs().map((tab) => tab.id)).toEqual(['s1', 'mcp:servers']);
     expect(restored.activeTab()?.kind).toBe('mcp');
+  });
+
+  it('keeps the Members tab across a snapshot and restore', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.openSettingsPage();
+
+    const snapshot = tabs.snapshot();
+    expect(snapshot.tabs.find((tab) => tab.id === 'settings:members')).toEqual({
+      kind: 'settings',
+      id: 'settings:members',
+      title: 'Members',
+      page: 'members',
+    });
+    expect(snapshot.activeId).toBe('settings:members');
+
+    TestBed.resetTestingModule();
+    const { tabs: restored } = setup();
+    restored.restore(snapshot);
+    expect(restored.tabs().map((tab) => tab.id)).toEqual(['s1', 'settings:members']);
+    expect(restored.activeTab()?.kind).toBe('settings');
   });
 
   it('restores a New session draft and promotes it on the first prompt', () => {

@@ -107,6 +107,9 @@ export class TabStrip {
     if (tab.kind === 'mcp') {
       return '⚙';
     }
+    if (tab.kind === 'settings') {
+      return '▣';
+    }
     return tab.kind === 'session' ? '✦' : fileGlyph(tab.title);
   }
 

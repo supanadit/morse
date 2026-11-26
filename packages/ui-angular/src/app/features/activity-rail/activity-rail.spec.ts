@@ -3,6 +3,7 @@ import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayoutState } from '../../state/layout-state';
 import { ShellState } from '../../state/shell-state';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { MorseService } from '../../host/morse.service';
 import { AuthState } from '../../host/auth-state';
 import { ActivityRail } from './activity-rail';
@@ -14,14 +15,23 @@ function render(): ComponentFixture<ActivityRail> {
   return fixture;
 }
 
-/** A multi-user host: the rail gains the account block at its foot. */
+/** A multi-user host: the rail gains the account block and the settings cog. */
 function renderAs(username: string, role: 'admin' | 'regular'): ComponentFixture<ActivityRail> {
   TestBed.configureTestingModule({
     imports: [ActivityRail],
     providers: [
       {
         provide: MorseService,
-        useValue: { user: signal({ id: 'u-1', username, role }) },
+        useValue: {
+          user: signal({ id: 'u-1', username, role }),
+          // The rail pulls in the tab store, which reads the host session.
+          state: signal({ workspace: { cwd: '/repo', name: 'repo' } }),
+          capabilities: signal({}),
+          activateSession: vi.fn(),
+          newSession: vi.fn(),
+          closeTerminal: vi.fn(),
+          sharedComposer: () => false,
+        },
       },
     ],
   });
@@ -160,9 +170,10 @@ describe('ActivityRail', () => {
     expect(member.nativeElement.querySelectorAll('.card .row')).toHaveLength(1);
   });
 
-  it('opens host settings from the cog, and leaves them for a list', () => {
+  it('opens host settings from the cog; the page is a tab and survives a list', () => {
     const fixture = renderAs('adit', 'admin');
     const shell = TestBed.inject(ShellState);
+    const tabs = TestBed.inject(WorkspaceTabs);
     const cog = fixture.nativeElement.querySelector(
       '.views .entry[aria-label="Settings"]',
     ) as HTMLButtonElement;
@@ -171,11 +182,12 @@ describe('ActivityRail', () => {
     cog.click();
     fixture.detectChanges();
     expect(shell.leftPane()).toBe('settings');
-    expect(shell.adminOpen()).toBe(true);
+    expect(tabs.activeId()).toBe('settings:members');
 
+    // Leaving for a list keeps the page: it is a tab, closed from the strip.
     entries(fixture)[0].click();
     fixture.detectChanges();
     expect(shell.leftPane()).toBe('sessions');
-    expect(shell.adminOpen()).toBe(false);
+    expect(tabs.tabs().some((tab) => tab.id === 'settings:members')).toBe(true);
   });
 });

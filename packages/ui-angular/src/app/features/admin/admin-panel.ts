@@ -9,8 +9,8 @@ interface ListedUser extends AuthUser {
 
 /**
  * User management for admins: the roster, creation, role changes and deletes.
- * Rendered in the center column while `ShellState.adminOpen` is up (the
- * settings menu's Members page). Every action rides an `admin/*` host command, which the
+ * Rendered in the center column while its tab is in front (the settings
+ * menu's Members page). Every action rides an `admin/*` host command, which the
  * host re-authorizes per call — this page is display, the command is the gate.
  */
 @Component({

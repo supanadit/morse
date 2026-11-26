@@ -364,10 +364,11 @@
         </div>
       }
 
-      @if (adminOpen()) {
+      @if (activeSettingsPage() === 'members') {
         <!--
           The settings menu's Members page: user management for multi-user
-          admins. Like the bot column it takes the whole center while up.
+          admins. A tab like any other — the strip owns the router — so it
+          survives a trip to a session and back.
         -->
         <morse-admin-panel />
       } @else if (promptEditorOpen()) {

@@ -67,7 +67,7 @@ export interface FileTab {
   repo?: string;
 }
 
-export type WorkspaceTab = SessionTab | FileTab | McpTab;
+export type WorkspaceTab = SessionTab | FileTab | McpTab | SettingsTab;
 
 /**
  * The MCP editor, opened in the strip. There is exactly one (`MCP_TAB_ID`), so
@@ -77,6 +77,19 @@ export interface McpTab {
   kind: 'mcp';
   id: string;
   title: string;
+}
+
+/**
+ * A host settings page, opened in the strip like every other tab. One tab per
+ * page (`settings:members` today), so a second settings page is a second tab
+ * id — the strip, its router and its persistence already know what to do.
+ */
+export interface SettingsTab {
+  kind: 'settings';
+  id: string;
+  title: string;
+  /** Which settings page this tab shows. More pages reuse the same shape. */
+  page: 'members';
 }
 
 import type {
@@ -103,6 +116,7 @@ export type {
   PersistedFileTab,
   PersistedMcpTab,
   PersistedSessionTab,
+  PersistedSettingsTab,
   PersistedTab,
   PersistedTabBase,
   TabsSnapshot,
@@ -111,6 +125,8 @@ export type {
 const FILE_PREFIX = 'file:';
 /** There is one MCP editor tab, whatever the directory. */
 export const MCP_TAB_ID = 'mcp:servers';
+/** The settings pages the strip can show, by tab id. */
+export const SETTINGS_MEMBERS_TAB_ID = 'settings:members';
 
 /**
  * The browser host's tab strip: sessions and files open side by side, one active
@@ -381,6 +397,9 @@ export class WorkspaceTabs {
       if (tab.kind === 'mcp') {
         return [{ kind: 'mcp', id: tab.id, title: tab.title }];
       }
+      if (tab.kind === 'settings') {
+        return [{ kind: 'settings', id: tab.id, title: tab.title, page: tab.page }];
+      }
       if (tab.mention === true && (tab.sessionId === undefined || !sessionIds.has(tab.sessionId))) {
         return [];
       }
@@ -435,6 +454,9 @@ export class WorkspaceTabs {
       }
       if (tab.kind === 'mcp') {
         return [{ kind: 'mcp', id: tab.id, title: tab.title }];
+      }
+      if (tab.kind === 'settings') {
+        return [{ kind: 'settings', id: tab.id, title: tab.title, page: tab.page }];
       }
       return [
         {
@@ -503,6 +525,26 @@ export class WorkspaceTabs {
       { kind: 'mcp', id: MCP_TAB_ID, title: 'MCP servers' },
     ]);
     this.active.set(MCP_TAB_ID);
+    this.closePromptEditorIfOpen();
+  }
+
+  /**
+   * Opens the Members page, or brings it forward when it is already open. One
+   * tab per page is the point: opening Members twice is a focus, never a
+   * second roster holding a half-filled form.
+   */
+  openSettingsPage(): void {
+    const existing = this.items().find((tab) => tab.id === SETTINGS_MEMBERS_TAB_ID);
+    if (existing !== undefined) {
+      this.active.set(SETTINGS_MEMBERS_TAB_ID);
+      this.closePromptEditorIfOpen();
+      return;
+    }
+    this.items.update((tabs) => [
+      ...tabs,
+      { kind: 'settings', id: SETTINGS_MEMBERS_TAB_ID, title: 'Members', page: 'members' },
+    ]);
+    this.active.set(SETTINGS_MEMBERS_TAB_ID);
     this.closePromptEditorIfOpen();
   }
 
