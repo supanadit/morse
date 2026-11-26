@@ -396,6 +396,7 @@ button.card:hover {
   padding: 5px 13px;
   border: 1px solid var(--morse-border);
   border-radius: 999px;
+  font: inherit;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -406,17 +407,14 @@ button.card:hover {
   user-select: none;
 }
 
+.chip:hover {
+  border-color: color-mix(in srgb, var(--morse-accent, #7c5cff) 40%, var(--morse-border));
+}
+
 .chip.on {
   border-color: color-mix(in srgb, var(--morse-accent, #7c5cff) 55%, var(--morse-border));
   color: var(--morse-fg);
   background: color-mix(in srgb, var(--morse-accent, #7c5cff) 12%, transparent);
-}
-
-.chip input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
 }
 
 .chip::before {

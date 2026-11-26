@@ -204,15 +204,15 @@
             <div class="cap-line">
               <span class="cap-label">Capabilities</span>
               <div class="chips">
-                <label class="chip" [class.on]="model.reasoning">
-                  <input type="checkbox" [checked]="model.reasoning" (change)="setModel($index, 'reasoning', $any($event.target).checked)" />
+                <button type="button" class="chip" [class.on]="model.reasoning"
+                  [attr.aria-pressed]="model.reasoning" (click)="setModel($index, 'reasoning', !model.reasoning)">
                   reasoning
-                </label>
+                </button>
                 @for (input of inputs; track input) {
-                  <label class="chip" [class.on]="hasInput($index, input)">
-                    <input type="checkbox" [checked]="hasInput($index, input)" (change)="toggleInput($index, input)" />
+                  <button type="button" class="chip" [class.on]="hasInput($index, input)"
+                    [attr.aria-pressed]="hasInput($index, input)" (click)="toggleInput($index, input)">
                     {{ input }}
-                  </label>
+                  </button>
                 }
               </div>
             </div>
@@ -222,10 +222,10 @@
                 <span class="cap-label">Thinking levels</span>
                 <div class="chips">
                   @for (level of levels; track level) {
-                    <label class="chip" [class.on]="hasThinking($index, level)">
-                      <input type="checkbox" [checked]="hasThinking($index, level)" (change)="toggleThinking($index, level)" />
+                    <button type="button" class="chip" [class.on]="hasThinking($index, level)"
+                      [attr.aria-pressed]="hasThinking($index, level)" (click)="toggleThinking($index, level)">
                       {{ level }}
-                    </label>
+                    </button>
                   }
                 </div>
               </div>

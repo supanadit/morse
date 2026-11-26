@@ -143,18 +143,26 @@ describe('ProvidersPanel', () => {
     fixture.detectChanges();
     const panel = fixture.componentInstance as unknown as {
       models: { update(fn: (list: unknown[]) => unknown[]): void };
-      toggleInput(index: number, input: string): void;
-      hasInput(index: number, input: string): boolean;
     };
     panel.models.update(() => [
       { id: 'a', name: '', context: '', output: '', input: new Set(['text']), reasoning: false, thinking: new Set() },
       { id: 'b', name: '', context: '', output: '', input: new Set(['text']), reasoning: false, thinking: new Set() },
     ]);
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
-    panel.toggleInput(0, 'image');
-    expect(panel.hasInput(0, 'image')).toBe(true);
-    expect(panel.hasInput(1, 'image')).toBe(false);
+    const state = fixture.componentInstance as unknown as {
+      hasInput(index: number, input: string): boolean;
+      toggleInput(index: number, input: string): void;
+    };
+    expect(state.hasInput(0, 'image')).toBe(false);
+    expect(state.hasInput(1, 'image')).toBe(false);
+
+    state.toggleInput(0, 'image');
+    fixture.detectChanges();
+    expect(state.hasInput(0, 'image')).toBe(true);
+    expect(state.hasInput(1, 'image')).toBe(false);
   });
 
   it('opens a custom provider in the full model editor, not the key form', async () => {
