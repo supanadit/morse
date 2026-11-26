@@ -2,6 +2,7 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { languageForPath } from '@morse/ui-runtime';
 import { ComposerDrafts } from './composer-drafts';
 import { MorseService } from '../host/morse.service';
+import { ModePrefs, type ShellMode } from './mode-prefs';
 import { QueuedPrompts } from './queued-prompts';
 import { ShellState } from './shell-state';
 import { TerminalStore } from './terminal-store';
@@ -67,7 +68,29 @@ export interface FileTab {
   repo?: string;
 }
 
-export type WorkspaceTab = SessionTab | FileTab | McpTab | SettingsTab;
+/**
+ * One bot conversation, opened from the roster. Its id is the conversation id,
+ * so clicking a bot twice focuses the same room instead of stacking two chats.
+ */
+export interface BotChatTab {
+  kind: 'bot';
+  id: string;
+  title: string;
+}
+
+/**
+ * One bot editor tab. An edit is keyed by handle (one form per bot); a new bot is
+ * numbered, so "New bot" can be clicked again and again to draft several at once.
+ */
+export interface BotEditorTab {
+  kind: 'bot-editor';
+  id: string;
+  title: string;
+  /** The bot being edited, or `null` for a new one. */
+  target: string | null;
+}
+
+export type WorkspaceTab = SessionTab | FileTab | McpTab | SettingsTab | BotChatTab | BotEditorTab;
 
 /**
  * The MCP editor, opened in the strip. There is exactly one (`MCP_TAB_ID`), so
@@ -100,6 +123,7 @@ import type {
 import {
   MENTION_PREFIX,
   asDiff,
+  botEditorNumber,
   asPreview,
   asTabsSnapshot,
   basename,
@@ -113,6 +137,8 @@ import {
 
 export type {
   FilePreviewPayload,
+  PersistedBotChatTab,
+  PersistedBotEditorTab,
   PersistedFileTab,
   PersistedMcpTab,
   PersistedSessionTab,
@@ -147,10 +173,18 @@ export class WorkspaceTabs {
   private readonly terminals = inject(TerminalStore);
   private readonly queued = inject(QueuedPrompts);
   private readonly shell = inject(ShellState);
+  private readonly modePrefs = inject(ModePrefs);
   private readonly items = signal<WorkspaceTab[]>([]);
   private readonly active = signal<string | undefined>(undefined);
+  /**
+   * Which product's tabs the strip is showing. One store holds both sets so a
+   * mode switch never rebuilds or loses a tab; only the visible slice changes.
+   */
+  private readonly currentMode = signal<ShellMode>('code');
   /** Names the draft tabs, so each "New session" is its own tab and its own draft. */
   private draftCounter = 0;
+  /** Names new-bot tabs, so several can be drafted at once without a clash. */
+  private botEditorCounter = 0;
   /**
    * The draft the host is holding right now. It becomes the next session the
    * host opens; `undefined` once the reader moves to a real session. Without it,
@@ -181,15 +215,22 @@ export class WorkspaceTabs {
 
   readonly tabs = this.items.asReadonly();
   readonly activeId = this.active.asReadonly();
-  /** The first row: sessions, and files opened with no session in front. */
-  readonly mainTabs = computed(() =>
-    this.items().filter(
-      (tab) => tab.kind !== 'file' || tab.mention !== true,
-    ),
-  );
-  readonly activeTab = computed<WorkspaceTab | undefined>(() =>
-    this.items().find((tab) => tab.id === this.active()),
-  );
+  /** Whether a tab belongs in the strip the current mode shows. */
+  private inMode(tab: WorkspaceTab, mode: ShellMode): boolean {
+    const bot = tab.kind === 'bot' || tab.kind === 'bot-editor';
+    return mode === 'bot' ? bot : !bot;
+  }
+  /** The first row of this mode's strip: sessions (or bots), and standalone files. */
+  readonly mainTabs = computed(() => {
+    const mode = this.currentMode();
+    return this.items().filter(
+      (tab) => this.inMode(tab, mode) && (tab.kind !== 'file' || tab.mention !== true),
+    );
+  });
+  readonly activeTab = computed<WorkspaceTab | undefined>(() => {
+    const mode = this.currentMode();
+    return this.items().find((tab) => tab.id === this.active() && this.inMode(tab, mode));
+  });
   /**
    * A folder another part of the workbench (a dropped chip) asked the Explorer
    * to show. No file tab is opened: a fresh object per request makes clicking the
@@ -400,6 +441,12 @@ export class WorkspaceTabs {
       if (tab.kind === 'settings') {
         return [{ kind: 'settings', id: tab.id, title: tab.title, page: tab.page }];
       }
+      if (tab.kind === 'bot') {
+        return [{ kind: 'bot', id: tab.id, title: tab.title }];
+      }
+      if (tab.kind === 'bot-editor') {
+        return [{ kind: 'bot-editor', id: tab.id, title: tab.title, target: tab.target }];
+      }
       if (tab.mention === true && (tab.sessionId === undefined || !sessionIds.has(tab.sessionId))) {
         return [];
       }
@@ -458,6 +505,12 @@ export class WorkspaceTabs {
       if (tab.kind === 'settings') {
         return [{ kind: 'settings', id: tab.id, title: tab.title, page: tab.page }];
       }
+      if (tab.kind === 'bot') {
+        return [{ kind: 'bot', id: tab.id, title: tab.title }];
+      }
+      if (tab.kind === 'bot-editor') {
+        return [{ kind: 'bot-editor', id: tab.id, title: tab.title, target: tab.target }];
+      }
       return [
         {
           kind: 'file',
@@ -493,6 +546,16 @@ export class WorkspaceTabs {
           : highest,
       this.draftCounter,
     );
+    this.botEditorCounter = items.reduce(
+      (highest, tab) =>
+        tab.kind === 'bot-editor' ? Math.max(highest, botEditorNumber(tab.id)) : highest,
+      this.botEditorCounter,
+    );
+    // A restored bot tab is already the conversation in front; ask the host for
+    // its transcript, the same as clicking the tab after a reload.
+    if (activeTab?.kind === 'bot') {
+      this.activateBot(activeTab.id);
+    }
     const inFront = this.activeTab();
     if (inFront?.kind === 'file' && this.loader.needsLoad(inFront)) {
       void this.loader.load(inFront.id);
@@ -509,23 +572,31 @@ export class WorkspaceTabs {
   }
 
   /**
+   * Points the strip at one product's tabs. The other set stays in the store —
+   * its order, drafts and presence are untouched — but cannot show up here, and
+   * whatever was in front from the other mode steps aside for this mode's tabs.
+   */
+  setMode(mode: ShellMode): void {
+    this.currentMode.set(mode);
+    const active = this.items().find((tab) => tab.id === this.active());
+    if (active === undefined || this.inMode(active, mode)) {
+      return;
+    }
+    const first = this.items().find((tab) => this.inMode(tab, mode));
+    if (first !== undefined) {
+      this.select(first.id);
+    } else {
+      this.active.set(undefined);
+    }
+  }
+
+  /**
    * Opens the one MCP editor tab, or brings it forward when it is already open.
    * A single tab is the point: "Add server" while the editor is up is a focus,
    * never a second editor holding a half-filled form.
    */
   openMcp(): void {
-    const existing = this.items().find((tab) => tab.id === MCP_TAB_ID);
-    if (existing !== undefined) {
-      this.active.set(MCP_TAB_ID);
-      this.closePromptEditorIfOpen();
-      return;
-    }
-    this.items.update((tabs) => [
-      ...tabs,
-      { kind: 'mcp', id: MCP_TAB_ID, title: 'MCP servers' },
-    ]);
-    this.active.set(MCP_TAB_ID);
-    this.closePromptEditorIfOpen();
+    this.focusOrOpen({ kind: 'mcp', id: MCP_TAB_ID, title: 'MCP servers' });
   }
 
   /**
@@ -534,18 +605,46 @@ export class WorkspaceTabs {
    * second roster holding a half-filled form.
    */
   openSettingsPage(): void {
-    const existing = this.items().find((tab) => tab.id === SETTINGS_MEMBERS_TAB_ID);
-    if (existing !== undefined) {
-      this.active.set(SETTINGS_MEMBERS_TAB_ID);
-      this.closePromptEditorIfOpen();
-      return;
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_MEMBERS_TAB_ID,
+      title: 'Members',
+      page: 'members',
+    });
+  }
+
+  /**
+   * Focuses an open tab, or appends it. Every singleton page goes through here:
+   * the tab store holds one list and one active id, whatever the tab shows.
+   */
+  private focusOrOpen(tab: WorkspaceTab): void {
+    if (!this.items().some((candidate) => candidate.id === tab.id)) {
+      this.items.update((tabs) => [...tabs, tab]);
     }
-    this.items.update((tabs) => [
-      ...tabs,
-      { kind: 'settings', id: SETTINGS_MEMBERS_TAB_ID, title: 'Members', page: 'members' },
-    ]);
-    this.active.set(SETTINGS_MEMBERS_TAB_ID);
+    this.active.set(tab.id);
     this.closePromptEditorIfOpen();
+  }
+
+  /** Opens a bot conversation, or focuses the tab it already has. */
+  openBotChat(id: string, title: string): void {
+    this.focusOrOpen({ kind: 'bot', id, title });
+    this.activateBot(id);
+  }
+
+  /**
+   * Opens a bot editor tab: one per bot being edited, a fresh numbered one for
+   * every "New bot", so several can be drafted before any of them is saved.
+   */
+  openBotEditor(target: string | null, title: string): void {
+    const id = target === null ? `bot:new-${++this.botEditorCounter}` : `bot:edit:${target}`;
+    this.focusOrOpen({ kind: 'bot-editor', id, title, target });
+  }
+
+  /** Brings a conversation to the front on the host, but only when it changed. */
+  private activateBot(id: string): void {
+    if (this.morse.bot.activeId() !== id) {
+      this.morse.openBotConversation(id);
+    }
   }
 
   /**
@@ -765,6 +864,10 @@ export class WorkspaceTabs {
     }
     this.active.set(id);
     this.closePromptEditorIfOpen();
+    if (tab.kind === 'bot') {
+      this.activateBot(tab.id);
+      return;
+    }
     if (tab.kind === 'session') {
       // The draft is a placeholder, not a pi session: activating it would ask
       // the host to resume a session literally named "draft". The host holds one
@@ -934,18 +1037,31 @@ export class WorkspaceTabs {
    * a session tab with it. No `id` means the whole strip.
    */
   private menuScope(id: string | undefined): WorkspaceTab[] {
+    const mode = this.currentMode();
+    const visible = (tab: WorkspaceTab): boolean => this.inMode(tab, mode);
     const target = id === undefined ? undefined : this.items().find((tab) => tab.id === id);
     if (target === undefined || target.kind === 'session') {
-      return this.items();
+      return this.items().filter(visible);
     }
     if (target.kind === 'file' && target.mention === true) {
       return this.items().filter(
         (tab): tab is FileTab =>
-          tab.kind === 'file' && tab.mention === true && tab.sessionId === target.sessionId,
+          visible(tab) &&
+          tab.kind === 'file' &&
+          tab.mention === true &&
+          tab.sessionId === target.sessionId,
       );
     }
+    // A non-session tab's scope is its own row: editor pages, bot tabs and
+    // standalone files. Sessions keep their own, larger scope. Never reach into
+    // the other mode's tabs, even when both sets are in the store.
     return this.items().filter(
-      (tab) => tab.kind === 'mcp' || (tab.kind === 'file' && tab.mention !== true),
+      (tab) =>
+        visible(tab) &&
+        (tab.kind === 'mcp' ||
+          tab.kind === 'bot' ||
+          tab.kind === 'bot-editor' ||
+          (tab.kind === 'file' && tab.mention !== true)),
     );
   }
 
@@ -985,6 +1101,7 @@ export class WorkspaceTabs {
     const closedSession = closing.some((tab) => tab.kind === 'session' && tab.draft !== true);
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
     this.items.update((tabs) => tabs.filter((tab) => !closingIds.has(tab.id)));
+    this.forgetClosedBots(closing);
     this.forgetDrafts(closingIds);
     this.active.set(id);
     if (keep.kind === 'session' && keep.draft !== true) {
@@ -1013,6 +1130,7 @@ export class WorkspaceTabs {
     const cwd = closing.find((tab): tab is SessionTab => tab.kind === 'session')?.cwd;
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
+    this.forgetClosedBots(closing);
     this.forgetDrafts(ids);
     this.pruneOrphanMentions();
     if (active !== undefined && ids.has(active)) {
@@ -1041,6 +1159,7 @@ export class WorkspaceTabs {
     const ownerSessionId = chipOwner(scope[0]);
     const active = this.active();
     this.items.update((tabs) => tabs.filter((tab) => !ids.has(tab.id)));
+    this.forgetClosedBots(scope);
     this.forgetDrafts(ids);
     this.pruneOrphanMentions();
     if (active !== undefined && ids.has(active)) {
@@ -1118,7 +1237,9 @@ export class WorkspaceTabs {
    */
   private remove(doomed: Set<string>, index: number, ownerSessionId?: string): void {
     const active = this.active();
+    const removed = this.items().filter((tab) => doomed.has(tab.id));
     this.items.update((tabs) => tabs.filter((tab) => !doomed.has(tab.id)));
+    this.forgetClosedBots(removed);
     this.forgetDrafts(doomed);
     if (active === undefined || !doomed.has(active)) {
       return;
@@ -1138,6 +1259,23 @@ export class WorkspaceTabs {
       return;
     }
     this.select(neighbour.id);
+  }
+
+  /**
+   * No room tab left means no conversation to type into. Every close path goes
+   * through here, so a bulk "Close All" cannot leave a stale room in front (and
+   * keep the placeholder chat showing a conversation that is no longer open).
+   */
+  private forgetClosedBots(removed: readonly WorkspaceTab[]): void {
+    if (
+      removed.some((tab) => tab.kind === 'bot') &&
+      !this.items().some((tab) => tab.kind === 'bot')
+    ) {
+      this.morse.bot.activeId.set(null);
+      // The sidebar restores a remembered room only on reload. Leaving it set
+      // here would make it reopen the room the reader just closed.
+      this.modePrefs.rememberBotConversation(null);
+    }
   }
 
   /** A closed tab's draft and terminals have nowhere to return to. */

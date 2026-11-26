@@ -20,6 +20,7 @@ function setup(
   handler: (command: string, args?: Record<string, unknown>) => unknown = () => undefined,
   capabilities: { filePreview?: boolean; promptEditor?: boolean } = {},
 ) {
+  const botActive = signal<string | null>(null);
   const fake = {
     // A host showing a real session: closing its tab must fall back to an draft.
     state: signal<{ sessionId?: string; workspace: { cwd: string; name: string } }>({
@@ -36,6 +37,8 @@ function setup(
     activateSession: vi.fn(),
     newSession: vi.fn(),
     closeTerminal: vi.fn(),
+    bot: { activeId: botActive },
+    openBotConversation: vi.fn((id: string) => botActive.set(id)),
     // The default single-client host: closing a tab still drops its queue.
     sharedComposer: () => false,
     requestHostCommand: vi.fn((command: string, args?: Record<string, unknown>) =>
@@ -1099,5 +1102,109 @@ describe('WorkspaceTabs', () => {
     expect(shell.promptEditorOpen()).toBe(false);
     expect(tabs.activeId()).toBe('s1');
     expect(fake.activateSession).toHaveBeenCalledWith('s1', '/repo');
+  });
+
+  it('opens one tab per bot room and focuses an already-open room', () => {
+    const { tabs, fake } = setup();
+
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotChat('dm-sable', 'Sable');
+    tabs.openBotChat('dm-forge', 'Forge');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['dm-forge', 'dm-sable']);
+    expect(tabs.activeId()).toBe('dm-forge');
+    // Focusing the tab asks the host for that conversation's transcript.
+    fake.openBotConversation.mockClear();
+    tabs.select('dm-sable');
+    expect(fake.openBotConversation).toHaveBeenCalledWith('dm-sable');
+    expect(fake.bot.activeId()).toBe('dm-sable');
+  });
+
+  it('makes every New bot its own editor tab, but one tab per bot being edited', () => {
+    const { tabs } = setup();
+
+    tabs.openBotEditor(null, 'New bot');
+    tabs.openBotEditor(null, 'New bot');
+    tabs.openBotEditor('forge', 'Edit Forge');
+    tabs.openBotEditor('forge', 'Edit Forge');
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual([
+      'bot:new-1',
+      'bot:new-2',
+      'bot:edit:forge',
+    ]);
+    expect(tabs.activeId()).toBe('bot:edit:forge');
+  });
+
+  it('restores bot tabs without reusing a new-bot id', () => {
+    const { tabs, fake } = setup();
+    tabs.restore({
+      tabs: [
+        { kind: 'bot', id: 'dm-forge', title: 'Forge' },
+        { kind: 'bot-editor', id: 'bot:new-3', title: 'New bot', target: null },
+      ],
+      activeId: 'dm-forge',
+    });
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['dm-forge', 'bot:new-3']);
+    expect(fake.openBotConversation).toHaveBeenCalledWith('dm-forge');
+    tabs.openBotEditor(null, 'New bot');
+    expect(tabs.activeId()).toBe('bot:new-4');
+    // A bot editor survives a snapshot/restore with the handle it edits.
+    expect(
+      tabs.snapshot().tabs.find((tab) => tab.id === 'bot:new-4'),
+    ).toMatchObject({ kind: 'bot-editor', target: null });
+  });
+
+  it('shows one mode’s tabs at a time without dropping the other set', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotEditor(null, 'New bot');
+
+    // Code is the default: the bot tabs are held, not shown.
+    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['s1']);
+    tabs.setMode('bot');
+    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['dm-forge', 'bot:new-1']);
+    // The editor opened last was already in front; switching mode keeps it.
+    expect(tabs.activeId()).toBe('bot:new-1');
+    expect(tabs.tabs()).toHaveLength(3);
+
+    tabs.setMode('code');
+    expect(tabs.mainTabs().map((tab) => tab.id)).toEqual(['s1']);
+    expect(tabs.activeId()).toBe('s1');
+  });
+
+  it('clears the front tab when a mode has no tabs of its own', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+
+    tabs.setMode('bot');
+
+    expect(tabs.activeId()).toBeUndefined();
+    expect(tabs.activeTab()).toBeUndefined();
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+  });
+
+  it('clears the active room when its last tab is closed', () => {
+    const { tabs, fake } = setup();
+    tabs.openBotChat('dm-forge', 'Forge');
+
+    tabs.close('dm-forge');
+
+    expect(tabs.tabs()).toHaveLength(0);
+    expect(fake.bot.activeId()).toBeNull();
+  });
+
+  it('clears the active room on a bulk Close All too', () => {
+    const { tabs, fake } = setup();
+    tabs.setMode('bot');
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotEditor(null, 'New bot');
+
+    tabs.closeAll();
+
+    expect(tabs.tabs()).toHaveLength(0);
+    expect(fake.bot.activeId()).toBeNull();
   });
 });

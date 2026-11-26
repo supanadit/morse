@@ -293,6 +293,20 @@ morse-bottom-panel {
   min-height: 0;
 }
 
+/* Bot tabs stay mounted so a form or a scroll position survives a tab switch;
+   only the one in front is laid out. */
+.bot-view {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.bot-view.active {
+  display: flex;
+}
+
 /*
  * The floating composer (and anything docked with it) rides over the conversation.
  * It stays a flex item — so the bottom panel keeps its place under it — and pulls

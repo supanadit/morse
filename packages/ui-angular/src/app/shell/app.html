@@ -261,15 +261,34 @@
     (dragleave)="onDragLeave()"
     (drop)="onDrop($event)"
   >
+    <!-- One strip for the whole window. Bot rooms and bot editors are tabs in
+         the same store as sessions and files, so the drawer, keyboard, close
+         menu and persisted layout come along for free. With nothing open there
+         is no strip to show — not even an empty bar saying "No open tabs". -->
+    @if (
+      tabsEnabled() &&
+      !promptEditorOpen() &&
+      (tabs.mainTabs().length > 0 || tabs.mentionTabs().length > 0)
+    ) {
+      <morse-tab-strip />
+    }
+
     @if (mode() === 'bot') {
-      <!-- Bot mode's own column: the wizard takes the page while it is open
-           (full page, never a modal), then the conversation in front, then the
-           empty state that says which gesture opens one. All of it is deferred:
-           it is a whole other view, and most windows never open it. -->
+      <!-- Every open room and editor stays mounted so switching tabs keeps its
+           scroll, half-typed message and unfinished form. Only one is shown. -->
       @defer (on immediate) {
-        @if (botWizardOpen()) {
-          <morse-bot-wizard class="main-view" />
-        } @else {
+        @for (tab of botTabs(); track tab.id) {
+          <div class="bot-view" [class.active]="tab.id === tabs.activeId()">
+            @if (tab.kind === 'bot') {
+              <morse-bot-chat
+                [conversationId]="tab.id"
+                [active]="tab.id === tabs.activeId()"
+              />
+            } @else {
+              <morse-bot-wizard [tabId]="tab.id" [target]="tab.target" />
+            }
+          </div>
+        } @empty {
           <morse-bot-chat />
         }
       }
@@ -284,12 +303,6 @@
             <span>Images ride with the prompt · other files become <code>@mentions</code></span>
           </div>
         </div>
-      }
-
-      <!-- The browser host's tabs: sessions and files side by side. VS
-           Code keeps its own editor tabs and never renders this strip. -->
-      @if (tabsEnabled() && !promptEditorOpen()) {
-        <morse-tab-strip />
       }
 
       <!-- The one-time "notifications are off" nudge, like a chat app's: it stops

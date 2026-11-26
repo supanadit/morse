@@ -724,8 +724,10 @@ export class MorseService {
     text: string,
     images?: readonly PromptImage[],
     files?: readonly BotFileInput[],
+    roomId?: string,
   ): void {
-    const conversationId = this.bot.activeId();
+    // A tabbed chat names its own room; a bare caller keeps the active one.
+    const conversationId = roomId ?? this.bot.activeId();
     if (conversationId === null) {
       return;
     }

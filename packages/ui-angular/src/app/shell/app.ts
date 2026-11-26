@@ -50,7 +50,7 @@ import { ModePrefs, type ShellMode } from '../state/mode-prefs';
 import { RestoreState } from '../state/restore-state';
 import { QueuedPrompts } from '../state/queued-prompts';
 import { ShellState, type LeftPane } from '../state/shell-state';
-import { WorkspaceTabs } from '../state/workspace-tabs';
+import { WorkspaceTabs, type WorkspaceTab } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
 import { QueueDrain } from '../services/queue-drain';
 import { ComposerSync } from '../services/composer-sync';
@@ -173,9 +173,16 @@ export class App {
     const tab = this.tabs.activeTab();
     return tab?.kind === 'settings' ? tab.page : undefined;
   });
+  /** Bot mode's panes: one chat per open room, one editor per open form. */
+  protected readonly botTabs = computed(() =>
+    this.tabs.tabs().filter(
+      (tab): tab is Extract<WorkspaceTab, { kind: 'bot' | 'bot-editor' }> =>
+        tab.kind === 'bot' || tab.kind === 'bot-editor',
+    ),
+  );
   private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
-  private readonly tabs = inject(WorkspaceTabs);
+  protected readonly tabs = inject(WorkspaceTabs);
   private readonly queue = inject(QueuedPrompts);
   private readonly notifier = inject(RunNotifier);
   private readonly notifications = inject(NotificationPrefs);
@@ -494,13 +501,7 @@ export class App {
     const state = this.morse.state();
     return (state.widgets?.length ?? 0) + (state.statuses?.length ?? 0) > 0;
   });
-  /**
-   * The two bot creation dialogs, opened by the roster's buttons. Both signals
-   * live behind `MorseService` so a dialog is a shell-level overlay rather than
-   * a child of the column that opened it — a sidebar unmounted by a drawer
-   * change must not take its unfinished dialog with it.
-   */
-  protected readonly botWizardOpen = this.morse.ui.wizardOpen;
+  /** The group dialog is still a shell-level overlay; the bot editor is a tab. */
   protected readonly botGroupOpen = this.morse.ui.groupOpen;
 
   /**
@@ -632,6 +633,7 @@ export class App {
   protected setMode(mode: ShellMode): void {
     this.mode.set(mode);
     this.modePrefs.setMode(mode);
+    this.tabs.setMode(mode);
   }
   /** Highlight while files are dragged over the chat. */
   protected readonly dragging = this.dropZone.active;
@@ -656,6 +658,12 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // The shell owns the mode; the tab store only needs to know which half of
+    // its one strip to show. Keeping this as an effect also covers a mode set
+    // straight on the signal (tests, a restored preference) without a second
+    // call site that could forget to switch the strip.
+    this.tabs.setMode(this.mode());
+    effect(() => this.tabs.setMode(this.mode()));
     // A dismissed failure comes back when the agent has a new one to report:
     // clearing it resets the dismissal, so only the exact text stays hidden.
     effect(() => {

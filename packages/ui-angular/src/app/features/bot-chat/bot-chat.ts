@@ -6,6 +6,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked,
   viewChild,
@@ -27,6 +28,7 @@ import type { BotMood } from '../../ui/bot-face/bot-face-moods';
 import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { MorseService } from '../../host/morse.service';
 import { ComposerDrafts } from '../../state/composer-drafts';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { CopyButton } from '../../ui/copy-button/copy-button';
 import { Markdown } from '../../ui/markdown/markdown';
 import { ChatComposer, type BotComposerSend } from '../composer/composer';
@@ -116,7 +118,16 @@ interface RevealCursor {
 })
 export class BotChat {
   protected readonly morse = inject(MorseService);
+  private readonly tabs = inject(WorkspaceTabs);
   private readonly drafts = inject(ComposerDrafts);
+  /**
+   * The room this chat tab shows. A bare `<morse-bot-chat>` falls back to the
+   * service's active room, so the empty state and older callers still work.
+   */
+  readonly conversationId = input<string | null>(null);
+  /** Only the tab in front owns the composer's draft scope. */
+  readonly active = input(true);
+  protected readonly roomId = computed(() => this.conversationId() ?? this.morse.bot.activeId());
   private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scroll');
   private readonly dockElement = viewChild<ElementRef<HTMLElement>>('dock');
   /** The floating composer's measured height, exposed as `--morse-dock-height`. */
@@ -124,7 +135,7 @@ export class BotChat {
 
   /** The conversation in front, named from the roster; `undefined` before one opens. */
   protected readonly conversation = computed<BotConversationSummary | undefined>(() => {
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     if (id === null) {
       return undefined;
     }
@@ -134,12 +145,12 @@ export class BotChat {
   protected readonly compacting = computed(() => this.conversation()?.compacting === true);
   /** The lines held for it, in the order the host sent them. */
   protected readonly entries = computed<BotTranscriptEntry[]>(() => {
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     return id === null ? [] : (this.morse.bot.transcripts()[id] ?? []);
   });
   /** Whether the host said older entries exist before the ones held. */
   protected readonly hasOlder = computed(() => {
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     return id === null ? false : this.morse.bot.hasOlder()[id] === true;
   });
   /** True while a page of older entries is in flight, so the row says so. */
@@ -210,7 +221,7 @@ export class BotChat {
    * the reader looked at something else.
    */
   protected readonly routing = computed(() => {
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     return id === null ? null : (this.morse.bot.routing()[id] ?? null);
   });
 
@@ -220,7 +231,7 @@ export class BotChat {
    * bots report their own counters, which their presence rows draw.
    */
   protected readonly usage = computed<BotUsage | undefined>(() => {
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     return id === null ? undefined : this.morse.bot.latestUsage(id);
   });
 
@@ -241,7 +252,7 @@ export class BotChat {
     if (routing === null) {
       return [];
     }
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     const bots = this.morse.bot.roster()?.bots ?? [];
     return routing.active.map((entry, index) => {
       const activity = entry.activity;
@@ -315,8 +326,9 @@ export class BotChat {
      * reader opens another room.
      */
     effect((onCleanup) => {
-      const conversationId = this.morse.bot.activeId();
-      if (conversationId === null) {
+      const conversationId = this.roomId();
+      const active = this.active();
+      if (conversationId === null || !active) {
         return;
       }
       const release = untracked(() => this.drafts.pinDraft(`bot:${conversationId}`));
@@ -606,9 +618,12 @@ export class BotChat {
     return reply === undefined ? undefined : { entryId: entry.id, reply };
   }
 
-  /** Follows a handoff to the conversation the ask happened in. */
+  /** Follows a handoff to the conversation the ask happened in, as a tab. */
   protected openHandoff(handoff: BotHandoff): void {
-    this.morse.openBotConversation(handoff.conversationId);
+    const title =
+      this.morse.bot.roster()?.conversations.find((one) => one.id === handoff.conversationId)
+        ?.title ?? handoff.conversationId;
+    this.tabs.openBotChat(handoff.conversationId, title);
   }
 
   /**
@@ -659,7 +674,7 @@ export class BotChat {
     if (host.scrollTop > 48 || !this.hasOlder() || this.loadingOlder()) {
       return;
     }
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     const oldest = this.entries()[0];
     if (id === null || oldest === undefined) {
       return;
@@ -670,7 +685,10 @@ export class BotChat {
 
   /** The reader's line, with whatever they attached, on its way to the host. */
   protected send(line: BotComposerSend): void {
-    this.morse.sendBotMessage(line.text, line.images, line.files);
+    const id = this.roomId();
+    if (id !== null) {
+      this.morse.sendBotMessage(line.text, line.images, line.files, id);
+    }
   }
 
   /** A sent image's `data:` URL, for the thumbnail in the reader's own bubble. */
@@ -698,7 +716,7 @@ export class BotChat {
    * their own context; the lines here stay, so this never needs a warning.
    */
   protected compact(): void {
-    this.morse.compactBotConversation();
+    this.morse.compactBotConversation(this.roomId());
   }
 
   /**
@@ -707,7 +725,7 @@ export class BotChat {
    * discussion, which keeps the history.
    */
   protected clearMessages(): void {
-    const id = this.morse.bot.activeId();
+    const id = this.roomId();
     if (id === null) {
       return;
     }
@@ -726,7 +744,7 @@ export class BotChat {
    * the host routes on handles, and a display name may belong to two bots.
    */
   protected stop(username: string): void {
-    this.morse.stopBotRound(this.morse.bot.activeId(), username);
+    this.morse.stopBotRound(this.roomId(), username);
   }
 
   /**
@@ -741,6 +759,6 @@ export class BotChat {
     if (!confirmed) {
       return;
     }
-    this.morse.newBotDiscussion();
+    this.morse.newBotDiscussion(this.roomId());
   }
 }

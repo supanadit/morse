@@ -72,16 +72,6 @@
           </span>
           <span class="cell role-cell" role="cell" data-label="Role">
             <span class="badge" [class.is-admin]="user.role === 'admin'">{{ user.role }}</span>
-            <select
-              class="role-select"
-              aria-label="Role for {{ displayName(user) }}"
-              [disabled]="me()?.id === user.id"
-              [ngModel]="user.role"
-              (ngModelChange)="setRole(user, $event)"
-            >
-              <option value="regular">regular</option>
-              <option value="admin">admin</option>
-            </select>
           </span>
           <span class="cell actions" role="cell" data-label="Actions">
             <button type="button" class="text" (click)="openEdit(user)">Edit</button>
@@ -147,13 +137,29 @@
         </label>
       </div>
       <div class="form-grid">
-        <label class="field">
-          <span>Role</span>
-          <select name="role" [ngModel]="formRole()" (ngModelChange)="formRole.set($event)">
-            <option value="regular">regular</option>
-            <option value="admin">admin</option>
-          </select>
-        </label>
+        <div class="field">
+          <span class="field-label">Role</span>
+          <div class="seg" role="group" aria-label="Role">
+            <button
+              type="button"
+              class="seg-option"
+              [class.on]="formRole() === 'regular'"
+              [attr.aria-pressed]="formRole() === 'regular'"
+              (click)="formRole.set('regular')"
+            >
+              Member
+            </button>
+            <button
+              type="button"
+              class="seg-option"
+              [class.on]="formRole() === 'admin'"
+              [attr.aria-pressed]="formRole() === 'admin'"
+              (click)="formRole.set('admin')"
+            >
+              Admin
+            </button>
+          </div>
+        </div>
         <label class="field">
           <span>{{ edit.mode === 'create' ? 'Password' : 'New password' }}</span>
           <input

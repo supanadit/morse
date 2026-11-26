@@ -16,6 +16,7 @@ import { RestoreState } from '../state/restore-state';
 import { QueuedPrompts } from '../state/queued-prompts';
 import { ShellState } from '../state/shell-state';
 import { ModePrefs } from '../state/mode-prefs';
+import { WorkspaceTabs } from '../state/workspace-tabs';
 import { MORSE_TRANSPORT } from '../host/transport.token';
 
 describe('App', () => {
@@ -257,6 +258,100 @@ describe('App', () => {
     expect(host.querySelector('.bot-chat-placeholder')).toBeNull();
     expect(host.querySelector('morse-bot-chat')?.textContent).toContain('Forge');
     expect(host.querySelector('morse-bot-chat morse-chat-composer')).not.toBeNull();
+  });
+
+  it('shows every bot room and editor as a tab in the shared strip', async () => {
+    const morse = TestBed.inject(MorseService);
+    const capabilities = morse.capabilities;
+    Object.defineProperty(morse, 'capabilities', {
+      value: () => ({ ...capabilities(), filePreview: true }),
+    });
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const tabs = TestBed.inject(WorkspaceTabs);
+    morse.bot.onRoster({
+      bots: [{ username: 'forge', name: 'Forge', description: '', engineKind: 'pi', warm: false }],
+      conversations: [
+        { id: 'dm-forge', kind: 'dm', title: 'Forge', members: ['forge'], chainCap: 8, updatedAt: 1 },
+        { id: 'group-workshop', kind: 'group', title: 'The workshop', members: ['forge'], chainCap: 8, updatedAt: 2 },
+      ],
+    });
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotChat('group-workshop', 'The workshop');
+    tabs.openBotEditor(null, 'New bot');
+
+    fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(host.querySelectorAll('morse-tab-strip .tab')).toHaveLength(3);
+    expect(host.querySelectorAll('morse-bot-chat')).toHaveLength(2);
+    expect(host.querySelectorAll('morse-bot-wizard')).toHaveLength(1);
+    // All panes stay mounted; only the active editor is laid out.
+    expect(host.querySelectorAll('.bot-view.active')).toHaveLength(1);
+
+    // Closing everything takes the strip with it — no empty bar left behind.
+    tabs.closeAll();
+    fixture.detectChanges();
+    expect(tabs.tabs()).toHaveLength(0);
+    expect(host.querySelector('morse-tab-strip')).toBeNull();
+    expect(host.querySelectorAll('.bot-view')).toHaveLength(0);
+    expect(host.querySelector('.bot-chat-placeholder')).not.toBeNull();
+  });
+
+  it('keeps code tabs and bot tabs in their own strips', async () => {
+    const morse = TestBed.inject(MorseService);
+    const capabilities = morse.capabilities;
+    Object.defineProperty(morse, 'capabilities', {
+      value: () => ({ ...capabilities(), filePreview: true }),
+    });
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const tabs = TestBed.inject(WorkspaceTabs);
+    // A settings tab is code-mode but not tied to a host session the mock can
+    // reconcile away, which makes it a stable marker for this isolation test.
+    tabs.openSettingsPage();
+    tabs.openBotChat('dm-forge', 'Forge');
+    fixture.detectChanges();
+
+    const labels = () =>
+      [...host.querySelectorAll('morse-tab-strip .tab .label')].map(
+        (one) => one.textContent?.trim(),
+      );
+    expect(labels()).toEqual(['Members']);
+
+    fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(labels()).toEqual(['Forge']);
+
+    fixture.componentInstance.mode.set('code');
+    fixture.detectChanges();
+    expect(labels()).toEqual(['Members']);
+  });
+
+  it('hides the strip when the current mode has no tabs of its own', async () => {
+    const morse = TestBed.inject(MorseService);
+    const capabilities = morse.capabilities;
+    Object.defineProperty(morse, 'capabilities', {
+      value: () => ({ ...capabilities(), filePreview: true }),
+    });
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    TestBed.inject(WorkspaceTabs).openSettingsPage();
+    fixture.detectChanges();
+    expect(host.querySelector('morse-tab-strip')).not.toBeNull();
+
+    fixture.componentInstance.mode.set('bot');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(host.querySelector('morse-tab-strip')).toBeNull();
   });
 
   it('comes back on the tab it was left on', async () => {

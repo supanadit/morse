@@ -69,4 +69,27 @@ describe('AdminPanel', () => {
       password: 'newsecret9',
     });
   });
+
+  it('changes a role only from the edit dialog, never from the table', async () => {
+    const { fixture, host, morse } = await render();
+    expect(host.querySelector('.table select')).toBeNull();
+
+    // The second row is Bob; his Edit button is the only way into his form.
+    const bobRow = host.querySelectorAll('.trow')[1] as HTMLElement;
+    (bobRow.querySelector('.text') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const options = [...host.querySelectorAll('.seg .seg-option')] as HTMLButtonElement[];
+    expect(options.map((one) => one.textContent?.trim())).toEqual(['Member', 'Admin']);
+    const admin = options[1]!;
+    admin.click();
+    fixture.detectChanges();
+    expect(admin.getAttribute('aria-pressed')).toBe('true');
+
+    const panel = fixture.componentInstance as unknown as { save(): Promise<void> };
+    await panel.save();
+    expect(morse.requestHostCommand).toHaveBeenCalledWith(
+      'adminUpdateUser',
+      expect.objectContaining({ userId: 'u2', role: 'admin' }),
+    );
+  });
 });

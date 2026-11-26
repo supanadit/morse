@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked,
 } from '@angular/core';
@@ -21,6 +22,7 @@ import type {
 } from '@morse/protocol';
 import type { BotProviderModel } from '@morse/system';
 import { MorseService } from '../../host/morse.service';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { BotFace } from '../../ui/bot-face/bot-face';
 import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { BotMcpStep, parseEnvText } from './bot-mcp-step';
@@ -80,6 +82,14 @@ interface ProviderDraft {
 })
 export class BotWizard {
   private readonly morse = inject(MorseService);
+  private readonly tabs = inject(WorkspaceTabs);
+  /**
+   * The tab this editor lives in. Supplied when the shell mounts one editor per
+   * bot tab; a bare `<morse-bot-wizard>` falls back to the service's own signal.
+   */
+  readonly tabId = input<string | undefined>(undefined);
+  /** The bot this form edits, or `null` for a new one. */
+  readonly target = input<string | null | undefined>(undefined);
 
   protected readonly name = signal('');
   /**
@@ -207,8 +217,15 @@ export class BotWizard {
     (this.morse.bot.roster()?.bots ?? []).map((bot) => bot.username),
   );
 
-  /** The bot being edited, or `null` while creating a new one. */
-  protected readonly editTarget = this.morse.ui.wizardTarget;
+  /**
+   * The bot being edited, or `null` while creating a new one. A tab carries its
+   * own target (several forms can be open at once); the service's signal keeps a
+   * bare wizard working too.
+   */
+  protected readonly editTarget = computed(() => {
+    const fromTab = this.target();
+    return fromTab === undefined ? this.morse.ui.wizardTarget() : fromTab;
+  });
   protected readonly editing = computed(() => this.editTarget() !== null);
 
   /** The tools this engine can offer, so the form never invents one. */
@@ -956,10 +973,18 @@ export class BotWizard {
     this.close();
   }
 
-  /** Closing always forgets which bot was being edited, so the next open is clean. */
+  /**
+   * Closing forgets the edit target so the next open is clean, and closes only
+   * this editor tab — other drafts must survive this one being saved or cancelled.
+   */
   private close(): void {
+    const id = this.tabId();
+    if (id !== undefined) {
+      this.tabs.close(id);
+    } else {
+      this.morse.ui.wizardOpen.set(false);
+    }
     this.morse.ui.wizardTarget.set(null);
-    this.morse.ui.wizardOpen.set(false);
   }
 
   /**

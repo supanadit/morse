@@ -4,6 +4,7 @@ import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../../host/morse.service';
 import { ModePrefs } from '../../state/mode-prefs';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { MORSE_TRANSPORT } from '../../host/transport.token';
 import { BotNav } from './bot-nav';
 
@@ -437,6 +438,53 @@ describe('BotNav', () => {
     expect(morse.ui.wizardTarget()).toBe('sable');
     expect(morse.ui.wizardOpen()).toBe(true);
     expect(host.querySelector('.context-menu')).toBeNull();
+  });
+
+  it('opens a tab per bot room and reuses the tab of a bot already open', async () => {
+    const { fixture, host, morse } = await render();
+    const tabs = TestBed.inject(WorkspaceTabs);
+    morse.bot.onRoster({
+      bots: [forge, sable],
+      conversations: [{ id: 'dm-forge', kind: 'dm', title: 'Forge', members: ['forge'], chainCap: 8, updatedAt: 1 }],
+    });
+    fixture.detectChanges();
+
+    rows(host, 'bot')[0].click();
+    fixture.detectChanges();
+    rows(host, 'bot')[1].click();
+    fixture.detectChanges();
+    rows(host, 'bot')[0].click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['dm-forge', 'dm-sable']);
+    expect(tabs.activeId()).toBe('dm-forge');
+  });
+
+  it('stacks a new tab for every New bot, and one editor per bot being edited', async () => {
+    const { fixture, host, morse } = await render();
+    const tabs = TestBed.inject(WorkspaceTabs);
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [] });
+    fixture.detectChanges();
+
+    const newBot = async () => {
+      (host.querySelector('.create-toggle') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      menuItem(host, 'new-bot').click();
+      fixture.detectChanges();
+    };
+    await newBot();
+    await newBot();
+
+    rightClick(rows(host, 'bot')[0] as HTMLElement);
+    fixture.detectChanges();
+    menuItem(host, 'edit-bot').click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual([
+      'bot:new-1',
+      'bot:new-2',
+      'bot:edit:forge',
+    ]);
   });
 
   it('shows a row as answering while its round runs, even off-screen', async () => {

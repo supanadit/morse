@@ -183,19 +183,6 @@ export class AdminPanel {
     }
   }
 
-  protected async setRole(user: ListedUser, role: AuthRole): Promise<void> {
-    if (user.role === role) {
-      return;
-    }
-    this.error.set(null);
-    try {
-      await this.morse.requestHostCommand('adminSetRole', { userId: user.id, role });
-      await this.refresh();
-    } catch (error: unknown) {
-      this.error.set(error instanceof Error ? error.message : 'Could not change the role.');
-    }
-  }
-
   protected askDelete(user: ListedUser): void {
     this.error.set(null);
     this.pendingDelete.set(user);

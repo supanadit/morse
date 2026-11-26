@@ -188,7 +188,11 @@ export class CommandPalette {
             ? tab.cwd
             : tab.kind === 'settings'
               ? 'Host settings'
-              : 'MCP servers',
+              : tab.kind === 'bot'
+                ? 'Bot conversation'
+                : tab.kind === 'bot-editor'
+                  ? 'Bot editor'
+                  : 'MCP servers',
       badge:
         tab.kind === 'file'
           ? 'file'
@@ -196,9 +200,11 @@ export class CommandPalette {
             ? 'mcp'
             : tab.kind === 'settings'
               ? 'settings'
-              : tab.draft === true
-                ? 'draft'
-                : 'session',
+              : tab.kind === 'bot' || tab.kind === 'bot-editor'
+                ? 'bot'
+                : tab.draft === true
+                  ? 'draft'
+                  : 'session',
       icon:
         tab.kind === 'file'
           ? '≡'
@@ -206,7 +212,11 @@ export class CommandPalette {
             ? '⚙'
             : tab.kind === 'settings'
               ? '▣'
-              : '▸',
+              : tab.kind === 'bot'
+                ? '◉'
+                : tab.kind === 'bot-editor'
+                  ? '✎'
+                  : '▸',
     }));
   });
 

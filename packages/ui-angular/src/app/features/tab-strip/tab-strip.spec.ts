@@ -6,9 +6,12 @@ import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { TabStrip } from './tab-strip';
 
 function setup() {
+  const botActive = signal<string | null>(null);
   const morse = {
     activateSession: vi.fn(),
     newSession: vi.fn(),
+    bot: { activeId: botActive },
+    openBotConversation: vi.fn((id: string) => botActive.set(id)),
     requestHostCommand: vi.fn(() => Promise.resolve(undefined)),
     sharedComposer: () => false,
     sessionActivity: signal(new Map<string, { sessionKey: string; streaming: boolean }>()),
@@ -275,6 +278,48 @@ describe('TabStrip context menu', () => {
     fixture.detectChanges();
 
     expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+  });
+
+  it('shows only the current mode’s tabs, and closes only those', () => {
+    const { fixture, tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One' });
+    tabs.openBotChat('dm-forge', 'Forge');
+    fixture.detectChanges();
+
+    const labels = () =>
+      [...fixture.nativeElement.querySelectorAll('.tab .label')].map(
+        (one) => one.textContent?.trim(),
+      );
+
+    tabs.setMode('bot');
+    fixture.detectChanges();
+    expect(labels()).toEqual(['Forge']);
+
+    openMenuOn(fixture, 0);
+    menuItems(fixture).find((item) => item.textContent?.includes('Close All'))?.click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+
+    tabs.setMode('code');
+    fixture.detectChanges();
+    expect(labels()).toEqual(['One']);
+  });
+
+  it('“Close All” on a bot tab empties the strip of rooms and editors', () => {
+    const { fixture, tabs } = setup();
+    tabs.setMode('bot');
+    tabs.openBotChat('dm-forge', 'Forge');
+    tabs.openBotChat('dm-sable', 'Sable');
+    tabs.openBotEditor('forge', 'Edit Forge');
+    fixture.detectChanges();
+
+    openMenuOn(fixture, 0);
+    menuItems(fixture).find((item) => item.textContent?.includes('Close All'))?.click();
+    fixture.detectChanges();
+
+    expect(tabs.tabs()).toHaveLength(0);
+    expect(tabs.activeId()).toBeUndefined();
   });
 
   it('moves a tab to the slot CDK reports it was dropped on', () => {

@@ -110,6 +110,12 @@ export class TabStrip {
     if (tab.kind === 'settings') {
       return '▣';
     }
+    if (tab.kind === 'bot') {
+      return '◉';
+    }
+    if (tab.kind === 'bot-editor') {
+      return '✎';
+    }
     return tab.kind === 'session' ? '✦' : fileGlyph(tab.title);
   }
 

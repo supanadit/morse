@@ -15,6 +15,7 @@ import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { MorseService } from '../../host/morse.service';
 import { ModePrefs } from '../../state/mode-prefs';
 import { ShellState } from '../../state/shell-state';
+import { WorkspaceTabs } from '../../state/workspace-tabs';
 
 /** An anchor point for a menu, already clamped inside the viewport. */
 interface MenuAnchor {
@@ -58,6 +59,7 @@ export class BotNav {
   private readonly morse = inject(MorseService);
   private readonly shell = inject(ShellState);
   private readonly prefs = inject(ModePrefs);
+  private readonly tabs = inject(WorkspaceTabs);
 
   protected readonly bots = computed(() => this.morse.bot.roster()?.bots ?? []);
   protected readonly groups = computed(() =>
@@ -172,10 +174,10 @@ export class BotNav {
       if (remembered === null) {
         return;
       }
-      const listed = roster.conversations.some((conversation) => conversation.id === remembered);
+      const conversation = roster.conversations.find((one) => one.id === remembered);
       untracked(() => {
-        if (listed) {
-          this.morse.openBotConversation(remembered);
+        if (conversation !== undefined) {
+          this.tabs.openBotChat(conversation.id, conversation.title);
         } else {
           this.prefs.rememberBotConversation(null);
         }
@@ -379,16 +381,22 @@ export class BotNav {
     this.stopBot(`dm-${bot.username}`, bot.username);
   }
 
+  /**
+   * Every "New bot" is its own editor tab, so several can be drafted before any
+   * is saved — closing one form never takes the others with it.
+   */
   protected newBot(): void {
     this.closeMenu();
+    this.tabs.openBotEditor(null, 'New bot');
     this.morse.ui.wizardTarget.set(null);
     this.morse.ui.wizardOpen.set(true);
   }
 
-  /** Opens the same wizard with this bot's own record loaded into it. */
+  /** Opens the same editor on its own tab, loaded with this bot's record. */
   protected editBot(bot: BotSummary): void {
     this.closeMenu();
     this.morse.inspectBot(bot.username);
+    this.tabs.openBotEditor(bot.username, `Edit ${bot.name}`);
     this.morse.ui.wizardTarget.set(bot.username);
     this.morse.ui.wizardOpen.set(true);
   }
@@ -407,15 +415,12 @@ export class BotNav {
   }
 
   protected openBot(bot: BotSummary): void {
-    this.open(`dm-${bot.username}`);
+    this.tabs.openBotChat(`dm-${bot.username}`, bot.name);
+    this.shell.closeNavigation();
   }
 
   protected openRoom(room: BotConversationSummary): void {
-    this.open(room.id);
-  }
-
-  private open(id: string): void {
-    this.morse.openBotConversation(id);
+    this.tabs.openBotChat(room.id, room.title);
     this.shell.closeNavigation();
   }
 

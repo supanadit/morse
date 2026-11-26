@@ -13,7 +13,7 @@ import type { FileTab, WorkspaceTab } from './workspace-tabs.js';
  */
 /** The shape every restorable tab shares: which kind, its id, and its label. */
 export interface PersistedTabBase {
-  kind: 'session' | 'mcp' | 'settings' | 'file';
+  kind: 'session' | 'mcp' | 'settings' | 'file' | 'bot' | 'bot-editor';
   id: string;
   title: string;
 }
@@ -35,6 +35,17 @@ export interface PersistedSettingsTab extends PersistedTabBase {
   page: 'members';
 }
 
+/** A bot conversation; its id is the conversation id the host opens. */
+export interface PersistedBotChatTab extends PersistedTabBase {
+  kind: 'bot';
+}
+
+/** A bot editor; `target` is the handle being edited, `null` for a new bot. */
+export interface PersistedBotEditorTab extends PersistedTabBase {
+  kind: 'bot-editor';
+  target: string | null;
+}
+
 /** A file or diff preview, optionally tied to a session or a commit. */
 export interface PersistedFileTab extends PersistedTabBase {
   kind: 'file';
@@ -48,7 +59,13 @@ export interface PersistedFileTab extends PersistedTabBase {
 }
 
 /** A tab the strip restores after a reload. */
-export type PersistedTab = PersistedSessionTab | PersistedMcpTab | PersistedSettingsTab | PersistedFileTab;
+export type PersistedTab =
+  | PersistedSessionTab
+  | PersistedMcpTab
+  | PersistedSettingsTab
+  | PersistedBotChatTab
+  | PersistedBotEditorTab
+  | PersistedFileTab;
 
 /** What the strip remembers across a reload: its tabs, and which one was in front. */
 export interface TabsSnapshot {
@@ -151,6 +168,18 @@ export function asPersistedTab(value: unknown): PersistedTab | undefined {
     }
     return { kind: 'settings', id, title, page: 'members' };
   }
+  if (candidate['kind'] === 'bot') {
+    const title = candidate['title'];
+    return typeof title === 'string' ? { kind: 'bot', id, title } : undefined;
+  }
+  if (candidate['kind'] === 'bot-editor') {
+    const title = candidate['title'];
+    const target = candidate['target'];
+    if (typeof title !== 'string' || (target !== null && typeof target !== 'string')) {
+      return undefined;
+    }
+    return { kind: 'bot-editor', id, title, target: target as string | null };
+  }
   if (candidate['kind'] !== 'file') {
     return undefined;
   }
@@ -189,6 +218,12 @@ export function asDiff(value: unknown): string | undefined {
 /** The `N` in `draft-N`; 0 when the id is not a draft id this store minted. */
 export function draftNumber(id: string): number {
   const match = /^draft-(\d+)$/.exec(id);
+  return match === null ? 0 : Number.parseInt(match[1]!, 10);
+}
+
+/** The `N` in `bot:new-N`, so restoring a layout cannot reuse a draft tab id. */
+export function botEditorNumber(id: string): number {
+  const match = /^bot:new-(\d+)$/.exec(id);
   return match === null ? 0 : Number.parseInt(match[1]!, 10);
 }
 
